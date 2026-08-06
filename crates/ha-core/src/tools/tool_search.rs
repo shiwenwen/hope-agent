@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -93,15 +92,10 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // tool whose name is unknown, and the first dynamic call cannot connect
     // until its name resolves. Let the feature crate populate missing catalogs
     // before searching; failures are isolated and logged per server there.
-    let mut schema_catalog_changed = false;
     let dynamic_mcp_definitions =
         if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
-            let before = crate::mcp::tool_definitions();
-            let had_pending_catalogs = crate::mcp::has_pending_catalogs();
             crate::mcp::ensure_tool_catalogs().await;
-            let after = crate::mcp::tool_definitions();
-            schema_catalog_changed = had_pending_catalogs && !Arc::ptr_eq(&before, &after);
-            Some(after)
+            Some(crate::mcp::tool_definitions())
         } else {
             None
         };
@@ -183,7 +177,6 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         ctx.emit_metadata(serde_json::json!({
             "kind": "tool_search_activation",
             "activatedToolNames": activated_tools,
-            "schemaCatalogChanged": schema_catalog_changed,
         }))
         .await;
 
@@ -289,7 +282,6 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     ctx.emit_metadata(serde_json::json!({
         "kind": "tool_search_activation",
         "activatedToolNames": activated_tools,
-        "schemaCatalogChanged": schema_catalog_changed,
     }))
     .await;
 
@@ -586,7 +578,6 @@ mod tests {
 
         let metadata = sink.lock().await.clone().unwrap();
         assert_eq!(metadata["kind"], "tool_search_activation");
-        assert_eq!(metadata["schemaCatalogChanged"], false);
         assert!(metadata["activatedToolNames"]
             .as_array()
             .unwrap()

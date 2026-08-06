@@ -227,6 +227,10 @@ pub(crate) struct ExecutedTool {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ToolDispatchSideOutput {
     pub metadata: Option<serde_json::Value>,
+    /// An MCP meta-tool completed a previously pending catalog round. The
+    /// orchestrator must rebuild provider schemas before the next model call,
+    /// even when no deferred tool name was activated explicitly.
+    pub schema_catalog_changed: bool,
     /// Effective tool arguments after a `PreToolUse` hook rewrote them via
     /// `updatedInput`. `None` when no rewrite happened — the caller keeps the
     /// model's original arguments. When `Some`, the orchestrator MUST use this

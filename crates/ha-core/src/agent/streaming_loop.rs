@@ -640,6 +640,12 @@ fn eval_tool_result_digest(result: &str) -> String {
     ha_eval_spec::sha256_bytes(result.as_bytes())
 }
 
+fn can_bootstrap_mcp_catalog(name: &str) -> bool {
+    name == tools::TOOL_TOOL_SEARCH
+        || name == tools::TOOL_MCP_RESOURCE
+        || name == tools::TOOL_MCP_PROMPT
+}
+
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
 /// elapsed_ms, side_output)`. The side output carries structured metadata
 /// (file change before/after snapshots, line deltas, etc.) emitted by the
@@ -726,6 +732,17 @@ async fn execute_tool_with_cancel(
         }
     }
     let cancel_clone = cancel.clone();
+    // Every MCP meta-tool can turn an Idle lazy server into Ready as a side
+    // effect of its first operation. Snapshot the atomic catalog generation
+    // here so resource/prompt-driven bootstrap gets the same next-round schema
+    // refresh as tool_search, without feature handlers needing to duplicate
+    // orchestration metadata.
+    let mcp_catalog_before = if can_bootstrap_mcp_catalog(name) {
+        let before = crate::mcp::tool_definitions();
+        crate::mcp::has_pending_catalogs().then_some(before)
+    } else {
+        None
+    };
     let mut dispatch = Box::pin(tools::execute_tool_with_context(name, args, &local_ctx));
     let mut effective_arguments = None;
     let mut eval_outcome = crate::eval_context::EvalToolOutcome::Succeeded;
@@ -800,6 +817,10 @@ async fn execute_tool_with_cancel(
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
     let metadata = sink.lock().await.take();
+    let schema_catalog_changed = mcp_catalog_before.is_some_and(|before| {
+        let after = crate::mcp::tool_definitions();
+        !Arc::ptr_eq(&before, &after)
+    });
     let arguments_digest = effective_arguments
         .as_deref()
         .and_then(|arguments| serde_json::from_str(arguments).ok())
@@ -819,6 +840,7 @@ async fn execute_tool_with_cancel(
         elapsed_ms,
         super::streaming_adapter::ToolDispatchSideOutput {
             metadata,
+            schema_catalog_changed,
             effective_arguments,
         },
     ))
@@ -847,34 +869,29 @@ fn invalid_tool_arguments_result(
     )
 }
 
-fn collect_tool_search_activations(
+fn collect_tool_schema_updates(
     side: &super::streaming_adapter::ToolDispatchSideOutput,
     out: &mut Vec<String>,
 ) -> bool {
+    let schema_catalog_changed = side.schema_catalog_changed;
     let Some(metadata) = side.metadata.as_ref() else {
-        return false;
+        return schema_catalog_changed;
     };
     if metadata.get("kind").and_then(|v| v.as_str()) != Some("tool_search_activation") {
-        return false;
+        return schema_catalog_changed;
     }
     let Some(names) = metadata
         .get("activatedToolNames")
         .and_then(|value| value.as_array())
     else {
-        return metadata
-            .get("schemaCatalogChanged")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
+        return schema_catalog_changed;
     };
     for name in names.iter().filter_map(|value| value.as_str()) {
         if !out.iter().any(|existing| existing == name) {
             out.push(name.to_string());
         }
     }
-    metadata
-        .get("schemaCatalogChanged")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
+    schema_catalog_changed
 }
 
 fn prompt_cache_key(
@@ -1641,7 +1658,7 @@ impl AssistantAgent {
                 for result in results {
                     let (call_id, name, arguments, result, elapsed_ms, side) = result?;
                     tool_schema_refresh_requested |=
-                        collect_tool_search_activations(&side, &mut pending_tool_activations);
+                        collect_tool_schema_updates(&side, &mut pending_tool_activations);
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
                     let (mut clean_result, media_items) = extract_media_items(&result);
@@ -1758,7 +1775,7 @@ impl AssistantAgent {
                     ),
                 };
                 tool_schema_refresh_requested |=
-                    collect_tool_search_activations(&side, &mut pending_tool_activations);
+                    collect_tool_schema_updates(&side, &mut pending_tool_activations);
 
                 // If a `PreToolUse` hook rewrote the tool input via
                 // `updatedInput`, execute_tool_with_cancel has already emitted
@@ -2048,7 +2065,7 @@ impl AssistantAgent {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_tool_search_activations, ensure_model_round_after_insertion,
+        can_bootstrap_mcp_catalog, collect_tool_schema_updates, ensure_model_round_after_insertion,
         extract_started_job_id, has_checkpointed_subagent_dispatch, queued_message_for_provider,
         resolve_empty_round_outcome, stamp_checkpointed_subagent_dispatch,
         terminal_assistant_text_for_history,
@@ -2068,16 +2085,12 @@ mod tests {
     #[test]
     fn tool_search_catalog_change_requests_schema_refresh_without_activation() {
         let side = ToolDispatchSideOutput {
-            metadata: Some(serde_json::json!({
-                "kind": "tool_search_activation",
-                "activatedToolNames": [],
-                "schemaCatalogChanged": true,
-            })),
+            schema_catalog_changed: true,
             ..Default::default()
         };
         let mut names = Vec::new();
 
-        assert!(collect_tool_search_activations(&side, &mut names));
+        assert!(collect_tool_schema_updates(&side, &mut names));
         assert!(names.is_empty());
     }
 
@@ -2093,8 +2106,17 @@ mod tests {
         };
         let mut names = vec!["read".to_string()];
 
-        assert!(!collect_tool_search_activations(&side, &mut names));
+        assert!(!collect_tool_schema_updates(&side, &mut names));
         assert_eq!(names, vec!["read", "browser"]);
+    }
+
+    #[test]
+    fn every_mcp_meta_tool_can_trigger_catalog_schema_refresh() {
+        assert!(can_bootstrap_mcp_catalog(crate::tools::TOOL_TOOL_SEARCH));
+        assert!(can_bootstrap_mcp_catalog(crate::tools::TOOL_MCP_RESOURCE));
+        assert!(can_bootstrap_mcp_catalog(crate::tools::TOOL_MCP_PROMPT));
+        assert!(!can_bootstrap_mcp_catalog("mcp__server__direct_tool"));
+        assert!(!can_bootstrap_mcp_catalog(crate::tools::TOOL_READ));
     }
 
     #[test]
