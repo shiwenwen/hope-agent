@@ -51,12 +51,11 @@ pub struct ReadResourcePart {
 
 /// Return the cached resource catalog for a server.
 ///
-/// Fast path — reads the last `resources/list` snapshot embedded in
-/// `ServerState::Ready`. Does **not** trigger a connect or a fresh
-/// `list` call; callers wanting live data should invoke
-/// `test_connection` / `reconnect_server` first.
+/// Reads the last `resources/list` snapshot embedded in
+/// `ServerState::Ready`. An Idle server is lazily connected first so the
+/// model does not depend on a prior Settings-page connection test.
 pub async fn list_resources(server_name_or_id: &str) -> Result<Vec<ResourceSummary>> {
-    let handle = super::locate_server(server_name_or_id).await?;
+    let handle = super::ensure_server_connected(server_name_or_id).await?;
     let state = handle.state.lock().await;
     let resources = match &*state {
         ServerState::Ready { resources, .. } => resources.clone(),
@@ -85,7 +84,7 @@ pub async fn list_resources(server_name_or_id: &str) -> Result<Vec<ResourceSumma
 /// [`crate::invoke`] so a resource read looks identical to a
 /// `tool_call` that happened to return a `RawContent::Resource`.
 pub async fn read_resource(server_name_or_id: &str, uri: &str) -> Result<Vec<ReadResourcePart>> {
-    let handle = super::locate_server(server_name_or_id).await?;
+    let handle = super::ensure_server_connected(server_name_or_id).await?;
     let peer = handle.peer().await.map_err(|e| anyhow!("{e}"))?;
     let result = peer
         .read_resource(model::ReadResourceRequestParams::new(uri))

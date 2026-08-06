@@ -1318,6 +1318,8 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `get_memory_budget_config` | `GET /api/config/memory-budget` | ✅ |
 | `save_memory_budget_config` | `PUT /api/config/memory-budget` | ✅ |
 
+`get_deferred_tools_config` 会把旧配置（缺少 `mode`）按 `DeferredToolsConfig::effective_mode()` 归一化后返回，确保 Tauri / HTTP 界面展示与运行时策略一致；磁盘兼容字段保持原样，只有显式保存才写入 V2 `mode`。
+
 ### Recap
 
 | Tauri Command | HTTP | 状态 |

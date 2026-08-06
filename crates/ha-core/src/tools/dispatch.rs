@@ -249,10 +249,20 @@ pub fn has_deferred_builtin_tools(app_config: &AppConfig) -> bool {
 /// capability: discoverable by default, but not eager. Custom/disabled
 /// built-in policy keeps the existing per-server MCP opt-in semantics.
 pub fn should_defer_dynamic_mcp_tool(name: &str, app_config: &AppConfig) -> bool {
+    let Some((server, _tool)) = crate::mcp::catalog::split_mcp_tool_name(name) else {
+        return false;
+    };
+    should_defer_dynamic_mcp_server(server, app_config)
+}
+
+/// Server-level form of [`should_defer_dynamic_mcp_tool`], shared by schema
+/// assembly and the system-prompt discovery hint so both surfaces describe the
+/// same effective loading policy.
+pub fn should_defer_dynamic_mcp_server(server: &str, app_config: &AppConfig) -> bool {
     matches!(
         app_config.deferred_tools.effective_mode(),
         crate::config::DeferredToolsMode::Recommended
-    ) || crate::mcp::catalog::tool_belongs_to_deferred_server(name, &app_config.mcp_servers)
+    ) || crate::mcp::catalog::server_uses_deferred_tools(server, &app_config.mcp_servers)
 }
 
 /// Small deterministic first-round set. Everything else remains eligible but
@@ -337,9 +347,14 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
                     if has_deferred_builtin_tools(app_config)
                         || (ctx.mcp_enabled
                             && app_config.mcp_global.enabled
-                            && crate::mcp::catalog::has_deferred_tool_server(
-                                &app_config.mcp_servers,
-                            ))
+                            && app_config.mcp_servers.iter().any(|server| {
+                                server.enabled
+                                    && !app_config
+                                        .mcp_global
+                                        .denied_servers
+                                        .iter()
+                                        .any(|denied| denied == &server.name)
+                            }))
                     {
                         ToolFate::InjectEager
                     } else {
@@ -808,6 +823,34 @@ mod tests {
     }
 
     #[test]
+    fn tool_search_stays_available_to_bootstrap_lazy_mcp_catalogs() {
+        let mut f = Fixture::new();
+        f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
+        f.app.mcp_servers = vec![serde_json::from_value(serde_json::json!({
+            "id": "id-example",
+            "name": "example",
+            "enabled": true,
+            "transport": { "kind": "stdio", "command": "true" }
+        }))
+        .expect("valid MCP server fixture")];
+        let tool_search = all_dispatchable_tools()
+            .iter()
+            .find(|definition| definition.name == crate::tools::TOOL_TOOL_SEARCH)
+            .expect("tool_search definition");
+
+        assert_eq!(
+            resolve_tool_fate(tool_search, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+
+        f.app.mcp_global.denied_servers = vec!["example".into()];
+        assert_eq!(
+            resolve_tool_fate(tool_search, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::Hidden
+        );
+    }
+
+    #[test]
     fn recommended_mode_defers_non_bootstrap_core_without_hiding_it() {
         let mut f = Fixture::new();
         f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
@@ -848,16 +891,38 @@ mod tests {
     fn recommended_mode_defers_dynamic_mcp_without_per_server_opt_in() {
         let mut app = AppConfig::default();
         app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
+        assert!(should_defer_dynamic_mcp_server("example", &app));
+        assert!(should_defer_dynamic_mcp_tool(
+            "mcp__example__large_tool",
+            &app
+        ));
+        assert!(!should_defer_dynamic_mcp_tool("example", &app));
+
+        app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
+        assert!(!should_defer_dynamic_mcp_server("example", &app));
+        assert!(!should_defer_dynamic_mcp_tool(
+            "mcp__example__large_tool",
+            &app
+        ));
+
+        let mut server: crate::mcp::McpServerConfig = serde_json::from_value(serde_json::json!({
+            "id": "id-example",
+            "name": "example",
+            "enabled": true,
+            "transport": { "kind": "stdio", "command": "true" },
+            "deferredTools": true
+        }))
+        .expect("valid MCP server fixture");
+        app.mcp_servers.push(server.clone());
+        assert!(should_defer_dynamic_mcp_server("example", &app));
         assert!(should_defer_dynamic_mcp_tool(
             "mcp__example__large_tool",
             &app
         ));
 
-        app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
-        assert!(!should_defer_dynamic_mcp_tool(
-            "mcp__example__large_tool",
-            &app
-        ));
+        server.enabled = false;
+        app.mcp_servers = vec![server];
+        assert!(!should_defer_dynamic_mcp_server("example", &app));
     }
 
     #[test]

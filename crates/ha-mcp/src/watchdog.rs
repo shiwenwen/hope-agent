@@ -47,9 +47,9 @@ const MAX_BACKOFF_SHIFT: u32 = 6;
 pub fn spawn_watchdog_loop() {
     tokio::spawn(async move {
         let mut tick = interval(Duration::from_secs(TICK_INTERVAL_SECS));
-        // Skip the immediate first tick (interval fires once at t=0) —
-        // init_global has just finished building the registry, eager
-        // connects haven't run yet, there's nothing useful to observe.
+        // Skip the immediate first tick (interval fires once at t=0).
+        // Explicit eager warm-up is launched directly by subsystem init; the
+        // watchdog owns later recovery, not first-round catalog readiness.
         tick.tick().await;
         loop {
             tick.tick().await;

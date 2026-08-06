@@ -341,8 +341,7 @@ pub async fn save_cron_config(
 /// `GET /api/config/deferred-tools` -- get deferred tool loading config.
 pub async fn get_deferred_tools_config(
 ) -> Result<Json<ha_core::config::DeferredToolsConfig>, AppError> {
-    let store = load_config()?;
-    Ok(Json(store.deferred_tools))
+    Ok(Json(ha_core::config::deferred_tools_config_for_read()))
 }
 
 /// `PUT /api/config/deferred-tools` -- save deferred tool loading config.

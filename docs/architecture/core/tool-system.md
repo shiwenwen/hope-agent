@@ -72,7 +72,7 @@ flowchart TD
 
 几处非显然行为：
 
-- `Core::Meta` 里的工具并非全部无条件注入：`tool_search` 只有存在可延迟工具（内置 deferred 工具或 deferred MCP server）时才注入；`job_status` 只有 `asyncTools.enabled` 时注入。
+- `Core::Meta` 里的工具并非全部无条件注入：`tool_search` 在存在内置 deferred 工具或任一有效 MCP server 时注入（后者还承担 lazy catalog 自举）；`job_status` 只有 `asyncTools.enabled` 时注入。
 - `Core::PlanMode` 的 `enter_plan_mode` / `submit_plan` 在 dispatcher 里**永远返回 Hidden**，由 `apply_plan_tools` 按当前 `PlanAgentMode` 单独注入（详见后文 [Plan Mode](#plan-mode-工具限制)）。
 - `schedule_wakeup` 是 agent 自我定时唤醒原语，详见 [自我定时唤醒](#自我定时唤醒schedule_wakeup)。
 
@@ -386,7 +386,7 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 
 | 工具 | 标记 | 说明 |
 |------|------|------|
-| `tool_search` | always_load, internal | 延迟工具发现（存在内置 deferred 工具或 deferred MCP server 时启用）。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5、上限 20。返回紧凑摘要并激活匹配工具，完整 schema 在下一 Provider round 注入。 |
+| `tool_search` | always_load, internal | 延迟工具发现与 lazy MCP catalog 自举（存在内置 deferred 工具或任一有效 MCP server 时启用）。检索动态 MCP 前先有界并发拉取缺失 catalog；单 server 失败不阻断其它候选。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5、上限 20。返回紧凑摘要并激活匹配工具，完整 schema 在下一 Provider round 注入。 |
 | `job_status` | always_load, internal | 后台任务的模型面状态查询（仅 `asyncTools.enabled` 时注入）。`action`：`status`(默认，单 `job_id`) / `list`(枚举本会话在途) / `wait`(短便利同步，clamp ≤ 10s，超时返回 `still_running`) / `cancel` / `result`。**长 fan-out 等齐的正道是等自动注入而非 `wait`**——普通 job 完成后靠 `<task-notification>` 自动注入，`job_status` 只用于用户追问或经过一段时间后的非阻塞快照，**禁止用"后台化后立即 poll"重建同步等待**。运行时深度机制详见 [background-jobs](../agent/background-jobs.md)。 |
 | `runtime_cancel` | always_load, internal | 取消在途 runtime 任务（工具 job / subagent 等）的统一控制入口。 |
 | `skill` | always_load, internal | 技能激活入口。详见 [skill-system](../agent/skill-system.md)。 |
@@ -403,7 +403,7 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 
 - **`recommended`**（默认）：固定一个小的 eager 热集合，其余 eligible 工具后移到 deferred inventory（不是 Hidden）。当前热集合为 `ask_user_question`、`runtime_cancel`、`skill`、`read`、`grep`、`exec`、`apply_patch` 以及知识库的 `note_read` / `note_search` / `note_create` / `note_patch`（`tool_search` 作为发现入口本身始终在场）。动态 MCP 工具在此模式下也默认进入 deferred 发现池。
 - **`custom`**：读取 `enabled + toolNames`，只有显式列出且 `supports_deferred()` 为真的工具才 deferred；动态 MCP 按 server 的 `deferredTools=true` 逐个 opt-in。
-- **`disabled`**：恢复旧的全 eager 行为。
+- **`disabled`**：内置工具恢复全 eager；动态 MCP 仍尊重各 server 的 `deferredTools=true` 独立开关。
 
 其它非显然行为：
 
@@ -438,7 +438,7 @@ flowchart LR
 | `enabled` | `true` | 旧字段；无 `mode` 时用于迁移判断 |
 | `toolNames` | 推荐集 | `custom` 模式的显式列表；旧列表等于已知推荐集会迁移为 `recommended` |
 
-UI 入口：设置 → 工具 → Deferred Tools。`ha-settings` 技能：`update_settings(category="deferred_tools", values={enabled: true, toolNames: ["pdf"]})`。
+UI 入口：设置 → 工具 → 工具 Schema 加载策略（三档）。`ha-settings` 技能：`update_settings(category="deferred_tools", values={mode: "custom", enabled: true, toolNames: ["pdf"]})`。
 
 ---
 

@@ -124,12 +124,10 @@ pub(crate) fn tool_allowed_by_server_config(
     cfg.allowed_tools.is_empty() || cfg.allowed_tools.iter().any(|a| a == original_tool_name)
 }
 
-/// Build a short "MCP Capabilities" system-prompt section when any
-/// MCP server has landed a populated tool catalog (i.e. a server that
-/// completed at least one `tools/list` round is connected). Reads
-/// purely from [`crate::McpManager::mcp_tool_definitions`] —
-/// sync, `ArcSwap`-backed — so it can be called from the sync
-/// `build_full_system_prompt` path without awaiting any lock.
+/// Build a short "MCP Capabilities" system-prompt section for configured,
+/// effective servers. Catalog-pending lazy servers are included explicitly so
+/// the model knows that `tool_search` is the bootstrap/discovery operation.
+/// Reads only sync config / ArcSwap snapshots and never awaits a runtime lock.
 ///
 /// The snippet intentionally does not enumerate every resource / prompt
 /// — that list can be large and requires an async read of the per-
@@ -137,27 +135,49 @@ pub(crate) fn tool_allowed_by_server_config(
 /// and `mcp_prompt` tools we point at here.
 pub fn system_prompt_snippet() -> Option<String> {
     let mgr = crate::McpManager::global()?;
-    let defs = mgr.mcp_tool_definitions();
-    if defs.is_empty() {
+    let app_config = ha_core::config::cached_config();
+    if !app_config.mcp_global.enabled {
         return None;
     }
-    let mut servers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for d in defs.iter() {
-        if let Some((server, _tool)) = split_mcp_tool_name(&d.name) {
-            servers.insert(server.to_string());
-        }
-    }
-    if servers.is_empty() {
+    let configured: std::collections::BTreeSet<String> = app_config
+        .mcp_servers
+        .iter()
+        .filter(|server| {
+            server.enabled
+                && !app_config
+                    .mcp_global
+                    .denied_servers
+                    .iter()
+                    .any(|denied| denied == &server.name)
+        })
+        .map(|server| server.name.clone())
+        .collect();
+    if configured.is_empty() {
         return None;
     }
-    let list = servers.into_iter().collect::<Vec<_>>().join(", ");
-    Some(format!(
+    let cataloged = mgr.cataloged_server_ids();
+    let mut pending = app_config
+        .mcp_servers
+        .iter()
+        .filter(|server| configured.contains(&server.name) && !cataloged.contains(&server.id))
+        .map(|server| server.name.clone())
+        .collect::<Vec<_>>();
+    pending.sort();
+    let list = configured.into_iter().collect::<Vec<_>>().join(", ");
+    let mut section = format!(
         "# MCP Capabilities\n\n\
-         Connected MCP servers: {list}\n\
+         Configured MCP servers: {list}\n\
          - Tools exposed by each server appear in the tool catalog with the `mcp__<server>__<tool>` naming.\n\
          - `mcp_resource(server=..., action=\"list\"|\"read\")` — inspect files / records / documents the server hosts.\n\
          - `mcp_prompt(server=..., action=\"list\"|\"get\")` — use prompt templates the server publishes."
-    ))
+    );
+    if !pending.is_empty() {
+        section.push_str(&format!(
+            "\n- Catalog pending for: {}. Call `tool_search` to connect lazy servers and discover their tools.",
+            pending.join(", ")
+        ));
+    }
+    Some(section)
 }
 
 // ── Schema conversion ────────────────────────────────────────────

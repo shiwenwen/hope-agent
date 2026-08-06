@@ -46,6 +46,23 @@ pub fn tool_definitions() -> Arc<Vec<ToolDefinition>> {
     }
 }
 
+/// Lazy MCP catalog 自举。`tool_search` 在读取动态目录前调用；未接线
+/// no-op，等价于 manager 不存在且动态目录为空。
+pub(crate) async fn ensure_tool_catalogs() {
+    if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
+        (hooks.ensure_tool_catalogs)(false).await;
+    }
+}
+
+/// Await the one-shot startup contract of MCP servers configured with
+/// `eager=true`. A failed startup attempt still completes the feature-side
+/// barrier, so later chat turns never become synchronous reconnect loops.
+pub(crate) async fn ensure_initial_eager_tool_catalogs() {
+    if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
+        (hooks.ensure_tool_catalogs)(true).await;
+    }
+}
+
 /// namespaced 工具名 → 所属 server 的当前配置克隆（execution 的
 /// auto-approve 门消费）。未接线 `None` → auto-approve 恒 false。
 pub async fn tool_server_config(name: &str) -> Option<McpServerConfig> {

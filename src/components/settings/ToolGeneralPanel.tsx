@@ -31,9 +31,11 @@ interface ToolLimitsConfig {
 
 interface DeferredToolsConfig {
   enabled: boolean
-  mode?: "recommended" | "custom" | "disabled"
+  mode?: DeferredToolsMode
   toolNames?: string[]
 }
+
+type DeferredToolsMode = "recommended" | "custom" | "disabled"
 
 type ModelRuntimeTimeoutOverrides = "allow" | "warn" | "ignore_when_user_unlimited"
 
@@ -95,8 +97,7 @@ export default function ToolGeneralPanel() {
   const [savedApprovalTimeoutAction, setSavedApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
   const [diskThreshold, setDiskThreshold] = useState(50)
   const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
-  const [deferredToolsEnabled, setDeferredToolsEnabled] = useState(false)
-  const [deferredToolsMode, setDeferredToolsMode] = useState<DeferredToolsConfig["mode"]>("disabled")
+  const [deferredToolsMode, setDeferredToolsMode] = useState<DeferredToolsMode>("disabled")
   const [deferredToolNames, setDeferredToolNames] = useState<string[]>([])
   const [builtinTools, setBuiltinTools] = useState<BuiltinTool[]>([])
 
@@ -164,7 +165,6 @@ export default function ToolGeneralPanel() {
       .then((cfg) => {
         if (!cancelled) {
           const mode = cfg?.mode ?? ((cfg?.enabled ?? false) ? "custom" : "disabled")
-          setDeferredToolsEnabled(mode !== "disabled")
           setDeferredToolsMode(mode)
           setDeferredToolNames(cfg?.toolNames ?? [])
         }
@@ -260,17 +260,14 @@ export default function ToolGeneralPanel() {
     }
   }, [savedApprovalTimeoutAction])
 
-  const handleDeferredToolsChange = useCallback(async (enabled: boolean) => {
-    setDeferredToolsEnabled(enabled)
+  const handleDeferredToolsModeChange = useCallback(async (mode: DeferredToolsMode) => {
     const previousMode = deferredToolsMode
-    const mode: DeferredToolsConfig["mode"] = enabled ? "recommended" : "disabled"
     setDeferredToolsMode(mode)
     try {
       await getTransport().call("save_deferred_tools_config", {
-        config: { mode, enabled, toolNames: deferredToolNames },
+        config: { mode, enabled: mode !== "disabled", toolNames: deferredToolNames },
       })
     } catch (e) {
-      setDeferredToolsEnabled(!enabled)
       setDeferredToolsMode(previousMode)
       logger.error(
         "settings",
@@ -291,7 +288,7 @@ export default function ToolGeneralPanel() {
     setDeferredToolsMode("custom")
     try {
       await getTransport().call("save_deferred_tools_config", {
-        config: { mode: "custom", enabled: deferredToolsEnabled, toolNames: next },
+        config: { mode: "custom", enabled: true, toolNames: next },
       })
     } catch (e) {
       setDeferredToolNames(previous)
@@ -303,7 +300,7 @@ export default function ToolGeneralPanel() {
         e,
       )
     }
-  }, [deferredToolNames, deferredToolsEnabled, deferredToolsMode])
+  }, [deferredToolNames, deferredToolsMode])
 
   const saveDiskThreshold = useCallback(async (kb: number) => {
     try {
@@ -485,20 +482,37 @@ export default function ToolGeneralPanel() {
           </div>
 
           {/* Deferred Tool Loading */}
-          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+          <div className="flex items-center justify-between gap-4 px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5 pr-4">
               <div className="text-sm font-medium">{t("settings.deferredToolsEnabled")}</div>
               <div className="text-xs text-muted-foreground">
                 {t("settings.deferredToolsEnabledDesc")}
               </div>
             </div>
-            <Switch
-              checked={deferredToolsEnabled}
-              onCheckedChange={handleDeferredToolsChange}
-            />
+            <Select
+              value={deferredToolsMode}
+              onValueChange={(mode: DeferredToolsMode) => {
+                void handleDeferredToolsModeChange(mode)
+              }}
+            >
+              <SelectTrigger className="w-52 h-8 text-sm shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recommended">
+                  {t("settings.deferredToolsModeRecommended")}
+                </SelectItem>
+                <SelectItem value="custom">
+                  {t("settings.deferredToolsModeCustom")}
+                </SelectItem>
+                <SelectItem value="disabled">
+                  {t("settings.deferredToolsModeDisabled")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          {deferredToolsEnabled && deferCapableTools.length > 0 && (
+          {deferredToolsMode !== "disabled" && deferCapableTools.length > 0 && (
             <div className="mx-3 rounded-lg border border-border/50 overflow-hidden">
               <div className="px-3 py-2 border-b border-border/40 bg-secondary/20">
                 <div className="text-xs font-medium text-muted-foreground">

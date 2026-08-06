@@ -56,7 +56,7 @@ pub struct GetPromptResponse {
 }
 
 pub async fn list_prompts(server_name_or_id: &str) -> Result<Vec<PromptSummary>> {
-    let handle = super::locate_server(server_name_or_id).await?;
+    let handle = super::ensure_server_connected(server_name_or_id).await?;
     let state = handle.state.lock().await;
     let prompts = match &*state {
         ServerState::Ready { prompts, .. } => prompts.clone(),
@@ -77,7 +77,7 @@ pub async fn get_prompt(
     name: &str,
     arguments: Option<BTreeMap<String, String>>,
 ) -> Result<GetPromptResponse> {
-    let handle = super::locate_server(server_name_or_id).await?;
+    let handle = super::ensure_server_connected(server_name_or_id).await?;
     let peer = handle.peer().await.map_err(|e| anyhow!("{e}"))?;
     // rmcp accepts `arguments: Map<String, Value>`; we convert the
     // simpler string-to-string shape callers pass in.

@@ -999,6 +999,18 @@ impl AssistantAgent {
 
         self.warm_kb_access().await;
         self.warm_memory_agent_config().await;
+        let agent_caps = self.agent_caps();
+        let app_config = crate::config::cached_config();
+        if agent_caps.mcp_enabled && app_config.mcp_global.enabled {
+            // Initialization starts eager MCP connections in the background.
+            // This process-wide one-shot barrier only closes the startup race;
+            // failure recovery never blocks later chat turns. Lazy servers are
+            // untouched until tool_search/resource/prompt discovery asks.
+            tokio::select! {
+                _ = crate::mcp::ensure_initial_eager_tool_catalogs() => {}
+                _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
+            }
+        }
         self.configure_retrieval_planner_context(message);
         // Dynamic context refreshers write independent slots / trace ledgers
         // and never read each other; run them concurrently so the worst case

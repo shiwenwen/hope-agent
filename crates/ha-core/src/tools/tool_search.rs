@@ -87,6 +87,15 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         }
     }
 
+    // A lazy MCP server starts with no dynamic schemas, so merely reading the
+    // current cache would create a bootstrap deadlock: the model cannot call a
+    // tool whose name is unknown, and the first dynamic call cannot connect
+    // until its name resolves. Let the feature crate populate missing catalogs
+    // before searching; failures are isolated and logged per server there.
+    if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
+        crate::mcp::ensure_tool_catalogs().await;
+    }
+
     // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled
     // and the global MCP kill switch.
     if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {

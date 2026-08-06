@@ -196,8 +196,8 @@ pub struct McpServerConfig {
     pub auto_approve: bool,
     #[serde(default)]
     pub trust_level: McpTrustLevel,
-    /// Eager-connect at app startup. Defaults to lazy (connect on first
-    /// tool call).
+    /// Eager-connect immediately after MCP subsystem initialization. Defaults
+    /// to lazy discovery on the first `tool_search` / resource / prompt call.
     #[serde(default)]
     pub eager: bool,
     /// When true, this server's dynamic MCP tools are not sent eagerly in

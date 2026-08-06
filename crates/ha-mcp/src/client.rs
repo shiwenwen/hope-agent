@@ -6,20 +6,110 @@
 //! user-triggered equivalent and bypasses the backoff window.
 //!
 //! Every connection attempt that succeeds immediately fetches the
-//! initial catalog (tools + resources + prompts) and pushes it into the
-//! manager's `tool_index`.
+//! initial catalog (tools + resources + prompts) and atomically publishes it
+//! through the manager's `CatalogSnapshot`.
 
 use std::sync::Arc;
 
-use rmcp::model;
+use futures_util::stream::{self, StreamExt};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::MutexGuard;
+use tokio::sync::{MutexGuard, OnceCell};
 use tokio::time::{timeout, Duration};
 
 use super::errors::{McpError, McpResult};
 use super::events::{emit_catalog_refreshed, emit_server_status};
-use super::registry::{McpManager, ServerHandle, ServerState, ToolIndexEntry};
+use super::registry::{McpManager, ServerHandle, ServerState};
 use super::transport::{build_transport_for, ConnectedClient};
+
+/// Bound catalog discovery bursts independently from tool-call concurrency.
+/// A user can configure many MCP servers; the first `tool_search` must not
+/// spawn all stdio children or handshakes at once.
+const CATALOG_DISCOVERY_CONCURRENCY: usize = 4;
+
+/// One process-wide startup barrier. A failed eager handshake still completes
+/// the barrier: normal chat must not synchronously retry an unavailable MCP
+/// server on every turn. Later recovery belongs to config warm-up, watchdog,
+/// or an explicit discovery operation.
+static INITIAL_EAGER_CATALOG_WARMUP: OnceCell<()> = OnceCell::const_new();
+
+/// Start the one-shot startup warm-up for `eager=true` servers. The first
+/// provider request awaits this same cell if the task is still running.
+pub fn spawn_initial_eager_catalog_warmup() {
+    tokio::spawn(async {
+        ensure_initial_eager_tool_catalogs().await;
+    });
+}
+
+/// Warm eager servers after a live config reconciliation without putting the
+/// operation back on the chat critical path.
+pub fn spawn_reconciled_eager_catalog_warmup() {
+    tokio::spawn(async {
+        warm_catalogs(true, "config_reconcile").await;
+    });
+}
+
+/// Populate catalogs for lazy servers on the first discovery operation.
+/// Failures are isolated per server: ready catalogs still participate in the
+/// current `tool_search`, while failed servers retain their normal backoff /
+/// NeedsAuth state and diagnostics.
+pub async fn ensure_tool_catalogs() {
+    warm_catalogs(false, "tool_search").await;
+}
+
+/// Wait for the startup contract of `eager=true` servers. The subsystem also
+/// spawns this work immediately during initialization, but the first provider
+/// request awaits the same idempotent path so schema assembly cannot win the
+/// startup race.
+pub async fn ensure_initial_eager_tool_catalogs() {
+    INITIAL_EAGER_CATALOG_WARMUP
+        .get_or_init(|| async {
+            warm_catalogs(true, "startup").await;
+        })
+        .await;
+}
+
+async fn warm_catalogs(eager_only: bool, source: &'static str) {
+    let Some(manager) = McpManager::global() else {
+        return;
+    };
+    if !manager.is_enabled().await {
+        return;
+    }
+
+    let handles: Vec<Arc<ServerHandle>> = manager.servers.read().await.values().cloned().collect();
+    stream::iter(handles)
+        .for_each_concurrent(CATALOG_DISCOVERY_CONCURRENCY, |handle| async move {
+            let cfg = handle.config.read().await.clone();
+            if eager_only && !cfg.eager {
+                return;
+            }
+            let should_connect = {
+                let state = handle.state.lock().await;
+                match &*state {
+                    ServerState::Idle | ServerState::Connecting => true,
+                    ServerState::Failed { retry_at, .. } => {
+                        chrono::Utc::now().timestamp() >= *retry_at
+                    }
+                    ServerState::Ready { .. }
+                    | ServerState::Disabled
+                    | ServerState::NeedsAuth { .. } => false,
+                }
+            };
+            if !should_connect {
+                return;
+            }
+            if let Err(error) = ensure_connected(manager, handle).await {
+                ha_core::app_warn!(
+                    "mcp",
+                    &format!("{}:catalog_discovery", cfg.name),
+                    "MCP catalog discovery from {} failed: {}",
+                    source,
+                    error
+                );
+            }
+        })
+        .await;
+}
 
 /// Idempotent "make sure this server is connected and has a catalog".
 /// Returns quickly when already `Ready`; otherwise performs a full
@@ -56,31 +146,32 @@ async fn connect_needed_or_error(handle: &ServerHandle) -> McpResult<bool> {
             reason: "server config was replaced or removed".into(),
         });
     }
-    let state = handle.state.lock().await;
-    if matches!(*state, ServerState::Ready { .. }) {
-        return Ok(false);
-    }
-    if matches!(*state, ServerState::Disabled) {
-        let cfg = handle.config.read().await;
-        return Err(McpError::NotReady {
-            server: cfg.name.clone(),
-            reason: "server is disabled in config".into(),
-        });
-    }
-    if let ServerState::Failed { retry_at, reason } = &*state {
-        let now = chrono::Utc::now().timestamp();
-        if now < *retry_at {
+    let now = chrono::Utc::now().timestamp();
+    let decision = {
+        let state = handle.state.lock().await;
+        match &*state {
+            ServerState::Ready { .. } => Ok(false),
+            ServerState::Disabled => Err("server is disabled in config".to_string()),
+            ServerState::NeedsAuth { .. } => {
+                Err("authorization required; use the Authorize action in Settings".to_string())
+            }
+            ServerState::Failed { retry_at, reason } if now < *retry_at => Err(format!(
+                "in backoff after failure ({reason}); retry_at in {}s",
+                *retry_at - now
+            )),
+            ServerState::Idle | ServerState::Connecting | ServerState::Failed { .. } => Ok(true),
+        }
+    };
+    match decision {
+        Ok(needed) => Ok(needed),
+        Err(reason) => {
             let cfg = handle.config.read().await;
-            return Err(McpError::NotReady {
+            Err(McpError::NotReady {
                 server: cfg.name.clone(),
-                reason: format!(
-                    "in backoff after failure ({reason}); retry_at in {}s",
-                    *retry_at - now
-                ),
-            });
+                reason,
+            })
         }
     }
-    Ok(true)
 }
 
 async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
@@ -214,17 +305,9 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
         });
     }
 
-    rebuild_tool_index_for(manager, &cfg, &tools).await;
-
-    set_state(
-        &handle,
-        ServerState::Ready {
-            tools,
-            resources,
-            prompts,
-        },
-    )
-    .await;
+    manager
+        .publish_ready_catalog(&handle, tools, resources, prompts)
+        .await?;
 
     emit_server_status(&cfg.id, &cfg.name, "ready", None);
     emit_catalog_refreshed(&cfg.id, &cfg.name, tool_count, resource_count, prompt_count);
@@ -259,67 +342,6 @@ async fn do_connect(cfg: &super::config::McpServerConfig, handle: &ServerHandle)
     let mut client = handle.client.lock().await;
     *client = Some(running);
     Ok(())
-}
-
-async fn rebuild_tool_index_for(
-    manager: &McpManager,
-    cfg: &super::config::McpServerConfig,
-    tools: &[model::Tool],
-) {
-    // 1. Update the id → (server, original_name) reverse lookup used by
-    //    `invoke::call_tool` for dispatch. Drops stale entries owned by
-    //    this server before inserting fresh ones.
-    {
-        let mut idx = manager.tool_index.write().await;
-        idx.retain(|_, e| e.server_id != cfg.id);
-        let namespaced_names = super::catalog::assign_namespaced_tool_names(
-            &cfg.name,
-            tools.iter().map(|t| t.name.as_ref()),
-        );
-        for (tool, namespaced) in tools.iter().zip(namespaced_names) {
-            let orig = tool.name.to_string();
-            if !super::catalog::tool_allowed_by_server_config(cfg, &orig) {
-                continue;
-            }
-            idx.insert(
-                namespaced,
-                ToolIndexEntry {
-                    server_id: cfg.id.clone(),
-                    server_name: cfg.name.clone(),
-                    original_tool_name: orig,
-                },
-            );
-        }
-    }
-
-    // 2. Rebuild the sync-readable ToolDefinition cache. The schema
-    //    assembly path in `agent/mod.rs::build_tool_schemas` reads this
-    //    without awaiting — it must be kept atomic with the reverse
-    //    lookup so a dispatch never finds a name that isn't in the
-    //    schema list, or vice versa.
-    let defs_for_server: Vec<ha_core::tools::ToolDefinition> = tools
-        .iter()
-        .zip(super::catalog::assign_namespaced_tool_names(
-            &cfg.name,
-            tools.iter().map(|t| t.name.as_ref()),
-        ))
-        .filter(|(tool, _)| super::catalog::tool_allowed_by_server_config(cfg, tool.name.as_ref()))
-        .map(|(t, namespaced)| {
-            super::catalog::rmcp_tool_to_definition_with_name(cfg, t, namespaced)
-        })
-        .collect();
-
-    // Merge: keep other servers' defs, replace this server's. Use the
-    // `mcp__<cfg.name>__` prefix as the ownership test.
-    let prefix = format!("{}{}{}", super::catalog::MCP_TOOL_PREFIX, cfg.name, "__");
-    let prior = manager.mcp_tool_definitions();
-    let mut next: Vec<ha_core::tools::ToolDefinition> = prior
-        .iter()
-        .filter(|d| !d.name.starts_with(&prefix))
-        .cloned()
-        .collect();
-    next.extend(defs_for_server);
-    manager.store_cached_tool_defs(next);
 }
 
 fn rmcp_service_err(server: &str, where_: &str, err: rmcp::service::ServiceError) -> McpError {
@@ -442,4 +464,34 @@ fn spawn_stderr_tailer(server_name: String, stderr: tokio::process::ChildStderr)
             ha_core::app_warn!("mcp", &source, "{}", trimmed);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_handle() -> ServerHandle {
+        let config = serde_json::from_value(serde_json::json!({
+            "id": "id-auth",
+            "name": "auth",
+            "enabled": true,
+            "transport": { "kind": "stdio", "command": "true" }
+        }))
+        .expect("valid MCP server fixture");
+        ServerHandle::new(config)
+    }
+
+    #[tokio::test]
+    async fn generic_lazy_connect_does_not_retry_needs_auth() {
+        let handle = sample_handle();
+        *handle.state.lock().await = ServerState::NeedsAuth {
+            auth_url: String::new(),
+        };
+
+        let error = connect_needed_or_error(&handle)
+            .await
+            .expect_err("NeedsAuth must require an explicit owner action");
+        assert!(error.to_string().contains("authorization required"));
+        assert_eq!(handle.snapshot().await.state, "needsAuth");
+    }
 }
