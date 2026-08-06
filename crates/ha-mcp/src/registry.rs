@@ -426,19 +426,32 @@ impl McpManager {
             ));
         }
         next_defs.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // Take the Ready-state guard before making the catalog visible. The
+        // caller wraps this entire operation in a timeout, so cancellation
+        // while waiting here must leave the prior catalog untouched. Once the
+        // guard is acquired there is deliberately no await through the state
+        // transition and ArcSwap publication.
+        let mut state = handle.state.lock().await;
+        if handle.is_retired() {
+            return Err(super::errors::McpError::NotReady {
+                server: cfg.name,
+                reason: "server config was replaced or removed".into(),
+            });
+        }
         let mut cataloged_server_ids = (*prior.cataloged_server_ids).clone();
         cataloged_server_ids.insert(cfg.id);
 
+        *state = ServerState::Ready {
+            tools,
+            resources,
+            prompts,
+        };
         self.catalog.store(Arc::new(CatalogSnapshot {
             tool_index: Arc::new(next_index),
             tool_definitions: Arc::new(next_defs),
             cataloged_server_ids: Arc::new(cataloged_server_ids),
         }));
-        *handle.state.lock().await = ServerState::Ready {
-            tools,
-            resources,
-            prompts,
-        };
         Ok(())
     }
 
@@ -967,5 +980,27 @@ mod tests {
         assert!(manager.cataloged_server_ids().contains("id-empty"));
         assert!(manager.mcp_tool_definitions().is_empty());
         assert_eq!(handle.snapshot().await.state, "ready");
+    }
+
+    #[tokio::test]
+    async fn catalog_stays_hidden_while_ready_state_transition_waits() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        let handle = manager.get_by_id(&cfg.id).await.unwrap();
+        let state_guard = handle.state.lock().await;
+
+        let publish =
+            manager.publish_ready_catalog(&handle, vec![sample_tool("read")], vec![], vec![]);
+        let observe_before_unlock = async {
+            tokio::task::yield_now().await;
+            assert!(manager.mcp_tool_definitions().is_empty());
+            assert!(manager.lookup_tool("mcp__alpha__read").await.is_none());
+            drop(state_guard);
+        };
+        let (publish_result, ()) = tokio::join!(publish, observe_before_unlock);
+        publish_result.unwrap();
+
+        assert_eq!(handle.snapshot().await.state, "ready");
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_some());
     }
 }
