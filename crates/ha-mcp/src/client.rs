@@ -9,7 +9,7 @@
 //! initial catalog (tools + resources + prompts) and atomically publishes it
 //! through the manager's `CatalogSnapshot`.
 
-use std::{future::Future, sync::Arc};
+use std::{future::Future, io::Write, sync::Arc};
 
 use futures_util::stream::{self, StreamExt};
 use rmcp::model::PaginatedRequestParams;
@@ -335,30 +335,86 @@ pub async fn disconnect(handle: &ServerHandle) -> McpResult<()> {
 /// in memory. 512 per kind is generous for legitimate servers while keeping
 /// bootstrap memory bounded.
 const CATALOG_ENTRIES_PER_KIND_CAP: usize = 512;
+/// Serialized size retained for one primitive kind across every page. The
+/// transport's 4 MiB per-message ceiling prevents one giant page; this
+/// aggregate ceiling prevents hundreds of individually valid pages from
+/// accumulating into gigabytes before Ready publication.
+const CATALOG_BYTES_PER_KIND_CAP: usize = 16 * 1024 * 1024;
+
+struct SerializedByteCounter {
+    remaining: usize,
+    written: usize,
+}
+
+impl Write for SerializedByteCounter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        if buffer.len() > self.remaining {
+            return Err(std::io::Error::other("catalog byte budget exceeded"));
+        }
+        self.remaining -= buffer.len();
+        self.written += buffer.len();
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn serialized_size_within<T: serde::Serialize>(value: &T, limit: usize) -> Option<usize> {
+    let mut counter = SerializedByteCounter {
+        remaining: limit,
+        written: 0,
+    };
+    serde_json::to_writer(&mut counter, value)
+        .ok()
+        .map(|()| counter.written)
+}
 
 async fn collect_catalog_entries<T, Page, E, Fetch, FetchFuture, Split>(
     mut fetch_page: Fetch,
     mut split_page: Split,
+    max_entries: usize,
+    max_serialized_bytes: usize,
 ) -> Result<(Vec<T>, bool), E>
 where
+    T: serde::Serialize,
     Fetch: FnMut(Option<PaginatedRequestParams>) -> FetchFuture,
     FetchFuture: Future<Output = Result<Page, E>>,
     Split: FnMut(Page) -> (Vec<T>, Option<String>),
 {
-    let mut entries = Vec::with_capacity(CATALOG_ENTRIES_PER_KIND_CAP);
+    let mut entries = Vec::with_capacity(max_entries);
+    // Account for the surrounding JSON array brackets. Per-entry commas are
+    // added below, making this a conservative approximation of the retained
+    // catalog's wire size without allocating a second serialized copy.
+    let mut serialized_bytes = 2usize;
     let mut cursor = None;
 
     loop {
         let page = fetch_page(Some(PaginatedRequestParams::default().with_cursor(cursor))).await?;
         let (page_entries, next_cursor) = split_page(page);
-        let remaining = CATALOG_ENTRIES_PER_KIND_CAP - entries.len();
-        let page_exceeds_cap = page_entries.len() > remaining;
-        entries.extend(page_entries.into_iter().take(remaining));
+        for entry in page_entries {
+            if entries.len() >= max_entries {
+                return Ok((entries, true));
+            }
+            let separator_bytes = usize::from(!entries.is_empty());
+            let remaining = max_serialized_bytes
+                .saturating_sub(serialized_bytes)
+                .saturating_sub(separator_bytes);
+            let Some(entry_bytes) = serialized_size_within(&entry, remaining) else {
+                return Ok((entries, true));
+            };
+            serialized_bytes = serialized_bytes
+                .saturating_add(separator_bytes)
+                .saturating_add(entry_bytes);
+            entries.push(entry);
+        }
 
-        let reached_cap = entries.len() == CATALOG_ENTRIES_PER_KIND_CAP;
-        let truncated = page_exceeds_cap || (reached_cap && next_cursor.is_some());
-        if reached_cap || next_cursor.is_none() {
-            return Ok((entries, truncated));
+        if next_cursor.is_none() {
+            return Ok((entries, false));
+        }
+        if entries.len() >= max_entries || serialized_bytes >= max_serialized_bytes {
+            return Ok((entries, true));
         }
         cursor = next_cursor;
     }
@@ -368,9 +424,10 @@ fn warn_catalog_truncated(server_name: &str, kind: &str) {
     ha_core::app_warn!(
         "mcp",
         &format!("{}:catalog", server_name),
-        "Server advertised more than the per-kind cap of {} {} entries; pagination stopped at the cap",
-        CATALOG_ENTRIES_PER_KIND_CAP,
+        "Server {} catalog exceeded a per-kind cap ({} entries / {} serialized bytes); pagination stopped at the cap",
         kind,
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
     );
 }
 
@@ -387,6 +444,8 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
     let (tools, tools_truncated) = collect_catalog_entries(
         |params| peer.list_tools(params),
         |result| (result.tools, result.next_cursor),
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
     )
     .await
     .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
@@ -394,24 +453,41 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
         warn_catalog_truncated(&cfg.name, "tools");
     }
 
-    // Resources / prompts are optional per spec; an `InvalidRequest` /
-    // method-not-found is NOT a real failure — it just means the server
-    // doesn't expose that primitive.
+    // Resources / prompts are optional per spec. Only an explicit JSON-RPC
+    // method-not-found means the server does not expose that primitive;
+    // transport, timeout, malformed-request, and size-limit failures must fail
+    // the connection rather than publishing Ready over a dead peer.
     let (resources, resources_truncated) = collect_catalog_entries(
         |params| peer.list_resources(params),
         |result| (result.resources, result.next_cursor),
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
     )
     .await
-    .unwrap_or_default();
+    .or_else(|error| {
+        if optional_catalog_method_unsupported(&error) {
+            Ok((Vec::new(), false))
+        } else {
+            Err(rmcp_service_err(&cfg.name, "list_resources", error))
+        }
+    })?;
     if resources_truncated {
         warn_catalog_truncated(&cfg.name, "resources");
     }
     let (prompts, prompts_truncated) = collect_catalog_entries(
         |params| peer.list_prompts(params),
         |result| (result.prompts, result.next_cursor),
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
     )
     .await
-    .unwrap_or_default();
+    .or_else(|error| {
+        if optional_catalog_method_unsupported(&error) {
+            Ok((Vec::new(), false))
+        } else {
+            Err(rmcp_service_err(&cfg.name, "list_prompts", error))
+        }
+    })?;
     if prompts_truncated {
         warn_catalog_truncated(&cfg.name, "prompts");
     }
@@ -464,6 +540,14 @@ async fn do_connect(cfg: &super::config::McpServerConfig, handle: &ServerHandle)
     let mut client = handle.client.lock().await;
     *client = Some(running);
     Ok(())
+}
+
+fn optional_catalog_method_unsupported(error: &rmcp::service::ServiceError) -> bool {
+    matches!(
+        error,
+        rmcp::service::ServiceError::McpError(data)
+            if data.code == rmcp::model::ErrorCode::METHOD_NOT_FOUND
+    )
 }
 
 fn rmcp_service_err(server: &str, where_: &str, err: rmcp::service::ServiceError) -> McpError {
@@ -663,6 +747,8 @@ mod tests {
                 }))
             },
             |page| (page.entries, page.next_cursor),
+            CATALOG_ENTRIES_PER_KIND_CAP,
+            CATALOG_BYTES_PER_KIND_CAP,
         )
         .await
         .expect("fixture pages should collect");
@@ -672,5 +758,48 @@ mod tests {
         assert_eq!(entries[0], 0);
         assert_eq!(entries[CATALOG_ENTRIES_PER_KIND_CAP - 1], 511);
         assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn catalog_pagination_stops_at_aggregate_byte_cap() {
+        struct Page {
+            entries: Vec<String>,
+        }
+
+        let (entries, truncated) = collect_catalog_entries(
+            |_| {
+                std::future::ready(Ok::<_, ()>(Page {
+                    entries: vec!["0123456789".to_string(); 4],
+                }))
+            },
+            |page| (page.entries, None),
+            512,
+            30,
+        )
+        .await
+        .expect("fixture page should collect");
+
+        assert!(truncated);
+        assert_eq!(entries, vec!["0123456789", "0123456789"]);
+    }
+
+    #[test]
+    fn only_explicit_optional_method_errors_are_ignored() {
+        let method_missing = rmcp::service::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            "not supported",
+            None,
+        ));
+        let invalid_request = rmcp::service::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::INVALID_REQUEST,
+            "not supported",
+            None,
+        ));
+
+        assert!(optional_catalog_method_unsupported(&method_missing));
+        assert!(!optional_catalog_method_unsupported(&invalid_request));
+        assert!(!optional_catalog_method_unsupported(
+            &rmcp::service::ServiceError::TransportClosed
+        ));
     }
 }

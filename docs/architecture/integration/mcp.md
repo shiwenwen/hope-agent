@@ -191,7 +191,7 @@ stateDiagram-v2
 - 全局：`McpGlobalSettings.max_concurrent_calls`（默认 8）
 - 每 server：`McpServerConfig.max_concurrent_calls`（默认 4）
 
-**Catalog 数量上限**：单个 server 的 tools / resources / prompts 分别达到 `CATALOG_ENTRIES_PER_KIND_CAP`（512）后立即停止翻页，确认仍有条目时记 warn，防止一个失控 server 在普通 discovery 的分页阶段或原子 `Ready` 快照中无限累积数据。
+**Catalog 累计上限**：单个 server 的 tools / resources / prompts 每类同时受 `CATALOG_ENTRIES_PER_KIND_CAP`（512 项）和 `CATALOG_BYTES_PER_KIND_CAP`（16 MiB 序列化体积）约束，任一达到即停止翻页并记 warn。字节计数经无分配 `serde_json::to_writer` 计数 writer 完成，避免为测量再造一份大 JSON；resources / prompts 只有明确的 JSON-RPC `METHOD_NOT_FOUND` 可降为空目录，传输、超时、畸形请求或响应超限都必须让连接失败，禁止在 dead peer 上发布 `Ready`。
 
 ---
 
