@@ -352,7 +352,7 @@ Resources 和 Prompts 是 MCP server 暴露的**被动数据**（不是工具调
 
 ### System prompt 注入
 
-`catalog::system_prompt_snippet()` 在系统提示词末尾追加一小段 `# MCP Capabilities`：列出有效配置的 server 名，并对尚无 catalog 的 lazy server 明示用 `tool_search` 建连发现，同时指向 `mcp_resource` / `mcp_prompt`。它经 config cache + `ArcSwap` 快照同步读取、不 await 任何锁，可从同步的 prompt 构建路径调用；无任何有效 MCP server 时完全不注入。
+`catalog::system_prompt_snippet()` 在系统提示词末尾追加一小段 `# MCP Capabilities`：列出有效配置的 server 名，并以“目标工具缺席时才调用 `tool_search`”的稳定条件说明 lazy 建连发现，同时指向 `mcp_resource` / `mcp_prompt`。该段不编码会在 turn 中变化的 pending catalog 集合，目录刷新后无需重建 system prompt 也不会留下过时指令；它只经 config cache 同步读取、不 await 任何锁，可从同步的 prompt 构建路径调用；无任何有效 MCP server 时完全不注入。
 
 ---
 

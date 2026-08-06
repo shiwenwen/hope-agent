@@ -149,16 +149,17 @@ pub fn has_pending_catalogs() -> bool {
 }
 
 /// Build a short "MCP Capabilities" system-prompt section for configured,
-/// effective servers. Catalog-pending lazy servers are included explicitly so
-/// the model knows that `tool_search` is the bootstrap/discovery operation.
-/// Reads only sync config / ArcSwap snapshots and never awaits a runtime lock.
+/// effective servers. The lazy-discovery guidance is conditional on a tool
+/// being absent rather than on mutable catalog state, so the turn-stable prompt
+/// remains correct after a catalog refresh. Reads only sync config and never
+/// awaits a runtime lock.
 ///
 /// The snippet intentionally does not enumerate every resource / prompt
 /// — that list can be large and requires an async read of the per-
 /// server state. The agent discovers those via the `mcp_resource`
 /// and `mcp_prompt` tools we point at here.
 pub fn system_prompt_snippet() -> Option<String> {
-    let mgr = crate::McpManager::global()?;
+    let _manager = crate::McpManager::global()?;
     let app_config = ha_core::config::cached_config();
     if !app_config.mcp_global.enabled {
         return None;
@@ -180,29 +181,15 @@ pub fn system_prompt_snippet() -> Option<String> {
     if configured.is_empty() {
         return None;
     }
-    let cataloged = mgr.cataloged_server_ids();
-    let mut pending = app_config
-        .mcp_servers
-        .iter()
-        .filter(|server| configured.contains(&server.name) && !cataloged.contains(&server.id))
-        .map(|server| server.name.clone())
-        .collect::<Vec<_>>();
-    pending.sort();
     let list = configured.into_iter().collect::<Vec<_>>().join(", ");
-    let mut section = format!(
+    Some(format!(
         "# MCP Capabilities\n\n\
          Configured MCP servers: {list}\n\
          - Tools exposed by each server appear in the tool catalog with the `mcp__<server>__<tool>` naming.\n\
+         - If a configured server's tool is absent, call `tool_search` once to attempt lazy discovery; follow its result instead of retrying automatically.\n\
          - `mcp_resource(server=..., action=\"list\"|\"read\")` — inspect files / records / documents the server hosts.\n\
          - `mcp_prompt(server=..., action=\"list\"|\"get\")` — use prompt templates the server publishes."
-    );
-    if !pending.is_empty() {
-        section.push_str(&format!(
-            "\n- Catalog pending for: {}. Call `tool_search` to connect lazy servers and discover their tools.",
-            pending.join(", ")
-        ));
-    }
-    Some(section)
+    ))
 }
 
 // ── Schema conversion ────────────────────────────────────────────

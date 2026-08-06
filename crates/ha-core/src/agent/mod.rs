@@ -4039,9 +4039,10 @@ impl AssistantAgent {
             prompt.push_str(plan_extra);
         }
         // Configured MCP servers advertise capabilities through a small
-        // appended section. Lazy catalog-pending servers remain visible so
-        // tool_search can bootstrap them; users with no effective MCP server
-        // keep the prompt shape unchanged.
+        // appended section. Its lazy-discovery instruction is conditional on
+        // tool absence rather than mutable pending state, so a mid-turn
+        // catalog refresh cannot make the turn-stable prompt stale. Users with
+        // no effective MCP server keep the prompt shape unchanged.
         let mcp_scope_allows_prompt = self
             .tool_scope
             .map(|scope| {
