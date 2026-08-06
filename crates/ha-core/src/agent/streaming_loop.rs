@@ -1060,6 +1060,14 @@ impl AssistantAgent {
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         let mut activated_tool_names = self.load_activated_tool_names();
+        // Track the exact atomic MCP catalog generation represented by the
+        // provider schemas. Detached catalog warm-up can publish between tool
+        // rounds, so per-tool before/after detection alone is insufficient.
+        let mut mcp_catalog_snapshot = crate::mcp::tool_definitions();
+        let mut keep_local_tool_search_for_turn = agent_caps.mcp_enabled
+            && app_config.mcp_global.enabled
+            && adapter.supports_native_tool_search()
+            && crate::mcp::has_pending_catalogs();
         let mut tool_inventory =
             self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
         activated_tool_names = tool_inventory.activated_names.clone();
@@ -1091,6 +1099,7 @@ impl AssistantAgent {
             // deferred inventory and can be rediscovered immediately.
             self.clear_tool_activations_after_summary();
             activated_tool_names.clear();
+            mcp_catalog_snapshot = crate::mcp::tool_definitions();
             tool_inventory = self.build_tool_inventory(adapter.tool_provider(), &[]);
             eager_tool_count = tool_inventory.eager_count;
             deferred_tool_count = tool_inventory.deferred_count;
@@ -1186,6 +1195,26 @@ impl AssistantAgent {
             }
             round_count = round + 1;
 
+            // A bounded catalog worker may finish after the meta-tool that
+            // launched it has already returned. Rebuild directly from the
+            // atomic generation at every round head so newly published direct
+            // and deferred MCP schemas cannot miss the next provider request.
+            let live_mcp_catalog = crate::mcp::tool_definitions();
+            if !Arc::ptr_eq(&mcp_catalog_snapshot, &live_mcp_catalog) {
+                mcp_catalog_snapshot = live_mcp_catalog;
+                tool_inventory =
+                    self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
+                activated_tool_names = tool_inventory.activated_names.clone();
+                eager_tool_count = tool_inventory.eager_count;
+                deferred_tool_count = tool_inventory.deferred_count;
+                deferred_tool_schemas = tool_inventory.deferred_schemas;
+                tool_schemas = tool_inventory.schemas;
+            }
+            keep_local_tool_search_for_turn |= agent_caps.mcp_enabled
+                && app_config.mcp_global.enabled
+                && adapter.supports_native_tool_search()
+                && crate::mcp::has_pending_catalogs();
+
             // Keep this session marked as "active" during long tool loops
             // so peer sessions see it in the registry.
             if let Some(ref sid) = self.session_id {
@@ -1205,6 +1234,7 @@ impl AssistantAgent {
             // Honors the externally-locked flag: spawn-supplied PlanAgent
             // child sessions (plan_subagent) skip the probe entirely.
             if self.maybe_resync_plan_mode_from_backend().await {
+                mcp_catalog_snapshot = crate::mcp::tool_definitions();
                 tool_inventory =
                     self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
                 activated_tool_names = tool_inventory.activated_names.clone();
@@ -1374,19 +1404,22 @@ impl AssistantAgent {
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
-            // Provider-native search replaces Hope's `tool_search`. Keep the
-            // local bootstrap tool until every effective MCP server has
-            // completed one catalog round; otherwise lazy MCP schemas can
-            // never enter the provider's deferred inventory.
-            let provider_deferred_tool_schemas: &[serde_json::Value] = if agent_caps.mcp_enabled
-                && app_config.mcp_global.enabled
-                && adapter.supports_native_tool_search()
-                && crate::mcp::has_pending_catalogs()
-            {
-                &[]
-            } else {
-                &deferred_tool_schemas
-            };
+            // Provider-native search replaces Hope's `tool_search`. Once this
+            // turn observes a pending MCP catalog, retain the local bootstrap
+            // tool for the rest of the turn; a detached worker may publish
+            // between request assembly and dispatch, and switching mid-turn
+            // would reopen a schema-free discovery window.
+            let provider_deferred_tool_schemas: &[serde_json::Value] =
+                if keep_local_tool_search_for_turn
+                    || (agent_caps.mcp_enabled
+                        && app_config.mcp_global.enabled
+                        && adapter.supports_native_tool_search()
+                        && crate::mcp::has_pending_catalogs())
+                {
+                    &[]
+                } else {
+                    &deferred_tool_schemas
+                };
 
             crate::eval_context::ensure_model_budget(self.session_id.as_deref())?;
             let eval_max_tokens =
@@ -1827,6 +1860,8 @@ impl AssistantAgent {
             // schema is present. Rebuild from the live-gated inventory now so
             // the very next API round can call it. Persist only names that
             // survived all current gates.
+            tool_schema_refresh_requested |=
+                !Arc::ptr_eq(&mcp_catalog_snapshot, &crate::mcp::tool_definitions());
             if !pending_tool_activations.is_empty() || tool_schema_refresh_requested {
                 let mut requested = activated_tool_names.clone();
                 for name in pending_tool_activations {
@@ -1834,6 +1869,7 @@ impl AssistantAgent {
                         requested.push(name);
                     }
                 }
+                mcp_catalog_snapshot = crate::mcp::tool_definitions();
                 tool_inventory = self.build_tool_inventory(adapter.tool_provider(), &requested);
                 let valid_new: Vec<String> = tool_inventory
                     .activated_names

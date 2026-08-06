@@ -25,6 +25,10 @@ use super::transport::{build_transport_for, ConnectedClient};
 /// A user can configure many MCP servers; the first `tool_search` must not
 /// spawn all stdio children or handshakes at once.
 const CATALOG_DISCOVERY_CONCURRENCY: usize = 4;
+/// Chat-facing discovery latency must not grow with the number of configured
+/// servers. Workers that outlive this aggregate deadline remain detached and
+/// continue publishing ready catalogs in the background.
+const CATALOG_DISCOVERY_WAIT_SECS: u64 = 30;
 
 /// One process-wide startup barrier. A failed eager handshake still completes
 /// the barrier: normal chat must not synchronously retry an unavailable MCP
@@ -77,38 +81,78 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
     }
 
     let handles: Vec<Arc<ServerHandle>> = manager.servers.read().await.values().cloned().collect();
-    stream::iter(handles)
-        .for_each_concurrent(CATALOG_DISCOVERY_CONCURRENCY, |handle| async move {
-            let cfg = handle.config.read().await.clone();
-            if eager_only && !cfg.eager {
-                return;
-            }
-            let should_connect = {
-                let state = handle.state.lock().await;
-                match &*state {
-                    ServerState::Idle | ServerState::Connecting => true,
-                    ServerState::Failed { retry_at, .. } => {
-                        chrono::Utc::now().timestamp() >= *retry_at
-                    }
-                    ServerState::Ready { .. }
-                    | ServerState::Disabled
-                    | ServerState::NeedsAuth { .. } => false,
+    let server_count = handles.len();
+    let worker = tokio::spawn(async move {
+        stream::iter(handles)
+            .for_each_concurrent(CATALOG_DISCOVERY_CONCURRENCY, |handle| async move {
+                let cfg = handle.config.read().await.clone();
+                if eager_only && !cfg.eager {
+                    return;
                 }
-            };
-            if !should_connect {
-                return;
-            }
-            if let Err(error) = ensure_connected(manager, handle).await {
-                ha_core::app_warn!(
-                    "mcp",
-                    &format!("{}:catalog_discovery", cfg.name),
-                    "MCP catalog discovery from {} failed: {}",
-                    source,
-                    error
-                );
-            }
-        })
-        .await;
+                let should_connect = {
+                    let state = handle.state.lock().await;
+                    match &*state {
+                        ServerState::Idle | ServerState::Connecting => true,
+                        ServerState::Failed { retry_at, .. } => {
+                            chrono::Utc::now().timestamp() >= *retry_at
+                        }
+                        ServerState::Ready { .. }
+                        | ServerState::Disabled
+                        | ServerState::NeedsAuth { .. } => false,
+                    }
+                };
+                if !should_connect {
+                    return;
+                }
+                if let Err(error) = ensure_connected(manager, handle).await {
+                    ha_core::app_warn!(
+                        "mcp",
+                        &format!("{}:catalog_discovery", cfg.name),
+                        "MCP catalog discovery from {} failed: {}",
+                        source,
+                        error
+                    );
+                }
+            })
+            .await;
+    });
+    match await_catalog_worker(
+        worker,
+        Duration::from_secs(CATALOG_DISCOVERY_WAIT_SECS),
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => ha_core::app_warn!(
+            "mcp",
+            "catalog_discovery_deadline",
+            "MCP catalog discovery from {} reached the aggregate {}s deadline across {} servers; ready catalogs remain available and unfinished work continues in background",
+            source,
+            CATALOG_DISCOVERY_WAIT_SECS,
+            server_count
+        ),
+        Err(error) => ha_core::app_warn!(
+            "mcp",
+            "catalog_discovery_worker",
+            "MCP catalog discovery worker from {} failed: {}",
+            source,
+            error
+        ),
+    }
+}
+
+/// `false` means the join handle was dropped at the deadline. Tokio detaches
+/// rather than aborts on `JoinHandle::drop`, so the bounded caller can return
+/// while the worker retains its per-server concurrency cap and finishes in the
+/// background.
+async fn await_catalog_worker(
+    worker: tokio::task::JoinHandle<()>,
+    deadline: Duration,
+) -> Result<bool, tokio::task::JoinError> {
+    match timeout(deadline, worker).await {
+        Ok(joined) => joined.map(|()| true),
+        Err(_) => Ok(false),
+    }
 }
 
 /// Idempotent "make sure this server is connected and has a catalog".
@@ -483,6 +527,7 @@ fn spawn_stderr_tailer(server_name: String, stderr: tokio::process::ChildStderr)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     fn sample_handle() -> ServerHandle {
         let config = serde_json::from_value(serde_json::json!({
@@ -507,5 +552,31 @@ mod tests {
             .expect_err("NeedsAuth must require an explicit owner action");
         assert!(error.to_string().contains("authorization required"));
         assert_eq!(handle.snapshot().await.state, "needsAuth");
+    }
+
+    #[tokio::test]
+    async fn aggregate_catalog_deadline_detaches_remaining_work() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_gate = gate.clone();
+        let worker_completed = completed.clone();
+        let worker = tokio::spawn(async move {
+            worker_gate.notified().await;
+            worker_completed.store(true, Ordering::Release);
+        });
+
+        let completed_in_time = await_catalog_worker(worker, Duration::from_millis(1))
+            .await
+            .unwrap();
+        assert!(!completed_in_time);
+
+        gate.notify_one();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !completed.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("detached catalog worker should keep running after the caller deadline");
     }
 }

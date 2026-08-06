@@ -17,8 +17,14 @@ pub use config::{
 };
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use crate::tool_defs::ToolDefinition;
+
+/// Preserve snapshot identity when ha-mcp is not wired. Callers use Arc
+/// identity as the catalog generation token; allocating a fresh empty Arc on
+/// every read would look like a catalog refresh after every tool call.
+static EMPTY_TOOL_DEFINITIONS: OnceLock<Arc<Vec<ToolDefinition>>> = OnceLock::new();
 
 /// settings 热更（`mcp_global` 类目）：从 config cache 重协调（含冷启
 /// 用）。未接线 `Ok(())` + `app_warn` 审计——设置写路径不因特征缺席硬
@@ -42,7 +48,9 @@ pub(crate) async fn reconcile_from_config_cache() -> anyhow::Result<()> {
 pub fn tool_definitions() -> Arc<Vec<ToolDefinition>> {
     match crate::mcp_hooks::mcp_hooks() {
         Some(hooks) => (hooks.tool_definitions)(),
-        None => Arc::new(Vec::new()),
+        None => EMPTY_TOOL_DEFINITIONS
+            .get_or_init(|| Arc::new(Vec::new()))
+            .clone(),
     }
 }
 
