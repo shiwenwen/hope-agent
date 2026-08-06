@@ -343,6 +343,10 @@ flowchart LR
 | Agent loader 初始化（git clone 默认模板） | [`agent_loader.rs`](../../../crates/ha-core/src/agent_loader.rs) |
 | 托盘（macOS 打开 URL / 通知） | [`src-tauri/src/tray.rs`](../../../src-tauri/src/tray.rs) |
 
+`exec` 转为后台进程会话时把创建它的聊天会话写入 `ProcessSession.parent_session_id`。模型 schema 只暴露 `process(list/poll/log/kill/clear/remove)`，并全部执行精确的 `parent_session_id == ToolExecContext.session_id` 校验：列表只枚举当前会话，带 id 的读取和控制对不存在、跨会话及 ownerless 行统一 fail closed，错误不得泄露真实 owner 或进程状态。尚未真正实现 stdin 的历史 `write` handler 只保留协议兼容，同样执行 owner 校验，但不向模型暴露。`runtime_cancel(kind=process)` 复用同一归属边界，校验后仍路由到 canonical process termination；它只有终止，没有 pause/resume。Owner/Stop 等受信任清理链继续使用其已捕获的精确运行身份，不通过模型提供的裸 id 扩权。
+
+`process(kill)` 与 `runtime_cancel(kind=process)` 的 `terminate_process_tree(pid)` 是 void best-effort 请求，不是退出证明：非终态会话没有 pid（包括部分 sandbox background 运行）时必须返回 `termination_unavailable` / 明确失败；有 pid 时只发送信号并重读 registry，调用方不得自行 `mark_exited` 或伪造 `Failed`。普通 exec waiter、PTY wait 或 sandbox 完成任务观察到真实退出后才写 terminal truth；在此之前返回 requested/pending 且不带 `finalStatus`，也不得提前 `mark_observed` 抑制稍后的真实完成投递，模型可用 `process(poll)` 主动确认。
+
 ### D3 · 一次性系统注册（不拉起进程，只落配置）
 
 `hope-agent server install` 把 [`platform/service.rs`](../../../crates/ha-base/src/platform/service.rs) 生成的 plist / unit 写入系统（`service_install` 是转发到 `platform::service` 的薄壳），由 launchd / systemd 真正去执行 `hope-agent server`：

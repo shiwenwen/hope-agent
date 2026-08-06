@@ -996,7 +996,7 @@
       "title": "Chrome 확장 프로그램이 필요합니다."
     },
     "conversationEmpty": "이 대화에는 메시지가 없습니다.",
-    "pendingCancelForceInsert": "이 라운드 삽입 취소",
+    "pendingCancelForceInsert": "답변 후 보내기로 변경",
     "pendingSaving": "저장 중",
     "pendingSavingTip": "메시지와 첨부 파일을 복구 가능한 대기열에 저장하고 있습니다.",
     "pendingInserting": "삽입 중",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "지금 보내기",
     "pendingFallbackAfterReply": "답장 후 보내기",
     "pendingFallbackAfterReplyTip": "도구 완료 지점이 발견되지 않았으며 현재 응답이 끝난 후에 전송됩니다.",
-    "pendingForceInsertTip": "실행 중인 도구가 완료될 때까지 기다렸다가 현재 도구를 중단하지 않고 모델에 삽입합니다.",
+    "pendingForceInsertTip": "이 배치에서 실행 중인 모든 도구가 완료된 후 모델에 삽입합니다. 도구를 중단하지 않으며, 이 턴에서 다음 도구 경계에 도달하지 않으면 답변이 끝난 후 전송됩니다.",
+    "pendingInsert": "삽입",
     "pendingInserted": "삽입됨",
     "pendingInsertedTip": "이 툴링 라운드가 완료된 후 모델에 삽입되었습니다.",
-    "pendingQueuedShort": "대기열",
+    "pendingHeldAfterStop": "전송 일시 중지됨",
+    "pendingHeldAfterStopTip": "현재 답변이 중지되어 이 메시지는 자동으로 전송되지 않습니다.",
+    "pendingMoreActions": "메시지 작업 더 보기",
+    "pendingQueuedShort": "답변 후 보내기",
     "pendingQueuedTip": "대기 대기열에 추가되었으며 현재 응답이 끝난 후 전송됩니다.",
     "pendingQueueTitle": "발송 예정",
-    "pendingWaitingToolBoundary": "도구 완료 지점을 기다립니다.",
-    "pendingWaitingToolBoundaryTip": "최신 도구 호출이 완료될 때까지 기다리십시오. 이번 라운드에서 도구가 더 이상 호출되지 않으면 응답이 완료된 후 전송됩니다.",
+    "pendingWaitingToolBoundary": "삽입 대기 중",
+    "pendingWaitingToolBoundaryTip": "이 배치에서 실행 중인 모든 도구가 완료될 때까지 기다린 후 삽입합니다. 이 턴에서 다음 도구 경계에 도달하지 않으면 답변이 끝난 후 전송됩니다.",
     "processNotification": "프로세스가 종료되었습니다",
     "rightPanel": {
       "collapse": "오른쪽 패널 접기",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "처리됨"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "Agent {{count}}개 종료",
+          "close_other": "Agent {{count}}개 종료",
+          "closeAll": "모든 Agent 종료",
+          "message_one": "Agent {{count}}개에 메시지 보내기",
+          "message_other": "Agent {{count}}개에 메시지 보내기",
+          "observe_one": "Agent {{count}}개 확인",
+          "observe_other": "Agent {{count}}개 확인",
+          "resume_one": "Agent {{count}}개 재개",
+          "resume_other": "Agent {{count}}개 재개"
+        },
+        "cron": {
+          "pause_one": "일정 {{count}}개 일시 중지",
+          "pause_other": "일정 {{count}}개 일시 중지",
+          "resume_one": "일정 {{count}}개 재개",
+          "resume_other": "일정 {{count}}개 재개"
+        },
+        "job": {
+          "cancel_one": "작업 {{count}}개 취소",
+          "cancel_other": "작업 {{count}}개 취소"
+        },
+        "process": {
+          "close_one": "프로세스 {{count}}개 종료",
+          "close_other": "프로세스 {{count}}개 종료"
+        },
+        "team": {
+          "pause_one": "팀 {{count}}개 일시 중지",
+          "pause_other": "팀 {{count}}개 일시 중지",
+          "resume_one": "팀 {{count}}개 재개",
+          "resume_other": "팀 {{count}}개 재개"
+        },
+        "workflow": {
+          "cancel_one": "워크플로 {{count}}개 취소",
+          "cancel_other": "워크플로 {{count}}개 취소",
+          "pause_one": "워크플로 {{count}}개 일시 중지",
+          "pause_other": "워크플로 {{count}}개 일시 중지",
+          "resume_one": "워크플로 {{count}}개 재개",
+          "resume_other": "워크플로 {{count}}개 재개"
+        }
+      },
+      "aggregate": {
+        "failed_one": "실패 {{count}}개",
+        "failed_other": "실패 {{count}}개",
+        "pending_one": "대기 {{count}}개",
+        "pending_other": "대기 {{count}}개",
+        "refused_one": "거부 {{count}}개",
+        "refused_other": "거부 {{count}}개",
+        "requested_one": "종료 요청 {{count}}개",
+        "requested_other": "종료 요청 {{count}}개",
+        "resumed_one": "재개 {{count}}개",
+        "resumed_other": "재개 {{count}}개",
+        "terminal_one": "종료 {{count}}개",
+        "terminal_other": "종료 {{count}}개"
+      },
+      "allTargets": "모든 Agent",
+      "badge": {
+        "alreadyTerminal_one": "{{count}}개 이미 종료됨",
+        "alreadyTerminal_other": "{{count}}개 이미 종료됨",
+        "refused_one": "{{count}}개 거부됨",
+        "refused_other": "{{count}}개 거부됨"
+      },
+      "failureDetails": "재개 실패",
+      "state": {
+        "accepted": "요청됨 · {{action}}",
+        "alreadyTerminal_one": "대상 {{count}}개가 이미 종료됨",
+        "alreadyTerminal_other": "대상 {{count}}개가 이미 종료됨",
+        "completed": "완료 · {{action}}",
+        "failed": "실패 · {{action}}",
+        "noAgentsToClose": "종료할 Agent가 없습니다",
+        "noResumeNeeded": "팀 완료됨 · 재개 불필요",
+        "partial": "부분 완료 · {{action}}",
+        "refused": "거부됨 · {{action}}",
+        "running": "진행 중 · {{action}}"
+      }
     },
     "skill": {
       "completed": "로드된 스킬: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "일시정지됨",
     "progress": "진행",
     "resume": "재개",
+    "resumeFeedback": {
+      "counts": "{{resumed}}개 재개 · {{failed}}개 실패",
+      "noOpDescription": "모든 팀원이 이미 완료되어 새 시도를 시작하지 않았습니다.",
+      "noOpTitle": "재개할 필요 없음",
+      "partialTitle": "팀이 부분적으로 재개됨",
+      "refusedTitle": "팀 재개가 거부됨",
+      "resumedTitle": "팀 재개됨",
+      "resuming": "재개 중…"
+    },
     "review": "검토",
     "reviewer": "검토자",
     "send": "보내기",

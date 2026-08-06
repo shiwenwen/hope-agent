@@ -996,7 +996,7 @@
       "title": "Sambungan Chrome diperlukan"
     },
     "conversationEmpty": "Tiada mesej dalam perbualan ini",
-    "pendingCancelForceInsert": "Batalkan sisipan pusingan ini",
+    "pendingCancelForceInsert": "Tukar kepada hantar selepas balasan",
     "pendingSaving": "Menyimpan",
     "pendingSavingTip": "Menyimpan mesej dan lampiran ke baris gilir yang boleh dipulihkan.",
     "pendingInserting": "Menyisip",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "Hantar sekarang",
     "pendingFallbackAfterReply": "Hantar selepas balasan",
     "pendingFallbackAfterReplyTip": "Titik penyelesaian alat belum ditemui dan akan dihantar selepas balasan semasa tamat.",
-    "pendingForceInsertTip": "Ia akan menunggu sehingga alat yang sedang dilaksanakan selesai dan kemudian memasukkannya ke dalam model tanpa mengganggu alat semasa.",
+    "pendingForceInsertTip": "Masukkan kepada model selepas semua alat yang sedang berjalan dalam kelompok ini selesai, tanpa mengganggu alat tersebut; jika pusingan ini tidak mencapai sempadan alat seterusnya, mesej akan dihantar selepas balasan.",
+    "pendingInsert": "Sisip",
     "pendingInserted": "dimasukkan",
     "pendingInsertedTip": "Ia telah dimasukkan ke dalam model selepas pusingan alatan ini selesai.",
-    "pendingQueuedShort": "Beratur",
+    "pendingHeldAfterStop": "Penghantaran dijeda",
+    "pendingHeldAfterStopTip": "Balasan semasa telah dihentikan, jadi mesej ini tidak akan dihantar secara automatik.",
+    "pendingMoreActions": "Lagi tindakan mesej",
+    "pendingQueuedShort": "Hantar selepas balasan",
     "pendingQueuedTip": "Ia telah ditambahkan pada baris gilir menunggu dan akan dihantar selepas balasan semasa tamat.",
     "pendingQueueTitle": "Untuk dihantar",
-    "pendingWaitingToolBoundary": "Tunggu titik penyiapan alat",
-    "pendingWaitingToolBoundaryTip": "Tunggu panggilan alat terkini selesai; jika alat itu tidak lagi dipanggil pusingan ini, ia akan dihantar selepas balasan selesai.",
+    "pendingWaitingToolBoundary": "Menunggu untuk disisip",
+    "pendingWaitingToolBoundaryTip": "Menunggu semua alat yang sedang berjalan dalam kelompok ini selesai sebelum disisip; jika pusingan ini tidak mencapai sempadan alat seterusnya, mesej akan dihantar selepas balasan.",
     "processNotification": "proses tamat",
     "rightPanel": {
       "collapse": "Runtuhkan panel kanan",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "Diproses"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "tutup {{count}} Agent",
+          "close_other": "tutup {{count}} Agent",
+          "closeAll": "tutup semua Agent",
+          "message_one": "hantar mesej kepada {{count}} Agent",
+          "message_other": "hantar mesej kepada {{count}} Agent",
+          "observe_one": "semak {{count}} Agent",
+          "observe_other": "semak {{count}} Agent",
+          "resume_one": "sambung semula {{count}} Agent",
+          "resume_other": "sambung semula {{count}} Agent"
+        },
+        "cron": {
+          "pause_one": "jeda {{count}} jadual",
+          "pause_other": "jeda {{count}} jadual",
+          "resume_one": "sambung semula {{count}} jadual",
+          "resume_other": "sambung semula {{count}} jadual"
+        },
+        "job": {
+          "cancel_one": "batalkan {{count}} tugas",
+          "cancel_other": "batalkan {{count}} tugas"
+        },
+        "process": {
+          "close_one": "tutup {{count}} proses",
+          "close_other": "tutup {{count}} proses"
+        },
+        "team": {
+          "pause_one": "jeda {{count}} pasukan",
+          "pause_other": "jeda {{count}} pasukan",
+          "resume_one": "sambung semula {{count}} pasukan",
+          "resume_other": "sambung semula {{count}} pasukan"
+        },
+        "workflow": {
+          "cancel_one": "batalkan {{count}} aliran kerja",
+          "cancel_other": "batalkan {{count}} aliran kerja",
+          "pause_one": "jeda {{count}} aliran kerja",
+          "pause_other": "jeda {{count}} aliran kerja",
+          "resume_one": "sambung semula {{count}} aliran kerja",
+          "resume_other": "sambung semula {{count}} aliran kerja"
+        }
+      },
+      "aggregate": {
+        "failed_one": "{{count}} gagal",
+        "failed_other": "{{count}} gagal",
+        "pending_one": "{{count}} belum selesai",
+        "pending_other": "{{count}} belum selesai",
+        "refused_one": "{{count}} ditolak",
+        "refused_other": "{{count}} ditolak",
+        "requested_one": "{{count}} diminta",
+        "requested_other": "{{count}} diminta",
+        "resumed_one": "{{count}} disambung semula",
+        "resumed_other": "{{count}} disambung semula",
+        "terminal_one": "{{count}} tamat",
+        "terminal_other": "{{count}} tamat"
+      },
+      "allTargets": "Semua Agent",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} sudah tamat",
+        "alreadyTerminal_other": "{{count}} sudah tamat",
+        "refused_one": "{{count}} ditolak",
+        "refused_other": "{{count}} ditolak"
+      },
+      "failureDetails": "Kegagalan sambung semula",
+      "state": {
+        "accepted": "Diminta · {{action}}",
+        "alreadyTerminal_one": "{{count}} sasaran telah tamat sebelum ini",
+        "alreadyTerminal_other": "{{count}} sasaran telah tamat sebelum ini",
+        "completed": "Selesai · {{action}}",
+        "failed": "Gagal · {{action}}",
+        "noAgentsToClose": "Tiada Agent yang perlu ditutup",
+        "noResumeNeeded": "Pasukan sudah selesai · tidak perlu sambung semula",
+        "partial": "Separa selesai · {{action}}",
+        "refused": "Ditolak · {{action}}",
+        "running": "Sedang berjalan · {{action}}"
+      }
     },
     "skill": {
       "completed": "Kemahiran dimuatkan: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "Dijeda",
     "progress": "Kemajuan",
     "resume": "Sambung",
+    "resumeFeedback": {
+      "counts": "{{resumed}} disambung semula · {{failed}} gagal",
+      "noOpDescription": "Semua ahli pasukan sudah selesai; tiada percubaan baharu dimulakan.",
+      "noOpTitle": "Tidak perlu sambung semula",
+      "partialTitle": "Pasukan disambung semula sebahagian",
+      "refusedTitle": "Sambung semula pasukan ditolak",
+      "resumedTitle": "Pasukan disambung semula",
+      "resuming": "Menyambung semula…"
+    },
     "review": "Semakan",
     "reviewer": "Penyemak",
     "send": "Hantar",

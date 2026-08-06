@@ -29,9 +29,26 @@ impl RuntimeTaskKind {
 pub struct CancelRuntimeTaskResult {
     pub kind: RuntimeTaskKind,
     pub id: String,
+    /// Whether the canonical runtime accepted a cancellation request. This is
+    /// deliberately separate from `final_status`: an accepted best-effort
+    /// request does not prove that the target reached a terminal state.
     pub accepted: bool,
+    pub disposition: RuntimeCancelDisposition,
+    /// Latest observed target status. Refusals use the stable value `refused`
+    /// and carry their machine-readable reason separately.
     pub status: String,
+    pub reason: Option<String>,
+    /// Present only when this call confirmed a terminal target state.
+    pub final_status: Option<String>,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeCancelDisposition {
+    Requested,
+    AlreadyTerminal,
+    Refused,
 }
 
 /// Exact runtime identities captured while a stopped session is still gated.
@@ -63,18 +80,59 @@ fn extend_snapshot_source(
 }
 
 impl CancelRuntimeTaskResult {
-    fn new(
+    pub(crate) fn requested(
         kind: RuntimeTaskKind,
         id: &str,
-        accepted: bool,
+        status: impl Into<String>,
+        terminal: bool,
+        message: impl Into<String>,
+    ) -> Self {
+        let status = status.into();
+        Self {
+            kind,
+            id: id.to_string(),
+            accepted: true,
+            disposition: RuntimeCancelDisposition::Requested,
+            final_status: terminal.then(|| status.clone()),
+            status,
+            reason: None,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn already_terminal(
+        kind: RuntimeTaskKind,
+        id: &str,
+        status: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        let status = status.into();
+        Self {
+            kind,
+            id: id.to_string(),
+            accepted: false,
+            disposition: RuntimeCancelDisposition::AlreadyTerminal,
+            final_status: Some(status.clone()),
+            status,
+            reason: None,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn refused(
+        kind: RuntimeTaskKind,
+        id: &str,
         status: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
         Self {
             kind,
             id: id.to_string(),
-            accepted,
-            status: status.into(),
+            accepted: false,
+            disposition: RuntimeCancelDisposition::Refused,
+            status: "refused".to_string(),
+            reason: Some(status.into()),
+            final_status: None,
             message: message.into(),
         }
     }
@@ -343,10 +401,9 @@ where
                     id,
                     message
                 );
-                CancelRuntimeTaskResult::new(
+                CancelRuntimeTaskResult::refused(
                     kind,
                     &id,
-                    false,
                     "error",
                     format!("Runtime task cancellation failed: {message}"),
                 )
@@ -361,10 +418,9 @@ where
                     id,
                     message
                 );
-                CancelRuntimeTaskResult::new(
+                CancelRuntimeTaskResult::refused(
                     kind,
                     &id,
-                    false,
                     "error",
                     format!("Runtime task cancellation task failed: {message}"),
                 )
@@ -374,47 +430,46 @@ where
 }
 
 fn cancel_async_job(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
-    let Some(db) = crate::async_jobs::get_async_jobs_db() else {
-        return Ok(CancelRuntimeTaskResult::new(
+    let outcome = crate::async_jobs::JobManager::cancel_with_outcome(id)?;
+    match outcome.disposition {
+        crate::async_jobs::JobCancelDisposition::Requested => {
+            let (status, terminal) = outcome
+                .job
+                .as_ref()
+                .map(|job| (job.status.as_str(), job.status.is_terminal()))
+                .unwrap_or(("cancelling", false));
+            Ok(CancelRuntimeTaskResult::requested(
+                RuntimeTaskKind::AsyncJob,
+                id,
+                status,
+                terminal,
+                if terminal {
+                    "Async job cancellation was requested and a terminal state is now observed"
+                } else {
+                    "Async job cancellation requested; terminal state is pending"
+                },
+            ))
+        }
+        crate::async_jobs::JobCancelDisposition::AlreadyTerminal => {
+            let job = outcome
+                .job
+                .expect("already-terminal cancellation outcome carries its snapshot");
+            Ok(CancelRuntimeTaskResult::already_terminal(
+                RuntimeTaskKind::AsyncJob,
+                id,
+                job.status.as_str(),
+                "Async job is already in a terminal state",
+            ))
+        }
+        crate::async_jobs::JobCancelDisposition::Refused => Ok(CancelRuntimeTaskResult::refused(
             RuntimeTaskKind::AsyncJob,
             id,
-            false,
-            "not_found",
-            "Async jobs DB unavailable",
-        ));
-    };
-    let Some(before) = db.load(id)? else {
-        return Ok(CancelRuntimeTaskResult::new(
-            RuntimeTaskKind::AsyncJob,
-            id,
-            false,
-            "not_found",
-            "Async job not found",
-        ));
-    };
-    if before.status.is_terminal() {
-        return Ok(CancelRuntimeTaskResult::new(
-            RuntimeTaskKind::AsyncJob,
-            id,
-            false,
-            before.status.as_str(),
-            "Async job is already in a terminal state",
-        ));
-    }
-    match crate::async_jobs::JobManager::cancel(id)? {
-        Some(job) => Ok(CancelRuntimeTaskResult::new(
-            RuntimeTaskKind::AsyncJob,
-            id,
-            true,
-            job.status.as_str(),
-            "Async job cancellation requested",
-        )),
-        None => Ok(CancelRuntimeTaskResult::new(
-            RuntimeTaskKind::AsyncJob,
-            id,
-            false,
-            "not_found",
-            "Async job not found",
+            outcome.reason.unwrap_or("not_found"),
+            if outcome.reason == Some("jobs_db_unavailable") {
+                "Async jobs DB unavailable"
+            } else {
+                "Async job not found"
+            },
         )),
     }
 }
@@ -422,19 +477,17 @@ fn cancel_async_job(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
 fn cancel_subagent(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
     let db = crate::get_session_db().ok_or_else(|| anyhow::anyhow!("Session DB unavailable"))?;
     let Some(run) = db.get_subagent_run(id)? else {
-        return Ok(CancelRuntimeTaskResult::new(
+        return Ok(CancelRuntimeTaskResult::refused(
             RuntimeTaskKind::Subagent,
             id,
-            false,
             "not_found",
             "Sub-agent run not found",
         ));
     };
     if run.status.is_terminal() {
-        return Ok(CancelRuntimeTaskResult::new(
+        return Ok(CancelRuntimeTaskResult::already_terminal(
             RuntimeTaskKind::Subagent,
             id,
-            false,
             run.status.as_str(),
             "Sub-agent is already in a terminal state",
         ));
@@ -443,84 +496,150 @@ fn cancel_subagent(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
     // This is the only cancellation entry that atomically claims parked runs,
     // reuses the running token, and synchronizes the background projection.
     let accepted = crate::subagent::request_cancel_run(id);
-    Ok(CancelRuntimeTaskResult::new(
+    let observed = db.get_subagent_run(id)?.unwrap_or(run);
+    if accepted {
+        return Ok(CancelRuntimeTaskResult::requested(
+            RuntimeTaskKind::Subagent,
+            id,
+            observed.status.as_str(),
+            observed.status.is_terminal(),
+            if observed.status.is_terminal() {
+                "Sub-agent cancellation completed"
+            } else {
+                "Sub-agent cancellation requested; terminal state is pending"
+            },
+        ));
+    }
+    if observed.status.is_terminal() {
+        return Ok(CancelRuntimeTaskResult::already_terminal(
+            RuntimeTaskKind::Subagent,
+            id,
+            observed.status.as_str(),
+            "Sub-agent reached a terminal state before cancellation was accepted",
+        ));
+    }
+    Ok(CancelRuntimeTaskResult::refused(
         RuntimeTaskKind::Subagent,
         id,
-        accepted,
-        if accepted {
-            "killed"
-        } else {
-            run.status.as_str()
-        },
-        if accepted {
-            "Sub-agent cancellation requested"
-        } else {
-            "Sub-agent is no longer active"
-        },
+        observed.status.as_str(),
+        "Sub-agent cancellation was not accepted",
     ))
 }
 
 async fn cancel_process(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
-    use crate::process_registry::{get_registry, ProcessStatus};
+    use crate::process_registry::get_registry;
 
-    crate::process_notification::mark_observed(id);
     let session = {
         let registry = get_registry().lock().await;
         registry.get_session(id).cloned()
     };
+    let pid = match process_cancel_preflight(id, session.as_ref()) {
+        ProcessCancelPreflight::Terminate(pid) => pid,
+        ProcessCancelPreflight::Return(result) => {
+            if result.disposition == RuntimeCancelDisposition::AlreadyTerminal {
+                crate::process_notification::mark_observed(id);
+            }
+            return Ok(result);
+        }
+    };
+
+    crate::blocking::run_blocking(move || crate::platform::terminate_process_tree(pid)).await;
+
+    // `terminate_process_tree` is deliberately a void best-effort platform
+    // primitive. It cannot prove signal delivery or process exit, so this
+    // caller must never stamp a synthetic terminal row. The exec/PTY/sandbox
+    // waiter owns `mark_exited`; re-read only what that authoritative producer
+    // has observed so far.
+    let observed = {
+        let registry = get_registry().lock().await;
+        registry.get_session(id).cloned()
+    };
+    if observed.as_ref().is_some_and(|session| session.exited) {
+        crate::process_notification::mark_observed(id);
+    }
+    Ok(process_cancel_result_after_request(id, observed.as_ref()))
+}
+
+enum ProcessCancelPreflight {
+    Terminate(u32),
+    Return(CancelRuntimeTaskResult),
+}
+
+fn process_cancel_preflight(
+    id: &str,
+    session: Option<&crate::process_registry::ProcessSession>,
+) -> ProcessCancelPreflight {
     let Some(session) = session else {
-        return Ok(CancelRuntimeTaskResult::new(
+        return ProcessCancelPreflight::Return(CancelRuntimeTaskResult::refused(
             RuntimeTaskKind::Process,
             id,
-            false,
             "not_found",
             "Process session not found",
         ));
     };
     if session.exited {
-        return Ok(CancelRuntimeTaskResult::new(
+        return ProcessCancelPreflight::Return(CancelRuntimeTaskResult::already_terminal(
             RuntimeTaskKind::Process,
             id,
-            false,
             session.status.to_string(),
             "Process session has already exited",
         ));
     }
-    if let Some(pid) = session.pid {
-        crate::blocking::run_blocking(move || crate::platform::terminate_process_tree(pid)).await;
-    }
-    let mut registry = get_registry().lock().await;
-    registry.mark_exited(id, None, Some("SIGKILL".to_string()), ProcessStatus::Failed);
-    Ok(CancelRuntimeTaskResult::new(
+    let Some(pid) = session.pid else {
+        return ProcessCancelPreflight::Return(CancelRuntimeTaskResult::refused(
+            RuntimeTaskKind::Process,
+            id,
+            "termination_unavailable",
+            "Process termination could not be requested because no process id is available",
+        ));
+    };
+    ProcessCancelPreflight::Terminate(pid)
+}
+
+fn process_cancel_result_after_request(
+    id: &str,
+    observed: Option<&crate::process_registry::ProcessSession>,
+) -> CancelRuntimeTaskResult {
+    let Some(observed) = observed else {
+        return CancelRuntimeTaskResult::requested(
+            RuntimeTaskKind::Process,
+            id,
+            "termination_requested",
+            false,
+            "Process termination was requested, but the registry row disappeared before a terminal state could be confirmed",
+        );
+    };
+    CancelRuntimeTaskResult::requested(
         RuntimeTaskKind::Process,
         id,
-        true,
-        "killed",
-        "Process session terminated",
-    ))
+        observed.status.to_string(),
+        observed.exited,
+        if observed.exited {
+            "Process termination was requested; the registry now records a terminal state"
+        } else {
+            "Process termination was requested; terminal state is pending"
+        },
+    )
 }
 
 fn cancel_cron(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
     match crate::cron_hooks::cancel_running_job(id)? {
-        Some(cancelled) => Ok(CancelRuntimeTaskResult::new(
+        Some(true) => Ok(CancelRuntimeTaskResult::requested(
             RuntimeTaskKind::Cron,
             id,
-            cancelled,
-            if cancelled {
-                "cancelling"
-            } else {
-                "not_running"
-            },
-            if cancelled {
-                "Cron run cancellation requested"
-            } else {
-                "Cron job is not currently running"
-            },
-        )),
-        None => Ok(CancelRuntimeTaskResult::new(
-            RuntimeTaskKind::Cron,
-            id,
+            "cancelling",
             false,
+            "Cron run cancellation requested; terminal state is pending",
+        )),
+        Some(false) => Ok(CancelRuntimeTaskResult::refused(
+            RuntimeTaskKind::Cron,
+            id,
+            "not_running",
+            "Cron job is not currently running",
+        )),
+        None => Ok(CancelRuntimeTaskResult::refused(
+            RuntimeTaskKind::Cron,
+            id,
             "not_found",
             "Cron job not found",
         )),
@@ -531,6 +650,107 @@ fn cancel_cron(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    fn completed_process_session() -> crate::process_registry::ProcessSession {
+        crate::process_registry::ProcessSession {
+            id: "proc-race".to_string(),
+            parent_session_id: Some("owner-session".to_string()),
+            command: "true".to_string(),
+            pid: Some(42),
+            cwd: ".".to_string(),
+            started_at: 1,
+            exited: true,
+            exit_code: Some(0),
+            exit_signal: None,
+            status: crate::process_registry::ProcessStatus::Completed,
+            backgrounded: true,
+            aggregated_output: String::new(),
+            tail: String::new(),
+            truncated: false,
+            max_output_chars: 1024,
+            pending_stdout: String::new(),
+            pending_stderr: String::new(),
+        }
+    }
+
+    #[test]
+    fn cancel_result_wire_separates_request_from_confirmed_terminal_state() {
+        let requested = CancelRuntimeTaskResult::requested(
+            RuntimeTaskKind::AsyncJob,
+            "job-1",
+            "cancelling",
+            false,
+            "pending",
+        );
+        let requested = serde_json::to_value(requested).expect("serialize requested result");
+        assert_eq!(requested["disposition"], "requested");
+        assert_eq!(requested["accepted"], true);
+        assert!(requested["finalStatus"].is_null());
+        assert!(requested.get("final_status").is_none());
+
+        let terminal = CancelRuntimeTaskResult::already_terminal(
+            RuntimeTaskKind::AsyncJob,
+            "job-1",
+            "completed",
+            "already done",
+        );
+        let terminal = serde_json::to_value(terminal).expect("serialize terminal result");
+        assert_eq!(terminal["disposition"], "already_terminal");
+        assert_eq!(terminal["finalStatus"], "completed");
+    }
+
+    #[test]
+    fn process_cancel_race_preserves_natural_completion_truth() {
+        // Simulates the waiter winning while terminate_process_tree runs outside
+        // the registry lock. The cancellation request was made, but the latest
+        // authoritative terminal state is Completed, not a fabricated Failed.
+        let completed = completed_process_session();
+        let result = process_cancel_result_after_request("proc-race", Some(&completed));
+        assert_eq!(result.disposition, RuntimeCancelDisposition::Requested);
+        assert!(result.accepted);
+        assert_eq!(result.status, "completed");
+        assert_eq!(result.final_status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn process_cancel_without_pid_is_refused_without_claiming_a_request() {
+        let mut running = completed_process_session();
+        running.exited = false;
+        running.exit_code = None;
+        running.status = crate::process_registry::ProcessStatus::Running;
+        running.pid = None;
+
+        let ProcessCancelPreflight::Return(result) =
+            process_cancel_preflight("proc-race", Some(&running))
+        else {
+            panic!("pid-less process must not enter the terminate path");
+        };
+        assert_eq!(result.disposition, RuntimeCancelDisposition::Refused);
+        assert!(!result.accepted);
+        assert_eq!(result.reason.as_deref(), Some("termination_unavailable"));
+        assert!(result.final_status.is_none());
+    }
+
+    #[test]
+    fn process_cancel_request_stays_pending_until_waiter_records_exit() {
+        let mut running = completed_process_session();
+        running.exited = false;
+        running.exit_code = None;
+        running.status = crate::process_registry::ProcessStatus::Running;
+
+        let ProcessCancelPreflight::Terminate(pid) =
+            process_cancel_preflight("proc-race", Some(&running))
+        else {
+            panic!("running process with a pid must enter the terminate path");
+        };
+        assert_eq!(pid, 42);
+
+        let result = process_cancel_result_after_request("proc-race", Some(&running));
+        assert_eq!(result.disposition, RuntimeCancelDisposition::Requested);
+        assert!(result.accepted);
+        assert_eq!(result.status, "running");
+        assert!(result.final_status.is_none());
+    }
 
     #[test]
     fn snapshot_collection_continues_after_source_failure() {
@@ -569,11 +789,11 @@ mod tests {
                 if id == "fails" {
                     anyhow::bail!("transient cancellation failure");
                 }
-                Ok(CancelRuntimeTaskResult::new(
+                Ok(CancelRuntimeTaskResult::requested(
                     kind,
                     &id,
-                    true,
                     "killed",
+                    true,
                     "cancelled",
                 ))
             }
@@ -584,7 +804,8 @@ mod tests {
         calls.sort();
         assert_eq!(calls, ["continues", "fails"]);
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].status, "error");
+        assert_eq!(results[0].status, "refused");
+        assert_eq!(results[0].reason.as_deref(), Some("error"));
         assert!(!results[0].accepted);
         assert_eq!(results[1].status, "killed");
         assert!(results[1].accepted);
@@ -614,11 +835,11 @@ mod tests {
                     } else {
                         later_started.notify_one();
                     }
-                    Ok(CancelRuntimeTaskResult::new(
+                    Ok(CancelRuntimeTaskResult::requested(
                         kind,
                         &id,
-                        true,
                         "cancelled",
+                        true,
                         "cancelled",
                     ))
                 }

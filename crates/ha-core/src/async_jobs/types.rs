@@ -184,6 +184,60 @@ pub struct BackgroundJob {
     pub cancel_requested: bool,
 }
 
+/// Authoritative result of one background-job cancellation attempt.
+///
+/// Callers must use this disposition instead of inferring whether a request was
+/// sent from a before/after snapshot. A job can settle naturally between those
+/// snapshots, so status alone cannot answer that question without a race.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobCancelDisposition {
+    /// The job was non-terminal when the canonical cancel path claimed the
+    /// attempt and issued its durable/in-process cancellation signals.
+    Requested,
+    /// The canonical cancel path observed a terminal row before issuing any
+    /// cancellation signal.
+    AlreadyTerminal,
+    /// No controlled job could be targeted (for example, DB unavailable or an
+    /// unknown id), so no cancellation signal was issued.
+    Refused,
+}
+
+/// Cancellation disposition plus the latest row snapshot, when one still
+/// exists. The row may disappear concurrently during session purge, but the
+/// disposition remains authoritative for whether this call issued a request.
+#[derive(Debug, Clone)]
+pub struct JobCancelOutcome {
+    pub disposition: JobCancelDisposition,
+    pub job: Option<BackgroundJob>,
+    pub reason: Option<&'static str>,
+}
+
+impl JobCancelOutcome {
+    pub fn requested(job: Option<BackgroundJob>) -> Self {
+        Self {
+            disposition: JobCancelDisposition::Requested,
+            job,
+            reason: None,
+        }
+    }
+
+    pub fn already_terminal(job: BackgroundJob) -> Self {
+        Self {
+            disposition: JobCancelDisposition::AlreadyTerminal,
+            job: Some(job),
+            reason: None,
+        }
+    }
+
+    pub fn refused(reason: &'static str) -> Self {
+        Self {
+            disposition: JobCancelDisposition::Refused,
+            job: None,
+            reason: Some(reason),
+        }
+    }
+}
+
 /// Owner-plane snapshot of a background job for the R4 frontend panel
 /// (`list_background_jobs` / `get_background_job`). Distinct from the
 /// model-facing `job_status` JSON: this is camelCase, display-oriented, and

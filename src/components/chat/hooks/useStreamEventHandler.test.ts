@@ -290,6 +290,42 @@ describe("handleStreamEvent context compaction notices", () => {
 })
 
 describe("handleStreamEvent model recovery notices", () => {
+  test("normalizes live model fallback events with the durable event contract", () => {
+    const messagesRef: { current: Message[] } = {
+      current: [
+        { role: "user", content: "continue" },
+        { role: "assistant", content: "" },
+      ],
+    }
+    const deps = createDeps(messagesRef)
+
+    handleStreamEvent(
+      {
+        type: "model_fallback",
+        from_model: "Codex / gpt-5.6",
+        to_model: "OpenAI / gpt-5.4",
+        reason: "auth_error",
+        error: "token expired",
+        attempt: "2",
+        total: 3,
+      },
+      "s1",
+      deps,
+    )
+
+    expect(messagesRef.current.at(-1)?.fallbackEvent).toEqual({
+      type: "model_fallback",
+      model: "OpenAI / gpt-5.4",
+      from_model: "Codex / gpt-5.6",
+      reason: "auth_error",
+      error: "token expired",
+      attempt: 2,
+      total: 3,
+      provider_id: undefined,
+      model_id: undefined,
+    })
+  })
+
   test("shows every retry before the assistant placeholder", () => {
     const messagesRef = {
       current: [

@@ -1,14 +1,42 @@
-use anyhow::Result;
-use std::sync::Arc;
-
 use super::events::emit_team_event;
 use super::types::*;
 use crate::session::SessionDB;
 use crate::subagent::SUBAGENT_MAILBOX;
+use anyhow::Result;
+use std::sync::Arc;
+
+/// Session-scoped model-plane message entry. Authorization and persistence are
+/// one typed DB transaction; mailbox delivery uses the live run-id snapshot
+/// returned by that transaction.
+pub async fn send_message_as_session(
+    db: &Arc<SessionDB>,
+    team_id: &str,
+    session_id: &str,
+    to: Option<&str>,
+    content: &str,
+) -> Result<TeamMessage> {
+    let (msg, sender_name, recipient_runs) = {
+        let db = db.clone();
+        let team_id = team_id.to_string();
+        let session_id = session_id.to_string();
+        let to = to.map(str::to_string);
+        let content = content.to_string();
+        db.run(move |db| {
+            db.insert_authorized_team_message(&team_id, &session_id, to.as_deref(), &content)
+        })
+        .await?
+    };
+    let formatted = format!("[Team msg from {}]: {}", sender_name, content);
+    for run_id in recipient_runs {
+        SUBAGENT_MAILBOX.push(&run_id, formatted.clone());
+    }
+    emit_team_event("message", &msg);
+    Ok(msg)
+}
 
 /// Send a message from one team member to another (or broadcast).
 pub fn send_message(
-    db: &Arc<SessionDB>,
+    db: &SessionDB,
     team_id: &str,
     from_member_id: &str,
     to: Option<&str>, // None or "*" = broadcast
@@ -73,11 +101,7 @@ pub fn send_message(
 }
 
 /// Post a system message (e.g., "Task #2 completed by Backend").
-pub fn post_system_message(
-    db: &Arc<SessionDB>,
-    team_id: &str,
-    content: &str,
-) -> Result<TeamMessage> {
+pub fn post_system_message(db: &SessionDB, team_id: &str, content: &str) -> Result<TeamMessage> {
     send_message(
         db,
         team_id,

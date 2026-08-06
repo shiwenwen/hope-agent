@@ -265,7 +265,10 @@ pub(crate) use helpers::replay_pending_parent_deliveries;
 pub use helpers::{cleanup_orphan_runs, mark_run_fetched, take_runs_fetched};
 pub use mailbox::{ChatSessionGuard, SubagentMailboxMessage, SUBAGENT_MAILBOX};
 pub(crate) use mention::resolve_inline_agent_mentions;
-pub(crate) use spawn::spawn_subagent_with_run_id;
+pub(crate) use spawn::{
+    discard_prepared_subagent, launch_prepared_subagent, prepare_subagent,
+    spawn_subagent_with_run_id, TeamMemberLaunchFence,
+};
 pub use spawn::{resume_subagent, spawn_subagent, HOOK_SPAWN_LABEL};
 pub use types::{
     SpawnParams, SubagentDeliveryKind, SubagentOwnerKind, SubagentRun, SubagentStatus,

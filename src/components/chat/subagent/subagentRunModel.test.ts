@@ -59,7 +59,7 @@ describe("extractSubagentChipItems", () => {
     ])
   })
 
-  test("resume result → one resolved item for the fresh run and actual child agent", () => {
+  test("resume is rendered as a runtime activity rather than a spawn chip", () => {
     const items = extractSubagentChipItems(
       tool({
         callId: "c-resume",
@@ -67,19 +67,10 @@ describe("extractSubagentChipItems", () => {
         result: JSON.stringify({ run_id: "r-new", child_agent_id: "researcher" }),
       }),
     )
-    expect(items).toEqual([
-      {
-        kind: "resolved",
-        key: "c-resume",
-        runId: "r-new",
-        agentId: "researcher",
-        task: "check again",
-        label: undefined,
-      },
-    ])
+    expect(items).toEqual([])
   })
 
-  test("send is hidden while pending and resolves to the authoritative current attempt", () => {
+  test("send never becomes a duplicate spawn chip after its result lands", () => {
     const args = { action: "send", thread_id: "child-1", message: "continue" }
     expect(
       extractSubagentChipItems(tool({ callId: "c-send", arguments: JSON.stringify(args) })),
@@ -92,16 +83,7 @@ describe("extractSubagentChipItems", () => {
           result: JSON.stringify({ run_id: "r-current", child_agent_id: "researcher" }),
         }),
       ),
-    ).toEqual([
-      {
-        kind: "resolved",
-        key: "c-send",
-        runId: "r-current",
-        agentId: "researcher",
-        task: "continue",
-        label: undefined,
-      },
-    ])
+    ).toEqual([])
   })
 
   test("batch_spawn keeps only spawned entries, mapped to their task defs", () => {

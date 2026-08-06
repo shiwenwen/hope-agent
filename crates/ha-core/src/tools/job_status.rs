@@ -12,13 +12,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
-use crate::async_jobs::{self, wait, JobKind, JobStatus};
+use crate::async_jobs::{
+    self, wait, BackgroundJob, JobCancelDisposition, JobCancelOutcome, JobKind, JobStatus, JobsDB,
+};
 
 const DEFAULT_WAIT_SECS: u64 = 5;
 const MAX_BLOCK_WAIT_SECS: u64 = 10;
 const STATUS_SNAPSHOT_COOLDOWN_SECS: i64 = 30;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
+const NOT_CONTROLLED_MESSAGE: &str =
+    "Background job was not found or is not controlled by the current session";
 
 /// Scope guard that cleans the wait registry on every return path,
 /// including `?` early-returns from DB reads. The `Arc<Notify>` must stay
@@ -50,8 +54,8 @@ pub async fn tool_job_status(args: &Value, session_id: Option<&str>) -> Result<S
     match action {
         // `result` is an explicit alias for `status` — a terminal job's payload
         // already carries result_preview / result_path.
-        "status" | "result" => action_status(args).await,
-        "list" => action_list(session_id),
+        "status" | "result" => action_status(args, session_id).await,
+        "list" => action_list(session_id).await,
         "cancel" => action_cancel(args, session_id).await,
         "wait" => action_wait(args, session_id).await,
         other => Err(anyhow!(
@@ -61,7 +65,60 @@ pub async fn tool_job_status(args: &Value, session_id: Option<&str>) -> Result<S
     }
 }
 
-async fn action_status(args: &Value) -> Result<String> {
+fn ensure_job_owner(
+    job: Option<&crate::async_jobs::BackgroundJob>,
+    session_id: Option<&str>,
+) -> Result<()> {
+    if job.is_some_and(|job| {
+        session_id.is_some()
+            && job.session_id.as_deref().is_some()
+            && job.session_id.as_deref() == session_id
+    }) {
+        Ok(())
+    } else {
+        Err(anyhow!(NOT_CONTROLLED_MESSAGE))
+    }
+}
+
+fn jobs_db() -> Result<Arc<JobsDB>> {
+    async_jobs::get_async_jobs_db()
+        .cloned()
+        .ok_or_else(|| anyhow!("Async jobs DB not initialized"))
+}
+
+/// Every SQLite access in this async tool crosses the blocking boundary. Keep
+/// each call short so the wait loops can continue sleeping/notifying on Tokio
+/// without pinning a runtime worker on rusqlite's connection mutex.
+async fn load_job(job_id: &str) -> Result<Option<BackgroundJob>> {
+    let db = jobs_db()?;
+    let job_id = job_id.to_string();
+    crate::blocking::run_blocking(move || db.load(&job_id)).await
+}
+
+async fn list_active_jobs(session_id: &str) -> Result<Vec<BackgroundJob>> {
+    let db = jobs_db()?;
+    let session_id = session_id.to_string();
+    crate::blocking::run_blocking(move || db.list_active_by_session(&session_id)).await
+}
+
+async fn list_session_jobs(session_id: &str, limit: usize) -> Result<Vec<BackgroundJob>> {
+    let db = jobs_db()?;
+    let session_id = session_id.to_string();
+    crate::blocking::run_blocking(move || db.list_for_session(&session_id, limit)).await
+}
+
+async fn cancel_job(job_id: &str) -> Result<JobCancelOutcome> {
+    let job_id = job_id.to_string();
+    crate::blocking::run_blocking(move || async_jobs::JobManager::cancel_with_outcome(&job_id))
+        .await
+}
+
+async fn group_progress(job_id: &str) -> Option<(usize, usize, usize, usize)> {
+    let job_id = job_id.to_string();
+    crate::blocking::run_blocking(move || async_jobs::JobManager::group_progress(&job_id)).await
+}
+
+async fn action_status(args: &Value, session_id: Option<&str>) -> Result<String> {
     let job_id = args
         .get("job_id")
         .and_then(|v| v.as_str())
@@ -70,15 +127,12 @@ async fn action_status(args: &Value) -> Result<String> {
     let block = args.get("block").and_then(|v| v.as_bool()).unwrap_or(false);
     let requested_timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64());
 
-    let db =
-        async_jobs::get_async_jobs_db().ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
-
-    let initial = db
-        .load(job_id)?
-        .ok_or_else(|| anyhow!("Unknown job_id: {}", job_id))?;
+    let initial = load_job(job_id).await?;
+    ensure_job_owner(initial.as_ref(), session_id)?;
+    let initial = initial.expect("owner check requires a job");
 
     if !block || initial.status.is_terminal() {
-        return Ok(format_job_response(&initial));
+        return Ok(format_job_response(&initial).await);
     }
 
     let _guard = WaiterGuard {
@@ -91,11 +145,11 @@ async fn action_status(args: &Value) -> Result<String> {
     //       (we would otherwise miss the notify_waiters fire entirely).
     //   (b) Restart-replay: the DB row is already terminal but the in-memory
     //       registry was freshly initialized with no producer to wake us.
-    let recheck = db
-        .load(job_id)?
-        .ok_or_else(|| anyhow!("Job {} disappeared during wait setup", job_id))?;
+    let recheck = load_job(job_id).await?;
+    ensure_job_owner(recheck.as_ref(), session_id)?;
+    let recheck = recheck.expect("owner check requires a job");
     if recheck.status.is_terminal() {
-        return Ok(format_job_response(&recheck));
+        return Ok(format_job_response(&recheck).await);
     }
 
     let effective_timeout = compute_effective_timeout(requested_timeout_ms);
@@ -119,18 +173,18 @@ async fn action_status(args: &Value) -> Result<String> {
             }
         }
 
-        let job = db
-            .load(job_id)?
-            .ok_or_else(|| anyhow!("Job {} disappeared during wait", job_id))?;
+        let job = load_job(job_id).await?;
+        ensure_job_owner(job.as_ref(), session_id)?;
+        let job = job.expect("owner check requires a job");
         if job.status.is_terminal() {
-            return Ok(format_job_response(&job));
+            return Ok(format_job_response(&job).await);
         }
     }
 
-    let final_job = db
-        .load(job_id)?
-        .ok_or_else(|| anyhow!("Job {} disappeared during wait", job_id))?;
-    Ok(format_job_response(&final_job))
+    let final_job = load_job(job_id).await?;
+    ensure_job_owner(final_job.as_ref(), session_id)?;
+    let final_job = final_job.expect("owner check requires a job");
+    Ok(format_job_response(&final_job).await)
 }
 
 fn compute_effective_timeout(requested_ms: Option<u64>) -> Duration {
@@ -145,16 +199,34 @@ fn compute_effective_timeout(requested_ms: Option<u64>) -> Duration {
     Duration::from_secs(requested_secs.min(ceiling))
 }
 
-fn format_job_response(job: &crate::async_jobs::BackgroundJob) -> String {
+async fn format_job_response(job: &BackgroundJob) -> String {
     // Single-job status DOES include the running-output tail (that's its point).
-    job_response_value(job, true).to_string()
+    job_response_value_async(job, true).await.to_string()
+}
+
+async fn job_response_value_async(job: &BackgroundJob, include_output_tail: bool) -> Value {
+    let progress = if job.kind == JobKind::Group {
+        group_progress(&job.job_id).await
+    } else {
+        None
+    };
+    job_response_value_with_group_progress(job, include_output_tail, progress)
 }
 
 /// Build a job's JSON snapshot. `include_output_tail` gates the (potentially
 /// ~8KB) running-output tail: `true` for the single-job `status` view, but
 /// `false` for `list` (a compact id roster — N×8KB tails would balloon it) and
 /// `wait` (its `settled` entries are terminal, so they have no tail anyway).
-fn job_response_value(job: &crate::async_jobs::BackgroundJob, include_output_tail: bool) -> Value {
+#[cfg(test)]
+fn job_response_value(job: &BackgroundJob, include_output_tail: bool) -> Value {
+    job_response_value_with_group_progress(job, include_output_tail, None)
+}
+
+fn job_response_value_with_group_progress(
+    job: &BackgroundJob,
+    include_output_tail: bool,
+    group_progress: Option<(usize, usize, usize, usize)>,
+) -> Value {
     let mut payload = json!({
         "job_id": job.job_id,
         "kind": job.kind.as_str(),
@@ -231,9 +303,7 @@ fn job_response_value(job: &crate::async_jobs::BackgroundJob, include_output_tai
         // (overriding the generic running/terminal hint above). Child results
         // live in the subagent records, not this row.
         if job.kind == JobKind::Group {
-            if let Some((total, terminal, completed, failed)) =
-                async_jobs::JobManager::group_progress(&job.job_id)
-            {
+            if let Some((total, terminal, completed, failed)) = group_progress {
                 map.insert("child_count".to_string(), json!(total));
                 map.insert("children_terminal".to_string(), json!(terminal));
                 map.insert("children_completed".to_string(), json!(completed));
@@ -315,20 +385,17 @@ fn insert_running_poll_guidance(
 /// R5 `list`: enumerate the session's in-flight background jobs (active =
 /// non-terminal). Lets the model recover job ids it lost track of and see what
 /// it has running, even after the synthetic `{job_id}` scrolled out of context.
-fn action_list(session_id: Option<&str>) -> Result<String> {
+async fn action_list(session_id: Option<&str>) -> Result<String> {
     let session_id = session_id
         .ok_or_else(|| anyhow!("job_status list: no active session to enumerate jobs for"))?;
-    let db =
-        async_jobs::get_async_jobs_db().ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
-    let mut jobs = db.list_active_by_session(session_id)?;
+    let mut jobs = list_active_jobs(session_id).await?;
     jobs.sort_by_key(|j| j.created_at);
     let truncated = jobs.len() > MAX_WAIT_TARGETS;
-    let items: Vec<Value> = jobs
-        .iter()
-        .take(MAX_WAIT_TARGETS)
+    let mut items = Vec::with_capacity(jobs.len().min(MAX_WAIT_TARGETS));
+    for job in jobs.iter().take(MAX_WAIT_TARGETS) {
         // No output_tail: list is an id roster, not a bulk-output dump.
-        .map(|j| job_response_value(j, false))
-        .collect();
+        items.push(job_response_value_async(job, false).await);
+    }
     Ok(json!({
         "action": "list",
         "count": items.len(),
@@ -338,8 +405,10 @@ fn action_list(session_id: Option<&str>) -> Result<String> {
     .to_string())
 }
 
-/// R5 `cancel`: best-effort cancel a specific job by id (reuses the cross-process
-/// cancel path). Returns the updated snapshot.
+/// R5 `cancel`: best-effort terminal cancellation of a specific job by id
+/// (reuses the cross-process cancel path). The response separates request
+/// acceptance from a terminal state so a `cancelling` snapshot is never
+/// presented as completed cancellation.
 ///
 /// Session-scoped: a job owned by another session cannot be cancelled from here.
 /// The async_jobs DB is shared across desktop / HTTP / IM / cron (and across
@@ -350,26 +419,66 @@ async fn action_cancel(args: &Value, session_id: Option<&str>) -> Result<String>
         .get("job_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("job_status cancel: missing required `job_id`"))?;
-    let db =
-        async_jobs::get_async_jobs_db().ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
-    let job = db
-        .load(job_id)?
-        .ok_or_else(|| anyhow!("Unknown job_id: {}", job_id))?;
-    // A job that belongs to a session may only be cancelled from that same
-    // session. Jobs with no session (system/orphan) are cancellable by anyone.
-    if let Some(owner) = job.session_id.as_deref() {
-        if session_id != Some(owner) {
-            return Err(anyhow!(
-                "job {} belongs to a different session and cannot be cancelled from here",
-                job_id
-            ));
+    let job = load_job(job_id).await?;
+    ensure_job_owner(job.as_ref(), session_id)?;
+    // Ownership is immutable, but terminality is not. The canonical cancel
+    // path performs its own first authoritative load and tells us whether this
+    // call actually issued a request; never infer that from this preflight row.
+    let outcome = cancel_job(job_id).await?;
+    match outcome.disposition {
+        JobCancelDisposition::AlreadyTerminal => {
+            let job = outcome
+                .job
+                .expect("already-terminal cancellation outcome carries its snapshot");
+            Ok(json!({
+                "action": "cancel",
+                "disposition": "already_terminal",
+                "requested": false,
+                "terminal": true,
+                "final_status": job.status.as_str(),
+                "job": job_response_value_async(&job, false).await,
+                "note": "The job was already terminal; no cancellation request was sent."
+            })
+            .to_string())
         }
-    }
-    match async_jobs::JobManager::cancel(job_id)? {
-        Some(job) => {
-            Ok(json!({ "action": "cancel", "job": job_response_value(&job, false) }).to_string())
+        JobCancelDisposition::Requested => {
+            let terminal = outcome
+                .job
+                .as_ref()
+                .is_some_and(|job| job.status.is_terminal());
+            let final_status = outcome
+                .job
+                .as_ref()
+                .filter(|job| job.status.is_terminal())
+                .map(|job| job.status.as_str());
+            let job = match outcome.job.as_ref() {
+                Some(job) => job_response_value_async(job, false).await,
+                None => Value::Null,
+            };
+            Ok(json!({
+            "action": "cancel",
+            "disposition": "requested",
+            "requested": true,
+            "terminal": terminal,
+            "final_status": final_status,
+            "job": job,
+            "note": if terminal {
+                "Cancellation was accepted and the job is now terminal. A cancelled job has no resumable call stack; run the original tool explicitly to start new work."
+            } else {
+                "Cancellation was accepted but is still best-effort/in progress. Do not claim a terminal outcome until job.status is terminal. A cancelled job has no resumable call stack."
+            }
+            })
+            .to_string())
         }
-        None => Err(anyhow!("Unknown job_id: {}", job_id)),
+        JobCancelDisposition::Refused => Ok(json!({
+            "action": "cancel",
+            "disposition": "refused",
+            "requested": false,
+            "terminal": false,
+            "final_status": Value::Null,
+            "note": NOT_CONTROLLED_MESSAGE,
+        })
+        .to_string()),
     }
 }
 
@@ -383,8 +492,9 @@ async fn action_cancel(args: &Value, session_id: Option<&str>) -> Result<String>
 /// any}. On clamp expiry it returns the still-running ids and steers the model
 /// to the auto-injection path rather than pretending the work is done.
 async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
-    let db =
-        async_jobs::get_async_jobs_db().ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
+    if session_id.is_none() {
+        return Err(anyhow!(NOT_CONTROLLED_MESSAGE));
+    }
 
     let ids: Vec<String> = match args.get("ids").and_then(|v| v.as_array()) {
         Some(arr) => arr
@@ -394,7 +504,8 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         None => {
             let session_id = session_id
                 .ok_or_else(|| anyhow!("job_status wait: provide `ids` or run within a session"))?;
-            db.list_for_session(session_id, MAX_WAIT_TARGETS)?
+            list_session_jobs(session_id, MAX_WAIT_TARGETS)
+                .await?
                 .into_iter()
                 .map(|j| j.job_id)
                 .collect()
@@ -420,6 +531,14 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
     let ids: Vec<String> = ids.into_iter().take(MAX_WAIT_TARGETS).collect();
     let wait_any = args.get("mode").and_then(|v| v.as_str()) == Some("any");
 
+    // Validate every explicit target before registering waiters. Missing,
+    // cross-session, and ownerless/system rows intentionally share the same
+    // error so this API cannot be used as a cross-session existence oracle.
+    for id in &ids {
+        let job = load_job(id).await?;
+        ensure_job_owner(job.as_ref(), session_id)?;
+    }
+
     // Register a waiter per id so producers wake us; cleaned up on every return
     // (WaiterGuard::drop). Kept alive for the whole wait so the notifies stay
     // registered.
@@ -441,27 +560,25 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         let mut settled: Vec<Value> = Vec::new();
         let mut still_running: Vec<String> = Vec::new();
         let mut still_running_jobs: Vec<Value> = Vec::new();
-        // Track real terminal settlements separately from unknown ids: an
-        // unknown/typo'd id must NOT count as "any settled" (it would let
-        // mode=any return immediately while real targets are still running).
         let mut saw_real_terminal = false;
         for id in &ids {
-            match db.load(id)? {
+            match load_job(id).await? {
                 Some(job) if job.status.is_terminal() => {
+                    ensure_job_owner(Some(&job), session_id)?;
                     saw_real_terminal = true;
-                    settled.push(job_response_value(&job, false));
+                    settled.push(job_response_value_async(&job, false).await);
                 }
                 Some(job) => {
+                    ensure_job_owner(Some(&job), session_id)?;
                     still_running.push(id.clone());
                     // `wait` stays short, but when it times out the caller still
                     // needs evidence that work is progressing. Single-job snapshots
                     // include `output_tail` for running backgrounded exec jobs.
-                    still_running_jobs.push(job_response_value(&job, true));
+                    still_running_jobs.push(job_response_value_async(&job, true).await);
                 }
-                // Unknown id: report it as settled-unknown so the model isn't
-                // left waiting forever on a typo'd / purged id (but it doesn't
-                // count toward mode=any).
-                None => settled.push(json!({ "job_id": id, "status": "unknown" })),
+                // A row deleted after preflight fails closed using the same
+                // generic boundary as an initially missing target.
+                None => return Err(anyhow!(NOT_CONTROLLED_MESSAGE)),
             }
         }
         // Done when nothing is left to wait for, or (mode=any) a real job settled.
@@ -518,11 +635,15 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
     super::definitions::ToolDefinition {
         name: super::TOOL_JOB_STATUS.into(),
         description: "Inspect and manage async tool jobs created by `run_in_background: true` \
-            or auto-backgrounded by the runtime. Actions: `status` (default) — snapshot one job by \
+            or auto-backgrounded by the runtime. Every model-facing action is limited to jobs \
+            owned by the current session; ownerless/system jobs and other sessions are not \
+            observable by id. Actions: `status` (default) — snapshot one job by \
             `job_id`; `list` — enumerate this session's in-flight jobs (recover ids you lost track \
             of); `wait` — a SHORT (capped at a few seconds) convenience sync for fast jobs, over \
             an explicit `ids` array or all of the session's active jobs, with `mode` all|any; \
-            `cancel` — cancel a job by `job_id`; `result` — alias for status. \
+            `cancel` — request terminal cancellation by `job_id`; it is not pause/resume and \
+            preserves no resumable call stack, so inspect `disposition`, `terminal`, and \
+            `final_status` before claiming completion; `result` — alias for status. \
             For a still-running backgrounded `exec`, `status` includes `output_tail` (the most \
             recent ~8KB of output) so you can judge progressing-vs-stuck WITHOUT waiting. \
             This is NOT how you collect long fan-out: do not poll `status` or hammer `wait` in a \
@@ -541,11 +662,11 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
                 "action": {
                     "type": "string",
                     "enum": ["status", "list", "wait", "cancel", "result"],
-                    "description": "What to do. Defaults to `status`. `status`/`cancel`/`result` need `job_id`; `list` needs none; `wait` takes optional `ids`/`mode`/`timeout_ms`."
+                    "description": "What to do within the current session. Defaults to `status`. `status`/`cancel`/`result` need `job_id`; `list` needs none; `wait` takes optional `ids`/`mode`/`timeout_ms`. cancel requests terminal shutdown (not pause) and may return before the final status is known."
                 },
                 "job_id": {
                     "type": "string",
-                    "description": "The job id from the synthetic tool response (e.g. 'job_<uuid>'). Required for status / cancel / result."
+                    "description": "The current session's job id from the synthetic tool response (e.g. 'job_<uuid>'). Required for status / cancel / result."
                 },
                 "ids": {
                     "type": "array",
@@ -585,6 +706,7 @@ mod tests {
     // module test lock and removes its rows before another subsystem can replay
     // them as real startup work.
     static FIXTURE: OnceLock<TestFixturePath> = OnceLock::new();
+    const TEST_SESSION_ID: &str = "job-status-test-session";
 
     struct TestLock {
         _guard: MutexGuard<'static, ()>,
@@ -637,13 +759,17 @@ mod tests {
     }
 
     fn insert_running(job_id: &str) {
+        insert_running_with_owner(job_id, Some(TEST_SESSION_ID));
+    }
+
+    fn insert_running_with_owner(job_id: &str, session_id: Option<&str>) {
         let db = async_jobs::get_async_jobs_db().expect("db");
         let job = BackgroundJob {
             job_id: job_id.to_string(),
             kind: JobKind::Tool,
             subagent_run_id: None,
             group_id: None,
-            session_id: None,
+            session_id: session_id.map(str::to_string),
             agent_id: None,
             tool_name: "test_tool".into(),
             tool_call_id: None,
@@ -694,7 +820,9 @@ mod tests {
             finalize_ok(&task_id, "ok");
         });
 
-        let out = tool_job_status(&args, None).await.expect("tool ok");
+        let out = tool_job_status(&args, Some(TEST_SESSION_ID))
+            .await
+            .expect("tool ok");
         finisher.await.expect("finisher ok");
         let elapsed = start.elapsed();
         let max_notify_elapsed = if cfg!(windows) {
@@ -732,7 +860,9 @@ mod tests {
 
         let start = Instant::now();
         let args = json!({ "job_id": job_id, "block": true, "timeout_ms": 5000 });
-        let out = tool_job_status(&args, None).await.expect("tool ok");
+        let out = tool_job_status(&args, Some(TEST_SESSION_ID))
+            .await
+            .expect("tool ok");
         let elapsed = start.elapsed();
 
         assert!(out.contains("\"status\":\"interrupted\""), "got {out}");
@@ -756,7 +886,9 @@ mod tests {
         });
 
         let args = json!({ "job_id": job_id, "block": true, "timeout_ms": 2000 });
-        tool_job_status(&args, None).await.expect("tool ok");
+        tool_job_status(&args, Some(TEST_SESSION_ID))
+            .await
+            .expect("tool ok");
         finisher.await.expect("finisher ok");
 
         assert_eq!(wait::waiter_count(&job_id), 0);
@@ -770,7 +902,9 @@ mod tests {
         insert_running(&job_id);
 
         let args = json!({ "job_id": job_id, "block": false });
-        let out = tool_job_status(&args, None).await.expect("tool ok");
+        let out = tool_job_status(&args, Some(TEST_SESSION_ID))
+            .await
+            .expect("tool ok");
         assert!(out.contains("\"status\":\"running\""), "got {out}");
         // No waiter should have been registered.
         assert_eq!(wait::waiter_count(&job_id), 0);
@@ -785,7 +919,8 @@ mod tests {
         let token = crate::async_jobs::cancel::register_job(&job_id);
 
         let wait_args = json!({ "job_id": job_id, "block": true, "timeout_ms": 5000 });
-        let waiter = tokio::spawn(async move { tool_job_status(&wait_args, None).await });
+        let waiter =
+            tokio::spawn(async move { tool_job_status(&wait_args, Some(TEST_SESSION_ID)).await });
 
         tokio::time::sleep(Duration::from_millis(20)).await;
         let result = cancel_runtime_task(RuntimeTaskKind::AsyncJob, &job_id)
@@ -832,7 +967,12 @@ mod tests {
             .await
             .expect("cancel");
         assert!(!result.accepted);
+        assert_eq!(
+            result.disposition,
+            crate::runtime_tasks::RuntimeCancelDisposition::AlreadyTerminal
+        );
         assert_eq!(result.status, "completed");
+        assert_eq!(result.final_status.as_deref(), Some("completed"));
         let db = async_jobs::get_async_jobs_db().expect("db");
         let job = db.load(&job_id).expect("load").expect("job exists");
         assert_eq!(job.status, JobStatus::Completed);
@@ -844,38 +984,16 @@ mod tests {
         let _guard = test_lock();
         ensure_fixture();
         let args = json!({ "job_id": "nonexistent", "block": false });
-        let err = tool_job_status(&args, None).await.unwrap_err();
-        assert!(err.to_string().contains("Unknown job_id"));
+        let err = tool_job_status(&args, Some(TEST_SESSION_ID))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not found or is not controlled"));
     }
 
     // ── R5: multi-job actions (list / cancel / wait) ──────────────
 
     fn insert_running_in_session(job_id: &str, session_id: &str) {
-        let db = async_jobs::get_async_jobs_db().expect("db");
-        let job = BackgroundJob {
-            job_id: job_id.to_string(),
-            kind: JobKind::Tool,
-            subagent_run_id: None,
-            group_id: None,
-            session_id: Some(session_id.to_string()),
-            agent_id: None,
-            tool_name: "test_tool".into(),
-            tool_call_id: None,
-            args_json: "{}".into(),
-            status: JobStatus::Running,
-            result_preview: None,
-            result_path: None,
-            error: None,
-            created_at: chrono::Utc::now().timestamp(),
-            completed_at: None,
-            injected: false,
-            origin: JobOrigin::Explicit.as_str().to_string(),
-            approval_origin: None,
-            incognito: false,
-            pid: None,
-            cancel_requested: false,
-        };
-        db.insert(&job).expect("insert");
+        insert_running_with_owner(job_id, Some(session_id));
     }
 
     #[tokio::test]
@@ -926,7 +1044,7 @@ mod tests {
         // Tight timeout → returns still_running (never long-blocks).
         let out = tool_job_status(
             &json!({ "action": "wait", "ids": [job_id], "timeout_ms": 100 }),
-            None,
+            Some(TEST_SESSION_ID),
         )
         .await
         .expect("wait ok");
@@ -938,7 +1056,7 @@ mod tests {
         finalize_ok(&job_id, "done");
         let out = tool_job_status(
             &json!({ "action": "wait", "ids": [job_id], "timeout_ms": 100 }),
-            None,
+            Some(TEST_SESSION_ID),
         )
         .await
         .expect("wait ok");
@@ -1000,30 +1118,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn action_wait_unknown_id_settles_as_unknown_not_forever() {
+    async fn action_wait_unknown_id_fails_with_generic_ownership_boundary() {
         let _guard = test_lock();
         ensure_fixture();
-        let out = tool_job_status(
+        let err = tool_job_status(
             &json!({ "action": "wait", "ids": ["no-such-id"], "timeout_ms": 5000 }),
-            None,
+            Some(TEST_SESSION_ID),
         )
         .await
-        .expect("wait ok");
-        let v: Value = serde_json::from_str(&out).unwrap();
-        // mode=all is satisfied immediately because the unknown id counts as settled.
-        let settled = v["settled"].as_array().unwrap();
-        assert_eq!(settled.len(), 1);
-        assert_eq!(settled[0]["status"], "unknown");
+        .expect_err("unknown wait target must fail closed");
+        assert_eq!(err.to_string(), NOT_CONTROLLED_MESSAGE);
     }
 
     #[tokio::test]
     async fn action_cancel_unknown_errors() {
         let _guard = test_lock();
         ensure_fixture();
-        let err = tool_job_status(&json!({ "action": "cancel", "job_id": "nope" }), None)
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Unknown job_id"));
+        let err = tool_job_status(
+            &json!({ "action": "cancel", "job_id": "nope" }),
+            Some(TEST_SESSION_ID),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("not found or is not controlled"));
+    }
+
+    #[tokio::test]
+    async fn action_cancel_uses_canonical_already_terminal_disposition() {
+        let _guard = test_lock();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+        finalize_ok(&job_id, "won the completion race");
+
+        let out = tool_job_status(
+            &json!({ "action": "cancel", "job_id": job_id }),
+            Some(TEST_SESSION_ID),
+        )
+        .await
+        .expect("terminal owner may inspect cancellation disposition");
+        let value: Value = serde_json::from_str(&out).expect("valid json");
+        assert_eq!(value["disposition"], "already_terminal");
+        assert_eq!(value["requested"], false);
+        assert_eq!(value["final_status"], "completed");
+        assert_eq!(value["job"]["result_preview"], "won the completion race");
     }
 
     #[tokio::test]
@@ -1045,7 +1183,7 @@ mod tests {
         async_jobs::output_tail::register(&job_id, 8192);
         async_jobs::output_tail::append(&job_id, b"compiling...\nlinking...\n");
 
-        let out = tool_job_status(&json!({ "job_id": job_id }), None)
+        let out = tool_job_status(&json!({ "job_id": job_id }), Some(TEST_SESSION_ID))
             .await
             .expect("ok");
         let v: Value = serde_json::from_str(&out).unwrap();
@@ -1068,7 +1206,10 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(err.to_string().contains("different session"), "got {err}");
+        assert!(
+            err.to_string().contains("not found or is not controlled"),
+            "got {err}"
+        );
 
         // The owning session can.
         let out = tool_job_status(
@@ -1078,6 +1219,46 @@ mod tests {
         .await
         .expect("owner cancel ok");
         assert!(out.contains("\"action\":\"cancel\""));
+        assert!(out.contains("\"disposition\":\"requested\""));
+    }
+
+    #[tokio::test]
+    async fn status_result_and_wait_reject_cross_session_without_owner_leakage() {
+        let _guard = test_lock();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running_in_session(&job_id, "owner-sess");
+
+        for args in [
+            json!({ "action": "status", "job_id": job_id }),
+            json!({ "action": "result", "job_id": job_id }),
+            json!({ "action": "wait", "ids": [job_id], "timeout_ms": 1 }),
+        ] {
+            let err = tool_job_status(&args, Some("other-sess"))
+                .await
+                .expect_err("cross-session read must fail closed");
+            assert_eq!(err.to_string(), NOT_CONTROLLED_MESSAGE);
+            assert!(!err.to_string().contains("owner-sess"));
+        }
+    }
+
+    #[tokio::test]
+    async fn ownerless_jobs_are_not_model_visible_or_controllable() {
+        let _guard = test_lock();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running_with_owner(&job_id, None);
+
+        for args in [
+            json!({ "action": "status", "job_id": job_id }),
+            json!({ "action": "cancel", "job_id": job_id }),
+            json!({ "action": "wait", "ids": [job_id], "timeout_ms": 1 }),
+        ] {
+            let err = tool_job_status(&args, Some(TEST_SESSION_ID))
+                .await
+                .expect_err("ownerless job must fail closed");
+            assert_eq!(err.to_string(), NOT_CONTROLLED_MESSAGE);
+        }
     }
 
     #[tokio::test]
@@ -1110,7 +1291,7 @@ mod tests {
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
-        let out = tool_job_status(&json!({ "job_id": job_id }), None)
+        let out = tool_job_status(&json!({ "job_id": job_id }), Some(TEST_SESSION_ID))
             .await
             .expect("ok");
         let v: Value = serde_json::from_str(&out).unwrap();

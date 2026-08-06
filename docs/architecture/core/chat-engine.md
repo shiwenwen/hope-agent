@@ -1,6 +1,6 @@
 # Chat Engine 对话引擎架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-07
 
 **关联源码**
 
@@ -598,6 +598,10 @@ stateDiagram-v2
 - `inserting`：工具边界已原子 claim；编辑、删除、取消均 CAS 失败。
 - `dispatching`：正在创建下一独立回合；同样不可变。
 - `held_after_stop`：用户从 Desktop / HTTP / IM 任一入口显式 Stop 后冻结的 Channel 行；启动恢复与后端泵都不消费，下一条普通 IM 模型消息才按原 FIFO 恢复，并排在该批旧消息之后。
+
+**桌面投影契约**：输入框上方只把这些持久状态投影成轻量的“待发送”消息条，不另建前端队列状态机。默认只展示前 2 条，更多消息可展开；`queued | fallback_after_reply` 显示“回复后发送”：当前回合仍运行且后端声明 `canForceInsert` 时提供“插入”，当前回合已 idle 时则只给 FIFO 队首“立即发送”（`autoSendPending=false` 或崩溃恢复后仍必须有人工出口）；`waiting_tool_boundary` 显示“等待插入”，菜单可“改为回复后发送”；`inserting | dispatching | saving` 显示进行中状态并锁定编辑、删除和重复动作；`held_after_stop` 的非 Channel 兼容投影只允许删除，真实 `managedBy=channel` 行全程只读。按钮与 Tooltip 必须使用用户术语“插入”，并明确它会等待**本批正在执行的工具全部完成**，不会中断批次中的工具；没有后续安全边界时仍按“回复后发送”收敛。队列编辑保存遵守统一的 `saving → saved/failed` 两秒反馈契约，失败或 Promise rejection 保留草稿并可重试。
+
+**消息交付与运行控制正交**：`force_insert` 只决定这条真实 `user` message 何时进入当前主回合，不得从队列、Transport 或前端入口自动取消 Subagent、Async Job、Process、Team、Workflow 或 Cron。主模型看到最新消息后，才按各运行单元的原生工具与 owner 校验决定保留、调整、暂停或关闭；无关补充和状态询问不能因为使用了“插入”而触发无差别取消。
 
 普通续发只传 `queuedRequestId`。Desktop / HTTP 壳从 SQLite 取回真实正文、元数据和附件引用，防止刷新后依赖浏览器 `File` 对象，也避免 HTTP 列表暴露服务端绝对路径。用户消息落库时把 request id 写进 `messages.queue_request_id`（partial unique index）；启动恢复先删除已存在对应消息的队列行，再将未提交的 `dispatching` 恢复为 `queued`、将未完成的工具插入恢复为 `fallback_after_reply`，实现崩溃后的 exactly-once 收敛。
 

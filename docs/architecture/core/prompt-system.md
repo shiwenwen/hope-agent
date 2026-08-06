@@ -1,6 +1,6 @@
 # Hope Agent 提示词系统技术文档
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-07
 
 ## 目录
 
@@ -361,7 +361,7 @@ The following project context files have been loaded:
 |              | delete_memory      | `TOOL_DESC_DELETE_MEMORY`      | 删除过期记忆                                             |
 |              | update_core_memory | `TOOL_DESC_UPDATE_CORE_MEMORY` | 持久指令写入 Core（兼容别名）                            |
 |              | memory_get         | `TOOL_DESC_MEMORY_GET`         | 按 ID 获取完整记忆                                       |
-| **委托**     | subagent           | `TOOL_DESC_SUBAGENT`           | spawn/check/steer/kill；异步执行                         |
+| **委托**     | subagent           | `TOOL_DESC_SUBAGENT`           | spawn/send/check/kill；异步执行与受限 continuation       |
 |              | agents_list        | `TOOL_DESC_AGENTS_LIST`        | 列出可委托 Agent                                         |
 |              | acp_spawn          | `TOOL_DESC_ACP_SPAWN`          | 外部 ACP Agent（Claude Code/Codex）                      |
 | **会话**     | sessions_list      | `TOOL_DESC_SESSIONS_LIST`      | 跨会话通信发现                                           |
@@ -405,6 +405,16 @@ fn build_tools_section(agent_id, agent_config, incognito) -> String {
 - **共享同一套语义**：`# Available Tools`、`agent/mod.rs::build_tool_schemas()`、`tool_search` 和执行层兜底都以 `dispatch::resolve_tool_fate()` 为准。
 
 **代码位置**：`crates/ha-core/src/system_prompt/sections.rs` — `build_tools_section()`。
+
+### 运行控制语义与最小提示词
+
+插入中的用户消息最终以真正的 `user` message 进入 provider history，模型天然能看到最新要求；因此**不得**为“插入”另加一段全局状态机提示，也不得把 UI 状态、工具路由表或取消进度复制进 system prompt。默认基线是零新增“插入场景专用”的跨工具全局指令；只允许精简校准既有工具摘要、schema 与 action 可发现性，避免稳定前缀膨胀和工具契约漂移。
+
+模型能否查看、调整、关闭、暂停或恢复某类运行单元，以各工具 schema 的 action 枚举、描述和执行层校验为准：普通 Subagent 支持查看、发送调整、关闭与受限 continuation，但没有 pause；Async Job 和 Process 只有查看/取消类能力；Team 与 Workflow 的 `pause/resume` 必须出现在各自工具描述的关键动作中；Cron 的 pause/resume 只控制 schedule 生命周期，不冒充冻结或恢复当前 run。`runtime_cancel` 只描述可证明属于当前会话的 kind，不能把应用级全局对象包装成模型可取消对象。
+
+工具描述必须区分“取消请求已接受”和“目标已进入终态”，并写明不可恢复的停止原因。只有专项评测稳定证明模型在收到新 user message 后不会重新评估已有委派时，才允许补充一条跨工具原则；具体动作和生命周期仍留在工具描述，不上升为新的长篇行为段。
+
+当前不提供统一的模型侧 `runtime_status` 或 `stop_everything`：各子系统的 `list/check/status` 保留自己的真相源、owner 边界和生命周期语义，模型按需发现并分域操作。只有真实模型专项评测持续证明现有发现路径不足，才可另行评估只读聚合状态；它不得顺带成为新的写入口，也不得把不同运行单元压成虚假的统一 pause/resume。
 
 ---
 
@@ -602,7 +612,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 **注入内容**：
 
 - 可委托 Agent 列表（emoji + name + id + description）
-- 使用方式：spawn → 异步执行 → 自动推送结果；steer 重定向、check 状态、kill 终止
+- 使用方式：spawn → 异步执行 → 自动推送结果；canonical `send` 调整活跃 attempt 或为允许续跑的终态创建新 immutable attempt，`steer` / `resume` 仅为兼容别名；check 查看状态；kill 只请求关闭，确认终态后才能宣称已停止
 - spawn 选项：label、files、model override
 - 当前深度显示 `Current depth: N/M`
 

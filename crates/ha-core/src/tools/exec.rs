@@ -1501,6 +1501,7 @@ mod tests {
     async fn background_exec_poll_streams_output_before_exit() {
         let ctx = super::super::ToolExecContext {
             auto_approve_tools: true,
+            session_id: Some("background-exec-poll-test".into()),
             ..Default::default()
         };
         let started = tool_exec(
@@ -1517,11 +1518,14 @@ mod tests {
             .and_then(|(_, rest)| rest.split_once(')').map(|(id, _)| id.to_string()))
             .expect("started response contains process session id");
 
-        let poll = crate::tools::process::tool_process(&json!({
-            "action": "poll",
-            "session_id": session_id,
-            "timeout": 2000
-        }))
+        let poll = crate::tools::process::tool_process(
+            &json!({
+                "action": "poll",
+                "session_id": session_id,
+                "timeout": 2000
+            }),
+            &ctx,
+        )
         .await
         .expect("poll ok");
 
@@ -1534,15 +1538,21 @@ mod tests {
             "test command should still be alive when first output arrives, got {poll}"
         );
 
-        let _ = crate::tools::process::tool_process(&json!({
-            "action": "kill",
-            "session_id": session_id.clone()
-        }))
+        let _ = crate::tools::process::tool_process(
+            &json!({
+                "action": "kill",
+                "session_id": session_id.clone()
+            }),
+            &ctx,
+        )
         .await;
-        let _ = crate::tools::process::tool_process(&json!({
-            "action": "remove",
-            "session_id": session_id
-        }))
+        let _ = crate::tools::process::tool_process(
+            &json!({
+                "action": "remove",
+                "session_id": session_id
+            }),
+            &ctx,
+        )
         .await;
     }
 }

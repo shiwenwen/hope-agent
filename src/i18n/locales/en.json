@@ -996,7 +996,7 @@
       "title": "Chrome extension required"
     },
     "conversationEmpty": "No messages in this conversation",
-    "pendingCancelForceInsert": "Cancel insertion of this round",
+    "pendingCancelForceInsert": "Send after reply instead",
     "pendingSaving": "Saving",
     "pendingSavingTip": "Saving the message and attachments to the recoverable queue.",
     "pendingInserting": "Inserting",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "Send now",
     "pendingFallbackAfterReply": "Send after reply",
     "pendingFallbackAfterReplyTip": "The tool completion point has not been encountered and will be sent after the current reply ends.",
-    "pendingForceInsertTip": "It will wait until the tool being executed is completed and then insert it into the model without interrupting the current tool.",
+    "pendingForceInsertTip": "Insert it for the model after every tool currently running in this batch finishes. This won’t interrupt those tools; if this turn reaches no further tool boundary, it will send after the reply.",
+    "pendingInsert": "Insert",
     "pendingInserted": "inserted",
     "pendingInsertedTip": "It has been inserted into the model after this round of tooling is completed.",
-    "pendingQueuedShort": "Queuing",
+    "pendingHeldAfterStop": "Sending paused",
+    "pendingHeldAfterStopTip": "The current reply was stopped, so this message will not be sent automatically.",
+    "pendingMoreActions": "More message actions",
+    "pendingQueuedShort": "Send after reply",
     "pendingQueuedTip": "It has been added to the waiting queue and will be sent after the current reply ends.",
     "pendingQueueTitle": "To be sent",
-    "pendingWaitingToolBoundary": "Wait for tool completion point",
-    "pendingWaitingToolBoundaryTip": "Wait for the latest tool call to be completed; if the tool is no longer called this round, it will be sent after the reply is completed.",
+    "pendingWaitingToolBoundary": "Waiting to insert",
+    "pendingWaitingToolBoundaryTip": "Waiting for every tool currently running in this batch to finish before inserting; if this turn reaches no further tool boundary, it will send after the reply.",
     "processNotification": "process ended",
     "rightPanel": {
       "collapse": "Collapse right panel",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "Processed"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "close {{count}} agent",
+          "close_other": "close {{count}} agents",
+          "closeAll": "close all agents",
+          "message_one": "message {{count}} agent",
+          "message_other": "message {{count}} agents",
+          "observe_one": "check {{count}} agent",
+          "observe_other": "check {{count}} agents",
+          "resume_one": "resume {{count}} agent",
+          "resume_other": "resume {{count}} agents"
+        },
+        "cron": {
+          "pause_one": "pause {{count}} schedule",
+          "pause_other": "pause {{count}} schedules",
+          "resume_one": "resume {{count}} schedule",
+          "resume_other": "resume {{count}} schedules"
+        },
+        "job": {
+          "cancel_one": "cancel {{count}} task",
+          "cancel_other": "cancel {{count}} tasks"
+        },
+        "process": {
+          "close_one": "close {{count}} process",
+          "close_other": "close {{count}} processes"
+        },
+        "team": {
+          "pause_one": "pause {{count}} team",
+          "pause_other": "pause {{count}} teams",
+          "resume_one": "resume {{count}} team",
+          "resume_other": "resume {{count}} teams"
+        },
+        "workflow": {
+          "cancel_one": "cancel {{count}} workflow",
+          "cancel_other": "cancel {{count}} workflows",
+          "pause_one": "pause {{count}} workflow",
+          "pause_other": "pause {{count}} workflows",
+          "resume_one": "resume {{count}} workflow",
+          "resume_other": "resume {{count}} workflows"
+        }
+      },
+      "aggregate": {
+        "failed_one": "{{count}} failed",
+        "failed_other": "{{count}} failed",
+        "pending_one": "{{count}} pending",
+        "pending_other": "{{count}} pending",
+        "refused_one": "{{count}} refused",
+        "refused_other": "{{count}} refused",
+        "requested_one": "{{count}} requested",
+        "requested_other": "{{count}} requested",
+        "resumed_one": "{{count}} resumed",
+        "resumed_other": "{{count}} resumed",
+        "terminal_one": "{{count}} terminal",
+        "terminal_other": "{{count}} terminal"
+      },
+      "allTargets": "All agents",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} already finished",
+        "alreadyTerminal_other": "{{count}} already finished",
+        "refused_one": "{{count}} refused",
+        "refused_other": "{{count}} refused"
+      },
+      "failureDetails": "Resume failures",
+      "state": {
+        "accepted": "Requested · {{action}}",
+        "alreadyTerminal_one": "{{count}} target was already finished",
+        "alreadyTerminal_other": "{{count}} targets were already finished",
+        "completed": "Completed · {{action}}",
+        "failed": "Failed · {{action}}",
+        "noAgentsToClose": "No agents need closing",
+        "noResumeNeeded": "Team already complete · no resume needed",
+        "partial": "Partially completed · {{action}}",
+        "refused": "Refused · {{action}}",
+        "running": "In progress · {{action}}"
+      }
     },
     "skill": {
       "completed": "Loaded skill: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "Paused",
     "progress": "Progress",
     "resume": "Resume",
+    "resumeFeedback": {
+      "counts": "{{resumed}} resumed · {{failed}} failed",
+      "noOpDescription": "All team members have already completed; no new attempts were started.",
+      "noOpTitle": "No resume needed",
+      "partialTitle": "Team partially resumed",
+      "refusedTitle": "Team resume refused",
+      "resumedTitle": "Team resumed",
+      "resuming": "Resuming…"
+    },
     "review": "Review",
     "reviewer": "Reviewer",
     "send": "Send",

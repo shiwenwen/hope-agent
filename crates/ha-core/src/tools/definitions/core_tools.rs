@@ -70,7 +70,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_PROCESS.into(),
-            description: "Manage running exec sessions: list, poll, log, kill, clear, remove.".into(),
+            description: "Manage current-chat legacy exec process sessions. `kill` requests best-effort termination; use `poll` to confirm the waiter-recorded exit.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
@@ -80,7 +80,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "Action: list, poll, log, kill, clear, remove",
+                        "description": "Action: list, poll, log, kill, clear, or remove.",
                         "enum": ["list", "poll", "log", "kill", "clear", "remove"]
                     },
                     "session_id": {
@@ -106,7 +106,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Cancel a running background task by id. Supports async tool jobs (`kind='async_job'` with job_id), sub-agent runs (`kind='subagent'` with run_id), exec process sessions (`kind='process'` with session_id), and running cron jobs (`kind='cron'` with job id). Cancellation is best-effort; completed tasks are not changed.".into(),
+            description: "Request terminal cancellation of a current-session async job, owned sub-agent, or legacy process. `requested` acknowledges the request, not termination; rely on `finalStatus` or a later status check. Unknown, unauthorized, or unsignalable targets return `refused`. This is cancellation, not pause, and has no generic resume. Use `manage_cron` for schedules.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -116,12 +116,12 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "enum": ["async_job", "subagent", "process", "cron"],
-                        "description": "The kind of runtime task to cancel."
+                        "enum": ["async_job", "subagent", "process"],
+                        "description": "Runtime kind: async_job, subagent, or process."
                     },
                     "id": {
                         "type": "string",
-                        "description": "Task id: job_id, run_id, process session_id, or cron job id depending on kind."
+                        "description": "Owned task ID for the selected kind."
                     }
                 },
                 "required": ["kind", "id"],
@@ -2376,6 +2376,37 @@ fn note_tools() -> Vec<ToolDefinition> {
 #[cfg(test)]
 mod tests {
     use super::get_available_tools;
+
+    #[test]
+    fn runtime_control_schemas_are_scoped_and_do_not_advertise_cron() {
+        let tools = get_available_tools();
+        let runtime_cancel = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_RUNTIME_CANCEL)
+            .expect("runtime_cancel schema");
+        let kinds = runtime_cancel.parameters["properties"]["kind"]["enum"]
+            .as_array()
+            .expect("runtime kind enum");
+        assert!(kinds.iter().any(|kind| kind == "async_job"));
+        assert!(kinds.iter().any(|kind| kind == "subagent"));
+        assert!(kinds.iter().any(|kind| kind == "process"));
+        assert!(!kinds.iter().any(|kind| kind == "cron"));
+        for contract in ["not termination", "`refused`", "not pause"] {
+            assert!(runtime_cancel.description.contains(contract), "{contract}");
+        }
+
+        let process = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_PROCESS)
+            .expect("process schema");
+        let actions = process.parameters["properties"]["action"]["enum"]
+            .as_array()
+            .expect("process actions");
+        assert!(!actions.iter().any(|action| action == "write"));
+        assert!(process.parameters["properties"].get("data").is_none());
+        assert!(process.description.contains("current-chat"));
+        assert!(process.description.contains("use `poll` to confirm"));
+    }
 
     #[test]
     fn settings_tool_schemas_expose_the_complete_category_registries() {

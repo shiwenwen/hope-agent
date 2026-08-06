@@ -238,7 +238,7 @@ impl ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `exec` | always_load, **GenericJob** | 执行 shell 命令，返回 stdout/stderr。参数：`command`(必填)、`cwd`、`timeout`(秒；模型默认省略，`0`=不限，正数上限 7200，受 `timeout_policy` 约束)、`env`、`run_in_background`(普通长跑命令的首选后台方式)、`job_timeout_secs`、`background` / `yield_ms`(legacy process-session 兼容面)、`pty`、`sandbox`(Docker 沙箱)。有独立的命令级审批流程。 |
-| `process` | always_load | 管理 `exec` 创建的后台会话。`action`：`list` / `poll` / `log`(offset/limit 分页) / `write` / `kill` / `clear` / `remove`。除 `list` 外均需 `session_id`。 |
+| `process` | always_load | 管理 `exec` 创建的当前聊天后台会话。模型 schema 的 `action`：`list` / `poll` / `log`(offset/limit 分页) / `kill` / `clear` / `remove`，除 `list` 外均需 `session_id`；未实现的历史 `write` handler 只保留兼容、不向模型暴露。`kill` 只发 best-effort 终止请求（无 pid 时失败），须用 `poll` 确认 waiter 写入的真实终态。 |
 
 ### 2. 文件系统
 

@@ -657,13 +657,13 @@ impl SessionDB {
     }
 
     /// Guarded status transition: write `to` only when the row is currently
-    /// `from`. Returns `Ok(true)` iff a row was updated. The R7.2 promoter uses
-    /// this to flip `Queued → Spawning` atomically so it loses cleanly to a
-    /// concurrent cancel (which stamps the row terminal): a no-op transition
-    /// (`Ok(false)`) means the row already moved off `Queued`, so the promoter
-    /// must NOT launch — otherwise a killed run would be resurrected into a
-    /// running child. On a real transition it keeps the `background_jobs`
-    /// projection in lockstep, exactly like [`update_subagent_status`].
+    /// `from`. Returns `Ok(true)` iff a row was updated. The launch path uses it
+    /// to claim ordinary `Queued/Spawning → Running` execution atomically; the
+    /// generic CAS also remains available for other guarded lifecycle moves. A
+    /// no-op means the caller must not launch, otherwise a terminal attempt could
+    /// be resurrected. On a real transition it keeps the `background_jobs`
+    /// projection in lockstep, exactly like [`update_subagent_status`]. Team
+    /// launches use their stricter roster-aware CAS in `team::db`.
     pub fn try_transition_subagent_status(
         &self,
         run_id: &str,

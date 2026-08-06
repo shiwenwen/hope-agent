@@ -433,6 +433,12 @@ impl JobManager {
         super::cancel_job(job_id)
     }
 
+    /// Canonical cancellation result. Model-facing runtime controls must use
+    /// this instead of comparing snapshots around [`Self::cancel`].
+    pub fn cancel_with_outcome(job_id: &str) -> Result<super::JobCancelOutcome> {
+        super::cancel_job_with_outcome(job_id)
+    }
+
     /// Cancel every active job owned by a session (session delete / DELETE-4).
     /// Returns the number cancelled.
     pub fn cancel_for_session(session_id: &str) -> usize {

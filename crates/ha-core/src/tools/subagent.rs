@@ -369,10 +369,7 @@ fn ensure_ordinary_run_owner(
         .session_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("No session context"))?;
-    if run.parent_session_id != parent_session_id
-        || run.owner_kind != crate::subagent::SubagentOwnerKind::ParentSession
-        || run.owner_id != parent_session_id
-    {
+    if !ordinary_run_owner_matches(run, parent_session_id) {
         return Err(anyhow::anyhow!(
             "Cannot {} sub-agent run '{}': it is not owned by this parent session",
             action,
@@ -380,6 +377,12 @@ fn ensure_ordinary_run_owner(
         ));
     }
     Ok(())
+}
+
+fn ordinary_run_owner_matches(run: &crate::subagent::SubagentRun, parent_session_id: &str) -> bool {
+    run.parent_session_id == parent_session_id
+        && run.owner_kind == crate::subagent::SubagentOwnerKind::ParentSession
+        && run.owner_id == parent_session_id
 }
 
 /// Return the native durable-work handle for a dispatched sub-agent run.
@@ -610,7 +613,7 @@ async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         )
     {
         return Err(anyhow::anyhow!(
-            "Cannot resume sub-agent run '{}': terminal reason '{}' requires an explicit user restart",
+            "Cannot resume sub-agent run '{}': terminal reason '{}' makes the old attempt ineligible; an explicit user request requires spawning fresh replacement work",
             source_run_id,
             source
                 .terminal_reason
@@ -990,10 +993,7 @@ async fn action_list(ctx: &ToolExecContext) -> Result<String> {
     };
     let runs: Vec<_> = runs
         .into_iter()
-        .filter(|run| {
-            run.owner_kind == crate::subagent::SubagentOwnerKind::ParentSession
-                && run.owner_id == parent_session_id
-        })
+        .filter(|run| ordinary_run_owner_matches(run, parent_session_id))
         .collect();
 
     let items: Vec<serde_json::Value> = runs
@@ -1061,7 +1061,6 @@ async fn action_kill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let run_id = non_blank_str_arg(args, "run_id")
         .ok_or_else(|| anyhow::anyhow!("'run_id' is required for kill action"))?;
 
-    let cancel_registry = get_cancel_registry()?;
     let session_db = get_session_db()?;
 
     // Verify the run exists and is active
@@ -1090,38 +1089,65 @@ async fn action_kill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     }
 
     if run.status.is_terminal() {
-        return Ok(format!(
-            "Sub-agent run '{}' already in terminal state: {}",
-            run_id,
-            run.status.as_str()
-        ));
+        return Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "thread_id": run.thread_id,
+            "run_id": run.run_id,
+            "disposition": "already_terminal",
+            "requested": false,
+            "terminal": true,
+            "status": run.status.as_str(),
+            "final_status": run.status.as_str(),
+            "message": "The sub-agent attempt was already terminal; no cancellation was requested."
+        }))?);
     }
 
-    let cancelled = cancel_registry.cancel(run_id);
-    if cancelled {
-        Ok(format!("Kill signal sent to sub-agent run '{}'", run_id))
+    let cancel_run_id = run_id.to_string();
+    let requested =
+        crate::blocking::run_blocking(move || subagent::request_cancel_run(&cancel_run_id)).await;
+    let observed = load_subagent_run(&session_db, run_id).await?;
+    let terminal = observed
+        .as_ref()
+        .is_some_and(|current| current.status.is_terminal());
+    let status = observed.as_ref().map(|current| current.status.as_str());
+
+    if requested {
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "thread_id": run.thread_id,
+            "run_id": run.run_id,
+            "disposition": "requested",
+            "requested": true,
+            "terminal": terminal,
+            "status": status,
+            "final_status": terminal.then_some(status).flatten(),
+            "message": if terminal {
+                "Cancellation was requested and the sub-agent attempt is now terminal."
+            } else {
+                "Cancellation was requested; terminal completion has not yet been observed."
+            }
+        }))?)
+    } else if terminal {
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "thread_id": run.thread_id,
+            "run_id": run.run_id,
+            "disposition": "already_terminal",
+            "requested": false,
+            "terminal": true,
+            "status": status,
+            "final_status": status,
+            "message": "The sub-agent attempt became terminal before cancellation could be requested."
+        }))?)
     } else {
-        // Update DB directly if no cancel flag found (already cleaned up)
-        let terminal_reason = if workflow_owner.is_some() {
-            crate::subagent::SubagentTerminalReason::WorkflowCancelled
-        } else {
-            crate::subagent::SubagentTerminalReason::UserKilled
-        };
-        let db = session_db.clone();
-        let run_id_owned = run_id.to_string();
-        db.run(move |db| {
-            db.update_subagent_status_with_reason(
-                &run_id_owned,
-                SubagentStatus::Killed,
-                Some(terminal_reason),
-                None,
-                Some("Killed by parent agent"),
-                None,
-                None,
-            )
-        })
-        .await?;
-        Ok(format!("Sub-agent run '{}' marked as killed", run_id))
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "thread_id": run.thread_id,
+            "run_id": run.run_id,
+            "disposition": "refused",
+            "requested": false,
+            "terminal": false,
+            "status": status,
+            "final_status": null,
+            "reason": "cancellation_unavailable",
+            "message": "Cancellation could not be requested; the sub-agent attempt remains non-terminal."
+        }))?)
     }
 }
 
@@ -1131,82 +1157,94 @@ async fn action_kill_all(ctx: &ToolExecContext) -> Result<String> {
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("No session context"))?;
 
-    let cancel_registry = get_cancel_registry()?;
     let session_db = get_session_db()?;
-    let ordinary_active = {
+    let ordinary_nonterminal = {
         let db = session_db.clone();
         let parent_session_id = parent_session_id.to_string();
-        db.run(move |db| db.list_active_subagent_runs(&parent_session_id))
+        db.run(move |db| db.list_nonterminal_subagent_runs(&parent_session_id))
             .await?
     };
-    let ordinary_active = ordinary_active
+    let ordinary_nonterminal = ordinary_nonterminal
         .into_iter()
-        .filter(|run| {
-            run.owner_kind == crate::subagent::SubagentOwnerKind::ParentSession
-                && run.owner_id == parent_session_id
-        })
+        .filter(|run| ordinary_run_owner_matches(run, parent_session_id))
         .collect::<Vec<_>>();
-    let mut count = 0usize;
-    for run in ordinary_active {
-        if cancel_registry.cancel(&run.run_id) {
-            count += 1;
-            continue;
+    let mut requested_count = 0usize;
+    let mut refused_count = 0usize;
+    let mut outcomes = Vec::with_capacity(ordinary_nonterminal.len());
+    for run in ordinary_nonterminal {
+        let cancel_run_id = run.run_id.clone();
+        let requested =
+            crate::blocking::run_blocking(move || subagent::request_cancel_run(&cancel_run_id))
+                .await;
+        let observed = load_subagent_run(&session_db, &run.run_id).await?;
+        let terminal = observed
+            .as_ref()
+            .is_some_and(|current| current.status.is_terminal());
+        let status = observed.as_ref().map(|current| current.status.as_str());
+        let disposition = if requested {
+            requested_count += 1;
+            "requested"
+        } else if terminal {
+            "already_terminal"
+        } else {
+            refused_count += 1;
+            "refused"
+        };
+        outcomes.push(serde_json::json!({
+            "thread_id": run.thread_id,
+            "run_id": run.run_id,
+            "disposition": disposition,
+            "requested": requested,
+            "terminal": terminal,
+            "status": status,
+            "final_status": terminal.then_some(status).flatten(),
+        }));
+    }
+
+    let terminal_count = outcomes
+        .iter()
+        .filter(|outcome| outcome["terminal"] == true)
+        .count();
+    let pending_count = outcomes
+        .iter()
+        .filter(|outcome| outcome["requested"] == true && outcome["terminal"] == false)
+        .count();
+    let disposition = kill_all_disposition(outcomes.len(), requested_count, refused_count);
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "disposition": disposition,
+        "requested": requested_count > 0,
+        "terminal": pending_count == 0 && refused_count == 0,
+        "requested_count": requested_count,
+        "terminal_count": terminal_count,
+        "pending_count": pending_count,
+        "refused_count": refused_count,
+        "runs": outcomes,
+        "message": if refused_count > 0 {
+            "Cancellation could not be requested for one or more non-terminal attempts."
+        } else if pending_count > 0 {
+            "Cancellation was requested; one or more attempts have not yet reached a terminal state."
+        } else if requested_count > 0 {
+            "Cancellation was requested and all targeted attempts are now terminal."
+        } else {
+            "No controllable non-terminal ordinary sub-agent attempts remained."
         }
-        let db = session_db.clone();
-        let run_id = run.run_id;
-        db.run(move |db| {
-            db.update_subagent_status_with_reason(
-                &run_id,
-                SubagentStatus::Killed,
-                Some(crate::subagent::SubagentTerminalReason::UserKilled),
-                None,
-                Some("Killed by parent agent"),
-                None,
-                None,
-            )
-        })
-        .await?;
-        count += 1;
-    }
+    }))?)
+}
 
-    // R7.2: active lookup excludes `Queued`. A
-    // parked spawn holds no slot, so without this it would survive kill_all and
-    // then be PROMOTED by the scheduler (killing the active runs just freed a
-    // slot) — running AFTER the parent asked to kill everything. Purge only
-    // this ordinary owner, then explicitly stamp each removed row terminal.
-    let parked = subagent::queue::purge_for_owner(
-        parent_session_id,
-        crate::subagent::SubagentOwnerKind::ParentSession,
-        parent_session_id,
-    );
-    let parked_count = parked.len();
-    for run_id in parked {
-        cancel_registry.cancel(&run_id);
-        cancel_registry.remove(&run_id);
-        let db = session_db.clone();
-        db.run(move |db| {
-            db.update_subagent_status_with_reason(
-                &run_id,
-                SubagentStatus::Killed,
-                Some(crate::subagent::SubagentTerminalReason::UserKilled),
-                None,
-                Some("Killed while queued by parent agent"),
-                None,
-                None,
-            )
-        })
-        .await?;
-    }
-
-    let queued_note = if parked_count > 0 {
-        format!(" and cancelled {} queued sub-agent(s)", parked_count)
+fn kill_all_disposition(
+    target_count: usize,
+    requested_count: usize,
+    refused_count: usize,
+) -> &'static str {
+    if target_count == 0 {
+        "no_targets"
+    } else if requested_count > 0 {
+        "requested"
+    } else if refused_count > 0 {
+        "refused"
     } else {
-        String::new()
-    };
-    Ok(format!(
-        "Kill signal sent to {} active sub-agent(s){}",
-        count, queued_note
-    ))
+        "already_terminal"
+    }
 }
 
 async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -1651,6 +1689,38 @@ fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
 #[cfg(test)]
 mod delegation_gate_tests {
     use super::*;
+
+    #[test]
+    fn ordinary_owner_scope_excludes_shared_workflow_team_and_internal_children() {
+        let ordinary = crate::subagent::SubagentRun {
+            parent_session_id: "parent".into(),
+            owner_kind: crate::subagent::SubagentOwnerKind::ParentSession,
+            owner_id: "parent".into(),
+            ..Default::default()
+        };
+        assert!(ordinary_run_owner_matches(&ordinary, "parent"));
+        assert!(!ordinary_run_owner_matches(&ordinary, "other"));
+
+        for owner_kind in [
+            crate::subagent::SubagentOwnerKind::Workflow,
+            crate::subagent::SubagentOwnerKind::Team,
+            crate::subagent::SubagentOwnerKind::Internal,
+        ] {
+            let scoped = crate::subagent::SubagentRun {
+                owner_kind,
+                ..ordinary.clone()
+            };
+            assert!(!ordinary_run_owner_matches(&scoped, "parent"));
+        }
+    }
+
+    #[test]
+    fn kill_all_empty_scope_reports_no_targets_not_already_terminal() {
+        assert_eq!(kill_all_disposition(0, 0, 0), "no_targets");
+        assert_eq!(kill_all_disposition(1, 0, 0), "already_terminal");
+        assert_eq!(kill_all_disposition(1, 1, 0), "requested");
+        assert_eq!(kill_all_disposition(1, 0, 1), "refused");
+    }
 
     #[test]
     fn blank_provider_placeholders_do_not_override_send_target_or_aliases() {

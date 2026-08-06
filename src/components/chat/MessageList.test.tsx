@@ -73,6 +73,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
   restoreElementMethod("scrollIntoView", originalScrollIntoView)
   restoreElementMethod("scrollTo", originalScrollTo)
@@ -503,7 +505,26 @@ describe("MessageList", () => {
     expect(scrolled[0]?.textContent).toContain("needle intermediate note")
   })
 
-  test("expands and collapses completed turn details", () => {
+  test("animates completed turn details out before destroying the hidden subtree", () => {
+    vi.useFakeTimers()
+    const resizeObservers: Array<{
+      callback: ResizeObserverCallback
+      observer: ResizeObserver
+    }> = []
+    class ResizeObserverMock implements ResizeObserver {
+      readonly callback: ResizeObserverCallback
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        resizeObservers.push({ callback, observer: this })
+      }
+
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock)
+
     render(
       <MessageList
         messages={[
@@ -520,12 +541,36 @@ describe("MessageList", () => {
       />,
     )
 
+    const scroller = getScroller()
+    const scrollMetrics = { scrollHeight: 1_000, clientHeight: 400, scrollTop: 600 }
+    patchScrollMetrics(scroller, scrollMetrics)
     const toggle = screen.getByRole("button", { expanded: false })
+    expect(toggle.classList.contains("w-fit")).toBe(true)
+    expect(toggle.classList.contains("w-full")).toBe(false)
+    expect(toggle.classList.contains("hover:bg-transparent")).toBe(true)
+    expect(toggle.closest("[data-message-key]")?.classList.contains("border-b")).toBe(true)
     fireEvent.click(toggle)
     expect(screen.getByText("step one")).toBeTruthy()
+    expect(screen.getByTestId("completed-turn-details")).toBeTruthy()
+    const collapseGroup = toggle.closest("[data-message-key]")?.parentElement
+    const finalReply = document.querySelector('[data-message-id="3"]')
+    expect(collapseGroup?.nextElementSibling).toBe(finalReply)
+    scrollMetrics.scrollHeight = 1_200
+    act(() => {
+      for (const { callback, observer } of resizeObservers) callback([], observer)
+    })
+    expect(scroller.scrollTop).toBe(600)
 
     fireEvent.click(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.getByText("step one")).toBeTruthy()
+    expect(
+      screen.getByTestId("completed-turn-details").closest('[aria-hidden="true"]'),
+    ).toBeTruthy()
+
+    act(() => vi.runAllTimers())
     expect(screen.queryByText("step one")).toBeNull()
+    expect(screen.queryByTestId("completed-turn-details")).toBeNull()
   })
 
   test("does not collapse completed turns when the preference is disabled", () => {

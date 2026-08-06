@@ -1,6 +1,6 @@
 # Agent Team 多 Agent 协作系统
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-05
 
 ## 关联源码
 
@@ -60,7 +60,7 @@ flowchart TB
     subgraph infra["复用的子 Agent 基础设施"]
         Spawn["spawn_subagent"]
         Mail["SUBAGENT_MAILBOX"]
-        Cancel["SubagentCancelRegistry"]
+        Cancel["subagent::request_cancel_run<br/>canonical cancel"]
     end
 
     Bus["EventBus · team_event"]
@@ -125,13 +125,13 @@ crates/ha-core/src/team/
 
 ### 团队状态机
 
-团队只有三态。暂停会 kill 所有活跃成员但保留分配，恢复时按原任务重新拉起；解散不检查当前状态，从 Active 或 Paused 都能直接进入 Dissolved：
+团队只有三态。`pause` 只接受 Active，`resume` 只接受 Paused，`dissolve` 只接受 Active / Paused；Dissolved 是终态。暂停先持久化隔离团队与成员，再请求关闭快照中的 run；恢复按原任务拉起新 attempt，并把新 run/session 回写到**原成员行**，不复制 roster：
 
 ```mermaid
 stateDiagram-v2
     [*] --> Active: create_team
-    Active --> Paused: pause_team（kill 成员）
-    Paused --> Active: resume_team（重新 spawn）
+    Active --> Paused: pause_team（durable fence → 请求 cancel）
+    Paused --> Active: resume_team（旧 run 全终态后，原 member_id 绑定 fresh run）
     Active --> Dissolved: dissolve_team
     Paused --> Dissolved: dissolve_team
 ```
@@ -143,11 +143,11 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Idle: 插入 team_members 行
-    Idle --> Working: subagent spawn 成功
+    Idle --> Working: prepared run 条件 attach
     Working --> Paused: pause_team
-    Paused --> Working: resume_team
+    Paused --> Working: resume_team（同一 member_id，fresh run/session）
     Working --> Killed: remove_member / dissolve_team
-    Working --> Completed: 自行跑完后由下次启动 cleanup 回收
+    Working --> Completed: 自行跑完后由下次 pause / resume 或启动 cleanup 对齐
     Working --> Error: 崩溃 / 孤儿，由 cleanup 回收
 ```
 
@@ -251,11 +251,12 @@ flowchart TD
     M1["begin_agent_run(member.agent_id)：先占 agent 运行配额"]
     M2["插入 team_members 行（Idle）+ emit member_joined"]
     M3["build_member_context()：拼团队协作上下文"]
-    M4["spawn_subagent：label='team:队名/成员名'<br/>skip_parent_injection=true · owner_kind=Team"]
-    M5["回写 run_id / session_id，成员转 Working + emit member_status"]
+    M4["prepare_subagent：建 child session + run + cancel flag<br/>不入队 · 不发 hook · 不启动模型"]
+    M5["条件 attach run/session，成员转 Working"]
+    M6["Team roster-aware launch CAS<br/>成功后才入队或 fire hook / 启动模型"]
 
     LLM --> CT --> C1 --> C2 --> C3 --> SM
-    SM --> M1 --> M2 --> M3 --> M4 --> M5
+    SM --> M1 --> M2 --> M3 --> M4 --> M5 --> M6
 ```
 
 限额有个非显然点：活跃团队上限用的是模块常量 `MAX_ACTIVE_TEAMS`（=3，按 `lead_agent_id` 统计），成员上限用的是 `TeamConfig.max_members`（默认 8）；这两个才是真正被强制的值。`spawn_member` 刻意在写入成员行**之前**先 `begin_agent_run` 预留成员自身 agent 的运行配额，避免"团队还在跑、成员 agent 却被删"的竞态。
@@ -305,20 +306,35 @@ flowchart TD
 
 ### 暂停 / 恢复
 
-暂停 = kill 所有活跃成员的 subagent run 并标 `Paused`，团队转 `Paused`；恢复 = 团队转回 `Active`，把每个 `Paused` 成员按其 `current_task_id` 对应的任务文本（找不到就用"继续之前的工作"占位）重新 spawn：
+暂停先在一个 SQLite 事务里按 `subagent_runs` 真相源对齐 stale roster：旧 run 已 `completed` 的成员转 Completed，`killed` 转 Killed，`error|timeout|interrupted` 转 Error；这些终态成员不会再被改成 Paused，也不会进入未来 resume 候选。随后 Team 从 Active 条件更新为 Paused、其余活跃成员标为 Paused，并快照当时精确的非终态 run_id；事务提交后才逐个调用 `subagent::request_cancel_run`。因此旧成员会话会立即失去 Team 工具权限，但取消请求仍可能正在收敛，不能把“已受理”表述成“run 已终止”。
+
+恢复先在同一事务检查**全部** Paused 成员的 current run。取消是协作式的：若旧 run 在 pause 提交后仍自然成功为 `completed`，resume 会先把对应成员惰性对齐为 Completed 并排除重跑；成功可能已经提交外部副作用，fresh retry 会造成重复。对齐后若没有 Paused 候选，只有在 roster **非空且全员均为 Completed** 时才返回 `status=already_complete, disposition=no_op, teamStatus=paused`；它返回完整 Completed roster，因此首次对齐、刷新与重复调用稳定幂等，始终零 spawn、可重复发幂等的 `member_status=completed` 刷新投影，但绝不发 `resumed`。兼容字段名 `completedDuringPauseCount` 在该 no-op 中固定等于 `completedMembers.length`，语义是“本次 resume 已完成并被跳过的 roster 总数”，会包含 pause 前已完成成员，不是仅统计本次新对齐增量。空 roster 或夹有 Error/Killed/Idle/Working 的混合 roster 不得借“没有 Paused member”冒充成功 no-op。只要任一其余旧 run 仍是 `queued|spawning|running`，整次 resume 拒绝、Team 保持 Paused、零 fresh spawn，并以 `old_attempt_still_active` 列出阻塞成员/run；待取消进入终态后由用户或模型重试。`run_id=NULL` 表示确实没有旧 attempt，可以恢复；但 `run_id` 非空而 `subagent_runs` 查不到记录时无法证明旧执行已终止，必须 fail-closed 为 `old_attempt_unknown / missing_run_record`。只有所有候选旧 run 已终态或成员没有旧 `run_id` 时，才用 Paused → Active 的条件更新 claim 团队，再把每个原 `TeamMember` 按其 `current_task_id` 对应的任务文本（找不到就用“继续之前的工作”占位）启动为 fresh immutable subagent run。成功后只更新原成员行的 `run_id` / `session_id` / `status`，`member_id`、roster 与任务板不变；claim 后的单成员启动失败会结构化返回，不会插入替身成员或被吞成整体成功。
+
+成员启动采用可靠的 **prepare → attach → launch**：prepare 先持久化 child session / run 并注册 cancel flag，但绝不入队、不注册 mailbox、不发 `SubagentStart`、不 `tokio::spawn`；attach 条件写要求 Team 仍 Active、成员仍是预期状态和旧 run/session；最终 launch 用一条 roster-aware CAS 同时要求 fresh run 仍为 `Queued|Spawning`、Team=Active、成员=Working 且 run/session 精确匹配，再转 Running。pause/dissolve 先提交则 CAS 失败且 prepared run 无执行地 Killed 并清 cancel/mailbox/queue；launch CAS 先提交则生命周期快照必能看到并取消该 run。排队项保存同一 Team fence，调度提升也走这条 CAS；prepare 后、enqueue 前已置位的 cancel 会在 enqueue 后立即复查并收敛，不会留下永远阻塞 resume 的 phantom Queued run。attach 后若 queue-full/claim 出错，只在 fresh run/session 仍精确命中且 Team 仍 Active 时恢复 attach 前状态与旧 run/session，绝不覆盖并发 pause/dissolve。
 
 ```mermaid
 flowchart TD
     P["pause_team()"]
-    P1["活跃成员 → cancel subagent run → 标 Paused"]
-    P2["团队标 Paused + emit paused"]
-    P --> P1 --> P2
+    P1["SQLite transaction：先对齐已终态 stale member<br/>再 Team/其余成员标 Paused，快照 run_id"]
+    P2["commit 后逐个 request_cancel_run"]
+    P3["返回 requested / terminal / pending 计数"]
+    P --> P1 --> P2 --> P3
 
     R["resume_team()"]
-    R1["团队转 Active"]
-    R2["Paused 成员 → 按原任务重新 spawn_member"]
-    R3["emit resumed"]
-    R --> R1 --> R2 --> R3
+    RC["事务先对齐 Paused member 中已 completed 的旧 run"]
+    RA{"仍有需要恢复的 Paused member？"}
+    RN["already_complete / no_op<br/>Team 保持 Paused · 零 fresh spawn"]
+    R0{"任一剩余旧 run 仍非终态？"}
+    RX["整队保持 Paused · refused<br/>零 fresh spawn，稍后重试"]
+    R1["全部引用 run 已终态，或 member.run_id=NULL<br/>CAS：Team Paused → Active"]
+    R2["仅为剩余候选成员按原任务<br/>prepare → attach → launch fresh run"]
+    R3["条件更新原 member 行；失败保留 Paused"]
+    R4["全成= resumed · 部分= partially_resumed<br/>全败= paused/refused"]
+    R --> RC --> RA
+    RA -->|否| RN
+    RA -->|是| R0
+    R0 -->|是| RX
+    R0 -->|否| R1 --> R2 --> R3 --> R4
 ```
 
 ### 成员生命周期与终态回收（非显然）
@@ -329,12 +345,12 @@ flowchart TD
 flowchart TD
     S["成员 subagent 自行跑完 → subagent_runs.status 进入终态"]
     N["team_members.status 仍停留在 working（运行期无回写）"]
-    R["下次 App 启动执行 cleanup_orphan_teams()"]
+    R["下次 pause 对齐 Active stale member；<br/>pause 后迟到成功由下次 resume 对齐；<br/>App 启动 cleanup_orphan_teams() 作全局兜底"]
     M["按 subagent_runs 终态同步成员：<br/>Completed→Completed · Killed→Killed · 其余→Error<br/>run 记录已消失→Error"]
     S --> N --> R --> M
 ```
 
-也就是说，**运行期唯一会把成员推入终态的路径是显式动作**：`remove_member` / `dissolve_team` 把活跃成员标 `Killed`，`pause_team` 标 `Paused`。成员自然完成后的状态对齐是"惰性"的，靠启动清理补上；崩溃会在底层收敛为 `Interrupted`，同样在清理时映射为 `Error`。团队本身则保持 `Active`，把"下一步怎么办"交给用户决定。
+也就是说，成员自然完成后没有即时回调，`team_members` 的状态对齐仍是**惰性**的：下一次 `pause_team` 会先按 `subagent_runs` 对齐该团队的 stale 终态；若成功发生在 pause 的取消收敛期，下一次 `resume_team` 也会把 Paused 成员对齐为 Completed 并跳过重跑；App 启动的 `cleanup_orphan_teams()` 做全局修复。`remove_member` / `dissolve_team` 则会把当时仍活跃的成员显式标为 `Killed`。崩溃会在底层收敛为 `Interrupted`，再映射为 `Error`。团队本身保持 `Active` 或显式 Paused，把“下一步怎么办”交给用户决定。
 
 > **token 计数说明**：`input_tokens` / `output_tokens` 目前只在插入成员时写入 0，运行期没有回写入口（`update_team_member_tokens` 无调用方）。因此 Dashboard 上的 token 统计当前恒为 0，属已知的未接线项而非实时用量。
 
@@ -377,20 +393,31 @@ You are a member of team "Auth Team".
 | Action | 参数 | 说明 |
 |--------|------|------|
 | `create` | name, members / template | 创建团队（内联成员列表或引用模板名） |
-| `dissolve` | team_id | 解散团队，kill 所有成员 |
-| `add_member` | team_id, name, task, agent_id?, role?, model?, description? | 向活跃团队加成员 |
-| `remove_member` | team_id, member_id | 移除并 kill 成员 |
+| `dissolve` | team_id | Lead-only；Active / Paused → Dissolved，先 durable revoke 再请求取消成员 run |
+| `add_member` | team_id, name, task, agent_id?, role?, model?, description? | Lead-only；向 Active 团队加成员 |
+| `remove_member` | team_id, member_id | Lead-only；从 Active 团队 durable revoke 成员再请求取消 run |
 | `send_message` | team_id, to, content | 发消息给成员或广播（to="*"） |
 | `create_task` | team_id, content, owner?, priority?, blocked_by? | 创建任务 |
 | `update_task` | team_id, task_id, status / owner / column / content | 更新任务 |
 | `list_tasks` | team_id, status? | 列出任务（可按状态过滤） |
 | `list_members` | team_id | 列出成员 |
 | `status` | team_id | 团队全量状态摘要（含 token 汇总） |
-| `pause` | team_id | 暂停所有成员 |
-| `resume` | team_id | 恢复暂停成员 |
+| `pause` | team_id | Lead-only；仅 Active，先 durable fence 再请求取消快照 run |
+| `resume` | team_id | Lead-only；仅 Paused，原 roster 行绑定 fresh run，可能部分失败 |
 | `list_templates` | — | 列出已保存的用户预设（来自 `team_templates`） |
 
-`send_message` / `create_task` / `update_task` 的 `to` / `owner` 都接受**成员名字**，处理器会解析成 member_id；解析不到时按原字符串透传。工具本身是 `internal` 且默认 **deferred**——不在默认工具列表里，模型经 `tool_search` 发现（当且仅当某 Agent 把它配成 eager 时，系统提示才会额外注入一段团队使用指引）。
+`send_message` / `create_task` / `update_task` 的 `to` / `owner` 都接受**成员名字或 member_id**，解析范围严格限制在目标 Team，解析不到即拒绝。工具本身是 `internal` 且默认 **deferred**——不在默认工具列表里，模型经 `tool_search` 发现（当且仅当某 Agent 把它配成 eager 时，系统提示才会额外注入一段团队使用指引）。
+
+**模型工具归属边界是 action-aware 的**：
+
+- `dissolve` / `add_member` / `remove_member` / `pause` / `resume` 只允许 `teams.lead_session_id` 精确命中的 lead；成员不能调用生命周期动作。
+- lead 可在任意 Team 状态读取 `list_tasks` / `list_members` / `status`；消息与任务写、加减成员只允许 Active，pause 只允许 Active，resume 只允许 Paused，dissolve 只允许 Active / Paused。
+- 成员只可在 Team 为 Active 时调用 `send_message` / `create_task` / `update_task` / `list_tasks` / `list_members` / `status`，且成员行必须为 `idle|working`，`run_id` / `session_id` 必须精确对应一个非终态、同 lead 血缘、`owner_kind=team` 且 `owner_id=team_id` 的 subagent run。暂停、移除、恢复换绑或 run 终态后，旧 session 立即失权。
+- 无 session、未知 team、其他会话和其他 Team 的成员统一返回“未找到或不受当前会话控制”，不得泄露 Team 是否存在、状态或 lead。
+
+`send_message` / `create_task` / `update_task` 把 live 身份复核与实际写入放在**同一个 SQLite transaction**，避免“先鉴权、后被 pause/remove、再写入”的 revoke TOCTOU。生命周期动作则由 Team/member status 的条件更新承担线性化点；所有 async handler / coordinator 的 SQLite 调用都经 `SessionDB::run`。`send_message` 的发送者从事务内验证的 lineage 派生，陌生会话绝不能回落成 `*lead*`。
+
+`pause` / `resume` 是**团队编排级**语义，不是冻结 / 解冻调用栈。pause 返回 `status=paused` 和 `cancellation.{requestedCount,terminalCount,pendingCount,refusedCount,runs}`；durable Team 已暂停，但 `pendingCount>0` 表示取消仍在收敛。此时立即 resume 会整队拒绝并返回 `status=paused, disposition=refused, retryable=true`，在途旧 run 对应 `failures[].reason=old_attempt_still_active`；引用记录缺失则为 `old_attempt_unknown`。旧 run 全部终态后重试，resume 全成功返回 `status=resumed, teamStatus=active, disposition=resumed`；claim 后启动部分成功返回 `status=partially_resumed, teamStatus=active, disposition=partial` 并带 `failures`；一个都未启动时返回 `status=paused|refused, disposition=refused`。若非空 roster 已全员 Completed，则每次调用都稳定返回 `status=already_complete, teamStatus=paused, disposition=no_op` 与完整 `completedMembers`，绝不能重启或上报“已恢复”；空或混合 roster 不适用该 no-op。
 
 ## 用户自定义预设
 
@@ -442,7 +469,7 @@ flowchart TD
 |------|---------|---------|
 | `created` | Team 全量 | 团队创建 |
 | `member_joined` | TeamMember | 成员加入 |
-| `member_status` | {teamId, memberId, status} | 成员转 working（spawn）/ killed（remove） |
+| `member_status` | {teamId, memberId, status} | 成员转 working（attach）/ killed（remove）/ completed（resume 惰性对齐） |
 | `message` | TeamMessage | 成员间消息或系统消息 |
 | `task_updated` | TeamTask | 任务创建 / 变更 |
 | `paused` / `resumed` | {teamId} | 团队暂停 / 恢复 |
@@ -456,7 +483,7 @@ flowchart TD
 - `task_updated` → 事件带完整任务，直接内存更新对应项
 - `paused` / `resumed` / `dissolved` → 整体重载
 
-> `useTeam` 里还保留了一个 `member_completed` 分支，但编排层当前并不发射该事件（成员自然完成的状态对齐走启动清理，见"成员生命周期与终态回收"）。
+> `useTeam` 里还保留了一个 `member_completed` 分支，但编排层当前并不发射该事件；`resume_team` 对齐 pause 后迟到成功时发射的是统一的 `member_status=completed`（其他惰性对齐时机见“成员生命周期与终态回收”）。
 
 ## 前端交互
 
@@ -476,7 +503,7 @@ flowchart TD
 
 ### ChatScreen 集成
 
-- `useActiveTeam(sessionId)` 按 `leadSessionId` 发现当前会话的活跃团队
+- `useActiveTeam(sessionId)` 按 `leadSessionId` 发现当前会话的可控团队：优先 Active；没有 Active 时回退最近的 Paused，保证刷新后仍可恢复或解散
 - 团队创建时自动展开 TeamPanel
 - 面板关闭时显示 `TeamMiniIndicator`（自行取数）
 
@@ -522,17 +549,17 @@ flowchart TD
 | 场景 | 处理 |
 |------|------|
 | 成员执行崩溃 | 底层 attempt 收敛为 `Interrupted`；非 Completed/Killed 的终态映射为 `Error` → 系统消息通知全队 → 用户可在 UI 重新添加 |
-| 成员自然完成 | 运行期不回写；`team_members.status` 停在 `working`，靠下次启动 `cleanup_orphan_teams()` 对齐为 Completed/Error/Killed |
+| 成员自然完成 | 运行期不即时回写；Active 阶段 stale 终态由下次 `pause_team` 对齐，pause 后取消收敛期的迟到 Completed 由下次 `resume_team` 对齐并排除重跑，`cleanup_orphan_teams()` 只作启动期全局兜底 |
 | App 重启 | `cleanup_orphan_teams()` 把 working 成员与其 subagent run 状态对齐；团队保持 Active 等用户决定 |
-| 用户暂停 / 恢复成员 | 暂停 = kill subagent + 标 Paused + 保留任务分配；恢复 = 按原任务重新 spawn |
+| 用户暂停 / 恢复成员 | 暂停先对齐已终态 stale roster，再 durable fence + canonical cancel；恢复先排除 pause 后迟到 Completed，若全部完成则返回 `already_complete/no_op` 且零 spawn；其余候选中任一旧 run 未终态时整队拒绝，全部收敛后才用原 member_id 绑定 fresh run |
 | 用户手动发消息 | TeamMessageFeed 输入框 → `send_user_team_message`（`*user*`）→ 投递到成员 mailbox |
-| 并发限制 | 成员经 `spawn_subagent` 进入子 Agent 并发池，受 `max_concurrent_for_agent` 约束（读该 Agent 的 `subagents.maxConcurrent`，spawn 时 clamp 到 1–50，默认 8），超限拒绝；`spawn_member` 另在写行前 `begin_agent_run` 预留成员 agent 配额 |
+| 并发限制 | 成员经 prepared spawn 进入子 Agent 并发池，受 `max_concurrent_for_agent` 约束（读该 Agent 的 `subagents.maxConcurrent`，spawn 时 clamp 到 1–50，默认 8），超限进入有界 Queued 队列、队列满才拒绝；`spawn_member` 另在写行前 `begin_agent_run` 预留成员 agent 配额 |
 | 跨会话事件 | `useActiveTeam` 按 `leadSessionId` 过滤，解散事件按 `teamId` 匹配 |
 | token 统计 | 目前恒为 0（无运行期回写入口），非实时用量 |
 
 ## 与子 Agent 系统的集成点
 
-1. **spawn**：`coordinator::spawn_member()` 调 `subagent::spawn_subagent()`，用 `label: "team:{队名}/{成员名}"`、`skip_parent_injection: true`、`owner_kind: Team` 标记团队成员；`group_id` 恒为 `None`（团队成员不参与子 Agent 分组投影）
-2. **cancel**：复用 `SubagentCancelRegistry`，每个成员的 `run_id` 都注册其中，暂停 / 移除 / 解散经它 kill
+1. **spawn**：`coordinator::spawn_member()` 走 `prepare_subagent` → roster attach → `launch_prepared_subagent(TeamMemberLaunchFence)`，用 `label: "team:{队名}/{成员名}"`、`skip_parent_injection: true`、`owner_kind: Team` 标记团队成员；`group_id` 恒为 `None`（团队成员不参与子 Agent 分组投影）
+2. **cancel**：暂停 / 移除 / 解散统一调用 `subagent::request_cancel_run(run_id)`；该 canonical 入口同时覆盖排队与已启动 run。Team 先提交 durable revoke/fence，再发取消请求，并把 requested 与 terminal 分开报告
 3. **mailbox**：消息投递走 `SUBAGENT_MAILBOX.push(run_id, msg)`，成员的 tool loop 下一轮 drain
 4. **cleanup**：`cleanup_orphan_teams()` 启动时读成员关联的 `subagent_runs` 状态并回写成员状态

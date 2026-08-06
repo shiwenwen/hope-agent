@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react"
 import { X } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { PANEL_SCROLL_FADE } from "../chat/right-panel/panelFade"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -11,6 +12,7 @@ import { TeamToolbar } from "./TeamToolbar"
 import { TeamDashboard } from "./TeamDashboard"
 import { TeamTaskBoard } from "./TeamTaskBoard"
 import { TeamMessageFeed } from "./TeamMessageFeed"
+import type { ResumeTeamResult } from "./teamTypes"
 
 interface TeamPanelProps {
   teamId: string
@@ -43,21 +45,64 @@ export function TeamPanel({
   const { team, members, messages, tasks, sendMessage, hasMore, loadingMore, loadMoreMessages } =
     useTeam(teamId)
   const [tab, setTab] = useState("dashboard")
+  const [resumeState, setResumeState] = useState<{
+    teamId: string
+    result: ResumeTeamResult | null
+  }>({ teamId, result: null })
+  const resumeResult = resumeState.teamId === teamId ? resumeState.result : null
 
   const width = panelWidth ?? DEFAULT_WIDTH
+  const resumeNotNeeded =
+    team?.status === "paused" &&
+    members.length > 0 &&
+    members.every((member) => member.status === "completed")
 
   // ── Actions ─────────────────────────────────────────────
   const handlePause = useCallback(async () => {
-    await getTransport()
-      .call("pause_team", { teamId })
-      .catch(() => {})
+    try {
+      await getTransport().call("pause_team", { teamId })
+      setResumeState({ teamId, result: null })
+    } catch {
+      // Error handled by transport
+    }
   }, [teamId])
 
   const handleResume = useCallback(async () => {
-    await getTransport()
-      .call("resume_team", { teamId })
-      .catch(() => {})
-  }, [teamId])
+    try {
+      const result = await getTransport().call<ResumeTeamResult>("resume_team", { teamId })
+      setResumeState({ teamId, result })
+      const counts = t("team.resumeFeedback.counts", {
+        resumed: result.resumedMemberCount,
+        failed: result.failedMemberCount,
+        defaultValue: "{{resumed}} resumed · {{failed}} failed",
+      })
+      if (result.disposition === "resumed") {
+        toast.success(t("team.resumeFeedback.resumedTitle", "Team resumed"), {
+          description: counts,
+        })
+      } else if (result.disposition === "partial") {
+        toast.warning(t("team.resumeFeedback.partialTitle", "Team partially resumed"), {
+          description: counts,
+        })
+      } else if (result.disposition === "refused") {
+        toast.error(t("team.resumeFeedback.refusedTitle", "Team resume refused"), {
+          description: counts,
+        })
+      } else {
+        toast.info(t("team.resumeFeedback.noOpTitle", "No resume needed"), {
+          description: t(
+            "team.resumeFeedback.noOpDescription",
+            "All team members have already completed; no new attempts were started.",
+          ),
+        })
+      }
+    } catch (error) {
+      setResumeState({ teamId, result: null })
+      toast.error(`${t("team.resume", "Resume")} · ${t("common.statusValues.failed", "Failed")}`, {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, [t, teamId])
 
   if (!team) {
     return (
@@ -110,6 +155,8 @@ export function TeamPanel({
           onPause={handlePause}
           onResume={handleResume}
           onDissolve={onClose}
+          resumeResult={resumeResult}
+          resumeNotNeeded={resumeNotNeeded}
         />
 
         {/* Tabs */}

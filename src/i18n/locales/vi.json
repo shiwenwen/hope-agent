@@ -996,7 +996,7 @@
       "title": "Cần có tiện ích mở rộng của Chrome"
     },
     "conversationEmpty": "Không có tin nhắn trong cuộc trò chuyện này",
-    "pendingCancelForceInsert": "Hủy chèn vòng này",
+    "pendingCancelForceInsert": "Chuyển sang gửi sau phản hồi",
     "pendingSaving": "Đang lưu",
     "pendingSavingTip": "Đang lưu tin nhắn và tệp đính kèm vào hàng đợi có thể khôi phục.",
     "pendingInserting": "Đang chèn",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "Gửi ngay",
     "pendingFallbackAfterReply": "Gửi sau khi trả lời",
     "pendingFallbackAfterReplyTip": "Chưa gặp điểm hoàn thành công cụ và sẽ được gửi sau khi phản hồi hiện tại kết thúc.",
-    "pendingForceInsertTip": "Nó sẽ đợi cho đến khi công cụ đang được thực thi hoàn tất rồi chèn nó vào mô hình mà không làm gián đoạn công cụ hiện tại.",
+    "pendingForceInsertTip": "Chèn vào mô hình sau khi tất cả công cụ đang chạy trong đợt này hoàn tất, không làm gián đoạn các công cụ đó; nếu lượt này không còn đạt đến ranh giới công cụ nào, tin nhắn sẽ được gửi sau phản hồi.",
+    "pendingInsert": "Chèn",
     "pendingInserted": "chèn vào",
     "pendingInsertedTip": "Nó đã được chèn vào mô hình sau khi hoàn thành vòng công cụ này.",
-    "pendingQueuedShort": "Xếp hàng",
+    "pendingHeldAfterStop": "Đã tạm dừng gửi",
+    "pendingHeldAfterStopTip": "Phản hồi hiện tại đã bị dừng nên tin nhắn này sẽ không được gửi tự động.",
+    "pendingMoreActions": "Thao tác khác với tin nhắn",
+    "pendingQueuedShort": "Gửi sau phản hồi",
     "pendingQueuedTip": "Nó đã được thêm vào hàng đợi và sẽ được gửi sau khi trả lời hiện tại kết thúc.",
     "pendingQueueTitle": "Sẽ được gửi",
-    "pendingWaitingToolBoundary": "Chờ điểm hoàn thành công cụ",
-    "pendingWaitingToolBoundaryTip": "Đợi lệnh gọi công cụ mới nhất hoàn tất; nếu công cụ này không còn được gọi ở vòng này nữa, nó sẽ được gửi sau khi phản hồi hoàn tất.",
+    "pendingWaitingToolBoundary": "Đang chờ chèn",
+    "pendingWaitingToolBoundaryTip": "Đang chờ tất cả công cụ chạy trong đợt này hoàn tất trước khi chèn; nếu lượt này không còn đạt đến ranh giới công cụ nào, tin nhắn sẽ được gửi sau phản hồi.",
     "processNotification": "quá trình kết thúc",
     "rightPanel": {
       "collapse": "Thu gọn bảng bên phải",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "Đã xử lý"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "đóng {{count}} Agent",
+          "close_other": "đóng {{count}} Agent",
+          "closeAll": "đóng tất cả Agent",
+          "message_one": "gửi tin nhắn tới {{count}} Agent",
+          "message_other": "gửi tin nhắn tới {{count}} Agent",
+          "observe_one": "kiểm tra {{count}} Agent",
+          "observe_other": "kiểm tra {{count}} Agent",
+          "resume_one": "tiếp tục {{count}} Agent",
+          "resume_other": "tiếp tục {{count}} Agent"
+        },
+        "cron": {
+          "pause_one": "tạm dừng {{count}} lịch",
+          "pause_other": "tạm dừng {{count}} lịch",
+          "resume_one": "tiếp tục {{count}} lịch",
+          "resume_other": "tiếp tục {{count}} lịch"
+        },
+        "job": {
+          "cancel_one": "hủy {{count}} tác vụ",
+          "cancel_other": "hủy {{count}} tác vụ"
+        },
+        "process": {
+          "close_one": "đóng {{count}} tiến trình",
+          "close_other": "đóng {{count}} tiến trình"
+        },
+        "team": {
+          "pause_one": "tạm dừng {{count}} nhóm",
+          "pause_other": "tạm dừng {{count}} nhóm",
+          "resume_one": "tiếp tục {{count}} nhóm",
+          "resume_other": "tiếp tục {{count}} nhóm"
+        },
+        "workflow": {
+          "cancel_one": "hủy {{count}} quy trình",
+          "cancel_other": "hủy {{count}} quy trình",
+          "pause_one": "tạm dừng {{count}} quy trình",
+          "pause_other": "tạm dừng {{count}} quy trình",
+          "resume_one": "tiếp tục {{count}} quy trình",
+          "resume_other": "tiếp tục {{count}} quy trình"
+        }
+      },
+      "aggregate": {
+        "failed_one": "{{count}} thất bại",
+        "failed_other": "{{count}} thất bại",
+        "pending_one": "đang chờ {{count}}",
+        "pending_other": "đang chờ {{count}}",
+        "refused_one": "bị từ chối {{count}}",
+        "refused_other": "bị từ chối {{count}}",
+        "requested_one": "đã yêu cầu {{count}}",
+        "requested_other": "đã yêu cầu {{count}}",
+        "resumed_one": "{{count}} đã tiếp tục",
+        "resumed_other": "{{count}} đã tiếp tục",
+        "terminal_one": "đã kết thúc {{count}}",
+        "terminal_other": "đã kết thúc {{count}}"
+      },
+      "allTargets": "Tất cả Agent",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} đã kết thúc",
+        "alreadyTerminal_other": "{{count}} đã kết thúc",
+        "refused_one": "{{count}} bị từ chối",
+        "refused_other": "{{count}} bị từ chối"
+      },
+      "failureDetails": "Lỗi tiếp tục",
+      "state": {
+        "accepted": "Đã yêu cầu · {{action}}",
+        "alreadyTerminal_one": "{{count}} mục tiêu đã kết thúc trước đó",
+        "alreadyTerminal_other": "{{count}} mục tiêu đã kết thúc trước đó",
+        "completed": "Đã hoàn tất · {{action}}",
+        "failed": "Thất bại · {{action}}",
+        "noAgentsToClose": "Không có Agent nào cần đóng",
+        "noResumeNeeded": "Nhóm đã hoàn tất · không cần tiếp tục",
+        "partial": "Hoàn tất một phần · {{action}}",
+        "refused": "Bị từ chối · {{action}}",
+        "running": "Đang thực hiện · {{action}}"
+      }
     },
     "skill": {
       "completed": "Đã nạp kỹ năng: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "Tạm dừng",
     "progress": "Tiến độ",
     "resume": "Tiếp tục",
+    "resumeFeedback": {
+      "counts": "{{resumed}} đã tiếp tục · {{failed}} thất bại",
+      "noOpDescription": "Tất cả thành viên đã hoàn tất; không có lượt chạy mới nào được bắt đầu.",
+      "noOpTitle": "Không cần tiếp tục",
+      "partialTitle": "Nhóm đã tiếp tục một phần",
+      "refusedTitle": "Yêu cầu tiếp tục nhóm bị từ chối",
+      "resumedTitle": "Nhóm đã tiếp tục",
+      "resuming": "Đang tiếp tục…"
+    },
     "review": "Kiểm tra",
     "reviewer": "Người kiểm tra",
     "send": "Gửi",

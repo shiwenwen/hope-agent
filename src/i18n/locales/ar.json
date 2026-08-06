@@ -996,7 +996,7 @@
       "title": "ملحق كروم مطلوب"
     },
     "conversationEmpty": "لا توجد رسائل في هذه المحادثة",
-    "pendingCancelForceInsert": "إلغاء إدراج هذه الجولة",
+    "pendingCancelForceInsert": "التغيير إلى الإرسال بعد الرد",
     "pendingSaving": "جارٍ الحفظ",
     "pendingSavingTip": "جارٍ حفظ الرسالة والمرفقات في قائمة انتظار قابلة للاستعادة.",
     "pendingInserting": "جارٍ الإدراج",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "إرسال الآن",
     "pendingFallbackAfterReply": "أرسل بعد الرد",
     "pendingFallbackAfterReplyTip": "لم تتم مواجهة نقطة اكتمال الأداة وسيتم إرسالها بعد انتهاء الرد الحالي.",
-    "pendingForceInsertTip": "سوف ينتظر حتى اكتمال تنفيذ الأداة ثم يقوم بإدراجها في النموذج دون مقاطعة الأداة الحالية.",
+    "pendingForceInsertTip": "سيتم إدراج الرسالة للنموذج بعد اكتمال جميع الأدوات قيد التشغيل في هذه الدفعة، من دون مقاطعتها؛ وإذا لم تصل هذه الجولة إلى حد أدوات آخر فستُرسل بعد انتهاء الرد.",
+    "pendingInsert": "إدراج",
     "pendingInserted": "تم إدراجها",
     "pendingInsertedTip": "وقد تم إدراجه في النموذج بعد اكتمال هذه الجولة من الأدوات.",
-    "pendingQueuedShort": "الطابور",
+    "pendingHeldAfterStop": "تم إيقاف الإرسال مؤقتًا",
+    "pendingHeldAfterStopTip": "تم إيقاف الرد الحالي، لذا لن تُرسل هذه الرسالة تلقائيًا.",
+    "pendingMoreActions": "مزيد من إجراءات الرسالة",
+    "pendingQueuedShort": "الإرسال بعد الرد",
     "pendingQueuedTip": "تمت إضافته إلى قائمة انتظار الانتظار وسيتم إرساله بعد انتهاء الرد الحالي.",
     "pendingQueueTitle": "ليتم إرسالها",
-    "pendingWaitingToolBoundary": "انتظر حتى نقطة اكتمال الأداة",
-    "pendingWaitingToolBoundaryTip": "انتظر حتى يكتمل استدعاء الأداة الأخير؛ إذا لم تعد الأداة تسمى هذه الجولة، فسيتم إرسالها بعد اكتمال الرد.",
+    "pendingWaitingToolBoundary": "بانتظار الإدراج",
+    "pendingWaitingToolBoundaryTip": "بانتظار اكتمال جميع الأدوات قيد التشغيل في هذه الدفعة قبل الإدراج؛ وإذا لم تصل هذه الجولة إلى حد أدوات آخر فستُرسل الرسالة بعد انتهاء الرد.",
     "processNotification": "انتهت العملية",
     "rightPanel": {
       "collapse": "طي اللوحة اليمنى",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "تمت المعالجة"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "إغلاق {{count}} من الوكلاء",
+          "close_other": "إغلاق {{count}} من الوكلاء",
+          "closeAll": "إغلاق جميع الوكلاء",
+          "message_one": "إرسال رسالة إلى {{count}} من الوكلاء",
+          "message_other": "إرسال رسالة إلى {{count}} من الوكلاء",
+          "observe_one": "فحص {{count}} من الوكلاء",
+          "observe_other": "فحص {{count}} من الوكلاء",
+          "resume_one": "استئناف {{count}} من الوكلاء",
+          "resume_other": "استئناف {{count}} من الوكلاء"
+        },
+        "cron": {
+          "pause_one": "إيقاف {{count}} من الجداول مؤقتًا",
+          "pause_other": "إيقاف {{count}} من الجداول مؤقتًا",
+          "resume_one": "استئناف {{count}} من الجداول",
+          "resume_other": "استئناف {{count}} من الجداول"
+        },
+        "job": {
+          "cancel_one": "إلغاء {{count}} من المهام",
+          "cancel_other": "إلغاء {{count}} من المهام"
+        },
+        "process": {
+          "close_one": "إغلاق {{count}} من العمليات",
+          "close_other": "إغلاق {{count}} من العمليات"
+        },
+        "team": {
+          "pause_one": "إيقاف {{count}} من الفرق مؤقتًا",
+          "pause_other": "إيقاف {{count}} من الفرق مؤقتًا",
+          "resume_one": "استئناف {{count}} من الفرق",
+          "resume_other": "استئناف {{count}} من الفرق"
+        },
+        "workflow": {
+          "cancel_one": "إلغاء {{count}} من مسارات العمل",
+          "cancel_other": "إلغاء {{count}} من مسارات العمل",
+          "pause_one": "إيقاف {{count}} من مسارات العمل مؤقتًا",
+          "pause_other": "إيقاف {{count}} من مسارات العمل مؤقتًا",
+          "resume_one": "استئناف {{count}} من مسارات العمل",
+          "resume_other": "استئناف {{count}} من مسارات العمل"
+        }
+      },
+      "aggregate": {
+        "failed_one": "فشل {{count}}",
+        "failed_other": "فشل {{count}}",
+        "pending_one": "{{count}} قيد الانتظار",
+        "pending_other": "{{count}} قيد الانتظار",
+        "refused_one": "رُفض {{count}}",
+        "refused_other": "رُفض {{count}}",
+        "requested_one": "تم طلب {{count}}",
+        "requested_other": "تم طلب {{count}}",
+        "resumed_one": "تم استئناف {{count}}",
+        "resumed_other": "تم استئناف {{count}}",
+        "terminal_one": "انتهى {{count}}",
+        "terminal_other": "انتهى {{count}}"
+      },
+      "allTargets": "جميع الوكلاء",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} منتهية مسبقًا",
+        "alreadyTerminal_other": "{{count}} منتهية مسبقًا",
+        "refused_one": "تم رفض {{count}}",
+        "refused_other": "تم رفض {{count}}"
+      },
+      "failureDetails": "إخفاقات الاستئناف",
+      "state": {
+        "accepted": "تم الطلب · {{action}}",
+        "alreadyTerminal_one": "كانت {{count}} من الأهداف منتهية مسبقًا",
+        "alreadyTerminal_other": "كانت {{count}} من الأهداف منتهية مسبقًا",
+        "completed": "اكتمل · {{action}}",
+        "failed": "فشل · {{action}}",
+        "noAgentsToClose": "لا يوجد وكلاء بحاجة إلى الإغلاق",
+        "noResumeNeeded": "اكتمل الفريق بالفعل · لا حاجة إلى الاستئناف",
+        "partial": "اكتمل جزئيًا · {{action}}",
+        "refused": "رُفض · {{action}}",
+        "running": "قيد التنفيذ · {{action}}"
+      }
     },
     "skill": {
       "completed": "المهارة المحملة: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "متوقف مؤقتًا",
     "progress": "التقدم",
     "resume": "استئناف",
+    "resumeFeedback": {
+      "counts": "تم استئناف {{resumed}} · فشل {{failed}}",
+      "noOpDescription": "أكمل جميع أعضاء الفريق بالفعل؛ لم تبدأ أي محاولة جديدة.",
+      "noOpTitle": "لا حاجة إلى الاستئناف",
+      "partialTitle": "تم استئناف الفريق جزئيًا",
+      "refusedTitle": "رُفض استئناف الفريق",
+      "resumedTitle": "تم استئناف الفريق",
+      "resuming": "جارٍ الاستئناف…"
+    },
     "review": "مراجعة",
     "reviewer": "المراجِع",
     "send": "إرسال",
