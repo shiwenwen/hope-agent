@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ReactElement } from "react"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -24,8 +24,14 @@ vi.mock("@/components/chat/MessageList", () => ({
 vi.mock("@/components/chat/ApprovalDialog", () => ({
   default: () => null,
 }))
+const chatInputCapture = vi.hoisted(() => ({
+  onCommandAction: undefined as ((result: unknown) => unknown) | undefined,
+}))
 vi.mock("@/components/chat/ChatInput", () => ({
-  default: () => <div data-testid="chat-input" />,
+  default: (props: { onCommandAction?: (result: unknown) => unknown }) => {
+    chatInputCapture.onCommandAction = props.onCommandAction
+    return <div data-testid="chat-input" />
+  },
 }))
 
 const sessionShape = {
@@ -51,6 +57,7 @@ const sessionShape = {
   reasoningEffort: "medium",
   setReasoningEffort: vi.fn(),
   handleNewChat: vi.fn(),
+  handleSwitchSession: vi.fn(),
   handleSwitchAgent: vi.fn(),
   handleModelChange: vi.fn(),
   handleEffortChange: vi.fn(),
@@ -98,6 +105,7 @@ afterEach(() => {
   // Reset session shape mutations between tests
   sessionShape.messages = [{ role: "user", content: "hi", timestamp: "2026-04-26T00:00:00.000Z" }]
   sessionShape.currentSessionId = "session-123"
+  chatInputCapture.onCommandAction = undefined
 })
 
 describe("QuickChatDialog 'View full chat' button", () => {
@@ -139,5 +147,18 @@ describe("QuickChatDialog 'View full chat' button", () => {
   test("hidden when onNavigateToSession is not provided", () => {
     renderWithProviders(<QuickChatDialog open onOpenChange={vi.fn()} />)
     expect(screen.queryByLabelText("quickChat.viewFullChat")).toBeNull()
+  })
+
+  test("switches to the session created by /fork", async () => {
+    renderWithProviders(<QuickChatDialog open onOpenChange={vi.fn()} />)
+
+    await act(async () => {
+      await chatInputCapture.onCommandAction?.({
+        content: "Continued in a new session.",
+        action: { type: "forkSession", sessionId: "fork-session-1" },
+      })
+    })
+
+    expect(sessionShape.handleSwitchSession).toHaveBeenCalledWith("fork-session-1")
   })
 })

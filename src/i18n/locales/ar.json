@@ -369,6 +369,7 @@
       "continueInNewSession": "المتابعة في جلسة جديدة",
       "continuedFrom": "متابعة من",
       "created": "تمت المتابعة في جلسة جديدة",
+      "createdButNotOpened": "تم إنشاء التفرع `{{id}}` ولكن تعذر فتحه. حدده من قائمة الجلسات للمتابعة.",
       "failed": "تعذرت المتابعة في جلسة جديدة",
       "sourceFallback": "الجلسة الأصلية"
     },
@@ -8547,6 +8548,9 @@
     },
     "forget": {
       "description": "حذف ذاكرة"
+    },
+    "fork": {
+      "description": "المتابعة في جلسة جديدة"
     },
     "handover": {
       "description": "تحويل الجلسة إلى محادثة IM"

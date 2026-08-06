@@ -62,6 +62,9 @@ pub struct CommandResult {
 pub enum CommandAction {
     /// A new session was created.
     NewSession { session_id: String },
+    /// The current session was copied into a new first-class session.
+    /// Consumers should switch or remap their active surface to `session_id`.
+    ForkSession { session_id: String },
     /// Model was switched.
     SwitchModel {
         provider_id: String,
@@ -262,6 +265,7 @@ impl SlashCommandDef {
         }
         match self.name.as_str() {
             "new" => "Start a new chat",
+            "fork" => "Continue in a new session",
             "clear" => "Clear conversation",
             "compact" => "Compress context",
             "stop" => "Stop current reply",

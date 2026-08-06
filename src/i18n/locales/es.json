@@ -369,6 +369,7 @@
       "continueInNewSession": "Continuar en una nueva sesión",
       "continuedFrom": "Continuado desde",
       "created": "Se continuó en una nueva sesión",
+      "createdButNotOpened": "Se creó la bifurcación `{{id}}`, pero no se pudo abrir. Selecciónala en la lista de sesiones para continuar.",
       "failed": "No se pudo continuar en una nueva sesión",
       "sourceFallback": "sesión original"
     },
@@ -8547,6 +8548,9 @@
     },
     "forget": {
       "description": "Eliminar una memoria"
+    },
+    "fork": {
+      "description": "Continuar en una nueva sesión"
     },
     "handover": {
       "description": "Transferir la sesión a un chat de IM"

@@ -369,6 +369,7 @@
       "continueInNewSession": "新しいセッションで続ける",
       "continuedFrom": "続き元",
       "created": "新しいセッションで続けます",
+      "createdButNotOpened": "フォーク `{{id}}` は作成されましたが、開けませんでした。セッション一覧から選択して続行してください。",
       "failed": "新しいセッションで続けられませんでした",
       "sourceFallback": "元のセッション"
     },
@@ -8547,6 +8548,9 @@
     },
     "forget": {
       "description": "記憶を削除"
+    },
+    "fork": {
+      "description": "新しいセッションで続ける"
     },
     "handover": {
       "description": "セッションを IM へ引き継ぐ"

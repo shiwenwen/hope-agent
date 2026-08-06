@@ -154,6 +154,7 @@ sequenceDiagram
 | 命令 | 参数 | 说明 | 副作用 (Action) |
 |---|---|---|---|
 | `/new` | 无 | 创建新会话 | `NewSession` |
+| `/fork` | 无 | 复制当前已落库的完整 transcript，创建分支并切换到新会话；命令本身不写入两侧 transcript | `ForkSession` |
 | `/clear` | 无 | 删除当前会话所有消息 | `SessionCleared` |
 | `/compact` | 无 | 压缩当前会话上下文（触发渐进式压缩） | `Compact` |
 | `/stop` | 无 | 停止当前会话主动回合。IM 与 GUI / HTTP 共用同一 session-stop 编排，仅交互入口不同；在 IM 中优先于审批 / 结构化问答回复解析 | `StopStream` |
@@ -505,6 +506,7 @@ Telegram（`setMyCommands`）和 Discord（Application Commands API）的命令�
 | Action | 触发命令 | 桌面行为 | IM 渠道行为 | EventBus 事件 |
 |---|---|---|---|---|
 | `NewSession` | `/new` | 切到新建会话 | ✅ 更新 channel → 新 session 映射 | — |
+| `ForkSession` | `/fork` | 刷新会话列表并切到新分支 | ✅ 创建分支后更新 channel → 新 session 映射；映射失败时保留分支并返回可手动 `/session` 接管的短 ID | — |
 | `SessionCleared` | `/clear` | 消息已清空 | ✅ DB 已清理 + 回复确认 | `slash:session_cleared` |
 | `SwitchModel` | `/model <name>` | 切换活跃模型 | ✅ `set_session_model_core` 把模型钉到当前 session（不改全局 active_model） | `session:model_updated` |
 | `ShowModelPicker` | `/model` / `/models`（无参） | 渲染模型选择卡片 | ✅ 支持按钮渠道发 inline keyboard，其余发文本列表 | — |
@@ -544,6 +546,7 @@ Telegram（`setMyCommands`）和 Discord（Application Commands API）的命令�
 | 命令 | 分类 | 参数 | 需要活跃会话 | 说明 |
 |---|---|---|---|---|
 | `/new` | Session | 无 | 否 | 开始新对话 |
+| `/fork` | Session | 无 | 是 | 从当前已完成历史创建分支并切换；不复制 Goal / Loop / Workflow 等运行态 |
 | `/clear` | Session | 无 | 是 | 清空当前对话 |
 | `/compact` | Session | 无 | 否 | 压缩上下文 |
 | `/stop` | Session | 无 | 否 | 停止当前回复 |

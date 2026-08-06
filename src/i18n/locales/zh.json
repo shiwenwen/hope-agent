@@ -369,6 +369,7 @@
       "continueInNewSession": "在新会话中继续",
       "continuedFrom": "接续自",
       "created": "已在新会话中继续",
+      "createdButNotOpened": "分支 `{{id}}` 已创建，但未能打开。请从会话列表中选择它继续。",
       "failed": "无法在新会话中继续",
       "sourceFallback": "原会话"
     },
@@ -8547,6 +8548,9 @@
     },
     "forget": {
       "description": "删除记忆"
+    },
+    "fork": {
+      "description": "在新会话中继续"
     },
     "handover": {
       "description": "把会话交班到 IM"

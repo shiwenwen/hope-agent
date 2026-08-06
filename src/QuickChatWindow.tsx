@@ -6,6 +6,7 @@ import React, { useEffect, useCallback, useRef, useMemo, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { Plus, ChevronDown, Bot, X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -27,6 +28,7 @@ const QUICK_CHAT_EMPTY_HEIGHT = 460
 const QUICK_CHAT_MESSAGES_HEIGHT = 500
 
 export default function QuickChatWindow() {
+  const { t } = useTranslation()
   const session = useQuickChatSession(true)
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, Set<string>>>(new Map())
@@ -145,19 +147,25 @@ export default function QuickChatWindow() {
   }, [])
 
   const handleCommandAction = useCallback(
-    (result: CommandResult) => {
+    async (result: CommandResult) => {
       const action = result.action
       if (!action) return
       if (action.type === "switchAgent") {
         session.handleSwitchAgent(action.agentId)
       } else if (action.type === "newSession") {
         session.handleNewChat()
+      } else if (action.type === "forkSession") {
+        try {
+          await session.handleSwitchSession(action.sessionId)
+          toast.success(t("chat.fork.created"))
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t("chat.fork.failed"))
+        }
       }
     },
-    [session],
+    [session, t],
   )
 
-  const { t } = useTranslation()
   const currentAgent = session.agents.find((a) => a.id === session.currentAgentId)
   const agentMenuRef = useRef<HTMLDivElement>(null)
 

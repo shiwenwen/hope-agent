@@ -81,6 +81,7 @@ export interface UseQuickChatSessionReturn {
 
   // Handlers
   handleNewChat: () => Promise<void>
+  handleSwitchSession: (sessionId: string) => Promise<void>
   handleSwitchAgent: (agentId: string) => Promise<void>
   handleModelChange: (key: string, options?: { applyToAgentDefault?: boolean }) => Promise<void>
   handleEffortChange: (effort: string, options?: { applyToAgentDefault?: boolean }) => Promise<void>
@@ -364,6 +365,41 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     await loadModels(currentAgentId)
   }, [currentAgentId, loadModels, resetPagination, setCurrentSessionId])
 
+  const handleSwitchSession = useCallback(
+    async (sessionId: string) => {
+      if (!sessionId || sessionId === currentSessionIdRef.current) return
+      setLoading(true)
+      try {
+        const sessionList = await loadSessionsForAgent(currentAgentId)
+        const target = sessionList.find((item) => item.id === sessionId)
+        if (!target) throw new Error(`Session \`${sessionId}\` not found`)
+
+        const [loaded] = await Promise.all([
+          loadSessionMessages(sessionId),
+          loadModels(target.agentId, sessionId),
+        ])
+        if (!loaded) throw new Error(`Failed to load session \`${sessionId}\``)
+
+        if (target.agentId !== currentAgentId) {
+          setCurrentAgentId(target.agentId)
+          const agent = agents.find((item) => item.id === target.agentId)
+          if (agent) setAgentName(agent.name)
+        }
+        setCurrentSessionId(sessionId)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [
+      agents,
+      currentAgentId,
+      loadModels,
+      loadSessionMessages,
+      loadSessionsForAgent,
+      setCurrentSessionId,
+    ],
+  )
+
   // Switch agent
   const handleSwitchAgent = useCallback(
     async (agentId: string) => {
@@ -644,6 +680,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     sessionTemperature,
     unavailableModelPreference,
     handleNewChat,
+    handleSwitchSession,
     handleSwitchAgent,
     handleModelChange,
     handleEffortChange,

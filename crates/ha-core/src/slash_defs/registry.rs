@@ -32,6 +32,16 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_raw: None,
         },
         SlashCommandDef {
+            name: "fork".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.fork.description".into(),
+            has_args: false,
+            args_optional: false,
+            arg_placeholder: None,
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
             name: "clear".into(),
             category: CommandCategory::Session,
             description_key: "slashCommands.clear.description".into(),

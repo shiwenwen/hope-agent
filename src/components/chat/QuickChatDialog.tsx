@@ -157,7 +157,7 @@ export default function QuickChatDialog({
 
   // ── Slash command action handler ────────────────
   const handleCommandAction = useCallback(
-    (result: CommandResult) => {
+    async (result: CommandResult) => {
       const action = result.action
       if (!action) return
       if (action.type === "switchAgent") {
@@ -169,9 +169,16 @@ export default function QuickChatDialog({
             .call("delete_session_cmd", { sessionId: action.sessionId })
             .catch(() => {})
         }
+      } else if (action.type === "forkSession") {
+        try {
+          await session.handleSwitchSession(action.sessionId)
+          toast.success(t("chat.fork.created"))
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : t("chat.fork.failed"))
+        }
       }
     },
-    [session],
+    [session, t],
   )
 
   // ── Navigate to full conversation ───────────────

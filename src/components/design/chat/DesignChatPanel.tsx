@@ -48,6 +48,7 @@ import {
   forkSessionRequestForMessage,
   type ForkComposerDraft,
 } from "@/components/chat/message/messageFork"
+import type { CommandResult } from "@/components/chat/slash-commands/types"
 import type { ActiveModel, ForkSessionResult, Message, PendingFileQuote } from "@/types/chat"
 import type { DesignRecipe } from "@/types/design"
 import { useDesignChat } from "./useDesignChat"
@@ -551,6 +552,23 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     [session, t],
   )
 
+  const handleCommandAction = useCallback(
+    async (result: CommandResult) => {
+      if (result.action?.type !== "forkSession") return
+      try {
+        await session.reloadThreads()
+        await session.switchThread(result.action.sessionId)
+        toast.success(t("design.chat.forked", "已分支为新对话"))
+      } catch (e) {
+        logger.error("design", "DesignChatPanel", "slash fork switch failed", e)
+        toast.error(
+          e instanceof Error && e.message ? e.message : t("design.chat.forkFailed", "分支失败"),
+        )
+      }
+    },
+    [session, t],
+  )
+
   if (!projectId) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
@@ -842,6 +860,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
           onStop={stream.handleStop}
           currentSessionId={session.currentSessionId}
           currentAgentId={session.currentAgentId}
+          onCommandAction={handleCommandAction}
           permissionMode={stream.permissionMode}
           onPermissionModeChange={stream.setPermissionModeByUser}
           sandboxMode={stream.sandboxMode}
