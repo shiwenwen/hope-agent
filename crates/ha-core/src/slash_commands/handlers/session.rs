@@ -44,6 +44,53 @@ pub fn handle_new(session_db: &Arc<SessionDB>, agent_id: &str) -> Result<Command
     })
 }
 
+/// /fork — Copy the complete settled transcript into a new first-class
+/// session. The slash command itself is deliberately excluded from both
+/// transcripts by `should_persist_slash_history`.
+pub async fn handle_fork(
+    session_db: &Arc<SessionDB>,
+    session_id: Option<&str>,
+    args: &str,
+) -> Result<CommandResult, String> {
+    if !args.trim().is_empty() {
+        return Err("Usage: /fork".into());
+    }
+    let source_session_id = session_id.ok_or("No active session to fork")?.to_string();
+    let source_for_log = source_session_id.clone();
+    let result = session_db
+        .run(move |db| db.fork_session(&source_session_id, None))
+        .await;
+
+    match result {
+        Ok(forked) => {
+            crate::app_info!(
+                "session",
+                "slash_fork",
+                "Slash fork completed: source_session_id={} forked_session_id={}",
+                source_for_log,
+                forked.id
+            );
+            let short_id: String = forked.id.chars().take(8).collect();
+            Ok(CommandResult {
+                content: format!("Continued in new session `{}`.", short_id),
+                action: Some(CommandAction::ForkSession {
+                    session_id: forked.id,
+                }),
+            })
+        }
+        Err(error) => {
+            crate::app_warn!(
+                "session",
+                "slash_fork",
+                "Slash fork failed: source_session_id={} error={}",
+                source_for_log,
+                error
+            );
+            Err(error.to_string())
+        }
+    }
+}
+
 /// /clear — Delete current session messages.
 pub fn handle_clear(
     session_db: &Arc<SessionDB>,
@@ -417,4 +464,85 @@ pub fn handle_handover(
             thread_id,
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::NewMessage;
+
+    fn test_db() -> (tempfile::TempDir, Arc<SessionDB>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );",
+            )?;
+            Ok(())
+        })
+        .expect("create channel table");
+        (dir, db)
+    }
+
+    #[tokio::test]
+    async fn fork_command_copies_the_settled_transcript_and_returns_navigation_action() {
+        let (_dir, db) = test_db();
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("explore another path"))
+            .expect("append source message");
+
+        let result = handle_fork(&db, Some(&source.id), "")
+            .await
+            .expect("fork command");
+        let forked_id = match result.action {
+            Some(CommandAction::ForkSession { session_id }) => session_id,
+            other => panic!("unexpected action: {other:?}"),
+        };
+        let forked = db
+            .get_session(&forked_id)
+            .expect("get fork")
+            .expect("fork exists");
+        assert_eq!(
+            forked.forked_from_session_id.as_deref(),
+            Some(source.id.as_str())
+        );
+        assert_eq!(forked.forked_from_message_id, None);
+        let messages = db
+            .load_session_messages(&forked_id)
+            .expect("load fork messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "explore another path");
+    }
+
+    #[tokio::test]
+    async fn fork_command_requires_an_active_session_and_rejects_arguments() {
+        let (_dir, db) = test_db();
+        assert_eq!(
+            handle_fork(&db, None, "").await.unwrap_err(),
+            "No active session to fork"
+        );
+        assert_eq!(
+            handle_fork(&db, Some("session-1"), "extra")
+                .await
+                .unwrap_err(),
+            "Usage: /fork"
+        );
+    }
 }

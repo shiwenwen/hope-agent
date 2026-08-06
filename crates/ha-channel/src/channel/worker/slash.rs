@@ -142,6 +142,63 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
+        // A session fork is already materialized by the shared slash handler.
+        // Move this chat onto the new branch without replaying catch-up: the
+        // channel has already seen the copied transcript in its native UI.
+        Some(CommandAction::ForkSession {
+            session_id: new_sid,
+        }) => {
+            let remap_db = channel_db.clone();
+            let remap_channel_id = channel_id.to_string();
+            let remap_account_id = account_id.to_string();
+            let remap_chat_id = chat_id.to_string();
+            let remap_thread_id = thread_id.map(str::to_string);
+            let remap_session_id = new_sid.clone();
+            let remap = ha_core::blocking::run_blocking(move || {
+                remap_db.update_session(
+                    &remap_channel_id,
+                    &remap_account_id,
+                    &remap_chat_id,
+                    remap_thread_id.as_deref(),
+                    &remap_session_id,
+                )
+            })
+            .await;
+            let remap_error = match remap {
+                Ok(true) => None,
+                Ok(false) => Some("no matching channel conversation was updated".to_string()),
+                Err(error) => Some(error.to_string()),
+            };
+            if let Some(error) = remap_error {
+                let short_id: String = new_sid.chars().take(8).collect();
+                app_warn!(
+                    "channel",
+                    "slash_fork",
+                    "Fork created but channel remap failed: source_session_id={} forked_session_id={} error={}",
+                    session_id,
+                    new_sid,
+                    error
+                );
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!(
+                        "Fork created as `{}` but this chat could not switch to it. Use `/session {}` to attach manually.",
+                        short_id, short_id
+                    ),
+                    // The fork is still the effective session for this control
+                    // result. Keeping it here prevents the shared dispatcher
+                    // from persisting `/fork` into the source transcript when
+                    // the channel mapping itself could not be updated.
+                    new_session_id: Some(new_sid),
+                    buttons: vec![],
+                });
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: Some(new_sid),
+                buttons: vec![],
+            })
+        }
+
         // Agent switch also creates a new session.
         // NOTE: `/agent` is in `IM_DISABLED_COMMANDS` and the handler self-checks
         // `session.channel_info`, so this branch is currently unreachable from IM

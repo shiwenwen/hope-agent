@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "Bir hafızayı sil"
     },
+    "fork": {
+      "description": "Yeni oturumda devam et"
+    },
     "handover": {
       "description": "Oturumu bir IM sohbetine devret"
     },

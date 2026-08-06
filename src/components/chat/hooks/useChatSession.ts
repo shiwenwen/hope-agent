@@ -93,7 +93,7 @@ export interface UseChatSessionReturn {
   handleSwitchSession: (
     sessionId: string,
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
-  ) => Promise<void>
+  ) => Promise<boolean>
   handleNewChat: (agentId: string) => Promise<void>
   handleArchiveSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
@@ -803,9 +803,9 @@ export function useChatSession({
       const highlightTerms = opts?.highlightTerms
       // Always reload when jumping to a specific message; otherwise skip if
       // already viewing the same session.
-      if (!sessionId) return
+      if (!sessionId) return false
       if (targetMessageId === undefined && sessionId === currentSessionIdRef.current) {
-        return
+        return true
       }
       if (
         sessionId !== currentSessionIdRef.current &&
@@ -813,7 +813,7 @@ export function useChatSession({
           t("fileEditor.unsavedBody", "Discard the current edits before leaving this file?"),
         )
       ) {
-        return
+        return false
       }
 
       const version = ++switchVersionRef.current
@@ -905,7 +905,7 @@ export function useChatSession({
             hasMoreBefore = hasMore
           }
           const displayMessages = await materializeMessages(sessionId, msgs, sessionsRef)
-          if (switchVersionRef.current !== version) return // stale switch
+          if (switchVersionRef.current !== version) return false // stale switch
           failedSessionLoadsRef.current.delete(sessionId)
           updateHistoryLoading(false)
           sessionCacheRef.current.set(sessionId, displayMessages)
@@ -933,7 +933,7 @@ export function useChatSession({
             sessionId,
             error: e,
           })
-          return
+          return false
         }
       }
 
@@ -944,14 +944,14 @@ export function useChatSession({
         })
       }
 
-      if (switchVersionRef.current !== version) return // stale switch
+      if (switchVersionRef.current !== version) return false // stale switch
 
       let session = sessionsRef.current.find((s) => s.id === sessionId)
       if (!session) {
         const fetchedSession = await getTransport()
           .call<SessionMeta | null>("get_session_cmd", { sessionId })
           .catch(() => null)
-        if (switchVersionRef.current !== version) return // stale switch
+        if (switchVersionRef.current !== version) return false // stale switch
         session = fetchedSession ?? undefined
       }
       if (session) {
@@ -970,7 +970,7 @@ export function useChatSession({
             const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
               id: session.agentId,
             })
-            if (switchVersionRef.current !== version) return // stale switch
+            if (switchVersionRef.current !== version) return false // stale switch
             agentPrimary = agentConfig.model.primary ?? null
           } catch {
             // A missing agent config still falls through to the global candidate.
@@ -995,6 +995,7 @@ export function useChatSession({
       if (!activeSessionReadableRef.current) {
         void reloadSessions()
       }
+      return true
     },
     [
       availableModels,

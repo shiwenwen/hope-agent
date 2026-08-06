@@ -2412,6 +2412,7 @@ export default function ChatScreen({
       // immediately in the current in-memory timeline.
       const shouldShowSlashHistory =
         action?.type !== "newSession" &&
+        action?.type !== "forkSession" &&
         action?.type !== "switchAgent" &&
         action?.type !== "passThrough" &&
         !result._isSkillPassThrough
@@ -2481,6 +2482,25 @@ export default function ChatScreen({
               .call("delete_session_cmd", { sessionId: action.sessionId })
               .then(() => session.reloadSessions())
               .catch(() => {})
+          }
+          break
+        case "forkSession":
+          try {
+            await reloadSessions()
+            const switched = await rawHandleSwitchSession(action.sessionId)
+            if (!switched) break
+            toast.success(
+              t("chat.fork.created", {
+                defaultValue: "已在新会话中继续",
+              }),
+            )
+          } catch (e) {
+            logger.error("ui", "ChatScreen::slashForkSession", "Failed to open forked session", e)
+            toast.error(
+              e instanceof Error
+                ? e.message
+                : t("chat.fork.failed", { defaultValue: "无法在新会话中继续" }),
+            )
           }
           break
         case "switchModel":
@@ -2753,6 +2773,8 @@ export default function ChatScreen({
       loadSystemPrompt,
       handleNewChatInProject,
       handleSwitchSession,
+      rawHandleSwitchSession,
+      reloadSessions,
       refreshUnreadState,
       onOpenDashboardTab,
       runCompactContextForCurrentSession,

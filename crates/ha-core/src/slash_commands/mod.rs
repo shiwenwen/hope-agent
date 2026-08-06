@@ -416,13 +416,14 @@ fn append_truncated_note(lines: &mut Vec<String>, total: usize) {
 }
 
 /// PassThrough slash commands become real user turns, so they must keep the
-/// normal message/context path. `/new` creates a different conversation and
-/// should not seed the old or fresh transcript with a control event.
+/// normal message/context path. Session-spawning controls (`/new`, `/fork`,
+/// `/agent`) should not seed the old or fresh transcript with control events.
 pub fn should_persist_slash_history(action: Option<&CommandAction>) -> bool {
     !matches!(
         action,
         Some(CommandAction::PassThrough { .. })
             | Some(CommandAction::NewSession { .. })
+            | Some(CommandAction::ForkSession { .. })
             | Some(CommandAction::SwitchAgent { .. })
     )
 }
@@ -665,6 +666,18 @@ mod tests {
 
     #[test]
     fn command_action_serializes_variant_fields_as_camel_case() {
+        let fork = serde_json::to_value(CommandAction::ForkSession {
+            session_id: "session-2".into(),
+        })
+        .expect("serialize fork action");
+        assert_eq!(
+            fork,
+            serde_json::json!({
+                "type": "forkSession",
+                "sessionId": "session-2",
+            })
+        );
+
         let recap = serde_json::to_value(CommandAction::RecapCard {
             report_id: "report-1".into(),
         })
@@ -693,10 +706,15 @@ mod tests {
     }
 
     #[test]
-    fn pass_through_slash_history_stays_on_normal_chat_path() {
+    fn transcript_bypassing_actions_do_not_persist_slash_history() {
         assert!(!should_persist_slash_history(Some(
             &CommandAction::PassThrough {
                 message: "expanded".into(),
+            },
+        )));
+        assert!(!should_persist_slash_history(Some(
+            &CommandAction::ForkSession {
+                session_id: "session-2".into(),
             },
         )));
         assert!(should_persist_slash_history(Some(

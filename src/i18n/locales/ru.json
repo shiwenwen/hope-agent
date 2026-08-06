@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "Удалить запись памяти"
     },
+    "fork": {
+      "description": "Продолжить в новой сессии"
+    },
     "handover": {
       "description": "Передать сессию в IM-чат"
     },

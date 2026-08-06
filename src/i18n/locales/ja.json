@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "記憶を削除"
     },
+    "fork": {
+      "description": "新しいセッションで続ける"
+    },
     "handover": {
       "description": "セッションを IM へ引き継ぐ"
     },

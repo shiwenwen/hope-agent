@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "حذف ذاكرة"
     },
+    "fork": {
+      "description": "المتابعة في جلسة جديدة"
+    },
     "handover": {
       "description": "تحويل الجلسة إلى محادثة IM"
     },

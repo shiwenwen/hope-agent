@@ -568,6 +568,8 @@ assistant 落库或水位线更新后 emit `session:unread_changed`，payload �
 
 Fork 把当前会话派生为一个新的、可独立继续的普通会话——新会话有自己的 ID，原 transcript 不被改动，用户可在两条路线并行探索。
 
+入口有两类：消息工具栏按所选消息建立含 / 不含边界的 Fork；内置 `/fork` 斜杠命令调用 `fork_session(source_id, None)`，从当前全部已落库且已完成的 transcript 建立分支并立即切换当前桌面 / Web / Quick Chat 或 IM 映射。`/fork` 是控制命令，不写入源会话或分支 transcript，也不携带输入框草稿。
+
 ### 数据语义
 
 - `forked_from_session_id` / `forked_from_message_id` 是普通会话 lineage，只用于"接续自"提示与跳原会话；后者记实际复制到的末条消息，首条 user 之前的空 Fork 为 `None`。

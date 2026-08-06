@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "기억 삭제"
     },
+    "fork": {
+      "description": "새 세션에서 계속"
+    },
     "handover": {
       "description": "세션을 IM 채팅으로 인계"
     },

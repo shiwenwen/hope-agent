@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "刪除記憶"
     },
+    "fork": {
+      "description": "在新會話中繼續"
+    },
     "handover": {
       "description": "將工作階段交班到 IM"
     },

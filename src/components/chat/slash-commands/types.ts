@@ -17,6 +17,7 @@ export interface SlashCommandDef {
 /** Matches Rust CommandAction enum (tagged union via "type" field) */
 export type CommandAction =
   | { type: "newSession"; sessionId: string }
+  | { type: "forkSession"; sessionId: string }
   | { type: "switchModel"; providerId: string; modelId: string }
   | { type: "setEffort"; effort: string }
   | { type: "switchAgent"; agentId: string; sessionId: string }

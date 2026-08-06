@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "Xóa một bộ nhớ"
     },
+    "fork": {
+      "description": "Tiếp tục trong phiên mới"
+    },
     "handover": {
       "description": "Bàn giao phiên sang một cuộc trò chuyện IM"
     },

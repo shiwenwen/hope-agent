@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "Padam ingatan"
     },
+    "fork": {
+      "description": "Teruskan dalam sesi baharu"
+    },
     "handover": {
       "description": "Serahkan sesi ke sembang IM"
     },

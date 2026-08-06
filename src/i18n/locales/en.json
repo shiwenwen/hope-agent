@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "Delete a memory"
     },
+    "fork": {
+      "description": "Continue in a new session"
+    },
     "handover": {
       "description": "Hand the session over to an IM chat"
     },

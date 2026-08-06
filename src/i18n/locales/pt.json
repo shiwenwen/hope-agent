@@ -8548,6 +8548,9 @@
     "forget": {
       "description": "Apagar uma memória"
     },
+    "fork": {
+      "description": "Continuar em uma nova sessão"
+    },
     "handover": {
       "description": "Transferir a sessão para um chat de IM"
     },

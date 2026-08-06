@@ -95,6 +95,7 @@ You can also use [slash commands](03-chat-and-sessions.md#39-slash-command-refer
 | --- | --- |
 | `/sessions` | Opens the session picker |
 | `/session [<id>\|exit]` | With no argument, shows session info; `<id>` takes over; `exit` unbinds |
+| `/fork` | Copies the current conversation history and moves this chat to the new branch |
 | `/project <name>` | Assigns the current session to a project |
 | `/kb [on\|off]` | Confirms Knowledge Space access in group chats; in DMs, only reports status |
 | `/imreply` / `/reason` | Reply mode / thinking display |
