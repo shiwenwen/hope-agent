@@ -124,6 +124,30 @@ pub(crate) fn tool_allowed_by_server_config(
     cfg.allowed_tools.is_empty() || cfg.allowed_tools.iter().any(|a| a == original_tool_name)
 }
 
+/// True while at least one effective server has never completed a catalog
+/// round. Provider request assembly uses this synchronous signal to keep
+/// Hope's local `tool_search` callable until lazy MCP schemas exist.
+pub fn has_pending_catalogs() -> bool {
+    let Some(mgr) = crate::McpManager::global() else {
+        return false;
+    };
+    let app_config = ha_core::config::cached_config();
+    if !app_config.mcp_global.enabled {
+        return false;
+    }
+    let cataloged = mgr.cataloged_server_ids();
+    app_config.mcp_servers.iter().any(|server| {
+        server.enabled
+            && crate::config::validate_server_config(server).is_ok()
+            && !app_config
+                .mcp_global
+                .denied_servers
+                .iter()
+                .any(|denied| denied == &server.name)
+            && !cataloged.contains(&server.id)
+    })
+}
+
 /// Build a short "MCP Capabilities" system-prompt section for configured,
 /// effective servers. Catalog-pending lazy servers are included explicitly so
 /// the model knows that `tool_search` is the bootstrap/discovery operation.
@@ -144,6 +168,7 @@ pub fn system_prompt_snippet() -> Option<String> {
         .iter()
         .filter(|server| {
             server.enabled
+                && crate::config::validate_server_config(server).is_ok()
                 && !app_config
                     .mcp_global
                     .denied_servers

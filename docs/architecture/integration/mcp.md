@@ -113,7 +113,7 @@ flowchart TB
 
 **未接线即"MCP 未启用"**：任何调 `ha_core::init_runtime` 的二进制必须先调 `ha_mcp::wire()`。若某进程没接线，kernel 侧的 trampoline 会 fail-explicit——`tool_definitions()` 返空 Vec、`call_tool()` 报错、`reconcile` 记一条 `app_warn` 后 `Ok(())`。这保证配置写路径不会因为某个壳没装 MCP 而硬失败。
 
-trampoline 是一组钩子（`McpHooks`）：`init_subsystem` / `spawn_watchdog` / `tool_definitions` / `ensure_tool_catalogs` / `tool_server_config` / `call_tool` / `system_prompt_snippet` / `reconcile_from_config`。
+trampoline 是一组钩子（`McpHooks`）：`init_subsystem` / `spawn_watchdog` / `tool_definitions` / `ensure_tool_catalogs` / `has_pending_catalogs` / `tool_server_config` / `call_tool` / `system_prompt_snippet` / `reconcile_from_config`。
 
 ---
 
@@ -633,7 +633,7 @@ pub mcp_global: McpGlobalSettings,        // 全局开关、并发、退避、�
 | `headers` | `BTreeMap<String,String>` | HTTP/SSE/WS 请求头；`Authorization` 优先于 OAuth 注入；日志脱敏 |
 | `oauth` | `Option<McpOAuthConfig>` | OAuth 配置（仅网络 transport 有意义） |
 | `allowed_tools` / `denied_tools` | `Vec<String>` | 工具白 / 黑名单（针对**原始** tool name，deny 优先） |
-| `connect_timeout_secs` | `u64`（默认 30） | handshake 上限 |
+| `connect_timeout_secs` | `u64`（默认 30） | handshake + 首轮 tools/resources/prompts catalog 上限 |
 | `call_timeout_secs` | `u64`（默认 0） | 单 tool call 上限；`0` = 不加 call-level timeout |
 | `health_check_interval_secs` | `u64`（默认 60） | 历史字段，当前 watchdog 不读取 |
 | `max_concurrent_calls` | `u32`（默认 4） | per-server semaphore |

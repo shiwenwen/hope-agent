@@ -63,6 +63,12 @@ pub(crate) async fn ensure_initial_eager_tool_catalogs() {
     }
 }
 
+/// 有效 MCP server 中是否仍有未完成首轮目录发现的实例。未接线时
+/// MCP 整体缺席，因此返回 false。
+pub(crate) fn has_pending_catalogs() -> bool {
+    crate::mcp_hooks::mcp_hooks().is_some_and(|hooks| (hooks.has_pending_catalogs)())
+}
+
 /// namespaced 工具名 → 所属 server 的当前配置克隆（execution 的
 /// auto-approve 门消费）。未接线 `None` → auto-approve 恒 false。
 pub async fn tool_server_config(name: &str) -> Option<McpServerConfig> {

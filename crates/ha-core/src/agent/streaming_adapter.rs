@@ -248,6 +248,12 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     /// schema variant.
     fn tool_provider(&self) -> ToolProvider;
 
+    /// Whether this concrete endpoint/model can replace Hope's local
+    /// `tool_search` with a provider-native deferred-tool search primitive.
+    fn supports_native_tool_search(&self) -> bool {
+        false
+    }
+
     /// Normalize history that may have been persisted from a different
     /// provider (failover / model switch / first turn after switching agent).
     /// Encapsulates the `normalize_history_for_*` helpers so the orchestrator

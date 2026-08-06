@@ -194,28 +194,26 @@ async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> M
 
     let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(1));
 
-    let result = timeout(connect_timeout, do_connect(&cfg, &handle)).await;
+    // The startup/discovery timeout covers both the transport handshake and
+    // the initial tools/resources/prompts inventory. Bounding only
+    // `do_connect` lets a server that accepts the handshake but never answers
+    // `list_tools` hold the process-wide eager barrier forever.
+    let result = timeout(connect_timeout, async {
+        do_connect(&cfg, &handle).await?;
+        if handle.is_retired() {
+            return Err(McpError::NotReady {
+                server: cfg.name.clone(),
+                reason: "server config was replaced or removed".into(),
+            });
+        }
+        handle
+            .consecutive_failures
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        refresh_catalog(manager, handle.clone()).await
+    })
+    .await;
     match result {
         Ok(Ok(())) => {
-            if handle.is_retired() {
-                disconnect(&handle).await.ok();
-                return Err(McpError::NotReady {
-                    server: cfg.name,
-                    reason: "server config was replaced or removed".into(),
-                });
-            }
-            handle
-                .consecutive_failures
-                .store(0, std::sync::atomic::Ordering::Relaxed);
-            // Refresh catalog right after connect so the tool index is
-            // populated for the first dispatch.
-            if let Err(e) = refresh_catalog(manager, handle.clone()).await {
-                // Connect succeeded but listing failed — mark Failed and
-                // drop the connection so a retry can try fresh.
-                disconnect(&handle).await.ok();
-                record_failure(&handle, &cfg.name, &e).await;
-                return Err(e);
-            }
             ha_core::app_info!(
                 "mcp",
                 &format!("{}:connect", cfg.name),
@@ -226,19 +224,35 @@ async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> M
             Ok(())
         }
         Ok(Err(e)) => {
+            disconnect_after_failed_attempt(&handle).await;
+            if handle.is_retired() {
+                return Err(e);
+            }
             record_failure(&handle, &cfg.name, &e).await;
             Err(e)
         }
         Err(_elapsed) => {
             let err = McpError::Timeout {
                 server: cfg.name.clone(),
-                tool: "<connect>".into(),
+                tool: "<connect/catalog>".into(),
                 secs: cfg.connect_timeout_secs,
             };
+            disconnect_after_failed_attempt(&handle).await;
+            if handle.is_retired() {
+                return Err(err);
+            }
             record_failure(&handle, &cfg.name, &err).await;
             Err(err)
         }
     }
+}
+
+/// Best-effort cleanup must not turn a bounded failed attempt back into an
+/// unbounded wait. `disconnect` takes the running client out before awaiting
+/// cancellation, so dropping this one-second cleanup future still prevents a
+/// stale connection from being reused.
+async fn disconnect_after_failed_attempt(handle: &ServerHandle) {
+    let _ = timeout(Duration::from_secs(1), disconnect(handle)).await;
 }
 
 /// Close the connection if any. Safe to call repeatedly.

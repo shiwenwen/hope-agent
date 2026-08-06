@@ -684,6 +684,10 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         ToolProvider::OpenAI
     }
 
+    fn supports_native_tool_search(&self) -> bool {
+        supports_native_tool_search(self.base_url, self.model)
+    }
+
     fn normalize_history(&self, history: &mut Vec<Value>) {
         *history = AssistantAgent::normalize_history_for_responses(history);
     }

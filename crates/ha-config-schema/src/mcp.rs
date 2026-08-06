@@ -179,6 +179,7 @@ pub struct McpServerConfig {
     /// `allowed_tools`).
     #[serde(default)]
     pub denied_tools: Vec<String>,
+    /// Upper bound for transport handshake plus the initial catalog round.
     #[serde(default = "default_connect_timeout_secs")]
     pub connect_timeout_secs: u64,
     /// Per MCP tool-call timeout in seconds. 0 = no call-level timeout.

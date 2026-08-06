@@ -4,7 +4,7 @@
 //!
 //! kernel 侧留存：`ha_core::mcp`（wire 类型再导出 + `mcp__` 命名约定 +
 //! auto-approve 信任谓词 + trampoline）。kernel 边界经
-//! [`ha_core::mcp_hooks::McpHooks`] 八件套原子注册，未接线语义镜像
+//! [`ha_core::mcp_hooks::McpHooks`] 九件套原子注册，未接线语义镜像
 //! manager-None 的既有行为（见该模块 doc）。
 //!
 //! 装配契约与其它特征 crate 相同：每个调 `ha_core::init_runtime` 的二进
@@ -103,7 +103,7 @@ pub(crate) async fn ensure_server_connected(
     Ok(handle)
 }
 
-/// 幂等装配：注册 kernel 的 MCP 钩子八件套 + `mcp_resource` / `mcp_prompt`
+/// 幂等装配：注册 kernel 的 MCP 钩子九件套 + `mcp_resource` / `mcp_prompt`
 /// 两个工具分发条目（ToolDefinition 仍在 kernel schema 目录）。
 pub fn wire() {
     static WIRED: std::sync::Once = std::sync::Once::new();
@@ -176,6 +176,9 @@ pub fn wire() {
                 Box::pin(client::ensure_tool_catalogs())
             }
         }
+        fn has_pending_catalogs() -> bool {
+            catalog::has_pending_catalogs()
+        }
         fn tool_server_config(
             name: &str,
         ) -> std::pin::Pin<
@@ -209,6 +212,7 @@ pub fn wire() {
             spawn_watchdog,
             tool_definitions,
             ensure_tool_catalogs,
+            has_pending_catalogs,
             tool_server_config,
             call_tool,
             system_prompt_snippet,

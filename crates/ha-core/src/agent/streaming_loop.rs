@@ -850,24 +850,31 @@ fn invalid_tool_arguments_result(
 fn collect_tool_search_activations(
     side: &super::streaming_adapter::ToolDispatchSideOutput,
     out: &mut Vec<String>,
-) {
+) -> bool {
     let Some(metadata) = side.metadata.as_ref() else {
-        return;
+        return false;
     };
     if metadata.get("kind").and_then(|v| v.as_str()) != Some("tool_search_activation") {
-        return;
+        return false;
     }
     let Some(names) = metadata
         .get("activatedToolNames")
         .and_then(|value| value.as_array())
     else {
-        return;
+        return metadata
+            .get("schemaCatalogChanged")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
     };
     for name in names.iter().filter_map(|value| value.as_str()) {
         if !out.iter().any(|existing| existing == name) {
             out.push(name.to_string());
         }
     }
+    metadata
+        .get("schemaCatalogChanged")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
 }
 
 fn prompt_cache_key(
@@ -1350,6 +1357,20 @@ impl AssistantAgent {
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
+            // Provider-native search replaces Hope's `tool_search`. Keep the
+            // local bootstrap tool until every effective MCP server has
+            // completed one catalog round; otherwise lazy MCP schemas can
+            // never enter the provider's deferred inventory.
+            let provider_deferred_tool_schemas: &[serde_json::Value] = if agent_caps.mcp_enabled
+                && app_config.mcp_global.enabled
+                && adapter.supports_native_tool_search()
+                && crate::mcp::has_pending_catalogs()
+            {
+                &[]
+            } else {
+                &deferred_tool_schemas
+            };
+
             crate::eval_context::ensure_model_budget(self.session_id.as_deref())?;
             let eval_max_tokens =
                 crate::eval_context::remaining_output_tokens(self.session_id.as_deref())
@@ -1366,7 +1387,7 @@ impl AssistantAgent {
                 lsp_diagnostics_suffix: lsp_diagnostics_suffix.as_deref(),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
-                deferred_tool_schemas: &deferred_tool_schemas,
+                deferred_tool_schemas: provider_deferred_tool_schemas,
                 eager_tool_count,
                 deferred_tool_count,
                 activated_tool_count: activated_tool_names.len(),
@@ -1538,6 +1559,7 @@ impl AssistantAgent {
 
             let mut executed: Vec<ExecutedTool> = Vec::new();
             let mut pending_tool_activations: Vec<String> = Vec::new();
+            let mut tool_schema_refresh_requested = false;
             // A provider response can stream for minutes. Refresh agent-level
             // tool filters and approval policy immediately before execution so
             // a user revocation made while the model was responding takes
@@ -1618,7 +1640,8 @@ impl AssistantAgent {
 
                 for result in results {
                     let (call_id, name, arguments, result, elapsed_ms, side) = result?;
-                    collect_tool_search_activations(&side, &mut pending_tool_activations);
+                    tool_schema_refresh_requested |=
+                        collect_tool_search_activations(&side, &mut pending_tool_activations);
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
                     let (mut clean_result, media_items) = extract_media_items(&result);
@@ -1734,7 +1757,8 @@ impl AssistantAgent {
                         Default::default(),
                     ),
                 };
-                collect_tool_search_activations(&side, &mut pending_tool_activations);
+                tool_schema_refresh_requested |=
+                    collect_tool_search_activations(&side, &mut pending_tool_activations);
 
                 // If a `PreToolUse` hook rewrote the tool input via
                 // `updatedInput`, execute_tool_with_cancel has already emitted
@@ -1786,7 +1810,7 @@ impl AssistantAgent {
             // schema is present. Rebuild from the live-gated inventory now so
             // the very next API round can call it. Persist only names that
             // survived all current gates.
-            if !pending_tool_activations.is_empty() {
+            if !pending_tool_activations.is_empty() || tool_schema_refresh_requested {
                 let mut requested = activated_tool_names.clone();
                 for name in pending_tool_activations {
                     if !requested.contains(&name) {
@@ -1802,6 +1826,8 @@ impl AssistantAgent {
                     .collect();
                 if !valid_new.is_empty() {
                     self.record_tool_activations(&valid_new);
+                }
+                if !valid_new.is_empty() || tool_schema_refresh_requested {
                     activated_tool_names = tool_inventory.activated_names.clone();
                     eager_tool_count = tool_inventory.eager_count;
                     deferred_tool_count = tool_inventory.deferred_count;
@@ -2022,11 +2048,12 @@ impl AssistantAgent {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_model_round_after_insertion, extract_started_job_id,
-        has_checkpointed_subagent_dispatch, queued_message_for_provider,
+        collect_tool_search_activations, ensure_model_round_after_insertion,
+        extract_started_job_id, has_checkpointed_subagent_dispatch, queued_message_for_provider,
         resolve_empty_round_outcome, stamp_checkpointed_subagent_dispatch,
         terminal_assistant_text_for_history,
     };
+    use crate::agent::streaming_adapter::ToolDispatchSideOutput;
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
 
     #[test]
@@ -2036,6 +2063,38 @@ mod tests {
 
         let auto = synthetic_started_result("job_xyz", "web_search", JobOrigin::AutoBackgrounded);
         assert_eq!(extract_started_job_id(&auto).as_deref(), Some("job_xyz"));
+    }
+
+    #[test]
+    fn tool_search_catalog_change_requests_schema_refresh_without_activation() {
+        let side = ToolDispatchSideOutput {
+            metadata: Some(serde_json::json!({
+                "kind": "tool_search_activation",
+                "activatedToolNames": [],
+                "schemaCatalogChanged": true,
+            })),
+            ..Default::default()
+        };
+        let mut names = Vec::new();
+
+        assert!(collect_tool_search_activations(&side, &mut names));
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn tool_search_activation_collection_deduplicates_names() {
+        let side = ToolDispatchSideOutput {
+            metadata: Some(serde_json::json!({
+                "kind": "tool_search_activation",
+                "activatedToolNames": ["browser", "browser"],
+                "schemaCatalogChanged": false,
+            })),
+            ..Default::default()
+        };
+        let mut names = vec!["read".to_string()];
+
+        assert!(!collect_tool_search_activations(&side, &mut names));
+        assert_eq!(names, vec!["read", "browser"]);
     }
 
     #[test]
