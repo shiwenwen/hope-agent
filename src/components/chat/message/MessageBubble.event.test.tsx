@@ -1,0 +1,72 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, test, vi } from "vitest"
+
+import type { Message } from "@/types/chat"
+import MessageBubble from "./MessageBubble"
+
+vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
+
+vi.mock("@/components/common/ProviderIcon", () => ({
+  default: () => <span data-testid="provider-icon" />,
+}))
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+function renderEventMessage(content: Record<string, unknown>) {
+  const msg: Message = {
+    role: "event",
+    content: JSON.stringify(content),
+  }
+
+  return render(
+    <MessageBubble
+      msg={msg}
+      index={0}
+      isLast={false}
+      loading={false}
+      executionState={null}
+      agents={[]}
+      isHovered={false}
+      onHover={() => {}}
+      onContextMenu={() => {}}
+      isCopied={false}
+      onCopy={() => {}}
+      sessionId="session-1"
+    />,
+  )
+}
+
+describe("MessageBubble persisted events", () => {
+  test("renders a persisted model fallback with the fallback banner", () => {
+    const payload = {
+      type: "model_fallback",
+      model: "OpenAI / gpt-5.1",
+      from_model: "Codex / gpt-5.2-codex",
+      provider_id: "openai",
+      model_id: "gpt-5.1",
+      reason: "auth_error",
+      attempt: 2,
+      total: 3,
+      error: "authentication failed",
+    }
+
+    const { container } = renderEventMessage(payload)
+
+    expect(screen.getByText("chat.fallbackTitle")).toBeTruthy()
+    expect(screen.getByText("gpt-5.2-codex")).toBeTruthy()
+    expect(screen.getByText("gpt-5.1")).toBeTruthy()
+    expect(screen.getByText("2/3")).toBeTruthy()
+    expect(container.textContent).not.toContain(JSON.stringify(payload))
+
+    fireEvent.click(screen.getByRole("button"))
+    expect(screen.getByText("authentication failed")).toBeTruthy()
+  })
+})

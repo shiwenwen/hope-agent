@@ -1,5 +1,5 @@
 import type React from "react"
-import type { ContentBlock, FallbackEvent, MediaItem, Message, ToolMetadata } from "@/types/chat"
+import type { ContentBlock, MediaItem, Message, ToolMetadata } from "@/types/chat"
 import {
   contextCompactionData,
   isContextCompactionPayload,
@@ -8,6 +8,7 @@ import {
   shouldReplaceContextCompactionNotice,
 } from "../contextCompactionEvents"
 import { mergeUsageFromEvent, parseUserAttachmentsMeta } from "../chatUtils"
+import { fallbackEventFromPayload } from "../fallbackEvent"
 import { hasToolError } from "../message/executionStatus"
 
 /** Extract a structured tool_metadata payload from a stream event when present. */
@@ -237,40 +238,6 @@ export function flushPendingStreamDeltas(
     }
     return updated
   })
-}
-
-function pickString(event: Record<string, unknown>, key: string): string | undefined {
-  const v = event[key]
-  return typeof v === "string" ? v : undefined
-}
-
-function pickNumber(event: Record<string, unknown>, key: string): number | undefined {
-  const v = event[key]
-  if (typeof v === "number" && Number.isFinite(v)) return v
-  if (typeof v === "string") {
-    const parsed = Number(v)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return undefined
-}
-
-function fallbackEventFromStreamEvent(event: Record<string, unknown>): FallbackEvent {
-  const model =
-    pickString(event, "model") ??
-    pickString(event, "model_id") ??
-    pickString(event, "to_model") ??
-    ""
-  return {
-    type: pickString(event, "type"),
-    model,
-    from_model: pickString(event, "from_model"),
-    reason: pickString(event, "reason"),
-    error: pickString(event, "error"),
-    attempt: pickNumber(event, "attempt"),
-    total: pickNumber(event, "total"),
-    provider_id: pickString(event, "provider_id"),
-    model_id: pickString(event, "model_id"),
-  }
 }
 
 function schedulePendingStreamFlush(
@@ -669,7 +636,7 @@ export function handleStreamEvent(
       case "model_fallback": {
         updated[updated.length - 1] = {
           ...last,
-          fallbackEvent: fallbackEventFromStreamEvent(event),
+          fallbackEvent: fallbackEventFromPayload(event),
         }
         break
       }
