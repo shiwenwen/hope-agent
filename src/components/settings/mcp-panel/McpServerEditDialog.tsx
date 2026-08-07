@@ -124,10 +124,7 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
   }
 }
 
-function preservedOauth(
-  form: FormState,
-  initial: McpServerSummary | null,
-): McpOAuthConfig | null {
+function preservedOauth(form: FormState, initial: McpServerSummary | null): McpOAuthConfig | null {
   if (!initial?.oauth || form.kind === "stdio") return null
   const original = initial.transport
   if (
@@ -140,10 +137,7 @@ function preservedOauth(
   return initial.oauth
 }
 
-function formToDraft(
-  form: FormState,
-  initial: McpServerSummary | null,
-): McpServerDraft {
+function formToDraft(form: FormState, initial: McpServerSummary | null): McpServerDraft {
   // stdio has its own payload shape; http / sse / ws all carry just a
   // url, so one branch covers the three URL-only kinds.
   const transport: McpServerDraft["transport"] =
@@ -162,18 +156,14 @@ function formToDraft(
   const env =
     form.kind === "stdio"
       ? Object.fromEntries(
-          form.env
-            .filter(([k]) => k.trim().length > 0)
-            .map(([k, v]) => [k.trim(), v]),
+          form.env.filter(([k]) => k.trim().length > 0).map(([k, v]) => [k.trim(), v]),
         )
       : {}
   const headers =
     form.kind === "stdio"
       ? {}
       : Object.fromEntries(
-          form.headers
-            .filter(([k]) => k.trim().length > 0)
-            .map(([k, v]) => [k.trim(), v]),
+          form.headers.filter(([k]) => k.trim().length > 0).map(([k, v]) => [k.trim(), v]),
         )
 
   const splitList = (s: string) =>
@@ -215,11 +205,13 @@ function formToDraft(
 export default function McpServerEditDialog({
   open,
   initial,
+  globalDeferredToolsMode,
   onClose,
   onSaved,
 }: {
   open: boolean
   initial: McpServerSummary | null
+  globalDeferredToolsMode: "recommended" | "custom" | "disabled" | null
   onClose: () => void
   onSaved: () => void
 }) {
@@ -229,9 +221,7 @@ export default function McpServerEditDialog({
   // Three-state save feedback: button flashes green (saved) or red (failed)
   // for ~2s so users see the result before the dialog closes. Project
   // convention — see AGENTS.md "保存按钮统一三态交互".
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">(
-    "idle",
-  )
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   useEffect(() => {
     setForm(initialFromSummary(initial))
@@ -301,14 +291,10 @@ export default function McpServerEditDialog({
               disabled={isEditing}
             />
             {nameInvalid && form.name.length > 0 && (
-              <p className="text-xs text-destructive">
-                {t("settings.mcp.invalidName")}
-              </p>
+              <p className="text-xs text-destructive">{t("settings.mcp.invalidName")}</p>
             )}
             {isEditing && (
-              <p className="text-xs text-muted-foreground">
-                {t("settings.mcp.nameImmutable")}
-              </p>
+              <p className="text-xs text-muted-foreground">{t("settings.mcp.nameImmutable")}</p>
             )}
           </div>
 
@@ -326,15 +312,15 @@ export default function McpServerEditDialog({
             <Label>{t("settings.mcp.transportLabel")}</Label>
             <Select
               value={form.kind}
-              onValueChange={(v) =>
-                setForm({ ...form, kind: v as McpTransportKind })
-              }
+              onValueChange={(v) => setForm({ ...form, kind: v as McpTransportKind })}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="stdio">stdio ({t("settings.mcp.transportStdioDesc")})</SelectItem>
+                <SelectItem value="stdio">
+                  stdio ({t("settings.mcp.transportStdioDesc")})
+                </SelectItem>
                 <SelectItem value="streamableHttp">Streamable HTTP</SelectItem>
                 <SelectItem value="sse">SSE ({t("settings.mcp.transportLegacy")})</SelectItem>
                 <SelectItem value="websocket">WebSocket</SelectItem>
@@ -367,9 +353,7 @@ export default function McpServerEditDialog({
                   rows={3}
                   className="font-mono text-sm"
                 />
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.mcp.argsHint")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("settings.mcp.argsHint")}</p>
               </div>
               <div className="space-y-1.5">
                 <Label>{t("settings.mcp.cwdLabel")}</Label>
@@ -418,10 +402,9 @@ export default function McpServerEditDialog({
             />
           </div>
 
-          {/* Advanced — collapsible could come later */}
-          <div className="pt-2 border-t border-border">
+          <div className="pt-3 border-t border-border space-y-3">
             <p className="text-xs font-semibold text-muted-foreground mb-3">
-              {t("settings.mcp.advanced")}
+              {t("settings.mcp.connectionSettings")}
             </p>
             <div className="grid grid-cols-3 gap-3">
               <TimeoutInput
@@ -442,71 +425,40 @@ export default function McpServerEditDialog({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <div className="space-y-1">
-                <Label>{t("settings.mcp.trustLevel")}</Label>
-                <Select
-                  value={form.trustLevel}
-                  onValueChange={(v) =>
-                    setForm({ ...form, trustLevel: v as McpTrustLevel })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="untrusted">
-                      {t("settings.mcp.trustUntrusted")}
-                    </SelectItem>
-                    <SelectItem value="trusted">
-                      {t("settings.mcp.trustTrusted")}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-2 pt-5">
-                <label className="flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={form.autoApprove}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, autoApprove: v })
-                    }
-                  />
-                  {t("settings.mcp.autoApproveLabel")}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={form.eager}
-                    onCheckedChange={(v) => setForm({ ...form, eager: v })}
-                  />
-                  {t("settings.mcp.eagerLabel")}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <Switch
-                    checked={form.deferredTools}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, deferredTools: v })
-                    }
-                  />
-                  {t("settings.mcp.deferredToolsLabel")}
-                </label>
-              </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch
+                checked={form.eager}
+                onCheckedChange={(v) => setForm({ ...form, eager: v })}
+              />
+              {t("settings.mcp.eagerLabel")}
+            </label>
+          </div>
+
+          <div className="pt-3 border-t border-border space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {t("settings.deferredToolsEnabled")}
+            </p>
+            <div>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={form.deferredTools}
+                  onCheckedChange={(v) => setForm({ ...form, deferredTools: v })}
+                />
+                {t("settings.mcp.deferredToolsLabel")}
+              </label>
+              {globalDeferredToolsMode === "recommended" && !form.deferredTools && (
+                <p className="text-xs text-muted-foreground mt-1 ml-9">
+                  {t("settings.mcp.effectiveDeferredByGlobal")}
+                </p>
+              )}
             </div>
 
-            {autoApproveBlocked && (
-              <p className="text-xs text-destructive mt-2">
-                {t("settings.mcp.autoApproveNeedsTrust")}
-              </p>
-            )}
-
-            <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>{t("settings.mcp.allowedTools")}</Label>
                 <Textarea
                   value={form.allowedTools}
-                  onChange={(e) =>
-                    setForm({ ...form, allowedTools: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, allowedTools: e.target.value })}
                   placeholder={t("settings.mcp.toolListPlaceholder")}
                   rows={2}
                   className="font-mono text-xs"
@@ -519,15 +471,51 @@ export default function McpServerEditDialog({
                 <Label>{t("settings.mcp.deniedTools")}</Label>
                 <Textarea
                   value={form.deniedTools}
-                  onChange={(e) =>
-                    setForm({ ...form, deniedTools: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, deniedTools: e.target.value })}
                   placeholder={t("settings.mcp.toolListPlaceholder")}
                   rows={2}
                   className="font-mono text-xs"
                 />
               </div>
             </div>
+          </div>
+
+          <div className="pt-3 border-t border-border space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {t("settings.mcp.securitySettings")}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>{t("settings.mcp.trustLevel")}</Label>
+                <Select
+                  value={form.trustLevel}
+                  onValueChange={(v) => setForm({ ...form, trustLevel: v as McpTrustLevel })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="untrusted">{t("settings.mcp.trustUntrusted")}</SelectItem>
+                    <SelectItem value="trusted">{t("settings.mcp.trustTrusted")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2 pt-5">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={form.autoApprove}
+                    onCheckedChange={(v) => setForm({ ...form, autoApprove: v })}
+                  />
+                  {t("settings.mcp.autoApproveLabel")}
+                </label>
+              </div>
+            </div>
+
+            {autoApproveBlocked && (
+              <p className="text-xs text-destructive mt-2">
+                {t("settings.mcp.autoApproveNeedsTrust")}
+              </p>
+            )}
           </div>
         </div>
 

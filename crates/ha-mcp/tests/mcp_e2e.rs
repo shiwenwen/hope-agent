@@ -155,7 +155,7 @@ async fn server_memory_handshake_and_tool_call() {
     // Exercise the production cold-start bootstrap used by tool_search: the
     // manager begins with an empty catalog and the server is not eager.
     assert!(mgr.mcp_tool_definitions().is_empty());
-    ha_mcp::client::ensure_tool_catalogs().await;
+    ha_mcp::client::ensure_tool_catalogs(None).await;
 
     let snap = handle.snapshot().await;
     assert_eq!(snap.state, "ready");

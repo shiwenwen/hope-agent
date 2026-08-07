@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import ProviderSetup from "./ProviderSetup"
 import McpServersPanel from "./mcp-panel/McpServersPanel"
@@ -115,8 +115,13 @@ describe("settings provider and MCP panels", () => {
 
   test("McpServersPanel renders the empty state and subscribes to MCP events", async () => {
     mcpMock.listServers.mockResolvedValue([])
+    transportMock.call.mockResolvedValue({
+      enabled: true,
+      mode: "recommended",
+      toolNames: [],
+    })
 
-    render(<McpServersPanel />)
+    render(<McpServersPanel onOpenToolSettings={vi.fn()} />)
 
     expect(await screen.findByText("settings.mcp.emptyTitle")).toBeTruthy()
     expect(
@@ -127,5 +132,74 @@ describe("settings provider and MCP panels", () => {
       "mcp:server_status_changed",
       expect.any(Function),
     )
+  })
+
+  test("McpServersPanel exposes effective server settings from the list", async () => {
+    const onOpenToolSettings = vi.fn()
+    transportMock.call.mockResolvedValue({
+      enabled: true,
+      mode: "recommended",
+      toolNames: [],
+    })
+    mcpMock.listServers.mockResolvedValue([
+      {
+        id: "server-1",
+        name: "azure-large",
+        enabled: true,
+        transport: { kind: "stdio", command: "npx", args: [] },
+        connectTimeoutSecs: 60,
+        callTimeoutSecs: 0,
+        healthCheckIntervalSecs: 60,
+        maxConcurrentCalls: 4,
+        autoApprove: false,
+        trustLevel: "untrusted",
+        eager: false,
+        deferredTools: false,
+        createdAt: 0,
+        updatedAt: 0,
+        state: "idle",
+        toolCount: 0,
+        resourceCount: 0,
+        promptCount: 0,
+        consecutiveFailures: 0,
+        lastHealthCheckTs: 0,
+      },
+    ])
+
+    render(<McpServersPanel onOpenToolSettings={onOpenToolSettings} />)
+
+    expect(await screen.findByRole("button", { name: /azure-large/ })).toBeTruthy()
+    expect(screen.getByText("settings.mcp.lazyLabel")).toBeTruthy()
+    expect(screen.getByText("settings.mcp.deferredToolsLabel")).toBeTruthy()
+    expect(screen.getByText("60s")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "common.settings" })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "settings.tools" }))
+    expect(onOpenToolSettings).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole("button", { name: /azure-large/ }))
+    expect(screen.getByTestId("mcp-edit-dialog")).toBeTruthy()
+  })
+
+  test("McpServersPanel does not guess the global policy when loading it fails", async () => {
+    transportMock.call.mockRejectedValue(new Error("policy unavailable"))
+    mcpMock.listServers.mockResolvedValue([
+      {
+        id: "server-1",
+        name: "azure-large",
+        enabled: true,
+        transport: { kind: "stdio", command: "npx", args: [] },
+        eager: false,
+        deferredTools: false,
+        state: "idle",
+      },
+    ])
+
+    render(<McpServersPanel onOpenToolSettings={vi.fn()} />)
+
+    expect(await screen.findByText("common.unknown")).toBeTruthy()
+    expect(screen.queryByText("settings.deferredToolsModeRecommended")).toBeNull()
+    expect(screen.queryByText("settings.mcp.deferredToolsLabel")).toBeNull()
+    expect(screen.queryByText("settings.mcp.directToolsLabel")).toBeNull()
   })
 })

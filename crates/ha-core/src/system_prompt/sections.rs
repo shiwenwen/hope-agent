@@ -131,7 +131,9 @@ pub(super) fn build_deferred_tools_section(
     let mut lines = vec![
         "# Additional Tools (use tool_search to discover)".to_string(),
         "These capabilities remain available, but their schemas load on demand. \
-         Call `tool_search(query=\"keyword\")`; matched tools become callable on the next round."
+         Call `tool_search(query=\"keyword\")`; when one listed MCP server clearly matches the \
+         request, also set `mcp_server=\"server-name\"` yourself to search only that catalog. \
+         Matched tools become callable on the next round."
             .to_string(),
         String::new(),
     ];

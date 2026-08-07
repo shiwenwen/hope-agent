@@ -224,7 +224,9 @@ pub fn get_tool_search_tool() -> ToolDefinition {
         name: TOOL_TOOL_SEARCH.into(),
         description: "Search and activate available tools by keyword or exact name. This also \
             connects configured lazy MCP servers to discover their catalogs. Matched schemas \
-            become callable on the next round; use this for tools not listed up front."
+            become callable on the next round; use this for tools not listed up front. When the \
+            request clearly targets one configured MCP server, set mcp_server yourself to search \
+            only that catalog; never ask the user for this internal name."
             .into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Meta,
@@ -242,6 +244,10 @@ pub fn get_tool_search_tool() -> ToolDefinition {
                 "max_results": {
                     "type": "integer",
                     "description": "Maximum results to return (default 5, max 20)"
+                },
+                "mcp_server": {
+                    "type": "string",
+                    "description": "Optional exact configured MCP server name. When set, search only that server's tools; infer it from the MCP directory and the user's requested service."
                 }
             },
             "required": ["query"],

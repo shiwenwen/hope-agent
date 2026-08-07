@@ -3419,7 +3419,7 @@ impl AssistantAgent {
                     .push(crate::tool_defs::get_submit_plan_tool().to_provider_schema(provider));
                 tool_schemas.retain(|t| {
                     let name = extract_tool_name(t);
-                    allowed_tools.iter().any(|a| a == name)
+                    crate::mcp::tool_filter_contains(allowed_tools, name)
                 });
             }
             types::PlanAgentMode::ExecutingAgent => {
@@ -3570,8 +3570,10 @@ impl AssistantAgent {
             tools_filter: &caps.agent_tool_filter,
             app_config: &app_config,
         };
-        let requested: std::collections::HashSet<&str> =
-            requested_activations.iter().map(String::as_str).collect();
+        let requested: std::collections::HashSet<String> = requested_activations
+            .iter()
+            .map(|name| crate::mcp::canonical_tool_name(name).unwrap_or_else(|| name.clone()))
+            .collect();
         let activation_guidance = crate::system_prompt::build_tool_activation_guidance_packages(
             &self.agent_id,
             self.subagent_depth,
@@ -3786,14 +3788,18 @@ impl AssistantAgent {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools,
             _ => &[],
         };
+        let denied_tools = crate::mcp::canonicalize_tool_filter_names(&self.denied_tools);
+        let skill_allowed_tools =
+            crate::mcp::canonicalize_tool_filter_names(&self.skill_allowed_tools);
+        let plan_allowed_tools = crate::mcp::canonicalize_tool_filter_names(plan_allowed_tools);
         schemas.retain(|t| {
             let name = tools::canonical_tool_schema_name(extract_tool_name(t));
             crate::tool_defs::tool_visible_with_filters(
                 name,
                 &caps.agent_tool_filter,
-                &self.denied_tools,
-                &self.skill_allowed_tools,
-                plan_allowed_tools,
+                &denied_tools,
+                &skill_allowed_tools,
+                &plan_allowed_tools,
             )
         });
 
@@ -4196,6 +4202,20 @@ impl AssistantAgent {
             .map(|m| m.sandbox_mode)
             .unwrap_or(caps.sandbox_mode);
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
+        let denied_tools = crate::mcp::canonicalize_tool_filter_names(&self.denied_tools);
+        let skill_allowed_tools =
+            crate::mcp::canonicalize_tool_filter_names(&self.skill_allowed_tools);
+        let plan_agent_mode = self.plan_agent_mode.load();
+        let (plan_mode_allowed_tools, plan_mode_ask_tools) = match &**plan_agent_mode {
+            types::PlanAgentMode::PlanAgent {
+                allowed_tools,
+                ask_tools,
+            } => (
+                crate::mcp::canonicalize_tool_filter_names(allowed_tools),
+                crate::mcp::canonicalize_tool_filter_names(ask_tools),
+            ),
+            _ => (Vec::new(), Vec::new()),
+        };
         crate::tool_defs::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
@@ -4215,8 +4235,8 @@ impl AssistantAgent {
             origin_chat_source: self.origin_chat_source,
             channel_kb_context: self.channel_kb_context.clone(),
             agent_tool_filter,
-            denied_tools: self.denied_tools.clone(),
-            skill_allowed_tools: self.skill_allowed_tools.clone(),
+            denied_tools,
+            skill_allowed_tools,
             force_sandbox: sandbox_mode.enabled(),
             sandbox_mode,
             // Load both ArcSwaps once per ctx build so the snapshot is
@@ -4225,14 +4245,8 @@ impl AssistantAgent {
             // `self.plan_mode_allow_paths` ArcSwap loads — same data source,
             // no manual threading).
             plan_mode_allow_paths: (**self.plan_mode_allow_paths.load()).clone(),
-            plan_mode_allowed_tools: match &**self.plan_agent_mode.load() {
-                types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools.clone(),
-                _ => Vec::new(),
-            },
-            plan_mode_ask_tools: match &**self.plan_agent_mode.load() {
-                types::PlanAgentMode::PlanAgent { ask_tools, .. } => ask_tools.clone(),
-                _ => Vec::new(),
-            },
+            plan_mode_allowed_tools,
+            plan_mode_ask_tools,
             auto_approve_tools: self.auto_approve_tools,
             external_pre_approved: false,
             exec_pre_approved: false,

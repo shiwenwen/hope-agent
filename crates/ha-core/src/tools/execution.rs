@@ -270,52 +270,59 @@ impl ToolExecContext {
         // 执行门统一先归一规范名（注册表驱动，别名不得以「无 definition
         // 的名字」滑过任何一道门）；`builtin_fate_error` /
         // `workflow_visibility_error` 内部各自也走同一入口。
-        let canonical = canonical_builtin_tool_name(name);
+        let mcp_canonical = canonical_mcp_execution_name(name);
+        let canonical = canonical_builtin_tool_name(mcp_canonical.as_ref());
+        self.tool_visibility_error_for_canonical(name, canonical)
+            .await
+    }
+
+    async fn tool_visibility_error_for_canonical(
+        &self,
+        submitted_name: &str,
+        canonical: &str,
+    ) -> Option<String> {
         if !crate::eval_context::tool_allowed_for_experiment(self.session_id.as_deref(), canonical)
         {
             return Some(format!(
-                "Evaluation experiment restriction: tool '{name}' is disabled in the compute-matched single-Agent arm."
+                "Evaluation experiment restriction: tool '{submitted_name}' is disabled in the compute-matched single-Agent arm."
             ));
         }
-        if let Some(err) = self.builtin_fate_error(name) {
+        if let Some(err) = self.builtin_fate_error(canonical) {
             return Some(err);
         }
-        if let Some(err) = self.workflow_visibility_error(name).await {
+        if let Some(err) = self.workflow_visibility_error(canonical).await {
             return Some(err);
         }
         // 名单类门按「原名或规范名」双判：deny 了 `read` 的策略不能被
         // `read_file` 别名绕开；allowlist 侧则保持写别名或规范名均命中
         // （只收紧、不放松——两名皆不在 allowlist 才拒）。
-        if self
-            .denied_tools
-            .iter()
-            .any(|t| t == name || t == canonical)
+        if self.denied_tools.iter().any(|t| t == submitted_name)
+            || crate::mcp::tool_filter_contains(&self.denied_tools, canonical)
         {
             return Some(format!(
                 "Tool policy restriction: tool '{}' is denied in the current agent context.",
-                name
+                submitted_name
             ));
         }
         if !self.skill_allowed_tools.is_empty()
-            && !self
-                .skill_allowed_tools
-                .iter()
-                .any(|t| t == name || t == canonical)
+            && !self.skill_allowed_tools.iter().any(|t| t == submitted_name)
+            && !crate::mcp::tool_filter_contains(&self.skill_allowed_tools, canonical)
         {
             return Some(format!(
                 "Skill restriction: tool '{}' is not allowed by the active skill.",
-                name
+                submitted_name
             ));
         }
         if !self.plan_mode_allowed_tools.is_empty()
             && !self
                 .plan_mode_allowed_tools
                 .iter()
-                .any(|t| t == name || t == canonical)
+                .any(|t| t == submitted_name)
+            && !crate::mcp::tool_filter_contains(&self.plan_mode_allowed_tools, canonical)
         {
             return Some(format!(
                 "Plan Mode restriction: tool '{}' is not allowed during planning. Allowed: {}",
-                name,
+                submitted_name,
                 self.plan_mode_allowed_tools.join(", ")
             ));
         }
@@ -329,6 +336,24 @@ impl ToolExecContext {
 /// 未注册的名字（MCP / 未知）原样返回。
 fn canonical_builtin_tool_name(name: &str) -> &str {
     super::registry::canonical_name(name).unwrap_or(name)
+}
+
+/// Resolve a historical MCP catalog alias before it reaches any execution
+/// gate. The caller keeps the submitted name in protocol/history state; this
+/// runtime name is the one visibility, hooks, permissions, async policy, and
+/// dispatch must agree on.
+fn canonical_mcp_execution_name(name: &str) -> std::borrow::Cow<'_, str> {
+    canonical_mcp_execution_name_from(name, crate::mcp::canonical_tool_name(name))
+}
+
+fn canonical_mcp_execution_name_from(
+    name: &str,
+    resolved: Option<String>,
+) -> std::borrow::Cow<'_, str> {
+    match resolved {
+        Some(canonical) => std::borrow::Cow::Owned(canonical),
+        None => std::borrow::Cow::Borrowed(name),
+    }
 }
 
 // ── Tool Execution (provider-agnostic) ────────────────────────────
@@ -575,7 +600,8 @@ fn needs_permission_engine(
     effective_auto_approve: bool,
 ) -> bool {
     let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
-    let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
+    let plan_requires_ask =
+        plan_mode_active && crate::mcp::tool_filter_contains(&ctx.plan_mode_ask_tools, name);
     let auto_approve_blocked_by_plan = effective_auto_approve && plan_requires_ask;
     let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
     let connector_action_requires_approval = !ctx.external_pre_approved
@@ -975,6 +1001,13 @@ pub async fn execute_tool_with_context(
     ctx: &ToolExecContext,
 ) -> anyhow::Result<String> {
     let start = std::time::Instant::now();
+
+    // MCP catalogs retain historical names as protocol aliases. Normalize the
+    // runtime call before *every* gate so a deny/allow/hook/permission rule on
+    // the current canonical tool cannot be bypassed through an old identifier.
+    // The orchestrator still owns the submitted name in persisted history.
+    let canonical_mcp_name = canonical_mcp_execution_name(name);
+    let name = canonical_mcp_name.as_ref();
 
     // ── Tool visibility / policy gate ─────────────────────────────
     // Defense-in-depth: enforce the same effective visibility rules used for
@@ -1818,12 +1851,12 @@ fn persist_large_result(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_persisted_large_result_preview, decide_async_path_with_config,
-        exec_process_background_mode, execute_tool_with_context, maybe_persist_large_tool_result,
-        migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
-        should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
-        tool_timeout, validate_async_background_contract, AsyncDecision, JobOrigin,
-        ToolExecContext,
+        build_persisted_large_result_preview, canonical_mcp_execution_name_from,
+        decide_async_path_with_config, exec_process_background_mode, execute_tool_with_context,
+        maybe_persist_large_tool_result, migrate_exec_process_mode_to_async_job_args,
+        needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
+        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
+        AsyncDecision, JobOrigin, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -1878,6 +1911,34 @@ mod tests {
         };
 
         assert_eq!(ctx.default_path(), "/tmp/projects/demo");
+    }
+
+    #[test]
+    fn historical_mcp_alias_resolves_to_canonical_runtime_name() {
+        let legacy = "mcp__alpha__historical_name";
+        let canonical = "mcp__alpha__current_full_name";
+
+        assert_eq!(
+            canonical_mcp_execution_name_from(legacy, Some(canonical.to_string())),
+            canonical
+        );
+        assert_eq!(canonical_mcp_execution_name_from(legacy, None), legacy);
+    }
+
+    #[tokio::test]
+    async fn canonical_mcp_deny_applies_to_historical_alias() {
+        let legacy = "mcp__alpha__historical_name";
+        let canonical = "mcp__alpha__current_full_name";
+        let ctx = ToolExecContext {
+            denied_tools: vec![canonical.to_string()],
+            ..ToolExecContext::default()
+        };
+
+        let error = ctx
+            .tool_visibility_error_for_canonical(legacy, canonical)
+            .await
+            .expect("canonical deny must block a historical MCP alias");
+        assert!(error.contains("denied"), "unexpected error: {error}");
     }
 
     #[test]

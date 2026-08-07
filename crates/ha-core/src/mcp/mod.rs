@@ -54,11 +54,12 @@ pub fn tool_definitions() -> Arc<Vec<ToolDefinition>> {
     }
 }
 
-/// Lazy MCP catalog 自举。`tool_search` 在读取动态目录前调用；未接线
-/// no-op，等价于 manager 不存在且动态目录为空。
-pub(crate) async fn ensure_tool_catalogs() {
+/// Lazy MCP catalog 自举。`tool_search` 在读取动态目录前调用；指定
+/// `server_name` 时只连接该服务，未指定时保持全量发现。未接线 no-op，
+/// 等价于 manager 不存在且动态目录为空。
+pub(crate) async fn ensure_tool_catalogs(server_name: Option<&str>) {
     if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
-        (hooks.ensure_tool_catalogs)(false).await;
+        (hooks.ensure_tool_catalogs)(false, server_name.map(ToString::to_string)).await;
     }
 }
 
@@ -67,7 +68,7 @@ pub(crate) async fn ensure_tool_catalogs() {
 /// barrier, so later chat turns never become synchronous reconnect loops.
 pub(crate) async fn ensure_initial_eager_tool_catalogs() {
     if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
-        (hooks.ensure_tool_catalogs)(true).await;
+        (hooks.ensure_tool_catalogs)(true, None).await;
     }
 }
 
@@ -75,6 +76,54 @@ pub(crate) async fn ensure_initial_eager_tool_catalogs() {
 /// MCP 整体缺席，因此返回 false。
 pub(crate) fn has_pending_catalogs() -> bool {
     crate::mcp_hooks::mcp_hooks().is_some_and(|hooks| (hooks.has_pending_catalogs)())
+}
+
+/// 将历史 namespaced 工具名归一到当前 catalog 名称。未接线或未知名称
+/// 保持 `None`，由调用方继续使用原值。
+pub(crate) fn canonical_tool_name(name: &str) -> Option<String> {
+    let hooks = crate::mcp_hooks::mcp_hooks()?;
+    (hooks.canonical_tool_name)(name)
+}
+
+/// Resolve a dynamic MCP tool through the atomically published catalog rather
+/// than inferring ownership from an ambiguous namespaced string.
+pub(crate) fn tool_server_name(name: &str) -> Option<String> {
+    let hooks = crate::mcp_hooks::mcp_hooks()?;
+    (hooks.tool_server_name)(name)
+}
+
+/// Normalize persisted Agent/Skill/Plan tool filters against the live MCP
+/// catalog. This runs at schema/context construction time rather than config
+/// load time because lazy servers do not publish their legacy alias map until
+/// discovery completes.
+pub(crate) fn canonicalize_tool_filter_names(names: &[String]) -> Vec<String> {
+    canonicalize_tool_filter_names_with(names, canonical_tool_name)
+}
+
+fn canonicalize_tool_filter_names_with(
+    names: &[String],
+    mut resolve: impl FnMut(&str) -> Option<String>,
+) -> Vec<String> {
+    names
+        .iter()
+        .map(|name| resolve(name).unwrap_or_else(|| name.clone()))
+        .collect()
+}
+
+/// Defense-in-depth matcher for execution contexts that were constructed by
+/// a non-Agent caller and may still contain historical MCP identifiers.
+pub(crate) fn tool_filter_contains(names: &[String], canonical_name: &str) -> bool {
+    tool_filter_contains_with(names, canonical_name, canonical_tool_name)
+}
+
+fn tool_filter_contains_with(
+    names: &[String],
+    canonical_name: &str,
+    mut resolve: impl FnMut(&str) -> Option<String>,
+) -> bool {
+    names
+        .iter()
+        .any(|name| name == canonical_name || resolve(name).as_deref() == Some(canonical_name))
 }
 
 /// namespaced 工具名 → 所属 server 的当前配置克隆（execution 的
@@ -112,5 +161,34 @@ pub(crate) fn init_subsystem() -> bool {
 pub(crate) fn spawn_watchdog() {
     if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
         (hooks.spawn_watchdog)();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{canonicalize_tool_filter_names_with, tool_filter_contains_with};
+
+    #[test]
+    fn persisted_legacy_filter_names_follow_live_catalog_aliases() {
+        let legacy = "mcp__alpha__historical_name".to_string();
+        let builtin = "read".to_string();
+        let canonical = "mcp__alpha__current_full_name";
+
+        let normalized =
+            canonicalize_tool_filter_names_with(&[legacy.clone(), builtin.clone()], |name| {
+                (name == legacy).then(|| canonical.to_string())
+            });
+
+        assert_eq!(normalized, vec![canonical.to_string(), builtin]);
+        assert!(tool_filter_contains_with(
+            std::slice::from_ref(&legacy),
+            canonical,
+            |name| (name == legacy).then(|| canonical.to_string())
+        ));
+        assert!(!tool_filter_contains_with(
+            std::slice::from_ref(&legacy),
+            "mcp__alpha__other_tool",
+            |name| (name == legacy).then(|| canonical.to_string())
+        ));
     }
 }

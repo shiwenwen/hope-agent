@@ -216,6 +216,9 @@ pub struct ToolIndexEntry {
     pub server_id: String,
     pub server_name: String,
     pub original_tool_name: String,
+    /// Provider-facing name in the current catalog generation. Legacy index
+    /// aliases point back to this value for persisted activation migration.
+    pub canonical_tool_name: String,
 }
 
 /// Atomically published dynamic MCP catalog.
@@ -317,6 +320,27 @@ impl McpManager {
         self.catalog.load().tool_index.get(namespaced_name).cloned()
     }
 
+    /// Resolve current and historical names to the provider-facing catalog
+    /// name without taking an async lock.
+    pub fn canonical_tool_name(&self, namespaced_name: &str) -> Option<String> {
+        self.catalog
+            .load()
+            .tool_index
+            .get(namespaced_name)
+            .map(|entry| entry.canonical_tool_name.clone())
+    }
+
+    /// Resolve catalog ownership without parsing the provider-facing name.
+    /// The namespace can contain compatibility aliases, so the atomically
+    /// published reverse index is the only authoritative source.
+    pub fn tool_server_name(&self, namespaced_name: &str) -> Option<String> {
+        self.catalog
+            .load()
+            .tool_index
+            .get(namespaced_name)
+            .map(|entry| entry.server_name.clone())
+    }
+
     /// Best-effort server lookup: id first, then name. Used by the
     /// `mcp_resource` / `mcp_prompt` tool handlers so the LLM can
     /// reference a server by either form. Note: a server whose `name`
@@ -408,19 +432,31 @@ impl McpManager {
             &cfg.name,
             tools.iter().map(|tool| tool.name.as_ref()),
         );
-        for (tool, namespaced) in tools.iter().zip(namespaced_names) {
+        let legacy_names = super::catalog::assign_legacy_namespaced_tool_names(
+            &cfg.name,
+            tools.iter().map(|tool| tool.name.as_ref()),
+        );
+        let primary_names: std::collections::HashSet<String> =
+            namespaced_names.iter().cloned().collect();
+        for ((tool, namespaced), legacy_name) in
+            tools.iter().zip(namespaced_names).zip(legacy_names)
+        {
             let original = tool.name.to_string();
             if !super::catalog::tool_allowed_by_server_config(&cfg, &original) {
                 continue;
             }
-            next_index.insert(
-                namespaced.clone(),
-                ToolIndexEntry {
-                    server_id: cfg.id.clone(),
-                    server_name: cfg.name.clone(),
-                    original_tool_name: original,
-                },
-            );
+            let entry = ToolIndexEntry {
+                server_id: cfg.id.clone(),
+                server_name: cfg.name.clone(),
+                original_tool_name: original,
+                canonical_tool_name: namespaced.clone(),
+            };
+            next_index.insert(namespaced.clone(), entry.clone());
+            if legacy_name != namespaced && !primary_names.contains(legacy_name.as_str()) {
+                // A compatibility alias must never take ownership away from
+                // another server's canonical identifier.
+                next_index.entry(legacy_name).or_insert(entry);
+            }
             next_defs.push(super::catalog::rmcp_tool_to_definition_with_name(
                 &cfg, tool, namespaced,
             ));
@@ -576,20 +612,32 @@ impl McpManager {
                 &cfg.name,
                 tools.iter().map(|t| t.name.as_ref()),
             );
-            for (tool, namespaced) in tools.iter().zip(namespaced_names) {
+            let legacy_names = super::catalog::assign_legacy_namespaced_tool_names(
+                &cfg.name,
+                tools.iter().map(|t| t.name.as_ref()),
+            );
+            let primary_names: std::collections::HashSet<String> =
+                namespaced_names.iter().cloned().collect();
+            for ((tool, namespaced), legacy_name) in
+                tools.iter().zip(namespaced_names).zip(legacy_names)
+            {
                 let original = tool.name.to_string();
                 if !super::catalog::tool_allowed_by_server_config(&cfg, &original) {
                     continue;
                 }
 
-                next_index.insert(
-                    namespaced.clone(),
-                    ToolIndexEntry {
-                        server_id: cfg.id.clone(),
-                        server_name: cfg.name.clone(),
-                        original_tool_name: original,
-                    },
-                );
+                let entry = ToolIndexEntry {
+                    server_id: cfg.id.clone(),
+                    server_name: cfg.name.clone(),
+                    original_tool_name: original,
+                    canonical_tool_name: namespaced.clone(),
+                };
+                next_index.insert(namespaced.clone(), entry.clone());
+                if legacy_name != namespaced && !primary_names.contains(legacy_name.as_str()) {
+                    // Canonical entries win regardless of server iteration
+                    // order; ambiguous historical aliases stay suppressed.
+                    next_index.entry(legacy_name).or_insert(entry);
+                }
                 next_defs.push(super::catalog::rmcp_tool_to_definition_with_name(
                     &cfg, &tool, namespaced,
                 ));
@@ -791,6 +839,126 @@ mod tests {
                 .unwrap()
                 .original_tool_name,
             "foo.bar"
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_catalog_resolves_legacy_truncated_name_to_current_name() {
+        let cfg = sample_stdio_cfg("id-azure", "azure-mcp-large");
+        let manager = test_manager(vec![cfg]);
+        seed_ready_catalog(
+            &manager,
+            "id-azure",
+            vec![sample_tool("storage_blob_container_get")],
+        )
+        .await;
+
+        let current = "mcp__azure-mcp-large__storage_blob_container_get";
+        let legacy = "mcp__azure-mcp-large__storage_blob_container_ge";
+        assert_eq!(cached_tool_names(&manager), vec![current]);
+        assert_eq!(
+            manager
+                .lookup_tool(legacy)
+                .await
+                .unwrap()
+                .original_tool_name,
+            "storage_blob_container_get"
+        );
+        assert_eq!(
+            manager.canonical_tool_name(legacy).as_deref(),
+            Some(current)
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_catalog_preserves_legacy_owner_when_new_name_matches_old_prefix() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg]);
+        seed_ready_catalog(
+            &manager,
+            "id-alpha",
+            vec![
+                sample_tool("abcdefghijklmnopqrstuvwxyz_long"),
+                sample_tool("abcdefghijklmnopqrstuvwxy"),
+            ],
+        )
+        .await;
+
+        let long_current = "mcp__alpha__abcdefghijklmnopqrstuvwxyz_long";
+        let short_current = "mcp__alpha__abcdefghijklmnopqrstuvwxy_2";
+        let long_legacy = "mcp__alpha__abcdefghijklmnopqrstuvwxy";
+        let short_legacy = "mcp__alpha__abcdefghijklmnopqrstuvw_2";
+        assert_eq!(
+            cached_tool_names(&manager),
+            vec![short_current, long_current]
+        );
+        assert_eq!(
+            manager
+                .lookup_tool(long_legacy)
+                .await
+                .unwrap()
+                .original_tool_name,
+            "abcdefghijklmnopqrstuvwxyz_long"
+        );
+        assert_eq!(
+            manager
+                .lookup_tool(short_legacy)
+                .await
+                .unwrap()
+                .original_tool_name,
+            "abcdefghijklmnopqrstuvwxy"
+        );
+        assert_eq!(
+            manager.canonical_tool_name(long_legacy).as_deref(),
+            Some(long_current)
+        );
+        assert_eq!(
+            manager.canonical_tool_name(short_legacy).as_deref(),
+            Some(short_current)
+        );
+    }
+
+    #[tokio::test]
+    async fn prefix_related_server_names_publish_distinct_owned_tools() {
+        let foo = sample_stdio_cfg("id-foo", "foo");
+        let foo_bar = sample_stdio_cfg("id-foo-bar", "foo__bar");
+        let manager = test_manager(vec![foo, foo_bar]);
+        let foo_handle = manager.get_by_id("id-foo").await.unwrap();
+        let foo_bar_handle = manager.get_by_id("id-foo-bar").await.unwrap();
+
+        *foo_handle.state.lock().await = ServerState::Ready {
+            tools: vec![sample_tool("bar__read")],
+            resources: vec![],
+            prompts: vec![],
+        };
+        *foo_bar_handle.state.lock().await = ServerState::Ready {
+            tools: vec![sample_tool("read")],
+            resources: vec![],
+            prompts: vec![],
+        };
+        manager
+            .rebuild_ready_catalog_cache(vec![foo_handle, foo_bar_handle])
+            .await;
+
+        assert_eq!(
+            cached_tool_names(&manager),
+            vec!["mcp__fooUUbar__read", "mcp__foo__bar__read"]
+        );
+        assert_eq!(
+            manager.tool_server_name("mcp__foo__bar__read").as_deref(),
+            Some("foo")
+        );
+        assert_eq!(
+            manager.tool_server_name("mcp__fooUUbar__read").as_deref(),
+            Some("foo__bar")
+        );
+        assert_eq!(
+            manager
+                .lookup_tool("mcp__foo__bar__read")
+                .await
+                .unwrap()
+                .original_tool_name,
+            "bar__read"
         );
     }
 

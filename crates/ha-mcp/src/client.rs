@@ -14,7 +14,7 @@ use std::{future::Future, io::Write, sync::Arc};
 use futures_util::stream::{self, StreamExt};
 use rmcp::model::PaginatedRequestParams;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::{Mutex, MutexGuard, OnceCell};
+use tokio::sync::{Mutex, MutexGuard, OnceCell, Semaphore, SemaphorePermit};
 use tokio::time::{timeout, timeout_at, Duration, Instant};
 
 use super::errors::{McpError, McpResult};
@@ -26,14 +26,21 @@ use super::transport::{build_transport_for, ConnectedClient};
 /// A user can configure many MCP servers; the first `tool_search` must not
 /// spawn all stdio children or handshakes at once.
 const CATALOG_DISCOVERY_CONCURRENCY: usize = 4;
+const CATALOG_DISCOVERY_RESERVED_SCOPED_SLOTS: usize = 1;
 /// Chat-facing discovery latency must not grow with the number of configured
 /// servers. Workers that outlive this aggregate deadline remain detached and
 /// continue publishing ready catalogs in the background.
 const CATALOG_DISCOVERY_WAIT_SECS: u64 = 30;
 /// Only one all-server discovery pass may own handle snapshots and connection
-/// work at a time. Waiters share the same aggregate deadline and disappear on
-/// timeout instead of spawning duplicate workers behind per-server locks.
+/// work at a time. Server-scoped discovery deliberately bypasses this lock so
+/// a targeted search can start its server even while an unrelated full scan is
+/// still draining slow servers. The per-server `connect_lock` still deduplicates
+/// overlapping work for the same target.
 static CATALOG_DISCOVERY_LOCK: Mutex<()> = Mutex::const_new(());
+/// Process-wide cap shared by full scans and independent server-scoped
+/// searches. Full scans use at most one fewer concurrent task so a targeted
+/// search cannot be starved behind all slots of an unrelated scan.
+static CATALOG_DISCOVERY_SLOTS: Semaphore = Semaphore::const_new(CATALOG_DISCOVERY_CONCURRENCY);
 
 /// One process-wide startup barrier. A failed eager handshake still completes
 /// the barrier: normal chat must not synchronously retry an unavailable MCP
@@ -53,7 +60,7 @@ pub fn spawn_initial_eager_catalog_warmup() {
 /// operation back on the chat critical path.
 pub fn spawn_reconciled_eager_catalog_warmup() {
     tokio::spawn(async {
-        warm_catalogs(true, "config_reconcile").await;
+        warm_catalogs(true, None, "config_reconcile").await;
     });
 }
 
@@ -61,8 +68,8 @@ pub fn spawn_reconciled_eager_catalog_warmup() {
 /// Failures are isolated per server: ready catalogs still participate in the
 /// current `tool_search`, while failed servers retain their normal backoff /
 /// NeedsAuth state and diagnostics.
-pub async fn ensure_tool_catalogs() {
-    warm_catalogs(false, "tool_search").await;
+pub async fn ensure_tool_catalogs(server_name: Option<&str>) {
+    warm_catalogs(false, server_name, "tool_search").await;
 }
 
 /// Wait for the startup contract of `eager=true` servers. The subsystem also
@@ -72,12 +79,12 @@ pub async fn ensure_tool_catalogs() {
 pub async fn ensure_initial_eager_tool_catalogs() {
     INITIAL_EAGER_CATALOG_WARMUP
         .get_or_init(|| async {
-            warm_catalogs(true, "startup").await;
+            warm_catalogs(true, None, "startup").await;
         })
         .await;
 }
 
-async fn warm_catalogs(eager_only: bool, source: &'static str) {
+async fn warm_catalogs(eager_only: bool, server_name: Option<&str>, source: &'static str) {
     let Some(manager) = McpManager::global() else {
         return;
     };
@@ -86,7 +93,12 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
     }
 
     let foreground_deadline = Instant::now() + Duration::from_secs(CATALOG_DISCOVERY_WAIT_SECS);
-    let discovery_guard = match timeout_at(foreground_deadline, CATALOG_DISCOVERY_LOCK.lock()).await
+    let discovery_guard = match acquire_catalog_discovery_guard(
+        &CATALOG_DISCOVERY_LOCK,
+        server_name.is_some(),
+        foreground_deadline,
+    )
+    .await
     {
         Ok(guard) => guard,
         Err(_) => {
@@ -100,12 +112,17 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
             return;
         }
     };
-    let handles: Vec<Arc<ServerHandle>> = manager.servers.read().await.values().cloned().collect();
+    let handles: Vec<Arc<ServerHandle>> = if let Some(server_name) = server_name {
+        manager.get_by_name(server_name).await.into_iter().collect()
+    } else {
+        manager.servers.read().await.values().cloned().collect()
+    };
     let server_count = handles.len();
+    let worker_concurrency = catalog_discovery_worker_concurrency(server_name.is_some());
     let worker = tokio::spawn(async move {
         let _discovery_guard = discovery_guard;
         stream::iter(handles)
-            .for_each_concurrent(CATALOG_DISCOVERY_CONCURRENCY, |handle| async move {
+            .for_each_concurrent(worker_concurrency, |handle| async move {
                 let cfg = handle.config.read().await.clone();
                 if eager_only && !cfg.eager {
                     return;
@@ -125,7 +142,7 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
                 if !should_connect {
                     return;
                 }
-                if let Err(error) = ensure_connected(manager, handle).await {
+                if let Err(error) = ensure_connected_for_catalog_discovery(manager, handle).await {
                     ha_core::app_warn!(
                         "mcp",
                         &format!("{}:catalog_discovery", cfg.name),
@@ -157,6 +174,49 @@ async fn warm_catalogs(eager_only: bool, source: &'static str) {
     }
 }
 
+fn catalog_discovery_worker_concurrency(server_scoped: bool) -> usize {
+    if server_scoped {
+        1
+    } else {
+        CATALOG_DISCOVERY_CONCURRENCY
+            .saturating_sub(CATALOG_DISCOVERY_RESERVED_SCOPED_SLOTS)
+            .max(1)
+    }
+}
+
+/// Order matters: wait behind duplicate work for the same server before
+/// consuming a process-wide discovery slot. Otherwise many scoped searches
+/// for one slow server can occupy every global permit while all but one merely
+/// wait on `connect_lock`.
+async fn acquire_catalog_connection_guards<'a>(
+    handle: &'a ServerHandle,
+    slots: &'a Semaphore,
+) -> (MutexGuard<'a, ()>, SemaphorePermit<'a>) {
+    let connect_guard = handle.connect_lock.lock().await;
+    let discovery_slot = slots
+        .acquire()
+        .await
+        .expect("catalog discovery semaphore is never closed");
+    (connect_guard, discovery_slot)
+}
+
+/// Full scans serialize behind one process-wide worker. A server-scoped search
+/// must not wait for that unrelated queue: it can safely proceed because the
+/// target handle's `connect_lock` is the authoritative duplicate-work guard.
+async fn acquire_catalog_discovery_guard<'a>(
+    lock: &'a Mutex<()>,
+    server_scoped: bool,
+    deadline: Instant,
+) -> Result<Option<MutexGuard<'a, ()>>, ()> {
+    if server_scoped {
+        return Ok(None);
+    }
+    timeout_at(deadline, lock.lock())
+        .await
+        .map(Some)
+        .map_err(|_| ())
+}
+
 /// `false` means the join handle was dropped at the deadline. Tokio detaches
 /// rather than aborts on `JoinHandle::drop`, so the bounded caller can return
 /// while the worker retains its per-server concurrency cap and finishes in the
@@ -184,6 +244,24 @@ pub async fn ensure_connected(manager: &McpManager, handle: Arc<ServerHandle>) -
     let _connect_guard = handle.connect_lock.lock().await;
     // Another caller may have completed the handshake while we were waiting
     // for the lock. Re-check before doing any work.
+    if !connect_needed_or_error(&handle).await? {
+        return Ok(());
+    }
+    connect_now_inner(manager, handle.clone()).await
+}
+
+async fn ensure_connected_for_catalog_discovery(
+    manager: &McpManager,
+    handle: Arc<ServerHandle>,
+) -> McpResult<()> {
+    if !connect_needed_or_error(&handle).await? {
+        return Ok(());
+    }
+
+    let (_connect_guard, _discovery_slot) =
+        acquire_catalog_connection_guards(&handle, &CATALOG_DISCOVERY_SLOTS).await;
+    // The worker that held `connect_lock` may have completed while this scoped
+    // request was joining it. Re-check before spending any connection work.
     if !connect_needed_or_error(&handle).await? {
         return Ok(());
     }
@@ -727,6 +805,78 @@ mod tests {
         })
         .await
         .expect("detached catalog worker should keep running after the caller deadline");
+    }
+
+    #[tokio::test]
+    async fn server_scoped_discovery_bypasses_busy_full_scan_lock() {
+        let lock = Mutex::new(());
+        let full_scan_guard = lock.lock().await;
+
+        let scoped_guard = tokio::time::timeout(
+            Duration::from_millis(50),
+            acquire_catalog_discovery_guard(&lock, true, Instant::now() + Duration::from_secs(1)),
+        )
+        .await
+        .expect("scoped discovery must not wait behind an all-server scan")
+        .expect("scoped discovery should be admitted");
+
+        assert!(scoped_guard.is_none());
+        drop(full_scan_guard);
+    }
+
+    #[tokio::test]
+    async fn catalog_discovery_slots_bound_independent_workers() {
+        assert_eq!(catalog_discovery_worker_concurrency(true), 1);
+        assert_eq!(
+            catalog_discovery_worker_concurrency(false),
+            CATALOG_DISCOVERY_CONCURRENCY - CATALOG_DISCOVERY_RESERVED_SCOPED_SLOTS
+        );
+
+        let slots = Semaphore::new(1);
+        let first = slots
+            .acquire()
+            .await
+            .expect("first worker should acquire the only slot");
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), slots.acquire())
+                .await
+                .is_err()
+        );
+
+        drop(first);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), slots.acquire())
+                .await
+                .expect("released slot should become available")
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_server_waiters_do_not_consume_discovery_slots() {
+        let handle = sample_handle();
+        let slots = Semaphore::new(1);
+        let blocker = handle.connect_lock.lock().await;
+
+        assert!(tokio::time::timeout(
+            Duration::from_millis(10),
+            acquire_catalog_connection_guards(&handle, &slots)
+        )
+        .await
+        .is_err());
+        assert_eq!(slots.available_permits(), 1);
+
+        drop(blocker);
+        let guards = tokio::time::timeout(
+            Duration::from_millis(50),
+            acquire_catalog_connection_guards(&handle, &slots),
+        )
+        .await
+        .expect("waiter should proceed after the per-server lock is released");
+        assert_eq!(slots.available_permits(), 0);
+        drop(guards);
+        assert_eq!(slots.available_permits(), 1);
     }
 
     #[tokio::test]

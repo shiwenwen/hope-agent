@@ -4,7 +4,7 @@
 //!
 //! kernel 侧留存：`ha_core::mcp`（wire 类型再导出 + `mcp__` 命名约定 +
 //! auto-approve 信任谓词 + trampoline）。kernel 边界经
-//! [`ha_core::mcp_hooks::McpHooks`] 九件套原子注册，未接线语义镜像
+//! [`ha_core::mcp_hooks::McpHooks`] 十件套原子注册，未接线语义镜像
 //! manager-None 的既有行为（见该模块 doc）。
 //!
 //! 装配契约与其它特征 crate 相同：每个调 `ha_core::init_runtime` 的二进
@@ -179,15 +179,24 @@ pub fn wire() {
         }
         fn ensure_tool_catalogs(
             eager_only: bool,
+            server_name: Option<String>,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
             if eager_only {
                 Box::pin(client::ensure_initial_eager_tool_catalogs())
             } else {
-                Box::pin(client::ensure_tool_catalogs())
+                Box::pin(async move {
+                    client::ensure_tool_catalogs(server_name.as_deref()).await;
+                })
             }
         }
         fn has_pending_catalogs() -> bool {
             catalog::has_pending_catalogs()
+        }
+        fn canonical_tool_name(name: &str) -> Option<String> {
+            McpManager::global()?.canonical_tool_name(name)
+        }
+        fn tool_server_name(name: &str) -> Option<String> {
+            McpManager::global()?.tool_server_name(name)
         }
         fn tool_server_config(
             name: &str,
@@ -223,6 +232,8 @@ pub fn wire() {
             tool_definitions: tool_definitions_snapshot,
             ensure_tool_catalogs,
             has_pending_catalogs,
+            canonical_tool_name,
+            tool_server_name,
             tool_server_config,
             call_tool,
             system_prompt_snippet,
