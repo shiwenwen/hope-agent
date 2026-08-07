@@ -24,7 +24,7 @@ MCP (Model Context Protocol) is an open standard that lets AI assistants connect
 - Click "Test Connection" to see the result and tool count in real time; servers that require authorization show an "Authorize" button that triggers OAuth.
 - Supports one-click import from `claude_desktop_config.json`.
 
-> MCP server configuration is **high risk**—it may carry credentials. The server configuration itself (including keys and environment variables) can only be changed in the interface; the AI cannot modify it through conversation. All tools are injected by default; for large servers with many tools, you can enable "lazy loading" to switch to on-demand discovery and avoid consuming context.
+> MCP server configuration is **high risk**—it may carry credentials. The server configuration itself (including keys and environment variables) can only be changed in the interface; the AI cannot modify it through conversation. Under the default Recommended policy, the first `tool_search` automatically connects lazy servers and discovers their dynamic tools without spending context on dozens of schemas every round. To send dynamic MCP schemas on the first round after startup, enable all three controls: choose Built-ins eager under Settings → Tools, turn off that server's Defer tool schemas switch, and turn on Connect eagerly at startup.
 
 ---
 

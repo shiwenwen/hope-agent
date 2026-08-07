@@ -227,6 +227,10 @@ pub(crate) struct ExecutedTool {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ToolDispatchSideOutput {
     pub metadata: Option<serde_json::Value>,
+    /// An MCP meta-tool completed a previously pending catalog round. The
+    /// orchestrator must rebuild provider schemas before the next model call,
+    /// even when no deferred tool name was activated explicitly.
+    pub schema_catalog_changed: bool,
     /// Effective tool arguments after a `PreToolUse` hook rewrote them via
     /// `updatedInput`. `None` when no rewrite happened — the caller keeps the
     /// model's original arguments. When `Some`, the orchestrator MUST use this
@@ -247,6 +251,12 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     /// the native Anthropic shape; the three OpenAI flavors share the OpenAI
     /// schema variant.
     fn tool_provider(&self) -> ToolProvider;
+
+    /// Whether this concrete endpoint/model can replace Hope's local
+    /// `tool_search` with a provider-native deferred-tool search primitive.
+    fn supports_native_tool_search(&self) -> bool {
+        false
+    }
 
     /// Normalize history that may have been persisted from a different
     /// provider (failover / model switch / first turn after switching agent).

@@ -6,20 +6,170 @@
 //! user-triggered equivalent and bypasses the backoff window.
 //!
 //! Every connection attempt that succeeds immediately fetches the
-//! initial catalog (tools + resources + prompts) and pushes it into the
-//! manager's `tool_index`.
+//! initial catalog (tools + resources + prompts) and atomically publishes it
+//! through the manager's `CatalogSnapshot`.
 
-use std::sync::Arc;
+use std::{future::Future, io::Write, sync::Arc};
 
-use rmcp::model;
+use futures_util::stream::{self, StreamExt};
+use rmcp::model::PaginatedRequestParams;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::MutexGuard;
-use tokio::time::{timeout, Duration};
+use tokio::sync::{Mutex, MutexGuard, OnceCell};
+use tokio::time::{timeout, timeout_at, Duration, Instant};
 
 use super::errors::{McpError, McpResult};
 use super::events::{emit_catalog_refreshed, emit_server_status};
-use super::registry::{McpManager, ServerHandle, ServerState, ToolIndexEntry};
+use super::registry::{McpManager, ServerHandle, ServerState};
 use super::transport::{build_transport_for, ConnectedClient};
+
+/// Bound catalog discovery bursts independently from tool-call concurrency.
+/// A user can configure many MCP servers; the first `tool_search` must not
+/// spawn all stdio children or handshakes at once.
+const CATALOG_DISCOVERY_CONCURRENCY: usize = 4;
+/// Chat-facing discovery latency must not grow with the number of configured
+/// servers. Workers that outlive this aggregate deadline remain detached and
+/// continue publishing ready catalogs in the background.
+const CATALOG_DISCOVERY_WAIT_SECS: u64 = 30;
+/// Only one all-server discovery pass may own handle snapshots and connection
+/// work at a time. Waiters share the same aggregate deadline and disappear on
+/// timeout instead of spawning duplicate workers behind per-server locks.
+static CATALOG_DISCOVERY_LOCK: Mutex<()> = Mutex::const_new(());
+
+/// One process-wide startup barrier. A failed eager handshake still completes
+/// the barrier: normal chat must not synchronously retry an unavailable MCP
+/// server on every turn. Later recovery belongs to config warm-up, watchdog,
+/// or an explicit discovery operation.
+static INITIAL_EAGER_CATALOG_WARMUP: OnceCell<()> = OnceCell::const_new();
+
+/// Start the one-shot startup warm-up for `eager=true` servers. The first
+/// provider request awaits this same cell if the task is still running.
+pub fn spawn_initial_eager_catalog_warmup() {
+    tokio::spawn(async {
+        ensure_initial_eager_tool_catalogs().await;
+    });
+}
+
+/// Warm eager servers after a live config reconciliation without putting the
+/// operation back on the chat critical path.
+pub fn spawn_reconciled_eager_catalog_warmup() {
+    tokio::spawn(async {
+        warm_catalogs(true, "config_reconcile").await;
+    });
+}
+
+/// Populate catalogs for lazy servers on the first discovery operation.
+/// Failures are isolated per server: ready catalogs still participate in the
+/// current `tool_search`, while failed servers retain their normal backoff /
+/// NeedsAuth state and diagnostics.
+pub async fn ensure_tool_catalogs() {
+    warm_catalogs(false, "tool_search").await;
+}
+
+/// Wait for the startup contract of `eager=true` servers. The subsystem also
+/// spawns this work immediately during initialization, but the first provider
+/// request awaits the same idempotent path so schema assembly cannot win the
+/// startup race.
+pub async fn ensure_initial_eager_tool_catalogs() {
+    INITIAL_EAGER_CATALOG_WARMUP
+        .get_or_init(|| async {
+            warm_catalogs(true, "startup").await;
+        })
+        .await;
+}
+
+async fn warm_catalogs(eager_only: bool, source: &'static str) {
+    let Some(manager) = McpManager::global() else {
+        return;
+    };
+    if !manager.is_enabled().await {
+        return;
+    }
+
+    let foreground_deadline = Instant::now() + Duration::from_secs(CATALOG_DISCOVERY_WAIT_SECS);
+    let discovery_guard = match timeout_at(foreground_deadline, CATALOG_DISCOVERY_LOCK.lock()).await
+    {
+        Ok(guard) => guard,
+        Err(_) => {
+            ha_core::app_info!(
+                "mcp",
+                "catalog_discovery_join_deadline",
+                "MCP catalog discovery from {} reached the aggregate {}s deadline while an existing worker was still active; that shared worker continues in background",
+                source,
+                CATALOG_DISCOVERY_WAIT_SECS
+            );
+            return;
+        }
+    };
+    let handles: Vec<Arc<ServerHandle>> = manager.servers.read().await.values().cloned().collect();
+    let server_count = handles.len();
+    let worker = tokio::spawn(async move {
+        let _discovery_guard = discovery_guard;
+        stream::iter(handles)
+            .for_each_concurrent(CATALOG_DISCOVERY_CONCURRENCY, |handle| async move {
+                let cfg = handle.config.read().await.clone();
+                if eager_only && !cfg.eager {
+                    return;
+                }
+                let should_connect = {
+                    let state = handle.state.lock().await;
+                    match &*state {
+                        ServerState::Idle | ServerState::Connecting => true,
+                        ServerState::Failed { retry_at, .. } => {
+                            chrono::Utc::now().timestamp() >= *retry_at
+                        }
+                        ServerState::Ready { .. }
+                        | ServerState::Disabled
+                        | ServerState::NeedsAuth { .. } => false,
+                    }
+                };
+                if !should_connect {
+                    return;
+                }
+                if let Err(error) = ensure_connected(manager, handle).await {
+                    ha_core::app_warn!(
+                        "mcp",
+                        &format!("{}:catalog_discovery", cfg.name),
+                        "MCP catalog discovery from {} failed: {}",
+                        source,
+                        error
+                    );
+                }
+            })
+            .await;
+    });
+    match await_catalog_worker(worker, foreground_deadline).await {
+        Ok(true) => {}
+        Ok(false) => ha_core::app_warn!(
+            "mcp",
+            "catalog_discovery_deadline",
+            "MCP catalog discovery from {} reached the aggregate {}s deadline across {} servers; ready catalogs remain available and unfinished work continues in background",
+            source,
+            CATALOG_DISCOVERY_WAIT_SECS,
+            server_count
+        ),
+        Err(error) => ha_core::app_warn!(
+            "mcp",
+            "catalog_discovery_worker",
+            "MCP catalog discovery worker from {} failed: {}",
+            source,
+            error
+        ),
+    }
+}
+
+/// `false` means the join handle was dropped at the deadline. Tokio detaches
+/// rather than aborts on `JoinHandle::drop`, so the bounded caller can return
+/// while the worker retains its per-server concurrency cap and finishes in the
+/// background.
+async fn await_catalog_worker(
+    worker: tokio::task::JoinHandle<()>,
+    deadline: Instant,
+) -> Result<bool, tokio::task::JoinError> {
+    match timeout_at(deadline, worker).await {
+        Ok(joined) => joined.map(|()| true),
+        Err(_) => Ok(false),
+    }
+}
 
 /// Idempotent "make sure this server is connected and has a catalog".
 /// Returns quickly when already `Ready`; otherwise performs a full
@@ -56,31 +206,32 @@ async fn connect_needed_or_error(handle: &ServerHandle) -> McpResult<bool> {
             reason: "server config was replaced or removed".into(),
         });
     }
-    let state = handle.state.lock().await;
-    if matches!(*state, ServerState::Ready { .. }) {
-        return Ok(false);
-    }
-    if matches!(*state, ServerState::Disabled) {
-        let cfg = handle.config.read().await;
-        return Err(McpError::NotReady {
-            server: cfg.name.clone(),
-            reason: "server is disabled in config".into(),
-        });
-    }
-    if let ServerState::Failed { retry_at, reason } = &*state {
-        let now = chrono::Utc::now().timestamp();
-        if now < *retry_at {
+    let now = chrono::Utc::now().timestamp();
+    let decision = {
+        let state = handle.state.lock().await;
+        match &*state {
+            ServerState::Ready { .. } => Ok(false),
+            ServerState::Disabled => Err("server is disabled in config".to_string()),
+            ServerState::NeedsAuth { .. } => {
+                Err("authorization required; use the Authorize action in Settings".to_string())
+            }
+            ServerState::Failed { retry_at, reason } if now < *retry_at => Err(format!(
+                "in backoff after failure ({reason}); retry_at in {}s",
+                *retry_at - now
+            )),
+            ServerState::Idle | ServerState::Connecting | ServerState::Failed { .. } => Ok(true),
+        }
+    };
+    match decision {
+        Ok(needed) => Ok(needed),
+        Err(reason) => {
             let cfg = handle.config.read().await;
-            return Err(McpError::NotReady {
+            Err(McpError::NotReady {
                 server: cfg.name.clone(),
-                reason: format!(
-                    "in backoff after failure ({reason}); retry_at in {}s",
-                    *retry_at - now
-                ),
-            });
+                reason,
+            })
         }
     }
-    Ok(true)
 }
 
 async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
@@ -103,28 +254,26 @@ async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> M
 
     let connect_timeout = Duration::from_secs(cfg.connect_timeout_secs.max(1));
 
-    let result = timeout(connect_timeout, do_connect(&cfg, &handle)).await;
+    // The startup/discovery timeout covers both the transport handshake and
+    // the initial tools/resources/prompts inventory. Bounding only
+    // `do_connect` lets a server that accepts the handshake but never answers
+    // `list_tools` hold the process-wide eager barrier forever.
+    let result = timeout(connect_timeout, async {
+        do_connect(&cfg, &handle).await?;
+        if handle.is_retired() {
+            return Err(McpError::NotReady {
+                server: cfg.name.clone(),
+                reason: "server config was replaced or removed".into(),
+            });
+        }
+        handle
+            .consecutive_failures
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        refresh_catalog(manager, handle.clone()).await
+    })
+    .await;
     match result {
         Ok(Ok(())) => {
-            if handle.is_retired() {
-                disconnect(&handle).await.ok();
-                return Err(McpError::NotReady {
-                    server: cfg.name,
-                    reason: "server config was replaced or removed".into(),
-                });
-            }
-            handle
-                .consecutive_failures
-                .store(0, std::sync::atomic::Ordering::Relaxed);
-            // Refresh catalog right after connect so the tool index is
-            // populated for the first dispatch.
-            if let Err(e) = refresh_catalog(manager, handle.clone()).await {
-                // Connect succeeded but listing failed — mark Failed and
-                // drop the connection so a retry can try fresh.
-                disconnect(&handle).await.ok();
-                record_failure(&handle, &cfg.name, &e).await;
-                return Err(e);
-            }
             ha_core::app_info!(
                 "mcp",
                 &format!("{}:connect", cfg.name),
@@ -135,19 +284,35 @@ async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> M
             Ok(())
         }
         Ok(Err(e)) => {
+            disconnect_after_failed_attempt(&handle).await;
+            if handle.is_retired() {
+                return Err(e);
+            }
             record_failure(&handle, &cfg.name, &e).await;
             Err(e)
         }
         Err(_elapsed) => {
             let err = McpError::Timeout {
                 server: cfg.name.clone(),
-                tool: "<connect>".into(),
+                tool: "<connect/catalog>".into(),
                 secs: cfg.connect_timeout_secs,
             };
+            disconnect_after_failed_attempt(&handle).await;
+            if handle.is_retired() {
+                return Err(err);
+            }
             record_failure(&handle, &cfg.name, &err).await;
             Err(err)
         }
     }
+}
+
+/// Best-effort cleanup must not turn a bounded failed attempt back into an
+/// unbounded wait. `disconnect` takes the running client out before awaiting
+/// cancellation, so dropping this one-second cleanup future still prevents a
+/// stale connection from being reused.
+async fn disconnect_after_failed_attempt(handle: &ServerHandle) {
+    let _ = timeout(Duration::from_secs(1), disconnect(handle)).await;
 }
 
 /// Close the connection if any. Safe to call repeatedly.
@@ -164,13 +329,107 @@ pub async fn disconnect(handle: &ServerHandle) -> McpResult<()> {
 /// and rebuild the manager's tool index entries for it. The `Ready`
 /// catalog snapshot is replaced in place; other servers' entries in
 /// the index are untouched.
-/// Hard cap on tools per server. A malicious or buggy MCP server could
-/// advertise millions of entries via `list_tools`; without a cap, the
-/// reverse index + schema cache + `Ready` state's embedded Vec would
-/// allocate unbounded memory + every LLM request would spend time
-/// filtering the giant list. 512 is generous for any legitimate
-/// catalog (the biggest public servers ship ~50).
-const TOOLS_PER_SERVER_CAP: usize = 512;
+/// Hard cap per catalog primitive. A malicious or buggy MCP server could
+/// advertise millions of tools/resources/prompts across many pages; without a
+/// cap, both pagination and the atomic `Ready` snapshot would accumulate them
+/// in memory. 512 per kind is generous for legitimate servers while keeping
+/// bootstrap memory bounded.
+const CATALOG_ENTRIES_PER_KIND_CAP: usize = 512;
+/// Serialized size retained for one primitive kind across every page. The
+/// transport's 4 MiB per-message ceiling prevents one giant page; this
+/// aggregate ceiling prevents hundreds of individually valid pages from
+/// accumulating into gigabytes before Ready publication.
+const CATALOG_BYTES_PER_KIND_CAP: usize = 16 * 1024 * 1024;
+
+struct SerializedByteCounter {
+    remaining: usize,
+    written: usize,
+}
+
+impl Write for SerializedByteCounter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        if buffer.len() > self.remaining {
+            return Err(std::io::Error::other("catalog byte budget exceeded"));
+        }
+        self.remaining -= buffer.len();
+        self.written += buffer.len();
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn serialized_size_within<T: serde::Serialize>(value: &T, limit: usize) -> Option<usize> {
+    let mut counter = SerializedByteCounter {
+        remaining: limit,
+        written: 0,
+    };
+    serde_json::to_writer(&mut counter, value)
+        .ok()
+        .map(|()| counter.written)
+}
+
+async fn collect_catalog_entries<T, Page, E, Fetch, FetchFuture, Split>(
+    mut fetch_page: Fetch,
+    mut split_page: Split,
+    max_entries: usize,
+    max_serialized_bytes: usize,
+) -> Result<(Vec<T>, bool), E>
+where
+    T: serde::Serialize,
+    Fetch: FnMut(Option<PaginatedRequestParams>) -> FetchFuture,
+    FetchFuture: Future<Output = Result<Page, E>>,
+    Split: FnMut(Page) -> (Vec<T>, Option<String>),
+{
+    let mut entries = Vec::with_capacity(max_entries);
+    // Account for the surrounding JSON array brackets. Per-entry commas are
+    // added below, making this a conservative approximation of the retained
+    // catalog's wire size without allocating a second serialized copy.
+    let mut serialized_bytes = 2usize;
+    let mut cursor = None;
+
+    loop {
+        let page = fetch_page(Some(PaginatedRequestParams::default().with_cursor(cursor))).await?;
+        let (page_entries, next_cursor) = split_page(page);
+        for entry in page_entries {
+            if entries.len() >= max_entries {
+                return Ok((entries, true));
+            }
+            let separator_bytes = usize::from(!entries.is_empty());
+            let remaining = max_serialized_bytes
+                .saturating_sub(serialized_bytes)
+                .saturating_sub(separator_bytes);
+            let Some(entry_bytes) = serialized_size_within(&entry, remaining) else {
+                return Ok((entries, true));
+            };
+            serialized_bytes = serialized_bytes
+                .saturating_add(separator_bytes)
+                .saturating_add(entry_bytes);
+            entries.push(entry);
+        }
+
+        if next_cursor.is_none() {
+            return Ok((entries, false));
+        }
+        if entries.len() >= max_entries || serialized_bytes >= max_serialized_bytes {
+            return Ok((entries, true));
+        }
+        cursor = next_cursor;
+    }
+}
+
+fn warn_catalog_truncated(server_name: &str, kind: &str) {
+    ha_core::app_warn!(
+        "mcp",
+        &format!("{}:catalog", server_name),
+        "Server {} catalog exceeded a per-kind cap ({} entries / {} serialized bytes); pagination stopped at the cap",
+        kind,
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
+    );
+}
 
 pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     let cfg = handle.config.read().await.clone();
@@ -182,26 +441,56 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
     }
     let peer = handle.peer().await?;
 
-    let mut tools = peer
-        .list_all_tools()
-        .await
-        .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
-    if tools.len() > TOOLS_PER_SERVER_CAP {
-        ha_core::app_warn!(
-            "mcp",
-            &format!("{}:catalog", cfg.name),
-            "Server advertised {} tools; truncating to the per-server cap of {}",
-            tools.len(),
-            TOOLS_PER_SERVER_CAP
-        );
-        tools.truncate(TOOLS_PER_SERVER_CAP);
+    let (tools, tools_truncated) = collect_catalog_entries(
+        |params| peer.list_tools(params),
+        |result| (result.tools, result.next_cursor),
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
+    )
+    .await
+    .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
+    if tools_truncated {
+        warn_catalog_truncated(&cfg.name, "tools");
     }
 
-    // Resources / prompts are optional per spec; an `InvalidRequest` /
-    // method-not-found is NOT a real failure — it just means the server
-    // doesn't expose that primitive.
-    let resources = peer.list_all_resources().await.unwrap_or_default();
-    let prompts = peer.list_all_prompts().await.unwrap_or_default();
+    // Resources / prompts are optional per spec. Only an explicit JSON-RPC
+    // method-not-found means the server does not expose that primitive;
+    // transport, timeout, malformed-request, and size-limit failures must fail
+    // the connection rather than publishing Ready over a dead peer.
+    let (resources, resources_truncated) = collect_catalog_entries(
+        |params| peer.list_resources(params),
+        |result| (result.resources, result.next_cursor),
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
+    )
+    .await
+    .or_else(|error| {
+        if optional_catalog_method_unsupported(&error) {
+            Ok((Vec::new(), false))
+        } else {
+            Err(rmcp_service_err(&cfg.name, "list_resources", error))
+        }
+    })?;
+    if resources_truncated {
+        warn_catalog_truncated(&cfg.name, "resources");
+    }
+    let (prompts, prompts_truncated) = collect_catalog_entries(
+        |params| peer.list_prompts(params),
+        |result| (result.prompts, result.next_cursor),
+        CATALOG_ENTRIES_PER_KIND_CAP,
+        CATALOG_BYTES_PER_KIND_CAP,
+    )
+    .await
+    .or_else(|error| {
+        if optional_catalog_method_unsupported(&error) {
+            Ok((Vec::new(), false))
+        } else {
+            Err(rmcp_service_err(&cfg.name, "list_prompts", error))
+        }
+    })?;
+    if prompts_truncated {
+        warn_catalog_truncated(&cfg.name, "prompts");
+    }
 
     let tool_count = tools.len();
     let resource_count = resources.len();
@@ -214,17 +503,9 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
         });
     }
 
-    rebuild_tool_index_for(manager, &cfg, &tools).await;
-
-    set_state(
-        &handle,
-        ServerState::Ready {
-            tools,
-            resources,
-            prompts,
-        },
-    )
-    .await;
+    manager
+        .publish_ready_catalog(&handle, tools, resources, prompts)
+        .await?;
 
     emit_server_status(&cfg.id, &cfg.name, "ready", None);
     emit_catalog_refreshed(&cfg.id, &cfg.name, tool_count, resource_count, prompt_count);
@@ -261,65 +542,12 @@ async fn do_connect(cfg: &super::config::McpServerConfig, handle: &ServerHandle)
     Ok(())
 }
 
-async fn rebuild_tool_index_for(
-    manager: &McpManager,
-    cfg: &super::config::McpServerConfig,
-    tools: &[model::Tool],
-) {
-    // 1. Update the id → (server, original_name) reverse lookup used by
-    //    `invoke::call_tool` for dispatch. Drops stale entries owned by
-    //    this server before inserting fresh ones.
-    {
-        let mut idx = manager.tool_index.write().await;
-        idx.retain(|_, e| e.server_id != cfg.id);
-        let namespaced_names = super::catalog::assign_namespaced_tool_names(
-            &cfg.name,
-            tools.iter().map(|t| t.name.as_ref()),
-        );
-        for (tool, namespaced) in tools.iter().zip(namespaced_names) {
-            let orig = tool.name.to_string();
-            if !super::catalog::tool_allowed_by_server_config(cfg, &orig) {
-                continue;
-            }
-            idx.insert(
-                namespaced,
-                ToolIndexEntry {
-                    server_id: cfg.id.clone(),
-                    server_name: cfg.name.clone(),
-                    original_tool_name: orig,
-                },
-            );
-        }
-    }
-
-    // 2. Rebuild the sync-readable ToolDefinition cache. The schema
-    //    assembly path in `agent/mod.rs::build_tool_schemas` reads this
-    //    without awaiting — it must be kept atomic with the reverse
-    //    lookup so a dispatch never finds a name that isn't in the
-    //    schema list, or vice versa.
-    let defs_for_server: Vec<ha_core::tools::ToolDefinition> = tools
-        .iter()
-        .zip(super::catalog::assign_namespaced_tool_names(
-            &cfg.name,
-            tools.iter().map(|t| t.name.as_ref()),
-        ))
-        .filter(|(tool, _)| super::catalog::tool_allowed_by_server_config(cfg, tool.name.as_ref()))
-        .map(|(t, namespaced)| {
-            super::catalog::rmcp_tool_to_definition_with_name(cfg, t, namespaced)
-        })
-        .collect();
-
-    // Merge: keep other servers' defs, replace this server's. Use the
-    // `mcp__<cfg.name>__` prefix as the ownership test.
-    let prefix = format!("{}{}{}", super::catalog::MCP_TOOL_PREFIX, cfg.name, "__");
-    let prior = manager.mcp_tool_definitions();
-    let mut next: Vec<ha_core::tools::ToolDefinition> = prior
-        .iter()
-        .filter(|d| !d.name.starts_with(&prefix))
-        .cloned()
-        .collect();
-    next.extend(defs_for_server);
-    manager.store_cached_tool_defs(next);
+fn optional_catalog_method_unsupported(error: &rmcp::service::ServiceError) -> bool {
+    matches!(
+        error,
+        rmcp::service::ServiceError::McpError(data)
+            if data.code == rmcp::model::ErrorCode::METHOD_NOT_FOUND
+    )
 }
 
 fn rmcp_service_err(server: &str, where_: &str, err: rmcp::service::ServiceError) -> McpError {
@@ -442,4 +670,136 @@ fn spawn_stderr_tailer(server_name: String, stderr: tokio::process::ChildStderr)
             ha_core::app_warn!("mcp", &source, "{}", trimmed);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn sample_handle() -> ServerHandle {
+        let config = serde_json::from_value(serde_json::json!({
+            "id": "id-auth",
+            "name": "auth",
+            "enabled": true,
+            "transport": { "kind": "stdio", "command": "true" }
+        }))
+        .expect("valid MCP server fixture");
+        ServerHandle::new(config)
+    }
+
+    #[tokio::test]
+    async fn generic_lazy_connect_does_not_retry_needs_auth() {
+        let handle = sample_handle();
+        *handle.state.lock().await = ServerState::NeedsAuth {
+            auth_url: String::new(),
+        };
+
+        let error = connect_needed_or_error(&handle)
+            .await
+            .expect_err("NeedsAuth must require an explicit owner action");
+        assert!(error.to_string().contains("authorization required"));
+        assert_eq!(handle.snapshot().await.state, "needsAuth");
+    }
+
+    #[tokio::test]
+    async fn aggregate_catalog_deadline_detaches_remaining_work() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_gate = gate.clone();
+        let worker_completed = completed.clone();
+        let worker = tokio::spawn(async move {
+            worker_gate.notified().await;
+            worker_completed.store(true, Ordering::Release);
+        });
+
+        let completed_in_time =
+            await_catalog_worker(worker, Instant::now() + Duration::from_millis(1))
+                .await
+                .unwrap();
+        assert!(!completed_in_time);
+
+        gate.notify_one();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !completed.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("detached catalog worker should keep running after the caller deadline");
+    }
+
+    #[tokio::test]
+    async fn catalog_pagination_stops_at_cap() {
+        struct Page {
+            entries: Vec<usize>,
+            next_cursor: Option<String>,
+        }
+
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fetch_calls = calls.clone();
+        let (entries, truncated) = collect_catalog_entries(
+            move |_| {
+                let page_index = fetch_calls.fetch_add(1, Ordering::Relaxed);
+                std::future::ready(Ok::<_, ()>(Page {
+                    entries: (page_index * 300..(page_index + 1) * 300).collect(),
+                    next_cursor: Some((page_index + 1).to_string()),
+                }))
+            },
+            |page| (page.entries, page.next_cursor),
+            CATALOG_ENTRIES_PER_KIND_CAP,
+            CATALOG_BYTES_PER_KIND_CAP,
+        )
+        .await
+        .expect("fixture pages should collect");
+
+        assert!(truncated);
+        assert_eq!(entries.len(), CATALOG_ENTRIES_PER_KIND_CAP);
+        assert_eq!(entries[0], 0);
+        assert_eq!(entries[CATALOG_ENTRIES_PER_KIND_CAP - 1], 511);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn catalog_pagination_stops_at_aggregate_byte_cap() {
+        struct Page {
+            entries: Vec<String>,
+        }
+
+        let (entries, truncated) = collect_catalog_entries(
+            |_| {
+                std::future::ready(Ok::<_, ()>(Page {
+                    entries: vec!["0123456789".to_string(); 4],
+                }))
+            },
+            |page| (page.entries, None),
+            512,
+            30,
+        )
+        .await
+        .expect("fixture page should collect");
+
+        assert!(truncated);
+        assert_eq!(entries, vec!["0123456789", "0123456789"]);
+    }
+
+    #[test]
+    fn only_explicit_optional_method_errors_are_ignored() {
+        let method_missing = rmcp::service::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            "not supported",
+            None,
+        ));
+        let invalid_request = rmcp::service::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::INVALID_REQUEST,
+            "not supported",
+            None,
+        ));
+
+        assert!(optional_catalog_method_unsupported(&method_missing));
+        assert!(!optional_catalog_method_unsupported(&invalid_request));
+        assert!(!optional_catalog_method_unsupported(
+            &rmcp::service::ServiceError::TransportClosed
+        ));
+    }
 }

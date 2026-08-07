@@ -17,8 +17,14 @@ pub use config::{
 };
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use crate::tool_defs::ToolDefinition;
+
+/// Preserve snapshot identity when ha-mcp is not wired. Callers use Arc
+/// identity as the catalog generation token; allocating a fresh empty Arc on
+/// every read would look like a catalog refresh after every tool call.
+static EMPTY_TOOL_DEFINITIONS: OnceLock<Arc<Vec<ToolDefinition>>> = OnceLock::new();
 
 /// settings 热更（`mcp_global` 类目）：从 config cache 重协调（含冷启
 /// 用）。未接线 `Ok(())` + `app_warn` 审计——设置写路径不因特征缺席硬
@@ -42,8 +48,33 @@ pub(crate) async fn reconcile_from_config_cache() -> anyhow::Result<()> {
 pub fn tool_definitions() -> Arc<Vec<ToolDefinition>> {
     match crate::mcp_hooks::mcp_hooks() {
         Some(hooks) => (hooks.tool_definitions)(),
-        None => Arc::new(Vec::new()),
+        None => EMPTY_TOOL_DEFINITIONS
+            .get_or_init(|| Arc::new(Vec::new()))
+            .clone(),
     }
+}
+
+/// Lazy MCP catalog 自举。`tool_search` 在读取动态目录前调用；未接线
+/// no-op，等价于 manager 不存在且动态目录为空。
+pub(crate) async fn ensure_tool_catalogs() {
+    if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
+        (hooks.ensure_tool_catalogs)(false).await;
+    }
+}
+
+/// Await the one-shot startup contract of MCP servers configured with
+/// `eager=true`. A failed startup attempt still completes the feature-side
+/// barrier, so later chat turns never become synchronous reconnect loops.
+pub(crate) async fn ensure_initial_eager_tool_catalogs() {
+    if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
+        (hooks.ensure_tool_catalogs)(true).await;
+    }
+}
+
+/// 有效 MCP server 中是否仍有未完成首轮目录发现的实例。未接线时
+/// MCP 整体缺席，因此返回 false。
+pub(crate) fn has_pending_catalogs() -> bool {
+    crate::mcp_hooks::mcp_hooks().is_some_and(|hooks| (hooks.has_pending_catalogs)())
 }
 
 /// namespaced 工具名 → 所属 server 的当前配置克隆（execution 的

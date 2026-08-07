@@ -218,6 +218,21 @@ pub struct ToolIndexEntry {
     pub original_tool_name: String,
 }
 
+/// Atomically published dynamic MCP catalog.
+///
+/// The reverse dispatch index and provider-facing schema list describe the
+/// same catalog generation and must never be updated independently. Keeping
+/// them in one `ArcSwap` snapshot also lets concurrent server refreshes merge
+/// under a single manager-level lock without losing another server's update.
+#[derive(Default)]
+struct CatalogSnapshot {
+    tool_index: Arc<HashMap<String, ToolIndexEntry>>,
+    tool_definitions: Arc<Vec<ToolDefinition>>,
+    /// Servers that completed at least one catalog round, including servers
+    /// that legitimately expose zero tools.
+    cataloged_server_ids: Arc<std::collections::HashSet<String>>,
+}
+
 // ── Manager ──────────────────────────────────────────────────────
 
 static MANAGER: OnceLock<McpManager> = OnceLock::new();
@@ -226,12 +241,9 @@ static MANAGER: OnceLock<McpManager> = OnceLock::new();
 /// reader uses [`McpManager::global`].
 pub struct McpManager {
     pub(crate) servers: RwLock<HashMap<String /* server_id */, Arc<ServerHandle>>>,
-    pub(crate) tool_index: RwLock<HashMap<String /* mcp__name__tool */, ToolIndexEntry>>,
-    /// Sync-readable snapshot of every namespaced MCP tool's
-    /// [`ToolDefinition`]. Rebuilt by the catalog-refresh path whenever a
-    /// server's tool list changes. Callers on the synchronous tool-schema
-    /// assembly path (which can't await) read this via `ArcSwap::load()`.
-    pub(crate) cached_tool_defs: ArcSwap<Vec<ToolDefinition>>,
+    catalog: ArcSwap<CatalogSnapshot>,
+    /// Serializes catalog read-modify-publish operations across servers.
+    catalog_update_lock: Mutex<()>,
     /// Global cross-server cap; enforced on top of per-server semaphore.
     pub(crate) global_semaphore: Arc<Semaphore>,
     /// Actual semaphore capacity after live growth. We do not shrink a tokio
@@ -266,8 +278,8 @@ impl McpManager {
             }
             Self {
                 servers: RwLock::new(map),
-                tool_index: RwLock::new(HashMap::new()),
-                cached_tool_defs: ArcSwap::from_pointee(Vec::new()),
+                catalog: ArcSwap::from_pointee(CatalogSnapshot::default()),
+                catalog_update_lock: Mutex::new(()),
                 global_semaphore: Arc::new(Semaphore::new(permits)),
                 global_capacity: AtomicU32::new(global.max_concurrent_calls.max(1)),
                 global_settings: RwLock::new(global),
@@ -302,7 +314,7 @@ impl McpManager {
 
     /// Resolve the reverse tool-name map for dispatch.
     pub async fn lookup_tool(&self, namespaced_name: &str) -> Option<ToolIndexEntry> {
-        self.tool_index.read().await.get(namespaced_name).cloned()
+        self.catalog.load().tool_index.get(namespaced_name).cloned()
     }
 
     /// Best-effort server lookup: id first, then name. Used by the
@@ -348,16 +360,99 @@ impl McpManager {
 
     /// Sync snapshot of every namespaced MCP tool's [`ToolDefinition`].
     /// Cheap to call — returns an `Arc` view of the current cache. The
-    /// cache is updated atomically by `client::refresh_catalog` via
-    /// `store_cached_tool_defs`.
+    /// cache is updated atomically by `client::refresh_catalog`.
     pub fn mcp_tool_definitions(&self) -> Arc<Vec<ToolDefinition>> {
-        self.cached_tool_defs.load_full()
+        self.catalog.load().tool_definitions.clone()
     }
 
-    /// Replace the entire tool-definition cache. Called by
-    /// `client::refresh_catalog` after a `tools/list` round completes.
-    pub(crate) fn store_cached_tool_defs(&self, defs: Vec<ToolDefinition>) {
-        self.cached_tool_defs.store(Arc::new(defs));
+    pub(crate) fn cataloged_server_ids(&self) -> Arc<std::collections::HashSet<String>> {
+        self.catalog.load().cataloged_server_ids.clone()
+    }
+
+    /// Publish one server's freshly listed tools and its Ready state as one
+    /// serialized catalog transaction. The ArcSwap store makes the reverse
+    /// index and schema list visible as the same generation.
+    pub(crate) async fn publish_ready_catalog(
+        &self,
+        handle: &Arc<ServerHandle>,
+        tools: Vec<model::Tool>,
+        resources: Vec<model::Resource>,
+        prompts: Vec<model::Prompt>,
+    ) -> McpResult<()> {
+        let _catalog_guard = self.catalog_update_lock.lock().await;
+        let cfg = handle.config.read().await.clone();
+        if handle.is_retired() {
+            return Err(super::errors::McpError::NotReady {
+                server: cfg.name,
+                reason: "server config was replaced or removed".into(),
+            });
+        }
+
+        let prior = self.catalog.load_full();
+        let prior_server_tools: std::collections::HashSet<&str> = prior
+            .tool_index
+            .iter()
+            .filter(|(_, entry)| entry.server_id == cfg.id)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let mut next_index = (*prior.tool_index).clone();
+        next_index.retain(|_, entry| entry.server_id != cfg.id);
+        let mut next_defs: Vec<ToolDefinition> = prior
+            .tool_definitions
+            .iter()
+            .filter(|definition| !prior_server_tools.contains(definition.name.as_str()))
+            .cloned()
+            .collect();
+
+        let namespaced_names = super::catalog::assign_namespaced_tool_names(
+            &cfg.name,
+            tools.iter().map(|tool| tool.name.as_ref()),
+        );
+        for (tool, namespaced) in tools.iter().zip(namespaced_names) {
+            let original = tool.name.to_string();
+            if !super::catalog::tool_allowed_by_server_config(&cfg, &original) {
+                continue;
+            }
+            next_index.insert(
+                namespaced.clone(),
+                ToolIndexEntry {
+                    server_id: cfg.id.clone(),
+                    server_name: cfg.name.clone(),
+                    original_tool_name: original,
+                },
+            );
+            next_defs.push(super::catalog::rmcp_tool_to_definition_with_name(
+                &cfg, tool, namespaced,
+            ));
+        }
+        next_defs.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // Take the Ready-state guard before making the catalog visible. The
+        // caller wraps this entire operation in a timeout, so cancellation
+        // while waiting here must leave the prior catalog untouched. Once the
+        // guard is acquired there is deliberately no await through the state
+        // transition and ArcSwap publication.
+        let mut state = handle.state.lock().await;
+        if handle.is_retired() {
+            return Err(super::errors::McpError::NotReady {
+                server: cfg.name,
+                reason: "server config was replaced or removed".into(),
+            });
+        }
+        let mut cataloged_server_ids = (*prior.cataloged_server_ids).clone();
+        cataloged_server_ids.insert(cfg.id);
+
+        *state = ServerState::Ready {
+            tools,
+            resources,
+            prompts,
+        };
+        self.catalog.store(Arc::new(CatalogSnapshot {
+            tool_index: Arc::new(next_index),
+            tool_definitions: Arc::new(next_defs),
+            cataloged_server_ids: Arc::new(cataloged_server_ids),
+        }));
+        Ok(())
     }
 
     /// Compare the live server set with a freshly-loaded config and
@@ -461,8 +556,10 @@ impl McpManager {
     }
 
     async fn rebuild_ready_catalog_cache(&self, handles: Vec<Arc<ServerHandle>>) {
+        let _catalog_guard = self.catalog_update_lock.lock().await;
         let mut next_index = HashMap::new();
         let mut next_defs = Vec::new();
+        let mut cataloged_server_ids = std::collections::HashSet::new();
 
         for handle in handles {
             let cfg = handle.config.read().await.clone();
@@ -473,6 +570,7 @@ impl McpManager {
                     _ => continue,
                 }
             };
+            cataloged_server_ids.insert(cfg.id.clone());
 
             let namespaced_names = super::catalog::assign_namespaced_tool_names(
                 &cfg.name,
@@ -499,8 +597,11 @@ impl McpManager {
         }
 
         next_defs.sort_by(|a, b| a.name.cmp(&b.name));
-        *self.tool_index.write().await = next_index;
-        self.cached_tool_defs.store(Arc::new(next_defs));
+        self.catalog.store(Arc::new(CatalogSnapshot {
+            tool_index: Arc::new(next_index),
+            tool_definitions: Arc::new(next_defs),
+            cataloged_server_ids: Arc::new(cataloged_server_ids),
+        }));
     }
 }
 
@@ -570,8 +671,8 @@ mod tests {
         }
         McpManager {
             servers: RwLock::new(map),
-            tool_index: RwLock::new(HashMap::new()),
-            cached_tool_defs: ArcSwap::from_pointee(Vec::new()),
+            catalog: ArcSwap::from_pointee(CatalogSnapshot::default()),
+            catalog_update_lock: Mutex::new(()),
             global_semaphore: Arc::new(Semaphore::new(global.max_concurrent_calls.max(1) as usize)),
             global_capacity: AtomicU32::new(global.max_concurrent_calls.max(1)),
             global_settings: RwLock::new(global),
@@ -827,5 +928,79 @@ mod tests {
         assert_eq!(handle.snapshot().await.state, "idle");
         assert!(manager.mcp_tool_definitions().is_empty());
         assert!(manager.lookup_tool("mcp__alpha__read").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn concurrent_catalog_publications_preserve_every_server_atomically() {
+        let alpha = sample_stdio_cfg("id-alpha", "alpha");
+        let beta = sample_stdio_cfg("id-beta", "beta");
+        let manager = test_manager(vec![alpha.clone(), beta.clone()]);
+        let alpha_handle = manager.get_by_id(&alpha.id).await.unwrap();
+        let beta_handle = manager.get_by_id(&beta.id).await.unwrap();
+
+        let (alpha_result, beta_result) = tokio::join!(
+            manager.publish_ready_catalog(&alpha_handle, vec![sample_tool("read")], vec![], vec![]),
+            manager.publish_ready_catalog(&beta_handle, vec![sample_tool("write")], vec![], vec![])
+        );
+        alpha_result.unwrap();
+        beta_result.unwrap();
+
+        assert_eq!(
+            cached_tool_names(&manager),
+            vec!["mcp__alpha__read", "mcp__beta__write"]
+        );
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_some());
+        assert!(manager.lookup_tool("mcp__beta__write").await.is_some());
+        let cataloged = manager.cataloged_server_ids();
+        assert!(cataloged.contains("id-alpha"));
+        assert!(cataloged.contains("id-beta"));
+
+        let snapshot = manager.catalog.load_full();
+        let mut index_names = snapshot.tool_index.keys().cloned().collect::<Vec<_>>();
+        index_names.sort();
+        let schema_names = snapshot
+            .tool_definitions
+            .iter()
+            .map(|definition| definition.name.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(index_names, schema_names);
+    }
+
+    #[tokio::test]
+    async fn zero_tool_server_is_still_marked_cataloged() {
+        let cfg = sample_stdio_cfg("id-empty", "empty");
+        let manager = test_manager(vec![cfg.clone()]);
+        let handle = manager.get_by_id(&cfg.id).await.unwrap();
+
+        manager
+            .publish_ready_catalog(&handle, vec![], vec![], vec![])
+            .await
+            .unwrap();
+
+        assert!(manager.cataloged_server_ids().contains("id-empty"));
+        assert!(manager.mcp_tool_definitions().is_empty());
+        assert_eq!(handle.snapshot().await.state, "ready");
+    }
+
+    #[tokio::test]
+    async fn catalog_stays_hidden_while_ready_state_transition_waits() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        let handle = manager.get_by_id(&cfg.id).await.unwrap();
+        let state_guard = handle.state.lock().await;
+
+        let publish =
+            manager.publish_ready_catalog(&handle, vec![sample_tool("read")], vec![], vec![]);
+        let observe_before_unlock = async {
+            tokio::task::yield_now().await;
+            assert!(manager.mcp_tool_definitions().is_empty());
+            assert!(manager.lookup_tool("mcp__alpha__read").await.is_none());
+            drop(state_guard);
+        };
+        let (publish_result, ()) = tokio::join!(publish, observe_before_unlock);
+        publish_result.unwrap();
+
+        assert_eq!(handle.snapshot().await.state, "ready");
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_some());
     }
 }

@@ -1224,8 +1224,7 @@ pub async fn save_cron_config(config: ha_core::config::CronConfig) -> Result<(),
 
 #[tauri::command]
 pub async fn get_deferred_tools_config() -> Result<ha_core::config::DeferredToolsConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.deferred_tools)
+    Ok(ha_core::config::deferred_tools_config_for_read())
 }
 
 #[tauri::command]

@@ -124,37 +124,69 @@ pub(crate) fn tool_allowed_by_server_config(
     cfg.allowed_tools.is_empty() || cfg.allowed_tools.iter().any(|a| a == original_tool_name)
 }
 
-/// Build a short "MCP Capabilities" system-prompt section when any
-/// MCP server has landed a populated tool catalog (i.e. a server that
-/// completed at least one `tools/list` round is connected). Reads
-/// purely from [`crate::McpManager::mcp_tool_definitions`] —
-/// sync, `ArcSwap`-backed — so it can be called from the sync
-/// `build_full_system_prompt` path without awaiting any lock.
+/// True while at least one effective server has never completed a catalog
+/// round. Provider request assembly uses this synchronous signal to keep
+/// Hope's local `tool_search` callable until lazy MCP schemas exist.
+pub fn has_pending_catalogs() -> bool {
+    let Some(mgr) = crate::McpManager::global() else {
+        return false;
+    };
+    let app_config = ha_core::config::cached_config();
+    if !app_config.mcp_global.enabled {
+        return false;
+    }
+    let cataloged = mgr.cataloged_server_ids();
+    app_config.mcp_servers.iter().any(|server| {
+        server.enabled
+            && crate::config::validate_server_config(server).is_ok()
+            && !app_config
+                .mcp_global
+                .denied_servers
+                .iter()
+                .any(|denied| denied == &server.name)
+            && !cataloged.contains(&server.id)
+    })
+}
+
+/// Build a short "MCP Capabilities" system-prompt section for configured,
+/// effective servers. The lazy-discovery guidance is conditional on a tool
+/// being absent rather than on mutable catalog state, so the turn-stable prompt
+/// remains correct after a catalog refresh. Reads only sync config and never
+/// awaits a runtime lock.
 ///
 /// The snippet intentionally does not enumerate every resource / prompt
 /// — that list can be large and requires an async read of the per-
 /// server state. The agent discovers those via the `mcp_resource`
 /// and `mcp_prompt` tools we point at here.
 pub fn system_prompt_snippet() -> Option<String> {
-    let mgr = crate::McpManager::global()?;
-    let defs = mgr.mcp_tool_definitions();
-    if defs.is_empty() {
+    let _manager = crate::McpManager::global()?;
+    let app_config = ha_core::config::cached_config();
+    if !app_config.mcp_global.enabled {
         return None;
     }
-    let mut servers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for d in defs.iter() {
-        if let Some((server, _tool)) = split_mcp_tool_name(&d.name) {
-            servers.insert(server.to_string());
-        }
-    }
-    if servers.is_empty() {
+    let configured: std::collections::BTreeSet<String> = app_config
+        .mcp_servers
+        .iter()
+        .filter(|server| {
+            server.enabled
+                && crate::config::validate_server_config(server).is_ok()
+                && !app_config
+                    .mcp_global
+                    .denied_servers
+                    .iter()
+                    .any(|denied| denied == &server.name)
+        })
+        .map(|server| server.name.clone())
+        .collect();
+    if configured.is_empty() {
         return None;
     }
-    let list = servers.into_iter().collect::<Vec<_>>().join(", ");
+    let list = configured.into_iter().collect::<Vec<_>>().join(", ");
     Some(format!(
         "# MCP Capabilities\n\n\
-         Connected MCP servers: {list}\n\
+         Configured MCP servers: {list}\n\
          - Tools exposed by each server appear in the tool catalog with the `mcp__<server>__<tool>` naming.\n\
+         - If a configured server's tool is absent, call `tool_search` once to attempt lazy discovery; follow its result instead of retrying automatically.\n\
          - `mcp_resource(server=..., action=\"list\"|\"read\")` — inspect files / records / documents the server hosts.\n\
          - `mcp_prompt(server=..., action=\"list\"|\"get\")` — use prompt templates the server publishes."
     ))

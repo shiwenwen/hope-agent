@@ -13,22 +13,28 @@
 //! `http(s)://` for the SSRF gate — host/port classification is
 //! identical, the scheme itself is only a port-default hint.
 
+mod bounded_http;
+
 use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
 use std::str::FromStr;
 
+use futures_util::{SinkExt, StreamExt};
 use http::{HeaderName, HeaderValue};
-use rmcp::service::RunningService;
-use rmcp::transport::child_process::ConfigureCommandExt;
+use rmcp::service::{RunningService, RxJsonRpcMessage, TxJsonRpcMessage};
+use rmcp::transport::async_rw::JsonRpcMessageCodec;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::{RoleClient, ServiceExt};
-use tokio::process::{ChildStderr, Command};
+use tokio::io::AsyncRead;
+use tokio::process::{ChildStderr, ChildStdout, Command};
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use super::config::{expand_placeholders, McpServerConfig, McpTransportSpec, McpTrustLevel};
 use super::credentials;
 use super::errors::{McpError, McpResult};
 use super::oauth;
+use bounded_http::{bounded_sse_stream, BoundedMcpHttpClient, MAX_INBOUND_MESSAGE_BYTES};
 
 /// Minimal list of env vars inherited from the parent process when we
 /// spawn a subprocess. Stops surprises like "works on my machine because
@@ -132,23 +138,77 @@ pub struct ConnectedClient {
     pub stderr: Option<ChildStderr>,
 }
 
+struct BoundedChildOutput {
+    _child: tokio::process::Child,
+    stdout: ChildStdout,
+}
+
+impl AsyncRead for BoundedChildOutput {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.stdout).poll_read(cx, buffer)
+    }
+}
+
 /// Spawn the subprocess described by a stdio transport spec and return
 /// the connected rmcp client + stderr pipe. Caller must drain the
 /// stderr pipe — otherwise a verbose server can fill its buffer and
 /// block.
 pub async fn build_stdio_client(cfg: &McpServerConfig) -> McpResult<ConnectedClient> {
-    let cmd = build_stdio_command(cfg)?;
-    let (proc, stderr) = TokioChildProcess::builder(cmd.configure(|_| {}))
+    let mut cmd = build_stdio_command(cfg)?;
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| McpError::Transport {
-            server: cfg.name.clone(),
-            source: format!("spawn failed: {e}"),
-        })?;
-    let running = ().serve(proc).await.map_err(|e| McpError::Transport {
+        .kill_on_drop(true);
+    let mut child = cmd.spawn().map_err(|e| McpError::Transport {
         server: cfg.name.clone(),
-        source: format!("handshake failed: {e}"),
+        source: format!("spawn failed: {e}"),
     })?;
+    let stdin = child.stdin.take().ok_or_else(|| McpError::Transport {
+        server: cfg.name.clone(),
+        source: "spawned process has no stdin pipe".into(),
+    })?;
+    let stdout = child.stdout.take().ok_or_else(|| McpError::Transport {
+        server: cfg.name.clone(),
+        source: "spawned process has no stdout pipe".into(),
+    })?;
+    let stderr = child.stderr.take();
+    let stream_server = cfg.name.clone();
+    let stream = FramedRead::new(
+        BoundedChildOutput {
+            _child: child,
+            stdout,
+        },
+        JsonRpcMessageCodec::<RxJsonRpcMessage<RoleClient>>::new_with_max_length(
+            MAX_INBOUND_MESSAGE_BYTES,
+        ),
+    )
+    .take_while(move |result| {
+        if let Err(error) = result {
+            ha_core::app_warn!(
+                "mcp",
+                &format!("{stream_server}:stdio"),
+                "closing MCP stdio transport after an oversized or invalid response: {error}"
+            );
+        }
+        std::future::ready(result.is_ok())
+    })
+    .map(|result| result.expect("take_while filters codec errors"));
+    let sink = FramedWrite::new(
+        stdin,
+        JsonRpcMessageCodec::<TxJsonRpcMessage<RoleClient>>::default(),
+    )
+    .sink_map_err(std::io::Error::from);
+    let running =
+        ().serve((sink, stream))
+            .await
+            .map_err(|e| McpError::Transport {
+                server: cfg.name.clone(),
+                source: format!("handshake failed: {e}"),
+            })?;
     Ok(ConnectedClient { running, stderr })
 }
 
@@ -331,16 +391,11 @@ pub async fn build_http_client(cfg: &McpServerConfig, url: &str) -> McpResult<Co
     ssrf_gate_url(cfg, &expanded_url).await?;
     let headers = authorized_headers(cfg).await?;
 
-    // NOTE: this path uses rmcp's own reqwest (0.13) client via `from_config`.
-    // We can't inject a proxy-bypassing client here the way `build_sse_client`
-    // does (ha-core is on reqwest 0.12; rmcp's `StreamableHttpClient` is impl'd
-    // only for its 0.13 `reqwest::Client`, and rmcp exposes no proxy knob), so a
-    // system proxy set for remote APIs can still hijack a *local* Streamable HTTP
-    // MCP server. Local MCP is overwhelmingly stdio / SSE, so this is left as a
-    // known limitation rather than pulling a second reqwest major into ha-core.
     let http_cfg =
         StreamableHttpClientTransportConfig::with_uri(expanded_url).custom_headers(headers);
-    let transport = StreamableHttpClientTransport::from_config(http_cfg);
+    let client =
+        BoundedMcpHttpClient::new(build_mcp_http_client(http_cfg.uri.as_ref(), &cfg.name)?);
+    let transport = StreamableHttpClientTransport::with_client(client, http_cfg);
     let running = ()
         .serve(transport)
         .await
@@ -403,7 +458,7 @@ pub async fn build_ws_client(cfg: &McpServerConfig, url: &str) -> McpResult<Conn
     // kills the handshake. Our single SSRF gate above therefore covers
     // the only dial-out this function makes.
     let ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
-        .max_message_size(Some(4 * 1024 * 1024))
+        .max_message_size(Some(MAX_INBOUND_MESSAGE_BYTES))
         .max_frame_size(Some(1024 * 1024));
     let (ws, _resp) = tokio_tungstenite::connect_async_with_config(request, Some(ws_config), false)
         .await
@@ -601,9 +656,6 @@ fn resolve_sse_endpoint(base_url: &str, endpoint: &str, server_name: &str) -> Mc
 /// `endpoint` URL before the first POST (server-controlled data is a fresh
 /// outbound surface the GET gate never saw).
 pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<ConnectedClient> {
-    use futures_util::StreamExt;
-    use sse_stream::SseStream;
-
     let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
     // SSRF gate #1: the GET URL, before any dial.
     ssrf_gate_url(cfg, &expanded_url).await?;
@@ -644,7 +696,7 @@ pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<Con
 
     // Box-pin the `!Unpin` parser so it can be driven by `.next()` here and then
     // handed to `filter_map` without pin plumbing leaking into the Stream half.
-    let mut sse = Box::pin(SseStream::from_bytes_stream(response.bytes_stream()));
+    let mut sse = bounded_sse_stream(response);
 
     // 2) Read up to the `endpoint` event to learn the session-scoped POST URL.
     //    The whole handshake runs under `do_connect`'s connect_timeout, so a

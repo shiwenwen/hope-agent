@@ -4038,10 +4038,11 @@ impl AssistantAgent {
             prompt.push_str("\n\n");
             prompt.push_str(plan_extra);
         }
-        // MCP-connected servers advertise capabilities through a small
-        // appended section. Suppressed entirely when no MCP server has
-        // reached `Ready` — keeps the prompt shape stable for users who
-        // don't use MCP.
+        // Configured MCP servers advertise capabilities through a small
+        // appended section. Its lazy-discovery instruction is conditional on
+        // tool absence rather than mutable pending state, so a mid-turn
+        // catalog refresh cannot make the turn-stable prompt stale. Users with
+        // no effective MCP server keep the prompt shape unchanged.
         let mcp_scope_allows_prompt = self
             .tool_scope
             .map(|scope| {

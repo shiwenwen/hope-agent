@@ -1603,7 +1603,8 @@ pub async fn start_background_tasks() {
     // Initialize the MCP subsystem. `init_global` is idempotent and the
     // catalog snippet must be visible to every process so all tiers see
     // MCP-namespaced tools. Watchdog (long-running reconnect loop) is
-    // Primary-only — Secondary's idle catalog is enough.
+    // Primary-only; Secondary uses the same on-demand catalog bootstrap, and
+    // explicit eager servers are warmed directly by init in every tier.
     if init_mcp_subsystem() && primary {
         crate::mcp::spawn_watchdog();
     }
@@ -1735,9 +1736,9 @@ pub async fn start_minimal_background_tasks() {
 
     // MCP init (no watchdog). Tier-agnostic — ACP tool dispatch may hit
     // MCP-namespaced tools regardless of tier and `init_global` is
-    // idempotent. Watchdog (long-running reconnect loop) skipped here
-    // even when ACP is Primary because the process is short-lived; the
-    // next process start re-runs init_global.
+    // idempotent. Watchdog (long-running reconnect loop) is skipped here
+    // even when ACP is Primary because the process is short-lived; eager
+    // warm-up and tool_search lazy discovery are both independent of it.
     let _ = init_mcp_subsystem();
 }
 

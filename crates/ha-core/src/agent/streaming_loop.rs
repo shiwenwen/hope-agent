@@ -640,6 +640,12 @@ fn eval_tool_result_digest(result: &str) -> String {
     ha_eval_spec::sha256_bytes(result.as_bytes())
 }
 
+fn can_bootstrap_mcp_catalog(name: &str) -> bool {
+    name == tools::TOOL_TOOL_SEARCH
+        || name == tools::TOOL_MCP_RESOURCE
+        || name == tools::TOOL_MCP_PROMPT
+}
+
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
 /// elapsed_ms, side_output)`. The side output carries structured metadata
 /// (file change before/after snapshots, line deltas, etc.) emitted by the
@@ -726,6 +732,17 @@ async fn execute_tool_with_cancel(
         }
     }
     let cancel_clone = cancel.clone();
+    // Every MCP meta-tool can turn an Idle lazy server into Ready as a side
+    // effect of its first operation. Snapshot the atomic catalog generation
+    // here so resource/prompt-driven bootstrap gets the same next-round schema
+    // refresh as tool_search, without feature handlers needing to duplicate
+    // orchestration metadata.
+    let mcp_catalog_before = if can_bootstrap_mcp_catalog(name) {
+        let before = crate::mcp::tool_definitions();
+        crate::mcp::has_pending_catalogs().then_some(before)
+    } else {
+        None
+    };
     let mut dispatch = Box::pin(tools::execute_tool_with_context(name, args, &local_ctx));
     let mut effective_arguments = None;
     let mut eval_outcome = crate::eval_context::EvalToolOutcome::Succeeded;
@@ -800,6 +817,10 @@ async fn execute_tool_with_cancel(
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
     let metadata = sink.lock().await.take();
+    let schema_catalog_changed = mcp_catalog_before.is_some_and(|before| {
+        let after = crate::mcp::tool_definitions();
+        !Arc::ptr_eq(&before, &after)
+    });
     let arguments_digest = effective_arguments
         .as_deref()
         .and_then(|arguments| serde_json::from_str(arguments).ok())
@@ -819,6 +840,7 @@ async fn execute_tool_with_cancel(
         elapsed_ms,
         super::streaming_adapter::ToolDispatchSideOutput {
             metadata,
+            schema_catalog_changed,
             effective_arguments,
         },
     ))
@@ -847,27 +869,29 @@ fn invalid_tool_arguments_result(
     )
 }
 
-fn collect_tool_search_activations(
+fn collect_tool_schema_updates(
     side: &super::streaming_adapter::ToolDispatchSideOutput,
     out: &mut Vec<String>,
-) {
+) -> bool {
+    let schema_catalog_changed = side.schema_catalog_changed;
     let Some(metadata) = side.metadata.as_ref() else {
-        return;
+        return schema_catalog_changed;
     };
     if metadata.get("kind").and_then(|v| v.as_str()) != Some("tool_search_activation") {
-        return;
+        return schema_catalog_changed;
     }
     let Some(names) = metadata
         .get("activatedToolNames")
         .and_then(|value| value.as_array())
     else {
-        return;
+        return schema_catalog_changed;
     };
     for name in names.iter().filter_map(|value| value.as_str()) {
         if !out.iter().any(|existing| existing == name) {
             out.push(name.to_string());
         }
     }
+    schema_catalog_changed
 }
 
 fn prompt_cache_key(
@@ -999,6 +1023,18 @@ impl AssistantAgent {
 
         self.warm_kb_access().await;
         self.warm_memory_agent_config().await;
+        let agent_caps = self.agent_caps();
+        let app_config = crate::config::cached_config();
+        if agent_caps.mcp_enabled && app_config.mcp_global.enabled {
+            // Initialization starts eager MCP connections in the background.
+            // This process-wide one-shot barrier only closes the startup race;
+            // failure recovery never blocks later chat turns. Lazy servers are
+            // untouched until tool_search/resource/prompt discovery asks.
+            tokio::select! {
+                _ = crate::mcp::ensure_initial_eager_tool_catalogs() => {}
+                _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
+            }
+        }
         self.configure_retrieval_planner_context(message);
         // Dynamic context refreshers write independent slots / trace ledgers
         // and never read each other; run them concurrently so the worst case
@@ -1024,6 +1060,14 @@ impl AssistantAgent {
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         let mut activated_tool_names = self.load_activated_tool_names();
+        // Track the exact atomic MCP catalog generation represented by the
+        // provider schemas. Detached catalog warm-up can publish between tool
+        // rounds, so per-tool before/after detection alone is insufficient.
+        let mut mcp_catalog_snapshot = crate::mcp::tool_definitions();
+        let mut keep_local_tool_search_for_turn = agent_caps.mcp_enabled
+            && app_config.mcp_global.enabled
+            && adapter.supports_native_tool_search()
+            && crate::mcp::has_pending_catalogs();
         let mut tool_inventory =
             self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
         activated_tool_names = tool_inventory.activated_names.clone();
@@ -1055,6 +1099,7 @@ impl AssistantAgent {
             // deferred inventory and can be rediscovered immediately.
             self.clear_tool_activations_after_summary();
             activated_tool_names.clear();
+            mcp_catalog_snapshot = crate::mcp::tool_definitions();
             tool_inventory = self.build_tool_inventory(adapter.tool_provider(), &[]);
             eager_tool_count = tool_inventory.eager_count;
             deferred_tool_count = tool_inventory.deferred_count;
@@ -1150,6 +1195,26 @@ impl AssistantAgent {
             }
             round_count = round + 1;
 
+            // A bounded catalog worker may finish after the meta-tool that
+            // launched it has already returned. Rebuild directly from the
+            // atomic generation at every round head so newly published direct
+            // and deferred MCP schemas cannot miss the next provider request.
+            let live_mcp_catalog = crate::mcp::tool_definitions();
+            if !Arc::ptr_eq(&mcp_catalog_snapshot, &live_mcp_catalog) {
+                mcp_catalog_snapshot = live_mcp_catalog;
+                tool_inventory =
+                    self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
+                activated_tool_names = tool_inventory.activated_names.clone();
+                eager_tool_count = tool_inventory.eager_count;
+                deferred_tool_count = tool_inventory.deferred_count;
+                deferred_tool_schemas = tool_inventory.deferred_schemas;
+                tool_schemas = tool_inventory.schemas;
+            }
+            keep_local_tool_search_for_turn |= agent_caps.mcp_enabled
+                && app_config.mcp_global.enabled
+                && adapter.supports_native_tool_search()
+                && crate::mcp::has_pending_catalogs();
+
             // Keep this session marked as "active" during long tool loops
             // so peer sessions see it in the registry.
             if let Some(ref sid) = self.session_id {
@@ -1169,6 +1234,7 @@ impl AssistantAgent {
             // Honors the externally-locked flag: spawn-supplied PlanAgent
             // child sessions (plan_subagent) skip the probe entirely.
             if self.maybe_resync_plan_mode_from_backend().await {
+                mcp_catalog_snapshot = crate::mcp::tool_definitions();
                 tool_inventory =
                     self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
                 activated_tool_names = tool_inventory.activated_names.clone();
@@ -1338,6 +1404,23 @@ impl AssistantAgent {
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
+            // Provider-native search replaces Hope's `tool_search`. Once this
+            // turn observes a pending MCP catalog, retain the local bootstrap
+            // tool for the rest of the turn; a detached worker may publish
+            // between request assembly and dispatch, and switching mid-turn
+            // would reopen a schema-free discovery window.
+            let provider_deferred_tool_schemas: &[serde_json::Value] =
+                if keep_local_tool_search_for_turn
+                    || (agent_caps.mcp_enabled
+                        && app_config.mcp_global.enabled
+                        && adapter.supports_native_tool_search()
+                        && crate::mcp::has_pending_catalogs())
+                {
+                    &[]
+                } else {
+                    &deferred_tool_schemas
+                };
+
             crate::eval_context::ensure_model_budget(self.session_id.as_deref())?;
             let eval_max_tokens =
                 crate::eval_context::remaining_output_tokens(self.session_id.as_deref())
@@ -1354,7 +1437,7 @@ impl AssistantAgent {
                 lsp_diagnostics_suffix: lsp_diagnostics_suffix.as_deref(),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
-                deferred_tool_schemas: &deferred_tool_schemas,
+                deferred_tool_schemas: provider_deferred_tool_schemas,
                 eager_tool_count,
                 deferred_tool_count,
                 activated_tool_count: activated_tool_names.len(),
@@ -1526,6 +1609,7 @@ impl AssistantAgent {
 
             let mut executed: Vec<ExecutedTool> = Vec::new();
             let mut pending_tool_activations: Vec<String> = Vec::new();
+            let mut tool_schema_refresh_requested = false;
             // A provider response can stream for minutes. Refresh agent-level
             // tool filters and approval policy immediately before execution so
             // a user revocation made while the model was responding takes
@@ -1606,7 +1690,8 @@ impl AssistantAgent {
 
                 for result in results {
                     let (call_id, name, arguments, result, elapsed_ms, side) = result?;
-                    collect_tool_search_activations(&side, &mut pending_tool_activations);
+                    tool_schema_refresh_requested |=
+                        collect_tool_schema_updates(&side, &mut pending_tool_activations);
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
                     let (mut clean_result, media_items) = extract_media_items(&result);
@@ -1722,7 +1807,8 @@ impl AssistantAgent {
                         Default::default(),
                     ),
                 };
-                collect_tool_search_activations(&side, &mut pending_tool_activations);
+                tool_schema_refresh_requested |=
+                    collect_tool_schema_updates(&side, &mut pending_tool_activations);
 
                 // If a `PreToolUse` hook rewrote the tool input via
                 // `updatedInput`, execute_tool_with_cancel has already emitted
@@ -1774,13 +1860,16 @@ impl AssistantAgent {
             // schema is present. Rebuild from the live-gated inventory now so
             // the very next API round can call it. Persist only names that
             // survived all current gates.
-            if !pending_tool_activations.is_empty() {
+            tool_schema_refresh_requested |=
+                !Arc::ptr_eq(&mcp_catalog_snapshot, &crate::mcp::tool_definitions());
+            if !pending_tool_activations.is_empty() || tool_schema_refresh_requested {
                 let mut requested = activated_tool_names.clone();
                 for name in pending_tool_activations {
                     if !requested.contains(&name) {
                         requested.push(name);
                     }
                 }
+                mcp_catalog_snapshot = crate::mcp::tool_definitions();
                 tool_inventory = self.build_tool_inventory(adapter.tool_provider(), &requested);
                 let valid_new: Vec<String> = tool_inventory
                     .activated_names
@@ -1790,6 +1879,8 @@ impl AssistantAgent {
                     .collect();
                 if !valid_new.is_empty() {
                     self.record_tool_activations(&valid_new);
+                }
+                if !valid_new.is_empty() || tool_schema_refresh_requested {
                     activated_tool_names = tool_inventory.activated_names.clone();
                     eager_tool_count = tool_inventory.eager_count;
                     deferred_tool_count = tool_inventory.deferred_count;
@@ -2010,11 +2101,12 @@ impl AssistantAgent {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_model_round_after_insertion, extract_started_job_id,
-        has_checkpointed_subagent_dispatch, queued_message_for_provider,
+        can_bootstrap_mcp_catalog, collect_tool_schema_updates, ensure_model_round_after_insertion,
+        extract_started_job_id, has_checkpointed_subagent_dispatch, queued_message_for_provider,
         resolve_empty_round_outcome, stamp_checkpointed_subagent_dispatch,
         terminal_assistant_text_for_history,
     };
+    use crate::agent::streaming_adapter::ToolDispatchSideOutput;
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
 
     #[test]
@@ -2024,6 +2116,43 @@ mod tests {
 
         let auto = synthetic_started_result("job_xyz", "web_search", JobOrigin::AutoBackgrounded);
         assert_eq!(extract_started_job_id(&auto).as_deref(), Some("job_xyz"));
+    }
+
+    #[test]
+    fn tool_search_catalog_change_requests_schema_refresh_without_activation() {
+        let side = ToolDispatchSideOutput {
+            schema_catalog_changed: true,
+            ..Default::default()
+        };
+        let mut names = Vec::new();
+
+        assert!(collect_tool_schema_updates(&side, &mut names));
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn tool_search_activation_collection_deduplicates_names() {
+        let side = ToolDispatchSideOutput {
+            metadata: Some(serde_json::json!({
+                "kind": "tool_search_activation",
+                "activatedToolNames": ["browser", "browser"],
+                "schemaCatalogChanged": false,
+            })),
+            ..Default::default()
+        };
+        let mut names = vec!["read".to_string()];
+
+        assert!(!collect_tool_schema_updates(&side, &mut names));
+        assert_eq!(names, vec!["read", "browser"]);
+    }
+
+    #[test]
+    fn every_mcp_meta_tool_can_trigger_catalog_schema_refresh() {
+        assert!(can_bootstrap_mcp_catalog(crate::tools::TOOL_TOOL_SEARCH));
+        assert!(can_bootstrap_mcp_catalog(crate::tools::TOOL_MCP_RESOURCE));
+        assert!(can_bootstrap_mcp_catalog(crate::tools::TOOL_MCP_PROMPT));
+        assert!(!can_bootstrap_mcp_catalog("mcp__server__direct_tool"));
+        assert!(!can_bootstrap_mcp_catalog(crate::tools::TOOL_READ));
     }
 
     #[test]

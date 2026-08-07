@@ -24,3 +24,13 @@ pub(crate) use persistence::{register_side_effects, ConfigSideEffects};
 // `crate::config::Xxx` 全部既有路径不变；persistence（cached_config /
 // mutate_config 读写 contract）留在本 crate。
 pub use ha_config_schema::config::*;
+
+/// Read-facing deferred-tools contract. Legacy on-disk configurations can
+/// omit `mode`; normalize only the returned snapshot so every UI transport
+/// displays the same policy that [`DeferredToolsConfig::effective_mode`]
+/// enforces at runtime without silently migrating the file.
+pub fn deferred_tools_config_for_read() -> DeferredToolsConfig {
+    let mut config = cached_config().deferred_tools.clone();
+    config.mode = Some(config.effective_mode());
+    config
+}

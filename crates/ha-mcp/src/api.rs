@@ -384,7 +384,7 @@ pub async fn update_server(id: &str, draft: McpServerDraft) -> Result<McpServerS
 }
 
 /// Remove a server by id. Deletes its config entry, triggers reconcile
-/// (which shuts down the connection + flushes the tool_index), and
+/// (which shuts down the connection + republishes the catalog), and
 /// Also wipes the server's persisted OAuth credentials (if any) to avoid
 /// orphan 0600 files under `~/.hope-agent/credentials/mcp/`. A delete
 /// failure on the credentials file is logged but not fatal — the server

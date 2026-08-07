@@ -67,9 +67,9 @@ MCP 客户端要解决的问题很直接：**外部世界的能力千差万别�
 | 目标 | 具体表现 |
 |---|---|
 | **零 Tauri 依赖** | 运行时全在特征 crate `crates/ha-mcp/`，不 `use tauri::*`；Tauri 壳和 axum server 只通过 `ha_mcp::api::*` 和 `EventBus` 与它对话。命名约定 / 信任谓词 / trampoline 留在 kernel（`crates/ha-core/src/mcp/`） |
-| **最小握手延迟** | 默认 lazy connect（首次工具调用才连）；`eager=true` 的 server 由 watchdog 在启动后预热 |
+| **最小握手延迟** | 默认 lazy connect：首次 `tool_search` / `mcp_resource` / `mcp_prompt` 才并发拉取缺失 catalog；`eager=true` 在子系统初始化后立即异步预热，首个 provider 请求等待其完成，watchdog 只负责后续恢复 |
 | **可恢复性** | watchdog 指数退避 + 连续失败熔断；401 分流到 `NeedsAuth` 等用户授权；用户可随时手动 Reconnect 立即绕过退避 |
-| **成本意识** | MCP 工具默认 eager 注入；大型 server 可开 `deferredTools=true`，把动态工具改成走 `tool_search` 按需发现，避免几十上百个工具塞满每轮请求 |
+| **成本意识** | 全局 `deferredTools.mode=recommended`（默认）把所有动态 MCP 工具放进 `tool_search` 按需发现池；`custom` / `disabled` 模式才按 server 的 `deferredTools=true` 逐个 opt-in，避免几十上百个工具塞满每轮请求 |
 | **审计留痕** | 全程 `app_*!` 宏，`category=mcp`、`source=<server>:<event>`，双写 SQLite + 文本日志 |
 
 ---
@@ -91,7 +91,7 @@ flowchart TB
     end
 
     subgraph feat["ha-mcp 特征 crate（零 Tauri）"]
-        MGR["McpManager 注册表<br/>ServerHandle · semaphore · tool_index"]
+        MGR["McpManager 注册表<br/>ServerHandle · semaphore · 原子 CatalogSnapshot"]
         RUN["client · transport · watchdog"]
         AUTH["oauth · credentials"]
         CAT["invoke · catalog · resources · prompts"]
@@ -113,7 +113,7 @@ flowchart TB
 
 **未接线即"MCP 未启用"**：任何调 `ha_core::init_runtime` 的二进制必须先调 `ha_mcp::wire()`。若某进程没接线，kernel 侧的 trampoline 会 fail-explicit——`tool_definitions()` 返空 Vec、`call_tool()` 报错、`reconcile` 记一条 `app_warn` 后 `Ok(())`。这保证配置写路径不会因为某个壳没装 MCP 而硬失败。
 
-trampoline 是一组钩子（`McpHooks`）：`init_subsystem` / `spawn_watchdog` / `tool_definitions` / `tool_server_config` / `call_tool` / `system_prompt_snippet` / `reconcile_from_config`。
+trampoline 是一组钩子（`McpHooks`）：`init_subsystem` / `spawn_watchdog` / `tool_definitions` / `ensure_tool_catalogs` / `has_pending_catalogs` / `tool_server_config` / `call_tool` / `system_prompt_snippet` / `reconcile_from_config`。
 
 ---
 
@@ -123,7 +123,7 @@ trampoline 是一组钩子（`McpHooks`）：`init_subsystem` / `spawn_watchdog`
 crates/ha-mcp/src/
   lib.rs         公共 API 再导出；wire() 装配；locate_server() id-or-name fallback
   config.rs      wire 类型再导出（定义在 ha-config-schema）+ 占位符展开 + validate_server_config
-  registry.rs    McpManager（全局 OnceLock）· ServerHandle · ServerState · tool_index
+  registry.rs    McpManager（全局 OnceLock）· ServerHandle · ServerState · 原子 CatalogSnapshot
   client.rs      ensure_connected / connect_now / refresh_catalog / disconnect / stderr tailer
   transport.rs   四种 transport 工厂 + 共享 helper（ssrf_gate_url / authorized_headers / classify_network_error）
   watchdog.rs    健康检查 + 指数退避 + 熔断
@@ -176,20 +176,22 @@ stateDiagram-v2
 
 **为什么 Auth 错误单独一条分支？** 401/403 的正确恢复动作是"用户点 Authorize"而非"watchdog 傻重试"。把 server 留在 `NeedsAuth` 而不是 `Failed`，可以避免拿着一个已坏的 token 疯狂刷新。
 
-**启动策略**：默认 lazy connect 以省冷启时间。`eager=true` 的 server，watchdog 会在它仍是 `Idle` 时主动 `connect_now` 预热。桌面壳（`src-tauri`）与 HTTP 壳（`ha-server`）两个入口都在启动时触发 MCP 子系统初始化。
+**启动策略**：默认 lazy connect 以省冷启时间，但动态工具名本身依赖 `tools/list`，不能靠“首次动态调用”自举。因此 `tool_search` 在检索前通过 MCP hook 对尚无 catalog 的 server 做至多 4 路并发发现；`mcp_resource` / `mcp_prompt` 也会先确保目标 server 已连接。整批发现由进程级异步锁保证只有一个 active worker，前台等待上限固定为 30s（等锁也计入），不随 server 数量线性增长；超时时已发布 catalog 立即可用，唯一未完成 worker 脱离前台继续后台发现。`eager=true` 的 server 在子系统初始化后立即异步 `ensure_connected`，不等待 watchdog 首个 15s tick；首个 provider 请求在组装 schema 前等待同一个进程级 `OnceCell` 启动屏障。无论本轮连接成功或失败，该屏障都只完成一次，普通聊天后续轮次不再同步重试不可达 server；配置热更新只触发后台 warm-up，Primary 的持续恢复交给 watchdog，ACP 仍可由 `tool_search` 显式重试。
+
+**Catalog 发布**：动态工具反查索引、Provider Schema 列表、已完成 catalog 的 server 集合属于同一代 `CatalogSnapshot`，经 manager 级更新锁串行合并后一次 `ArcSwap` 发布。禁止分别写 `tool_index` / schema cache：多 server 同时 refresh 的 read-modify-write 会丢掉另一 server，分步发布还会制造“Schema 已见但不可 dispatch”窗口。零工具 server 也记为 cataloged，避免系统提示持续把它误报为“尚未发现”；连接重试仍由 live `ServerState` + backoff 决定。
 
 **健康检查 + 指数退避**：watchdog 固定每 `TICK_INTERVAL_SECS`（15s）tick 一次，对每个 `Ready` server 检查 `RunningService::is_closed()`——**刻意不发网络 `ping`**（主动探测只增稳态流量、收益甚微，靠 `is_closed` + 真实工具调用冒泡的失败来发现回归）。发现 closed 即断开、翻 `Failed` 触发退避。重连间隔 `min(backoff_initial × 2^n, backoff_max)`，其中 `n = 连续失败数 - 1`，位移封顶 6（默认即 `min(5s × 2^n, 300s)`）。`health_check_interval_secs` 是历史字段，当前 watchdog 不读取。
 
 **熔断**：连续失败达到 `consecutiveFailureCircuitBreaker`（默认 10）后，`retry_at` 被推到 `now + autoReconnectAfterCircuitSecs`（默认 1800s = 30min）以压制日志噪声；用户手动 Reconnect 随时绕过。
 
-**断开 / 关闭**：`client::disconnect(handle)` 取出 `RunningService` 后 `running.cancel().await`。stdio 子进程的终止由 rmcp 的 `TokioChildProcess` 负责，本模块不自己发 SIGTERM/SIGKILL。
+**断开 / 关闭**：`client::disconnect(handle)` 取出 `RunningService` 后 `running.cancel().await`。stdio transport 的 `BoundedChildOutput` 持有 `kill_on_drop=true` 的子进程句柄；transport 被取消 / 丢弃时由 Tokio 终止子进程，本模块不另发 SIGTERM/SIGKILL。
 
 **并发上限**（两层独立 semaphore，`invoke::call_tool` 依次 `acquire_owned`）：
 
 - 全局：`McpGlobalSettings.max_concurrent_calls`（默认 8）
 - 每 server：`McpServerConfig.max_concurrent_calls`（默认 4）
 
-**工具数上限**：单个 server 的 catalog 超过 `TOOLS_PER_SERVER_CAP`（512）会被截断并记一条 warn，防止一个失控 server 淹没工具表。
+**Catalog 累计上限**：单个 server 的 tools / resources / prompts 每类同时受 `CATALOG_ENTRIES_PER_KIND_CAP`（512 项）和 `CATALOG_BYTES_PER_KIND_CAP`（16 MiB 序列化体积）约束，任一达到即停止翻页并记 warn。字节计数经无分配 `serde_json::to_writer` 计数 writer 完成，避免为测量再造一份大 JSON；resources / prompts 只有明确的 JSON-RPC `METHOD_NOT_FOUND` 可降为空目录，传输、超时、畸形请求或响应超限都必须让连接失败，禁止在 dead peer 上发布 `Ready`。
 
 ---
 
@@ -200,15 +202,15 @@ stateDiagram-v2
 ```mermaid
 flowchart LR
     cfg["transport.kind"] --> sw{kind?}
-    sw -->|Stdio| stdio["子进程 + env 白名单<br/>不涉网络，跳过 SSRF"]
-    sw -->|StreamableHttp| http["POST initialize<br/>ssrf_gate_url 一道"]
-    sw -->|Sse| sse["GET SSE → 读 endpoint 事件<br/>ssrf_gate_url 两道"]
+    sw -->|Stdio| stdio["子进程 + env 白名单<br/>4 MiB JSON-RPC 行上限"]
+    sw -->|StreamableHttp| http["POST initialize<br/>SSRF + 4 MiB body/event 上限"]
+    sw -->|Sse| sse["GET SSE → 读 endpoint 事件<br/>双 SSRF + 4 MiB event 上限"]
     sw -->|WebSocket| ws["ws→http 重写 → ssrf_gate_url<br/>+ 帧大小上限 + yield 预算"]
 ```
 
 ### stdio
 
-- `build_stdio_client` 经 `rmcp::transport::TokioChildProcess` 启动子进程；命令**不过 shell**，args 作为独立 argv 传入
+- `build_stdio_client` 直接启动 `kill_on_drop` 子进程并用 rmcp 的有界 `JsonRpcMessageCodec` 接线；命令**不过 shell**，args 作为独立 argv 传入
 - 子进程只继承 9 个白名单 env（`HOME` / `USER` / `PATH` / `LANG` / `LC_ALL` / `TZ` / `TMPDIR` / `TEMP` / `TMP`）+ `cfg.env` 显式声明，支持 `${VAR}` 占位符展开
 - stderr 独立 tailer → `app_warn!` 输出：单行截断 4 KiB、每 10s 最多 100 行、超出汇总为一条 `[suppressed N lines over 10s]`
 
@@ -226,7 +228,7 @@ Streamable HTTP 和 SSE 是**两套 wire 协议，不能互相路由**：Streama
 - `build_sse_client`：GET SSE URL → 读到 `endpoint` 事件拿 session 化的 POST URL → 之后 client→server 走 POST 到该 URL、server→client 走 SSE `message` 帧
 - **SSRF 两道门**：① GET URL 出站前 `ssrf_gate_url`；② server 返回的 `endpoint` 是 server-controlled 的，首次 POST 前经 `resolve_sse_endpoint`（相对路径按 base 解析）后**再过一次** `ssrf_gate_url`。第二道校验拦的是恶意 server 把 POST 引到内网的路径，省不得
 - 整个握手在 `connect_timeout_secs` 内完成；server 不发 `endpoint` 就超时（`Timeout`），不会挂死
-- **代理绕行（本地 MCP）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致"开代理连云端 LLM"时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。`build_mcp_http_client` 按 `host_bypasses_proxy(host)`（`localhost` / `*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理。**仅 SSE 路径有此修正**——Streamable HTTP 走 rmcp 自带的 reqwest（0.13，而 ha-mcp 用 workspace 的 0.12），没有注入点，本地 Streamable HTTP + 代理仍会被劫持（已知限制；本地 MCP 绝大多数是 stdio / SSE，不为此引入第二个 reqwest 大版本）
+- **代理绕行（本地 MCP）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致"开代理连云端 LLM"时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。Streamable HTTP 与 legacy SSE 都经 `build_mcp_http_client`，按 `host_bypasses_proxy(host)`（`localhost` / `*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理；前者由 `BoundedMcpHttpClient` 实现 rmcp 的 client trait，避免使用 rmcp 内置的无上限 reqwest adapter。
 
 ### WebSocket
 
@@ -235,6 +237,10 @@ Streamable HTTP 和 SSE 是**两套 wire 协议，不能互相路由**：Streama
 - **scheme 重写**：ws→http / wss→https 供 SSRF 分类（`security::ssrf` 只认 http/https）
 - **帧大小硬上限**：`max_message_size=4 MiB`、`max_frame_size=1 MiB`（tungstenite 默认 64/16 MiB 对 JSON-RPC 过宽松）
 - **`poll_next` yield 预算**：连续丢弃 64 帧（ping/pong/close/malformed）后 `wake_by_ref() + Pending`，防恶意 server 用无效帧洪水饿死调度器
+
+### 入站消息上限
+
+四种 transport 都在 serde / SSE event 物化前执行 `MAX_INBOUND_MESSAGE_BYTES=4 MiB` 硬上限：stdio 用 `JsonRpcMessageCodec::new_with_max_length` 限单行；Streamable HTTP 在读取 JSON body 时同时检查 `Content-Length` 与流式累计字节，SSE 字节流在空行边界重置逐 event 预算；WebSocket 复用同一常量限制 message。超限会终止当前 transport / 请求并进入现有失败与退避路径。Catalog 的 512 项上限负责**条目数 / 翻页数**，本上限负责**单页或单项的字节体积**，两层缺一不可。
 
 ### 共享 helper
 
@@ -322,7 +328,7 @@ MCP 工具的可见性叠了几层闸：
 - **Agent 级总开关**：`agent.json` 的 `capabilities.mcpEnabled=false` 时，MCP 元工具和所有动态 `mcp__<server>__<tool>` 都不注入、也不进 `tool_search`
 - **全局 / server 级启用条件**：动态 MCP 工具只有在 `mcpGlobal.enabled && server.enabled && !mcpGlobal.deniedServers.contains(server.name)` 时进入 live registry；任一条件转 false 会从 schema cache / `tool_search` / 执行反查表同步移除
 - **Server 级工具过滤**：`allowedTools` / `deniedTools` 按**原始** tool name（命名空间前缀之前）配置，catalog refresh 和配置热更新都会立刻用已有 catalog 重建该 server 的 schema cache 与反查表
-- **Server 级 deferred**：`deferredTools=true` 把该 server 的动态工具改成 `tool_search` 按需发现
+- **Server 级 deferred**：全局 Recommended 模式下所有动态 MCP 工具都按需发现；Custom / Disabled 模式下，`deferredTools=true` 才把该 server 的动态工具放进 `tool_search`
 - **上下文级收紧**：`denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 经 `tool_defs::tool_visible_with_filters` 生效
 
 `capabilities.tools.allow/deny` 只覆盖非 Core 内置工具的开关，**不再**通过 `mcp__<server>__<tool>` 全限定名过滤动态 MCP 工具。
@@ -350,7 +356,7 @@ Resources 和 Prompts 是 MCP server 暴露的**被动数据**（不是工具调
 
 ### System prompt 注入
 
-`catalog::system_prompt_snippet()` 在系统提示词末尾追加一小段 `# MCP Capabilities`：列出有 Ready catalog 的 server 名，并指向 `mcp_resource` / `mcp_prompt` 工具。它经 `ArcSwap` 快照同步读取、不 await 任何锁，可从同步的 prompt 构建路径调用；无任何 MCP server 时完全不注入。
+`catalog::system_prompt_snippet()` 在系统提示词末尾追加一小段 `# MCP Capabilities`：列出有效配置的 server 名，并以“目标工具缺席时才调用 `tool_search`”的稳定条件说明 lazy 建连发现，同时指向 `mcp_resource` / `mcp_prompt`。该段不编码会在 turn 中变化的 pending catalog 集合，目录刷新后无需重建 system prompt 也不会留下过时指令；它只经 config cache 同步读取、不 await 任何锁，可从同步的 prompt 构建路径调用；无任何有效 MCP server 时完全不注入。
 
 ---
 
@@ -504,8 +510,7 @@ stdio server 是任意二进制、潜在命令执行入口：
 
 三种网络 transport 对 HTTP 30x 的处理各不相同，核心诉求一致——**别让一个 redirect 把已过 SSRF 的请求弹到内网**：
 
-- **SSE**：`build_mcp_http_client` 用 `redirect::Policy::none()` **不跟 redirect**。SSRF 只校验了 pre-redirect 的 GET URL 与 server 返回的 endpoint，30x 可绕过 gate；而 reqwest 的 redirect 回调是同步的、跑不了需要异步 DNS 解析的 `check_url`，故直接不跟（拿到 3xx 显式报错）
-- **Streamable HTTP**：走 rmcp 自带 reqwest（default redirect），每跳不重跑 SSRF——**已知 gap**（ha-mcp 无法配置 rmcp 内部 client 的 redirect policy，与上文"代理绕行"同源于 0.12/0.13 版本墙）
+- **HTTP / SSE**：二者共用的 `build_mcp_http_client` 设置 `redirect::Policy::none()`，**不跟 redirect**。SSRF 只校验 pre-redirect URL（legacy SSE 还会校验 server 返回的 endpoint）；而 reqwest 的 redirect 回调是同步的、跑不了需要异步 DNS 解析的 `check_url`，故拿到 3xx 直接报错
 - **WebSocket**：`connect_async` 不跟 HTTP redirect——RFC 6455 要求 101 Switching Protocols，3xx 直接算握手失败，所以单次 SSRF 覆盖了全部 dial-out
 
 ---
@@ -631,14 +636,14 @@ pub mcp_global: McpGlobalSettings,        // 全局开关、并发、退避、�
 | `headers` | `BTreeMap<String,String>` | HTTP/SSE/WS 请求头；`Authorization` 优先于 OAuth 注入；日志脱敏 |
 | `oauth` | `Option<McpOAuthConfig>` | OAuth 配置（仅网络 transport 有意义） |
 | `allowed_tools` / `denied_tools` | `Vec<String>` | 工具白 / 黑名单（针对**原始** tool name，deny 优先） |
-| `connect_timeout_secs` | `u64`（默认 30） | handshake 上限 |
+| `connect_timeout_secs` | `u64`（默认 30） | handshake + 首轮 tools/resources/prompts catalog 上限 |
 | `call_timeout_secs` | `u64`（默认 0） | 单 tool call 上限；`0` = 不加 call-level timeout |
 | `health_check_interval_secs` | `u64`（默认 60） | 历史字段，当前 watchdog 不读取 |
 | `max_concurrent_calls` | `u32`（默认 4） | per-server semaphore |
 | `auto_approve` | `bool`（默认 false） | 跳过工具审批（仅 `Trusted` 生效） |
 | `trust_level` | `Untrusted` / `Trusted`（默认 Untrusted） | 影响 SSRF policy 和 `auto_approve` 门控 |
 | `eager` | `bool`（默认 false） | app 启动时预热连接；默认 lazy |
-| `deferred_tools` | `bool`（默认 false） | `true` 时该 server 动态工具不 eager 注入，改由 `tool_search` 发现 |
+| `deferred_tools` | `bool`（默认 false） | Custom / Disabled 模式下，`true` 时该 server 动态工具不 eager 注入，改由 `tool_search` 发现；Recommended 模式无论此值为何都 deferred |
 | `project_paths` | `Vec<String>` | 意图：仅当会话 project root 命中其一时激活；空 = 全局。当前不参与 live registry / 执行层过滤 |
 | `description` / `icon` | `Option<String>` | GUI 展示；`description` 亦混入 `tool_search` 索引 |
 | `created_at` / `updated_at` | `i64` | timestamp |

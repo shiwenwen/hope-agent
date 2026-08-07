@@ -31,6 +31,13 @@ pub fn tool_belongs_to_deferred_server(name: &str, servers: &[McpServerConfig]) 
     let Some((server, _tool)) = split_mcp_tool_name(name) else {
         return false;
     };
+    server_uses_deferred_tools(server, servers)
+}
+
+/// True when a configured, enabled MCP server explicitly opts its dynamic
+/// tools into deferred discovery. Global Recommended-mode behavior is layered
+/// on by `tools::dispatch`; this helper owns only the per-server switch.
+pub fn server_uses_deferred_tools(server: &str, servers: &[McpServerConfig]) -> bool {
     servers
         .iter()
         .any(|cfg| cfg.enabled && cfg.name == server && cfg.deferred_tools)

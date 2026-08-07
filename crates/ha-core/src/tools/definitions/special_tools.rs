@@ -218,12 +218,13 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
 }
 
 /// Get the tool_search meta-tool definition.
-/// This tool enables on-demand discovery of deferred tool schemas.
+/// This tool enables on-demand discovery and activation of deferred tool schemas.
 pub fn get_tool_search_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_TOOL_SEARCH.into(),
-        description: "Search for available tools by keyword query. Returns full tool schemas \
-            for matched tools. Use this to discover tools not listed in the main tool catalog."
+        description: "Search and activate available tools by keyword or exact name. This also \
+            connects configured lazy MCP servers to discover their catalogs. Matched schemas \
+            become callable on the next round; use this for tools not listed up front."
             .into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Meta,
