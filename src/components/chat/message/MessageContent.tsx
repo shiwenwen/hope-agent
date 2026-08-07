@@ -417,6 +417,7 @@ export function AssistantContentBlocks({
             <AskUserQuestionResult
               key={block.tool.callId}
               result={block.tool.result}
+              toolArguments={block.tool.arguments}
               pending={!block.tool.result}
             />
           ),

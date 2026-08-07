@@ -381,6 +381,7 @@ fn format_answers_for_llm(
 ) -> String {
     let mut items = Vec::new();
     for question in questions {
+        let mut selected_values = Vec::new();
         let mut selected_labels = Vec::new();
         let mut custom_input: Option<String> = None;
 
@@ -389,6 +390,7 @@ fn format_answers_for_llm(
             .find(|a| a.question_id == question.question_id)
         {
             for sel in &answer.selected {
+                selected_values.push(sel.clone());
                 let label = question
                     .options
                     .iter()
@@ -405,8 +407,10 @@ fn format_answers_for_llm(
         }
 
         items.push(serde_json::json!({
+            "questionId": question.question_id,
             "question": question.text.fallback_text(),
             "selected": selected_labels,
+            "selectedValues": selected_values,
             "customInput": custom_input,
         }));
     }
@@ -580,5 +584,32 @@ mod tests {
         assert!(parse_direction_card(&json!({})).is_none());
         assert!(parse_direction_card(&json!({ "palette": [], "references": [] })).is_none());
         assert!(parse_direction_card(&json!("not an object")).is_none());
+    }
+
+    #[test]
+    fn formatted_answers_preserve_question_and_option_identity() {
+        let questions: Vec<AskUserQuestion> = serde_json::from_value(json!([{
+            "questionId": "q-treatment",
+            "text": "How should this be handled?",
+            "options": [
+                { "value": "steps", "label": "Same label" },
+                { "value": "implement", "label": "Same label" }
+            ]
+        }]))
+        .expect("valid questions");
+        let answers = vec![AskUserQuestionAnswer {
+            question_id: "q-treatment".into(),
+            selected: vec!["implement".into()],
+            custom_input: Some("Keep the explanation concise".into()),
+        }];
+
+        let formatted = format_answers_for_llm(&questions, &answers, false);
+        let value: Value = serde_json::from_str(&formatted).expect("valid result JSON");
+        let answer = &value["answers"][0];
+
+        assert_eq!(answer["questionId"], "q-treatment");
+        assert_eq!(answer["selected"], json!(["Same label"]));
+        assert_eq!(answer["selectedValues"], json!(["implement"]));
+        assert_eq!(answer["customInput"], "Keep the explanation concise");
     }
 }
