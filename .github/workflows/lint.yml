@@ -52,6 +52,16 @@ jobs:
       - name: Updater endpoints sync check
         run: node scripts/verify-updater-endpoints.mjs
 
+      # The Tauri CLI refuses to build when the Rust `tauri` crate and the npm
+      # `@tauri-apps/api` package disagree on major.minor. Nothing else here
+      # catches that — clippy / cargo test / vitest never invoke `tauri build`
+      # — so it stays invisible until a tag is pushed and every release lane
+      # dies within minutes. v0.30.0 was lost that way: an incidental crate
+      # bump in #621 moved tauri 2.10.3 → 2.11.5 while the npm side stayed on
+      # 2.10.1, and four PRs merged green on top of it.
+      - name: Tauri crate ↔ npm api version sync
+        run: node scripts/verify-tauri-version-sync.mjs
+
       # Catch release.yml / update-*.yml path bugs at PR time instead of
       # at tag-push time. Covers the workspace target/ vs src-tauri/target/
       # mismatch that took down v0.2.0 release three times in a row, plus

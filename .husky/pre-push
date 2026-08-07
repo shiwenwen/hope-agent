@@ -76,6 +76,9 @@ echo "[pre-push] crate layering red line (test edges)"
   echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-updater ↔ mirror PUBLIC_BASE)"
   node scripts/verify-updater-endpoints.mjs
 
+  echo "[pre-push] verify-tauri-version-sync (tauri crate ↔ @tauri-apps/api)"
+  node scripts/verify-tauri-version-sync.mjs
+
 echo "[pre-push] vitest run"
 pnpm test
 
