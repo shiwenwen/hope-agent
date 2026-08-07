@@ -45,27 +45,41 @@ function lockedCrateVersion(crate) {
   return m[1];
 }
 
-function declaredNpmRange(pkg) {
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+// Read the RESOLVED version from pnpm-lock.yaml, not the range in
+// package.json. The declared range is not what gets installed: `^2.11.1`
+// happily admits 2.12.x, so a routine `pnpm update` could resolve the lockfile
+// onto a version the crate disagrees with while the floor still reads 2.11 —
+// and a floor-based check would wave it through, which is precisely the
+// release-breaking case this guard exists to catch. `--frozen-lockfile` CI
+// installs whatever the lockfile pins, so the lockfile is the truth.
+//
+// The importers block records both, e.g.
+//       '@tauri-apps/api':
+//         specifier: ^2.11.1
+//         version: 2.11.1
+function resolvedNpmVersion(pkg) {
+  const lock = fs.readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
+  const re = new RegExp(
+    `'${pkg}':\\s*\\n\\s*specifier:\\s*(\\S+)\\s*\\n\\s*version:\\s*(\\S+)`,
   );
-  const range =
-    manifest.dependencies?.[pkg] ?? manifest.devDependencies?.[pkg];
-  if (!range) fail(`package.json does not depend on "${pkg}"`);
-  return range;
+  const m = lock.match(re);
+  if (!m) {
+    fail(
+      `pnpm-lock.yaml has no resolved importer entry for "${pkg}" — run \`pnpm install\` to refresh the lockfile`,
+    );
+  }
+  // Peer-resolved entries carry a suffix like `2.11.1(typescript@5.9.2)`.
+  return { specifier: m[1], version: m[2].replace(/\(.*$/, "") };
 }
 
 const majorMinor = (v) => v.split(".").slice(0, 2).join(".");
 
 const crateVersion = lockedCrateVersion("tauri");
-const npmRange = declaredNpmRange("@tauri-apps/api");
-// `^2.11.1` / `~2.11.1` / `2.11.1` all carry the floor we care about; the CLI
-// compares against whatever is installed, and the floor is what pins it.
-const npmFloor = npmRange.replace(/^[\^~>=\s]*/, "");
+const npm = resolvedNpmVersion("@tauri-apps/api");
 
-if (majorMinor(crateVersion) !== majorMinor(npmFloor)) {
+if (majorMinor(crateVersion) !== majorMinor(npm.version)) {
   fail(
-    `tauri crate (Cargo.lock) is ${crateVersion} but @tauri-apps/api (package.json) is ${npmRange}.\n` +
+    `tauri crate (Cargo.lock) is ${crateVersion} but @tauri-apps/api resolves to ${npm.version} (declared ${npm.specifier}).\n` +
       `  The Tauri CLI requires the same major.minor, so \`tauri build\` — and therefore the\n` +
       `  entire release workflow — will fail on every platform.\n` +
       `  Fix: set "@tauri-apps/api" to ^${majorMinor(crateVersion)}.x in package.json and run \`pnpm install\`.`,
@@ -73,5 +87,5 @@ if (majorMinor(crateVersion) !== majorMinor(npmFloor)) {
 }
 
 console.log(
-  `[verify-tauri-version-sync] OK — tauri ${crateVersion} ↔ @tauri-apps/api ${npmRange} (both ${majorMinor(crateVersion)}.x)`,
+  `[verify-tauri-version-sync] OK — tauri ${crateVersion} ↔ @tauri-apps/api ${npm.version} (declared ${npm.specifier}; both ${majorMinor(crateVersion)}.x)`,
 );
