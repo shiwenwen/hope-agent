@@ -46,6 +46,50 @@ fn append_extra_system_context(existing: Option<String>, addition: String) -> Op
     })
 }
 
+/// Durable control-plane fence checked by the final launch CAS.
+///
+/// Team members are prepared before they are attached to the roster. Carrying
+/// this identity into both the immediate and queued launch paths makes
+/// `Team=Active + member=Working + exact run/session` part of the same atomic
+/// write that claims execution. A pause/dissolve that commits first therefore
+/// prevents hooks and model/tool execution; a launch claim that commits first
+/// is necessarily visible to the lifecycle snapshot.
+#[derive(Debug, Clone)]
+pub(crate) struct TeamMemberLaunchFence {
+    pub team_id: String,
+    pub member_id: String,
+}
+
+/// A sub-agent attempt whose child session and run row are durable, but whose
+/// execution has not been scheduled and whose observation hooks have not fired.
+///
+/// The value is intentionally non-Clone: exactly one caller must either attach
+/// and launch it, or settle it through [`discard_prepared_subagent`].
+pub(crate) struct PreparedSubagentSpawn {
+    params: SpawnParams,
+    run_id: String,
+    child_session_id: String,
+    initial_status: SubagentStatus,
+    should_queue: bool,
+    effective_group_id: Option<String>,
+    eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
+    reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+    // Keep Agent deletion/disable fenced throughout the prepare -> attach gap.
+    _agent_run_admission: crate::agent_lifecycle::AgentRunGuard,
+}
+
+impl PreparedSubagentSpawn {
+    pub(crate) fn run_id(&self) -> &str {
+        &self.run_id
+    }
+
+    pub(crate) fn child_session_id(&self) -> &str {
+        &self.child_session_id
+    }
+}
+
 /// Spawn a sub-agent asynchronously. Returns the run_id immediately.
 pub async fn spawn_subagent(
     params: SpawnParams,
@@ -62,11 +106,32 @@ pub async fn spawn_subagent(
 /// `child_handle` before the side effect is launched, so recovery can reattach to
 /// or safely retry the same child instead of creating an untracked duplicate.
 pub(crate) async fn spawn_subagent_with_run_id(
-    mut params: SpawnParams,
+    params: SpawnParams,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
     run_id: String,
 ) -> Result<String> {
+    let prepared =
+        prepare_subagent_with_run_id(params, session_db, cancel_registry, run_id).await?;
+    launch_prepared_subagent(prepared, None).await
+}
+
+/// Materialize a fresh attempt without making it executable yet.
+pub(crate) async fn prepare_subagent(
+    params: SpawnParams,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+) -> Result<PreparedSubagentSpawn> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+    prepare_subagent_with_run_id(params, session_db, cancel_registry, run_id).await
+}
+
+async fn prepare_subagent_with_run_id(
+    mut params: SpawnParams,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+    run_id: String,
+) -> Result<PreparedSubagentSpawn> {
     let run_id = uuid::Uuid::parse_str(&run_id)
         .map(|id| id.to_string())
         .map_err(|_| anyhow::anyhow!("preallocated sub-agent run id must be a UUID"))?;
@@ -83,7 +148,7 @@ pub(crate) async fn spawn_subagent_with_run_id(
         ));
     }
     // 2. Agent exists.
-    let _agent_run_admission = crate::agent_lifecycle::begin_agent_run(&params.agent_id)
+    let agent_run_admission = crate::agent_lifecycle::begin_agent_run(&params.agent_id)
         .map_err(|e| anyhow::anyhow!("Agent '{}' is unavailable: {}", params.agent_id, e))?;
 
     // ── Resource limit (R7.2): at the per-session concurrency limit, PARK the
@@ -225,7 +290,7 @@ pub(crate) async fn spawn_subagent_with_run_id(
         }
     }
 
-    materialize_and_schedule_run(
+    materialize_prepared_run(
         params,
         run_id,
         child_session_id,
@@ -237,6 +302,7 @@ pub(crate) async fn spawn_subagent_with_run_id(
         reattachable_ui_guard,
         session_db,
         cancel_registry,
+        agent_run_admission,
     )
     .await
 }
@@ -299,7 +365,7 @@ pub async fn resume_subagent(
         )
     {
         return Err(anyhow::anyhow!(
-            "Cannot resume sub-agent run '{}': its terminal reason requires explicit user recovery",
+            "Cannot resume sub-agent run '{}': its terminal reason requires freshly spawned replacement work after an explicit user request",
             source_run_id
         ));
     }
@@ -351,7 +417,7 @@ pub async fn resume_subagent(
 
     // Re-check Agent lifecycle admission for every continuation. The child may
     // have been disabled or removed since the source run completed.
-    let _agent_run_admission = crate::agent_lifecycle::begin_agent_run(&params.agent_id)
+    let agent_run_admission = crate::agent_lifecycle::begin_agent_run(&params.agent_id)
         .map_err(|e| anyhow::anyhow!("Agent '{}' is unavailable: {}", params.agent_id, e))?;
 
     let max_concurrent = max_concurrent_for_agent(&params.parent_agent_id);
@@ -392,7 +458,7 @@ pub async fn resume_subagent(
         &source.child_session_id,
     );
 
-    let run_id = materialize_and_schedule_run(
+    let prepared = materialize_prepared_run(
         params,
         run_id,
         source.child_session_id,
@@ -404,8 +470,10 @@ pub async fn resume_subagent(
         reattachable_ui_guard,
         session_db,
         cancel_registry,
+        agent_run_admission,
     )
     .await?;
+    let run_id = launch_prepared_subagent(prepared, None).await?;
     // Reading a terminal run in order to continue it also consumes that result;
     // suppress a late duplicate auto-injection from the source run.
     if source.delivery_kind == crate::subagent::SubagentDeliveryKind::Parent {
@@ -419,7 +487,7 @@ pub async fn resume_subagent(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn materialize_and_schedule_run(
+async fn materialize_prepared_run(
     mut params: SpawnParams,
     run_id: String,
     child_session_id: String,
@@ -431,7 +499,8 @@ async fn materialize_and_schedule_run(
     reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
-) -> Result<String> {
+    agent_run_admission: crate::agent_lifecycle::AgentRunGuard,
+) -> Result<PreparedSubagentSpawn> {
     // Insert a fresh immutable run record. Continuations use the transactional
     // insert variant so two resumes cannot overlap on one child conversation.
     let now = chrono::Utc::now().to_rfc3339();
@@ -575,17 +644,49 @@ async fn materialize_and_schedule_run(
         }
     }
 
-    // R7.2: over the concurrency limit → PARK as `Queued`; the subagent
-    // scheduler promotes it when a running child settles. Otherwise launch now.
+    // Register the cancel flag while the attempt is still non-executable. Team
+    // attach happens only after this returns, so pause/dissolve can never see an
+    // attached run without also having a token capable of fencing its launch.
+    cancel_registry.register(&run_id);
+
+    Ok(PreparedSubagentSpawn {
+        params,
+        run_id,
+        child_session_id,
+        initial_status,
+        should_queue,
+        effective_group_id,
+        eval_child_guard,
+        reattachable_ui_guard,
+        session_db,
+        cancel_registry,
+        _agent_run_admission: agent_run_admission,
+    })
+}
+
+/// Launch an already-materialized attempt. For Team members, `team_fence` is
+/// persisted into a queued entry and checked by the final status CAS, not by a
+/// fallible read-before-write pre-check.
+pub(crate) async fn launch_prepared_subagent(
+    prepared: PreparedSubagentSpawn,
+    team_fence: Option<TeamMemberLaunchFence>,
+) -> Result<String> {
+    let PreparedSubagentSpawn {
+        params,
+        run_id,
+        child_session_id,
+        initial_status,
+        should_queue,
+        effective_group_id,
+        eval_child_guard,
+        reattachable_ui_guard,
+        session_db,
+        cancel_registry,
+        _agent_run_admission,
+    } = prepared;
+
     if should_queue {
-        // Register the cancel flag NOW, at park time, so `request_cancel_run`
-        // can trip a flag that the promoted run REUSES (see
-        // `SubagentCancelRegistry::register`, which is get-or-create). Without
-        // this, a cancel arriving in the window between the scheduler's dequeue
-        // and the promoted run registering its own flag would create a fresh
-        // (untripped) flag — letting a killed run execute to completion and
-        // inject its result.
-        cancel_registry.register(&run_id);
+        let cancel_flag = cancel_registry.register(&run_id);
         if !queue::enqueue(queue::PendingSubagentSpawn {
             params,
             run_id: run_id.clone(),
@@ -594,52 +695,104 @@ async fn materialize_and_schedule_run(
             enqueued_at: std::time::Instant::now(),
             eval_guard: eval_child_guard,
             reattachable_ui_guard,
+            team_fence,
         }) {
-            // Lost the cap race after the earlier check — settle the row and
-            // drop the just-registered flag so we never leave a dangling
-            // `Queued` run with no queue entry.
-            cancel_registry.remove(&run_id);
-            let status_db = session_db.clone();
-            let status_run_id = run_id.clone();
-            let _ = status_db
-                .run(move |db| {
-                    db.update_subagent_status(
-                        &status_run_id,
-                        SubagentStatus::Killed,
-                        None,
-                        Some("Sub-agent queue full"),
-                        None,
-                        None,
-                    )
-                })
-                .await;
+            settle_unlaunched_run(
+                &session_db,
+                &cancel_registry,
+                &run_id,
+                "Sub-agent queue full before launch",
+            )
+            .await?;
             return Err(anyhow::anyhow!(
                 "Sub-agent queue is full. Wait for some to complete or kill them."
             ));
         }
+        // Close prepare -> enqueue: pause may have observed the attached run and
+        // tripped its pre-registered token before an entry existed for the
+        // canonical cancel path to claim. Recheck after enqueue. If we win the
+        // queue mutex, settle now; if the scheduler already dequeued it, its
+        // launch precheck observes the same token and settles instead.
+        if cancel_flag.load(Ordering::SeqCst) && queue::remove_for_run(&run_id).is_some() {
+            settle_unlaunched_run(
+                &session_db,
+                &cancel_registry,
+                &run_id,
+                "Sub-agent launch cancelled before queue attachment",
+            )
+            .await?;
+            anyhow::bail!("Sub-agent launch was revoked before queueing");
+        }
         return Ok(run_id);
     }
 
-    launch_subagent_run(
+    let launched = launch_subagent_run(
         params,
         run_id.clone(),
         child_session_id,
         effective_group_id,
         eval_child_guard,
         reattachable_ui_guard,
+        initial_status,
+        team_fence,
         0,
         session_db,
         cancel_registry,
     )
-    .await;
+    .await?;
+    if !launched {
+        anyhow::bail!("Sub-agent launch was revoked before execution");
+    }
     Ok(run_id)
 }
 
-/// Launch a sub-agent run: register the cancel flag + steer mailbox, emit the
-/// `spawned` event, fire `SubagentStart`, and spawn the execution task. The run
-/// row + projection already exist (status `Spawning`). Called directly by
-/// [`spawn_subagent`] for an under-limit spawn, and by the subagent scheduler
-/// ([`super::queue`]) when promoting a previously `Queued` run.
+/// Settle a prepared attempt that could not attach. No hook, mailbox consumer,
+/// queue entry, or executor is allowed to survive this path.
+pub(crate) async fn discard_prepared_subagent(
+    prepared: PreparedSubagentSpawn,
+    reason: &str,
+) -> Result<()> {
+    settle_unlaunched_run(
+        &prepared.session_db,
+        &prepared.cancel_registry,
+        &prepared.run_id,
+        reason,
+    )
+    .await
+}
+
+async fn settle_unlaunched_run(
+    session_db: &Arc<SessionDB>,
+    cancel_registry: &Arc<SubagentCancelRegistry>,
+    run_id: &str,
+    reason: &str,
+) -> Result<()> {
+    let _ = queue::remove_for_run(run_id);
+    cancel_registry.cancel(run_id);
+    SUBAGENT_MAILBOX.remove(run_id);
+    let db = session_db.clone();
+    let run_id_owned = run_id.to_string();
+    let reason = reason.to_string();
+    db.run(move |db| {
+        db.update_subagent_status_with_reason(
+            &run_id_owned,
+            SubagentStatus::Killed,
+            Some(SubagentTerminalReason::ParentCancelled),
+            None,
+            Some(&reason),
+            None,
+            Some(0),
+        )
+    })
+    .await?;
+    cancel_registry.remove(run_id);
+    Ok(())
+}
+
+/// Claim and launch a prepared sub-agent run. The guarded status transition is
+/// the execution linearization point: no mailbox, event, hook, or task exists
+/// before it succeeds. Team-owned attempts additionally require their exact
+/// attached roster capability to remain live in the same SQL statement.
 pub(crate) async fn launch_subagent_run(
     params: SpawnParams,
     run_id: String,
@@ -647,10 +800,97 @@ pub(crate) async fn launch_subagent_run(
     _effective_group_id: Option<String>,
     eval_child_guard: Option<crate::eval_context::EvalSessionGuard>,
     reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+    expected_status: SubagentStatus,
+    team_fence: Option<TeamMemberLaunchFence>,
     queue_wait_ms: u64,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
-) {
+) -> Result<bool> {
+    // The cancel token was registered during prepare, before a Team attempt can
+    // attach. Observe it before claiming execution, and again immediately after
+    // the claim, so a pause/dissolve in either window cannot reach hooks/LLM.
+    let cancel_flag = cancel_registry.register(&run_id);
+    if cancel_flag.load(Ordering::SeqCst) {
+        settle_unlaunched_run(
+            &session_db,
+            &cancel_registry,
+            &run_id,
+            "Sub-agent launch cancelled before execution claim",
+        )
+        .await?;
+        return Ok(false);
+    }
+    let claim_result = {
+        let db = session_db.clone();
+        let claim_run_id = run_id.clone();
+        let claim_expected = expected_status.clone();
+        let claim_child_session_id = child_session_id.clone();
+        let claim_team_fence = team_fence.clone();
+        db.run(move |db| match claim_team_fence {
+            Some(fence) => db.claim_team_member_attempt_launch(
+                &fence.team_id,
+                &fence.member_id,
+                &claim_run_id,
+                &claim_child_session_id,
+                &claim_expected,
+            ),
+            None => db.try_transition_subagent_status(
+                &claim_run_id,
+                claim_expected,
+                SubagentStatus::Running,
+            ),
+        })
+        .await
+    };
+    let claimed = match claim_result {
+        Ok(claimed) => claimed,
+        Err(claim_error) => {
+            // The run row (and, for Team, its roster attachment) already exists,
+            // but no executor has been created yet. A transient SQLite/I/O error
+            // here must not leave a durable Spawning run holding a cancel token
+            // and a concurrency slot. Preserve the claim error for the caller;
+            // Team restoration happens one level up after this local settlement.
+            if let Err(settle_error) = settle_unlaunched_run(
+                &session_db,
+                &cancel_registry,
+                &run_id,
+                "Sub-agent execution claim failed before launch",
+            )
+            .await
+            {
+                crate::app_warn!(
+                    "subagent",
+                    "launch_claim_cleanup",
+                    "failed to settle unlaunched run {} after execution claim error: claim_error={} settle_error={}",
+                    run_id,
+                    crate::logging::redact_sensitive(&claim_error.to_string()),
+                    crate::logging::redact_sensitive(&settle_error.to_string())
+                );
+            }
+            return Err(claim_error);
+        }
+    };
+    if !claimed {
+        settle_unlaunched_run(
+            &session_db,
+            &cancel_registry,
+            &run_id,
+            "Sub-agent launch capability was revoked before execution",
+        )
+        .await?;
+        return Ok(false);
+    }
+    if cancel_flag.load(Ordering::SeqCst) {
+        settle_unlaunched_run(
+            &session_db,
+            &cancel_registry,
+            &run_id,
+            "Sub-agent launch cancelled after execution claim",
+        )
+        .await?;
+        return Ok(false);
+    }
+
     let task_preview = truncate_str(&params.task, 50);
     crate::eval_context::record_queue_wait(
         Some(&child_session_id),
@@ -658,8 +898,7 @@ pub(crate) async fn launch_subagent_run(
         &run_id,
         queue_wait_ms,
     );
-    // 6. Register cancel flag and steer mailbox slot
-    let cancel_flag = cancel_registry.register(&run_id);
+    // 6. Register the steer mailbox only after execution is claimed.
     SUBAGENT_MAILBOX.register(&run_id);
     let accepted_dispatches = {
         let dispatch_db = session_db.clone();
@@ -699,7 +938,7 @@ pub(crate) async fn launch_subagent_run(
         child_agent_id: params.agent_id.clone(),
         child_session_id: child_session_id.clone(),
         task_preview: task_preview.clone(),
-        status: SubagentStatus::Spawning,
+        status: SubagentStatus::Running,
         result_preview: None,
         error: None,
         duration_ms: None,
@@ -768,24 +1007,6 @@ pub(crate) async fn launch_subagent_run(
         }
         let start = std::time::Instant::now();
 
-        // Update status to Running
-        {
-            let status_db = db.clone();
-            let status_run_id = run_id_clone.clone();
-            let _ = status_db
-                .run(move |db| {
-                    db.update_subagent_status(
-                        &status_run_id,
-                        SubagentStatus::Running,
-                        None,
-                        None,
-                        None,
-                        None,
-                    )
-                })
-                .await;
-        }
-
         // Execute sub-agent with timeout, catch_unwind to guarantee completion event
         let agent_id_exec = agent_id.clone();
         let task_exec = task.clone();
@@ -802,7 +1023,10 @@ pub(crate) async fn launch_subagent_run(
         let reasoning_effort_exec = reasoning_effort.clone();
         let child_session_id_exec = child_session_id_clone.clone();
 
-        {
+        // A cancellation can race the final claim and task scheduling. Keep the
+        // child conversation pristine when it wins, then let execute_subagent's
+        // first instruction return through the normal Killed finalizer.
+        if !cancel_flag.load(Ordering::SeqCst) {
             let message_db = db.clone();
             let message_session_id = child_session_id_exec.clone();
             let message_task = task.clone();
@@ -1037,6 +1261,7 @@ pub(crate) async fn launch_subagent_run(
             parent_delivery_ui_guard,
         );
     });
+    Ok(true)
 }
 
 /// Claim and dispatch one durable ordinary-parent result delivery. Safe to call
@@ -1246,6 +1471,16 @@ fn execute_subagent(
 > + Send {
     async move {
         use crate::provider;
+
+        // This must precede config resolution, title scheduling, provider
+        // selection, and chat-engine construction. It is the last task-local
+        // fence for a pause/dissolve racing tokio scheduling.
+        if cancel.load(Ordering::SeqCst) {
+            return Err(SubagentExecutionFailure::new(
+                SubagentTerminalReason::ParentCancelled,
+                "Sub-agent launch was cancelled before execution",
+            ));
+        }
 
         let store = crate::config::cached_config();
 
@@ -1638,6 +1873,159 @@ mod structural_limit_tests {
 
             // Leave the process-global queue clean for sibling tests.
             super::queue::purge_for_session(&parent.id);
+        });
+    }
+
+    #[test]
+    fn cancellation_between_prepare_and_enqueue_settles_without_a_free_slot() {
+        // Deterministic version of the Team pause-before-enqueue race: the
+        // parent is already at its concurrency cap, prepare registers the token
+        // but deliberately does not enqueue, then cancellation wins. The
+        // enqueue postcheck must claim and terminalize the entry immediately;
+        // waiting for a slot would leave resume blocked on a phantom Queued run.
+        let root = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let agent_id = "test-prepare-enqueue-cancel-agent";
+            let dir = crate::paths::agent_dir(agent_id).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut cfg = crate::agent_config::AgentConfig::default();
+            cfg.subagents.max_concurrent = 1;
+            std::fs::write(dir.join("agent.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
+
+            let db =
+                Arc::new(SessionDB::open_ephemeral_for_test(&root.path().join("s.db")).unwrap());
+            let registry = Arc::new(SubagentCancelRegistry::new());
+            let parent = db.create_session(agent_id).unwrap();
+            db.insert_subagent_run(&active_run("active-blocker", &parent.id, agent_id))
+                .unwrap();
+            let params = SpawnParams {
+                task: "must never execute".into(),
+                agent_id: agent_id.into(),
+                parent_session_id: parent.id.clone(),
+                parent_agent_id: agent_id.into(),
+                depth: 1,
+                timeout_secs: None,
+                model_override: None,
+                label: None,
+                isolate_worktree: false,
+                attachments: Vec::new(),
+                plan_agent_mode: None,
+                plan_mode_allow_paths: Vec::new(),
+                lock_plan_agent_mode: false,
+                skip_parent_injection: true,
+                extra_system_context: None,
+                skill_allowed_tools: Vec::new(),
+                reasoning_effort: None,
+                skill_name: None,
+                origin_source: None,
+                origin_channel_kb_context: None,
+                group_id: None,
+                owner_kind: crate::subagent::SubagentOwnerKind::Internal,
+                owner_id: "prepare-enqueue-race".into(),
+                delivery_kind: crate::subagent::SubagentDeliveryKind::None,
+            };
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let prepared = rt
+                .block_on(prepare_subagent(params, db.clone(), registry.clone()))
+                .expect("prepare queued run");
+            let run_id = prepared.run_id().to_string();
+            assert_eq!(
+                db.get_subagent_run(&run_id).unwrap().unwrap().status,
+                SubagentStatus::Queued
+            );
+            assert!(registry.cancel(&run_id), "pause trips prepared token");
+
+            let error = rt
+                .block_on(launch_prepared_subagent(prepared, None))
+                .expect_err("cancelled prepared run must not remain queued");
+            assert!(error.to_string().contains("revoked"));
+            assert_eq!(
+                db.get_subagent_run(&run_id).unwrap().unwrap().status,
+                SubagentStatus::Killed
+            );
+            assert!(super::queue::remove_for_run(&run_id).is_none());
+            assert!(!registry.cancel(&run_id), "cancel flag must be cleaned");
+            assert!(
+                !SUBAGENT_MAILBOX.push(&run_id, "must not have a mailbox".into()),
+                "no mailbox is registered before a successful launch claim"
+            );
+        });
+    }
+
+    #[test]
+    fn launch_claim_error_settles_persisted_run_and_cancel_token() {
+        let root = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let agent_id = "test-launch-claim-error-agent";
+            let dir = crate::paths::agent_dir(agent_id).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("agent.json"),
+                serde_json::to_string(&crate::agent_config::AgentConfig::default()).unwrap(),
+            )
+            .unwrap();
+
+            let db =
+                Arc::new(SessionDB::open_ephemeral_for_test(&root.path().join("s.db")).unwrap());
+            let registry = Arc::new(SubagentCancelRegistry::new());
+            let parent = db.create_session(agent_id).unwrap();
+            let mut params = params_at_depth(1);
+            params.agent_id = agent_id.into();
+            params.parent_agent_id = agent_id.into();
+            params.parent_session_id = parent.id.clone();
+            params.owner_kind = crate::subagent::SubagentOwnerKind::Internal;
+            params.owner_id = "launch-claim-error".into();
+            params.delivery_kind = crate::subagent::SubagentDeliveryKind::None;
+            params.skip_parent_injection = true;
+
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let prepared = rt
+                .block_on(prepare_subagent(params, db.clone(), registry.clone()))
+                .expect("prepare fresh run");
+            let run_id = prepared.run_id().to_string();
+            assert_eq!(
+                db.get_subagent_run(&run_id).unwrap().unwrap().status,
+                SubagentStatus::Spawning
+            );
+            assert_eq!(db.count_active_subagent_runs(&parent.id).unwrap(), 1);
+
+            db.with_conn_for_test(|conn| {
+                conn.execute_batch(
+                    "CREATE TRIGGER fail_subagent_running_claim
+                     BEFORE UPDATE OF status ON subagent_runs
+                     WHEN NEW.status = 'running'
+                     BEGIN
+                       SELECT RAISE(ABORT, 'injected launch claim failure');
+                     END;",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+            let error = rt
+                .block_on(launch_prepared_subagent(prepared, None))
+                .expect_err("claim error must propagate after local settlement");
+            assert!(
+                error.to_string().contains("injected launch claim failure"),
+                "original claim error must be preserved: {error}"
+            );
+            assert_eq!(
+                db.get_subagent_run(&run_id).unwrap().unwrap().status,
+                SubagentStatus::Killed
+            );
+            assert_eq!(db.count_active_subagent_runs(&parent.id).unwrap(), 0);
+            assert!(super::queue::remove_for_run(&run_id).is_none());
+            assert!(!registry.cancel(&run_id), "cancel flag must be cleaned");
+            assert!(
+                !SUBAGENT_MAILBOX.push(&run_id, "must not have a mailbox".into()),
+                "mailbox must not exist before a successful launch claim"
+            );
         });
     }
 }

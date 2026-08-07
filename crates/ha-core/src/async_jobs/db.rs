@@ -392,6 +392,38 @@ impl JobsDB {
         Ok(rows > 0)
     }
 
+    /// R5: atomically claim cancellation of a `Group` coordinator. This is the
+    /// cancellation-side peer of [`Self::claim_group_completion`]: both are a
+    /// single status-guarded SQLite write, so exactly one can win even when a
+    /// last child settles concurrently with the cancel request.
+    ///
+    /// The cancel flag and terminal fields are written in the same statement.
+    /// Splitting those writes would leave a window where completion could claim
+    /// the group after `cancel_requested=1` but before `status='cancelled'`,
+    /// causing a merged result injection for a batch whose cancel was reported
+    /// as accepted.
+    pub fn claim_group_cancel(
+        &self,
+        group_id: &str,
+        completed_at: i64,
+        error: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let rows = conn.execute(
+            "UPDATE background_jobs
+                SET cancel_requested=1,
+                    status='cancelled',
+                    result_preview=NULL,
+                    result_path=NULL,
+                    error=?2,
+                    completed_at=?3
+                WHERE job_id=?1 AND kind='group'
+                  AND status IN ('queued','running','cancelling','awaiting_approval')",
+            params![group_id, error, completed_at],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Physically delete a single job row by id. Used to roll back a freshly
     /// inserted row whose enqueue was rejected (queue full) so it never lingers
     /// as a stale `queued` row.
@@ -1338,15 +1370,50 @@ mod tests {
     }
 
     #[test]
-    fn claim_group_completion_loses_after_cancel() {
+    fn group_cancel_and_completion_claims_have_one_winner_in_either_order() {
         let dir = tempfile::tempdir().unwrap();
-        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
-        db.insert(&group_row("g", "s")).unwrap();
-        // A cancel marks the group terminal first → the join claim must lose so
-        // a cancelled batch never fires a merged injection.
-        db.update_terminal("g", JobStatus::Cancelled, None, None, Some("x"), 5)
+        let path = dir.path().join("background_jobs.db");
+        // Separate connections model the cross-process contenders while the
+        // explicit call order keeps both interleavings deterministic.
+        let cancel_side = JobsDB::open(&path).unwrap();
+        let completion_side = JobsDB::open(&path).unwrap();
+
+        // Cancel wins: its one statement writes both the durable flag and the
+        // terminal fence, so a last-child completion claim must lose.
+        cancel_side.insert(&group_row("cancel-first", "s")).unwrap();
+        assert!(cancel_side
+            .claim_group_cancel("cancel-first", 5, "Cancelled by user")
+            .unwrap());
+        assert!(!completion_side
+            .claim_group_completion("cancel-first", 100)
+            .unwrap());
+        let cancelled = completion_side
+            .load("cancel-first")
+            .unwrap()
+            .expect("cancelled group remains visible");
+        assert_eq!(cancelled.status, JobStatus::Cancelled);
+        assert!(cancelled.cancel_requested);
+        assert_eq!(cancelled.completed_at, Some(5));
+        assert_eq!(cancelled.error.as_deref(), Some("Cancelled by user"));
+
+        // Completion wins: a later cancellation claim cannot rewrite the
+        // terminal result or claim that child cancellation was requested.
+        cancel_side
+            .insert(&group_row("completion-first", "s"))
             .unwrap();
-        assert!(!db.claim_group_completion("g", 100).unwrap());
-        assert_eq!(db.load("g").unwrap().unwrap().status, JobStatus::Cancelled);
+        assert!(completion_side
+            .claim_group_completion("completion-first", 200)
+            .unwrap());
+        assert!(!cancel_side
+            .claim_group_cancel("completion-first", 201, "Cancelled by user")
+            .unwrap());
+        let completed = cancel_side
+            .load("completion-first")
+            .unwrap()
+            .expect("completed group remains visible");
+        assert_eq!(completed.status, JobStatus::Completed);
+        assert!(!completed.cancel_requested);
+        assert_eq!(completed.completed_at, Some(200));
+        assert_eq!(completed.error, None);
     }
 }

@@ -1,8 +1,8 @@
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { SubagentRun, ToolCall } from "@/types/chat"
 
-/** One sub-agent run derived from a `subagent` spawn-like tool_call block. A block
- *  can yield 0 items (non-spawn action / parse failure), 1 (spawn / send / resume / spawn_and_wait),
+/** One sub-agent run derived from a `subagent` spawn tool_call block. A block
+ *  can yield 0 items (non-spawn action / parse failure), 1 (spawn / spawn_and_wait),
  *  or N (batch_spawn). Before the tool result lands the item is `pending` — it
  *  carries only what the spawn arguments declared and must be aligned to a real
  *  run (see {@link matchPendingRun}) to become clickable. */
@@ -38,7 +38,7 @@ export interface SubagentOpenTarget {
   label?: string
 }
 
-const SPAWN_ACTIONS = new Set(["spawn", "send", "resume", "spawn_and_wait", "batch_spawn"])
+const SPAWN_ACTIONS = new Set(["spawn", "spawn_and_wait", "batch_spawn"])
 
 interface SubagentArgs {
   action?: string
@@ -73,12 +73,7 @@ export function extractSubagentChipItems(tool: ToolCall): SubagentChipItem[] {
     }
     if (!result || typeof result !== "object") return []
 
-    if (
-      args.action === "spawn" ||
-      args.action === "send" ||
-      args.action === "resume" ||
-      args.action === "spawn_and_wait"
-    ) {
+    if (args.action === "spawn" || args.action === "spawn_and_wait") {
       const single = result as { run_id?: unknown; child_agent_id?: unknown }
       const runId = single.run_id
       if (typeof runId !== "string" || !runId) return []
@@ -123,15 +118,9 @@ export function extractSubagentChipItems(tool: ToolCall): SubagentChipItem[] {
     return out
   }
 
-  // `send` is state-dependent: it may steer the current attempt without
-  // creating anything, or resume a terminal thread into a fresh attempt. Do
-  // not guess before its result lands; once resolved, link to the authoritative
-  // run_id returned by the backend.
-  if (args.action === "send") return []
-
   // No result yet → pending placeholder(s) from arguments only.
   const startedAtMs = tool.startedAtMs
-  if (args.action === "spawn" || args.action === "resume" || args.action === "spawn_and_wait") {
+  if (args.action === "spawn" || args.action === "spawn_and_wait") {
     return [
       {
         kind: "pending",

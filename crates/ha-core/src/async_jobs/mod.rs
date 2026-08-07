@@ -45,7 +45,10 @@ pub use db::{JobsDB, PurgeStats};
 // through it. `synthetic_started_result` stays re-exported as a pure formatter.
 pub use manager::{JobManager, KnowledgeImportCounts};
 pub use spawn::synthetic_started_result;
-pub use types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, JobStatus};
+pub use types::{
+    BackgroundJob, BackgroundJobSnapshot, JobCancelDisposition, JobCancelOutcome, JobKind,
+    JobOrigin, JobStatus,
+};
 
 static ASYNC_JOBS_DB: OnceLock<Arc<JobsDB>> = OnceLock::new();
 
@@ -62,17 +65,64 @@ pub(crate) fn get_async_jobs_db() -> Option<&'static Arc<JobsDB>> {
     ASYNC_JOBS_DB.get()
 }
 
-/// Best-effort cancellation for an async tool job. Returns the updated job
-/// snapshot when the job exists.
-pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> {
+/// Canonical best-effort cancellation for a background job.
+///
+/// The returned disposition is decided inside the same path that performs the
+/// first authoritative load and sends cancellation signals. Callers must not
+/// infer request acceptance from a separate snapshot, which races natural
+/// completion.
+pub(crate) fn cancel_job_with_outcome(job_id: &str) -> anyhow::Result<JobCancelOutcome> {
     let Some(db) = get_async_jobs_db() else {
-        return Ok(None);
+        return Ok(JobCancelOutcome::refused("jobs_db_unavailable"));
     };
     let Some(job) = db.load(job_id)? else {
-        return Ok(None);
+        return Ok(JobCancelOutcome::refused("not_found"));
     };
     if job.status.is_terminal() {
-        return Ok(Some(job));
+        return Ok(JobCancelOutcome::already_terminal(job));
+    }
+
+    // R5: a Group's cancellation claim must also be its terminal transition.
+    // `claim_group_cancel` and the join's `claim_group_completion` are peer
+    // single-statement CAS operations under SQLite's writer lock. Whichever
+    // wins owns the outcome: only a winning cancel may signal children, while
+    // a completed winner remains completed and is reported AlreadyTerminal.
+    if job.kind == JobKind::Group {
+        const GROUP_CANCEL_MSG: &str = "Cancelled by user";
+        if !db.claim_group_cancel(job_id, chrono::Utc::now().timestamp(), GROUP_CANCEL_MSG)? {
+            return Ok(cancel_claim_failure(db.load(job_id)?));
+        }
+
+        // The terminal fence is durable before any child cancellation. This
+        // order is load-bearing: request_cancel_run may synchronously settle a
+        // child, whose projection immediately re-enters try_complete_group.
+        wait::notify_completion(job_id);
+        events::emit_completed(
+            job_id,
+            JobKind::Group,
+            &job.tool_name,
+            JobStatus::Cancelled.as_str(),
+            job.session_id.as_deref(),
+        );
+        if let Ok(children) = db.group_children(job_id) {
+            for child in &children {
+                if let Some(run_id) = &child.subagent_run_id {
+                    crate::subagent::request_cancel_run(run_id);
+                }
+            }
+        }
+        return Ok(JobCancelOutcome::requested(db.load(job_id)?));
+    }
+
+    // Atomically decide whether cancellation was accepted while the row was
+    // still active. Unlike Group's terminal CAS above, this flag write does NOT
+    // fence a non-Group finalizer: an accepted request may still race to a
+    // natural terminal result before its runner observes the flag. `Requested`
+    // therefore means "accepted against an active row", not "cancelled won the
+    // terminal state". A separate load-before/write-after check could not even
+    // make that narrower claim safely.
+    if !db.set_cancel_requested(job_id)? {
+        return Ok(cancel_claim_failure(db.load(job_id)?));
     }
 
     // R6: a `kind=subagent` projection's cancel routes to the subagent cancel
@@ -92,7 +142,7 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
         if let Some(run_id) = &job.subagent_run_id {
             crate::subagent::request_cancel_run(run_id);
         }
-        return db.load(job_id);
+        return Ok(JobCancelOutcome::requested(db.load(job_id)?));
     }
 
     if job.kind == JobKind::Monitor {
@@ -114,50 +164,7 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
                 job.session_id.as_deref(),
             );
         }
-        return db.load(job_id);
-    }
-
-    // R5: cancelling a `Group` marks the group terminal FIRST, THEN cancels each
-    // child. Order is load-bearing: `request_cancel_run`'s no-flag fallback
-    // stamps a child `Killed` *synchronously*, which flows through
-    // `update_subagent_status` → `try_complete_group` on this very thread — if
-    // the group were still `Running` at that point, the join's single-winner CAS
-    // would win and fire a merged injection for a batch the user just cancelled.
-    // Marking the group `Cancelled` first makes that CAS lose. The children's
-    // own terminal sync (Killed→Cancelled on their projections) still runs as
-    // usual. The group carries no run content, so a lifecycle message on its
-    // `error` column is fine (unlike a subagent projection).
-    if job.kind == JobKind::Group {
-        // Only emit terminal if THIS call actually transitioned the group — if
-        // the join coordinator already completed it (CAS won the race), the
-        // update no-ops and we must not emit a spurious second terminal event.
-        let cancelled_now = db
-            .update_terminal(
-                job_id,
-                JobStatus::Cancelled,
-                None,
-                None,
-                Some("Cancelled by user"),
-                chrono::Utc::now().timestamp(),
-            )
-            .unwrap_or(false);
-        if cancelled_now {
-            events::emit_completed(
-                job_id,
-                JobKind::Group,
-                &job.tool_name,
-                JobStatus::Cancelled.as_str(),
-                job.session_id.as_deref(),
-            );
-        }
-        if let Ok(children) = db.group_children(job_id) {
-            for child in &children {
-                if let Some(run_id) = &child.subagent_run_id {
-                    crate::subagent::request_cancel_run(run_id);
-                }
-            }
-        }
-        return db.load(job_id);
+        return Ok(JobCancelOutcome::requested(db.load(job_id)?));
     }
 
     // R7.1: a job still waiting in the in-memory scheduler queue has no runner
@@ -199,23 +206,11 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
             JobStatus::Cancelled.as_str(),
             job.session_id.as_deref(),
         );
-        return db.load(job_id);
+        return Ok(JobCancelOutcome::requested(db.load(job_id)?));
     }
 
-    // I4: persist the cross-process cancel flag FIRST — it now also covers a row
-    // still in the spawn window (`queued` in the DB but not yet handed to the
-    // scheduler queue) so it is cancelled once it runs and polls the flag. The
-    // in-memory token signal below only reaches a runner in THIS process. A
-    // runner owning this job in ANOTHER process observes the flag on its poll.
-    if let Err(e) = db.set_cancel_requested(job_id) {
-        app_warn!(
-            "async_jobs",
-            "cancel",
-            "Failed to set cancel_requested flag for {}: {}",
-            job_id,
-            e
-        );
-    }
+    // The durable cross-process flag was atomically claimed above. This token
+    // signal additionally reaches a runner owned by THIS process.
     let signalled = cancel::cancel_job(job_id);
 
     // R8: if this job is parked on a human approval, dismiss that dialog NOW
@@ -236,7 +231,7 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
         // Not running/cancelling (still `queued` in the spawn window, or it just
         // settled). The cancel flag set above cancels it once it runs; nothing
         // to force here.
-        return db.load(job_id);
+        return Ok(JobCancelOutcome::requested(db.load(job_id)?));
     }
     if !signalled {
         // No in-process runner owns this job id. Mark it terminal so callers
@@ -288,7 +283,22 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
             job.session_id.as_deref(),
         );
     }
-    db.load(job_id)
+    Ok(JobCancelOutcome::requested(db.load(job_id)?))
+}
+
+/// Compatibility wrapper for internal cleanup/legacy callers that only need
+/// the latest row. New model-facing control paths must consume
+/// [`cancel_job_with_outcome`] so request acceptance is not guessed.
+pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> {
+    Ok(cancel_job_with_outcome(job_id)?.job)
+}
+
+fn cancel_claim_failure(latest: Option<BackgroundJob>) -> JobCancelOutcome {
+    match latest {
+        Some(job) if job.status.is_terminal() => JobCancelOutcome::already_terminal(job),
+        Some(_) => JobCancelOutcome::refused("cancel_claim_refused"),
+        None => JobCancelOutcome::refused("not_found"),
+    }
 }
 
 /// Cancel every active (`running`/`cancelling`/`awaiting_approval`) job owned
@@ -538,4 +548,62 @@ pub(crate) fn replay_pending_job_injections() {
 pub(crate) fn replay_pending_jobs() {
     recover_interrupted_jobs();
     replay_pending_job_injections();
+}
+
+#[cfg(test)]
+mod cancel_outcome_tests {
+    use super::*;
+
+    fn running_job(id: &str) -> BackgroundJob {
+        BackgroundJob {
+            job_id: id.to_string(),
+            kind: JobKind::Tool,
+            subagent_run_id: None,
+            group_id: None,
+            session_id: Some("owner".to_string()),
+            agent_id: None,
+            tool_name: "exec".to_string(),
+            tool_call_id: None,
+            args_json: "{}".to_string(),
+            status: JobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: 1,
+            completed_at: None,
+            injected: false,
+            origin: "explicit".to_string(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        }
+    }
+
+    #[test]
+    fn terminal_update_winning_cancel_claim_reports_already_terminal() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = JobsDB::open(&dir.path().join("jobs.db")).expect("open jobs db");
+        db.insert(&running_job("race")).expect("insert running row");
+
+        // This first read mirrors the canonical path's optimistic snapshot.
+        let before = db.load("race").expect("load").expect("row");
+        assert!(!before.status.is_terminal());
+
+        // Natural completion wins SQLite's state transition before the
+        // status-guarded cancellation claim executes.
+        assert!(db
+            .update_terminal("race", JobStatus::Completed, Some("done"), None, None, 2,)
+            .expect("complete row"));
+        assert!(!db
+            .set_cancel_requested("race")
+            .expect("conditional cancellation claim"));
+
+        let latest = db.load("race").expect("reload");
+        let outcome = cancel_claim_failure(latest);
+        assert_eq!(outcome.disposition, JobCancelDisposition::AlreadyTerminal);
+        let latest = outcome.job.expect("terminal snapshot");
+        assert_eq!(latest.status, JobStatus::Completed);
+        assert_eq!(latest.result_preview.as_deref(), Some("done"));
+    }
 }

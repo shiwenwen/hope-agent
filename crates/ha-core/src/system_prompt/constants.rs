@@ -64,8 +64,8 @@ const TOOL_DESC_EXEC: &str = "\
   - For independent commands, make separate parallel exec calls";
 
 const TOOL_DESC_PROCESS: &str = "\
-- process: Manage legacy exec process sessions.\n\
-  - Actions: list, poll (get new output), log (full output), write (stdin), kill, clear, remove\n\
+- process: Manage current-chat-owned legacy exec process sessions.\n\
+  - Actions: list, poll (get new output), log (full output), kill, clear, remove\n\
   - Use only for process-session commands created with exec(background=true) or yield_ms; ordinary async exec jobs use job_status instead\n\
   - Running process output is streamed to the UI, and completed background processes can notify the conversation with <process-notification>\n\
   - Do not poll in a loop with sleep — use process(log) only when you need more detail";
@@ -164,8 +164,9 @@ const TOOL_DESC_UPDATE_CORE_MEMORY: &str = "\
   - Params: content (required), section (optional)";
 
 const TOOL_DESC_MANAGE_CRON: &str = "\
-- manage_cron: Create, list, update, or delete scheduled tasks.\n\
-  - Actions: create, list, get, update, delete, run_now\n\
+- manage_cron: Create, list, update, pause, resume, or delete scheduled tasks.\n\
+  - Actions: create, list, get, update, pause, resume, delete, run_now\n\
+  - pause/resume control the schedule lifecycle and future dispatches; they do not freeze or revive a currently executing run\n\
   - Use for reminders, scheduled follow-ups, and recurring nudges over time\n\
   - For requests like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with exec/date\n\
   - Cron expressions follow standard format (minute hour day month weekday)";
@@ -186,7 +187,9 @@ const TOOL_DESC_SUBAGENT: &str = "\
 - subagent: Spawn and manage sub-agents to delegate tasks.\n\
   - Actions: spawn, send, check, list, result, kill, kill_all, batch_spawn, wait_all, spawn_and_wait; resume/steer are compatibility aliases\n\
   - Sub-agents run asynchronously — results are auto-pushed as `<subagent-result>` user messages when complete\n\
-  - send: canonical thread follow-up; steer the active attempt or create a fresh immutable attempt after terminal completion while preserving prior conversation/workdir\n\
+  - send steers an active attempt or continues an eligible terminal thread\n\
+  - kill/kill_all request shutdown, not pause; confirm terminal state before reporting completion\n\
+  - Stopped, denied, or cancelled work requires a fresh spawn after an explicit user request\n\
   - spawn/batch_spawn `timeout_secs`: omit by default to use the parent Agent default (default 0/no timeout); set positive values only for explicitly bounded child tasks; 0 = no timeout; positives cap at 1800s\n\
   - spawn_and_wait: spawn + wait up to foreground_timeout (default 30s, max 120s). If completes in time, returns result inline. Otherwise auto-backgrounds — result injected later\n\
   - Inspect terminal_reason and partial side effects before resuming failures; never retry user-stopped or approval-denied attempts automatically";
@@ -426,3 +429,31 @@ pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("task_update", TOOL_DESC_TASK_UPDATE),
     ("task_list", TOOL_DESC_TASK_LIST),
 ];
+
+#[cfg(test)]
+mod runtime_control_contract_tests {
+    #[test]
+    fn subagent_prompt_description_matches_terminal_control_boundaries() {
+        let description = super::TOOL_DESC_SUBAGENT;
+        for contract in [
+            "continues an eligible terminal thread",
+            "shutdown, not pause",
+            "confirm terminal state",
+            "fresh spawn after an explicit user request",
+        ] {
+            assert!(description.contains(contract), "{contract}");
+        }
+    }
+
+    #[test]
+    fn cron_prompt_description_distinguishes_schedule_from_running_attempt() {
+        let description = super::TOOL_DESC_MANAGE_CRON;
+        for contract in [
+            "pause, resume",
+            "schedule lifecycle and future dispatches",
+            "do not freeze or revive a currently executing run",
+        ] {
+            assert!(description.contains(contract), "{contract}");
+        }
+    }
+}

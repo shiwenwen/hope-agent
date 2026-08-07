@@ -137,29 +137,26 @@ pub async fn send_user_team_message(
 /// `GET /api/team-templates`
 pub async fn list_team_templates() -> Result<Json<Vec<team::TeamTemplate>>, AppError> {
     let db = session_db()?;
-    Ok(Json(
-        run_blocking(move || team::templates::all_templates(&db)).await,
-    ))
+    Ok(Json(db.run(team::templates::all_templates).await))
 }
 
 /// `POST /api/teams/:id/pause`
 pub async fn pause_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppError> {
     let db = session_db()?;
-    run_blocking(move || team::coordinator::pause_team(db, &team_id)).await?;
-    Ok(Json(json!({ "status": "paused" })))
+    Ok(Json(team::coordinator::pause_team(db, &team_id).await?))
 }
 
 /// `POST /api/teams/:id/resume`
 pub async fn resume_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppError> {
-    team::coordinator::resume_team(session_db()?, &team_id).await?;
-    Ok(Json(json!({ "status": "resumed" })))
+    Ok(Json(
+        team::coordinator::resume_team(session_db()?, &team_id).await?,
+    ))
 }
 
 /// `POST /api/teams/:id/dissolve`
 pub async fn dissolve_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppError> {
     let db = session_db()?;
-    run_blocking(move || team::coordinator::dissolve_team(db, &team_id)).await?;
-    Ok(Json(json!({ "status": "dissolved" })))
+    Ok(Json(team::coordinator::dissolve_team(db, &team_id).await?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,7 +179,7 @@ pub async fn create_team(Json(body): Json<CreateTeamBody>) -> Result<Json<team::
     } else if let Some(ref tpl_name) = body.template {
         let templates = {
             let db = db.clone();
-            run_blocking(move || team::templates::all_templates(&db)).await
+            db.run(team::templates::all_templates).await
         };
         let tpl = templates
             .iter()

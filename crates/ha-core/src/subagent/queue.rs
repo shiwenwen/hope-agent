@@ -17,18 +17,20 @@
 //! - **Park**: [`enqueue`] holds the live [`SpawnParams`] (incl. attachments) in
 //!   RAM, like the tool-job queue pins `ToolExecContext`. Bounded by
 //!   [`MAX_QUEUED_SUBAGENTS`]; a full queue makes the caller hard-reject. The
-//!   cancel flag is registered HERE (at park) and REUSED on promotion, so a
+//!   cancel flag is registered during prepare, before park, and REUSED on
+//!   promotion, so a
 //!   cancel arriving in the park→launch window stays visible to the engine.
 //! - **Promote**: the scheduler wakes on [`wake_subagent_scheduler`] (fired from
 //!   the terminal status choke point — a slot may have freed) or a 5s fallback
 //!   tick, and for each session under its limit promotes the oldest queued spawn
-//!   via a guarded `Queued → Spawning` CAS, then
-//!   [`super::spawn::launch_subagent_run`].
+//!   through [`super::spawn::launch_subagent_run`]. Its guarded
+//!   `Queued → Running` CAS is the only execution claim and, for Team-owned
+//!   attempts, includes the durable roster fence in the same statement.
 //! - **Cancel**: [`super::request_cancel_run`] claims the parked entry via
 //!   [`remove_for_run`] — winning the queue mutex makes it authoritative, so it
 //!   stamps `Killed`. If the scheduler already dequeued it, the reused cancel
 //!   flag is tripped so the launched engine aborts. Together with the promote's
-//!   guarded CAS (a terminal row can't transition to `Spawning`), a cancelled
+//!   guarded CAS (a terminal row can't transition to `Running`), a cancelled
 //!   run can never be resurrected into a running child — the subagent analogue of
 //!   R7.1's atomic dequeue-claim.
 //! - **Session delete / incognito burn**: [`purge_for_session`] drops every
@@ -68,6 +70,9 @@ pub struct PendingSubagentSpawn {
     /// Retains the verified first-party UI approval surface while this child is
     /// queued. Promotion moves the same lease into the running task.
     pub reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
+    /// Team control-plane capability checked atomically by the final launch
+    /// claim. `None` for ordinary parent/workflow/internal runs.
+    pub team_fence: Option<super::spawn::TeamMemberLaunchFence>,
 }
 
 static QUEUE: LazyLock<Mutex<VecDeque<PendingSubagentSpawn>>> =
@@ -122,28 +127,6 @@ pub fn purge_for_session(session_id: &str) -> Vec<String> {
         } else {
             true
         }
-    });
-    removed
-}
-
-/// Drop parked spawns controlled by one exact owner. Model-facing `kill_all`
-/// uses this narrower form so sharing a parent chat with Workflow/Team/internal
-/// children never grants authority over their queue entries.
-pub fn purge_for_owner(
-    session_id: &str,
-    owner_kind: super::SubagentOwnerKind,
-    owner_id: &str,
-) -> Vec<String> {
-    let mut q = lock();
-    let mut removed = Vec::new();
-    q.retain(|pending| {
-        let owned = pending.params.parent_session_id == session_id
-            && pending.params.owner_kind == owner_kind
-            && pending.params.owner_id == owner_id;
-        if owned {
-            removed.push(pending.run_id.clone());
-        }
-        !owned
     });
     removed
 }
@@ -223,15 +206,9 @@ pub async fn run_subagent_scheduler() {
                 let Some(pending) = take_for_session(&session) else {
                     break;
                 };
-                // Guarded promote: flip `Queued → Spawning` atomically, then
-                // launch. A no-op CAS means a concurrent cancel/purge already
-                // stamped the row terminal — drop the spawn WITHOUT spending a
-                // slot (don't decrement `free`), so a killed run is never
-                // resurrected into a running child. The queue mutex already
-                // serialized this dequeue against cancel's `remove_for_run`; the
-                // CAS closes the remaining promote-vs-cancel window. This is the
-                // subagent analogue of R7.1's atomic dequeue-claim in
-                // `async_jobs::slots`.
+                // The final launch claim performs the guarded Queued -> Running
+                // transition and any Team capability check atomically. A false
+                // result spends no slot.
                 if promote(pending, &db, &registry).await {
                     free -= 1;
                 }
@@ -240,48 +217,21 @@ pub async fn run_subagent_scheduler() {
     }
 }
 
-/// Flip a parked spawn `Queued → Spawning` via a guarded CAS and launch it.
-/// Returns `false` (and does NOT launch) when the row is no longer `Queued` — a
-/// concurrent cancel already stamped it terminal, so launching would run a child
-/// the user already killed. Runs on the scheduler task.
+/// Atomically claim and launch a parked spawn. Runs on the scheduler task.
 async fn promote(
     pending: PendingSubagentSpawn,
     db: &std::sync::Arc<crate::session::SessionDB>,
     registry: &std::sync::Arc<super::SubagentCancelRegistry>,
 ) -> bool {
-    let transition = {
-        let db = db.clone();
-        let run_id = pending.run_id.clone();
-        db.run(move |db| {
-            db.try_transition_subagent_status(
-                &run_id,
-                SubagentStatus::Queued,
-                SubagentStatus::Spawning,
-            )
-        })
-        .await
-    };
-    match transition {
-        Ok(true) => {}
-        Ok(false) => return false, // lost to a concurrent cancel/purge
-        Err(e) => {
-            crate::app_warn!(
-                "subagent",
-                "scheduler",
-                "Failed to promote queued run {}: {}",
-                pending.run_id,
-                e
-            );
-            return false;
-        }
-    }
-    super::spawn::launch_subagent_run(
+    let result = super::spawn::launch_subagent_run(
         pending.params,
         pending.run_id,
         pending.child_session_id,
         pending.effective_group_id,
         pending.eval_guard,
         pending.reattachable_ui_guard,
+        SubagentStatus::Queued,
+        pending.team_fence,
         pending
             .enqueued_at
             .elapsed()
@@ -291,7 +241,18 @@ async fn promote(
         registry.clone(),
     )
     .await;
-    true
+    match result {
+        Ok(launched) => launched,
+        Err(error) => {
+            crate::app_warn!(
+                "subagent",
+                "scheduler",
+                "Failed to launch queued sub-agent: {}",
+                error
+            );
+            false
+        }
+    }
 }
 
 #[cfg(test)]
@@ -336,6 +297,7 @@ mod tests {
             enqueued_at: std::time::Instant::now(),
             eval_guard: None,
             reattachable_ui_guard: None,
+            team_fence: None,
         }
     }
 
@@ -352,31 +314,6 @@ mod tests {
         let purged = purge_for_session(s);
         assert_eq!(purged, vec!["rA2".to_string()]);
         assert!(purge_for_session(s).is_empty());
-    }
-
-    #[test]
-    fn owner_scoped_purge_preserves_workflow_queue_entries() {
-        let session = "queue-owner-scope";
-        assert!(enqueue(pending("ordinary", session)));
-        let mut workflow = pending("workflow", session);
-        workflow.params.owner_kind = crate::subagent::SubagentOwnerKind::Workflow;
-        workflow.params.owner_id = "workflow-run".into();
-        workflow.params.delivery_kind = crate::subagent::SubagentDeliveryKind::Workflow;
-        assert!(enqueue(workflow));
-
-        assert_eq!(
-            purge_for_owner(
-                session,
-                crate::subagent::SubagentOwnerKind::ParentSession,
-                session,
-            ),
-            vec!["ordinary".to_string()]
-        );
-        assert_eq!(
-            remove_for_run("workflow").map(|pending| pending.run_id),
-            Some("workflow".to_string()),
-            "ordinary kill_all must not take over a Workflow queue entry"
-        );
     }
 
     #[test]

@@ -1,18 +1,26 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use super::ToolExecContext;
 use crate::process_registry::{
-    derive_session_name, format_duration_compact, get_registry, now_ms, ProcessStatus,
+    derive_session_name, format_duration_compact, get_registry, now_ms, ProcessSession,
 };
 
-pub(crate) async fn tool_process(args: &Value) -> Result<String> {
+const NOT_CONTROLLED_MESSAGE: &str =
+    "Process session was not found or is not controlled by the current session";
+
+pub(crate) async fn tool_process(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+    let owner_session_id = ctx
+        .session_id
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))?;
 
     match action {
-        "list" => tool_process_list().await,
+        "list" => tool_process_list(owner_session_id).await,
         "poll" => {
             let session_id = require_session_id(args)?;
             let timeout_ms = args
@@ -20,7 +28,7 @@ pub(crate) async fn tool_process(args: &Value) -> Result<String> {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0)
                 .min(120_000);
-            tool_process_poll(&session_id, timeout_ms).await
+            tool_process_poll(&session_id, owner_session_id, timeout_ms).await
         }
         "log" => {
             let session_id = require_session_id(args)?;
@@ -32,22 +40,34 @@ pub(crate) async fn tool_process(args: &Value) -> Result<String> {
                 .get("limit")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as usize);
-            tool_process_log(&session_id, offset, limit).await
+            tool_process_log(&session_id, owner_session_id, offset, limit).await
         }
         "write" => {
             let session_id = require_session_id(args)?;
             let data = args.get("data").and_then(|v| v.as_str()).unwrap_or("");
-            tool_process_write(&session_id, data).await
+            tool_process_write(&session_id, owner_session_id, data).await
         }
         "kill" => {
             let session_id = require_session_id(args)?;
-            tool_process_kill(&session_id).await
+            tool_process_kill(&session_id, owner_session_id).await
         }
         "clear" | "remove" => {
             let session_id = require_session_id(args)?;
-            tool_process_remove(&session_id).await
+            tool_process_remove(&session_id, owner_session_id).await
         }
         _ => Err(anyhow::anyhow!("Unknown process action: {}", action)),
+    }
+}
+
+fn process_is_owned_by(session: &ProcessSession, owner_session_id: &str) -> bool {
+    session.parent_session_id.as_deref() == Some(owner_session_id)
+}
+
+fn ensure_process_owner(session: Option<&ProcessSession>, owner_session_id: &str) -> Result<()> {
+    if session.is_some_and(|session| process_is_owned_by(session, owner_session_id)) {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))
     }
 }
 
@@ -58,9 +78,14 @@ fn require_session_id(args: &Value) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("session_id is required for this action"))
 }
 
-async fn tool_process_list() -> Result<String> {
+async fn tool_process_list(owner_session_id: &str) -> Result<String> {
     let registry = get_registry().lock().await;
-    let mut sessions: Vec<_> = registry.list_all().into_iter().cloned().collect();
+    let mut sessions: Vec<_> = registry
+        .list_all()
+        .into_iter()
+        .filter(|session| process_is_owned_by(session, owner_session_id))
+        .cloned()
+        .collect();
     sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
 
     if sessions.is_empty() {
@@ -86,22 +111,25 @@ async fn tool_process_list() -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-async fn tool_process_poll(session_id: &str, timeout_ms: u64) -> Result<String> {
+async fn tool_process_poll(
+    session_id: &str,
+    owner_session_id: &str,
+    timeout_ms: u64,
+) -> Result<String> {
     // Wait for new output or timeout
     if timeout_ms > 0 {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
         loop {
             {
                 let registry = get_registry().lock().await;
-                if let Some(session) = registry.get_session(session_id) {
-                    if session.exited
-                        || !session.pending_stdout.is_empty()
-                        || !session.pending_stderr.is_empty()
-                    {
-                        break;
-                    }
-                } else {
-                    return Err(anyhow::anyhow!("No session found for {}", session_id));
+                let session = registry.get_session(session_id);
+                ensure_process_owner(session, owner_session_id)?;
+                let session = session.expect("owner check requires a session");
+                if session.exited
+                    || !session.pending_stdout.is_empty()
+                    || !session.pending_stderr.is_empty()
+                {
+                    break;
                 }
             }
             if std::time::Instant::now() >= deadline {
@@ -112,11 +140,12 @@ async fn tool_process_poll(session_id: &str, timeout_ms: u64) -> Result<String> 
     }
 
     let mut registry = get_registry().lock().await;
+    ensure_process_owner(registry.get_session(session_id), owner_session_id)?;
     let (stdout, stderr) = registry.drain_output(session_id);
 
     let session = registry
         .get_session(session_id)
-        .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
+        .ok_or_else(|| anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))?;
 
     let mut output = String::new();
     if !stdout.is_empty() {
@@ -153,13 +182,15 @@ async fn tool_process_poll(session_id: &str, timeout_ms: u64) -> Result<String> 
 
 async fn tool_process_log(
     session_id: &str,
+    owner_session_id: &str,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<String> {
     let registry = get_registry().lock().await;
     let session = registry
         .get_session(session_id)
-        .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
+        .filter(|session| process_is_owned_by(session, owner_session_id))
+        .ok_or_else(|| anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))?;
 
     let log_text = &session.aggregated_output;
     if session.exited {
@@ -194,12 +225,17 @@ async fn tool_process_log(
     Ok(result)
 }
 
-async fn tool_process_write(session_id: &str, _data: &str) -> Result<String> {
+async fn tool_process_write(
+    session_id: &str,
+    owner_session_id: &str,
+    _data: &str,
+) -> Result<String> {
     // TODO: Phase 3 will implement stdin writing via PTY/process supervisor
     let registry = get_registry().lock().await;
     let session = registry
         .get_session(session_id)
-        .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
+        .filter(|session| process_is_owned_by(session, owner_session_id))
+        .ok_or_else(|| anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))?;
 
     if session.exited {
         return Err(anyhow::anyhow!("Session {} has already exited", session_id));
@@ -211,39 +247,145 @@ async fn tool_process_write(session_id: &str, _data: &str) -> Result<String> {
     ))
 }
 
-async fn tool_process_kill(session_id: &str) -> Result<String> {
-    let mut registry = get_registry().lock().await;
-    let session = registry
-        .get_session(session_id)
-        .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
+async fn tool_process_kill(session_id: &str, owner_session_id: &str) -> Result<String> {
+    let session = {
+        let registry = get_registry().lock().await;
+        registry
+            .get_session(session_id)
+            .filter(|session| process_is_owned_by(session, owner_session_id))
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))?
+    };
 
     if session.exited {
         crate::process_notification::mark_observed(session_id);
         return Ok(format!("Session {} has already exited.", session_id));
     }
 
-    crate::process_notification::mark_observed(session_id);
-    if let Some(pid) = session.pid {
-        // Kill the process and its children (Unix: SIGKILL to pgid;
-        // Windows: taskkill /F /T).
-        crate::platform::terminate_process_tree(pid);
-    }
+    let pid = process_pid_for_termination(session_id, &session)?;
+    // Request termination of the process and its children (Unix: SIGKILL to
+    // pgid; Windows: taskkill /F /T). The platform primitive is void and
+    // best-effort, so it is never proof that the target exited.
+    crate::blocking::run_blocking(move || crate::platform::terminate_process_tree(pid)).await;
 
-    registry.mark_exited(
+    // Only the exec/PTY/sandbox waiter writes terminal registry truth. A failed
+    // or delayed signal therefore remains Running here instead of being hidden
+    // behind a fabricated Failed state.
+    let observed = {
+        let registry = get_registry().lock().await;
+        registry
+            .get_session(session_id)
+            .filter(|session| process_is_owned_by(session, owner_session_id))
+            .cloned()
+    };
+    if observed.as_ref().is_some_and(|session| session.exited) {
+        crate::process_notification::mark_observed(session_id);
+    }
+    Ok(process_kill_response_after_request(
         session_id,
-        None,
-        Some("SIGKILL".to_string()),
-        ProcessStatus::Failed,
-    );
-    Ok(format!("Terminated session {}.", session_id))
+        observed.as_ref(),
+    ))
 }
 
-async fn tool_process_remove(session_id: &str) -> Result<String> {
-    crate::process_notification::mark_observed(session_id);
+fn process_pid_for_termination(session_id: &str, session: &ProcessSession) -> Result<u32> {
+    session.pid.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Termination unavailable for session {}: no process id is available",
+            session_id
+        )
+    })
+}
+
+fn process_kill_response_after_request(
+    session_id: &str,
+    observed: Option<&ProcessSession>,
+) -> String {
+    match observed {
+        Some(session) if session.exited => format!(
+            "Termination was requested for session {}; the process waiter now records terminal status {}.",
+            session_id, session.status
+        ),
+        Some(_) => format!(
+            "Termination requested for session {}. Exit is not yet confirmed; use process(action=\"poll\", session_id=\"{}\") to observe the real terminal state.",
+            session_id, session_id
+        ),
+        None => format!(
+            "Termination was requested for session {}, but the registry row is no longer available; terminal state is unconfirmed.",
+            session_id
+        ),
+    }
+}
+
+async fn tool_process_remove(session_id: &str, owner_session_id: &str) -> Result<String> {
     let mut registry = get_registry().lock().await;
+    ensure_process_owner(registry.get_session(session_id), owner_session_id)?;
+    crate::process_notification::mark_observed(session_id);
     if registry.remove_session(session_id).is_some() {
         Ok(format!("Removed session {}.", session_id))
     } else {
-        Err(anyhow::anyhow!("No session found for {}", session_id))
+        Err(anyhow::anyhow!(NOT_CONTROLLED_MESSAGE))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(owner: Option<&str>) -> ProcessSession {
+        ProcessSession {
+            id: "process-1".into(),
+            parent_session_id: owner.map(str::to_string),
+            command: "echo test".into(),
+            pid: None,
+            cwd: ".".into(),
+            started_at: 0,
+            exited: false,
+            exit_code: None,
+            exit_signal: None,
+            status: crate::process_registry::ProcessStatus::Running,
+            backgrounded: true,
+            aggregated_output: String::new(),
+            tail: String::new(),
+            truncated: false,
+            max_output_chars: 1024,
+            pending_stdout: String::new(),
+            pending_stderr: String::new(),
+        }
+    }
+
+    #[test]
+    fn process_owner_check_is_exact_and_orphans_fail_closed() {
+        let owned = session(Some("session-1"));
+        let orphan = session(None);
+        assert!(process_is_owned_by(&owned, "session-1"));
+        assert!(!process_is_owned_by(&owned, "session-2"));
+        assert!(!process_is_owned_by(&orphan, "session-1"));
+        assert!(ensure_process_owner(Some(&owned), "session-2")
+            .unwrap_err()
+            .to_string()
+            .contains("not found or is not controlled"));
+    }
+
+    #[test]
+    fn process_kill_pidless_process_cannot_claim_a_termination_request() {
+        let process = session(Some("session-1"));
+        let error = process_pid_for_termination("process-1", &process)
+            .expect_err("no pid means no signal can be sent");
+        assert!(error.to_string().contains("Termination unavailable"));
+    }
+
+    #[test]
+    fn process_kill_response_waits_for_waiter_terminal_truth() {
+        let running = session(Some("session-1"));
+        let pending = process_kill_response_after_request("process-1", Some(&running));
+        assert!(pending.contains("Termination requested"));
+        assert!(pending.contains("Exit is not yet confirmed"));
+        assert!(!pending.contains("Terminated session"));
+
+        let mut exited = running;
+        exited.exited = true;
+        exited.status = crate::process_registry::ProcessStatus::Failed;
+        let terminal = process_kill_response_after_request("process-1", Some(&exited));
+        assert!(terminal.contains("process waiter now records terminal status failed"));
     }
 }

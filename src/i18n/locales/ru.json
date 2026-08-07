@@ -996,7 +996,7 @@
       "title": "Требуется расширение Chrome"
     },
     "conversationEmpty": "В этом разговоре нет сообщений",
-    "pendingCancelForceInsert": "Отменить вставку этого раунда",
+    "pendingCancelForceInsert": "Изменить на отправку после ответа",
     "pendingSaving": "Сохранение",
     "pendingSavingTip": "Сообщение и вложения сохраняются в восстанавливаемую очередь.",
     "pendingInserting": "Вставка",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "Отправить сейчас",
     "pendingFallbackAfterReply": "Отправить после ответа",
     "pendingFallbackAfterReplyTip": "Точка завершения инструмента не обнаружена и будет отправлена после завершения текущего ответа.",
-    "pendingForceInsertTip": "Он будет ждать завершения выполнения выполняемого инструмента, а затем вставит его в модель, не прерывая работу текущего инструмента.",
+    "pendingForceInsertTip": "Сообщение будет вставлено для модели после завершения всех инструментов, выполняющихся в этом пакете, без их прерывания; если в этом ходе больше не будет границы инструментов, оно отправится после ответа.",
+    "pendingInsert": "Вставить",
     "pendingInserted": "вставлен",
     "pendingInsertedTip": "Он был вставлен в модель после завершения этого этапа оснастки.",
-    "pendingQueuedShort": "Очередь",
+    "pendingHeldAfterStop": "Отправка приостановлена",
+    "pendingHeldAfterStopTip": "Текущий ответ остановлен, поэтому это сообщение не будет отправлено автоматически.",
+    "pendingMoreActions": "Другие действия с сообщением",
+    "pendingQueuedShort": "Отправить после ответа",
     "pendingQueuedTip": "Оно добавлено в очередь ожидания и будет отправлено после завершения текущего ответа.",
     "pendingQueueTitle": "Для отправки",
-    "pendingWaitingToolBoundary": "Дождитесь завершения работы инструмента",
-    "pendingWaitingToolBoundaryTip": "Дождитесь завершения последнего вызова инструмента; если инструмент больше не вызывается в этом раунде, он будет отправлен после завершения ответа.",
+    "pendingWaitingToolBoundary": "Ожидание вставки",
+    "pendingWaitingToolBoundaryTip": "Ожидание завершения всех инструментов, выполняющихся в этом пакете, перед вставкой; если в этом ходе больше не будет границы инструментов, сообщение отправится после ответа.",
     "processNotification": "процесс завершен",
     "rightPanel": {
       "collapse": "Свернуть правую панель",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "Обработано"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "закрыть {{count}} агентов",
+          "close_other": "закрыть {{count}} агентов",
+          "closeAll": "закрыть всех агентов",
+          "message_one": "отправить сообщение {{count}} агентам",
+          "message_other": "отправить сообщение {{count}} агентам",
+          "observe_one": "проверить {{count}} агентов",
+          "observe_other": "проверить {{count}} агентов",
+          "resume_one": "возобновить {{count}} агентов",
+          "resume_other": "возобновить {{count}} агентов"
+        },
+        "cron": {
+          "pause_one": "приостановить {{count}} расписаний",
+          "pause_other": "приостановить {{count}} расписаний",
+          "resume_one": "возобновить {{count}} расписаний",
+          "resume_other": "возобновить {{count}} расписаний"
+        },
+        "job": {
+          "cancel_one": "отменить {{count}} задач",
+          "cancel_other": "отменить {{count}} задач"
+        },
+        "process": {
+          "close_one": "закрыть {{count}} процессов",
+          "close_other": "закрыть {{count}} процессов"
+        },
+        "team": {
+          "pause_one": "приостановить {{count}} команд",
+          "pause_other": "приостановить {{count}} команд",
+          "resume_one": "возобновить {{count}} команд",
+          "resume_other": "возобновить {{count}} команд"
+        },
+        "workflow": {
+          "cancel_one": "отменить {{count}} процессов",
+          "cancel_other": "отменить {{count}} процессов",
+          "pause_one": "приостановить {{count}} процессов",
+          "pause_other": "приостановить {{count}} процессов",
+          "resume_one": "возобновить {{count}} процессов",
+          "resume_other": "возобновить {{count}} процессов"
+        }
+      },
+      "aggregate": {
+        "failed_one": "с ошибкой: {{count}}",
+        "failed_other": "с ошибкой: {{count}}",
+        "pending_one": "ожидается: {{count}}",
+        "pending_other": "ожидается: {{count}}",
+        "refused_one": "отклонено: {{count}}",
+        "refused_other": "отклонено: {{count}}",
+        "requested_one": "запрошено: {{count}}",
+        "requested_other": "запрошено: {{count}}",
+        "resumed_one": "возобновлено: {{count}}",
+        "resumed_other": "возобновлено: {{count}}",
+        "terminal_one": "завершено: {{count}}",
+        "terminal_other": "завершено: {{count}}"
+      },
+      "allTargets": "Все агенты",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} уже завершены",
+        "alreadyTerminal_other": "{{count}} уже завершены",
+        "refused_one": "{{count}} отклонены",
+        "refused_other": "{{count}} отклонены"
+      },
+      "failureDetails": "Ошибки возобновления",
+      "state": {
+        "accepted": "Запрошено · {{action}}",
+        "alreadyTerminal_one": "{{count}} целей уже были завершены",
+        "alreadyTerminal_other": "{{count}} целей уже были завершены",
+        "completed": "Завершено · {{action}}",
+        "failed": "Ошибка · {{action}}",
+        "noAgentsToClose": "Нет агентов, требующих закрытия",
+        "noResumeNeeded": "Команда уже завершила работу · возобновление не требуется",
+        "partial": "Частично завершено · {{action}}",
+        "refused": "Отклонено · {{action}}",
+        "running": "Выполняется · {{action}}"
+      }
     },
     "skill": {
       "completed": "Загруженный навык: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "На паузе",
     "progress": "Прогресс",
     "resume": "Возобновить",
+    "resumeFeedback": {
+      "counts": "возобновлено: {{resumed}} · с ошибкой: {{failed}}",
+      "noOpDescription": "Все участники команды уже завершили работу; новые попытки не запускались.",
+      "noOpTitle": "Возобновление не требуется",
+      "partialTitle": "Команда возобновлена частично",
+      "refusedTitle": "Возобновление команды отклонено",
+      "resumedTitle": "Команда возобновлена",
+      "resuming": "Возобновление…"
+    },
     "review": "Проверка",
     "reviewer": "Рецензент",
     "send": "Отправить",

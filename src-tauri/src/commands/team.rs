@@ -3,6 +3,27 @@ use crate::AppState;
 use ha_core::team;
 use tauri::State;
 
+/// Tauri mirrors the HTTP resume wire, including partial/refused outcomes.
+/// These are domain results, not transport errors: callers must inspect
+/// `disposition` and the durable `team_status` before presenting success.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeTeamResult {
+    pub status: String,
+    pub team_status: String,
+    pub disposition: String,
+    pub team_id: String,
+    pub resumed_member_count: usize,
+    pub failed_member_count: usize,
+    pub resumed_members: Vec<serde_json::Value>,
+    pub failures: Vec<serde_json::Value>,
+    pub completed_during_pause_count: usize,
+    pub completed_members: Vec<serde_json::Value>,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
+}
+
 #[tauri::command]
 pub async fn list_teams(
     session_id: Option<String>,
@@ -115,8 +136,7 @@ pub async fn send_user_team_message(
 pub async fn list_team_templates(
     state: State<'_, AppState>,
 ) -> Result<Vec<team::TeamTemplate>, CmdError> {
-    let db = state.session_db.clone();
-    Ok(ha_core::blocking::run_blocking(move || team::templates::all_templates(&db)).await)
+    Ok(state.session_db.run(team::templates::all_templates).await)
 }
 
 #[tauri::command]
@@ -134,7 +154,7 @@ pub async fn create_team(
     } else if let Some(ref tpl_name) = template {
         let templates = {
             let db = state.session_db.clone();
-            ha_core::blocking::run_blocking(move || team::templates::all_templates(&db)).await
+            db.run(team::templates::all_templates).await
         };
         let tpl = templates
             .iter()
@@ -203,23 +223,21 @@ pub async fn delete_team_template(
 
 #[tauri::command]
 pub async fn pause_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    let db = state.session_db.clone();
-    ha_core::blocking::run_blocking(move || team::coordinator::pause_team(&db, &team_id))
-        .await
-        .map_err(Into::into)
+    team::coordinator::pause_team(&state.session_db, &team_id).await?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn resume_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    team::coordinator::resume_team(&state.session_db, &team_id)
-        .await
-        .map_err(Into::into)
+pub async fn resume_team(
+    team_id: String,
+    state: State<'_, AppState>,
+) -> Result<ResumeTeamResult, CmdError> {
+    let result = team::coordinator::resume_team(&state.session_db, &team_id).await?;
+    Ok(serde_json::from_value(result)?)
 }
 
 #[tauri::command]
 pub async fn dissolve_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    let db = state.session_db.clone();
-    ha_core::blocking::run_blocking(move || team::coordinator::dissolve_team(&db, &team_id))
-        .await
-        .map_err(Into::into)
+    team::coordinator::dissolve_team(&state.session_db, &team_id).await?;
+    Ok(())
 }

@@ -1,17 +1,15 @@
-use anyhow::Result;
-use serde_json::json;
-use std::sync::Arc;
-
 use super::events::emit_team_event;
 use super::types::*;
 use crate::session::SessionDB;
+use anyhow::Result;
+use serde_json::json;
 
 /// Return user-managed team templates from the DB.
 ///
 /// Built-in templates were removed in favor of user-configured presets via the
 /// Settings → Teams panel (see AGENTS.md). An empty vector means the user has
 /// not configured any preset — callers should fall back to inline `members=[...]`.
-pub fn all_templates(db: &Arc<SessionDB>) -> Vec<TeamTemplate> {
+pub fn all_templates(db: &SessionDB) -> Vec<TeamTemplate> {
     db.list_team_templates().unwrap_or_default()
 }
 

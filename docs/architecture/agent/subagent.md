@@ -14,7 +14,7 @@
 
 系统用几个关键设计撑起这些诉求：
 
-1. **隔离子会话 + 后台任务**。每个子 Agent 跑在一个通过 `create_session_with_parent` 新建的隔离会话里，拥有独立的对话历史与工作目录；执行体是一个 `tokio::spawn` 的后台任务，父 Agent 拿到 `run_id` 后立即返回。
+1. **隔离子会话 + 可分阶段启动的后台任务**。每个子 Agent 跑在一个通过 `create_session_with_parent` 新建的隔离会话里，拥有独立的对话历史与工作目录；普通入口 prepare 后立即 launch，执行体是 `tokio::spawn` 后台任务，父 Agent 拿到 `run_id` 后返回。Team 等需要先绑定控制面身份的入口可持有不可复制的 `PreparedSubagentSpawn`，在 durable attach 成功前绝不入队、发 hook 或启动执行。
 
 2. **持久化状态机是唯一真相源**。`subagent_runs` 表里每一行是一次不可变的执行尝试（attempt），八态状态机（见下）记录它的生命周期。内存里的取消 flag、邮箱、注入队列都只是**进程内加速通道**；权威判定一律回落 SQLite。
 
@@ -36,10 +36,10 @@ flowchart TB
         P[父 Agent 主对话] -->|subagent 工具| T[tools/subagent.rs<br/>12 个 action]
     end
     subgraph ORCH[编排与状态]
-        T -->|spawn / resume| SP[spawn.rs<br/>校验 · 物化 run 行]
+        T -->|spawn / resume| SP[spawn.rs<br/>校验 · prepare child session/run/cancel]
         SP -->|撞并发上限| Q[queue.rs<br/>Queued 排队]
-        SP -->|有槽位| LR[launch_subagent_run]
-        Q -->|调度器提升| LR
+        SP -->|有槽位| LR[launch_subagent_run<br/>原子 claim Running]
+        Q -->|调度器原子 claim| LR
     end
     subgraph EXEC[隔离子会话执行]
         LR --> EX[execute_subagent<br/>run_chat_engine]
@@ -62,7 +62,7 @@ flowchart TB
 |------|------|
 | `subagent/mod.rs` | 模块入口、深度 / 并发 / 超时 / 截断常量、进程级全局静态量、`request_cancel_run` 统一取消入口、re-exports |
 | `subagent/types.rs` | `SubagentRun` / `SubagentThread` / `SpawnParams`、Owner / Delivery / ThreadState / TerminalReason 枚举、`SubagentStatus`、前端事件类型 |
-| `subagent/spawn.rs` | `spawn_subagent` / `resume_subagent` 入口（校验 → 物化 → 排队 \| `launch_subagent_run`）+ `execute_subagent` 后台执行 + 父交付分发 |
+| `subagent/spawn.rs` | `spawn_subagent` / `resume_subagent` 入口；`prepare_subagent` → `launch_prepared_subagent` 两阶段原语、最终执行 claim、无执行终态清理、`execute_subagent` 后台执行与父交付分发 |
 | `subagent/queue.rs` | 并发排队：`PendingSubagentSpawn` 内存等待队列 + per-session 提升调度器 `run_subagent_scheduler` |
 | `subagent/injection.rs` | `inject_and_run_parent` 结果回注 + `wait_for_session_idle` + `PendingInjection` 重试队列 + push message 构建 |
 | `subagent/cancel.rs` | `SubagentCancelRegistry`：进程内 `AtomicBool` 取消 flag 注册表 |
@@ -80,7 +80,7 @@ flowchart TB
 stateDiagram-v2
     [*] --> Queued: 撞并发上限
     [*] --> Spawning: 有槽位
-    Queued --> Spawning: 调度器提升
+    Queued --> Running: 调度器 claim
     Spawning --> Running
     Running --> Completed
     Running --> Error
@@ -91,9 +91,15 @@ stateDiagram-v2
     Running --> Interrupted: 进程重启 / runner 丢失
 ```
 
-- **`Queued`**：撞到单会话并发上限时入队等待。它是**非终态、不持槽位**——被活跃计数 `count_active_subagent_runs` 的 `status IN ('spawning','running')` 谓词刻意排除。若不排除，排队项会撑高自己所在会话的活跃计数，导致「永远达不到腾出槽位的条件」而死锁。调度器在槽位空出时把它提升为 `Spawning` 并真正发射。
+- **`Queued`**：撞到单会话并发上限时入队等待。它是**非终态、不持槽位**——被活跃计数 `count_active_subagent_runs` 的 `status IN ('spawning','running')` 谓词刻意排除。若不排除，排队项会撑高自己所在会话的活跃计数，导致「永远达不到腾出槽位的条件」而死锁。调度器在槽位空出时用 guarded `Queued → Running` CAS 取得唯一执行权；Team 排队项把 roster fence 带到同一条 claim。
 - **终态**：`Completed | Error | Timeout | Killed | Interrupted` 的 `is_terminal()` 均为 `true`；`Queued | Spawning | Running` 为非终态。
 - **`Interrupted`**：基础设施级终态，不伪装成模型错误。启动恢复把上个进程遗留的 live attempt 原子改为该状态，并保留稳定的 `terminal_reason = process_interrupted`，供续跑建议与审计使用。
+
+### Prepare → launch 执行边界
+
+`prepare_subagent` 只完成结构校验、Agent lifecycle admission、child session/workdir、`subagent_threads` / `subagent_runs` 持久化、可选后台任务投影与 cancel flag 注册，返回不可 Clone 的 prepared handle；此时没有 queue entry、mailbox、`SubagentStart`、事件或 executor。调用者只有两条合法收尾路径：`launch_prepared_subagent`，或 `discard_prepared_subagent` 将 run 无执行地收敛为 Killed 并清 cancel/mailbox/queue。
+
+最终 launch 先检查 cancel，再以 guarded `Queued|Spawning → Running` CAS 取得执行权，成功后再次检查 cancel，之后才注册 mailbox、发事件/hook 和 `tokio::spawn`；task 内在任何 config/provider/chat-engine/LLM/tool 工作前再观察一次 cancel。Team fence 把 `Team=Active + member=Working + exact run/session` 加进同一个 SQL claim，不依赖 read-before-write。最终 claim 若因 SQLite/I/O 错误返回，launcher 在传播原始错误前 best-effort 调用同一无执行收敛路径，避免已持久化的 `Spawning` run、cancel token 与并发占位残留；Team 调用方随后按 exact run/session fence 恢复 roster。prepare 与 enqueue 之间若已被取消，enqueue 后立即复查同一 flag：赢得 queue mutex 就本地终态化，若 scheduler 已取走则由其 launch precheck 收敛，因此无槽位时也不会遗留 phantom Queued run。
 
 ### Thread / Attempt 身份与单写者围栏
 
@@ -244,14 +250,18 @@ flowchart TD
     E1 --> F[create_session_with_parent<br/>建隔离子会话 · 分配 worktree/cwd]
     EQ --> F
     F --> G[INSERT run 行 status=initial_status<br/>按 gate 建单向 background_jobs 投影]
-    G --> SQ{should_queue?}
-    SQ -->|是| QQ[queue::enqueue<br/>注册 cancel flag · 返回 run_id]
+    G --> GP[prepare 注册 cancel flag<br/>返回不可复制的 prepared handle]
+    GP --> SQ{should_queue?}
+    SQ -->|是| QQ[queue::enqueue 同一 prepared payload<br/>立即复查 cancel flag · 返回 run_id]
     SQ -->|否| H[launch_subagent_run]
-    H --> H2[注册 cancel flag + mailbox slot<br/>replay 已 accepted 的 steer]
+    QQ -->|调度器获得槽位| H
+    H --> HC{cancel 未置位且 guarded CAS<br/>Queued|Spawning → Running 成功?}
+    HC -->|否| HX[无执行地收敛终态并清理]
+    HC -->|是| H2[注册 mailbox slot<br/>replay 已 accepted 的 steer]
     H2 --> J[emit spawned + fire SubagentStart hook]
     J --> K[tokio::spawn 后台任务 → 返回 run_id]
 
-    K --> M[status = Running · 写子会话 user 消息]
+    K --> M[再次检查 cancel · 写子会话 user 消息]
     M --> N[timeout 包裹 · catch_unwind]
     N --> O[execute_subagent → run_chat_engine]
     O --> P{结果}
@@ -273,7 +283,7 @@ flowchart TD
     ZC --> ZD
 ```
 
-`launch_subagent_run` 是发射尾（注册 cancel flag / mailbox、replay steer、emit `spawned`、fire `SubagentStart`、`tokio::spawn`），被 under-limit 直发路径与调度器提升路径**共用**。
+`launch_subagent_run` 是唯一发射尾：先复用 prepare 阶段注册的 cancel flag 并执行 guarded `Queued|Spawning → Running` claim，claim 成功后才注册 mailbox、replay steer、emit `spawned`、fire `SubagentStart` 与 `tokio::spawn`。under-limit 直发路径与调度器提升路径**共用**这条边界。
 
 ### execute_subagent 内部逻辑
 
@@ -383,13 +393,13 @@ sequenceDiagram
 | 组件 | 实现 |
 |------|------|
 | **队列态** | `subagent/queue.rs`：`static QUEUE: Mutex<VecDeque<PendingSubagentSpawn>>` + `SCHED_NOTIFY: Notify`。`PendingSubagentSpawn` 在内存钉住 live `SpawnParams`、`run_id`、`child_session_id`、`effective_group_id` 与 eval / UI 租约。上限 256，满则 `enqueue` 返 `false` → 调用方硬拒 |
-| **spawn 拆分** | `spawn_subagent` = 结构校验 → 并发决策 `should_queue = active_count >= max_concurrent`（+ 队列满硬拒）→ `initial_status = if should_queue { Queued } else { Spawning }` → 物化（子会话 + run 行 + 投影，均带 `initial_status`）→ `if should_queue { 注册 cancel flag; queue::enqueue; return run_id }` 否则 `launch_subagent_run` |
-| **调度器** | `run_subagent_scheduler()`（进程级、`AtomicBool` 幂等）：`select!` 等 `SCHED_NOTIFY` + 5s 兜底 tick；per-session 取最旧 `Queued`、按各自会话的 `max_concurrent` 与实时 `count_active_subagent_runs` 决定能否提升；提升用 **guarded CAS** `try_transition_subagent_status(Queued→Spawning)`——no-op（行已被并发 cancel 标终态）即**不 launch、不耗槽位**，否则 `launch_subagent_run`。在 `app_init` 两条后台任务路径里随工具调度器一起 spawn |
+| **spawn 拆分** | `spawn_subagent` = `prepare_subagent`（结构校验 → 并发决策 → 子会话 + run 行 + 投影 + cancel flag）→ `launch_prepared_subagent`。`initial_status = if should_queue { Queued } else { Spawning }`；排队分支把同一 prepared payload 入队并立即复查 cancel，直发分支进入唯一发射尾。Team 可在两阶段之间先 durable attach roster fence |
+| **调度器** | `run_subagent_scheduler()`（进程级、`AtomicBool` 幂等）：`select!` 等 `SCHED_NOTIFY` + 5s 兜底 tick；per-session 取最旧 `Queued`、按各自会话的 `max_concurrent` 与实时 `count_active_subagent_runs` 决定能否提升；取出后直接调用 `launch_subagent_run`，由其 **guarded `Queued → Running` CAS** 取得唯一执行权（Team attempt 同时校验 roster fence）。no-op 即不执行、不耗槽位。在 `app_init` 两条后台任务路径里随工具调度器一起 spawn |
 | **唤醒** | 终态 choke point `update_subagent_status_with_reason` 在转**终态**后调 `queue::wake_subagent_scheduler()`（该会话可能空出槽位）；5s tick 兜底配置上调 / 漏唤醒 |
 
 ### 生命周期边界
 
-- **取消排队中的 run（promote-vs-cancel 安全）**：cancel flag 在**入队时注册**、提升时由 `launch_subagent_run` 经 get-or-create **复用同一 flag**，故 park→launch 窗口内到达的 cancel 对最终起跑的引擎始终可见。`request_cancel_run` 用队列锁**抢占出队**（`remove_for_run` 返 `Some` = 赢得权威 → 该 run 永不 launch，直接标 `Killed`；返 `None` = 已被提升 → 触发复用 flag 让引擎 abort 自落 `Killed`）。配合提升的 guarded CAS（终态行无法转 `Spawning`），被取消的 run **绝不会被复活成运行子代理**。
+- **取消排队中的 run（promote-vs-cancel 安全）**：cancel flag 在 **prepare 时、入队前**注册，park 与提升始终复用同一 flag，故 prepare→enqueue 与 park→launch 两个窗口内到达的 cancel 对最终发射尾都可见。入队后立即复查可收敛无槽位场景；`request_cancel_run` 用队列锁**抢占出队**（`remove_for_run` 返 `Some` = 赢得权威 → 该 run 永不 launch，直接标 `Killed`；返 `None` = 已被提升 → 触发复用 flag，由 launch 前后检查终止）。配合最终 guarded `Queued → Running` CAS（终态行无法 claim），被取消的 run **绝不会被复活成运行子代理**。
 - **重启**：`cleanup_orphan_subagent_runs` 的 sweep 含 `'queued'` → 排队行转 `Interrupted(process_interrupted)`（内存队列已失），投影同步为 `Interrupted`，普通 parent delivery 在启动期重放。
 - **会话删除 / 无痕焚毁**：与取消活跃 run 同一路径调 `queue::purge_for_session(sid)`——注意活跃计数查询**排除** `Queued`，不 purge 就会漏掉排队 run；无痕会话的敏感 `SpawnParams` 只活在队列项里，丢弃即焚。
 - **Group**：零特例——排队的 grouped 子拿到 `kind=subagent` 投影（`Queued` 非终态）带 `group_id`，join 因此**正确等待**它；提升跑完再由投影同步复查 group。
@@ -403,7 +413,7 @@ sequenceDiagram
 
 | 方法 | 行为 |
 |------|------|
-| `register(run_id)` | get-or-create `AtomicBool(false)` 并返回 `Arc`（排队时与提升后复用同一 flag） |
+| `register(run_id)` | get-or-create `AtomicBool(false)` 并返回 `Arc`（prepare、排队与提升复用同一 flag） |
 | `cancel(run_id)` | 设 flag 为 `true`（SeqCst），返回是否找到 |
 | `cancel_all_for_session(parent_session_id, db)` | 查 `list_active_subagent_runs` 取活跃 run_id，批量设 cancel flag |
 | `remove(run_id)` | 运行终止后清理，防内存泄漏 |
@@ -494,7 +504,11 @@ sequenceDiagram
 | `batch_spawn` | `tasks`（数组，默认最多 10）, `files?`（共享附件） | 批量调用；每个 task 可带私有 `files`。作为一个 **Group** fan-out，全部完成时合并注入一轮，返回 `group_id` |
 | `wait_all` | `run_ids`（数组）, `wait_timeout?`（默认 120s，上限 600s）, `partial?`, `result_mode?` | 等待多个子 Agent；返回 completed / failed / total / timed_out，结果粒度 `status \| preview \| summary \| full` |
 
-`kill_all` 的排队清理用 `queue::purge_for_owner`（**owner 精确作用域**，而非按 session）——共享父会话的 Workflow / Team / internal 队列项因此不会被普通 `kill_all` 波及；被 purge 的每一项直接标 `Killed`。这一步不可省：活跃计数排除 `Queued`，否则排队项会在 kill 腾出槽位后被调度器提升、在父 Agent 已下令全杀之后才起跑。
+`kill_all` 先从 `subagent_runs` 枚举当前 session 中 `owner_kind=parent_session && owner_id=current_session` 的全部非终态 run（含 `Queued`），再逐项调用 canonical `request_cancel_run`。该入口会按 run id 同步清理排队项、取消 token 与 durable 状态，因此共享父会话的 Workflow / Team / internal 队列项不会被普通 `kill_all` 波及，排队项也不会在关闭活跃 run 腾出槽位后被意外提升。不要重新增加只清内存队列的旁路 purge。
+
+普通 Subagent 没有 `pause`。活跃 attempt 的 `send/steer` 是 durable 方向调整；允许续跑的终态由 `send(mode=resume_only)` 或兼容 `resume` 创建**新的 immutable attempt**，不是恢复旧执行栈。`kill` 的工具调用成功可能只代表取消信号已接受，前端活动在 `subagent_runs` 尚未进入终态前只能显示“正在关闭”；已完成、错误或超时的目标收到关闭请求属于 already-terminal no-op，不能冒充本次关闭成功。
+
+模型通过通用 `runtime_cancel(kind=subagent)` 控制时还要经过同样的 owner lineage：普通会话只能控制 `owner_kind=parent_session && owner_id=current_session` 的 run；Workflow 上下文只能控制同一 `workflow_run_id` 的 run；Team/internal 等不能仅凭 run id 越权取消。不存在、跨会话和 owner 不匹配统一返回不泄露 owner 的结构化拒绝。
 
 ### Send / Resume 续跑语义
 
@@ -523,7 +537,7 @@ sequenceDiagram
 | **建** | `spawn_subagent` 插入 run 行后，gate `!skip_parent_injection`（排除 plan / team / hook 内部 spawn）`&& !parent_incognito`（关闭即焚不留痕）→ `JobManager::project_subagent_spawn`。投影 `args_json="{}"`、result / error 恒 `None`、`injected=true`，status 镜像 run 的 `initial_status`（可为 `Queued`） |
 | **同步** | 单一 choke point `update_subagent_status_with_reason` 末尾（先释放 SessionDB 锁再跨库）→ `JobManager::sync_subagent_projection`。覆盖 run 生命周期 + kill fallback；启动恢复事务 commit 后显式再调一次。状态映射：`Queued→Queued`、`Spawning/Running→Running`、`Completed→Completed`、`Error→Failed`、`Interrupted→Interrupted`、`Timeout→TimedOut`、`Killed→Cancelled`。更新 scoped `kind='subagent'` 且 terminal 冻结，防 late / duplicate sync 重开 |
 | **注入隔离** | 投影 `injected=true` → 永不进工具 job 的 replay 注入路径；subagent 自有 `inject_and_run_parent`，**无双注入** |
-| **取消** | `async_jobs::cancel_job` 对 `kind=Subagent` 路由到 `subagent::request_cancel_run`（注册表 cancel + DB-`Killed` 兜底，与 `kill` 工具同源），**不跑工具 job 的 hook / 注入**；run 终态经同步落到投影 `Cancelled`。会话删除 `cancel_jobs_for_session` 因此也会取消其后台 subagent |
+| **取消** | 模型控制面经 `JobManager::cancel_with_outcome`（内部权威实现 `cancel_job_with_outcome`）对 `kind=Subagent` 路由到 `subagent::request_cancel_run`（注册表 cancel + DB-`Killed` 兜底，与 `kill` 工具同源），并返回 `requested / already_terminal / refused`；`cancel_job` 仅是供内部清理与 legacy 调用方取最新行的兼容包装。该分支**不跑工具 job 的 hook / 注入**；run 终态经同步落到投影 `Cancelled`。会话删除 `cancel_jobs_for_session` 因此也会取消其后台 subagent |
 | **重启** | Primary 启动时 `cleanup_orphan_subagent_runs` 在一个事务内把当前 epoch 的 `queued/spawning/running` attempt 统一转 `Interrupted(process_interrupted)`，为普通 parent 补 pending delivery；commit 后显式同步投影为 `Interrupted`、通知 Workflow、唤醒 subagent scheduler。随后 `cleanup_orphan_runs` 重放未完成的普通 parent delivery |
 | **内层审批投影** | 后台 subagent 在隔离子会话内命中审批点时，`async_jobs::approval_projection_watcher` 订阅 EventBus 的 `approval_required`（下划线，snake_case `session_id`）/ `approval:resolved`（冒号，camelCase `sessionId`），经 `find_active_run_by_child_session` 找到 run + 投影，调 `JobManager::reflect_subagent_inner_approval` 把投影置 `AwaitingApproval` / 复位。**只动投影视图、不碰真相源**；`AwaitingApproval` 非终态，run 真正落终态时由同步 choke point 覆盖 |
 
@@ -557,7 +571,7 @@ flowchart TD
 | **seal** | spawn 循环结束后 `seal_group`：标 `sealed=true` 再跑 `try_complete_group`（兜底「spawn 期间快子已全完成」）。`try_complete_group` 未 sealed 直接 no-op，防 spawn 中途某子完成即误判全完成 |
 | **join + 合并注入** | 每子终态 → `group_id_for_subagent_run` → `try_complete_group`：sealed + 全子终态 → **单赢 CAS** `claim_group_completion`（`Running→Completed` only if 非终态，N 个并发子只一个赢）→ `build_group_push_message`（单 `<subagent-result>` 封套，逐子枚举 status / result / error + task / label，XML-escape）→ 复用 `inject_and_run_parent`（`child_agent_id="batch"`、`run_id=group_id`），复用既有前端 pill |
 | **fetched-all 跳过** | 注入前若所有子已被 `wait_all` / `check` / `result` 收走则跳过冗余注入；部分收走仍发完整 summary |
-| **取消** | `cancel_job` kind=Group **先标 group `Cancelled` 再取消子 run**（顺序 load-bearing：`request_cancel_run` 无 flag 兜底会同步标子 Killed → 同线程触发 `try_complete_group`，group 须已终态使 CAS 落败，否则给已取消批次误发合并注入） |
+| **取消** | `JobManager::cancel_with_outcome` 对 Group 调 `claim_group_cancel`；它与 join 的 `claim_group_completion` 是同级、单语句、single-winner CAS。取消 CAS 赢时在同一写入中落 `cancel_requested=1 + status=cancelled + completed_at/error`，随后才取消子 run、唤醒 waiter 并发终态事件；完成 CAS 先赢时取消返回 `already_terminal` 且绝不碰子 run。这个顺序仍是 load-bearing：`request_cancel_run` 可能同步结算子投影并重入 `try_complete_group`，但已由获胜的 Group 终态 fence 阻止第二终态与错误合并注入 |
 | **投影失败回退** | grouped 子若投影插入失败 → `effective_group_id=None` → 该子回退**个体注入**（不丢结果），不依赖永不可见它的 Group join |
 | **重启** | Primary 先把遗留 child attempt 收敛为 `Interrupted` 并逐个同步子投影；sealed 且子投影完整时，最后一个终态同步经 `try_complete_group` + 单赢 CAS 把 Group 结算为 `Completed`，发一次合并 `<subagent-result>`。若投影缺失使 Group 无法在这一步收敛，后续 `replay_pending_jobs` 才把残留 Running group 标 `Interrupted` 且不伪造合并结果；child 真相仍可从 `subagent_runs` 查询 |
 

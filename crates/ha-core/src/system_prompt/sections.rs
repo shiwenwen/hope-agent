@@ -496,7 +496,7 @@ pub(super) fn build_subagent_section(
             .to_string(),
     );
     lines.push("- `subagent(action=\"list\")` — list all sub-agent runs".to_string());
-    lines.push("- `subagent(action=\"kill\", run_id=\"...\")` — terminate a sub-agent".to_string());
+    lines.push("- `subagent(action=\"kill\", run_id=\"...\")` — request shutdown; confirm a terminal status before reporting the sub-agent stopped".to_string());
     lines.push(String::new());
     lines.push("## Spawn options".to_string());
     lines.push("- `label`: display label for tracking (e.g., `label=\"research\"`)".to_string());
@@ -550,7 +550,7 @@ Use teams for tasks that benefit from parallel specialization (frontend + backen
 3. Otherwise define members inline: `team(action=\"create\", name=\"...\", members=[{name, task, role?, agent_id?, description?}])`.
 
 ## Key actions
-`list_templates` / `create` / `send_message` / `create_task` / `update_task` / `status` / `dissolve`
+`list_templates` / `create` / `send_message` / `create_task` / `update_task` / `status` / `pause` / `resume` / `dissolve`
 
 See the `team` tool description for full parameter details.
 "
@@ -867,5 +867,31 @@ mod deferred_mcp_server_tests {
         app.mcp_global.denied_servers = vec!["linear".into()];
         assert!(deferred_mcp_server_names(&app, true).is_empty());
         assert!(deferred_mcp_server_names(&app, false).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod runtime_control_prompt_tests {
+    #[test]
+    fn subagent_kill_is_described_as_a_request_not_a_terminal_fact() {
+        let section = super::build_subagent_section(
+            &crate::agent_config::SubagentConfig::default(),
+            "ha-main",
+            0,
+        );
+        assert!(section.contains("request shutdown"));
+        assert!(section.contains("confirm a terminal status"));
+        assert!(!section.contains("— terminate a sub-agent"));
+    }
+
+    #[test]
+    fn team_key_actions_include_pause_and_resume() {
+        let section = super::build_team_section();
+        let key_actions = section
+            .split("## Key actions")
+            .nth(1)
+            .expect("team key actions");
+        assert!(key_actions.contains("`pause`"));
+        assert!(key_actions.contains("`resume`"));
     }
 }

@@ -257,6 +257,11 @@ function formatRawCall(tool: ToolCall): string {
 export interface ToolCallBlockProps {
   tool: ToolCall
   shimmer?: boolean
+  /** Semantic activity renderers may replace the generic tool-name wording
+   * while retaining this block's raw call, result, media and diff details. */
+  labelOverride?: string
+  displayArgsOverride?: string
+  iconOverride?: React.ComponentType<{ className?: string }>
   /**
    * Open the right-side diff panel for a `file_change` / `file_changes`
    * payload coming from this tool call. Wired up by ChatScreen so the
@@ -266,7 +271,14 @@ export interface ToolCallBlockProps {
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
 }
 
-export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlockProps) {
+export default function ToolCallBlock({
+  tool,
+  shimmer,
+  labelOverride,
+  displayArgsOverride,
+  iconOverride,
+  onOpenDiff,
+}: ToolCallBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
@@ -294,10 +306,12 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
 
   const skillName = getSkillName(tool.name, tool.arguments)
   const isMcpTool = parseMcpToolName(tool.name) !== null
-  const Icon = skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench
-  const toolLabel = getExecutionToolLabel({ t, tool, skillName })
+  const Icon =
+    iconOverride ?? (skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench)
+  const toolLabel = labelOverride ?? getExecutionToolLabel({ t, tool, skillName })
   const fileTarget = getFileToolTarget(tool.name, tool.arguments)
-  const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
+  const displayArgs =
+    displayArgsOverride ?? (skillName ? "" : getDisplayArgs(tool.name, tool.arguments))
   const displayArgsTitle = fileTarget ? getFileToolTargetTooltip(fileTarget) : undefined
 
   // Prefer real tool metadata; fall back to conservative in-flight estimates for

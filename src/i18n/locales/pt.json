@@ -996,7 +996,7 @@
       "title": "Extensão do Chrome necessária"
     },
     "conversationEmpty": "Nenhuma mensagem nesta conversa",
-    "pendingCancelForceInsert": "Cancelar inserção desta rodada",
+    "pendingCancelForceInsert": "Alterar para enviar após a resposta",
     "pendingSaving": "Salvando",
     "pendingSavingTip": "Salvando a mensagem e os anexos na fila recuperável.",
     "pendingInserting": "Inserindo",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "Enviar agora",
     "pendingFallbackAfterReply": "Enviar após resposta",
     "pendingFallbackAfterReplyTip": "O ponto de conclusão da ferramenta não foi encontrado e será enviado após o término da resposta atual.",
-    "pendingForceInsertTip": "Ele irá esperar até que a ferramenta que está sendo executada seja concluída e então inseri-la no modelo sem interromper a ferramenta atual.",
+    "pendingForceInsertTip": "Insere para o modelo depois que todas as ferramentas em execução neste lote terminarem, sem interrompê-las; se este turno não alcançar outro limite de ferramenta, será enviado após a resposta.",
+    "pendingInsert": "Inserir",
     "pendingInserted": "inserido",
     "pendingInsertedTip": "Ele foi inserido no modelo após a conclusão desta rodada de ferramentas.",
-    "pendingQueuedShort": "Na fila",
+    "pendingHeldAfterStop": "Envio pausado",
+    "pendingHeldAfterStopTip": "A resposta atual foi interrompida, portanto esta mensagem não será enviada automaticamente.",
+    "pendingMoreActions": "Mais ações da mensagem",
+    "pendingQueuedShort": "Enviar após a resposta",
     "pendingQueuedTip": "Ele foi adicionado à fila de espera e será enviado após o término da resposta atual.",
     "pendingQueueTitle": "Para ser enviado",
-    "pendingWaitingToolBoundary": "Aguarde o ponto de conclusão da ferramenta",
-    "pendingWaitingToolBoundaryTip": "Aguarde até que a última chamada da ferramenta seja concluída; caso a ferramenta não seja mais convocada nesta rodada, ela será enviada após a conclusão da resposta.",
+    "pendingWaitingToolBoundary": "Aguardando inserção",
+    "pendingWaitingToolBoundaryTip": "Aguardando todas as ferramentas em execução neste lote terminarem antes de inserir; se este turno não alcançar outro limite de ferramenta, será enviado após a resposta.",
     "processNotification": "processo finalizado",
     "rightPanel": {
       "collapse": "Recolher painel direito",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "Processado"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "encerrar {{count}} Agents",
+          "close_other": "encerrar {{count}} Agents",
+          "closeAll": "encerrar todos os Agents",
+          "message_one": "enviar mensagem a {{count}} Agents",
+          "message_other": "enviar mensagem a {{count}} Agents",
+          "observe_one": "verificar {{count}} Agents",
+          "observe_other": "verificar {{count}} Agents",
+          "resume_one": "retomar {{count}} Agents",
+          "resume_other": "retomar {{count}} Agents"
+        },
+        "cron": {
+          "pause_one": "pausar {{count}} agendamentos",
+          "pause_other": "pausar {{count}} agendamentos",
+          "resume_one": "retomar {{count}} agendamentos",
+          "resume_other": "retomar {{count}} agendamentos"
+        },
+        "job": {
+          "cancel_one": "cancelar {{count}} tarefas",
+          "cancel_other": "cancelar {{count}} tarefas"
+        },
+        "process": {
+          "close_one": "encerrar {{count}} processos",
+          "close_other": "encerrar {{count}} processos"
+        },
+        "team": {
+          "pause_one": "pausar {{count}} equipes",
+          "pause_other": "pausar {{count}} equipes",
+          "resume_one": "retomar {{count}} equipes",
+          "resume_other": "retomar {{count}} equipes"
+        },
+        "workflow": {
+          "cancel_one": "cancelar {{count}} fluxos de trabalho",
+          "cancel_other": "cancelar {{count}} fluxos de trabalho",
+          "pause_one": "pausar {{count}} fluxos de trabalho",
+          "pause_other": "pausar {{count}} fluxos de trabalho",
+          "resume_one": "retomar {{count}} fluxos de trabalho",
+          "resume_other": "retomar {{count}} fluxos de trabalho"
+        }
+      },
+      "aggregate": {
+        "failed_one": "{{count}} com falha",
+        "failed_other": "{{count}} com falha",
+        "pending_one": "{{count}} pendentes",
+        "pending_other": "{{count}} pendentes",
+        "refused_one": "{{count}} recusados",
+        "refused_other": "{{count}} recusados",
+        "requested_one": "{{count}} solicitados",
+        "requested_other": "{{count}} solicitados",
+        "resumed_one": "{{count}} retomados",
+        "resumed_other": "{{count}} retomados",
+        "terminal_one": "{{count}} encerrados",
+        "terminal_other": "{{count}} encerrados"
+      },
+      "allTargets": "Todos os Agents",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} já encerrados",
+        "alreadyTerminal_other": "{{count}} já encerrados",
+        "refused_one": "{{count}} recusados",
+        "refused_other": "{{count}} recusados"
+      },
+      "failureDetails": "Falhas ao retomar",
+      "state": {
+        "accepted": "Solicitado · {{action}}",
+        "alreadyTerminal_one": "{{count}} destinos já haviam terminado",
+        "alreadyTerminal_other": "{{count}} destinos já haviam terminado",
+        "completed": "Concluído · {{action}}",
+        "failed": "Falhou · {{action}}",
+        "noAgentsToClose": "Não há Agents que precisem ser encerrados",
+        "noResumeNeeded": "Equipe já concluída · não é preciso retomar",
+        "partial": "Parcialmente concluído · {{action}}",
+        "refused": "Recusado · {{action}}",
+        "running": "Em andamento · {{action}}"
+      }
     },
     "skill": {
       "completed": "Habilidade carregada: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "Pausado",
     "progress": "Progresso",
     "resume": "Retomar",
+    "resumeFeedback": {
+      "counts": "{{resumed}} retomados · {{failed}} com falha",
+      "noOpDescription": "Todos os membros da equipe já concluíram; nenhuma nova tentativa foi iniciada.",
+      "noOpTitle": "Não é preciso retomar",
+      "partialTitle": "Equipe parcialmente retomada",
+      "refusedTitle": "Retomada da equipe recusada",
+      "resumedTitle": "Equipe retomada",
+      "resuming": "Retomando…"
+    },
     "review": "Revisão",
     "reviewer": "Revisor",
     "send": "Enviar",

@@ -1,13 +1,109 @@
-use anyhow::Result;
-use std::sync::Arc;
-
 use super::events::emit_team_event;
 use super::types::*;
 use crate::session::SessionDB;
+use anyhow::Result;
+use std::sync::Arc;
+
+/// Session-scoped model-plane task creation. Authorization, owner resolution,
+/// task insertion, and member assignment share one DB transaction.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_task_as_session(
+    db: &Arc<SessionDB>,
+    team_id: &str,
+    session_id: &str,
+    content: &str,
+    owner: Option<&str>,
+    priority: Option<u32>,
+    blocked_by: Vec<i64>,
+) -> Result<TeamTask> {
+    let task = {
+        let db = db.clone();
+        let team_id = team_id.to_string();
+        let session_id = session_id.to_string();
+        let content = content.to_string();
+        let owner = owner.map(str::to_string);
+        db.run(move |db| {
+            db.insert_authorized_team_task(
+                &team_id,
+                &session_id,
+                &content,
+                owner.as_deref(),
+                priority,
+                blocked_by,
+            )
+        })
+        .await?
+    };
+    emit_team_event("task_updated", &task);
+    let message = if let Some(owner) = &task.owner_member_id {
+        format!(
+            "Task #{} created and assigned to {}: {}",
+            task.id, owner, task.content
+        )
+    } else {
+        format!("Task #{} created: {}", task.id, task.content)
+    };
+    let db_for_message = db.clone();
+    let team_id_for_message = team_id.to_string();
+    let _ = db_for_message
+        .run(move |db| super::messaging::post_system_message(db, &team_id_for_message, &message))
+        .await;
+    Ok(task)
+}
+
+/// Session-scoped model-plane task update. The task id is constrained to the
+/// authorized team within the transaction.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_task_as_session(
+    db: &Arc<SessionDB>,
+    team_id: &str,
+    session_id: &str,
+    task_id: i64,
+    status: Option<&str>,
+    owner: Option<&str>,
+    column: Option<&str>,
+    content: Option<&str>,
+) -> Result<TeamTask> {
+    let task = {
+        let db = db.clone();
+        let team_id = team_id.to_string();
+        let session_id = session_id.to_string();
+        let status = status.map(str::to_string);
+        let owner = owner.map(str::to_string);
+        let column = column.map(str::to_string);
+        let content = content.map(str::to_string);
+        db.run(move |db| {
+            db.update_authorized_team_task(
+                &team_id,
+                &session_id,
+                task_id,
+                status.as_deref(),
+                owner.as_deref(),
+                column.as_deref(),
+                content.as_deref(),
+            )
+        })
+        .await?
+    };
+    emit_team_event("task_updated", &task);
+    if status == Some("completed") {
+        let owner_name = task.owner_member_id.as_deref().unwrap_or("unknown");
+        let message = format!(
+            "Task #{} completed by {}: {}",
+            task_id, owner_name, task.content
+        );
+        let db = db.clone();
+        let team_id = team_id.to_string();
+        let _ = db
+            .run(move |db| super::messaging::post_system_message(db, &team_id, &message))
+            .await;
+    }
+    Ok(task)
+}
 
 /// Create a new team task.
 pub fn create_task(
-    db: &Arc<SessionDB>,
+    db: &SessionDB,
     team_id: &str,
     content: &str,
     owner_member_id: Option<&str>,
@@ -60,7 +156,7 @@ pub fn create_task(
 
 /// Update a team task (status, owner, column, content).
 pub fn update_task(
-    db: &Arc<SessionDB>,
+    db: &SessionDB,
     team_id: &str,
     task_id: i64,
     status: Option<&str>,
@@ -101,7 +197,7 @@ pub fn update_task(
 
 /// List all tasks for a team with optional status filter.
 pub fn list_tasks(
-    db: &Arc<SessionDB>,
+    db: &SessionDB,
     team_id: &str,
     status_filter: Option<&str>,
 ) -> Result<Vec<TeamTask>> {

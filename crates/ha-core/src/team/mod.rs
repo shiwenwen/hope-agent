@@ -17,6 +17,10 @@ pub const DEFAULT_MAX_MEMBERS: u32 = 8;
 /// Maximum active teams per agent
 pub const MAX_ACTIVE_TEAMS: u32 = 3;
 
+pub(crate) const RESUME_BLOCK_OLD_ATTEMPT_ACTIVE: &str = "old_attempt_still_active";
+pub(crate) const RESUME_BLOCK_OLD_ATTEMPT_UNKNOWN: &str = "old_attempt_unknown";
+pub(crate) const RESUME_BLOCK_MISSING_RUN_RECORD: &str = "missing_run_record";
+
 /// Color palette for team members (assigned round-robin)
 pub const MEMBER_COLORS: &[&str] = &[
     "#3B82F6", // blue

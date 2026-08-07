@@ -996,7 +996,7 @@
       "title": "需要 Chrome 擴充功能"
     },
     "conversationEmpty": "此對話中沒有訊息",
-    "pendingCancelForceInsert": "取消本輪插入",
+    "pendingCancelForceInsert": "改為回覆後傳送",
     "pendingSaving": "正在儲存",
     "pendingSavingTip": "正在把訊息和附件儲存到可恢復佇列。",
     "pendingInserting": "正在插入",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "立即傳送",
     "pendingFallbackAfterReply": "回覆後傳送",
     "pendingFallbackAfterReplyTip": "尚未遇到工具完成點，將在目前回覆結束後傳送。",
-    "pendingForceInsertTip": "它會等待正在執行的工具完成，再將內容插入模型，不會中斷目前的工具。",
+    "pendingForceInsertTip": "等本批正在執行的工具全部完成後插入給模型，不會中斷這些工具；如果本輪不再進入工具邊界，則在回覆結束後傳送。",
+    "pendingInsert": "插入",
     "pendingInserted": "插入",
     "pendingInsertedTip": "本輪加工完成後已將其插入模型中。",
-    "pendingQueuedShort": "排隊",
+    "pendingHeldAfterStop": "已暫停傳送",
+    "pendingHeldAfterStopTip": "目前回覆已停止，這則訊息不會自動傳送。",
+    "pendingMoreActions": "更多訊息操作",
+    "pendingQueuedShort": "回覆後傳送",
     "pendingQueuedTip": "已加入等待佇列，目前回覆結束後傳送。",
     "pendingQueueTitle": "待傳送",
-    "pendingWaitingToolBoundary": "等待工具完成點",
-    "pendingWaitingToolBoundaryTip": "等待最新的工具呼叫完成；如果本輪不再呼叫該工具，則會在回覆完成後傳送。",
+    "pendingWaitingToolBoundary": "等待插入",
+    "pendingWaitingToolBoundaryTip": "等待本批正在執行的工具全部完成後插入；如果本輪不再進入工具邊界，將在回覆結束後傳送。",
     "processNotification": "行程結束",
     "rightPanel": {
       "collapse": "折疊右側面板",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "已處理"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "關閉 {{count}} 個 Agent",
+          "close_other": "關閉 {{count}} 個 Agent",
+          "closeAll": "關閉所有 Agent",
+          "message_one": "向 {{count}} 個 Agent 傳送訊息",
+          "message_other": "向 {{count}} 個 Agent 傳送訊息",
+          "observe_one": "檢查 {{count}} 個 Agent",
+          "observe_other": "檢查 {{count}} 個 Agent",
+          "resume_one": "恢復 {{count}} 個 Agent",
+          "resume_other": "恢復 {{count}} 個 Agent"
+        },
+        "cron": {
+          "pause_one": "暫停 {{count}} 個排程",
+          "pause_other": "暫停 {{count}} 個排程",
+          "resume_one": "恢復 {{count}} 個排程",
+          "resume_other": "恢復 {{count}} 個排程"
+        },
+        "job": {
+          "cancel_one": "取消 {{count}} 個任務",
+          "cancel_other": "取消 {{count}} 個任務"
+        },
+        "process": {
+          "close_one": "關閉 {{count}} 個處理程序",
+          "close_other": "關閉 {{count}} 個處理程序"
+        },
+        "team": {
+          "pause_one": "暫停 {{count}} 個團隊",
+          "pause_other": "暫停 {{count}} 個團隊",
+          "resume_one": "恢復 {{count}} 個團隊",
+          "resume_other": "恢復 {{count}} 個團隊"
+        },
+        "workflow": {
+          "cancel_one": "取消 {{count}} 個工作流",
+          "cancel_other": "取消 {{count}} 個工作流",
+          "pause_one": "暫停 {{count}} 個工作流",
+          "pause_other": "暫停 {{count}} 個工作流",
+          "resume_one": "恢復 {{count}} 個工作流",
+          "resume_other": "恢復 {{count}} 個工作流"
+        }
+      },
+      "aggregate": {
+        "failed_one": "失敗 {{count}} 個",
+        "failed_other": "失敗 {{count}} 個",
+        "pending_one": "待完成 {{count}} 個",
+        "pending_other": "待完成 {{count}} 個",
+        "refused_one": "已拒絕 {{count}} 個",
+        "refused_other": "已拒絕 {{count}} 個",
+        "requested_one": "已請求 {{count}} 個",
+        "requested_other": "已請求 {{count}} 個",
+        "resumed_one": "已恢復 {{count}} 個",
+        "resumed_other": "已恢復 {{count}} 個",
+        "terminal_one": "已結束 {{count}} 個",
+        "terminal_other": "已結束 {{count}} 個"
+      },
+      "allTargets": "所有 Agent",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} 個已結束",
+        "alreadyTerminal_other": "{{count}} 個已結束",
+        "refused_one": "{{count}} 個被拒絕",
+        "refused_other": "{{count}} 個被拒絕"
+      },
+      "failureDetails": "恢復失敗",
+      "state": {
+        "accepted": "已請求{{action}}",
+        "alreadyTerminal_one": "{{count}} 個目標此前已結束",
+        "alreadyTerminal_other": "{{count}} 個目標此前已結束",
+        "completed": "已{{action}}",
+        "failed": "{{action}}失敗",
+        "noAgentsToClose": "沒有需要關閉的 Agent",
+        "noResumeNeeded": "團隊已完成 · 無需恢復",
+        "partial": "部分完成 · {{action}}",
+        "refused": "{{action}}被拒絕",
+        "running": "正在{{action}}"
+      }
     },
     "skill": {
       "completed": "已載入技能：{{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "已暫停",
     "progress": "進度",
     "resume": "恢復",
+    "resumeFeedback": {
+      "counts": "已恢復 {{resumed}} 個 · 失敗 {{failed}} 個",
+      "noOpDescription": "所有團隊成員均已完成，未啟動新的嘗試。",
+      "noOpTitle": "無需恢復",
+      "partialTitle": "團隊已部分恢復",
+      "refusedTitle": "團隊恢復被拒絕",
+      "resumedTitle": "團隊已恢復",
+      "resuming": "正在恢復…"
+    },
     "review": "審查",
     "reviewer": "審查者",
     "send": "傳送",

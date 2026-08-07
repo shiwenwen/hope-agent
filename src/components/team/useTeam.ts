@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import type {
-  Team,
-  TeamMember,
-  TeamMessage,
-  TeamTask,
-  TeamEvent,
-} from "./teamTypes"
+import type { Team, TeamMember, TeamMessage, TeamTask, TeamEvent } from "./teamTypes"
 
 const TEAM_MESSAGE_PAGE_SIZE = 50
 
@@ -76,14 +70,15 @@ export function useTeam(teamId: string | null) {
     if (!oldest) return
     setLoadingMore(true)
     try {
-      const [older, moreBefore] = await getTransport().call<
-        [TeamMessage[], boolean]
-      >("get_team_messages_before", {
-        teamId: tid,
-        beforeTimestamp: oldest.timestamp,
-        beforeMessageId: oldest.messageId,
-        limit: TEAM_MESSAGE_PAGE_SIZE,
-      })
+      const [older, moreBefore] = await getTransport().call<[TeamMessage[], boolean]>(
+        "get_team_messages_before",
+        {
+          teamId: tid,
+          beforeTimestamp: oldest.timestamp,
+          beforeMessageId: oldest.messageId,
+          limit: TEAM_MESSAGE_PAGE_SIZE,
+        },
+      )
       if (teamIdRef.current !== tid) return
       if (older.length === 0) {
         setHasMore(false)
@@ -137,9 +132,7 @@ export function useTeam(teamId: string | null) {
           const msg = event.payload as TeamMessage
           if (msg.teamId === teamIdRef.current) {
             setMessages((prev) =>
-              prev.some((m) => m.messageId === msg.messageId)
-                ? prev
-                : [...prev, msg],
+              prev.some((m) => m.messageId === msg.messageId) ? prev : [...prev, msg],
             )
           }
           break
@@ -183,7 +176,7 @@ export function useTeam(teamId: string | null) {
         content,
       })
     },
-    [teamId]
+    [teamId],
   )
 
   return {
@@ -200,32 +193,68 @@ export function useTeam(teamId: string | null) {
   }
 }
 
+function preferredControllableTeamId(teams: readonly Team[]): string | null {
+  // An active team is the primary workspace. If none exists, retain the most
+  // recent paused team so a restart does not hide the only UI resume control.
+  return (
+    teams.find((team) => team.status === "active")?.teamId ??
+    teams.find((team) => team.status === "paused")?.teamId ??
+    null
+  )
+}
+
 /**
- * Hook to discover any active team for the current session.
+ * Hook to discover the current active or resumable team for a session.
+ *
+ * The historical name is retained for call-site compatibility; a paused team
+ * is intentionally visible because it is still a live control-plane object.
  */
 export function useActiveTeam(sessionId: string | null) {
-  const [activeTeamId, setActiveTeamId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!sessionId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setActiveTeamId(null)
-      return
-    }
-
-    getTransport()
-      .call<Team[]>("list_teams", { sessionId })
-      .then((teams) => {
-        const active = teams.find((t) => t.status === "active")
-        setActiveTeamId(active?.teamId ?? null)
-      })
-      .catch(() => setActiveTeamId(null))
-  }, [sessionId])
-
-  // Listen for team create/dissolve events — scoped to current session
+  const [activeTeamState, setActiveTeamState] = useState<{
+    sessionId: string
+    teamId: string | null
+  } | null>(null)
+  const activeTeamId = activeTeamState?.sessionId === sessionId ? activeTeamState.teamId : null
   const sessionIdRef = useRef(sessionId)
+
   useEffect(() => {
     sessionIdRef.current = sessionId
+  }, [sessionId])
+
+  const refresh = useCallback(async (requestedSessionId: string) => {
+    try {
+      const teams = await getTransport().call<Team[]>("list_teams", {
+        sessionId: requestedSessionId,
+      })
+      if (sessionIdRef.current === requestedSessionId) {
+        setActiveTeamState({
+          sessionId: requestedSessionId,
+          teamId: preferredControllableTeamId(teams),
+        })
+      }
+    } catch {
+      if (sessionIdRef.current === requestedSessionId) {
+        setActiveTeamState({ sessionId: requestedSessionId, teamId: null })
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionId) return
+    let cancelled = false
+    void getTransport()
+      .call<Team[]>("list_teams", { sessionId })
+      .then((teams) => {
+        if (!cancelled) {
+          setActiveTeamState({ sessionId, teamId: preferredControllableTeamId(teams) })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setActiveTeamState({ sessionId, teamId: null })
+      })
+    return () => {
+      cancelled = true
+    }
   }, [sessionId])
 
   useEffect(() => {
@@ -233,17 +262,29 @@ export function useActiveTeam(sessionId: string | null) {
       const event = raw as TeamEvent
       if (event.type === "created") {
         const team = event.payload as Team
-        if (team.leadSessionId === sessionIdRef.current) {
-          setActiveTeamId(team.teamId)
+        const currentSessionId = sessionIdRef.current
+        if (currentSessionId && team.leadSessionId === currentSessionId) {
+          setActiveTeamState({ sessionId: currentSessionId, teamId: team.teamId })
         }
       } else if (event.type === "dissolved") {
         const payload = event.payload as { teamId: string }
-        // Only clear if the dissolved team is our active team
-        setActiveTeamId((prev) => (prev === payload.teamId ? null : prev))
+        const currentSessionId = sessionIdRef.current
+        if (!currentSessionId) return
+        // Clear immediately, then discover another active/paused team if one
+        // exists for this session.
+        setActiveTeamState((prev) =>
+          prev?.sessionId === currentSessionId && prev.teamId === payload.teamId
+            ? { sessionId: currentSessionId, teamId: null }
+            : prev,
+        )
+        void refresh(currentSessionId)
+      } else if (event.type === "paused" || event.type === "resumed") {
+        const currentSessionId = sessionIdRef.current
+        if (currentSessionId) void refresh(currentSessionId)
       }
     })
     return unlisten
-  }, [])
+  }, [refresh])
 
   return activeTeamId
 }

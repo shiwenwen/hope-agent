@@ -3,6 +3,7 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import PlainTextRenderer from "@/components/common/PlainTextRenderer"
 import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
+import RuntimeControlActivityGroup from "./RuntimeControlActivityGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import ProcessedBlockGroup from "./ProcessedBlockGroup"
@@ -28,6 +29,10 @@ import {
   getToolsWallClockMs,
   toolHasMedia,
 } from "./executionStatus"
+import {
+  getRuntimeControlActivityGroupKey,
+  parseRuntimeControlActivity,
+} from "./runtimeControlActivity"
 import type {
   ChatDisplayMode,
   ChatTurnStatus,
@@ -508,10 +513,53 @@ export function AssistantContentBlocks({
           i = j
           continue
         }
-        // Non-spawn-like subagent action (check / list / kill / steer / etc)
-        // or a spawn that failed without a run → render individually.
-        // NO_GROUP_TOOLS prevents it from falling into the generic tool-call
-        // group below.
+      }
+
+      // Runtime-control activities keep their own semantics and state model.
+      // Only consecutive actions of the same kind are merged; any text,
+      // ordinary tool, or different control action preserves the original
+      // ordering boundary. True subagent spawns were consumed above, so a
+      // spawn chip is never duplicated as an activity row.
+      const firstRuntimeActivity = parseRuntimeControlActivity(block.tool)
+      if (firstRuntimeActivity) {
+        const runtimeTools = [block.tool]
+        const activityGroupKey = getRuntimeControlActivityGroupKey(firstRuntimeActivity)
+        let j = i + 1
+        while (j < blocks.length) {
+          const nextBlock = blocks[j]
+          if (nextBlock.type !== "tool_call") break
+          const nextActivity = parseRuntimeControlActivity(nextBlock.tool)
+          if (
+            !nextActivity ||
+            getRuntimeControlActivityGroupKey(nextActivity) !== activityGroupKey
+          ) {
+            break
+          }
+          runtimeTools.push(nextBlock.tool)
+          j++
+        }
+        const isLastRuntimeGroup = loading && isLast && j === blocks.length
+        units.push({
+          key: `runtime-${runtimeTools[0].callId}`,
+          markerAlign: "control",
+          processTools: runtimeTools,
+          elapsedMs: getToolsWallClockMs(runtimeTools),
+          node: (
+            <RuntimeControlActivityGroup
+              key={`runtime-${runtimeTools[0].callId}`}
+              tools={runtimeTools}
+              shimmer={isLastRuntimeGroup}
+              onOpenDiff={onOpenDiff}
+            />
+          ),
+        })
+        i = j
+        continue
+      }
+
+      if (block.tool.name === "subagent") {
+        // A malformed/failed spawn or an unsupported subagent action remains
+        // fully inspectable through the generic single-tool renderer.
         units.push({
           key: block.tool.callId,
           markerAlign: "control",
@@ -533,8 +581,9 @@ export function AssistantContentBlocks({
       const group: ContentBlock[] = [block]
       let j = i + 1
       while (j < blocks.length && blocks[j].type === "tool_call") {
-        const tb = blocks[j] as { type: "tool_call"; tool: { name: string } }
+        const tb = blocks[j] as { type: "tool_call"; tool: ToolCall }
         if (NO_GROUP_TOOLS.has(tb.tool.name)) break
+        if (parseRuntimeControlActivity(tb.tool)) break
         group.push(blocks[j])
         j++
       }

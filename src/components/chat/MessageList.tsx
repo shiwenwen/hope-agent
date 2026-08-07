@@ -14,6 +14,8 @@ import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { hasActiveTextSelection } from "@/lib/contextMenuGuard"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
+import { Button } from "@/components/ui/button"
+import { UI_MOTION } from "@/components/ui/motion"
 import {
   extractMessageFileAttachments,
   formatDuration,
@@ -147,6 +149,7 @@ const COMPACT_USER_ANCHOR_LEAD_PX = 32
 const COMPACT_USER_REPLY_VISIBLE_MIN_PX = 56
 const COMPACT_USER_ANCHOR_EXIT_MS = 200
 const ASK_USER_FOLLOW_FRAMES = 16
+const COMPLETED_TURN_LAYOUT_SETTLE_MS = UI_MOTION.collapse + 80
 
 interface MessageRenderItem {
   msg: Message
@@ -590,11 +593,6 @@ function buildMessageRenderRows(
       ),
       expanded,
     })
-    if (expanded) {
-      for (const collapsedItem of collapsedItems) {
-        rows.push({ kind: "message", item: collapsedItem })
-      }
-    }
     const tailItems = turnItems.slice(finalAssistantPos)
     if (finalAssistantSplit) {
       rows.push({
@@ -641,22 +639,24 @@ function CompletedTurnCollapseSummary({
     <div
       key={row.key}
       data-message-key={row.key}
-      className="grid w-full min-w-0 grid-cols-1 justify-items-stretch pb-3"
+      className="mb-2 flex w-full min-w-0 items-center border-b border-border/40 pb-1"
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         aria-expanded={row.expanded}
         onClick={() => onToggle(row.key)}
-        className="group flex h-9 w-full cursor-pointer items-center gap-1.5 border-b border-border/50 px-0 text-left text-sm font-medium text-muted-foreground/75 transition-colors hover:text-muted-foreground"
+        className="group -ml-1.5 h-7 w-fit max-w-full cursor-pointer justify-start gap-1 rounded-md px-1.5 text-left text-sm font-normal text-muted-foreground/80 hover:bg-transparent hover:text-muted-foreground/80"
       >
         <span className="truncate">{label}</span>
         <ChevronRight
           className={cn(
-            "h-4 w-4 shrink-0 transition-transform duration-200",
+            "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
             row.expanded && "rotate-90",
           )}
         />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -738,6 +738,7 @@ export default function MessageList({
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const askUserFollowRafRef = useRef<number | null>(null)
   const lastAskUserFollowKeyRef = useRef<string | null>(null)
+  const completedTurnLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
   const editableUserMessageIndex = useMemo(
     () =>
@@ -889,9 +890,34 @@ export default function MessageList({
 
   useEffect(() => {
     setExpandedCompletedTurns(new Set())
+    if (completedTurnLayoutTimerRef.current !== null) {
+      clearTimeout(completedTurnLayoutTimerRef.current)
+      completedTurnLayoutTimerRef.current = null
+    }
   }, [sessionKey])
 
   const toggleCompletedTurn = useCallback((key: string) => {
+    // A manual disclosure is a reading action. Suspend the transcript's
+    // follow-bottom ResizeObserver while the collapse height animates so the
+    // newly revealed details push the final reply and every later row down in
+    // normal document flow instead of being cancelled out by scroll pinning.
+    userScrollLockRef.current = true
+    if (completedTurnLayoutTimerRef.current !== null) {
+      clearTimeout(completedTurnLayoutTimerRef.current)
+    }
+    completedTurnLayoutTimerRef.current = setTimeout(() => {
+      const container = containerRef.current
+      if (container) {
+        const distanceFromBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight
+        const isAtBottom = distanceFromBottom < AT_BOTTOM_THRESHOLD_PX
+        atBottomRef.current = isAtBottom
+        setAtBottom(isAtBottom)
+        if (isAtBottom) userScrollLockRef.current = false
+      }
+      completedTurnLayoutTimerRef.current = null
+    }, COMPLETED_TURN_LAYOUT_SETTLE_MS)
+
     setExpandedCompletedTurns((prev) => {
       const next = new Set(prev)
       if (next.has(key)) {
@@ -1438,6 +1464,9 @@ export default function MessageList({
     () => () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      if (completedTurnLayoutTimerRef.current) {
+        clearTimeout(completedTurnLayoutTimerRef.current)
+      }
       // Drop any lingering inline highlight on unmount / session swap so
       // ranges from the previous bubble don't bleed into the new one.
       clearInlineHighlight()
@@ -1599,6 +1628,102 @@ export default function MessageList({
     [messages, subagentRunsSnapshot],
   )
 
+  const renderMessageItem = (item: MessageRenderItem) => {
+    const { msg, originalIndex } = item
+    const rowKey = rowKeyForItem(item)
+    const isLast = originalIndex === messages.length - 1
+    // Only the last bubble cares about the `loading` prop (drives
+    // streaming-bubble class, dots placeholder, MarkdownRenderer streaming
+    // hint). Older bubbles stay stable when global loading flips.
+    const bubbleLoading = isLast ? loading : false
+    const bubbleExecutionState = shouldPassExecutionStateToBubble(
+      isLast,
+      bubbleLoading,
+      executionState,
+    )
+      ? executionState
+      : null
+    const forceExpandUserContent = msg.dbId != null && searchExpandedUserMessageId === msg.dbId
+
+    return (
+      <div
+        key={rowKey}
+        data-message-key={rowKey}
+        data-message-id={msg.dbId ?? undefined}
+        data-message-source-id={item.sourceDbId ?? undefined}
+        className={cn(
+          "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
+          itemMatchesMessageId(item, highlightMessageId) && "message-hit-pulse",
+          isTimelineMode
+            ? isCenteredSystemMessage(msg)
+              ? "justify-items-center pb-4"
+              : isUserAlignedMessage(msg) && !msg.fromAgentId
+                ? "justify-items-end pb-4"
+                : msg.role === "assistant"
+                  ? "justify-items-stretch pb-0"
+                  : "justify-items-start pb-4"
+            : cn(
+                "pb-4",
+                isCenteredSystemMessage(msg)
+                  ? "justify-items-center"
+                  : isUserAlignedMessage(msg) && !msg.fromAgentId
+                    ? "justify-items-end"
+                    : "justify-items-start",
+              ),
+          isLast && originalIndex >= animationBaseline && "animate-fade-slide-in",
+        )}
+      >
+        <MessageBubble
+          msg={msg}
+          index={originalIndex}
+          isLast={isLast}
+          loading={bubbleLoading}
+          executionState={bubbleExecutionState}
+          agents={agents}
+          isHovered={hoveredMsgIndex === originalIndex}
+          onHover={setHoveredMsgIndex}
+          onContextMenu={handleContextMenu}
+          isCopied={copiedIndex === originalIndex}
+          onCopy={handleCopyMessage}
+          onAddQuickPrompt={onAddQuickPrompt}
+          sessionId={sessionId}
+          onOpenPlanPanel={onOpenPlanPanel}
+          onViewChildSession={onViewChildSession}
+          onSwitchModel={onSwitchModel}
+          onViewSystemPrompt={onViewSystemPrompt}
+          compacting={compacting}
+          onCompactContext={onCompactContext}
+          onOpenDashboardTab={onOpenDashboardTab}
+          onOpenDiff={onOpenDiff}
+          onResume={onResume}
+          onForkFromMessage={onForkFromMessage}
+          canEditAndResend={editableUserMessageIndex === originalIndex}
+          editHasFileMutations={
+            editableUserMessageIndex === originalIndex && editedTurnHasFileMutations
+          }
+          onEditAndResend={onEditAndResend}
+          onOpenMemorySettings={onOpenMemorySettings}
+          onOpenKnowledge={onOpenKnowledge}
+          displayMode={displayMode}
+          footerFiles={item.footerFiles}
+          hideOwnFooterFiles={item.hideOwnFooterFiles}
+          goalCompletionReportOverride={item.goalCompletionReport}
+          suppressGoalCompletionFooter={item.suppressGoalCompletionFooter}
+          forceExpandUserContent={forceExpandUserContent}
+          onForceExpandedUserContentDismiss={
+            forceExpandUserContent
+              ? () =>
+                  setSearchExpandedUserMessageId((current) =>
+                    current === msg.dbId ? null : current,
+                  )
+              : undefined
+          }
+        />
+        {renderMessageActions?.(msg, originalIndex)}
+      </div>
+    )
+  }
+
   return (
     <SubagentRunsProvider
       sessionId={subagentRunsSnapshot || hasSubagentContent ? (sessionId ?? null) : null}
@@ -1651,110 +1776,21 @@ export default function MessageList({
             {renderRows.map((row) => {
               if (row.kind === "completed-turn-collapse") {
                 return (
-                  <CompletedTurnCollapseSummary
-                    key={row.key}
-                    row={row}
-                    onToggle={toggleCompletedTurn}
-                  />
+                  <div key={row.key} className="w-full min-w-0">
+                    <CompletedTurnCollapseSummary row={row} onToggle={toggleCompletedTurn} />
+                    <AnimatedCollapse
+                      open={row.expanded}
+                      overflow="visible-when-open"
+                      unmountOnExit
+                    >
+                      <div data-testid="completed-turn-details" className="min-w-0">
+                        {row.items.map(renderMessageItem)}
+                      </div>
+                    </AnimatedCollapse>
+                  </div>
                 )
               }
-
-              const { msg, originalIndex } = row.item
-              const rowKey = rowKeyForItem(row.item)
-              const isLast = originalIndex === messages.length - 1
-              // Only the last bubble cares about the `loading` prop (drives
-              // streaming-bubble class, dots placeholder, MarkdownRenderer
-              // streaming hint). Pass false to all others so global loading
-              // flips don't re-render the entire list — that's the source of
-              // the post-stream "flicker" (markdown / shiki / katex subtree
-              // rebuilds when each bubble's loading prop changes).
-              const bubbleLoading = isLast ? loading : false
-              const bubbleExecutionState = shouldPassExecutionStateToBubble(
-                isLast,
-                bubbleLoading,
-                executionState,
-              )
-                ? executionState
-                : null
-              const forceExpandUserContent =
-                msg.dbId != null && searchExpandedUserMessageId === msg.dbId
-              return (
-                <div
-                  key={rowKey}
-                  data-message-key={rowKey}
-                  data-message-id={msg.dbId ?? undefined}
-                  data-message-source-id={row.item.sourceDbId ?? undefined}
-                  className={cn(
-                    "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
-                    itemMatchesMessageId(row.item, highlightMessageId) && "message-hit-pulse",
-                    isTimelineMode
-                      ? isCenteredSystemMessage(msg)
-                        ? "justify-items-center pb-4"
-                        : isUserAlignedMessage(msg) && !msg.fromAgentId
-                          ? "justify-items-end pb-4"
-                          : msg.role === "assistant"
-                            ? "justify-items-stretch pb-0"
-                            : "justify-items-start pb-4"
-                      : cn(
-                          "pb-4",
-                          isCenteredSystemMessage(msg)
-                            ? "justify-items-center"
-                            : isUserAlignedMessage(msg) && !msg.fromAgentId
-                              ? "justify-items-end"
-                              : "justify-items-start",
-                        ),
-                    isLast && originalIndex >= animationBaseline && "animate-fade-slide-in",
-                  )}
-                >
-                  <MessageBubble
-                    msg={msg}
-                    index={originalIndex}
-                    isLast={isLast}
-                    loading={bubbleLoading}
-                    executionState={bubbleExecutionState}
-                    agents={agents}
-                    isHovered={hoveredMsgIndex === originalIndex}
-                    onHover={setHoveredMsgIndex}
-                    onContextMenu={handleContextMenu}
-                    isCopied={copiedIndex === originalIndex}
-                    onCopy={handleCopyMessage}
-                    onAddQuickPrompt={onAddQuickPrompt}
-                    sessionId={sessionId}
-                    onOpenPlanPanel={onOpenPlanPanel}
-                    onViewChildSession={onViewChildSession}
-                    onSwitchModel={onSwitchModel}
-                    onViewSystemPrompt={onViewSystemPrompt}
-                    compacting={compacting}
-                    onCompactContext={onCompactContext}
-                    onOpenDashboardTab={onOpenDashboardTab}
-                    onOpenDiff={onOpenDiff}
-                    onResume={onResume}
-                    onForkFromMessage={onForkFromMessage}
-                    canEditAndResend={editableUserMessageIndex === originalIndex}
-                    editHasFileMutations={
-                      editableUserMessageIndex === originalIndex && editedTurnHasFileMutations
-                    }
-                    onEditAndResend={onEditAndResend}
-                    onOpenMemorySettings={onOpenMemorySettings}
-                    onOpenKnowledge={onOpenKnowledge}
-                    displayMode={displayMode}
-                    footerFiles={row.item.footerFiles}
-                    hideOwnFooterFiles={row.item.hideOwnFooterFiles}
-                    goalCompletionReportOverride={row.item.goalCompletionReport}
-                    suppressGoalCompletionFooter={row.item.suppressGoalCompletionFooter}
-                    forceExpandUserContent={forceExpandUserContent}
-                    onForceExpandedUserContentDismiss={
-                      forceExpandUserContent
-                        ? () =>
-                            setSearchExpandedUserMessageId((current) =>
-                              current === msg.dbId ? null : current,
-                            )
-                        : undefined
-                    }
-                  />
-                  {renderMessageActions?.(msg, originalIndex)}
-                </div>
-              )
+              return renderMessageItem(row.item)
             })}
 
             {hasMoreAfter && (

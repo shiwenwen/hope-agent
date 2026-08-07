@@ -159,7 +159,12 @@ export function AnimatedCollapse({
 
   if (!present && !open && unmountOnExit) return null
 
-  const allowOverflow = overflow === "visible-when-open" && visible
+  // `visible` flips at the start of the enter transition, while the wrapper
+  // is still growing from 0 to its measured height. Releasing overflow at
+  // that point lets full-height content escape the clipping box and overlap
+  // the rows that are being pushed down. Only release it once the height
+  // transition has settled to `auto`; closing restores clipping immediately.
+  const allowOverflow = overflow === "visible-when-open" && open && visible && height === "auto"
   const timingFunction = visible ? UI_EASING.emphasized : UI_EASING.accelerate
 
   return (

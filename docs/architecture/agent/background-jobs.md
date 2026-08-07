@@ -76,7 +76,7 @@ flowchart TB
 
 | 文件 | 职责 |
 |------|------|
-| [`async_jobs/mod.rs`](../../../crates/ha-core/src/async_jobs/mod.rs) | 模块入口、全局静态（DB / 调度器 gate）、`cancel_job`、`replay_pending_jobs`（重启重放） |
+| [`async_jobs/mod.rs`](../../../crates/ha-core/src/async_jobs/mod.rs) | 模块入口、全局静态（DB / 调度器 gate）、权威 `cancel_job_with_outcome`、兼容 `cancel_job`、`replay_pending_jobs`（重启重放） |
 | [`async_jobs/manager.rs`](../../../crates/ha-core/src/async_jobs/manager.rs) | `JobManager` 零尺寸门面：spawn / cancel / list / 快照 / 重放 / 调度 / Group / Subagent 投影 / Monitor |
 | [`async_jobs/types.rs`](../../../crates/ha-core/src/async_jobs/types.rs) | `JobKind` / `JobStatus` / `JobOrigin` / `BackgroundJob` / `BackgroundJobSnapshot` |
 | [`async_jobs/error.rs`](../../../crates/ha-core/src/async_jobs/error.rs) | `JobError` 四变体 + `to_status()` + 注入文案 |
@@ -325,6 +325,10 @@ flowchart TB
 - `cancel(id)`：跨进程取消；
 - `wait{ids?, mode, timeout}`：**短便利**同步——默认等 5s、硬钳 10s 上限（`max_job_secs=0` 时回落到 `job_status_max_wait_secs`，均钳 ≥1s），超时返回 `still_running` 而不是长阻塞。
 
+**模型面严格按当前会话作用域**：`list` 的枚举、`status/result` 的单项读取、`wait` 的每个显式 id，以及 `cancel` 的目标都必须满足 `background_jobs.session_id == ToolExecContext.session_id`。不存在、跨会话和 `session_id IS NULL` 的 ownerless/system 行统一 fail closed，并返回不泄露真实 owner、状态、输出尾或结果路径的通用错误。面向用户本人的 Owner 面板仍走下节的受信任接口，不复用这层模型 scope。
+
+`cancel` 的结构化结果把 `disposition=requested | already_terminal | refused`、请求是否被接受和 `final_status` 分开。对非 Group 作业，`requested` 只表示请求在行仍 active 时被接受，不是取消终态的 CAS；runner 看到 flag 前仍可能自然完成。只有 Group 使用取消与完成互斥的终态单赢家。只有返回明确终态或后续真相源进入终态，UI/模型才可宣称取消完成。Async Job 没有可恢复调用栈；取消后若仍需工作，必须显式重新执行原工具，不能称为 resume。
+
 一个正确性细节：`finalize_job` 必须在写终态 commit **之后**才唤醒 waiter，这样被唤醒者重新检查时一定能看到终态行。
 
 **长 fan-out 等齐的正道是注入而不是 `wait`**——`batch_spawn` 的 Group 等齐后会自动合并注入一轮，比反复 `wait` 更省。
@@ -350,7 +354,7 @@ flowchart TB
 
 ## 取消、孤儿与保留
 
-- **取消**：`cancel_job` 先写 DB 的跨进程 `cancel_requested` flag（另一个进程的 runner 轮询时能观测到），再 trip 进程内 token。分几种情况：仍在队列里的作业直接从队列拉出并 finalize（释放它钉住的 ctx，对无痕焚毁很重要）；跑着的标 `Cancelling`；parked 的拆审批弹窗；找不到 runner 的补触发终态 hook。进程内 token 注册表是尽力而为，**DB 才是持久真相**。不同 kind 的取消分流不同：`Subagent` 路由到 subagent 取消注册表（不跑工具作业的 hook / 注入），`Group` 先标自身终态**再**取消子（否则子的同步终态会让 join CAS 抢先给一个刚被取消的批次发合并注入），`Monitor` 交给 Loop 控制面结算。
+- **取消**：模型控制面的权威入口是 `JobManager::cancel_with_outcome` → `cancel_job_with_outcome`，由执行取消的同一路径返回 `requested / already_terminal / refused`；`cancel_job` 只为内部清理与 legacy 调用方保留、仅返回最新行，不能用于新模型控制路径推断请求是否获接受。DB 状态是持久真相：普通 Tool 作业先写跨进程 `cancel_requested` flag（另一个进程的 runner 轮询时能观测到），再 trip 进程内 token；仍在队列里的作业直接从队列拉出并 finalize（释放它钉住的 ctx，对无痕焚毁很重要），跑着的标 `Cancelling`，parked 的拆审批弹窗，找不到 runner 的补触发终态 hook。进程内 token 注册表只是尽力而为。其他 kind 的取消分流不同：`Subagent` 路由到 subagent 取消注册表（不跑工具作业的 hook / 注入）；`Group` 的 `cancel_requested=1 + status=cancelled + completed_at/error` 必须由 `claim_group_cancel` **一条条件 UPDATE** 同时写入，与 join 的 `claim_group_completion` 竞争单赢，只有取消 CAS 赢者才继续取消子并返回 `requested`，完成 CAS 先赢则返回 `already_terminal` 且不碰子任务；`Monitor` 交给 Loop 控制面结算。
 - **孤儿进程**：`exec` 作业落 `pid`；重启重放对残留 running 检查 pid，仍活则终止整个进程组。
 - **保留**：每日一次 + 启动一次的清扫。按龄删终态行（`completed_at < cutoff`，仅终态）+ spool；再清 spool 孤儿（无行引用 + mtime 超过孤儿 grace），单趟最多 1 万个（防病态目录饿死线程池，跑在 blocking pool 上）。**当 `retention_secs` 与 `orphan_grace_secs` 同时为 `0` 时整个清扫任务跳过。**
 
@@ -416,7 +420,7 @@ category `async_tools`，风险级 **MEDIUM**，GUI 走专用 `save_async_tools_
 
 - **Loop Monitor 投影**：Loop 的 file / WebSocket 一次性 watcher 经 `JobManager::register_monitor` 建一条 `kind=Monitor` 行，`tool_name` 记 `loop_monitor:{adapter}`、`tool_call_id` 记 watch id、`args_json` 只存有界 spec、`injected=true`。Monitor 不走工具执行器、重试、完成注入或普通工具槽；watcher 在 change / message / close / failure / timeout / cancel 时调 `finish_monitor` 结算。执行真相仍在 `loop_watches` 和进程内 generation handle。详见 [Loop 控制平面](loop.md)。
 
-- **后台 subagent 投影（单向）**：用户委派的后台 subagent run 建一条 `kind=Subagent`、带 `subagent_run_id` FK、`args_json="{}"`、`injected=true` 的投影，与工具作业共享 `job_status` / 面板 / 取消。`subagent_runs` 是执行真相源（task / result / error 只在那），投影只承载 status 与生命周期，**绝不持有正文、绝不反写**。状态同步走单一 choke point `SessionDB::update_subagent_status` → `JobManager::sync_subagent_projection`；取消经 `cancel_job` 的 Subagent 分支路由到 `subagent::request_cancel_run`。详见 [子 Agent 系统](subagent.md)。
+- **后台 subagent 投影（单向）**：用户委派的后台 subagent run 建一条 `kind=Subagent`、带 `subagent_run_id` FK、`args_json="{}"`、`injected=true` 的投影，与工具作业共享 `job_status` / 面板 / 取消。`subagent_runs` 是执行真相源（task / result / error 只在那），投影只承载 status 与生命周期，**绝不持有正文、绝不反写**。状态同步走单一 choke point `SessionDB::update_subagent_status` → `JobManager::sync_subagent_projection`；模型取消经 `JobManager::cancel_with_outcome` 的 Subagent 分支路由到 `subagent::request_cancel_run`，兼容 `cancel_job` 只服务不需要 disposition 的内部调用。详见 [子 Agent 系统](subagent.md)。
 
 - **Group fan-out**：`batch_spawn` 建一条 `kind=Group` 协调行（`group_id` 关联子投影、`args_json={"sealed":bool}`、`injected=true`），N 个子携 `group_id` 抑制个体注入；全部子终态 + sealed 时由单赢 CAS 发一条合并 `<subagent-result>`（join 真相读 `subagent_runs`，group 行不持正文）。普通工具作业才用 `<task-notification>` / `<task-notification-batch>`。详见 [子 Agent 系统](subagent.md)。
 

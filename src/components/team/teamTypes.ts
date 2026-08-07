@@ -24,6 +24,43 @@ export interface Team {
   config: TeamConfig
 }
 
+export interface ResumeTeamMember {
+  memberId: string
+  name: string
+  runId?: string
+  sessionId?: string
+}
+
+export interface ResumeTeamFailure {
+  memberId?: string
+  name?: string
+  runId?: string
+  reason?: string
+  oldAttemptStatus?: string
+}
+
+export interface ResumeTeamCompletedMember {
+  memberId: string
+  name: string
+  runId?: string
+  status: "completed"
+}
+
+export interface ResumeTeamResult {
+  status: "resumed" | "partially_resumed" | "already_complete" | "paused" | "refused"
+  teamStatus: TeamStatus
+  disposition: "resumed" | "partial" | "refused" | "no_op"
+  teamId: string
+  resumedMemberCount: number
+  failedMemberCount: number
+  resumedMembers: ResumeTeamMember[]
+  failures: ResumeTeamFailure[]
+  completedDuringPauseCount: number
+  completedMembers: ResumeTeamCompletedMember[]
+  message: string
+  retryable?: boolean
+}
+
 export interface TeamMember {
   memberId: string
   teamId: string
@@ -117,10 +154,7 @@ export interface TeamSummary {
 }
 
 // Status display config
-export const MEMBER_STATUS_CONFIG: Record<
-  MemberStatus,
-  { color: string; bgColor: string }
-> = {
+export const MEMBER_STATUS_CONFIG: Record<MemberStatus, { color: string; bgColor: string }> = {
   idle: { color: "text-gray-500", bgColor: "bg-gray-100" },
   working: { color: "text-blue-500", bgColor: "bg-blue-100" },
   paused: { color: "text-yellow-500", bgColor: "bg-yellow-100" },

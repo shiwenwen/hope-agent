@@ -996,7 +996,7 @@
       "title": "Chrome uzantısı gerekli"
     },
     "conversationEmpty": "Bu görüşmede mesaj yok",
-    "pendingCancelForceInsert": "Bu turun eklenmesini iptal et",
+    "pendingCancelForceInsert": "Yanıttan sonra gönder olarak değiştir",
     "pendingSaving": "Kaydediliyor",
     "pendingSavingTip": "Mesaj ve ekler kurtarılabilir kuyruğa kaydediliyor.",
     "pendingInserting": "Ekleniyor",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "Şimdi gönder",
     "pendingFallbackAfterReply": "Cevaptan sonra gönder",
     "pendingFallbackAfterReplyTip": "Araç tamamlama noktasıyla karşılaşılmadı ve mevcut yanıt sona erdikten sonra gönderilecek.",
-    "pendingForceInsertTip": "Çalışan araç tamamlanana kadar bekler, ardından mevcut aracı kesmeden içeriği modele ekler.",
+    "pendingForceInsertTip": "Bu grupta çalışan tüm araçlar tamamlandıktan sonra, araçları kesintiye uğratmadan modele ekler; bu tur başka bir araç sınırına ulaşmazsa yanıttan sonra gönderilir.",
+    "pendingInsert": "Ekle",
     "pendingInserted": "yerleştirildi",
     "pendingInsertedTip": "Bu takımlama turu tamamlandıktan sonra modele eklenmiştir.",
-    "pendingQueuedShort": "Sıraya girme",
+    "pendingHeldAfterStop": "Gönderme duraklatıldı",
+    "pendingHeldAfterStopTip": "Mevcut yanıt durdurulduğu için bu mesaj otomatik olarak gönderilmeyecek.",
+    "pendingMoreActions": "Diğer mesaj işlemleri",
+    "pendingQueuedShort": "Yanıttan sonra gönder",
     "pendingQueuedTip": "Bekleme kuyruğuna eklendi ve mevcut yanıt bittikten sonra gönderilecek.",
     "pendingQueueTitle": "Gönderilecek",
-    "pendingWaitingToolBoundary": "Takım tamamlanma noktasını bekleyin",
-    "pendingWaitingToolBoundaryTip": "En son araç çağrısının tamamlanmasını bekleyin; Araç artık bu turda çağrılmazsa, yanıt tamamlandıktan sonra gönderilecektir.",
+    "pendingWaitingToolBoundary": "Eklenmeyi bekliyor",
+    "pendingWaitingToolBoundaryTip": "Bu grupta çalışan tüm araçlar tamamlanana kadar eklenmeyi bekler; bu tur başka bir araç sınırına ulaşmazsa yanıttan sonra gönderilir.",
     "processNotification": "süreç sona erdi",
     "rightPanel": {
       "collapse": "Sağ paneli daralt",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "İşlendi"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "{{count}} Agent'ı kapat",
+          "close_other": "{{count}} Agent'ı kapat",
+          "closeAll": "tüm Agent'ları kapat",
+          "message_one": "{{count}} Agent'a mesaj gönder",
+          "message_other": "{{count}} Agent'a mesaj gönder",
+          "observe_one": "{{count}} Agent'ı kontrol et",
+          "observe_other": "{{count}} Agent'ı kontrol et",
+          "resume_one": "{{count}} Agent'ı sürdür",
+          "resume_other": "{{count}} Agent'ı sürdür"
+        },
+        "cron": {
+          "pause_one": "{{count}} planı duraklat",
+          "pause_other": "{{count}} planı duraklat",
+          "resume_one": "{{count}} planı sürdür",
+          "resume_other": "{{count}} planı sürdür"
+        },
+        "job": {
+          "cancel_one": "{{count}} görevi iptal et",
+          "cancel_other": "{{count}} görevi iptal et"
+        },
+        "process": {
+          "close_one": "{{count}} işlemi kapat",
+          "close_other": "{{count}} işlemi kapat"
+        },
+        "team": {
+          "pause_one": "{{count}} ekibi duraklat",
+          "pause_other": "{{count}} ekibi duraklat",
+          "resume_one": "{{count}} ekibi sürdür",
+          "resume_other": "{{count}} ekibi sürdür"
+        },
+        "workflow": {
+          "cancel_one": "{{count}} iş akışını iptal et",
+          "cancel_other": "{{count}} iş akışını iptal et",
+          "pause_one": "{{count}} iş akışını duraklat",
+          "pause_other": "{{count}} iş akışını duraklat",
+          "resume_one": "{{count}} iş akışını sürdür",
+          "resume_other": "{{count}} iş akışını sürdür"
+        }
+      },
+      "aggregate": {
+        "failed_one": "{{count}} başarısız",
+        "failed_other": "{{count}} başarısız",
+        "pending_one": "{{count}} bekliyor",
+        "pending_other": "{{count}} bekliyor",
+        "refused_one": "{{count}} reddedildi",
+        "refused_other": "{{count}} reddedildi",
+        "requested_one": "{{count}} kapatma istendi",
+        "requested_other": "{{count}} kapatma istendi",
+        "resumed_one": "{{count}} devam ettirildi",
+        "resumed_other": "{{count}} devam ettirildi",
+        "terminal_one": "{{count}} tamamlandı",
+        "terminal_other": "{{count}} tamamlandı"
+      },
+      "allTargets": "Tüm Agent'lar",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} zaten tamamlandı",
+        "alreadyTerminal_other": "{{count}} zaten tamamlandı",
+        "refused_one": "{{count}} reddedildi",
+        "refused_other": "{{count}} reddedildi"
+      },
+      "failureDetails": "Devam ettirme hataları",
+      "state": {
+        "accepted": "İstendi · {{action}}",
+        "alreadyTerminal_one": "{{count}} hedef zaten tamamlanmıştı",
+        "alreadyTerminal_other": "{{count}} hedef zaten tamamlanmıştı",
+        "completed": "Tamamlandı · {{action}}",
+        "failed": "Başarısız · {{action}}",
+        "noAgentsToClose": "Kapatılması gereken Agent yok",
+        "noResumeNeeded": "Ekip zaten tamamlandı · devam ettirme gerekmiyor",
+        "partial": "Kısmen tamamlandı · {{action}}",
+        "refused": "Reddedildi · {{action}}",
+        "running": "Devam ediyor · {{action}}"
+      }
     },
     "skill": {
       "completed": "Yüklenen beceri: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "Duraklatıldı",
     "progress": "İlerleme",
     "resume": "Devam ettir",
+    "resumeFeedback": {
+      "counts": "{{resumed}} devam ettirildi · {{failed}} başarısız",
+      "noOpDescription": "Tüm ekip üyeleri zaten tamamlandı; yeni deneme başlatılmadı.",
+      "noOpTitle": "Devam ettirme gerekmiyor",
+      "partialTitle": "Ekip kısmen devam ettirildi",
+      "refusedTitle": "Ekibi devam ettirme reddedildi",
+      "resumedTitle": "Ekip devam ettirildi",
+      "resuming": "Devam ettiriliyor…"
+    },
     "review": "İnceleme",
     "reviewer": "İnceleyici",
     "send": "Gönder",

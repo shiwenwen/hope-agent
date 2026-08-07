@@ -996,7 +996,7 @@
       "title": "Chrome拡張機能が必要です"
     },
     "conversationEmpty": "この会話にはメッセージがありません",
-    "pendingCancelForceInsert": "このラウンドの挿入をキャンセルします",
+    "pendingCancelForceInsert": "返信後に送信へ変更",
     "pendingSaving": "保存中",
     "pendingSavingTip": "メッセージと添付ファイルを復元可能なキューに保存しています。",
     "pendingInserting": "挿入中",
@@ -1006,14 +1006,18 @@
     "pendingSendNow": "今すぐ送信",
     "pendingFallbackAfterReply": "返信後に送信",
     "pendingFallbackAfterReplyTip": "ツールの完了ポイントに到達していないため、現在の応答が終了した後に送信されます。",
-    "pendingForceInsertTip": "実行中のツールが完了するまで待機し、現在のツールを中断することなくモデルにツールを挿入します。",
+    "pendingForceInsertTip": "このバッチで実行中のすべてのツールが完了してからモデルに挿入します。ツールは中断されません。このターンで次のツール境界に到達しない場合は、返信の終了後に送信されます。",
+    "pendingInsert": "挿入",
     "pendingInserted": "挿入された",
     "pendingInsertedTip": "このラウンドのツーリングが完了した後、モデルに挿入されています。",
-    "pendingQueuedShort": "キューイング",
+    "pendingHeldAfterStop": "送信を一時停止中",
+    "pendingHeldAfterStopTip": "現在の返信が停止されたため、このメッセージは自動送信されません。",
+    "pendingMoreActions": "メッセージのその他の操作",
+    "pendingQueuedShort": "返信後に送信",
     "pendingQueuedTip": "これは待機キューに追加されており、現在の応答が終了した後に送信されます。",
     "pendingQueueTitle": "送信予定",
-    "pendingWaitingToolBoundary": "ツールの完了ポイントを待ちます",
-    "pendingWaitingToolBoundaryTip": "最新のツール呼び出しが完了するまで待ちます。このラウンドでツールが呼び出されなくなった場合、応答が完了した後にツールが送信されます。",
+    "pendingWaitingToolBoundary": "挿入待ち",
+    "pendingWaitingToolBoundaryTip": "このバッチで実行中のすべてのツールが完了するまで待ってから挿入します。このターンで次のツール境界に到達しない場合は、返信の終了後に送信されます。",
     "processNotification": "プロセスが終了しました",
     "rightPanel": {
       "collapse": "右パネルを折りたたむ",
@@ -2785,6 +2789,83 @@
     },
     "processed": {
       "completed": "処理済み"
+    },
+    "runtimeControl": {
+      "action": {
+        "agent": {
+          "close_one": "{{count}} 件の Agent を停止",
+          "close_other": "{{count}} 件の Agent を停止",
+          "closeAll": "すべての Agent を停止",
+          "message_one": "{{count}} 件の Agent にメッセージを送信",
+          "message_other": "{{count}} 件の Agent にメッセージを送信",
+          "observe_one": "{{count}} 件の Agent を確認",
+          "observe_other": "{{count}} 件の Agent を確認",
+          "resume_one": "{{count}} 件の Agent を再開",
+          "resume_other": "{{count}} 件の Agent を再開"
+        },
+        "cron": {
+          "pause_one": "{{count}} 件のスケジュールを一時停止",
+          "pause_other": "{{count}} 件のスケジュールを一時停止",
+          "resume_one": "{{count}} 件のスケジュールを再開",
+          "resume_other": "{{count}} 件のスケジュールを再開"
+        },
+        "job": {
+          "cancel_one": "{{count}} 件のタスクをキャンセル",
+          "cancel_other": "{{count}} 件のタスクをキャンセル"
+        },
+        "process": {
+          "close_one": "{{count}} 件のプロセスを終了",
+          "close_other": "{{count}} 件のプロセスを終了"
+        },
+        "team": {
+          "pause_one": "{{count}} 件のチームを一時停止",
+          "pause_other": "{{count}} 件のチームを一時停止",
+          "resume_one": "{{count}} 件のチームを再開",
+          "resume_other": "{{count}} 件のチームを再開"
+        },
+        "workflow": {
+          "cancel_one": "{{count}} 件のワークフローをキャンセル",
+          "cancel_other": "{{count}} 件のワークフローをキャンセル",
+          "pause_one": "{{count}} 件のワークフローを一時停止",
+          "pause_other": "{{count}} 件のワークフローを一時停止",
+          "resume_one": "{{count}} 件のワークフローを再開",
+          "resume_other": "{{count}} 件のワークフローを再開"
+        }
+      },
+      "aggregate": {
+        "failed_one": "{{count}} 件失敗",
+        "failed_other": "{{count}} 件失敗",
+        "pending_one": "{{count}} 件が処理待ち",
+        "pending_other": "{{count}} 件が処理待ち",
+        "refused_one": "{{count}} 件が拒否",
+        "refused_other": "{{count}} 件が拒否",
+        "requested_one": "{{count}} 件を停止要求",
+        "requested_other": "{{count}} 件を停止要求",
+        "resumed_one": "{{count}} 件再開",
+        "resumed_other": "{{count}} 件再開",
+        "terminal_one": "{{count}} 件が終了",
+        "terminal_other": "{{count}} 件が終了"
+      },
+      "allTargets": "すべての Agent",
+      "badge": {
+        "alreadyTerminal_one": "{{count}} 件は終了済み",
+        "alreadyTerminal_other": "{{count}} 件は終了済み",
+        "refused_one": "{{count}} 件が拒否",
+        "refused_other": "{{count}} 件が拒否"
+      },
+      "failureDetails": "再開に失敗したメンバー",
+      "state": {
+        "accepted": "リクエスト済み · {{action}}",
+        "alreadyTerminal_one": "{{count}} 件の対象はすでに終了しています",
+        "alreadyTerminal_other": "{{count}} 件の対象はすでに終了しています",
+        "completed": "完了 · {{action}}",
+        "failed": "失敗 · {{action}}",
+        "noAgentsToClose": "停止する必要のある Agent はありません",
+        "noResumeNeeded": "チームは完了済み · 再開不要",
+        "partial": "一部完了 · {{action}}",
+        "refused": "拒否 · {{action}}",
+        "running": "実行中 · {{action}}"
+      }
     },
     "skill": {
       "completed": "ロードされたスキル: {{name}}",
@@ -8718,6 +8799,15 @@
     "paused": "一時停止中",
     "progress": "進捗",
     "resume": "再開",
+    "resumeFeedback": {
+      "counts": "{{resumed}} 件再開 · {{failed}} 件失敗",
+      "noOpDescription": "すべてのチームメンバーが完了済みのため、新しい試行は開始されませんでした。",
+      "noOpTitle": "再開は不要です",
+      "partialTitle": "チームを一部再開しました",
+      "refusedTitle": "チームの再開が拒否されました",
+      "resumedTitle": "チームを再開しました",
+      "resuming": "再開中…"
+    },
     "review": "レビュー",
     "reviewer": "レビュアー",
     "send": "送信",

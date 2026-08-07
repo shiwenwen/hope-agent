@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
-import type { ActiveModel, AvailableModel, SessionMode } from "@/types/chat"
+import type { ActiveModel, AvailableModel, PendingSendPreview, SessionMode } from "@/types/chat"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { GoalSnapshot } from "@/components/chat/workspace/useGoal"
@@ -151,6 +151,19 @@ const activeModel: ActiveModel = {
   modelId: model.modelId,
 }
 
+function pendingSend(overrides: Partial<PendingSendPreview> = {}): PendingSendPreview {
+  return {
+    id: "pending-1",
+    text: "Queued message",
+    mode: "queue",
+    status: "queued",
+    canForceInsert: true,
+    attachmentCount: 0,
+    quoteCount: 0,
+    ...overrides,
+  }
+}
+
 const inProgressTaskSnapshot: TaskProgressSnapshot = {
   tasks: [
     {
@@ -251,6 +264,12 @@ function renderChatInput(overrides: Partial<Parameters<typeof ChatInput>[0]> = {
       </TooltipProvider>,
     ),
   }
+}
+
+function openRadixMenu(trigger: HTMLElement) {
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  fireEvent.mouseDown(trigger, { button: 0 })
+  fireEvent.click(trigger)
 }
 
 describe("IncognitoToggle", () => {
@@ -470,6 +489,269 @@ describe("ChatInput", () => {
     expect(inputDock).toBeTruthy()
     expect(inputDock?.className).toContain("overflow-visible")
     expect(inputDock?.className).not.toContain("overflow-hidden")
+  })
+
+  test("renders queued messages as neutral rows with insert and menu actions", async () => {
+    const onForceInsertPending = vi.fn()
+    const onDiscardPendingItem = vi.fn()
+    renderChatInput({
+      loading: true,
+      pendingSends: [
+        pendingSend({ id: "queued", text: "Queued copy" }),
+        pendingSend({
+          id: "fallback",
+          text: "Fallback copy",
+          status: "fallback_after_reply",
+        }),
+      ],
+      onForceInsertPending,
+      onDiscardPendingItem,
+      onEditPending: vi.fn(() => Promise.resolve(true)),
+    })
+
+    const list = screen.getByRole("list", { name: "chat.pendingQueueTitle" })
+    expect(list.parentElement?.className).not.toContain("amber")
+
+    for (const text of ["Queued copy", "Fallback copy"]) {
+      const row = screen.getByText(text).closest('[role="listitem"]') as HTMLElement
+      expect(within(row).getByText("chat.pendingFallbackAfterReply")).toBeTruthy()
+      const insert = within(row).getByRole("button", { name: "chat.pendingInsert" })
+      expect(insert.getAttribute("title")).toBeNull()
+      expect(insert.getAttribute("data-ha-tip")).toBe("chat.pendingForceInsertTip")
+    }
+
+    fireEvent.click(
+      within(screen.getByText("Queued copy").closest('[role="listitem"]') as HTMLElement).getByRole(
+        "button",
+        { name: "chat.pendingInsert" },
+      ),
+    )
+    expect(onForceInsertPending).toHaveBeenCalledWith("queued")
+
+    const queuedRow = screen.getByText("Queued copy").closest('[role="listitem"]') as HTMLElement
+    const more = within(queuedRow).getByRole("button", { name: "chat.pendingMoreActions" })
+    expect(more.getAttribute("title")).toBeNull()
+    openRadixMenu(more)
+
+    expect(await screen.findByRole("menuitem", { name: "chat.pendingEdit" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "chat.pendingDelete" }))
+    expect(onDiscardPendingItem).toHaveBeenCalledWith("queued")
+  })
+
+  test("only sends the FIFO head while idle and does not expose insert", () => {
+    const onSendPending = vi.fn()
+    renderChatInput({
+      loading: false,
+      pendingSends: [
+        pendingSend({ id: "idle-head", text: "Idle queued copy" }),
+        pendingSend({
+          id: "idle-tail",
+          text: "Idle fallback copy",
+          status: "fallback_after_reply",
+        }),
+      ],
+      onSendPending,
+      onForceInsertPending: vi.fn(),
+      onDiscardPendingItem: vi.fn(),
+    })
+
+    const headRow = screen.getByText("Idle queued copy").closest('[role="listitem"]') as HTMLElement
+    const tailRow = screen
+      .getByText("Idle fallback copy")
+      .closest('[role="listitem"]') as HTMLElement
+    expect(within(headRow).getByText("chat.pendingFallbackAfterReply")).toBeTruthy()
+    expect(within(headRow).queryByRole("button", { name: "chat.pendingInsert" })).toBeNull()
+    const sendNow = within(headRow).getByRole("button", { name: "chat.pendingSendNow" })
+    expect(sendNow.getAttribute("title")).toBeNull()
+    fireEvent.click(sendNow)
+    expect(onSendPending).toHaveBeenCalledWith("idle-head")
+
+    expect(within(tailRow).queryByRole("button", { name: "chat.pendingInsert" })).toBeNull()
+    expect(within(tailRow).queryByRole("button", { name: "chat.pendingSendNow" })).toBeNull()
+  })
+
+  test("lets a waiting insertion return to send-after-reply from its menu", async () => {
+    const onCancelForceInsertPending = vi.fn()
+    renderChatInput({
+      loading: true,
+      pendingSends: [
+        pendingSend({
+          id: "waiting",
+          text: "Waiting copy",
+          mode: "force_insert",
+          status: "waiting_tool_boundary",
+          canForceInsert: false,
+        }),
+      ],
+      onCancelForceInsertPending,
+      onDiscardPendingItem: vi.fn(),
+      onEditPending: vi.fn(() => Promise.resolve(true)),
+    })
+
+    const row = screen.getByText("Waiting copy").closest('[role="listitem"]') as HTMLElement
+    const status = within(row).getByText("chat.pendingWaitingToolBoundary")
+    expect(status.closest("span")?.getAttribute("aria-live")).toBe("polite")
+    expect(row.querySelector(".animate-spin")).toBeTruthy()
+    expect(within(row).queryByRole("button", { name: "chat.pendingInsert" })).toBeNull()
+
+    openRadixMenu(within(row).getByRole("button", { name: "chat.pendingMoreActions" }))
+    const changeMode = await screen.findByRole("menuitem", {
+      name: "chat.pendingCancelForceInsert",
+    })
+    expect(screen.getByRole("menuitem", { name: "chat.pendingEdit" })).toBeTruthy()
+    expect(screen.getByRole("menuitem", { name: "chat.pendingDelete" })).toBeTruthy()
+    fireEvent.click(changeMode)
+
+    expect(onCancelForceInsertPending).toHaveBeenCalledWith("waiting")
+  })
+
+  test("locks transient and channel rows while stopped rows only allow deletion", async () => {
+    const onDiscardPendingItem = vi.fn()
+    renderChatInput({
+      loading: true,
+      pendingSends: [
+        pendingSend({ id: "saving", text: "Saving copy", status: "saving" }),
+        pendingSend({ id: "inserting", text: "Inserting copy", status: "inserting" }),
+        pendingSend({ id: "dispatching", text: "Dispatching copy", status: "dispatching" }),
+        // Defensive legacy/local projection: non-channel held rows remain deletable.
+        pendingSend({ id: "stopped", text: "Stopped copy", status: "held_after_stop" }),
+        pendingSend({ id: "channel", text: "Channel copy", managedBy: "channel" }),
+        pendingSend({
+          id: "channel-stopped",
+          text: "Channel stopped copy",
+          status: "held_after_stop",
+          managedBy: "channel",
+        }),
+      ],
+      onDiscardPendingItem,
+      onForceInsertPending: vi.fn(),
+      onCancelForceInsertPending: vi.fn(),
+      onEditPending: vi.fn(() => Promise.resolve(true)),
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "common.expand" }))
+
+    for (const text of ["Saving copy", "Inserting copy", "Dispatching copy"]) {
+      const row = screen.getByText(text).closest('[role="listitem"]') as HTMLElement
+      expect(within(row).queryByRole("button", { name: "chat.pendingMoreActions" })).toBeNull()
+    }
+
+    const channelRow = screen.getByText("Channel copy").closest('[role="listitem"]') as HTMLElement
+    expect(within(channelRow).queryByRole("button", { name: "chat.pendingInsert" })).toBeNull()
+    expect(within(channelRow).queryByRole("button", { name: "chat.pendingMoreActions" })).toBeNull()
+
+    const channelStoppedRow = screen
+      .getByText("Channel stopped copy")
+      .closest('[role="listitem"]') as HTMLElement
+    expect(within(channelStoppedRow).getByText("chat.pendingHeldAfterStop")).toBeTruthy()
+    expect(
+      within(channelStoppedRow).queryByRole("button", { name: "chat.pendingSendNow" }),
+    ).toBeNull()
+    expect(
+      within(channelStoppedRow).queryByRole("button", { name: "chat.pendingMoreActions" }),
+    ).toBeNull()
+
+    const stoppedRow = screen.getByText("Stopped copy").closest('[role="listitem"]') as HTMLElement
+    expect(within(stoppedRow).getByText("chat.pendingHeldAfterStop")).toBeTruthy()
+    openRadixMenu(within(stoppedRow).getByRole("button", { name: "chat.pendingMoreActions" }))
+
+    const menuItems = await screen.findAllByRole("menuitem")
+    expect(menuItems).toHaveLength(1)
+    expect(menuItems[0]?.textContent).toContain("chat.pendingDelete")
+    fireEvent.click(menuItems[0]!)
+    expect(onDiscardPendingItem).toHaveBeenCalledWith("stopped")
+  })
+
+  test("shows saving then saved feedback and closes a successful pending edit", async () => {
+    let resolveEdit!: (changed: boolean) => void
+    const onEditPending = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveEdit = resolve
+        }),
+    )
+    renderChatInput({
+      loading: true,
+      pendingSends: [pendingSend({ id: "editable", text: "Original copy" })],
+      onDiscardPendingItem: vi.fn(),
+      onEditPending,
+    })
+
+    const row = screen.getByText("Original copy").closest('[role="listitem"]') as HTMLElement
+    openRadixMenu(within(row).getByRole("button", { name: "chat.pendingMoreActions" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "chat.pendingEdit" }))
+
+    const editor = within(row).getByRole("textbox", { name: "chat.pendingEdit" })
+    fireEvent.change(editor, { target: { value: "Updated copy" } })
+    vi.useFakeTimers()
+    try {
+      fireEvent.keyDown(editor, { key: "Enter" })
+      expect(within(row).getByRole("button", { name: "common.saving" })).toBeTruthy()
+      expect(within(row).getByRole("status").textContent).toBe("common.saving")
+
+      await act(async () => {
+        resolveEdit(true)
+        await Promise.resolve()
+      })
+
+      expect(onEditPending).toHaveBeenCalledWith("editable", "Updated copy")
+      expect(within(row).queryByRole("textbox", { name: "chat.pendingEdit" })).toBeNull()
+      const saved = within(row).getByRole("status")
+      expect(saved.textContent).toBe("common.saved")
+      expect(saved.className).toContain("text-emerald-600")
+
+      act(() => vi.advanceTimersByTime(1999))
+      expect(within(row).getByRole("status")).toBeTruthy()
+      act(() => vi.advanceTimersByTime(1))
+      expect(within(row).queryByRole("status")).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test("keeps a pending edit open with failed feedback when saving returns false", async () => {
+    const onEditPending = vi.fn(() => Promise.resolve(false))
+    renderChatInput({
+      loading: true,
+      pendingSends: [pendingSend({ id: "editable-false", text: "Original false copy" })],
+      onDiscardPendingItem: vi.fn(),
+      onEditPending,
+    })
+
+    const row = screen.getByText("Original false copy").closest('[role="listitem"]') as HTMLElement
+    openRadixMenu(within(row).getByRole("button", { name: "chat.pendingMoreActions" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "chat.pendingEdit" }))
+
+    const editor = within(row).getByRole("textbox", { name: "chat.pendingEdit" })
+    fireEvent.change(editor, { target: { value: "Rejected copy" } })
+    fireEvent.keyDown(editor, { key: "Enter" })
+
+    await waitFor(() =>
+      expect(within(row).getByRole("button", { name: "common.saveFailed" })).toBeTruthy(),
+    )
+    expect(within(row).getByRole("status").textContent).toBe("common.saveFailed")
+    expect(within(row).getByDisplayValue("Rejected copy")).toBeTruthy()
+  })
+
+  test("catches rejected pending edits and exposes failed feedback", async () => {
+    const onEditPending = vi.fn(() => Promise.reject(new Error("save failed")))
+    renderChatInput({
+      loading: true,
+      pendingSends: [pendingSend({ id: "editable-reject", text: "Original reject copy" })],
+      onDiscardPendingItem: vi.fn(),
+      onEditPending,
+    })
+
+    const row = screen.getByText("Original reject copy").closest('[role="listitem"]') as HTMLElement
+    openRadixMenu(within(row).getByRole("button", { name: "chat.pendingMoreActions" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "chat.pendingEdit" }))
+    fireEvent.click(within(row).getByRole("button", { name: "common.save" }))
+
+    await waitFor(() =>
+      expect(within(row).getByRole("button", { name: "common.saveFailed" })).toBeTruthy(),
+    )
+    expect(within(row).getByRole("status").textContent).toBe("common.saveFailed")
+    expect(within(row).getByRole("textbox", { name: "chat.pendingEdit" })).toBeTruthy()
   })
 
   test("shows loop as a direct semantic toolbar action and enters loop mode", () => {

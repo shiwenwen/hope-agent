@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 
-import { useTeam } from "./useTeam"
+import { useActiveTeam, useTeam } from "./useTeam"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { Team, TeamMember, TeamMessage, TeamTask } from "./teamTypes"
 
@@ -27,13 +27,13 @@ beforeEach(() => {
   transportMock.listen.mockImplementation(() => vi.fn())
 })
 
-function team(teamId: string): Team {
+function team(teamId: string, status: Team["status"] = "active"): Team {
   return {
     teamId,
     name: teamId,
     leadSessionId: "session-1",
     leadAgentId: DEFAULT_AGENT_ID,
-    status: "active",
+    status,
     createdAt: "2026-04-26T00:00:00.000Z",
     updatedAt: "2026-04-26T00:00:00.000Z",
     config: {
@@ -64,6 +64,11 @@ function Harness({ teamId }: { teamId: string | null }) {
       ))}
     </div>
   )
+}
+
+function ActiveTeamHarness({ sessionId }: { sessionId: string | null }) {
+  const teamId = useActiveTeam(sessionId)
+  return <div data-testid="active-team">{teamId ?? "none"}</div>
 }
 
 function pendingRequest(): Promise<never> {
@@ -147,5 +152,39 @@ describe("useTeam", () => {
 
     expect(screen.queryByText("stale team message")).toBeNull()
     expect(screen.getByTestId("loading").textContent).toBe("true")
+  })
+})
+
+describe("useActiveTeam", () => {
+  test("keeps a paused team discoverable after reload so it can be resumed", async () => {
+    transportMock.call.mockResolvedValue([team("team-paused", "paused")])
+
+    render(<ActiveTeamHarness sessionId="session-1" />)
+
+    await waitFor(() => expect(screen.getByTestId("active-team").textContent).toBe("team-paused"))
+  })
+
+  test("prefers an active team over a paused fallback", async () => {
+    transportMock.call.mockResolvedValue([
+      team("team-paused", "paused"),
+      team("team-active", "active"),
+    ])
+
+    render(<ActiveTeamHarness sessionId="session-1" />)
+
+    await waitFor(() => expect(screen.getByTestId("active-team").textContent).toBe("team-active"))
+  })
+
+  test("hides the previous session team immediately while the next lookup is pending", async () => {
+    transportMock.call.mockImplementation((_command: string, args?: { sessionId?: string }) => {
+      if (args?.sessionId === "session-1") return Promise.resolve([team("team-one")])
+      return pendingRequest()
+    })
+
+    const { rerender } = render(<ActiveTeamHarness sessionId="session-1" />)
+    await waitFor(() => expect(screen.getByTestId("active-team").textContent).toBe("team-one"))
+
+    rerender(<ActiveTeamHarness sessionId="session-2" />)
+    expect(screen.getByTestId("active-team").textContent).toBe("none")
   })
 })

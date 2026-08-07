@@ -1,5 +1,84 @@
 {
   "ja": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "{{count}} 件の Agent を停止",
+            "close_other": "{{count}} 件の Agent を停止",
+            "closeAll": "すべての Agent を停止",
+            "message_one": "{{count}} 件の Agent にメッセージを送信",
+            "message_other": "{{count}} 件の Agent にメッセージを送信",
+            "observe_one": "{{count}} 件の Agent を確認",
+            "observe_other": "{{count}} 件の Agent を確認",
+            "resume_one": "{{count}} 件の Agent を再開",
+            "resume_other": "{{count}} 件の Agent を再開"
+          },
+          "cron": {
+            "pause_one": "{{count}} 件のスケジュールを一時停止",
+            "pause_other": "{{count}} 件のスケジュールを一時停止",
+            "resume_one": "{{count}} 件のスケジュールを再開",
+            "resume_other": "{{count}} 件のスケジュールを再開"
+          },
+          "job": {
+            "cancel_one": "{{count}} 件のタスクをキャンセル",
+            "cancel_other": "{{count}} 件のタスクをキャンセル"
+          },
+          "process": {
+            "close_one": "{{count}} 件のプロセスを終了",
+            "close_other": "{{count}} 件のプロセスを終了"
+          },
+          "team": {
+            "pause_one": "{{count}} 件のチームを一時停止",
+            "pause_other": "{{count}} 件のチームを一時停止",
+            "resume_one": "{{count}} 件のチームを再開",
+            "resume_other": "{{count}} 件のチームを再開"
+          },
+          "workflow": {
+            "cancel_one": "{{count}} 件のワークフローをキャンセル",
+            "cancel_other": "{{count}} 件のワークフローをキャンセル",
+            "pause_one": "{{count}} 件のワークフローを一時停止",
+            "pause_other": "{{count}} 件のワークフローを一時停止",
+            "resume_one": "{{count}} 件のワークフローを再開",
+            "resume_other": "{{count}} 件のワークフローを再開"
+          }
+        },
+        "aggregate": {
+          "pending_one": "{{count}} 件が処理待ち",
+          "pending_other": "{{count}} 件が処理待ち",
+          "refused_one": "{{count}} 件が拒否",
+          "refused_other": "{{count}} 件が拒否",
+          "requested_one": "{{count}} 件を停止要求",
+          "requested_other": "{{count}} 件を停止要求",
+          "terminal_one": "{{count}} 件が終了",
+          "terminal_other": "{{count}} 件が終了",
+          "failed_one": "{{count}} 件失敗",
+          "failed_other": "{{count}} 件失敗",
+          "resumed_one": "{{count}} 件再開",
+          "resumed_other": "{{count}} 件再開"
+        },
+        "allTargets": "すべての Agent",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} 件は終了済み",
+          "alreadyTerminal_other": "{{count}} 件は終了済み",
+          "refused_one": "{{count}} 件が拒否",
+          "refused_other": "{{count}} 件が拒否"
+        },
+        "state": {
+          "accepted": "リクエスト済み · {{action}}",
+          "alreadyTerminal_one": "{{count}} 件の対象はすでに終了しています",
+          "alreadyTerminal_other": "{{count}} 件の対象はすでに終了しています",
+          "completed": "完了 · {{action}}",
+          "failed": "失敗 · {{action}}",
+          "noAgentsToClose": "停止する必要のある Agent はありません",
+          "refused": "拒否 · {{action}}",
+          "running": "実行中 · {{action}}",
+          "partial": "一部完了 · {{action}}",
+          "noResumeNeeded": "チームは完了済み · 再開不要"
+        },
+        "failureDetails": "再開に失敗したメンバー"
+      }
+    },
     "about": {
       "badge": "ローカルファーストのパーソナルAI Agent",
       "closing": "Hope Agentが文脈を記憶し、仕事を前へ進めます。大切な判断と最終決定は、いつでもあなたの手にあります。",
@@ -157,17 +236,21 @@
         "title": "Chrome拡張機能が必要です"
       },
       "conversationEmpty": "この会話にはメッセージがありません",
-      "pendingCancelForceInsert": "このラウンドの挿入をキャンセルします",
+      "pendingCancelForceInsert": "返信後に送信へ変更",
       "pendingFallbackAfterReply": "返信後に送信",
       "pendingFallbackAfterReplyTip": "ツールの完了ポイントに到達していないため、現在の応答が終了した後に送信されます。",
-      "pendingForceInsertTip": "実行中のツールが完了するまで待機し、現在のツールを中断することなくモデルにツールを挿入します。",
+      "pendingForceInsertTip": "このバッチで実行中のすべてのツールが完了してからモデルに挿入します。ツールは中断されません。このターンで次のツール境界に到達しない場合は、返信の終了後に送信されます。",
+      "pendingInsert": "挿入",
       "pendingInserted": "挿入された",
       "pendingInsertedTip": "このラウンドのツーリングが完了した後、モデルに挿入されています。",
-      "pendingQueuedShort": "キューイング",
+      "pendingHeldAfterStop": "送信を一時停止中",
+      "pendingHeldAfterStopTip": "現在の返信が停止されたため、このメッセージは自動送信されません。",
+      "pendingMoreActions": "メッセージのその他の操作",
+      "pendingQueuedShort": "返信後に送信",
       "pendingQueuedTip": "これは待機キューに追加されており、現在の応答が終了した後に送信されます。",
       "pendingQueueTitle": "送信予定",
-      "pendingWaitingToolBoundary": "ツールの完了ポイントを待ちます",
-      "pendingWaitingToolBoundaryTip": "最新のツール呼び出しが完了するまで待ちます。このラウンドでツールが呼び出されなくなった場合、応答が完了した後にツールが送信されます。",
+      "pendingWaitingToolBoundary": "挿入待ち",
+      "pendingWaitingToolBoundaryTip": "このバッチで実行中のすべてのツールが完了するまで待ってから挿入します。このターンで次のツール境界に到達しない場合は、返信の終了後に送信されます。",
       "processNotification": "プロセスが終了しました",
       "rightPanel": {
         "collapse": "右パネルを折りたたむ",
@@ -2073,6 +2156,15 @@
         "killed": "終了",
         "paused": "一時停止中",
         "working": "作業中"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}} 件再開 · {{failed}} 件失敗",
+        "partialTitle": "チームを一部再開しました",
+        "refusedTitle": "チームの再開が拒否されました",
+        "resumedTitle": "チームを再開しました",
+        "resuming": "再開中…",
+        "noOpTitle": "再開は不要です",
+        "noOpDescription": "すべてのチームメンバーが完了済みのため、新しい試行は開始されませんでした。"
       }
     },
     "tools": {
@@ -2904,6 +2996,85 @@
     }
   },
   "ko": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "Agent {{count}}개 종료",
+            "close_other": "Agent {{count}}개 종료",
+            "closeAll": "모든 Agent 종료",
+            "message_one": "Agent {{count}}개에 메시지 보내기",
+            "message_other": "Agent {{count}}개에 메시지 보내기",
+            "observe_one": "Agent {{count}}개 확인",
+            "observe_other": "Agent {{count}}개 확인",
+            "resume_one": "Agent {{count}}개 재개",
+            "resume_other": "Agent {{count}}개 재개"
+          },
+          "cron": {
+            "pause_one": "일정 {{count}}개 일시 중지",
+            "pause_other": "일정 {{count}}개 일시 중지",
+            "resume_one": "일정 {{count}}개 재개",
+            "resume_other": "일정 {{count}}개 재개"
+          },
+          "job": {
+            "cancel_one": "작업 {{count}}개 취소",
+            "cancel_other": "작업 {{count}}개 취소"
+          },
+          "process": {
+            "close_one": "프로세스 {{count}}개 종료",
+            "close_other": "프로세스 {{count}}개 종료"
+          },
+          "team": {
+            "pause_one": "팀 {{count}}개 일시 중지",
+            "pause_other": "팀 {{count}}개 일시 중지",
+            "resume_one": "팀 {{count}}개 재개",
+            "resume_other": "팀 {{count}}개 재개"
+          },
+          "workflow": {
+            "cancel_one": "워크플로 {{count}}개 취소",
+            "cancel_other": "워크플로 {{count}}개 취소",
+            "pause_one": "워크플로 {{count}}개 일시 중지",
+            "pause_other": "워크플로 {{count}}개 일시 중지",
+            "resume_one": "워크플로 {{count}}개 재개",
+            "resume_other": "워크플로 {{count}}개 재개"
+          }
+        },
+        "aggregate": {
+          "pending_one": "대기 {{count}}개",
+          "pending_other": "대기 {{count}}개",
+          "refused_one": "거부 {{count}}개",
+          "refused_other": "거부 {{count}}개",
+          "requested_one": "종료 요청 {{count}}개",
+          "requested_other": "종료 요청 {{count}}개",
+          "terminal_one": "종료 {{count}}개",
+          "terminal_other": "종료 {{count}}개",
+          "failed_one": "실패 {{count}}개",
+          "failed_other": "실패 {{count}}개",
+          "resumed_one": "재개 {{count}}개",
+          "resumed_other": "재개 {{count}}개"
+        },
+        "allTargets": "모든 Agent",
+        "badge": {
+          "alreadyTerminal_one": "{{count}}개 이미 종료됨",
+          "alreadyTerminal_other": "{{count}}개 이미 종료됨",
+          "refused_one": "{{count}}개 거부됨",
+          "refused_other": "{{count}}개 거부됨"
+        },
+        "state": {
+          "accepted": "요청됨 · {{action}}",
+          "alreadyTerminal_one": "대상 {{count}}개가 이미 종료됨",
+          "alreadyTerminal_other": "대상 {{count}}개가 이미 종료됨",
+          "completed": "완료 · {{action}}",
+          "failed": "실패 · {{action}}",
+          "noAgentsToClose": "종료할 Agent가 없습니다",
+          "refused": "거부됨 · {{action}}",
+          "running": "진행 중 · {{action}}",
+          "partial": "부분 완료 · {{action}}",
+          "noResumeNeeded": "팀 완료됨 · 재개 불필요"
+        },
+        "failureDetails": "재개 실패"
+      }
+    },
     "about": {
       "badge": "로컬 우선 개인 AI Agent",
       "closing": "Hope Agent는 맥락을 기억하고 일을 계속 진전시킵니다. 중요한 판단과 최종 결정은 언제나 당신의 몫입니다.",
@@ -3055,17 +3226,21 @@
         "title": "Chrome 확장 프로그램이 필요합니다."
       },
       "conversationEmpty": "이 대화에는 메시지가 없습니다.",
-      "pendingCancelForceInsert": "이 라운드 삽입 취소",
+      "pendingCancelForceInsert": "답변 후 보내기로 변경",
       "pendingFallbackAfterReply": "답장 후 보내기",
       "pendingFallbackAfterReplyTip": "도구 완료 지점이 발견되지 않았으며 현재 응답이 끝난 후에 전송됩니다.",
-      "pendingForceInsertTip": "실행 중인 도구가 완료될 때까지 기다렸다가 현재 도구를 중단하지 않고 모델에 삽입합니다.",
+      "pendingForceInsertTip": "이 배치에서 실행 중인 모든 도구가 완료된 후 모델에 삽입합니다. 도구를 중단하지 않으며, 이 턴에서 다음 도구 경계에 도달하지 않으면 답변이 끝난 후 전송됩니다.",
+      "pendingInsert": "삽입",
       "pendingInserted": "삽입됨",
       "pendingInsertedTip": "이 툴링 라운드가 완료된 후 모델에 삽입되었습니다.",
-      "pendingQueuedShort": "대기열",
+      "pendingHeldAfterStop": "전송 일시 중지됨",
+      "pendingHeldAfterStopTip": "현재 답변이 중지되어 이 메시지는 자동으로 전송되지 않습니다.",
+      "pendingMoreActions": "메시지 작업 더 보기",
+      "pendingQueuedShort": "답변 후 보내기",
       "pendingQueuedTip": "대기 대기열에 추가되었으며 현재 응답이 끝난 후 전송됩니다.",
       "pendingQueueTitle": "발송 예정",
-      "pendingWaitingToolBoundary": "도구 완료 지점을 기다립니다.",
-      "pendingWaitingToolBoundaryTip": "최신 도구 호출이 완료될 때까지 기다리십시오. 이번 라운드에서 도구가 더 이상 호출되지 않으면 응답이 완료된 후 전송됩니다.",
+      "pendingWaitingToolBoundary": "삽입 대기 중",
+      "pendingWaitingToolBoundaryTip": "이 배치에서 실행 중인 모든 도구가 완료될 때까지 기다린 후 삽입합니다. 이 턴에서 다음 도구 경계에 도달하지 않으면 답변이 끝난 후 전송됩니다.",
       "processNotification": "프로세스가 종료되었습니다",
       "rightPanel": {
         "collapse": "오른쪽 패널 접기",
@@ -4978,6 +5153,15 @@
         "killed": "종료",
         "paused": "일시중지됨",
         "working": "작업 중"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}}개 재개 · {{failed}}개 실패",
+        "partialTitle": "팀이 부분적으로 재개됨",
+        "refusedTitle": "팀 재개가 거부됨",
+        "resumedTitle": "팀 재개됨",
+        "resuming": "재개 중…",
+        "noOpTitle": "재개할 필요 없음",
+        "noOpDescription": "모든 팀원이 이미 완료되어 새 시도를 시작하지 않았습니다."
       }
     },
     "tools": {
@@ -5825,6 +6009,85 @@
     }
   },
   "zh-TW": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "關閉 {{count}} 個 Agent",
+            "close_other": "關閉 {{count}} 個 Agent",
+            "closeAll": "關閉所有 Agent",
+            "message_one": "向 {{count}} 個 Agent 傳送訊息",
+            "message_other": "向 {{count}} 個 Agent 傳送訊息",
+            "observe_one": "檢查 {{count}} 個 Agent",
+            "observe_other": "檢查 {{count}} 個 Agent",
+            "resume_one": "恢復 {{count}} 個 Agent",
+            "resume_other": "恢復 {{count}} 個 Agent"
+          },
+          "cron": {
+            "pause_one": "暫停 {{count}} 個排程",
+            "pause_other": "暫停 {{count}} 個排程",
+            "resume_one": "恢復 {{count}} 個排程",
+            "resume_other": "恢復 {{count}} 個排程"
+          },
+          "job": {
+            "cancel_one": "取消 {{count}} 個任務",
+            "cancel_other": "取消 {{count}} 個任務"
+          },
+          "process": {
+            "close_one": "關閉 {{count}} 個處理程序",
+            "close_other": "關閉 {{count}} 個處理程序"
+          },
+          "team": {
+            "pause_one": "暫停 {{count}} 個團隊",
+            "pause_other": "暫停 {{count}} 個團隊",
+            "resume_one": "恢復 {{count}} 個團隊",
+            "resume_other": "恢復 {{count}} 個團隊"
+          },
+          "workflow": {
+            "cancel_one": "取消 {{count}} 個工作流",
+            "cancel_other": "取消 {{count}} 個工作流",
+            "pause_one": "暫停 {{count}} 個工作流",
+            "pause_other": "暫停 {{count}} 個工作流",
+            "resume_one": "恢復 {{count}} 個工作流",
+            "resume_other": "恢復 {{count}} 個工作流"
+          }
+        },
+        "aggregate": {
+          "pending_one": "待完成 {{count}} 個",
+          "pending_other": "待完成 {{count}} 個",
+          "refused_one": "已拒絕 {{count}} 個",
+          "refused_other": "已拒絕 {{count}} 個",
+          "requested_one": "已請求 {{count}} 個",
+          "requested_other": "已請求 {{count}} 個",
+          "terminal_one": "已結束 {{count}} 個",
+          "terminal_other": "已結束 {{count}} 個",
+          "failed_one": "失敗 {{count}} 個",
+          "failed_other": "失敗 {{count}} 個",
+          "resumed_one": "已恢復 {{count}} 個",
+          "resumed_other": "已恢復 {{count}} 個"
+        },
+        "allTargets": "所有 Agent",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} 個已結束",
+          "alreadyTerminal_other": "{{count}} 個已結束",
+          "refused_one": "{{count}} 個被拒絕",
+          "refused_other": "{{count}} 個被拒絕"
+        },
+        "state": {
+          "accepted": "已請求{{action}}",
+          "alreadyTerminal_one": "{{count}} 個目標此前已結束",
+          "alreadyTerminal_other": "{{count}} 個目標此前已結束",
+          "completed": "已{{action}}",
+          "failed": "{{action}}失敗",
+          "noAgentsToClose": "沒有需要關閉的 Agent",
+          "refused": "{{action}}被拒絕",
+          "running": "正在{{action}}",
+          "partial": "部分完成 · {{action}}",
+          "noResumeNeeded": "團隊已完成 · 無需恢復"
+        },
+        "failureDetails": "恢復失敗"
+      }
+    },
     "about": {
       "badge": "本機優先的個人 AI Agent",
       "closing": "Hope Agent 記住脈絡、持續推進工作；重要的判斷和最終決定，始終由你掌握。",
@@ -5976,17 +6239,21 @@
         "title": "需要 Chrome 擴充功能"
       },
       "conversationEmpty": "此對話中沒有訊息",
-      "pendingCancelForceInsert": "取消本輪插入",
+      "pendingCancelForceInsert": "改為回覆後傳送",
       "pendingFallbackAfterReply": "回覆後傳送",
       "pendingFallbackAfterReplyTip": "尚未遇到工具完成點，將在目前回覆結束後傳送。",
-      "pendingForceInsertTip": "它會等待正在執行的工具完成，再將內容插入模型，不會中斷目前的工具。",
+      "pendingForceInsertTip": "等本批正在執行的工具全部完成後插入給模型，不會中斷這些工具；如果本輪不再進入工具邊界，則在回覆結束後傳送。",
+      "pendingInsert": "插入",
       "pendingInserted": "插入",
       "pendingInsertedTip": "本輪加工完成後已將其插入模型中。",
-      "pendingQueuedShort": "排隊",
+      "pendingHeldAfterStop": "已暫停傳送",
+      "pendingHeldAfterStopTip": "目前回覆已停止，這則訊息不會自動傳送。",
+      "pendingMoreActions": "更多訊息操作",
+      "pendingQueuedShort": "回覆後傳送",
       "pendingQueuedTip": "已加入等待佇列，目前回覆結束後傳送。",
       "pendingQueueTitle": "待傳送",
-      "pendingWaitingToolBoundary": "等待工具完成點",
-      "pendingWaitingToolBoundaryTip": "等待最新的工具呼叫完成；如果本輪不再呼叫該工具，則會在回覆完成後傳送。",
+      "pendingWaitingToolBoundary": "等待插入",
+      "pendingWaitingToolBoundaryTip": "等待本批正在執行的工具全部完成後插入；如果本輪不再進入工具邊界，將在回覆結束後傳送。",
       "processNotification": "行程結束",
       "rightPanel": {
         "collapse": "折疊右側面板",
@@ -7854,6 +8121,15 @@
         "killed": "已終止",
         "paused": "已暫停",
         "working": "工作中"
+      },
+      "resumeFeedback": {
+        "counts": "已恢復 {{resumed}} 個 · 失敗 {{failed}} 個",
+        "partialTitle": "團隊已部分恢復",
+        "refusedTitle": "團隊恢復被拒絕",
+        "resumedTitle": "團隊已恢復",
+        "resuming": "正在恢復…",
+        "noOpTitle": "無需恢復",
+        "noOpDescription": "所有團隊成員均已完成，未啟動新的嘗試。"
       }
     },
     "tools": {
@@ -8657,6 +8933,85 @@
     }
   },
   "tr": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "{{count}} Agent'ı kapat",
+            "close_other": "{{count}} Agent'ı kapat",
+            "closeAll": "tüm Agent'ları kapat",
+            "message_one": "{{count}} Agent'a mesaj gönder",
+            "message_other": "{{count}} Agent'a mesaj gönder",
+            "observe_one": "{{count}} Agent'ı kontrol et",
+            "observe_other": "{{count}} Agent'ı kontrol et",
+            "resume_one": "{{count}} Agent'ı sürdür",
+            "resume_other": "{{count}} Agent'ı sürdür"
+          },
+          "cron": {
+            "pause_one": "{{count}} planı duraklat",
+            "pause_other": "{{count}} planı duraklat",
+            "resume_one": "{{count}} planı sürdür",
+            "resume_other": "{{count}} planı sürdür"
+          },
+          "job": {
+            "cancel_one": "{{count}} görevi iptal et",
+            "cancel_other": "{{count}} görevi iptal et"
+          },
+          "process": {
+            "close_one": "{{count}} işlemi kapat",
+            "close_other": "{{count}} işlemi kapat"
+          },
+          "team": {
+            "pause_one": "{{count}} ekibi duraklat",
+            "pause_other": "{{count}} ekibi duraklat",
+            "resume_one": "{{count}} ekibi sürdür",
+            "resume_other": "{{count}} ekibi sürdür"
+          },
+          "workflow": {
+            "cancel_one": "{{count}} iş akışını iptal et",
+            "cancel_other": "{{count}} iş akışını iptal et",
+            "pause_one": "{{count}} iş akışını duraklat",
+            "pause_other": "{{count}} iş akışını duraklat",
+            "resume_one": "{{count}} iş akışını sürdür",
+            "resume_other": "{{count}} iş akışını sürdür"
+          }
+        },
+        "aggregate": {
+          "pending_one": "{{count}} bekliyor",
+          "pending_other": "{{count}} bekliyor",
+          "refused_one": "{{count}} reddedildi",
+          "refused_other": "{{count}} reddedildi",
+          "requested_one": "{{count}} kapatma istendi",
+          "requested_other": "{{count}} kapatma istendi",
+          "terminal_one": "{{count}} tamamlandı",
+          "terminal_other": "{{count}} tamamlandı",
+          "failed_one": "{{count}} başarısız",
+          "failed_other": "{{count}} başarısız",
+          "resumed_one": "{{count}} devam ettirildi",
+          "resumed_other": "{{count}} devam ettirildi"
+        },
+        "allTargets": "Tüm Agent'lar",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} zaten tamamlandı",
+          "alreadyTerminal_other": "{{count}} zaten tamamlandı",
+          "refused_one": "{{count}} reddedildi",
+          "refused_other": "{{count}} reddedildi"
+        },
+        "state": {
+          "accepted": "İstendi · {{action}}",
+          "alreadyTerminal_one": "{{count}} hedef zaten tamamlanmıştı",
+          "alreadyTerminal_other": "{{count}} hedef zaten tamamlanmıştı",
+          "completed": "Tamamlandı · {{action}}",
+          "failed": "Başarısız · {{action}}",
+          "noAgentsToClose": "Kapatılması gereken Agent yok",
+          "refused": "Reddedildi · {{action}}",
+          "running": "Devam ediyor · {{action}}",
+          "partial": "Kısmen tamamlandı · {{action}}",
+          "noResumeNeeded": "Ekip zaten tamamlandı · devam ettirme gerekmiyor"
+        },
+        "failureDetails": "Devam ettirme hataları"
+      }
+    },
     "agentLifecycle": {
       "activeWorkBlocked": "{{count}} Agent görevi etkin olduğu sürece silme işlemi engellenir."
     },
@@ -8832,17 +9187,21 @@
         "title": "Chrome uzantısı gerekli"
       },
       "conversationEmpty": "Bu görüşmede mesaj yok",
-      "pendingCancelForceInsert": "Bu turun eklenmesini iptal et",
+      "pendingCancelForceInsert": "Yanıttan sonra gönder olarak değiştir",
       "pendingFallbackAfterReply": "Cevaptan sonra gönder",
       "pendingFallbackAfterReplyTip": "Araç tamamlama noktasıyla karşılaşılmadı ve mevcut yanıt sona erdikten sonra gönderilecek.",
-      "pendingForceInsertTip": "Çalışan araç tamamlanana kadar bekler, ardından mevcut aracı kesmeden içeriği modele ekler.",
+      "pendingForceInsertTip": "Bu grupta çalışan tüm araçlar tamamlandıktan sonra, araçları kesintiye uğratmadan modele ekler; bu tur başka bir araç sınırına ulaşmazsa yanıttan sonra gönderilir.",
+      "pendingInsert": "Ekle",
       "pendingInserted": "yerleştirildi",
       "pendingInsertedTip": "Bu takımlama turu tamamlandıktan sonra modele eklenmiştir.",
-      "pendingQueuedShort": "Sıraya girme",
+      "pendingHeldAfterStop": "Gönderme duraklatıldı",
+      "pendingHeldAfterStopTip": "Mevcut yanıt durdurulduğu için bu mesaj otomatik olarak gönderilmeyecek.",
+      "pendingMoreActions": "Diğer mesaj işlemleri",
+      "pendingQueuedShort": "Yanıttan sonra gönder",
       "pendingQueuedTip": "Bekleme kuyruğuna eklendi ve mevcut yanıt bittikten sonra gönderilecek.",
       "pendingQueueTitle": "Gönderilecek",
-      "pendingWaitingToolBoundary": "Takım tamamlanma noktasını bekleyin",
-      "pendingWaitingToolBoundaryTip": "En son araç çağrısının tamamlanmasını bekleyin; Araç artık bu turda çağrılmazsa, yanıt tamamlandıktan sonra gönderilecektir.",
+      "pendingWaitingToolBoundary": "Eklenmeyi bekliyor",
+      "pendingWaitingToolBoundaryTip": "Bu grupta çalışan tüm araçlar tamamlanana kadar eklenmeyi bekler; bu tur başka bir araç sınırına ulaşmazsa yanıttan sonra gönderilir.",
       "processNotification": "süreç sona erdi",
       "rightPanel": {
         "collapse": "Sağ paneli daralt",
@@ -10779,6 +11138,15 @@
         "killed": "Sonlandırıldı",
         "paused": "Duraklatıldı",
         "working": "Çalışıyor"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}} devam ettirildi · {{failed}} başarısız",
+        "partialTitle": "Ekip kısmen devam ettirildi",
+        "refusedTitle": "Ekibi devam ettirme reddedildi",
+        "resumedTitle": "Ekip devam ettirildi",
+        "resuming": "Devam ettiriliyor…",
+        "noOpTitle": "Devam ettirme gerekmiyor",
+        "noOpDescription": "Tüm ekip üyeleri zaten tamamlandı; yeni deneme başlatılmadı."
       }
     },
     "tools": {
@@ -11815,17 +12183,21 @@
         "title": "Cần có tiện ích mở rộng của Chrome"
       },
       "conversationEmpty": "Không có tin nhắn trong cuộc trò chuyện này",
-      "pendingCancelForceInsert": "Hủy chèn vòng này",
+      "pendingCancelForceInsert": "Chuyển sang gửi sau phản hồi",
       "pendingFallbackAfterReply": "Gửi sau khi trả lời",
       "pendingFallbackAfterReplyTip": "Chưa gặp điểm hoàn thành công cụ và sẽ được gửi sau khi phản hồi hiện tại kết thúc.",
-      "pendingForceInsertTip": "Nó sẽ đợi cho đến khi công cụ đang được thực thi hoàn tất rồi chèn nó vào mô hình mà không làm gián đoạn công cụ hiện tại.",
+      "pendingForceInsertTip": "Chèn vào mô hình sau khi tất cả công cụ đang chạy trong đợt này hoàn tất, không làm gián đoạn các công cụ đó; nếu lượt này không còn đạt đến ranh giới công cụ nào, tin nhắn sẽ được gửi sau phản hồi.",
+      "pendingInsert": "Chèn",
       "pendingInserted": "chèn vào",
       "pendingInsertedTip": "Nó đã được chèn vào mô hình sau khi hoàn thành vòng công cụ này.",
-      "pendingQueuedShort": "Xếp hàng",
+      "pendingHeldAfterStop": "Đã tạm dừng gửi",
+      "pendingHeldAfterStopTip": "Phản hồi hiện tại đã bị dừng nên tin nhắn này sẽ không được gửi tự động.",
+      "pendingMoreActions": "Thao tác khác với tin nhắn",
+      "pendingQueuedShort": "Gửi sau phản hồi",
       "pendingQueuedTip": "Nó đã được thêm vào hàng đợi và sẽ được gửi sau khi trả lời hiện tại kết thúc.",
       "pendingQueueTitle": "Sẽ được gửi",
-      "pendingWaitingToolBoundary": "Chờ điểm hoàn thành công cụ",
-      "pendingWaitingToolBoundaryTip": "Đợi lệnh gọi công cụ mới nhất hoàn tất; nếu công cụ này không còn được gọi ở vòng này nữa, nó sẽ được gửi sau khi phản hồi hoàn tất.",
+      "pendingWaitingToolBoundary": "Đang chờ chèn",
+      "pendingWaitingToolBoundaryTip": "Đang chờ tất cả công cụ chạy trong đợt này hoàn tất trước khi chèn; nếu lượt này không còn đạt đến ranh giới công cụ nào, tin nhắn sẽ được gửi sau phản hồi.",
       "processNotification": "quá trình kết thúc",
       "rightPanel": {
         "collapse": "Thu gọn bảng bên phải",
@@ -12263,6 +12635,83 @@
       "none": "Tắt"
     },
     "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "đóng {{count}} Agent",
+            "close_other": "đóng {{count}} Agent",
+            "closeAll": "đóng tất cả Agent",
+            "message_one": "gửi tin nhắn tới {{count}} Agent",
+            "message_other": "gửi tin nhắn tới {{count}} Agent",
+            "observe_one": "kiểm tra {{count}} Agent",
+            "observe_other": "kiểm tra {{count}} Agent",
+            "resume_one": "tiếp tục {{count}} Agent",
+            "resume_other": "tiếp tục {{count}} Agent"
+          },
+          "cron": {
+            "pause_one": "tạm dừng {{count}} lịch",
+            "pause_other": "tạm dừng {{count}} lịch",
+            "resume_one": "tiếp tục {{count}} lịch",
+            "resume_other": "tiếp tục {{count}} lịch"
+          },
+          "job": {
+            "cancel_one": "hủy {{count}} tác vụ",
+            "cancel_other": "hủy {{count}} tác vụ"
+          },
+          "process": {
+            "close_one": "đóng {{count}} tiến trình",
+            "close_other": "đóng {{count}} tiến trình"
+          },
+          "team": {
+            "pause_one": "tạm dừng {{count}} nhóm",
+            "pause_other": "tạm dừng {{count}} nhóm",
+            "resume_one": "tiếp tục {{count}} nhóm",
+            "resume_other": "tiếp tục {{count}} nhóm"
+          },
+          "workflow": {
+            "cancel_one": "hủy {{count}} quy trình",
+            "cancel_other": "hủy {{count}} quy trình",
+            "pause_one": "tạm dừng {{count}} quy trình",
+            "pause_other": "tạm dừng {{count}} quy trình",
+            "resume_one": "tiếp tục {{count}} quy trình",
+            "resume_other": "tiếp tục {{count}} quy trình"
+          }
+        },
+        "aggregate": {
+          "pending_one": "đang chờ {{count}}",
+          "pending_other": "đang chờ {{count}}",
+          "refused_one": "bị từ chối {{count}}",
+          "refused_other": "bị từ chối {{count}}",
+          "requested_one": "đã yêu cầu {{count}}",
+          "requested_other": "đã yêu cầu {{count}}",
+          "terminal_one": "đã kết thúc {{count}}",
+          "terminal_other": "đã kết thúc {{count}}",
+          "failed_one": "{{count}} thất bại",
+          "failed_other": "{{count}} thất bại",
+          "resumed_one": "{{count}} đã tiếp tục",
+          "resumed_other": "{{count}} đã tiếp tục"
+        },
+        "allTargets": "Tất cả Agent",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} đã kết thúc",
+          "alreadyTerminal_other": "{{count}} đã kết thúc",
+          "refused_one": "{{count}} bị từ chối",
+          "refused_other": "{{count}} bị từ chối"
+        },
+        "state": {
+          "accepted": "Đã yêu cầu · {{action}}",
+          "alreadyTerminal_one": "{{count}} mục tiêu đã kết thúc trước đó",
+          "alreadyTerminal_other": "{{count}} mục tiêu đã kết thúc trước đó",
+          "completed": "Đã hoàn tất · {{action}}",
+          "failed": "Thất bại · {{action}}",
+          "noAgentsToClose": "Không có Agent nào cần đóng",
+          "refused": "Bị từ chối · {{action}}",
+          "running": "Đang thực hiện · {{action}}",
+          "partial": "Hoàn tất một phần · {{action}}",
+          "noResumeNeeded": "Nhóm đã hoàn tất · không cần tiếp tục"
+        },
+        "failureDetails": "Lỗi tiếp tục"
+      },
       "tool": {
         "single": {
           "acp_spawn": {
@@ -13910,6 +14359,15 @@
         "killed": "Đã chấm dứt",
         "paused": "Đã tạm dừng",
         "working": "Đang làm việc"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}} đã tiếp tục · {{failed}} thất bại",
+        "partialTitle": "Nhóm đã tiếp tục một phần",
+        "refusedTitle": "Yêu cầu tiếp tục nhóm bị từ chối",
+        "resumedTitle": "Nhóm đã tiếp tục",
+        "resuming": "Đang tiếp tục…",
+        "noOpTitle": "Không cần tiếp tục",
+        "noOpDescription": "Tất cả thành viên đã hoàn tất; không có lượt chạy mới nào được bắt đầu."
       }
     },
     "tools": {
@@ -14775,6 +15233,85 @@
     }
   },
   "pt": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "encerrar {{count}} Agents",
+            "close_other": "encerrar {{count}} Agents",
+            "closeAll": "encerrar todos os Agents",
+            "message_one": "enviar mensagem a {{count}} Agents",
+            "message_other": "enviar mensagem a {{count}} Agents",
+            "observe_one": "verificar {{count}} Agents",
+            "observe_other": "verificar {{count}} Agents",
+            "resume_one": "retomar {{count}} Agents",
+            "resume_other": "retomar {{count}} Agents"
+          },
+          "cron": {
+            "pause_one": "pausar {{count}} agendamentos",
+            "pause_other": "pausar {{count}} agendamentos",
+            "resume_one": "retomar {{count}} agendamentos",
+            "resume_other": "retomar {{count}} agendamentos"
+          },
+          "job": {
+            "cancel_one": "cancelar {{count}} tarefas",
+            "cancel_other": "cancelar {{count}} tarefas"
+          },
+          "process": {
+            "close_one": "encerrar {{count}} processos",
+            "close_other": "encerrar {{count}} processos"
+          },
+          "team": {
+            "pause_one": "pausar {{count}} equipes",
+            "pause_other": "pausar {{count}} equipes",
+            "resume_one": "retomar {{count}} equipes",
+            "resume_other": "retomar {{count}} equipes"
+          },
+          "workflow": {
+            "cancel_one": "cancelar {{count}} fluxos de trabalho",
+            "cancel_other": "cancelar {{count}} fluxos de trabalho",
+            "pause_one": "pausar {{count}} fluxos de trabalho",
+            "pause_other": "pausar {{count}} fluxos de trabalho",
+            "resume_one": "retomar {{count}} fluxos de trabalho",
+            "resume_other": "retomar {{count}} fluxos de trabalho"
+          }
+        },
+        "aggregate": {
+          "pending_one": "{{count}} pendentes",
+          "pending_other": "{{count}} pendentes",
+          "refused_one": "{{count}} recusados",
+          "refused_other": "{{count}} recusados",
+          "requested_one": "{{count}} solicitados",
+          "requested_other": "{{count}} solicitados",
+          "terminal_one": "{{count}} encerrados",
+          "terminal_other": "{{count}} encerrados",
+          "failed_one": "{{count}} com falha",
+          "failed_other": "{{count}} com falha",
+          "resumed_one": "{{count}} retomados",
+          "resumed_other": "{{count}} retomados"
+        },
+        "allTargets": "Todos os Agents",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} já encerrados",
+          "alreadyTerminal_other": "{{count}} já encerrados",
+          "refused_one": "{{count}} recusados",
+          "refused_other": "{{count}} recusados"
+        },
+        "state": {
+          "accepted": "Solicitado · {{action}}",
+          "alreadyTerminal_one": "{{count}} destinos já haviam terminado",
+          "alreadyTerminal_other": "{{count}} destinos já haviam terminado",
+          "completed": "Concluído · {{action}}",
+          "failed": "Falhou · {{action}}",
+          "noAgentsToClose": "Não há Agents que precisem ser encerrados",
+          "refused": "Recusado · {{action}}",
+          "running": "Em andamento · {{action}}",
+          "partial": "Parcialmente concluído · {{action}}",
+          "noResumeNeeded": "Equipe já concluída · não é preciso retomar"
+        },
+        "failureDetails": "Falhas ao retomar"
+      }
+    },
     "agentLifecycle": {
       "activeWorkBlocked": "A exclusão fica bloqueada enquanto {{count}} tarefas do Agent permanecerem ativas."
     },
@@ -14960,17 +15497,21 @@
         "title": "Extensão do Chrome necessária"
       },
       "conversationEmpty": "Nenhuma mensagem nesta conversa",
-      "pendingCancelForceInsert": "Cancelar inserção desta rodada",
+      "pendingCancelForceInsert": "Alterar para enviar após a resposta",
       "pendingFallbackAfterReply": "Enviar após resposta",
       "pendingFallbackAfterReplyTip": "O ponto de conclusão da ferramenta não foi encontrado e será enviado após o término da resposta atual.",
-      "pendingForceInsertTip": "Ele irá esperar até que a ferramenta que está sendo executada seja concluída e então inseri-la no modelo sem interromper a ferramenta atual.",
+      "pendingForceInsertTip": "Insere para o modelo depois que todas as ferramentas em execução neste lote terminarem, sem interrompê-las; se este turno não alcançar outro limite de ferramenta, será enviado após a resposta.",
+      "pendingInsert": "Inserir",
       "pendingInserted": "inserido",
       "pendingInsertedTip": "Ele foi inserido no modelo após a conclusão desta rodada de ferramentas.",
-      "pendingQueuedShort": "Na fila",
+      "pendingHeldAfterStop": "Envio pausado",
+      "pendingHeldAfterStopTip": "A resposta atual foi interrompida, portanto esta mensagem não será enviada automaticamente.",
+      "pendingMoreActions": "Mais ações da mensagem",
+      "pendingQueuedShort": "Enviar após a resposta",
       "pendingQueuedTip": "Ele foi adicionado à fila de espera e será enviado após o término da resposta atual.",
       "pendingQueueTitle": "Para ser enviado",
-      "pendingWaitingToolBoundary": "Aguarde o ponto de conclusão da ferramenta",
-      "pendingWaitingToolBoundaryTip": "Aguarde até que a última chamada da ferramenta seja concluída; caso a ferramenta não seja mais convocada nesta rodada, ela será enviada após a conclusão da resposta.",
+      "pendingWaitingToolBoundary": "Aguardando inserção",
+      "pendingWaitingToolBoundaryTip": "Aguardando todas as ferramentas em execução neste lote terminarem antes de inserir; se este turno não alcançar outro limite de ferramenta, será enviado após a resposta.",
       "processNotification": "processo finalizado",
       "rightPanel": {
         "collapse": "Recolher painel direito",
@@ -16906,6 +17447,15 @@
         "killed": "Encerradas",
         "paused": "Pausado",
         "working": "Trabalhando"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}} retomados · {{failed}} com falha",
+        "partialTitle": "Equipe parcialmente retomada",
+        "refusedTitle": "Retomada da equipe recusada",
+        "resumedTitle": "Equipe retomada",
+        "resuming": "Retomando…",
+        "noOpTitle": "Não é preciso retomar",
+        "noOpDescription": "Todos os membros da equipe já concluíram; nenhuma nova tentativa foi iniciada."
       }
     },
     "tools": {
@@ -17753,6 +18303,85 @@
     }
   },
   "ru": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "закрыть {{count}} агентов",
+            "close_other": "закрыть {{count}} агентов",
+            "closeAll": "закрыть всех агентов",
+            "message_one": "отправить сообщение {{count}} агентам",
+            "message_other": "отправить сообщение {{count}} агентам",
+            "observe_one": "проверить {{count}} агентов",
+            "observe_other": "проверить {{count}} агентов",
+            "resume_one": "возобновить {{count}} агентов",
+            "resume_other": "возобновить {{count}} агентов"
+          },
+          "cron": {
+            "pause_one": "приостановить {{count}} расписаний",
+            "pause_other": "приостановить {{count}} расписаний",
+            "resume_one": "возобновить {{count}} расписаний",
+            "resume_other": "возобновить {{count}} расписаний"
+          },
+          "job": {
+            "cancel_one": "отменить {{count}} задач",
+            "cancel_other": "отменить {{count}} задач"
+          },
+          "process": {
+            "close_one": "закрыть {{count}} процессов",
+            "close_other": "закрыть {{count}} процессов"
+          },
+          "team": {
+            "pause_one": "приостановить {{count}} команд",
+            "pause_other": "приостановить {{count}} команд",
+            "resume_one": "возобновить {{count}} команд",
+            "resume_other": "возобновить {{count}} команд"
+          },
+          "workflow": {
+            "cancel_one": "отменить {{count}} процессов",
+            "cancel_other": "отменить {{count}} процессов",
+            "pause_one": "приостановить {{count}} процессов",
+            "pause_other": "приостановить {{count}} процессов",
+            "resume_one": "возобновить {{count}} процессов",
+            "resume_other": "возобновить {{count}} процессов"
+          }
+        },
+        "aggregate": {
+          "pending_one": "ожидается: {{count}}",
+          "pending_other": "ожидается: {{count}}",
+          "refused_one": "отклонено: {{count}}",
+          "refused_other": "отклонено: {{count}}",
+          "requested_one": "запрошено: {{count}}",
+          "requested_other": "запрошено: {{count}}",
+          "terminal_one": "завершено: {{count}}",
+          "terminal_other": "завершено: {{count}}",
+          "failed_one": "с ошибкой: {{count}}",
+          "failed_other": "с ошибкой: {{count}}",
+          "resumed_one": "возобновлено: {{count}}",
+          "resumed_other": "возобновлено: {{count}}"
+        },
+        "allTargets": "Все агенты",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} уже завершены",
+          "alreadyTerminal_other": "{{count}} уже завершены",
+          "refused_one": "{{count}} отклонены",
+          "refused_other": "{{count}} отклонены"
+        },
+        "state": {
+          "accepted": "Запрошено · {{action}}",
+          "alreadyTerminal_one": "{{count}} целей уже были завершены",
+          "alreadyTerminal_other": "{{count}} целей уже были завершены",
+          "completed": "Завершено · {{action}}",
+          "failed": "Ошибка · {{action}}",
+          "noAgentsToClose": "Нет агентов, требующих закрытия",
+          "refused": "Отклонено · {{action}}",
+          "running": "Выполняется · {{action}}",
+          "partial": "Частично завершено · {{action}}",
+          "noResumeNeeded": "Команда уже завершила работу · возобновление не требуется"
+        },
+        "failureDetails": "Ошибки возобновления"
+      }
+    },
     "agentLifecycle": {
       "activeWorkBlocked": "Удаление заблокировано, пока активны {{count}} задач Agent."
     },
@@ -17911,17 +18540,21 @@
         "title": "Требуется расширение Chrome"
       },
       "conversationEmpty": "В этом разговоре нет сообщений",
-      "pendingCancelForceInsert": "Отменить вставку этого раунда",
+      "pendingCancelForceInsert": "Изменить на отправку после ответа",
       "pendingFallbackAfterReply": "Отправить после ответа",
       "pendingFallbackAfterReplyTip": "Точка завершения инструмента не обнаружена и будет отправлена после завершения текущего ответа.",
-      "pendingForceInsertTip": "Он будет ждать завершения выполнения выполняемого инструмента, а затем вставит его в модель, не прерывая работу текущего инструмента.",
+      "pendingForceInsertTip": "Сообщение будет вставлено для модели после завершения всех инструментов, выполняющихся в этом пакете, без их прерывания; если в этом ходе больше не будет границы инструментов, оно отправится после ответа.",
+      "pendingInsert": "Вставить",
       "pendingInserted": "вставлен",
       "pendingInsertedTip": "Он был вставлен в модель после завершения этого этапа оснастки.",
-      "pendingQueuedShort": "Очередь",
+      "pendingHeldAfterStop": "Отправка приостановлена",
+      "pendingHeldAfterStopTip": "Текущий ответ остановлен, поэтому это сообщение не будет отправлено автоматически.",
+      "pendingMoreActions": "Другие действия с сообщением",
+      "pendingQueuedShort": "Отправить после ответа",
       "pendingQueuedTip": "Оно добавлено в очередь ожидания и будет отправлено после завершения текущего ответа.",
       "pendingQueueTitle": "Для отправки",
-      "pendingWaitingToolBoundary": "Дождитесь завершения работы инструмента",
-      "pendingWaitingToolBoundaryTip": "Дождитесь завершения последнего вызова инструмента; если инструмент больше не вызывается в этом раунде, он будет отправлен после завершения ответа.",
+      "pendingWaitingToolBoundary": "Ожидание вставки",
+      "pendingWaitingToolBoundaryTip": "Ожидание завершения всех инструментов, выполняющихся в этом пакете, перед вставкой; если в этом ходе больше не будет границы инструментов, сообщение отправится после ответа.",
       "processNotification": "процесс завершен",
       "rightPanel": {
         "collapse": "Свернуть правую панель",
@@ -19844,6 +20477,15 @@
         "killed": "Прервано",
         "paused": "Приостановлено",
         "working": "Работает"
+      },
+      "resumeFeedback": {
+        "counts": "возобновлено: {{resumed}} · с ошибкой: {{failed}}",
+        "partialTitle": "Команда возобновлена частично",
+        "refusedTitle": "Возобновление команды отклонено",
+        "resumedTitle": "Команда возобновлена",
+        "resuming": "Возобновление…",
+        "noOpTitle": "Возобновление не требуется",
+        "noOpDescription": "Все участники команды уже завершили работу; новые попытки не запускались."
       }
     },
     "tools": {
@@ -20680,6 +21322,85 @@
     }
   },
   "ar": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "إغلاق {{count}} من الوكلاء",
+            "close_other": "إغلاق {{count}} من الوكلاء",
+            "closeAll": "إغلاق جميع الوكلاء",
+            "message_one": "إرسال رسالة إلى {{count}} من الوكلاء",
+            "message_other": "إرسال رسالة إلى {{count}} من الوكلاء",
+            "observe_one": "فحص {{count}} من الوكلاء",
+            "observe_other": "فحص {{count}} من الوكلاء",
+            "resume_one": "استئناف {{count}} من الوكلاء",
+            "resume_other": "استئناف {{count}} من الوكلاء"
+          },
+          "cron": {
+            "pause_one": "إيقاف {{count}} من الجداول مؤقتًا",
+            "pause_other": "إيقاف {{count}} من الجداول مؤقتًا",
+            "resume_one": "استئناف {{count}} من الجداول",
+            "resume_other": "استئناف {{count}} من الجداول"
+          },
+          "job": {
+            "cancel_one": "إلغاء {{count}} من المهام",
+            "cancel_other": "إلغاء {{count}} من المهام"
+          },
+          "process": {
+            "close_one": "إغلاق {{count}} من العمليات",
+            "close_other": "إغلاق {{count}} من العمليات"
+          },
+          "team": {
+            "pause_one": "إيقاف {{count}} من الفرق مؤقتًا",
+            "pause_other": "إيقاف {{count}} من الفرق مؤقتًا",
+            "resume_one": "استئناف {{count}} من الفرق",
+            "resume_other": "استئناف {{count}} من الفرق"
+          },
+          "workflow": {
+            "cancel_one": "إلغاء {{count}} من مسارات العمل",
+            "cancel_other": "إلغاء {{count}} من مسارات العمل",
+            "pause_one": "إيقاف {{count}} من مسارات العمل مؤقتًا",
+            "pause_other": "إيقاف {{count}} من مسارات العمل مؤقتًا",
+            "resume_one": "استئناف {{count}} من مسارات العمل",
+            "resume_other": "استئناف {{count}} من مسارات العمل"
+          }
+        },
+        "aggregate": {
+          "pending_one": "{{count}} قيد الانتظار",
+          "pending_other": "{{count}} قيد الانتظار",
+          "refused_one": "رُفض {{count}}",
+          "refused_other": "رُفض {{count}}",
+          "requested_one": "تم طلب {{count}}",
+          "requested_other": "تم طلب {{count}}",
+          "terminal_one": "انتهى {{count}}",
+          "terminal_other": "انتهى {{count}}",
+          "failed_one": "فشل {{count}}",
+          "failed_other": "فشل {{count}}",
+          "resumed_one": "تم استئناف {{count}}",
+          "resumed_other": "تم استئناف {{count}}"
+        },
+        "allTargets": "جميع الوكلاء",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} منتهية مسبقًا",
+          "alreadyTerminal_other": "{{count}} منتهية مسبقًا",
+          "refused_one": "تم رفض {{count}}",
+          "refused_other": "تم رفض {{count}}"
+        },
+        "state": {
+          "accepted": "تم الطلب · {{action}}",
+          "alreadyTerminal_one": "كانت {{count}} من الأهداف منتهية مسبقًا",
+          "alreadyTerminal_other": "كانت {{count}} من الأهداف منتهية مسبقًا",
+          "completed": "اكتمل · {{action}}",
+          "failed": "فشل · {{action}}",
+          "noAgentsToClose": "لا يوجد وكلاء بحاجة إلى الإغلاق",
+          "refused": "رُفض · {{action}}",
+          "running": "قيد التنفيذ · {{action}}",
+          "partial": "اكتمل جزئيًا · {{action}}",
+          "noResumeNeeded": "اكتمل الفريق بالفعل · لا حاجة إلى الاستئناف"
+        },
+        "failureDetails": "إخفاقات الاستئناف"
+      }
+    },
     "agentLifecycle": {
       "activeWorkBlocked": "تم حظر الحذف لأن {{count}} من مهام Agent ما زالت نشطة."
     },
@@ -20851,17 +21572,21 @@
         "title": "ملحق كروم مطلوب"
       },
       "conversationEmpty": "لا توجد رسائل في هذه المحادثة",
-      "pendingCancelForceInsert": "إلغاء إدراج هذه الجولة",
+      "pendingCancelForceInsert": "التغيير إلى الإرسال بعد الرد",
       "pendingFallbackAfterReply": "أرسل بعد الرد",
       "pendingFallbackAfterReplyTip": "لم تتم مواجهة نقطة اكتمال الأداة وسيتم إرسالها بعد انتهاء الرد الحالي.",
-      "pendingForceInsertTip": "سوف ينتظر حتى اكتمال تنفيذ الأداة ثم يقوم بإدراجها في النموذج دون مقاطعة الأداة الحالية.",
+      "pendingForceInsertTip": "سيتم إدراج الرسالة للنموذج بعد اكتمال جميع الأدوات قيد التشغيل في هذه الدفعة، من دون مقاطعتها؛ وإذا لم تصل هذه الجولة إلى حد أدوات آخر فستُرسل بعد انتهاء الرد.",
+      "pendingInsert": "إدراج",
       "pendingInserted": "تم إدراجها",
       "pendingInsertedTip": "وقد تم إدراجه في النموذج بعد اكتمال هذه الجولة من الأدوات.",
-      "pendingQueuedShort": "الطابور",
+      "pendingHeldAfterStop": "تم إيقاف الإرسال مؤقتًا",
+      "pendingHeldAfterStopTip": "تم إيقاف الرد الحالي، لذا لن تُرسل هذه الرسالة تلقائيًا.",
+      "pendingMoreActions": "مزيد من إجراءات الرسالة",
+      "pendingQueuedShort": "الإرسال بعد الرد",
       "pendingQueuedTip": "تمت إضافته إلى قائمة انتظار الانتظار وسيتم إرساله بعد انتهاء الرد الحالي.",
       "pendingQueueTitle": "ليتم إرسالها",
-      "pendingWaitingToolBoundary": "انتظر حتى نقطة اكتمال الأداة",
-      "pendingWaitingToolBoundaryTip": "انتظر حتى يكتمل استدعاء الأداة الأخير؛ إذا لم تعد الأداة تسمى هذه الجولة، فسيتم إرسالها بعد اكتمال الرد.",
+      "pendingWaitingToolBoundary": "بانتظار الإدراج",
+      "pendingWaitingToolBoundaryTip": "بانتظار اكتمال جميع الأدوات قيد التشغيل في هذه الدفعة قبل الإدراج؛ وإذا لم تصل هذه الجولة إلى حد أدوات آخر فستُرسل الرسالة بعد انتهاء الرد.",
       "processNotification": "انتهت العملية",
       "rightPanel": {
         "collapse": "طي اللوحة اليمنى",
@@ -22799,6 +23524,15 @@
         "killed": "منهية",
         "paused": "متوقف مؤقتًا",
         "working": "يعمل"
+      },
+      "resumeFeedback": {
+        "counts": "تم استئناف {{resumed}} · فشل {{failed}}",
+        "partialTitle": "تم استئناف الفريق جزئيًا",
+        "refusedTitle": "رُفض استئناف الفريق",
+        "resumedTitle": "تم استئناف الفريق",
+        "resuming": "جارٍ الاستئناف…",
+        "noOpTitle": "لا حاجة إلى الاستئناف",
+        "noOpDescription": "أكمل جميع أعضاء الفريق بالفعل؛ لم تبدأ أي محاولة جديدة."
       }
     },
     "tools": {
@@ -23661,6 +24395,85 @@
     }
   },
   "es": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "cerrar {{count}} agentes",
+            "close_other": "cerrar {{count}} agentes",
+            "closeAll": "cerrar todos los agentes",
+            "message_one": "enviar mensajes a {{count}} agentes",
+            "message_other": "enviar mensajes a {{count}} agentes",
+            "observe_one": "comprobar {{count}} agentes",
+            "observe_other": "comprobar {{count}} agentes",
+            "resume_one": "reanudar {{count}} agentes",
+            "resume_other": "reanudar {{count}} agentes"
+          },
+          "cron": {
+            "pause_one": "pausar {{count}} programaciones",
+            "pause_other": "pausar {{count}} programaciones",
+            "resume_one": "reanudar {{count}} programaciones",
+            "resume_other": "reanudar {{count}} programaciones"
+          },
+          "job": {
+            "cancel_one": "cancelar {{count}} tareas",
+            "cancel_other": "cancelar {{count}} tareas"
+          },
+          "process": {
+            "close_one": "cerrar {{count}} procesos",
+            "close_other": "cerrar {{count}} procesos"
+          },
+          "team": {
+            "pause_one": "pausar {{count}} equipos",
+            "pause_other": "pausar {{count}} equipos",
+            "resume_one": "reanudar {{count}} equipos",
+            "resume_other": "reanudar {{count}} equipos"
+          },
+          "workflow": {
+            "cancel_one": "cancelar {{count}} flujos de trabajo",
+            "cancel_other": "cancelar {{count}} flujos de trabajo",
+            "pause_one": "pausar {{count}} flujos de trabajo",
+            "pause_other": "pausar {{count}} flujos de trabajo",
+            "resume_one": "reanudar {{count}} flujos de trabajo",
+            "resume_other": "reanudar {{count}} flujos de trabajo"
+          }
+        },
+        "aggregate": {
+          "pending_one": "{{count}} pendientes",
+          "pending_other": "{{count}} pendientes",
+          "refused_one": "{{count}} rechazados",
+          "refused_other": "{{count}} rechazados",
+          "requested_one": "{{count}} solicitados",
+          "requested_other": "{{count}} solicitados",
+          "terminal_one": "{{count}} finalizados",
+          "terminal_other": "{{count}} finalizados",
+          "failed_one": "{{count}} fallidos",
+          "failed_other": "{{count}} fallidos",
+          "resumed_one": "{{count}} reanudados",
+          "resumed_other": "{{count}} reanudados"
+        },
+        "allTargets": "Todos los agentes",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} ya finalizados",
+          "alreadyTerminal_other": "{{count}} ya finalizados",
+          "refused_one": "{{count}} rechazados",
+          "refused_other": "{{count}} rechazados"
+        },
+        "state": {
+          "accepted": "Solicitado · {{action}}",
+          "alreadyTerminal_one": "{{count}} objetivos ya habían finalizado",
+          "alreadyTerminal_other": "{{count}} objetivos ya habían finalizado",
+          "completed": "Completado · {{action}}",
+          "failed": "Falló · {{action}}",
+          "noAgentsToClose": "No hay agentes que necesiten cerrarse",
+          "refused": "Rechazado · {{action}}",
+          "running": "En curso · {{action}}",
+          "partial": "Completado parcialmente · {{action}}",
+          "noResumeNeeded": "El equipo ya terminó · no es necesario reanudar"
+        },
+        "failureDetails": "Fallos al reanudar"
+      }
+    },
     "agentLifecycle": {
       "activeWorkBlocked": "La eliminación está bloqueada mientras {{count}} tareas del Agent sigan activas."
     },
@@ -23846,17 +24659,21 @@
         "title": "Se requiere extensión de Chrome"
       },
       "conversationEmpty": "No hay mensajes en esta conversación.",
-      "pendingCancelForceInsert": "Cancelar la inserción de esta ronda",
+      "pendingCancelForceInsert": "Cambiar a enviar después de la respuesta",
       "pendingFallbackAfterReply": "Enviar después de la respuesta",
       "pendingFallbackAfterReplyTip": "No se ha encontrado el punto de finalización de la herramienta y se enviará una vez que finalice la respuesta actual.",
-      "pendingForceInsertTip": "Esperará hasta que se complete la herramienta que se está ejecutando y luego la insertará en el modelo sin interrumpir la herramienta actual.",
+      "pendingForceInsertTip": "Se insertará para el modelo cuando terminen todas las herramientas que se están ejecutando en este lote, sin interrumpirlas; si este turno no alcanza otro límite de herramientas, se enviará después de la respuesta.",
+      "pendingInsert": "Insertar",
       "pendingInserted": "insertado",
       "pendingInsertedTip": "Se insertó en el modelo una vez completada esta ronda de herramientas.",
-      "pendingQueuedShort": "hacer cola",
+      "pendingHeldAfterStop": "Envío pausado",
+      "pendingHeldAfterStopTip": "La respuesta actual se detuvo, por lo que este mensaje no se enviará automáticamente.",
+      "pendingMoreActions": "Más acciones del mensaje",
+      "pendingQueuedShort": "Enviar después de la respuesta",
       "pendingQueuedTip": "Se ha agregado a la cola de espera y se enviará una vez que finalice la respuesta actual.",
       "pendingQueueTitle": "Para ser enviado",
-      "pendingWaitingToolBoundary": "Espere hasta el punto de finalización de la herramienta",
-      "pendingWaitingToolBoundaryTip": "Espere a que se complete la última llamada a la herramienta; Si la herramienta ya no se llama en esta ronda, se enviará una vez completada la respuesta.",
+      "pendingWaitingToolBoundary": "Esperando para insertar",
+      "pendingWaitingToolBoundaryTip": "Esperando a que terminen todas las herramientas que se están ejecutando en este lote antes de insertar; si este turno no alcanza otro límite de herramientas, se enviará después de la respuesta.",
       "processNotification": "proceso finalizado",
       "rightPanel": {
         "collapse": "Contraer panel derecho",
@@ -25796,6 +26613,15 @@
         "killed": "Terminadas",
         "paused": "En pausa",
         "working": "Trabajando"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}} reanudados · {{failed}} fallidos",
+        "partialTitle": "Equipo reanudado parcialmente",
+        "refusedTitle": "Reanudación del equipo rechazada",
+        "resumedTitle": "Equipo reanudado",
+        "resuming": "Reanudando…",
+        "noOpTitle": "No es necesario reanudar",
+        "noOpDescription": "Todos los miembros del equipo ya terminaron; no se inició ningún intento nuevo."
       }
     },
     "tools": {
@@ -26636,6 +27462,85 @@
     }
   },
   "ms": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "tutup {{count}} Agent",
+            "close_other": "tutup {{count}} Agent",
+            "closeAll": "tutup semua Agent",
+            "message_one": "hantar mesej kepada {{count}} Agent",
+            "message_other": "hantar mesej kepada {{count}} Agent",
+            "observe_one": "semak {{count}} Agent",
+            "observe_other": "semak {{count}} Agent",
+            "resume_one": "sambung semula {{count}} Agent",
+            "resume_other": "sambung semula {{count}} Agent"
+          },
+          "cron": {
+            "pause_one": "jeda {{count}} jadual",
+            "pause_other": "jeda {{count}} jadual",
+            "resume_one": "sambung semula {{count}} jadual",
+            "resume_other": "sambung semula {{count}} jadual"
+          },
+          "job": {
+            "cancel_one": "batalkan {{count}} tugas",
+            "cancel_other": "batalkan {{count}} tugas"
+          },
+          "process": {
+            "close_one": "tutup {{count}} proses",
+            "close_other": "tutup {{count}} proses"
+          },
+          "team": {
+            "pause_one": "jeda {{count}} pasukan",
+            "pause_other": "jeda {{count}} pasukan",
+            "resume_one": "sambung semula {{count}} pasukan",
+            "resume_other": "sambung semula {{count}} pasukan"
+          },
+          "workflow": {
+            "cancel_one": "batalkan {{count}} aliran kerja",
+            "cancel_other": "batalkan {{count}} aliran kerja",
+            "pause_one": "jeda {{count}} aliran kerja",
+            "pause_other": "jeda {{count}} aliran kerja",
+            "resume_one": "sambung semula {{count}} aliran kerja",
+            "resume_other": "sambung semula {{count}} aliran kerja"
+          }
+        },
+        "aggregate": {
+          "pending_one": "{{count}} belum selesai",
+          "pending_other": "{{count}} belum selesai",
+          "refused_one": "{{count}} ditolak",
+          "refused_other": "{{count}} ditolak",
+          "requested_one": "{{count}} diminta",
+          "requested_other": "{{count}} diminta",
+          "terminal_one": "{{count}} tamat",
+          "terminal_other": "{{count}} tamat",
+          "failed_one": "{{count}} gagal",
+          "failed_other": "{{count}} gagal",
+          "resumed_one": "{{count}} disambung semula",
+          "resumed_other": "{{count}} disambung semula"
+        },
+        "allTargets": "Semua Agent",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} sudah tamat",
+          "alreadyTerminal_other": "{{count}} sudah tamat",
+          "refused_one": "{{count}} ditolak",
+          "refused_other": "{{count}} ditolak"
+        },
+        "state": {
+          "accepted": "Diminta · {{action}}",
+          "alreadyTerminal_one": "{{count}} sasaran telah tamat sebelum ini",
+          "alreadyTerminal_other": "{{count}} sasaran telah tamat sebelum ini",
+          "completed": "Selesai · {{action}}",
+          "failed": "Gagal · {{action}}",
+          "noAgentsToClose": "Tiada Agent yang perlu ditutup",
+          "refused": "Ditolak · {{action}}",
+          "running": "Sedang berjalan · {{action}}",
+          "partial": "Separa selesai · {{action}}",
+          "noResumeNeeded": "Pasukan sudah selesai · tidak perlu sambung semula"
+        },
+        "failureDetails": "Kegagalan sambung semula"
+      }
+    },
     "agentLifecycle": {
       "activeWorkBlocked": "Pemadaman disekat selagi {{count}} tugas Agent masih aktif."
     },
@@ -26809,17 +27714,21 @@
         "title": "Sambungan Chrome diperlukan"
       },
       "conversationEmpty": "Tiada mesej dalam perbualan ini",
-      "pendingCancelForceInsert": "Batalkan sisipan pusingan ini",
+      "pendingCancelForceInsert": "Tukar kepada hantar selepas balasan",
       "pendingFallbackAfterReply": "Hantar selepas balasan",
       "pendingFallbackAfterReplyTip": "Titik penyelesaian alat belum ditemui dan akan dihantar selepas balasan semasa tamat.",
-      "pendingForceInsertTip": "Ia akan menunggu sehingga alat yang sedang dilaksanakan selesai dan kemudian memasukkannya ke dalam model tanpa mengganggu alat semasa.",
+      "pendingForceInsertTip": "Masukkan kepada model selepas semua alat yang sedang berjalan dalam kelompok ini selesai, tanpa mengganggu alat tersebut; jika pusingan ini tidak mencapai sempadan alat seterusnya, mesej akan dihantar selepas balasan.",
+      "pendingInsert": "Sisip",
       "pendingInserted": "dimasukkan",
       "pendingInsertedTip": "Ia telah dimasukkan ke dalam model selepas pusingan alatan ini selesai.",
-      "pendingQueuedShort": "Beratur",
+      "pendingHeldAfterStop": "Penghantaran dijeda",
+      "pendingHeldAfterStopTip": "Balasan semasa telah dihentikan, jadi mesej ini tidak akan dihantar secara automatik.",
+      "pendingMoreActions": "Lagi tindakan mesej",
+      "pendingQueuedShort": "Hantar selepas balasan",
       "pendingQueuedTip": "Ia telah ditambahkan pada baris gilir menunggu dan akan dihantar selepas balasan semasa tamat.",
       "pendingQueueTitle": "Untuk dihantar",
-      "pendingWaitingToolBoundary": "Tunggu titik penyiapan alat",
-      "pendingWaitingToolBoundaryTip": "Tunggu panggilan alat terkini selesai; jika alat itu tidak lagi dipanggil pusingan ini, ia akan dihantar selepas balasan selesai.",
+      "pendingWaitingToolBoundary": "Menunggu untuk disisip",
+      "pendingWaitingToolBoundaryTip": "Menunggu semua alat yang sedang berjalan dalam kelompok ini selesai sebelum disisip; jika pusingan ini tidak mencapai sempadan alat seterusnya, mesej akan dihantar selepas balasan.",
       "processNotification": "proses tamat",
       "rightPanel": {
         "collapse": "Runtuhkan panel kanan",
@@ -28754,6 +29663,15 @@
         "killed": "Dihentikan",
         "paused": "Dijeda",
         "working": "Sedang bekerja"
+      },
+      "resumeFeedback": {
+        "counts": "{{resumed}} disambung semula · {{failed}} gagal",
+        "partialTitle": "Pasukan disambung semula sebahagian",
+        "refusedTitle": "Sambung semula pasukan ditolak",
+        "resumedTitle": "Pasukan disambung semula",
+        "resuming": "Menyambung semula…",
+        "noOpTitle": "Tidak perlu sambung semula",
+        "noOpDescription": "Semua ahli pasukan sudah selesai; tiada percubaan baharu dimulakan."
       }
     },
     "tools": {
@@ -29582,6 +30500,85 @@
     }
   },
   "zh": {
+    "executionStatus": {
+      "runtimeControl": {
+        "action": {
+          "agent": {
+            "close_one": "关闭 {{count}} 个 Agent",
+            "close_other": "关闭 {{count}} 个 Agent",
+            "closeAll": "关闭所有 Agent",
+            "message_one": "向 {{count}} 个 Agent 发送消息",
+            "message_other": "向 {{count}} 个 Agent 发送消息",
+            "observe_one": "检查 {{count}} 个 Agent",
+            "observe_other": "检查 {{count}} 个 Agent",
+            "resume_one": "恢复 {{count}} 个 Agent",
+            "resume_other": "恢复 {{count}} 个 Agent"
+          },
+          "cron": {
+            "pause_one": "暂停 {{count}} 个计划",
+            "pause_other": "暂停 {{count}} 个计划",
+            "resume_one": "恢复 {{count}} 个计划",
+            "resume_other": "恢复 {{count}} 个计划"
+          },
+          "job": {
+            "cancel_one": "取消 {{count}} 个任务",
+            "cancel_other": "取消 {{count}} 个任务"
+          },
+          "process": {
+            "close_one": "关闭 {{count}} 个进程",
+            "close_other": "关闭 {{count}} 个进程"
+          },
+          "team": {
+            "pause_one": "暂停 {{count}} 个团队",
+            "pause_other": "暂停 {{count}} 个团队",
+            "resume_one": "恢复 {{count}} 个团队",
+            "resume_other": "恢复 {{count}} 个团队"
+          },
+          "workflow": {
+            "cancel_one": "取消 {{count}} 个工作流",
+            "cancel_other": "取消 {{count}} 个工作流",
+            "pause_one": "暂停 {{count}} 个工作流",
+            "pause_other": "暂停 {{count}} 个工作流",
+            "resume_one": "恢复 {{count}} 个工作流",
+            "resume_other": "恢复 {{count}} 个工作流"
+          }
+        },
+        "aggregate": {
+          "pending_one": "待完成 {{count}} 个",
+          "pending_other": "待完成 {{count}} 个",
+          "refused_one": "已拒绝 {{count}} 个",
+          "refused_other": "已拒绝 {{count}} 个",
+          "requested_one": "已请求 {{count}} 个",
+          "requested_other": "已请求 {{count}} 个",
+          "terminal_one": "已结束 {{count}} 个",
+          "terminal_other": "已结束 {{count}} 个",
+          "failed_one": "失败 {{count}} 个",
+          "failed_other": "失败 {{count}} 个",
+          "resumed_one": "已恢复 {{count}} 个",
+          "resumed_other": "已恢复 {{count}} 个"
+        },
+        "allTargets": "所有 Agent",
+        "badge": {
+          "alreadyTerminal_one": "{{count}} 个已结束",
+          "alreadyTerminal_other": "{{count}} 个已结束",
+          "refused_one": "{{count}} 个被拒绝",
+          "refused_other": "{{count}} 个被拒绝"
+        },
+        "state": {
+          "accepted": "已请求{{action}}",
+          "alreadyTerminal_one": "{{count}} 个目标此前已结束",
+          "alreadyTerminal_other": "{{count}} 个目标此前已结束",
+          "completed": "已{{action}}",
+          "failed": "{{action}}失败",
+          "noAgentsToClose": "没有需要关闭的 Agent",
+          "refused": "{{action}}被拒绝",
+          "running": "正在{{action}}",
+          "partial": "部分完成 · {{action}}",
+          "noResumeNeeded": "团队已完成 · 无需恢复"
+        },
+        "failureDetails": "恢复失败"
+      }
+    },
     "about": {
       "updateAndRestart": "更新并重启",
       "updateOnly": "仅更新",
@@ -29653,17 +30650,21 @@
         "title": "需要 Chrome 扩展程序"
       },
       "conversationEmpty": "此对话中没有消息",
-      "pendingCancelForceInsert": "取消本轮插入",
+      "pendingCancelForceInsert": "改为回复后发送",
       "pendingFallbackAfterReply": "回复后发送",
       "pendingFallbackAfterReplyTip": "尚未遇到工具完成点，将在当前回复结束后发送。",
-      "pendingForceInsertTip": "它会等待正在执行的工具完成，再将内容插入模型，不会中断当前工具。",
+      "pendingForceInsertTip": "等本批正在执行的工具全部完成后插入给模型，不会中断这些工具；如果本轮不再进入工具边界，则在回复结束后发送。",
+      "pendingInsert": "插入",
       "pendingInserted": "插入",
       "pendingInsertedTip": "本轮加工完成后已将其插入模型中。",
-      "pendingQueuedShort": "排队",
+      "pendingHeldAfterStop": "已暂停发送",
+      "pendingHeldAfterStopTip": "当前回复已停止，这条消息不会自动发送。",
+      "pendingMoreActions": "更多消息操作",
+      "pendingQueuedShort": "回复后发送",
       "pendingQueuedTip": "已加入等待队列，当前回复结束后发送。",
       "pendingQueueTitle": "待发送",
-      "pendingWaitingToolBoundary": "等待工具完成点",
-      "pendingWaitingToolBoundaryTip": "等待最新的工具调用完成；如果本轮不再调用该工具，则会在回复完成后发送。",
+      "pendingWaitingToolBoundary": "等待插入",
+      "pendingWaitingToolBoundaryTip": "等待本批正在执行的工具全部完成后插入；如果本轮不再进入工具边界，将在回复结束后发送。",
       "processNotification": "进程结束",
       "rightPanel": {
         "collapse": "折叠右侧面板",
@@ -30570,6 +31571,15 @@
         "killed": "已终止",
         "paused": "已暂停",
         "working": "工作中"
+      },
+      "resumeFeedback": {
+        "counts": "已恢复 {{resumed}} 个 · 失败 {{failed}} 个",
+        "partialTitle": "团队已部分恢复",
+        "refusedTitle": "团队恢复被拒绝",
+        "resumedTitle": "团队已恢复",
+        "resuming": "正在恢复…",
+        "noOpTitle": "无需恢复",
+        "noOpDescription": "所有团队成员均已完成，未启动新的尝试。"
       }
     },
     "tools": {
