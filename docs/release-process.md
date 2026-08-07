@@ -398,6 +398,7 @@ git cherry-pick --abort          # 整段放弃
 | 新 minor 发完忘了切 `release/X.Y` | patch 修复无处落，紧急修复要回退 main 历史 | §2.3 publish 后立即切 |
 | 改 workflow job 名后没同步 ruleset | PR 卡在等一个已不存在的 job | 见 AGENTS.md "## 分支与发布" |
 | 改 `release.yml` 但没在 PR 阶段验证 | tag push 后跑真实 release 才 fail，删 tag 重打 + 又一轮 CI。v0.2.0 三次因此返工 | §4.1 |
+| 两条 build lane 同时上传 `latest.json` | 输的那条报 `422 already_exists` 整个 job 失败，它的平台条目从清单里整段消失 | §4.2 |
 
 ### 4.1 修改 release.yml 时的验证流程
 
@@ -416,6 +417,21 @@ git cherry-pick --abort          # 整段放弃
 跑法：[Actions → Release workflow](https://github.com/shiwenwen/hope-agent/actions/workflows/release.yml) → Run workflow → branch 选 PR 分支 → `tag` 填一个不存在的 sentinel 如 `v0.0.0-dryrun`（verify 步骤自动跳过）→ `dry_run` 勾 true。全平台 build 矩阵会跑（含 bare-binary path check 与 signer 验证），但跳过 draft Release 创建、bare-binary 上传、patch-manifest job。产物在 run 的 `Artifacts` 段下载。
 
 dry-run 不改任何 GitHub 状态：不打 tag、不建 Release、不碰 latest.json，失败重跑无副作用。
+
+### 4.2 `latest.json` 并发上传竞态
+
+4 条 build lane 往**同一个** draft Release 推产物，而 tauri-action 的 `uploadVersionJSON` 是对同一个 `latest.json` 做**读-改-写**：列 asset → 找到就下载、把已有 `platforms` 读进来 → 合并自己这条 lane 的 → 删旧 asset → 传新的。两条 lane 同时走到这里，都看到「还没有 latest.json」，于是都发 create，输的那条拿 `422 already_exists` 直接失败。
+
+v0.29.0 就是这样：linux-arm64 跑满 87 分钟、deb / rpm / AppImage 全都传完了，最后一步栽在这儿。后果不只是 job 红——**它的 `linux-aarch64*` 条目从清单里整段消失了**，而剩下三个平台的清单结构完全正常。上游 tauri-action 到 v1.0.0 都没修这个（v0.6.1 是 `--config`、v0.6.2 是 workspace root 探测）。
+
+两道防御：
+
+- **release.yml 自动重试一次**，但**只在已产出 bundle 时**重试。产出了 bundle 说明编译已完成、只是发布环节失败，此时 target 目录是热的，重试只重新打包不重新编译；重试对已存在 asset 是安全的（`uploadAssets` 先删后传，`uploadVersionJSON` 这次能找到 latest.json 因而走合并路径）。没产出 bundle 说明构建本身就挂了，闸门直接 `exit 1` —— 别让它盲目重试，arm64 lane 历史上被 OOM 杀过，那会把一次 90 分钟的失败变成 180 分钟。**这个 `exit 1` 同时是 `continue-on-error` 的诚实性保证**，去掉它首次失败就会静默通过。
+- **`patch-latest-json.mjs` 的 `--require` 现在同时断言 `platforms` 段**（原来只守 `bare_binary`）。任一平台的 `{os}-{arch}` 条目缺失或缺 `signature` / `url`，都在 publish 之前硬失败。
+
+重试是缓解不是根治——根因是 4 个写者共享一个清单，真正的结构性修法是让 `latest.json` 只由构建后的单一 job 生成。没做是因为那要复刻 tauri-action 的签名优先级与 bundle 命名规则（`-appimage` / `-deb` / `-rpm` / `-nsis` / `-app`、AppImage 的 `.sig` vs `.tar.gz.sig`），弄错就是**静默毁掉某平台的自动更新**，且只有真发一次版才验得出来。要做就单独开 PR、配 dry-run 验证，别夹在发版里。
+
+仍然撞上时：`gh run rerun <run-id> --failed` 重跑失败的 lane 即可，tauri-action 对已存在 asset 是先删后传，重跑幂等。
 
 ---
 

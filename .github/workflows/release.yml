@@ -286,8 +286,24 @@ jobs:
           rm -f "$cert" "$pem"
           security find-identity -v -p codesigning "$kc"
 
+      # ── Publish is racy across lanes; attempt 1 of 2 ──────────
+      # All four matrix lanes push assets to the SAME draft Release, and
+      # tauri-action's `uploadVersionJSON` is a read-modify-write on one
+      # shared `latest.json`: it lists assets, seeds `platforms` from the
+      # existing manifest, merges its own, deletes the old asset, uploads
+      # the new one. Two lanes that reach it together both see "no
+      # latest.json yet", both POST a create, and the loser dies on
+      # `422 already_exists` — v0.29.0's linux-arm64 lane, 87 min in, with
+      # every bundle already uploaded. Its `linux-aarch64*` entries were
+      # then simply absent from the shipped manifest.
+      #
+      # `continue-on-error` lets the retry below recover. A genuine build
+      # failure still fails the job: the gate step fails it outright when
+      # no bundles were produced, and otherwise the retry runs and fails.
       - name: Build & draft release
+        id: build_release
         if: github.event.inputs.dry_run != 'true'
+        continue-on-error: true
         uses: tauri-apps/tauri-action@v0.6.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -300,6 +316,55 @@ jobs:
           # secret is unset → Tauri falls back to ad-hoc (no behavior change).
           # No APPLE_ID/APPLE_TEAM_ID ⇒ sign-only, no notarization. See
           # docs/macos-self-signing.md.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "Hope Agent ${{ env.RELEASE_TAG }}"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+      # Retry only when attempt 1 got far enough to produce bundles — i.e.
+      # the compile finished and only publishing broke. Retrying then is
+      # cheap: the target dir is warm, so tauri re-bundles rather than
+      # rebuilding, and tauri-action is idempotent on a second pass
+      # (`uploadAssets` deletes an existing asset before re-uploading, and
+      # `uploadVersionJSON` now finds `latest.json` and takes the merge
+      # path instead of racing to create it).
+      #
+      # Without this gate a blind retry would double the cost of a real
+      # build failure — and this arm64 lane has been OOM-killed before (see
+      # the CARGO_PROFILE_RELEASE_CODEGEN_UNITS note at the top of the job).
+      # Failing here is also what keeps `continue-on-error` above honest:
+      # attempt 1's failure would otherwise pass silently.
+      - name: Gate publish retry
+        id: retry_gate
+        if: ${{ github.event.inputs.dry_run != 'true' && steps.build_release.outcome == 'failure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir=$(find target -type d -name bundle 2>/dev/null | head -1 || true)
+          if [ -n "$bundle_dir" ] && [ -n "$(find "$bundle_dir" -type f 2>/dev/null | head -1)" ]; then
+            echo "::notice::Bundles present in $bundle_dir — compile finished, so only the publish half failed (most likely the shared latest.json upload race). Retrying publish."
+          else
+            echo "::error::Build failed before producing any bundle — not retrying (a second attempt would just burn another full build). See the attempt-1 log above."
+            exit 1
+          fi
+
+      # ── Publish attempt 2 of 2 ────────────────────────────────
+      # Keep `env:` and `with:` byte-for-byte identical to attempt 1 above;
+      # they are duplicated only because a `uses:` step cannot be retried
+      # in place. Change one, change both.
+      - name: Build & draft release (publish retry)
+        if: ${{ steps.retry_gate.outcome == 'success' && steps.build_release.outcome == 'failure' && github.event.inputs.dry_run != 'true' }}
+        uses: tauri-apps/tauri-action@v0.6.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # See attempt 1 for why this identity is set this way.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           tagName: ${{ env.RELEASE_TAG }}

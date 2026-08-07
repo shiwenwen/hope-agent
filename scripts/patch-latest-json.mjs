@@ -9,15 +9,19 @@
 //   node scripts/patch-latest-json.mjs <latest.json> <artifacts-dir> <version>
 //                                      [--require=<platform,...>]
 //
-// `--require` names the platforms that MUST yield a bare_binary entry; a
-// missing one is a hard error instead of a warning. Without it the script
-// stays best-effort, which is what a single-platform backfill wants.
+// `--require` names the platforms that MUST end up complete: each one needs
+// both a bare_binary entry (built here) and a tauri-action `platforms` entry
+// (already on the manifest). A missing one is a hard error instead of a
+// warning. Without the flag the script stays best-effort, which is what a
+// single-platform backfill wants.
 //
 // Why this exists: every platform used to be skipped with a console.warn, so
 // a lost or half-uploaded artifact produced a manifest missing that
 // platform's bare_binary entry — CI green, and headless self-update for that
 // platform silently dead until someone noticed. release.yml now passes its
-// full build matrix, so the release fails loudly instead.
+// full build matrix, so the release fails loudly instead. The `platforms`
+// half of that check was added after v0.29.0, where a lost upload race cost
+// the manifest its entire `linux-aarch64*` set with nothing to catch it.
 //
 // It cannot simply require every platform in PLATFORM_MAP: `macos-x64` has
 // been a disabled lane since v0.2.0 (see release.yml matrix), so its artifact
@@ -120,6 +124,34 @@ for (const [platformDir, meta] of Object.entries(PLATFORM_MAP)) {
     extra_binaries: meta.extras,
   };
   console.log(`[patch-latest-json] added bare_binary entry for ${meta.key}`);
+}
+
+// The `platforms` section is tauri-action's output rather than ours, but
+// nothing guarded it until now and it is exactly as prone to silent loss as
+// bare_binary was. Every build lane read-modify-writes the one shared
+// latest.json on the draft Release, so a lane that loses that race drops its
+// own entries while the manifest still looks perfectly well-formed. v0.29.0
+// produced a draft whose manifest had no `linux-aarch64*` key at all — had it
+// been published, desktop auto-update on ARM64 Linux would have been silently
+// dead. `meta.key` is the same `{os}-{arch}` key the updater looks itself up
+// by, so requiring it here is the same contract `--require` already asserts
+// for bare_binary.
+const platforms = manifest.platforms || {};
+for (const platformDir of required) {
+  const { key } = PLATFORM_MAP[platformDir];
+  const entry = platforms[key];
+  if (!entry) {
+    const present = Object.keys(platforms).join(", ") || "none";
+    failures.push(
+      `${platformDir}: manifest has no platforms["${key}"] entry — that lane's latest.json upload was lost (present: ${present})`,
+    );
+    continue;
+  }
+  for (const field of ["signature", "url"]) {
+    if (!entry[field]) {
+      failures.push(`${platformDir}: platforms["${key}"] has no ${field}`);
+    }
+  }
 }
 
 // Merge mode: keep entries that already exist on the manifest (e.g.
