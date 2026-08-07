@@ -370,7 +370,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 | `save_project_instructions_cmd` | `PUT /api/projects/{id}/instructions` | ✅（owner 设置面，原子写入，不受通用文件写闸门影响） |
 | `delete_project_cmd` | `DELETE /api/projects/{id}` | ✅ |
 | `archive_project_cmd` | `POST /api/projects/{id}/archive` | ✅ |
-| `list_project_sessions_cmd` | `GET /api/projects/{id}/sessions` | ✅ |
+| `list_project_sessions_cmd` | `GET /api/projects/{id}/sessions?pinned=` | ✅（`pinned=true/false` 在分页前筛选置顶状态） |
 | `move_session_to_project_cmd` | `PATCH /api/sessions/{sessionId}/project` | ✅ |
 | `list_project_memories_cmd` | `GET /api/projects/{id}/memories` | ✅ |
 | `list_project_memory_files_cmd` | `GET /api/projects/{id}/memory-files` | ✅ |
@@ -515,7 +515,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `list_sessions_cmd` | `GET /api/sessions?agentId=&projectId=&unassigned=&parentSession=&limit=&offset=&activeSessionId=` | ✅（`parentSession=true/false` 分别只取子会话/顶层会话，过滤发生在分页前） |
+| `list_sessions_cmd` | `GET /api/sessions?agentId=&projectId=&unassigned=&parentSession=&pinned=&limit=&offset=&activeSessionId=` | ✅（`parentSession=true/false` 与 `pinned=true/false` 均在分页前筛选；置顶分组用 `pinned=true` 跨项目读取） |
 | `list_archived_sessions_cmd` | `GET /api/sessions/archived?limit=&offset=` | ✅（跨普通 / 项目 / IM / Subagent / Cron / Knowledge / Design 的归档管理列表） |
 | `create_session_cmd` | `POST /api/sessions` | ✅ |
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |

@@ -65,7 +65,7 @@ interface SessionItemProps {
   onCommitRename: () => void
   onCancelRename: () => void
   onMarkAllRead?: () => void
-  onTogglePinned?: (sessionId: string, pinned: boolean) => void
+  onTogglePinned?: (session: SessionMeta, pinned: boolean) => void
   /**
    * Move this session to a project (or remove from current project when
    * `projectId` is `null`). Only rendered when this callback is provided.
@@ -464,7 +464,7 @@ export default function SessionItem({
                 onClick={(e) => {
                   e.stopPropagation()
                   hoverCard.close()
-                  onTogglePinned(session.id, !session.pinnedAt)
+                  onTogglePinned(session, !session.pinnedAt)
                 }}
                 aria-label={session.pinnedAt ? t("chat.unpinSession") : t("chat.pinSession")}
               >
@@ -518,7 +518,7 @@ export default function SessionItem({
         }}
       >
         {onTogglePinned && (
-          <ContextMenuItem onClick={() => onTogglePinned(session.id, !session.pinnedAt)}>
+          <ContextMenuItem onClick={() => onTogglePinned(session, !session.pinnedAt)}>
             {session.pinnedAt ? (
               <PinOff className="h-4 w-4 mr-2" />
             ) : (

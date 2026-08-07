@@ -63,6 +63,7 @@ describe("sidebar session list model", () => {
     session("project", { projectId: "project-a" }),
     session("subagent", { parentSessionId: "parent" }),
     session("project-subagent", { projectId: "project-a", parentSessionId: "parent" }),
+    session("pinned", { pinnedAt: "2026-07-12T01:00:00Z" }),
     session("cron", { isCron: true }),
     session("other-agent", { agentId: "agent-b" }),
   ]
@@ -95,6 +96,7 @@ describe("sidebar session list model", () => {
       limit: 50,
       offset: 50,
       activeSessionId: "active",
+      pinned: false,
     })
     expect(sidebarSessionPageArgs("subagent", null, 0, 50)).toEqual({
       unassigned: true,
@@ -103,6 +105,7 @@ describe("sidebar session list model", () => {
       limit: 50,
       offset: 0,
       activeSessionId: undefined,
+      pinned: false,
     })
   })
 

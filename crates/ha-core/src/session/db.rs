@@ -3240,6 +3240,7 @@ impl SessionDB {
             active_session_id,
             "s.updated_at DESC",
             false,
+            PinnedSessionFilter::All,
         )
     }
 
@@ -3255,6 +3256,7 @@ impl SessionDB {
         limit: Option<u32>,
         offset: Option<u32>,
         active_session_id: Option<&str>,
+        pinned_filter: PinnedSessionFilter,
     ) -> Result<(Vec<SessionMeta>, u32)> {
         self.list_sessions_paged_inner(
             agent_id,
@@ -3267,6 +3269,7 @@ impl SessionDB {
             // Cron run sessions are surfaced in the cron panel's "conversations"
             // timeline, never the main sidebar list.
             true,
+            pinned_filter,
         )
     }
 
@@ -3334,6 +3337,7 @@ impl SessionDB {
         active_session_id: Option<&str>,
         order_by: &str,
         exclude_cron: bool,
+        pinned_filter: PinnedSessionFilter,
     ) -> Result<(Vec<SessionMeta>, u32)> {
         // Sidebar list is a hot read during streaming — use the read pool so a
         // concurrent message-append write doesn't block it.
@@ -3375,6 +3379,16 @@ impl SessionDB {
             }
             ParentSessionFilter::Child => {
                 where_clauses.push("s.parent_session_id IS NOT NULL".to_string());
+            }
+        }
+
+        match pinned_filter {
+            PinnedSessionFilter::All => {}
+            PinnedSessionFilter::Pinned => {
+                where_clauses.push("s.pinned_at IS NOT NULL".to_string());
+            }
+            PinnedSessionFilter::Unpinned => {
+                where_clauses.push("s.pinned_at IS NULL".to_string());
             }
         }
 
@@ -5932,9 +5946,9 @@ impl SessionDB {
     }
 
     /// Return the first unread regular conversation in the sidebar's visual
-    /// order, plus its position inside that session group. Projects render
-    /// before unassigned sessions; active projects precede archived projects;
-    /// each group shares the pin/update ordering used by the list endpoint.
+    /// order, plus its position inside that session group. The cross-project
+    /// pinned group renders first, followed by active projects, archived
+    /// projects, and finally unassigned sessions.
     pub fn next_regular_unread_session(
         &self,
         active_session_id: Option<&str>,
@@ -5957,27 +5971,32 @@ impl SessionDB {
                         (s.project_id IS NOT NULL AND s.incognito = 0)
                     )
              ), ranked AS (
-                 SELECT id, project_id, is_unread,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY project_id
-                            ORDER BY pinned_at IS NULL ASC,
-                                     pinned_at DESC,
-                                     updated_at DESC,
-                                     id ASC
-                        ) - 1 AS list_offset
+                 SELECT id, project_id, pinned_at, is_unread,
+                        CASE WHEN pinned_at IS NOT NULL THEN
+                            ROW_NUMBER() OVER (
+                                PARTITION BY (pinned_at IS NOT NULL)
+                                ORDER BY pinned_at DESC, updated_at DESC, id ASC
+                            ) - 1
+                        ELSE
+                            ROW_NUMBER() OVER (
+                                PARTITION BY project_id, (pinned_at IS NULL)
+                                ORDER BY updated_at DESC, id ASC
+                            ) - 1
+                        END AS list_offset
                    FROM sidebar_sessions
              )
-             SELECT r.id, r.project_id, r.list_offset
+             SELECT r.id, r.project_id, r.pinned_at IS NOT NULL, r.list_offset
                FROM ranked r
                LEFT JOIN projects p ON p.id = r.project_id
               WHERE r.id != ?1 AND r.is_unread = 1
               ORDER BY CASE
-                           WHEN r.project_id IS NULL THEN 2
-                           WHEN COALESCE(p.archived, 0) = 0 THEN 0
-                           ELSE 1
+                           WHEN r.pinned_at IS NOT NULL THEN 0
+                           WHEN r.project_id IS NULL THEN 3
+                           WHEN COALESCE(p.archived, 0) = 0 THEN 1
+                           ELSE 2
                        END ASC,
-                       p.sort_order ASC,
-                       p.updated_at DESC,
+                       CASE WHEN r.pinned_at IS NULL THEN p.sort_order END ASC,
+                       CASE WHEN r.pinned_at IS NULL THEN p.updated_at END DESC,
                        r.list_offset ASC,
                        r.id ASC
               LIMIT 1",
@@ -5987,7 +6006,8 @@ impl SessionDB {
             Ok(UnreadSessionTarget {
                 session_id: row.get(0)?,
                 project_id: row.get(1)?,
-                list_offset: row.get(2)?,
+                pinned: row.get(2)?,
+                list_offset: row.get(3)?,
             })
         })
         .optional()
@@ -8001,6 +8021,7 @@ mod tests {
             .expect("unread target");
         assert_eq!(target.session_id, project.id);
         assert_eq!(target.project_id.as_deref(), Some("project-a"));
+        assert!(!target.pinned);
         assert_eq!(target.list_offset, 0);
         assert_eq!(
             db.cron_unread_total().expect("cron unread total"),
@@ -8052,9 +8073,7 @@ mod tests {
         db.set_session_pinned(&read_pin.id, true)
             .expect("pin read session");
 
-        // Project groups render every visible row, not only rows eligible for
-        // the regular unread aggregate. Both of these rows must therefore
-        // occupy positions in the reveal target's list offset.
+        // Pinned rows from every ownership domain render in one shared group.
         let channel_pin = db
             .create_session_with_project("ha-main", Some("project-first"), None)
             .expect("pinned project channel");
@@ -8116,8 +8135,34 @@ mod tests {
             .next_regular_unread_session(None)
             .expect("locate unread")
             .expect("target");
+        assert_eq!(target.session_id, unassigned_unread.id);
+        assert!(target.pinned);
+        let (visible_pinned_rows, _) = db
+            .list_sessions_paged_for_sidebar(
+                None,
+                super::ProjectFilter::All,
+                super::ParentSessionFilter::All,
+                None,
+                None,
+                None,
+                super::PinnedSessionFilter::Pinned,
+            )
+            .expect("list pinned sidebar rows");
+        let pinned_visual_position = visible_pinned_rows
+            .iter()
+            .position(|session| session.id == target.session_id)
+            .expect("target visible in pinned list") as u32;
+        assert_eq!(target.list_offset, pinned_visual_position);
+
+        db.mark_session_read(&unassigned_unread.id)
+            .expect("mark pinned target read");
+        let target = db
+            .next_regular_unread_session(None)
+            .expect("locate project unread")
+            .expect("project target");
         assert_eq!(target.session_id, first_project_unread.id);
         assert_eq!(target.project_id.as_deref(), Some("project-first"));
+        assert!(!target.pinned);
         let (visible_project_rows, _) = db
             .list_sessions_paged_for_sidebar(
                 None,
@@ -8126,6 +8171,7 @@ mod tests {
                 None,
                 None,
                 None,
+                super::PinnedSessionFilter::Unpinned,
             )
             .expect("list project sidebar rows");
         let visual_position = visible_project_rows
@@ -8136,7 +8182,7 @@ mod tests {
             target.list_offset, visual_position,
             "every visible project row must occupy the same offset as the list endpoint"
         );
-        assert_eq!(target.list_offset, 3);
+        assert_eq!(target.list_offset, 0);
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -8183,6 +8229,7 @@ mod tests {
                 None,
                 None,
                 None,
+                super::PinnedSessionFilter::Unpinned,
             )
             .expect("list unassigned sidebar rows");
         let visual_position = visible_rows
@@ -8191,8 +8238,9 @@ mod tests {
             .expect("target visible in flat list") as u32;
 
         assert_eq!(target.session_id, unread.id);
+        assert!(!target.pinned);
         assert_eq!(target.list_offset, visual_position);
-        assert_eq!(target.list_offset, 1);
+        assert_eq!(target.list_offset, 0);
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -8323,6 +8371,7 @@ mod tests {
                 None,
                 None,
                 None,
+                super::PinnedSessionFilter::All,
             )
             .expect("list sessions");
         assert!(
@@ -8707,7 +8756,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_pagination_filters_project_and_parent_before_limit() {
+    fn sidebar_pagination_filters_project_parent_and_pin_before_limit() {
         let db_path = temp_db_path("sidebar-filtered-pagination");
         let db = SessionDB::open(&db_path).expect("open session db");
         ensure_channel_conversations_table(&db);
@@ -8716,6 +8765,9 @@ mod tests {
         let child = db
             .create_session_with_parent("agent-a", Some(&root.id))
             .expect("child session");
+        let pinned_root = db.create_session("agent-a").expect("pinned root session");
+        db.set_session_pinned(&pinned_root.id, true)
+            .expect("pin root session");
         for _ in 0..3 {
             db.create_session_with_project("agent-a", Some("project-a"), None)
                 .expect("project session");
@@ -8729,11 +8781,12 @@ mod tests {
                 Some(1),
                 Some(0),
                 None,
+                super::PinnedSessionFilter::All,
             )
             .expect("list root sidebar sessions");
-        assert_eq!(root_total, 1);
+        assert_eq!(root_total, 2);
         assert_eq!(roots.len(), 1);
-        assert_eq!(roots[0].id, root.id);
+        assert_eq!(roots[0].id, pinned_root.id);
 
         let (children, child_total) = db
             .list_sessions_paged_for_sidebar(
@@ -8743,11 +8796,26 @@ mod tests {
                 Some(1),
                 Some(0),
                 None,
+                super::PinnedSessionFilter::All,
             )
             .expect("list child sidebar sessions");
         assert_eq!(child_total, 1);
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].id, child.id);
+
+        let (unpinned_roots, unpinned_root_total) = db
+            .list_sessions_paged_for_sidebar(
+                Some("agent-a"),
+                super::ProjectFilter::Unassigned,
+                super::ParentSessionFilter::Root,
+                Some(1),
+                Some(0),
+                None,
+                super::PinnedSessionFilter::Unpinned,
+            )
+            .expect("list unpinned root sidebar sessions");
+        assert_eq!(unpinned_root_total, 1);
+        assert_eq!(unpinned_roots[0].id, root.id);
 
         let _ = std::fs::remove_file(&db_path);
     }
@@ -9928,6 +9996,17 @@ pub enum ParentSessionFilter {
     Root,
     /// Only sub-agent child sessions (`parent_session_id IS NOT NULL`).
     Child,
+}
+
+/// Filter sessions by whether the user has pinned them in the sidebar.
+#[derive(Debug, Clone, Copy)]
+pub enum PinnedSessionFilter {
+    /// Include both pinned and unpinned sessions.
+    All,
+    /// Only sessions with `pinned_at IS NOT NULL`.
+    Pinned,
+    /// Only sessions with `pinned_at IS NULL`.
+    Unpinned,
 }
 
 /// Filter for `search_messages` by session type.

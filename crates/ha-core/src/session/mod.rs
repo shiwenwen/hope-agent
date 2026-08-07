@@ -26,8 +26,8 @@ mod types;
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
-    sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, ProjectFilter, SessionDB,
-    SessionSearchResult, SessionTypeFilter,
+    sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, PinnedSessionFilter,
+    ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,
 };
 pub use environment::build_git_snapshot; // pub：ha-vcs git_control 消费
 pub(crate) use environment::load_git_diff_for_root;

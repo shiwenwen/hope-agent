@@ -14,7 +14,7 @@
  * Realtime freshness piggybacks on the shared global `sessions` array that the
  * ChatScreen keeps live (full reloads + incremental patches). `changeSignal` is a
  * fingerprint of this project's slice of that array; when it changes — a session
- * was created / renamed / reordered / read / pinned — we refetch the window.
+ * was created / renamed / reordered / read — we refetch the window.
  * `sessionCount` (live from `ProjectMeta`) is a backstop for membership changes
  * that don't surface in the global window (e.g. moving an old session in).
  */
@@ -25,6 +25,11 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionMeta } from "@/types/chat"
 import { PROJECT_SESSION_PAGE_SIZE } from "../../hooks/constants"
+import {
+  SESSION_PIN_CHANGED_EVENT,
+  sortSessionsForSidebar,
+  type SessionPinChangeDetail,
+} from "../../sessionPinEvents"
 
 export interface UseProjectSessionsParams {
   projectId: string
@@ -69,6 +74,7 @@ export function useProjectSessions({
   const [windowSize, setWindowSize] = useState(PROJECT_SESSION_PAGE_SIZE)
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [pinChangeSignal, setPinChangeSignal] = useState(0)
 
   // Tracks whether we've ever loaded so re-expanding shows stale rows instead
   // of a spinner while the background refetch lands.
@@ -115,6 +121,7 @@ export function useProjectSessions({
               id: projectId,
               limit: requestedLimit,
               offset: 0,
+              pinned: false,
             },
           )
           if (cancelled || seq !== reqSeqRef.current) return
@@ -146,6 +153,7 @@ export function useProjectSessions({
     windowSize,
     changeSignal,
     sessionCount,
+    pinChangeSignal,
     ensureSessionId,
     ensureSessionOffset,
   ])
@@ -170,6 +178,31 @@ export function useProjectSessions({
     window.addEventListener("hope:session-renamed", onRenamed)
     return () => window.removeEventListener("hope:session-renamed", onRenamed)
   }, [])
+
+  // Pin changes carry their owning project so one toggle patches only the
+  // affected expanded group. The optimistic/rollback phases update the visible
+  // rows immediately; refresh runs only after the persistence attempt settles.
+  useEffect(() => {
+    const onPinned = (event: Event) => {
+      const detail = (event as CustomEvent<SessionPinChangeDetail>).detail
+      if (!expanded || detail?.session.projectId !== projectId) return
+      if (detail.phase === "refresh") {
+        setPinChangeSignal((value) => value + 1)
+        return
+      }
+
+      const changed = detail.session
+      setSessions((prev) => {
+        const withoutChanged = prev.filter((session) => session.id !== changed.id)
+        return changed.pinnedAt
+          ? withoutChanged
+          : sortSessionsForSidebar([...withoutChanged, changed]).slice(0, windowSize)
+      })
+      setTotal((prev) => Math.max(0, prev + (changed.pinnedAt ? -1 : 1)))
+    }
+    window.addEventListener(SESSION_PIN_CHANGED_EVENT, onPinned)
+    return () => window.removeEventListener(SESSION_PIN_CHANGED_EVENT, onPinned)
+  }, [expanded, projectId, windowSize])
 
   const showMore = useCallback(() => {
     setLoadingMore(true)

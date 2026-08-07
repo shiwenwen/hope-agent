@@ -31,6 +31,7 @@ import { sortSessionSearchResults } from "../chatUtils"
 import { SEARCH_LIMIT } from "../hooks/constants"
 import AgentSection from "./AgentSection"
 import SessionList from "./SessionList"
+import PinnedSection from "./PinnedSection"
 import ProjectSection from "../project/ProjectSection"
 import { GLOBAL_SESSION_SEARCH_TYPES } from "./sessionListModel"
 import { useSidebarSessionPagination } from "./useSidebarSessionPagination"
@@ -189,7 +190,7 @@ export default function ChatSidebar({
           setUnreadRevealTarget(null)
           return
         }
-        if (target.projectId) setProjectsExpanded(true)
+        if (target.projectId && !target.pinned) setProjectsExpanded(true)
         setUnreadRevealTarget({ ...target, signal: unreadFocusSignal })
       })
       .catch((error) => {
@@ -293,6 +294,7 @@ export default function ChatSidebar({
   // metadata cache; it is deliberately not the flat list's rendering source.
   const {
     sessionsByFilter,
+    pinnedSessions,
     loading: sidebarSessionsLoading,
     loadingMoreByFilter,
     hasMoreByFilter,
@@ -303,10 +305,14 @@ export default function ChatSidebar({
     currentSessionId,
     enabled: !sessionsLoading,
     refreshSignal: sessions,
-    ensureSessionId: unreadRevealTarget?.projectId ? null : (unreadRevealTarget?.sessionId ?? null),
-    ensureSessionOffset: unreadRevealTarget?.projectId
-      ? null
-      : (unreadRevealTarget?.listOffset ?? null),
+    ensureSessionId:
+      unreadRevealTarget?.pinned || unreadRevealTarget?.projectId
+        ? null
+        : (unreadRevealTarget?.sessionId ?? null),
+    ensureSessionOffset:
+      unreadRevealTarget?.pinned || unreadRevealTarget?.projectId
+        ? null
+        : (unreadRevealTarget?.listOffset ?? null),
   })
   const filteredSessions = sessionsByFilter[sessionFilter]
 
@@ -481,7 +487,9 @@ export default function ChatSidebar({
 
   const showAgentSection = agents.length > 1
   const showProjectSection = projects.length > 0 || !!onAddProject
-  const stickySidebarHeaderCount = Number(showAgentSection) + Number(showProjectSection)
+  const showPinnedSection = pinnedSessions.length > 0
+  const stickySidebarHeaderCount =
+    Number(showPinnedSection) + Number(showAgentSection) + Number(showProjectSection)
 
   const sessionListNode = (
     <SessionList
@@ -709,6 +717,34 @@ export default function ChatSidebar({
                 sessionListNode
               ) : (
                 <>
+                  {showPinnedSection && (
+                    <PinnedSection
+                      pinnedSessions={pinnedSessions}
+                      sessions={sessions}
+                      projects={projects}
+                      currentSessionId={currentSessionId}
+                      readableSessionId={readableSessionId}
+                      loadingSessionIds={loadingSessionIds}
+                      onSwitchSession={onSwitchSession}
+                      onArchiveClick={handleArchiveClick}
+                      onMarkAllRead={handleSidebarUnreadChanged}
+                      renamingSessionId={renamingSessionId}
+                      renameValue={renameValue}
+                      renameInputRef={renameInputRef}
+                      onStartRename={startRename}
+                      onRenameValueChange={setRenameValue}
+                      onCommitRename={commitRename}
+                      onCancelRename={cancelRename}
+                      onMoveToProject={handleSidebarMoveSession}
+                      onToggleSessionPinned={onToggleSessionPinned}
+                      getAgentInfo={getAgentInfo}
+                      formatRelativeTime={formatRelativeTime}
+                      displayMode={sidebarDisplayMode}
+                      motionDisabled={sidebarMotionDisabled}
+                      unreadFocusTarget={unreadRevealTarget}
+                    />
+                  )}
+
                   {/* Collapsible Agents section */}
                   {showAgentSection && (
                     <AgentSection
@@ -723,6 +759,7 @@ export default function ChatSidebar({
                       panelWidth={panelWidth}
                       displayMode={sidebarDisplayMode}
                       motionDisabled={sidebarMotionDisabled}
+                      stickyHeaderCount={Number(showPinnedSection)}
                     />
                   )}
 
@@ -759,7 +796,7 @@ export default function ChatSidebar({
                       formatRelativeTime={formatRelativeTime}
                       displayMode={sidebarDisplayMode}
                       motionDisabled={sidebarMotionDisabled}
-                      hasAgentHeader={showAgentSection}
+                      stickyHeaderCount={Number(showPinnedSection) + Number(showAgentSection)}
                       unreadFocusTarget={unreadRevealTarget}
                     />
                   )}

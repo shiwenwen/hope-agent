@@ -18,6 +18,7 @@ export function sidebarSessionPageArgs(
   return {
     unassigned: true,
     parentSession: filter === "subagent",
+    pinned: false,
     agentId: selectedAgentId ?? undefined,
     limit,
     offset,
@@ -37,7 +38,7 @@ export function filterSessionsForSidebarTab(
 ): SessionMeta[] {
   return sessions.filter((session) => {
     if (selectedAgentId !== null && session.agentId !== selectedAgentId) return false
-    if (session.isCron || session.projectId) return false
+    if (session.isCron || session.projectId || session.pinnedAt) return false
 
     return filter === "subagent" ? !!session.parentSessionId : !session.parentSessionId
   })

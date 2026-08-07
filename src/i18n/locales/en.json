@@ -638,6 +638,7 @@
     "markAllRead": "Mark all as read",
     "markAsRead": "Mark as read",
     "pinSession": "Pin",
+    "pinnedSessions": "Pinned",
     "unpinSession": "Unpin",
     "minutesAgo": "{{count}}min ago",
     "modelsCount": "{{count}} models",

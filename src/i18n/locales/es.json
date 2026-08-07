@@ -638,6 +638,7 @@
     "markAllRead": "Marcar todo como leído",
     "markAsRead": "Marcar como leído",
     "pinSession": "Fijar",
+    "pinnedSessions": "Fijadas",
     "unpinSession": "Desfijar",
     "minutesAgo": "hace {{count}}min",
     "modelsCount": "{{count}} modelos",

@@ -638,6 +638,7 @@
     "markAllRead": "تحديد الكل كمقروء",
     "markAsRead": "تحديد كمقروء",
     "pinSession": "تثبيت",
+    "pinnedSessions": "المثبتة",
     "unpinSession": "إلغاء التثبيت",
     "minutesAgo": "منذ {{count}} دقيقة",
     "modelsCount": "{{count}} نماذج",

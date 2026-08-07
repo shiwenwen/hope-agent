@@ -626,7 +626,9 @@ export interface ForkSessionResult extends SessionMeta {
 export interface UnreadSessionTarget {
   sessionId: string
   projectId?: string | null
-  /** Zero-based position within its project or the unassigned session list. */
+  /** Whether the target belongs to the cross-project pinned group. */
+  pinned: boolean
+  /** Zero-based position within the target sidebar group. */
   listOffset: number
 }
 
