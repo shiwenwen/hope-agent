@@ -360,7 +360,9 @@ export function AskUserQuestionResult({
                       <div className="mt-2.5 rounded-md border border-green-500/15 bg-green-500/5 px-2.5 py-2">
                         <div className="text-[10px] font-medium uppercase tracking-wide text-green-700/80 dark:text-green-400/80">
                           {outcome.timedOut
-                            ? t("tools.ask_user.timed_out")
+                            ? defaultValues.length > 0
+                              ? t("tools.ask_user.timed_out")
+                              : t("planMode.question.timedOut", { defaultValue: "timed out" })
                             : t("planMode.question.response")}
                         </div>
                         {selected.length > 0 ? (

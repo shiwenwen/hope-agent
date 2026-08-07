@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { AskUserQuestionResult } from "./PlanResultBlocks"
 
@@ -71,5 +71,52 @@ describe("AskUserQuestionResult", () => {
       ),
     ).not.toThrow()
     expect(screen.getByText("Use the safe fallback")).toBeInTheDocument()
+  })
+
+  test("labels timeout defaults per question", () => {
+    render(
+      <AskUserQuestionResult
+        toolArguments={JSON.stringify({
+          questions: [
+            {
+              question_id: "with-default",
+              text: "Default answer",
+              options: [{ value: "safe", label: "Safe" }],
+              default_values: ["safe"],
+            },
+            {
+              question_id: "without-default",
+              text: "No default answer",
+              options: [{ value: "manual", label: "Manual" }],
+            },
+          ],
+        })}
+        result={JSON.stringify({
+          timedOut: true,
+          answers: [
+            {
+              questionId: "with-default",
+              question: "Default answer",
+              selected: ["Safe"],
+              selectedValues: ["safe"],
+            },
+            {
+              questionId: "without-default",
+              question: "No default answer",
+              selected: [],
+              selectedValues: [],
+            },
+          ],
+        })}
+      />,
+    )
+
+    const withDefault = screen.getByText("Default answer").closest("section")
+    const withoutDefault = screen.getByText("No default answer").closest("section")
+    expect(withDefault).not.toBeNull()
+    expect(withoutDefault).not.toBeNull()
+    expect(within(withDefault!).getByText("tools.ask_user.timed_out")).toBeInTheDocument()
+    expect(within(withoutDefault!).getByText("timed out")).toBeInTheDocument()
+    expect(within(withoutDefault!).queryByText("tools.ask_user.timed_out")).not.toBeInTheDocument()
   })
 })
