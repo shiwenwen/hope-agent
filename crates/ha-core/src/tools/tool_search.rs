@@ -24,6 +24,10 @@ use super::{
 /// - `"keyword1 keyword2"` — weighted search over name, aliases, hints,
 ///   description, parameter hints, effects, risk, and classifier tags.
 ///
+/// The optional `mcp_server` argument narrows discovery to one exact configured
+/// MCP server. It is a model-facing scope hint, not a user-facing setting, and
+/// can only remove candidates from the normal live eligibility set.
+///
 /// Candidates pool: every tool whose dispatcher fate is `InjectEager` or
 /// `InjectDeferred` for the current agent + global config. `Hidden` and
 /// `HintOnly` tools are excluded — they're either disabled or
@@ -39,6 +43,11 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         .and_then(|v| v.as_u64())
         .unwrap_or(5)
         .min(20) as usize;
+    let mcp_server = args
+        .get("mcp_server")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
 
     let app_config = crate::config::cached_config();
     // Load this session's AgentConfig to feed the dispatcher. tool_search is
@@ -54,6 +63,41 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         .as_ref()
         .map(|d| &d.config)
         .unwrap_or(&default_cfg);
+
+    if let Some(server_name) = mcp_server {
+        let server_available = agent_cfg.capabilities.mcp_enabled
+            && app_config.mcp_global.enabled
+            && app_config.mcp_servers.iter().any(|server| {
+                server.name == server_name
+                    && server.enabled
+                    && !app_config
+                        .mcp_global
+                        .denied_servers
+                        .iter()
+                        .any(|denied| denied == server_name)
+            });
+        if !server_available {
+            ctx.emit_metadata(serde_json::json!({
+                "kind": "tool_search_activation",
+                "activatedToolNames": [],
+            }))
+            .await;
+            return Ok(serde_json::to_string_pretty(&serde_json::json!({
+                "query": query,
+                "mcp_server": server_name,
+                "mode": "error",
+                "error": {
+                    "code": "mcp_server_unavailable",
+                    "message": format!(
+                        "MCP server '{server_name}' is not configured, enabled, or permitted for this agent"
+                    ),
+                },
+                "matched_tools": 0,
+                "activated_tools": [],
+                "tools": [],
+            }))?);
+        }
+    }
     let session_access = crate::memory::effective_session_memory_access(
         ctx.session_id.as_deref(),
         ctx.session_db.as_ref().map(|handle| handle.0.as_ref()),
@@ -75,15 +119,17 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     let mut candidates: Vec<ToolDefinition> = Vec::new();
     let mut deferred_names: HashSet<String> = HashSet::new();
     let mut total_deferred = 0usize;
-    for t in all_dispatchable_tools() {
-        match resolve_tool_fate(t, &dispatch_ctx) {
-            ToolFate::InjectDeferred => {
-                total_deferred += 1;
-                deferred_names.insert(t.name.clone());
-                candidates.push(t.clone());
+    if mcp_server.is_none() {
+        for t in all_dispatchable_tools() {
+            match resolve_tool_fate(t, &dispatch_ctx) {
+                ToolFate::InjectDeferred => {
+                    total_deferred += 1;
+                    deferred_names.insert(t.name.clone());
+                    candidates.push(t.clone());
+                }
+                ToolFate::InjectEager => candidates.push(t.clone()),
+                _ => {}
             }
-            ToolFate::InjectEager => candidates.push(t.clone()),
-            _ => {}
         }
     }
 
@@ -94,7 +140,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // before searching; failures are isolated and logged per server there.
     let dynamic_mcp_definitions =
         if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
-            crate::mcp::ensure_tool_catalogs().await;
+            crate::mcp::ensure_tool_catalogs(mcp_server).await;
             Some(crate::mcp::tool_definitions())
         } else {
             None
@@ -104,6 +150,9 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // and the global MCP kill switch.
     if let Some(dynamic_mcp_definitions) = dynamic_mcp_definitions {
         for def in dynamic_mcp_definitions.iter() {
+            if !tool_matches_mcp_server(&def.name, mcp_server) {
+                continue;
+            }
             if !candidates.iter().any(|c| c.name == def.name) {
                 if super::dispatch::should_defer_dynamic_mcp_tool(&def.name, &app_config) {
                     total_deferred += 1;
@@ -114,8 +163,23 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         }
     }
 
-    // Final exec-layer filter (skill / denied / plan-allowed) — defense in depth.
-    candidates.retain(|t| ctx.is_tool_visible(&t.name));
+    // Final exec-layer filter (skill / denied / plan-allowed) — defense in
+    // depth. Re-normalize after lazy discovery: the ToolExecContext was built
+    // before this call connected missing MCP servers, so its persisted legacy
+    // names may predate the alias map that was just published above.
+    let denied_tools = crate::mcp::canonicalize_tool_filter_names(&ctx.denied_tools);
+    let skill_allowed_tools = crate::mcp::canonicalize_tool_filter_names(&ctx.skill_allowed_tools);
+    let plan_mode_allowed_tools =
+        crate::mcp::canonicalize_tool_filter_names(&ctx.plan_mode_allowed_tools);
+    candidates.retain(|t| {
+        crate::tool_defs::tool_visible_with_filters(
+            &t.name,
+            &ctx.agent_tool_filter,
+            &denied_tools,
+            &skill_allowed_tools,
+            &plan_mode_allowed_tools,
+        )
+    });
 
     // KB-scoped tools (note_* / session_to_note) are useless without an attached
     // KB — hide them on a no-KB session, mirroring the eager-schema gate in
@@ -155,12 +219,11 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // The prefix and selected names are case/space/hyphen insensitive.
     if let Some(names_str) = select_payload(query) {
         let raw_names: Vec<&str> = names_str.split(',').map(str::trim).collect();
-        let names: Vec<String> = raw_names
-            .iter()
-            .copied()
-            .map(normalize_selector)
-            .filter(|s| !s.is_empty())
-            .collect();
+        // MCP compatibility aliases live in the runtime catalog rather than
+        // ToolDefinition metadata. Resolve them after lazy catalog discovery
+        // so an exact re-selection of a persisted legacy name activates the
+        // current provider-facing schema.
+        let names = normalize_exact_selectors_with(&raw_names, crate::mcp::canonical_tool_name);
         let matched: Vec<&ToolDefinition> = candidates
             .iter()
             .filter(|t| {
@@ -185,7 +248,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
             .map(|t| tool_to_summary(t, None, &app_config))
             .collect();
 
-        return Ok(serde_json::to_string_pretty(&serde_json::json!({
+        let response = serde_json::json!({
             "query": query,
             "mode": "select",
             "matched_tools": results.len(),
@@ -194,7 +257,10 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
             "total_candidates": candidates.len(),
             "truncated": false,
             "tools": results,
-        }))?);
+        });
+        return Ok(serde_json::to_string_pretty(&with_mcp_server_scope(
+            response, mcp_server,
+        ))?);
     }
 
     // Keyword search mode. Build a small weighted BM25 corpus each call so
@@ -290,7 +356,7 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         .map(|(score, t)| tool_to_summary(t, Some(*score), &app_config))
         .collect();
 
-    Ok(serde_json::to_string_pretty(&serde_json::json!({
+    let response = serde_json::json!({
         "query": query,
         "mode": "search",
         "matched_tools": results.len(),
@@ -301,7 +367,32 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         "total_candidates": candidates.len(),
         "truncated": total_matches > results.len(),
         "tools": results,
-    }))?)
+    });
+    Ok(serde_json::to_string_pretty(&with_mcp_server_scope(
+        response, mcp_server,
+    ))?)
+}
+
+fn tool_matches_mcp_server(tool_name: &str, mcp_server: Option<&str>) -> bool {
+    tool_matches_mcp_server_with(tool_name, mcp_server, crate::mcp::tool_server_name)
+}
+
+fn tool_matches_mcp_server_with(
+    tool_name: &str,
+    mcp_server: Option<&str>,
+    mut resolve_owner: impl FnMut(&str) -> Option<String>,
+) -> bool {
+    let Some(expected_server) = mcp_server else {
+        return true;
+    };
+    resolve_owner(tool_name).as_deref() == Some(expected_server)
+}
+
+fn with_mcp_server_scope(mut response: Value, mcp_server: Option<&str>) -> Value {
+    if let Some(server_name) = mcp_server {
+        response["mcp_server"] = Value::String(server_name.to_string());
+    }
+    response
 }
 
 /// Convert a definition to compact discovery metadata. The full parameters
@@ -521,6 +612,18 @@ fn selector_matches(tool: &ToolDefinition, normalized: &str) -> bool {
             .any(|alias| normalize_selector(alias) == normalized)
 }
 
+fn normalize_exact_selectors_with(
+    raw_names: &[&str],
+    mut resolve_alias: impl FnMut(&str) -> Option<String>,
+) -> Vec<String> {
+    raw_names
+        .iter()
+        .map(|name| resolve_alias(name).unwrap_or_else(|| (*name).to_string()))
+        .map(|name| normalize_selector(&name))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
 fn normalize_selector(value: &str) -> String {
     value
         .trim()
@@ -695,6 +798,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unavailable_mcp_server_scope_fails_without_global_fallback() {
+        let result = tool_search(
+            &json!({
+                "query": "storage account",
+                "mcp_server": "missing-server-for-test"
+            }),
+            &ToolExecContext::default(),
+        )
+        .await
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["mode"], "error");
+        assert_eq!(parsed["error"]["code"], "mcp_server_unavailable");
+        assert_eq!(parsed["matched_tools"], 0);
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mcp_server_scope_requires_catalog_ownership() {
+        let resolve_owner = |tool_name: &str| match tool_name {
+            "mcp__foo__bar__read" => Some("foo".to_string()),
+            "mcp__fooUUbar__read" => Some("foo__bar".to_string()),
+            _ => None,
+        };
+
+        assert!(tool_matches_mcp_server_with(
+            "mcp__foo__bar__read",
+            Some("foo"),
+            resolve_owner,
+        ));
+        assert!(!tool_matches_mcp_server_with(
+            "mcp__foo__bar__read",
+            Some("foo__bar"),
+            resolve_owner,
+        ));
+        assert!(tool_matches_mcp_server_with(
+            "mcp__fooUUbar__read",
+            Some("foo__bar"),
+            resolve_owner,
+        ));
+        assert!(!tool_matches_mcp_server_with(
+            "manage_cron__list",
+            Some("foo"),
+            resolve_owner,
+        ));
+        assert!(tool_matches_mcp_server("manage_cron__list", None));
+    }
+
+    #[tokio::test]
     async fn test_context_denied_tools_are_hidden() {
         let args = json!({ "query": "select:read,write" });
         let ctx = ToolExecContext {
@@ -725,6 +878,24 @@ mod tests {
             .collect();
         assert!(names.contains(&"read"));
         assert!(names.contains(&"edit"));
+    }
+
+    #[test]
+    fn exact_selectors_resolve_runtime_mcp_compatibility_aliases() {
+        let legacy = "mcp__alpha__abcdefghijklmnopqrstuvwxy";
+        let canonical = "mcp__alpha__abcdefghijklmnopqrstuvwxyz_long";
+        let selectors = normalize_exact_selectors_with(&[legacy], |name| {
+            (name == legacy).then(|| canonical.to_string())
+        });
+        let mut definition = all_dispatchable_tools()
+            .iter()
+            .find(|definition| definition.name == crate::tools::TOOL_READ)
+            .expect("read tool definition")
+            .clone();
+        definition.name = canonical.to_string();
+
+        assert_eq!(selectors, vec![normalize_selector(canonical)]);
+        assert!(selector_matches(&definition, &selectors[0]));
     }
 
     #[tokio::test]

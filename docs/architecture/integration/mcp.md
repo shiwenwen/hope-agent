@@ -176,7 +176,7 @@ stateDiagram-v2
 
 **为什么 Auth 错误单独一条分支？** 401/403 的正确恢复动作是"用户点 Authorize"而非"watchdog 傻重试"。把 server 留在 `NeedsAuth` 而不是 `Failed`，可以避免拿着一个已坏的 token 疯狂刷新。
 
-**启动策略**：默认 lazy connect 以省冷启时间，但动态工具名本身依赖 `tools/list`，不能靠“首次动态调用”自举。因此 `tool_search` 在检索前通过 MCP hook 对尚无 catalog 的 server 做至多 4 路并发发现；`mcp_resource` / `mcp_prompt` 也会先确保目标 server 已连接。整批发现由进程级异步锁保证只有一个 active worker，前台等待上限固定为 30s（等锁也计入），不随 server 数量线性增长；超时时已发布 catalog 立即可用，唯一未完成 worker 脱离前台继续后台发现。`eager=true` 的 server 在子系统初始化后立即异步 `ensure_connected`，不等待 watchdog 首个 15s tick；首个 provider 请求在组装 schema 前等待同一个进程级 `OnceCell` 启动屏障。无论本轮连接成功或失败，该屏障都只完成一次，普通聊天后续轮次不再同步重试不可达 server；配置热更新只触发后台 warm-up，Primary 的持续恢复交给 watchdog，ACP 仍可由 `tool_search` 显式重试。
+**启动策略**：默认 lazy connect 以省冷启时间，但动态工具名本身依赖 `tools/list`，不能靠“首次动态调用”自举。因此 `tool_search` 在检索前通过 MCP hook 对尚无 catalog 的 server 做至多 4 路并发发现；传入 `mcp_server` 时只连接并检索该精确服务，未传时保持全量发现。Provider 原生工具搜索不能扩展 `mcp_server` 入参，因此只要当前 turn 存在有效 MCP server，就固定保留 Hope 本地 `tool_search`；没有有效 MCP server 时仍优先使用 Provider 原生搜索。`mcp_resource` / `mcp_prompt` 也会先确保目标 server 已连接。整批发现由进程级异步锁保证只有一个 active worker，前台等待上限固定为 30s（等锁也计入），不随 server 数量线性增长；超时时已发布 catalog 立即可用，唯一未完成 worker 脱离前台继续后台发现。`eager=true` 的 server 在子系统初始化后立即异步 `ensure_connected`，不等待 watchdog 首个 15s tick；首个 provider 请求在组装 schema 前等待同一个进程级 `OnceCell` 启动屏障。无论本轮连接成功或失败，该屏障都只完成一次，普通聊天后续轮次不再同步重试不可达 server；配置热更新只触发后台 warm-up，Primary 的持续恢复交给 watchdog，ACP 仍可由 `tool_search` 显式重试。
 
 **Catalog 发布**：动态工具反查索引、Provider Schema 列表、已完成 catalog 的 server 集合属于同一代 `CatalogSnapshot`，经 manager 级更新锁串行合并后一次 `ArcSwap` 发布。禁止分别写 `tool_index` / schema cache：多 server 同时 refresh 的 read-modify-write 会丢掉另一 server，分步发布还会制造“Schema 已见但不可 dispatch”窗口。零工具 server 也记为 cataloged，避免系统提示持续把它误报为“尚未发现”；连接重试仍由 live `ServerState` + backoff 决定。
 
@@ -256,7 +256,7 @@ Streamable HTTP 和 SSE 是**两套 wire 协议，不能互相路由**：Streama
 
 - **格式**：`mcp__<server>__<tool>`（与 openclaw / claude-code 对齐，方便迁移配置）
 - **Server name 校验**：`^[a-z0-9_-]{1,32}$`，全配置唯一，不可改名（改名要删了重加，避免旧引用失效）
-- **Tool name 归一化**：每个非 `[A-Za-z0-9_]` 字符**替换为 `_`**（连字符也不例外）；工具名部分截断到 **25 字符**，使整体 `mcp__<server>__<tool>` 恰好落在 64 字符的 Claude / OpenAI 工具名上限内（`5 + ≤32 + 2 + ≤25`）。归一化可能撞名（`foo-bar` 与 `foo.bar` 都变 `foo_bar`），后续碰撞补 `_2`、`_3` 后缀且仍守 64 上限
+- **Tool name 归一化**：每个非 `[A-Za-z0-9_]` 字符**替换为 `_`**（连字符也不例外）；工具名部分按实际 server name 动态使用 `64 - len("mcp__<server>__")` 的剩余预算，32 字符 server 最少仍有 25 字符，较短 server 不再无谓截断。归一化可能撞名（`foo-bar` 与 `foo.bar` 都变 `foo_bar`），后续碰撞补 `_2`、`_3` 后缀且仍守 64 上限
 
 ### Schema 转换（`catalog::rmcp_tool_to_definition`）
 

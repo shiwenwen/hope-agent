@@ -492,7 +492,9 @@ export default function SettingsView({
             {activeSection === "design" && <DesignSettingsPanel />}
             {activeSection === "notifications" && <NotificationPanel />}
             {activeSection === "tools" && <ToolSettingsPanel />}
-            {activeSection === "mcp" && <McpServersPanel />}
+            {activeSection === "mcp" && (
+              <McpServersPanel onOpenToolSettings={() => setActiveSection("tools")} />
+            )}
             {activeSection === "sandbox" && <SandboxPanel />}
             {activeSection === "browser" && <BrowserPanel />}
             {activeSection === "acp" && <AcpControlPanel />}

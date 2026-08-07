@@ -18,24 +18,29 @@ use ha_core::tools::{ToolDefinition, ToolTier};
 
 use super::config::McpServerConfig;
 
-/// Max length for a *tool* name after the `mcp__<server>__` prefix.
-/// The overall namespace fits: `"mcp__" + <=32 server + "__" + this` =
-/// 5 + 32 + 2 + 25 = 64 chars, at the Anthropic / OpenAI ceiling.
-const TOOL_NAME_CAP: usize = 25;
+/// Provider ceiling for the complete `mcp__<server>__<tool>` identifier.
+const NAMESPACED_TOOL_NAME_CAP: usize = 64;
+/// Compatibility-safe component cap when no server name is available. A
+/// validated MCP server name is at most 32 bytes, leaving 25 bytes after the
+/// namespace separators.
+const MIN_TOOL_NAME_CAP: usize = 25;
 
-/// Sanitize an MCP tool name for use in the namespaced identifier:
-/// * replace every non `[A-Za-z0-9_]` with `_`
-/// * clamp to [`TOOL_NAME_CAP`] bytes
-/// * guarantee at least one character (empty input falls back to `tool`)
-pub fn sanitize_tool_name(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len().min(TOOL_NAME_CAP));
+fn tool_name_cap(server_name: &str) -> usize {
+    let server_component = ha_core::mcp::catalog::server_namespace_component(server_name);
+    NAMESPACED_TOOL_NAME_CAP
+        .saturating_sub("mcp__".len() + server_component.len() + "__".len())
+        .max(1)
+}
+
+fn sanitize_tool_name_with_cap(raw: &str, cap: usize) -> String {
+    let mut out = String::with_capacity(raw.len().min(cap));
     for c in raw.chars() {
         if c.is_ascii_alphanumeric() || c == '_' {
             out.push(c);
         } else {
             out.push('_');
         }
-        if out.len() >= TOOL_NAME_CAP {
+        if out.len() >= cap {
             break;
         }
     }
@@ -46,13 +51,33 @@ pub fn sanitize_tool_name(raw: &str) -> String {
     }
 }
 
+/// Sanitize an MCP tool name for use in the namespaced identifier:
+/// * replace every non `[A-Za-z0-9_]` with `_`
+/// * clamp to the worst-case component budget for a 32-byte server name
+/// * guarantee at least one character (empty input falls back to `tool`)
+///
+/// Namespace construction uses the actual server name to reclaim otherwise
+/// unused bytes. This standalone helper retains its historical worst-case cap.
+pub fn sanitize_tool_name(raw: &str) -> String {
+    sanitize_tool_name_with_cap(raw, MIN_TOOL_NAME_CAP)
+}
+
 /// Join the namespaced tool identifier the LLM sees.
 pub fn namespaced_tool_name(server_name: &str, original_tool_name: &str) -> String {
-    namespaced_tool_name_from_sanitized(server_name, &sanitize_tool_name(original_tool_name))
+    let tool_name = sanitize_tool_name_with_cap(original_tool_name, tool_name_cap(server_name));
+    namespaced_tool_name_from_sanitized(server_name, &tool_name)
 }
 
 fn namespaced_tool_name_from_sanitized(server_name: &str, sanitized_tool_name: &str) -> String {
-    format!("mcp__{}__{}", server_name, sanitized_tool_name)
+    let server_component = ha_core::mcp::catalog::server_namespace_component(server_name);
+    format!("mcp__{server_component}__{sanitized_tool_name}")
+}
+
+fn legacy_namespaced_tool_name_from_sanitized(
+    server_name: &str,
+    sanitized_tool_name: &str,
+) -> String {
+    format!("mcp__{server_name}__{sanitized_tool_name}")
 }
 
 /// Assign collision-safe namespaced tool identifiers for a server catalog.
@@ -65,21 +90,75 @@ pub fn assign_namespaced_tool_names<'a, I>(server_name: &str, originals: I) -> V
 where
     I: IntoIterator<Item = &'a str>,
 {
+    let originals: Vec<&str> = originals.into_iter().collect();
+    let legacy_names = assign_namespaced_tool_names_with_cap(
+        server_name,
+        originals.iter().copied(),
+        MIN_TOOL_NAME_CAP,
+        None,
+        true,
+    );
+    let legacy_owner_by_name: HashMap<String, usize> = legacy_names
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| (name, index))
+        .collect();
+    assign_namespaced_tool_names_with_cap(
+        server_name,
+        originals,
+        tool_name_cap(server_name),
+        Some(&legacy_owner_by_name),
+        false,
+    )
+}
+
+/// Rebuild the names emitted before Hope reclaimed unused namespace bytes or
+/// escaped ambiguous server delimiters. These identifiers are compatibility
+/// aliases only and must not be exposed as duplicate provider schemas.
+pub(crate) fn assign_legacy_namespaced_tool_names<'a, I>(
+    server_name: &str,
+    originals: I,
+) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    assign_namespaced_tool_names_with_cap(server_name, originals, MIN_TOOL_NAME_CAP, None, true)
+}
+
+fn assign_namespaced_tool_names_with_cap<'a, I>(
+    server_name: &str,
+    originals: I,
+    component_cap: usize,
+    reserved_owner_by_name: Option<&HashMap<String, usize>>,
+    legacy_raw_namespace: bool,
+) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
     let mut next_ordinal_by_base: HashMap<String, usize> = HashMap::new();
     let mut used: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
 
-    for original in originals {
-        let base = sanitize_tool_name(original);
+    for (index, original) in originals.into_iter().enumerate() {
+        let base = sanitize_tool_name_with_cap(original, component_cap);
         let mut ordinal = next_ordinal_by_base
             .get(&base)
             .copied()
             .unwrap_or(0)
             .saturating_add(1);
         loop {
-            let tool_part = suffixed_tool_name(&base, ordinal);
-            let namespaced = namespaced_tool_name_from_sanitized(server_name, &tool_part);
-            if used.insert(namespaced.clone()) {
+            let tool_part = suffixed_tool_name(&base, ordinal, component_cap);
+            let namespaced = if legacy_raw_namespace {
+                legacy_namespaced_tool_name_from_sanitized(server_name, &tool_part)
+            } else {
+                namespaced_tool_name_from_sanitized(server_name, &tool_part)
+            };
+            let reserved_by_other = reserved_owner_by_name.is_some_and(|owners| {
+                owners
+                    .get(&namespaced)
+                    .is_some_and(|owner_index| *owner_index != index)
+            });
+            if !reserved_by_other && used.insert(namespaced.clone()) {
                 next_ordinal_by_base.insert(base.clone(), ordinal);
                 out.push(namespaced);
                 break;
@@ -91,13 +170,13 @@ where
     out
 }
 
-fn suffixed_tool_name(base: &str, ordinal: usize) -> String {
+fn suffixed_tool_name(base: &str, ordinal: usize, cap: usize) -> String {
     if ordinal <= 1 {
         return base.to_string();
     }
     let suffix = format!("_{ordinal}");
-    let keep = TOOL_NAME_CAP.saturating_sub(suffix.len());
-    let mut out = String::with_capacity(TOOL_NAME_CAP);
+    let keep = cap.saturating_sub(suffix.len());
+    let mut out = String::with_capacity(cap);
     out.push_str(&base[..base.len().min(keep)]);
     out.push_str(&suffix);
     out
@@ -107,7 +186,7 @@ fn suffixed_tool_name(base: &str, ordinal: usize) -> String {
 // `ha_core::mcp::catalog`。这里再导出供本 crate 内部与既有调用路径使用，
 // **不得在特征侧另写前缀判定**。
 pub use ha_core::mcp::catalog::{
-    has_deferred_tool_server, is_mcp_tool_name, split_mcp_tool_name,
+    has_deferred_tool_server, is_mcp_tool_name, server_namespace_component, split_mcp_tool_name,
     tool_belongs_to_deferred_server, MCP_TOOL_PREFIX,
 };
 
@@ -384,7 +463,7 @@ mod tests {
         assert_eq!(sanitize_tool_name("foo-bar.baz"), "foo_bar_baz");
         assert_eq!(sanitize_tool_name(""), "tool");
         let long = "a".repeat(100);
-        assert_eq!(sanitize_tool_name(&long).len(), TOOL_NAME_CAP);
+        assert_eq!(sanitize_tool_name(&long).len(), MIN_TOOL_NAME_CAP);
     }
 
     #[test]
@@ -401,6 +480,55 @@ mod tests {
     }
 
     #[test]
+    fn short_server_reclaims_namespace_budget_for_readable_tool_names() {
+        assert_eq!(
+            namespaced_tool_name("azure-mcp-large", "storage_blob_container_get"),
+            "mcp__azure-mcp-large__storage_blob_container_get"
+        );
+    }
+
+    #[test]
+    fn delimiter_in_server_name_gets_an_unambiguous_namespace() {
+        assert_eq!(
+            namespaced_tool_name("foo__bar", "read"),
+            "mcp__fooUUbar__read"
+        );
+        assert_eq!(
+            assign_legacy_namespaced_tool_names("foo__bar", ["read"]),
+            vec!["mcp__foo__bar__read"]
+        );
+    }
+
+    #[test]
+    fn legacy_assignment_preserves_pre_budget_reclamation_name() {
+        assert_eq!(
+            assign_legacy_namespaced_tool_names("azure-mcp-large", ["storage_blob_container_get"],),
+            vec!["mcp__azure-mcp-large__storage_blob_container_ge"]
+        );
+    }
+
+    #[test]
+    fn expanded_names_never_steal_another_tools_legacy_identifier() {
+        let long = "abcdefghijklmnopqrstuvwxyz_long";
+        let old_prefix = "abcdefghijklmnopqrstuvwxy";
+
+        assert_eq!(
+            assign_namespaced_tool_names("srv", [long, old_prefix]),
+            vec![
+                "mcp__srv__abcdefghijklmnopqrstuvwxyz_long",
+                "mcp__srv__abcdefghijklmnopqrstuvwxy_2",
+            ]
+        );
+        assert_eq!(
+            assign_legacy_namespaced_tool_names("srv", [long, old_prefix]),
+            vec![
+                "mcp__srv__abcdefghijklmnopqrstuvwxy",
+                "mcp__srv__abcdefghijklmnopqrstuvw_2",
+            ]
+        );
+    }
+
+    #[test]
     fn assigned_names_are_collision_safe_and_bounded() {
         let long = "a".repeat(100);
         let names =
@@ -408,7 +536,7 @@ mod tests {
         assert_eq!(names[0], "mcp__srv__foo_bar");
         assert_eq!(names[1], "mcp__srv__foo_bar_2");
         assert_eq!(names[2], "mcp__srv__foo_bar_3");
-        assert!(names[3].len() <= 64);
+        assert!(names[3].len() <= NAMESPACED_TOOL_NAME_CAP);
         let unique: std::collections::HashSet<_> = names.iter().collect();
         assert_eq!(unique.len(), names.len());
     }

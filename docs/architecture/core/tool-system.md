@@ -386,7 +386,7 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 
 | 工具 | 标记 | 说明 |
 |------|------|------|
-| `tool_search` | always_load, internal | 延迟工具发现与 lazy MCP catalog 自举（存在内置 deferred 工具或任一有效 MCP server 时启用）。检索动态 MCP 前先有界并发拉取缺失 catalog；单 server 失败不阻断其它候选。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5、上限 20。返回紧凑摘要并激活匹配工具，完整 schema 在下一 Provider round 注入。 |
+| `tool_search` | always_load, internal | 延迟工具发现与 lazy MCP catalog 自举（存在内置 deferred 工具或任一有效 MCP server 时启用）。检索动态 MCP 前先有界并发拉取缺失 catalog；可选 `mcp_server` 精确收窄并只预热目标服务，单 server 失败不阻断无筛选时的其它候选。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5、上限 20。返回紧凑摘要并激活匹配工具，完整 schema 在下一 Provider round 注入。 |
 | `job_status` | always_load, internal | 后台任务的模型面状态查询（仅 `asyncTools.enabled` 时注入）。`action`：`status`(默认，单 `job_id`) / `list`(枚举本会话在途) / `wait`(短便利同步，clamp ≤ 10s，超时返回 `still_running`) / `cancel` / `result`。**长 fan-out 等齐的正道是等自动注入而非 `wait`**——普通 job 完成后靠 `<task-notification>` 自动注入，`job_status` 只用于用户追问或经过一段时间后的非阻塞快照，**禁止用"后台化后立即 poll"重建同步等待**。运行时深度机制详见 [background-jobs](../agent/background-jobs.md)。 |
 | `runtime_cancel` | always_load, internal | 取消在途 runtime 任务（工具 job / subagent 等）的统一控制入口。 |
 | `skill` | always_load, internal | 技能激活入口。详见 [skill-system](../agent/skill-system.md)。 |
@@ -425,6 +425,8 @@ flowchart LR
 
 - `select:name1,name2`：按名字精确挑选（大小写、空格、连字符容错），复合工具也可选 `browser__snapshot` 这类 variant。
 - 关键词：对 `name` / `aliases` / `search_hints` / `description` / 参数名与描述 / `effects` / `risk` / `classifier_tags` 做加权 BM25 检索，返回并激活预算内 top N。
+
+可选 `mcp_server` 是模型内部的精确 server name 筛选：设置后只连接并检索该服务的动态工具，内置工具和其它 MCP 服务不进入候选池；未设置时保持全局搜索。模型从系统提示里的 MCP 目录自行判断，不要求用户知道服务名，也不对应任何 GUI 设置。
 
 `tool_search` 的候选池同样由 `resolve_tool_fate` 过滤：只含 `InjectEager` / `InjectDeferred` 工具，`Hidden` / `HintOnly` 不可发现。返回结果含 `metadata` / `tier` / `internal` / `concurrent_safe` / `background_policy` / `defer_capable` / `globally_configured` 等紧凑摘要；完整 `parameters` 不在 tool result 里重复，匹配工具通过 side output 激活、下一轮作为真实 Provider schema 出现。
 

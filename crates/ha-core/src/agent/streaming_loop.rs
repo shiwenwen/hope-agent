@@ -40,6 +40,37 @@ const TOOL_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from
 /// to the IM-inbound concurrency const), not a user-facing knob.
 const MAX_CONCURRENT_SAFE_TOOLS: usize = 8;
 
+fn requires_local_mcp_tool_search(
+    app_config: &crate::config::AppConfig,
+    agent_mcp_enabled: bool,
+    provider_supports_native_search: bool,
+) -> bool {
+    provider_supports_native_search
+        && agent_mcp_enabled
+        && app_config.mcp_global.enabled
+        && app_config.mcp_servers.iter().any(|server| {
+            server.enabled && !app_config.mcp_global.denied_servers.contains(&server.name)
+        })
+}
+
+/// Native provider search must remain available when the final Agent/Skill/
+/// Plan filters removed Hope's local `tool_search`, even if MCP configuration
+/// would otherwise prefer the scoped local implementation.
+fn local_tool_search_survived(
+    keep_local_tool_search_for_turn: bool,
+    tool_schemas: &[serde_json::Value],
+) -> bool {
+    keep_local_tool_search_for_turn
+        && tool_schemas.iter().any(|schema| {
+            schema.get("name").and_then(Value::as_str).or_else(|| {
+                schema
+                    .get("function")
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+            }) == Some(tools::TOOL_TOOL_SEARCH)
+        })
+}
+
 fn terminal_assistant_text_for_history<'a>(
     cancelled: bool,
     final_assistant_text: &'a str,
@@ -1064,10 +1095,18 @@ impl AssistantAgent {
         // provider schemas. Detached catalog warm-up can publish between tool
         // rounds, so per-tool before/after detection alone is insufficient.
         let mut mcp_catalog_snapshot = crate::mcp::tool_definitions();
-        let mut keep_local_tool_search_for_turn = agent_caps.mcp_enabled
+        // Provider-native search has a fixed input contract and cannot expose
+        // Hope's `mcp_server` scope. Whenever this turn can reach an MCP
+        // server, keep Hope's local meta-tool so the system-prompt guidance is
+        // executable instead of silently degrading to a global search.
+        let keep_local_tool_search_for_turn = requires_local_mcp_tool_search(
+            &app_config,
+            agent_caps.mcp_enabled,
+            adapter.supports_native_tool_search(),
+        ) || (agent_caps.mcp_enabled
             && app_config.mcp_global.enabled
             && adapter.supports_native_tool_search()
-            && crate::mcp::has_pending_catalogs();
+            && crate::mcp::has_pending_catalogs());
         let mut tool_inventory =
             self.build_tool_inventory(adapter.tool_provider(), &activated_tool_names);
         activated_tool_names = tool_inventory.activated_names.clone();
@@ -1210,11 +1249,6 @@ impl AssistantAgent {
                 deferred_tool_schemas = tool_inventory.deferred_schemas;
                 tool_schemas = tool_inventory.schemas;
             }
-            keep_local_tool_search_for_turn |= agent_caps.mcp_enabled
-                && app_config.mcp_global.enabled
-                && adapter.supports_native_tool_search()
-                && crate::mcp::has_pending_catalogs();
-
             // Keep this session marked as "active" during long tool loops
             // so peer sessions see it in the registry.
             if let Some(ref sid) = self.session_id {
@@ -1404,18 +1438,13 @@ impl AssistantAgent {
             let round_prompt_cache_key =
                 prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
 
-            // Provider-native search replaces Hope's `tool_search`. Once this
-            // turn observes a pending MCP catalog, retain the local bootstrap
-            // tool for the rest of the turn; a detached worker may publish
-            // between request assembly and dispatch, and switching mid-turn
-            // would reopen a schema-free discovery window.
+            // Provider-native search replaces Hope's `tool_search`. MCP turns
+            // prefer the local tool because native search cannot express
+            // Hope's `mcp_server` scope, but final Agent/Skill/Plan filters may
+            // hide it. In that case retain native search so allowed deferred
+            // tools do not become unreachable.
             let provider_deferred_tool_schemas: &[serde_json::Value] =
-                if keep_local_tool_search_for_turn
-                    || (agent_caps.mcp_enabled
-                        && app_config.mcp_global.enabled
-                        && adapter.supports_native_tool_search()
-                        && crate::mcp::has_pending_catalogs())
-                {
+                if local_tool_search_survived(keep_local_tool_search_for_turn, &tool_schemas) {
                     &[]
                 } else {
                     &deferred_tool_schemas
@@ -2102,12 +2131,59 @@ impl AssistantAgent {
 mod tests {
     use super::{
         can_bootstrap_mcp_catalog, collect_tool_schema_updates, ensure_model_round_after_insertion,
-        extract_started_job_id, has_checkpointed_subagent_dispatch, queued_message_for_provider,
-        resolve_empty_round_outcome, stamp_checkpointed_subagent_dispatch,
-        terminal_assistant_text_for_history,
+        extract_started_job_id, has_checkpointed_subagent_dispatch, local_tool_search_survived,
+        queued_message_for_provider, requires_local_mcp_tool_search, resolve_empty_round_outcome,
+        stamp_checkpointed_subagent_dispatch, terminal_assistant_text_for_history,
     };
     use crate::agent::streaming_adapter::ToolDispatchSideOutput;
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
+
+    fn mcp_server(name: &str) -> crate::mcp::McpServerConfig {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("id-{name}"),
+            "name": name,
+            "enabled": true,
+            "transport": { "kind": "stdio", "command": "true" }
+        }))
+        .expect("valid MCP server fixture")
+    }
+
+    #[test]
+    fn native_provider_keeps_scoped_local_search_when_mcp_is_effective() {
+        let mut app = crate::config::AppConfig {
+            mcp_servers: vec![mcp_server("azure")],
+            ..Default::default()
+        };
+
+        assert!(requires_local_mcp_tool_search(&app, true, true));
+        assert!(!requires_local_mcp_tool_search(&app, true, false));
+        assert!(!requires_local_mcp_tool_search(&app, false, true));
+
+        app.mcp_global.denied_servers.push("azure".into());
+        assert!(!requires_local_mcp_tool_search(&app, true, true));
+    }
+
+    #[test]
+    fn native_search_returns_when_final_filters_hide_local_tool_search() {
+        let anthropic = serde_json::json!({ "name": crate::tools::TOOL_TOOL_SEARCH });
+        let openai = serde_json::json!({
+            "type": "function",
+            "function": { "name": crate::tools::TOOL_TOOL_SEARCH }
+        });
+
+        assert!(local_tool_search_survived(true, &[anthropic]));
+        assert!(local_tool_search_survived(true, &[openai]));
+        assert!(!local_tool_search_survived(
+            true,
+            &[serde_json::json!({ "name": "web_search" })]
+        ));
+        assert!(!local_tool_search_survived(
+            false,
+            &[serde_json::json!({
+                "name": crate::tools::TOOL_TOOL_SEARCH
+            })]
+        ));
+    }
 
     #[test]
     fn extract_started_job_id_reads_synthetic_started_payload() {

@@ -249,10 +249,14 @@ pub fn has_deferred_builtin_tools(app_config: &AppConfig) -> bool {
 /// capability: discoverable by default, but not eager. Custom/disabled
 /// built-in policy keeps the existing per-server MCP opt-in semantics.
 pub fn should_defer_dynamic_mcp_tool(name: &str, app_config: &AppConfig) -> bool {
-    let Some((server, _tool)) = crate::mcp::catalog::split_mcp_tool_name(name) else {
-        return false;
-    };
-    should_defer_dynamic_mcp_server(server, app_config)
+    crate::mcp::catalog::is_mcp_tool_name(name)
+        && (matches!(
+            app_config.deferred_tools.effective_mode(),
+            crate::config::DeferredToolsMode::Recommended
+        ) || crate::mcp::catalog::tool_belongs_to_deferred_server(
+            name,
+            &app_config.mcp_servers,
+        ))
 }
 
 /// Server-level form of [`should_defer_dynamic_mcp_tool`], shared by schema
@@ -923,6 +927,26 @@ mod tests {
         server.enabled = false;
         app.mcp_servers = vec![server];
         assert!(!should_defer_dynamic_mcp_server("example", &app));
+    }
+
+    #[test]
+    fn per_server_deferred_mode_uses_the_unambiguous_namespace() {
+        let mut app = AppConfig::default();
+        app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Disabled);
+        app.mcp_servers.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "id-foo-bar",
+                "name": "foo__bar",
+                "enabled": true,
+                "transport": { "kind": "stdio", "command": "true" },
+                "deferredTools": true
+            }))
+            .expect("valid MCP server fixture"),
+        );
+
+        assert!(should_defer_dynamic_mcp_server("foo__bar", &app));
+        assert!(should_defer_dynamic_mcp_tool("mcp__fooUUbar__read", &app));
+        assert!(!should_defer_dynamic_mcp_tool("mcp__foo__bar__read", &app));
     }
 
     #[test]

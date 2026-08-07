@@ -21,6 +21,8 @@ import {
   Link2,
   KeyRound,
   LogOut,
+  Settings2,
+  ArrowRight,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -57,10 +59,15 @@ import McpImportDialog from "./McpImportDialog"
  * Combining "add" vs "edit(existing server)" into one discriminator
  * removes a whole class of bugs where `editingId` points at a row that
  * was deleted between refresh ticks. */
-type EditTarget =
-  | { mode: "add" }
-  | { mode: "edit"; server: McpServerSummary }
-  | null
+type EditTarget = { mode: "add" } | { mode: "edit"; server: McpServerSummary } | null
+
+type DeferredToolsMode = "recommended" | "custom" | "disabled"
+
+interface DeferredToolsConfig {
+  enabled: boolean
+  mode?: DeferredToolsMode
+  toolNames: string[]
+}
 
 // ── Status visuals ───────────────────────────────────────────────
 
@@ -86,20 +93,43 @@ function transportKindOf(s: McpServerSummary): McpTransportKind {
 
 // ── Main panel ───────────────────────────────────────────────────
 
-export default function McpServersPanel() {
+export default function McpServersPanel({
+  onOpenToolSettings,
+}: {
+  onOpenToolSettings: () => void
+}) {
   const { t } = useTranslation()
   const [servers, setServers] = useState<McpServerSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<EditTarget>(null)
   const [importing, setImporting] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [pendingDelete, setPendingDelete] =
-    useState<{ id: string; name: string } | null>(null)
+  const [deferredToolsMode, setDeferredToolsMode] = useState<DeferredToolsMode | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const next = await listServers()
+      const [next, deferredConfig] = await Promise.all([
+        listServers(),
+        getTransport()
+          .call<DeferredToolsConfig>("get_deferred_tools_config")
+          .catch((error) => {
+            logger.warn(
+              "mcp",
+              "McpServersPanel::refresh",
+              "Failed to load global deferred-tools policy",
+              error,
+            )
+            setDeferredToolsMode(null)
+            return null
+          }),
+      ])
       setServers(next)
+      if (deferredConfig) {
+        setDeferredToolsMode(
+          deferredConfig.mode ?? (deferredConfig.enabled ? "custom" : "disabled"),
+        )
+      }
     } catch (e) {
       logger.error("mcp", "McpServersPanel::refresh", "Failed to load servers", e)
       toast.error(t("settings.mcp.loadFailed"))
@@ -165,28 +195,23 @@ export default function McpServersPanel() {
     }
   }, [scheduleRefresh, t])
 
-  const runBusy = useCallback(
-    async (id: string, fn: () => Promise<void>) => {
-      setBusyId(id)
-      try {
-        await fn()
-      } catch (e) {
-        toast.error(String(e))
-      } finally {
-        setBusyId(null)
-      }
-    },
-    [],
-  )
+  const runBusy = useCallback(async (id: string, fn: () => Promise<void>) => {
+    setBusyId(id)
+    try {
+      await fn()
+    } catch (e) {
+      toast.error(String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }, [])
 
   const handleTest = useCallback(
     (id: string) =>
       runBusy(id, async () => {
         const snap = await testConnection(id)
         if (snap.state === "ready") {
-          toast.success(
-            t("settings.mcp.testSuccess", { count: snap.toolCount }),
-          )
+          toast.success(t("settings.mcp.testSuccess", { count: snap.toolCount }))
         } else {
           toast.error(snap.reason ?? t("settings.mcp.testFailed"))
         }
@@ -250,9 +275,7 @@ export default function McpServersPanel() {
             <Plug className="h-5 w-5 text-primary" />
             {t("settings.mcp.title")}
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {t("settings.mcp.subtitle")}
-          </p>
+          <p className="text-sm text-muted-foreground mt-0.5">{t("settings.mcp.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -264,15 +287,42 @@ export default function McpServersPanel() {
             <Upload className="h-3.5 w-3.5" />
             {t("settings.mcp.importJson")}
           </Button>
-          <Button
-            size="sm"
-            onClick={() => setEdit({ mode: "add" })}
-            className="gap-1.5"
-          >
+          <Button size="sm" onClick={() => setEdit({ mode: "add" })} className="gap-1.5">
             <Plus className="h-3.5 w-3.5" />
             {t("settings.mcp.addServer")}
           </Button>
         </div>
+      </div>
+
+      <div className="mx-6 mt-4 rounded-lg border border-border/60 bg-secondary/20 px-4 py-3 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{t("settings.deferredToolsEnabled")}</span>
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+              {deferredToolsMode === null
+                ? t(loading ? "common.loading" : "common.unknown")
+                : t(
+                    deferredToolsMode === "recommended"
+                      ? "settings.deferredToolsModeRecommended"
+                      : deferredToolsMode === "custom"
+                        ? "settings.deferredToolsModeCustom"
+                        : "settings.deferredToolsModeDisabled",
+                  )}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("settings.deferredToolsEnabledDesc")}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onOpenToolSettings}
+          className="shrink-0 gap-1.5"
+        >
+          {t("settings.tools")}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
       </div>
 
       {/* List */}
@@ -283,10 +333,7 @@ export default function McpServersPanel() {
             {t("common.loading")}
           </div>
         ) : servers.length === 0 ? (
-          <EmptyState
-            onAdd={() => setEdit({ mode: "add" })}
-            onImport={() => setImporting(true)}
-          />
+          <EmptyState onAdd={() => setEdit({ mode: "add" })} onImport={() => setImporting(true)} />
         ) : (
           <div className="divide-y divide-border">
             {servers.map((server) => (
@@ -294,14 +341,13 @@ export default function McpServersPanel() {
                 key={server.id}
                 server={server}
                 busy={busyId === server.id}
+                deferredToolsMode={deferredToolsMode}
                 onEdit={() => setEdit({ mode: "edit", server })}
                 onTest={() => handleTest(server.id)}
                 onReconnect={() => handleReconnect(server.id)}
                 onAuthorize={() => handleAuthorize(server.id)}
                 onSignOut={() => handleSignOut(server.id, server.name)}
-                onDelete={() =>
-                  setPendingDelete({ id: server.id, name: server.name })
-                }
+                onDelete={() => setPendingDelete({ id: server.id, name: server.name })}
               />
             ))}
           </div>
@@ -313,6 +359,7 @@ export default function McpServersPanel() {
         <McpServerEditDialog
           open
           initial={edit.mode === "edit" ? edit.server : null}
+          globalDeferredToolsMode={deferredToolsMode}
           onClose={() => setEdit(null)}
           onSaved={handleAfterEdit}
         />
@@ -368,6 +415,7 @@ export default function McpServersPanel() {
 function ServerRow({
   server,
   busy,
+  deferredToolsMode,
   onEdit,
   onTest,
   onReconnect,
@@ -377,6 +425,7 @@ function ServerRow({
 }: {
   server: McpServerSummary
   busy: boolean
+  deferredToolsMode: DeferredToolsMode | null
   onEdit: () => void
   onTest: () => void
   onReconnect: () => void
@@ -397,11 +446,20 @@ function ServerRow({
   // edit dialog reject it on stdio), so a simple presence check is
   // sufficient here.
   const hasOauth = Boolean(server.oauth)
+  const effectiveDeferredTools =
+    deferredToolsMode === null
+      ? null
+      : deferredToolsMode === "recommended" || Boolean(server.deferredTools)
 
   return (
     <div className="px-6 py-4 hover:bg-muted/30 transition-colors">
       <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onEdit}
+          className="h-auto flex-1 min-w-0 flex-col items-stretch justify-start p-0 text-left"
+        >
           <div className="flex items-center gap-2">
             <IconTip label={t(`settings.mcp.state.${state}`)}>
               <span
@@ -410,15 +468,9 @@ function ServerRow({
               />
             </IconTip>
             <span className="font-medium truncate">{server.name}</span>
-            <span
-              className={`text-xs px-1.5 py-0.5 rounded ${badge}`}
-            >
-              {transport}
-            </span>
+            <span className={`text-xs px-1.5 py-0.5 rounded ${badge}`}>{transport}</span>
             {!server.enabled && (
-              <span className="text-xs text-muted-foreground">
-                ({t("settings.mcp.disabled")})
-              </span>
+              <span className="text-xs text-muted-foreground">({t("settings.mcp.disabled")})</span>
             )}
             {isReady && (
               <span className="text-xs text-muted-foreground ml-auto">
@@ -431,13 +483,30 @@ function ServerRow({
               {server.description}
             </p>
           )}
+          <div className="mt-2 ml-4 flex flex-wrap items-center gap-1.5">
+            <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+              {server.eager ? t("settings.mcp.eagerLabel") : t("settings.mcp.lazyLabel")}
+            </span>
+            {effectiveDeferredTools !== null && (
+              <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                {effectiveDeferredTools
+                  ? t("settings.mcp.deferredToolsLabel")
+                  : t("settings.mcp.directToolsLabel")}
+              </span>
+            )}
+            <IconTip label={t("settings.mcp.connectTimeout")}>
+              <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                {server.connectTimeoutSecs ?? 30}s
+              </span>
+            </IconTip>
+          </div>
           {isFailed && server.reason && (
             <p className="text-xs text-destructive mt-1 ml-4 flex items-start gap-1">
               <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
               <span className="line-clamp-2">{server.reason}</span>
             </p>
           )}
-        </div>
+        </Button>
         <div className="flex gap-1 shrink-0">
           <Button
             variant="ghost"
@@ -493,13 +562,9 @@ function ServerRow({
               {t("settings.mcp.signOut")}
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onEdit}
-            className="h-7 px-2"
-          >
-            {t("settings.mcp.edit")}
+          <Button variant="ghost" size="sm" onClick={onEdit} className="h-7 px-2">
+            <Settings2 className="h-3.5 w-3.5 mr-1" />
+            {t("common.settings")}
           </Button>
           <Button
             variant="ghost"
@@ -518,21 +583,13 @@ function ServerRow({
 
 // ── Empty state ──────────────────────────────────────────────────
 
-function EmptyState({
-  onAdd,
-  onImport,
-}: {
-  onAdd: () => void
-  onImport: () => void
-}) {
+function EmptyState({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
       <Link2 className="h-10 w-10 text-muted-foreground/40 mb-3" />
       <h3 className="text-base font-medium">{t("settings.mcp.emptyTitle")}</h3>
-      <p className="text-sm text-muted-foreground mt-1 max-w-md">
-        {t("settings.mcp.emptyDesc")}
-      </p>
+      <p className="text-sm text-muted-foreground mt-1 max-w-md">{t("settings.mcp.emptyDesc")}</p>
       <div className="flex gap-2 mt-4">
         <Button variant="outline" onClick={onImport} className="gap-1.5">
           <Upload className="h-3.5 w-3.5" />
