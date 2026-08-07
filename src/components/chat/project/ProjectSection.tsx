@@ -104,13 +104,13 @@ interface ProjectSectionProps {
   onCommitRename: () => void
   onCancelRename: () => void
   onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void
-  onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
+  onToggleSessionPinned?: (session: SessionMeta, pinned: boolean) => void
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
   displayMode: SidebarDisplayMode
   motionDisabled?: boolean
-  /** Whether the sticky Agent header occupies the 32px row above Projects. */
-  hasAgentHeader?: boolean
+  /** Number of sticky 32px section headers rendered above Projects. */
+  stickyHeaderCount?: number
   unreadFocusTarget?: (UnreadSessionTarget & { signal: number }) | null
 }
 
@@ -146,7 +146,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
     onAddProject,
     onReorderProjects,
     motionDisabled = false,
-    hasAgentHeader = false,
+    stickyHeaderCount = 0,
     unreadFocusTarget,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
@@ -185,7 +185,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
 
   // A reveal target temporarily forces its containing tree path open without
   // mutating the user's persisted expansion preferences from an effect.
-  const unreadProjectId = unreadFocusTarget?.projectId ?? null
+  const unreadProjectId = unreadFocusTarget?.pinned ? null : (unreadFocusTarget?.projectId ?? null)
   const projectsExpanded = expanded || unreadProjectId !== null
   const archivedProjectsExpanded =
     archivedExpanded ||
@@ -265,7 +265,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
         onToggle={() => setExpanded(!expanded)}
         className={cn(
           "sticky z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3",
-          hasAgentHeader ? "top-8" : "top-0",
+          stickyHeaderCount === 0 ? "top-0" : stickyHeaderCount === 1 ? "top-8" : "top-16",
         )}
         action={
           <IconTip label={t("project.newProject")}>
@@ -456,14 +456,14 @@ function ProjectGroup({
   const projectUnreadCount = project.unreadCount
 
   // Fingerprint of the project's slice of the live global session array. Any
-  // visible change (create / delete / rename / reorder / read / pin) flips it
+  // visible change (create / delete / rename / reorder / read) flips it
   // and triggers the independent per-project refetch below.
   const changeSignal = useMemo(
     () =>
       projectSessions
         .map(
           (s) =>
-            `${s.id}:${s.updatedAt}:${s.pinnedAt ?? ""}:${s.unreadCount}:${s.title ?? ""}:${s.pendingInteractionCount}`,
+            `${s.id}:${s.updatedAt}:${s.unreadCount}:${s.title ?? ""}:${s.pendingInteractionCount}`,
         )
         .join("|"),
     [projectSessions],
@@ -484,9 +484,13 @@ function ProjectGroup({
     changeSignal,
     sessionCount: project.sessionCount,
     ensureSessionId:
-      unreadFocusTarget?.projectId === project.id ? unreadFocusTarget.sessionId : null,
+      !unreadFocusTarget?.pinned && unreadFocusTarget?.projectId === project.id
+        ? unreadFocusTarget.sessionId
+        : null,
     ensureSessionOffset:
-      unreadFocusTarget?.projectId === project.id ? unreadFocusTarget.listOffset : null,
+      !unreadFocusTarget?.pinned && unreadFocusTarget?.projectId === project.id
+        ? unreadFocusTarget.listOffset
+        : null,
   })
   const showPaginationFooter = childTotal > PROJECT_SESSION_PAGE_SIZE
   const ProjectToggleIcon = groupExpanded ? FolderOpen : Folder
@@ -688,9 +692,9 @@ function ProjectGroup({
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               </div>
             ) : childSessions.length === 0 ? (
-              archivedView ? (
+              archivedView || project.sessionCount > 0 ? (
                 <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
-                  {t("project.sessionsInProject", { count: 0 })}
+                  {t("project.sessionsInProject", { count: project.sessionCount })}
                 </div>
               ) : (
                 <button

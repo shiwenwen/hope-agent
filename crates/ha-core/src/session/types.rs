@@ -357,8 +357,9 @@ impl From<SessionMeta> for ForkSessionResult {
 pub struct UnreadSessionTarget {
     pub session_id: String,
     pub project_id: Option<String>,
-    /// Zero-based position inside the target's sidebar session group using the
-    /// same pin/update ordering as the list endpoint.
+    /// Whether the target belongs to the sidebar's cross-project pinned group.
+    pub pinned: bool,
+    /// Zero-based position inside the target's sidebar session group.
     pub list_offset: u32,
 }
 

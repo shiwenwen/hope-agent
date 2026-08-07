@@ -1,6 +1,6 @@
 use crate::commands::CmdError;
 use crate::session;
-use crate::session::{ParentSessionFilter, ProjectFilter};
+use crate::session::{ParentSessionFilter, PinnedSessionFilter, ProjectFilter};
 use crate::AppState;
 use tauri::State;
 
@@ -70,6 +70,7 @@ pub async fn list_sessions_cmd(
     project_id: Option<String>,
     unassigned: Option<bool>,
     parent_session: Option<bool>,
+    pinned: Option<bool>,
     limit: Option<u32>,
     offset: Option<u32>,
     active_session_id: Option<String>,
@@ -92,6 +93,11 @@ pub async fn list_sessions_cmd(
                 Some(false) => ParentSessionFilter::Root,
                 None => ParentSessionFilter::All,
             };
+            let pinned_filter = match pinned {
+                Some(true) => PinnedSessionFilter::Pinned,
+                Some(false) => PinnedSessionFilter::Unpinned,
+                None => PinnedSessionFilter::All,
+            };
             db.list_sessions_paged_for_sidebar(
                 agent_id.as_deref(),
                 project_filter,
@@ -99,6 +105,7 @@ pub async fn list_sessions_cmd(
                 limit,
                 offset,
                 active_session_id.as_deref(),
+                pinned_filter,
             )
         })
         .await?;

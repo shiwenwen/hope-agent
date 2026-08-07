@@ -24,6 +24,11 @@ import type {
   AgentSummaryForSidebar,
   SubagentEvent,
 } from "@/types/chat"
+import {
+  dispatchSessionPinChange,
+  sessionWithPinnedState,
+  sortSessionsForSidebar,
+} from "../sessionPinEvents"
 import type { AgentConfig } from "@/components/settings/types"
 import { confirmDiscardDirtyFileEditors } from "../files/fileDirtyRegistry"
 
@@ -88,7 +93,7 @@ export interface UseChatSessionReturn {
   // Handlers
   reloadSessions: () => Promise<void>
   reloadAgents: () => Promise<void>
-  handleToggleSessionPinned: (sessionId: string, pinned: boolean) => Promise<void>
+  handleToggleSessionPinned: (session: SessionMeta, pinned: boolean) => Promise<void>
   handleReorderAgents: (agentIds: string[]) => Promise<void>
   handleSwitchSession: (
     sessionId: string,
@@ -117,15 +122,6 @@ interface UseChatSessionOptions {
   activeSessionReadable: boolean
   /** Ref form for transport callbacks that must avoid stale render closures. */
   activeSessionReadableRef: React.MutableRefObject<boolean>
-}
-
-function sortSessionsForSidebar(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.slice().sort((a, b) => {
-    const aPinned = a.pinnedAt ? Date.parse(a.pinnedAt) || 0 : 0
-    const bPinned = b.pinnedAt ? Date.parse(b.pinnedAt) || 0 : 0
-    if (aPinned !== bPinned) return bPinned - aPinned
-    return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
-  })
 }
 
 export function useChatSession({
@@ -505,20 +501,19 @@ export function useChatSession({
   }, [])
 
   const handleToggleSessionPinned = useCallback(
-    async (sessionId: string, pinned: boolean) => {
-      const pinnedAt = pinned ? new Date().toISOString() : null
-      setSessions((prev) =>
-        sortSessionsForSidebar(
-          prev.map((session) => (session.id === sessionId ? { ...session, pinnedAt } : session)),
-        ),
-      )
+    async (session: SessionMeta, pinned: boolean) => {
+      const optimisticSession = sessionWithPinnedState(session, pinned)
+      dispatchSessionPinChange(optimisticSession, "optimistic")
       try {
-        await getTransport().call("set_session_pinned_cmd", { sessionId, pinned })
+        await getTransport().call("set_session_pinned_cmd", { sessionId: session.id, pinned })
+        dispatchSessionPinChange(optimisticSession, "refresh")
         await reloadSessions()
       } catch (e) {
         logger.error("ui", "ChatScreen::pinSession", "Failed to update session pin", e)
         toast.error(t("common.saveFailed"), { description: String(e) })
+        dispatchSessionPinChange(session, "rollback")
         await reloadSessions()
+        dispatchSessionPinChange(session, "refresh")
       }
     },
     [reloadSessions, t],

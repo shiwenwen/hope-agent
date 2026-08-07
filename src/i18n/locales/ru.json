@@ -638,6 +638,7 @@
     "markAllRead": "Отметить всё как прочитанное",
     "markAsRead": "Отметить как прочитанное",
     "pinSession": "Закрепить",
+    "pinnedSessions": "Закреплённые",
     "unpinSession": "Открепить",
     "minutesAgo": "{{count}} мин назад",
     "modelsCount": "{{count}} моделей",

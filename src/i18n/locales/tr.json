@@ -638,6 +638,7 @@
     "markAllRead": "Tümünü okundu olarak işaretle",
     "markAsRead": "Okundu olarak işaretle",
     "pinSession": "Sabitle",
+    "pinnedSessions": "Sabitlenenler",
     "unpinSession": "Sabitlemeyi kaldır",
     "minutesAgo": "{{count}} dk önce",
     "modelsCount": "{{count}} model",

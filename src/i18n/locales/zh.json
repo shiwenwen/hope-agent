@@ -638,6 +638,7 @@
     "markAllRead": "全部已读",
     "markAsRead": "标记已读",
     "pinSession": "置顶",
+    "pinnedSessions": "置顶",
     "unpinSession": "取消置顶",
     "minutesAgo": "{{count}}分钟前",
     "modelsCount": "{{count}} 个模型",

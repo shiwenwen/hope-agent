@@ -638,6 +638,7 @@
     "markAllRead": "Đánh dấu tất cả là đã đọc",
     "markAsRead": "Đánh dấu là đã đọc",
     "pinSession": "Ghim",
+    "pinnedSessions": "Đã ghim",
     "unpinSession": "Bỏ ghim",
     "minutesAgo": "{{count}} phút trước",
     "modelsCount": "{{count}} mô hình",

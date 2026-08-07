@@ -37,6 +37,8 @@ interface AgentSectionProps {
   panelWidth: number
   displayMode: SidebarDisplayMode
   motionDisabled?: boolean
+  /** Number of sticky 32px section headers rendered above this section. */
+  stickyHeaderCount?: number
 }
 
 const AGENT_CARD_MIN_WIDTH_PX = 156
@@ -227,6 +229,7 @@ export default function AgentSection({
   panelWidth,
   displayMode,
   motionDisabled = false,
+  stickyHeaderCount = 0,
 }: AgentSectionProps) {
   const { t } = useTranslation()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -265,7 +268,10 @@ export default function AgentSection({
         count={agents.length}
         expanded={agentsExpanded}
         onToggle={() => setAgentsExpanded(!agentsExpanded)}
-        className="sticky top-0 z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3"
+        className={cn(
+          "sticky z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3",
+          stickyHeaderCount === 0 ? "top-0" : stickyHeaderCount === 1 ? "top-8" : "top-16",
+        )}
       />
       <AnimatedCollapse
         open={agentsExpanded}

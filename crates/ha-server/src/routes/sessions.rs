@@ -34,6 +34,8 @@ pub struct ListSessionsQuery {
     pub unassigned: Option<bool>,
     /// `true` selects sub-agent child sessions; `false` selects top-level sessions.
     pub parent_session: Option<bool>,
+    /// `true` selects pinned sessions; `false` selects unpinned sessions.
+    pub pinned: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
     /// Currently-open session id; allowed to appear in results even if it is
@@ -699,6 +701,7 @@ pub async fn list_sessions(
         let project_id = q.project_id.clone();
         let agent_id = q.agent_id.clone();
         let parent_session = q.parent_session;
+        let pinned = q.pinned;
         let limit = q.limit;
         let offset = q.offset;
         let active_session_id = q.active_session_id.clone();
@@ -716,6 +719,11 @@ pub async fn list_sessions(
                     Some(false) => ha_core::session::ParentSessionFilter::Root,
                     None => ha_core::session::ParentSessionFilter::All,
                 };
+                let pinned_filter = match pinned {
+                    Some(true) => ha_core::session::PinnedSessionFilter::Pinned,
+                    Some(false) => ha_core::session::PinnedSessionFilter::Unpinned,
+                    None => ha_core::session::PinnedSessionFilter::All,
+                };
                 db.list_sessions_paged_for_sidebar(
                     agent_id.as_deref(),
                     project_filter,
@@ -723,6 +731,7 @@ pub async fn list_sessions(
                     limit,
                     offset,
                     active_session_id.as_deref(),
+                    pinned_filter,
                 )
             })
             .await?

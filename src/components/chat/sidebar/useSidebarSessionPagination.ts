@@ -3,6 +3,11 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionMeta } from "@/types/chat"
 import { SESSION_PAGE_SIZE } from "../hooks/constants"
+import {
+  SESSION_PIN_CHANGED_EVENT,
+  sortSessionsForSidebar,
+  type SessionPinChangeDetail,
+} from "../sessionPinEvents"
 import type { SessionFilterType } from "./types"
 import { filterSessionsForSidebarTab, sidebarSessionPageArgs } from "./sessionListModel"
 
@@ -36,6 +41,7 @@ export function useSidebarSessionPagination({
   ensureSessionOffset,
 }: UseSidebarSessionPaginationParams) {
   const [sessionsByFilter, setSessionsByFilter] = useState<SessionsByFilter>(emptySessions)
+  const [pinnedSessions, setPinnedSessions] = useState<SessionMeta[]>([])
   const [totalsByFilter, setTotalsByFilter] = useState<NumberByFilter>(emptyNumbers)
   const [loading, setLoading] = useState(true)
   const [loadingMoreByFilter, setLoadingMoreByFilter] = useState<BooleanByFilter>(emptyBooleans)
@@ -54,6 +60,7 @@ export function useSidebarSessionPagination({
       queryKeyRef.current = queryKey
       loadedRowsRef.current = emptyNumbers()
       setSessionsByFilter(emptySessions())
+      setPinnedSessions([])
       setTotalsByFilter(emptyNumbers())
     }
     setLoading(true)
@@ -61,53 +68,60 @@ export function useSidebarSessionPagination({
     setLoadingMoreByFilter(emptyBooleans())
 
     try {
-      const pages = await Promise.all(
-        FILTERS.map(async (filter) => {
-          let [rows, total] = await getTransport().call<[SessionMeta[], number]>(
-            "list_sessions_cmd",
-            sidebarSessionPageArgs(
-              filter,
-              selectedAgentId,
-              0,
-              SESSION_PAGE_SIZE,
-              activeSessionIdRef.current,
-            ),
-          )
-
-          // A second click may target a row outside the first page. The backend
-          // returns its exact visual-order offset, so one prefix request replaces
-          // a sequential page-by-page scan while preserving a contiguous list.
-          if (
-            filter === "session" &&
-            ensureSessionId &&
-            !rows.some((session) => session.id === ensureSessionId) &&
-            rows.length < total
-          ) {
-            const requiredLimit = Math.min(
-              total,
-              Math.max(SESSION_PAGE_SIZE, Math.floor(ensureSessionOffset ?? 0) + 1),
+      const [pages, [pinnedRows]] = await Promise.all([
+        Promise.all(
+          FILTERS.map(async (filter) => {
+            let [rows, total] = await getTransport().call<[SessionMeta[], number]>(
+              "list_sessions_cmd",
+              sidebarSessionPageArgs(
+                filter,
+                selectedAgentId,
+                0,
+                SESSION_PAGE_SIZE,
+                activeSessionIdRef.current,
+              ),
             )
-            if (requiredLimit > rows.length) {
-              ;[rows, total] = await getTransport().call<[SessionMeta[], number]>(
-                "list_sessions_cmd",
-                sidebarSessionPageArgs(
-                  filter,
-                  selectedAgentId,
-                  0,
-                  requiredLimit,
-                  activeSessionIdRef.current,
-                ),
+
+            // A second click may target a row outside the first page. The backend
+            // returns its exact visual-order offset, so one prefix request replaces
+            // a sequential page-by-page scan while preserving a contiguous list.
+            if (
+              filter === "session" &&
+              ensureSessionId &&
+              !rows.some((session) => session.id === ensureSessionId) &&
+              rows.length < total
+            ) {
+              const requiredLimit = Math.min(
+                total,
+                Math.max(SESSION_PAGE_SIZE, Math.floor(ensureSessionOffset ?? 0) + 1),
               )
+              if (requiredLimit > rows.length) {
+                ;[rows, total] = await getTransport().call<[SessionMeta[], number]>(
+                  "list_sessions_cmd",
+                  sidebarSessionPageArgs(
+                    filter,
+                    selectedAgentId,
+                    0,
+                    requiredLimit,
+                    activeSessionIdRef.current,
+                  ),
+                )
+              }
             }
-          }
-          return {
-            filter,
-            rows: filterSessionsForSidebarTab(rows, filter, selectedAgentId),
-            loadedRows: rows.length,
-            total,
-          }
+            return {
+              filter,
+              rows: filterSessionsForSidebarTab(rows, filter, selectedAgentId),
+              loadedRows: rows.length,
+              total,
+            }
+          }),
+        ),
+        getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
+          agentId: selectedAgentId ?? undefined,
+          pinned: true,
+          activeSessionId: activeSessionIdRef.current ?? undefined,
         }),
-      )
+      ])
       if (generation !== generationRef.current) return
 
       const nextSessions = emptySessions()
@@ -120,6 +134,7 @@ export function useSidebarSessionPagination({
       }
       loadedRowsRef.current = nextLoadedRows
       setSessionsByFilter(nextSessions)
+      setPinnedSessions(pinnedRows)
       setTotalsByFilter(nextTotals)
     } catch (error) {
       if (generation === generationRef.current) {
@@ -141,6 +156,40 @@ export function useSidebarSessionPagination({
       generationRef.current += 1
     }
   }, [reload, refreshSignal])
+
+  useEffect(() => {
+    const onPinChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SessionPinChangeDetail>).detail
+      if (!detail?.session || detail.phase === "refresh") return
+      const changed = detail.session
+      if (selectedAgentId !== null && changed.agentId !== selectedAgentId) return
+
+      setPinnedSessions((prev) => {
+        const withoutChanged = prev.filter((session) => session.id !== changed.id)
+        return changed.pinnedAt
+          ? sortSessionsForSidebar([...withoutChanged, changed])
+          : withoutChanged
+      })
+
+      setSessionsByFilter((prev) => {
+        const next: SessionsByFilter = {
+          session: prev.session.filter((session) => session.id !== changed.id),
+          subagent: prev.subagent.filter((session) => session.id !== changed.id),
+        }
+        if (changed.pinnedAt) return next
+
+        const targetFilter: SessionFilterType = changed.parentSessionId ? "subagent" : "session"
+        if (filterSessionsForSidebarTab([changed], targetFilter, selectedAgentId).length === 0) {
+          return next
+        }
+        next[targetFilter] = sortSessionsForSidebar([...next[targetFilter], changed])
+        return next
+      })
+    }
+
+    window.addEventListener(SESSION_PIN_CHANGED_EVENT, onPinChanged)
+    return () => window.removeEventListener(SESSION_PIN_CHANGED_EVENT, onPinChanged)
+  }, [selectedAgentId])
 
   const loadMore = useCallback(
     async (filter: SessionFilterType) => {
@@ -205,6 +254,7 @@ export function useSidebarSessionPagination({
 
   return {
     sessionsByFilter,
+    pinnedSessions,
     loading,
     loadingMoreByFilter,
     hasMoreByFilter,
