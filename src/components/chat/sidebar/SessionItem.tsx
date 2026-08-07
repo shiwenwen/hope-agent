@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { desktopUnreadCount, channelUnreadCount } from "@/lib/unread"
-import { IconTip } from "@/components/ui/tooltip"
+import { IconTip, Tooltip, TooltipTrigger } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import {
   ContextMenu,
@@ -40,6 +40,8 @@ import type { ProjectMeta } from "@/types/project"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { INCOGNITO_BADGE_ICON_CLASSES } from "@/components/chat/input/incognitoStyles"
 import PendingCountdownRing from "./PendingCountdownRing"
+import SessionHoverCard from "./SessionHoverCard"
+import { useSessionHoverCard } from "./useSessionHoverCard"
 import type { SidebarDisplayMode } from "./types"
 
 interface SessionItemProps {
@@ -130,6 +132,14 @@ export default function SessionItem({
   const channelLabel = session.channelInfo
     ? `${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`
     : null
+  const hoverCard = useSessionHoverCard(renamingSessionId !== session.id)
+  const project = hoverCard.open
+    ? projects.find((candidate) => candidate.id === session.projectId)
+    : undefined
+  const parentSession = hoverCard.open
+    ? sessions.find((candidate) => candidate.id === session.parentSessionId)
+    : undefined
+  const parentAgent = parentSession ? getAgentInfo(parentSession.agentId) : undefined
 
   useEffect(() => {
     if (!revealSignal) return
@@ -160,9 +170,21 @@ export default function SessionItem({
   }, [session.id, displayUnreadCount, displayChannelUnreadCount, onMarkAllRead])
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (open) hoverCard.close()
+      }}
+    >
+      <Tooltip
+        open={hoverCard.open}
+        onOpenChange={(open) => {
+          if (!open) hoverCard.close()
+        }}
+      >
+        <ContextMenuTrigger asChild>
+          <TooltipTrigger asChild>
+            <div
+          {...hoverCard.triggerProps}
           ref={rowRef}
           data-session-id={session.id}
           role="button"
@@ -177,10 +199,18 @@ export default function SessionItem({
                 ? "bg-amber-500/10 hover:bg-amber-500/15 border-l-2 border-l-amber-500 pl-[8px]"
                 : "hover:bg-secondary/40",
           )}
-          onClick={() => onSwitchSession(session.id)}
+          onClick={() => {
+            hoverCard.close()
+            onSwitchSession(session.id)
+          }}
           onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              hoverCard.close()
+              return
+            }
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault()
+              hoverCard.close()
               onSwitchSession(session.id)
             }
           }}
@@ -324,7 +354,14 @@ export default function SessionItem({
                 </span>
               )}
               {isCompact && renamingSessionId !== session.id && (
-                <span className="ml-auto flex shrink-0 items-center justify-end gap-1 pl-2 group-hover:pr-5">
+                <span
+                  className={cn(
+                    "ml-auto flex shrink-0 items-center justify-end gap-1 pl-2",
+                    onTogglePinned && !session.incognito
+                      ? "group-hover:pr-10"
+                      : "group-hover:pr-5",
+                  )}
+                >
                   {displayUnreadCount > 0 && (
                     <span
                       aria-hidden="true"
@@ -366,25 +403,6 @@ export default function SessionItem({
                           </span>
                         </IconTip>
                       )}
-                      {/* hover 时在原行右侧就地显示 agent 头像 + 名称（替换时间），不弹浮层 */}
-                      <span className="hidden min-w-0 items-center gap-1 group-hover:flex">
-                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-[8px] text-primary">
-                          {agent?.avatar ? (
-                            <img
-                              src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                              className="h-full w-full object-cover"
-                              alt=""
-                            />
-                          ) : agent?.emoji ? (
-                            <span>{agent.emoji}</span>
-                          ) : (
-                            <Bot className="h-2 w-2" />
-                          )}
-                        </span>
-                        <span className="max-w-[88px] truncate text-[10px] font-normal text-muted-foreground/70">
-                          {agent?.name || session.agentId}
-                        </span>
-                      </span>
                       <span className="text-right text-[10px] font-normal text-muted-foreground/60 group-hover:hidden">
                         {formatRelativeTime(session.updatedAt)}
                       </span>
@@ -434,6 +452,31 @@ export default function SessionItem({
             )}
           </div>
 
+          {onTogglePinned && !session.incognito && (
+            <IconTip label={session.pinnedAt ? t("chat.unpinSession") : t("chat.pinSession")}>
+              <button
+                className={cn(
+                  "shrink-0 p-0.5 transition-colors",
+                  isCompact
+                    ? "absolute right-7 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-foreground group-hover:block"
+                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-foreground",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  hoverCard.close()
+                  onTogglePinned(session.id, !session.pinnedAt)
+                }}
+                aria-label={session.pinnedAt ? t("chat.unpinSession") : t("chat.pinSession")}
+              >
+                {session.pinnedAt ? (
+                  <PinOff className="h-3.5 w-3.5" />
+                ) : (
+                  <Pin className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </IconTip>
+          )}
+
           {/* Incognito conversations intentionally cannot be retained. */}
           {!session.incognito && (
             <IconTip label={t("chat.archiveSession")}>
@@ -451,8 +494,20 @@ export default function SessionItem({
               </button>
             </IconTip>
           )}
-        </div>
-      </ContextMenuTrigger>
+            </div>
+          </TooltipTrigger>
+        </ContextMenuTrigger>
+        {hoverCard.open && (
+          <SessionHoverCard
+            session={session}
+            agent={agent}
+            parentSession={parentSession}
+            parentAgent={parentAgent}
+            project={project}
+            formatRelativeTime={formatRelativeTime}
+          />
+        )}
+      </Tooltip>
       <ContextMenuContent
         variant="floating"
         onCloseAutoFocus={(e) => {
