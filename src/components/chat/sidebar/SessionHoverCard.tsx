@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next"
 
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { useSessionGitControl } from "@/components/chat/workspace/useSessionGitControl"
+import { useWorkspaceEnvironment } from "@/components/chat/workspace/useWorkspaceEnvironment"
 import { TooltipContent } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { basename } from "@/lib/path"
@@ -67,16 +68,25 @@ export default function SessionHoverCard({
   formatRelativeTime,
 }: SessionHoverCardProps) {
   const { t } = useTranslation()
-  const workingDir = session.workingDir?.trim() || project?.workingDir?.trim() || null
-  const workingDirName = workingDir ? basename(workingDir) : null
+  const environmentState = useWorkspaceEnvironment(session.id)
+  const workingDir = environmentState.snapshot?.workingDir.path?.trim() || null
+  const workingDirName = workingDir
+    ? environmentState.snapshot?.workingDir.name || basename(workingDir)
+    : null
   const modelLabel = [session.providerName || session.providerId, session.modelId]
     .filter((value): value is string => Boolean(value))
     .join(" · ")
   const channelLabel = session.channelInfo
     ? `${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`
     : null
-  const gitState = useSessionGitControl(workingDir ? session.id : null)
+  const gitAvailable = Boolean(environmentState.snapshot?.git)
+  const gitState = useSessionGitControl(gitAvailable ? session.id : null)
   const gitSnapshot = gitState.snapshot
+  const gitUnavailable = Boolean(
+    environmentState.error ||
+    (environmentState.snapshot && workingDir && !environmentState.snapshot.git) ||
+    (workingDir && gitState.error),
+  )
 
   return (
     <TooltipContent
@@ -115,7 +125,14 @@ export default function SessionHoverCard({
           </div>
         )}
 
-        {workingDir && !gitSnapshot && !gitState.error && (
+        {environmentState.loading && !environmentState.snapshot && (
+          <div className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            <span className="truncate">{t("common.loading")}</span>
+          </div>
+        )}
+
+        {workingDir && gitAvailable && !gitSnapshot && !gitState.error && (
           <div className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
             <span className="truncate">{t("common.loading")}</span>
@@ -173,7 +190,7 @@ export default function SessionHoverCard({
           </>
         )}
 
-        {workingDir && gitState.error && (
+        {gitUnavailable && (
           <div className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
             <GitCompare className="h-4 w-4 shrink-0" />
             <span className="truncate">{t("workspace.environment.unavailable")}</span>
