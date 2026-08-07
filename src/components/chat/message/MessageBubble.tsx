@@ -55,6 +55,7 @@ import RoundLimitReachedBanner from "@/components/chat/RoundLimitReachedBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
 import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
+import { fallbackEventFromPayload } from "../fallbackEvent"
 import type {
   ChatDisplayMode,
   ContentRenderMode,
@@ -1787,6 +1788,9 @@ function MessageBubbleInner({
     }
     if (eventPayload?.type === "profile_rotation") {
       return <ProfileRotationBanner event={eventPayload as ProfileRotationEvent} />
+    }
+    if (eventPayload?.type === "model_fallback") {
+      return <FallbackBanner event={fallbackEventFromPayload(eventPayload)} />
     }
     if (eventPayload?.type === "model_retry" || eventPayload?.type === "model_chain_retry") {
       return (
