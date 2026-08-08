@@ -114,6 +114,10 @@ interface MessageListProps {
   /** Pad the transcript bottom when no composer sits below it (read-only
    *  sub-agent / cron session viewers) so the last message isn't flush to the edge. */
   bottomInset?: boolean
+  /** Give the latest human turn a viewport-sized frame. Sending then places
+   *  the user row near the top while a short assistant reply grows into the
+   *  reserved space without pushing the conversation upward. */
+  anchorLatestTurn?: boolean
   /** Soften the top/bottom scroll edges with the shared panel mask. Applied to
    *  the scroll container only, so the floating jump-to-latest button stays crisp. */
   scrollFade?: boolean
@@ -172,6 +176,12 @@ interface CompletedTurnCollapseRow {
 }
 
 type MessageRenderRow = { kind: "message"; item: MessageRenderItem } | CompletedTurnCollapseRow
+
+interface TranscriptSegment {
+  key: string
+  humanTurnOriginalIndex: number | null
+  rows: MessageRenderRow[]
+}
 
 interface CompactUserAnchor {
   dbId?: number
@@ -615,6 +625,33 @@ function buildMessageRenderRows(
   return rows
 }
 
+function buildTranscriptSegments(rows: MessageRenderRow[]): TranscriptSegment[] {
+  const segments: TranscriptSegment[] = []
+  let current: TranscriptSegment | null = null
+
+  for (const row of rows) {
+    const startsHumanTurn = row.kind === "message" && isHumanTurnStart(row.item.msg)
+    if (startsHumanTurn) {
+      current = {
+        key: `transcript-turn:${rowKeyForItem(row.item)}`,
+        humanTurnOriginalIndex: row.item.originalIndex,
+        rows: [],
+      }
+      segments.push(current)
+    } else if (!current) {
+      current = {
+        key: "transcript-prelude",
+        humanTurnOriginalIndex: null,
+        rows: [],
+      }
+      segments.push(current)
+    }
+    current.rows.push(row)
+  }
+
+  return segments
+}
+
 function CompletedTurnCollapseSummary({
   row,
   onToggle,
@@ -700,6 +737,7 @@ export default function MessageList({
   onOpenSubagentRun,
   subagentRunsSnapshot,
   bottomInset,
+  anchorLatestTurn = false,
   scrollFade,
   onOpenDiff,
   onResume,
@@ -887,6 +925,32 @@ export default function MessageList({
     ],
   )
   const pendingQuestionRequestId = pendingQuestionGroup?.requestId ?? null
+  const transcriptSegments = useMemo(() => buildTranscriptSegments(renderRows), [renderRows])
+  const transcriptSegmentObservationKey = useMemo(
+    () => transcriptSegments.map((segment) => segment.key).join("\u0000"),
+    [transcriptSegments],
+  )
+  const latestTurnFrameKey = useMemo(() => {
+    // Around-window search results do not represent the live transcript tail,
+    // so framing their last visible turn would manufacture a false "latest"
+    // position and interfere with forward pagination.
+    if (!anchorLatestTurn || hasMoreAfter) return null
+
+    let latestHumanTurnIndex = -1
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (isHumanTurnStart(messages[i])) {
+        latestHumanTurnIndex = i
+        break
+      }
+    }
+    if (latestHumanTurnIndex < 0) return null
+
+    return (
+      transcriptSegments.find(
+        (segment) => segment.humanTurnOriginalIndex === latestHumanTurnIndex,
+      )?.key ?? null
+    )
+  }, [anchorLatestTurn, hasMoreAfter, messages, transcriptSegments])
 
   useEffect(() => {
     setExpandedCompletedTurns(new Set())
@@ -1187,15 +1251,19 @@ export default function MessageList({
   }, [sessionKey])
 
   // ResizeObserver: re-pin to bottom whenever the layout changes while we're
-  // tracking bottom. Two targets:
+  // tracking bottom. Three target groups:
   //   - contentRef: content total height grows from async-rendered subtrees
   //     (markdown, shiki, katex, mermaid, images).
   //   - containerRef: scroll container height shrinks/grows when siblings
   //     (memory toast, ChatInput textarea expanding) take/return space —
   //     without this, sibling-resize hides the bottom of the conversation
   //     because the browser doesn't auto-adjust scrollTop.
+  //   - every stable transcript segment: latest-turn framing gives contentRef
+  //     a fixed viewport height, so rows before the frame and the frame itself
+  //     must be observed directly for async growth (previews, diagrams, images).
   // Re-attach on sessionKey change because outer `<div key={sessionKey}>`
-  // remounts both refs to fresh DOM nodes.
+  // remounts the refs to fresh DOM nodes. Segment-key changes also rebind the
+  // observer after windowing adds/removes stable turn wrappers.
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return
     const el = containerRef.current
@@ -1209,8 +1277,11 @@ export default function MessageList({
     })
     ro.observe(content)
     ro.observe(el)
+    for (const segment of content.querySelectorAll<HTMLElement>("[data-transcript-segment]")) {
+      ro.observe(segment)
+    }
     return () => ro.disconnect()
-  }, [sessionKey, updateCompactUserAnchor])
+  }, [hasMore, sessionKey, transcriptSegmentObservationKey, updateCompactUserAnchor])
 
   // Scroll listener: track atBottom + trigger load-more near top.
   // The user-intent listeners (wheel/touch/keyboard) below set
@@ -1724,6 +1795,76 @@ export default function MessageList({
     )
   }
 
+  const renderMessageRow = (row: MessageRenderRow) => {
+    if (row.kind === "completed-turn-collapse") {
+      return (
+        <div key={row.key} className="w-full min-w-0">
+          <CompletedTurnCollapseSummary row={row} onToggle={toggleCompletedTurn} />
+          <AnimatedCollapse open={row.expanded} overflow="visible-when-open" unmountOnExit>
+            <div data-testid="completed-turn-details" className="min-w-0">
+              {row.items.map(renderMessageItem)}
+            </div>
+          </AnimatedCollapse>
+        </div>
+      )
+    }
+    return renderMessageItem(row.item)
+  }
+
+  const transcriptTail = (
+    <>
+      {hasMoreAfter && (
+        <div className="pt-2 pb-1">
+          <LoadMoreRow loadingMore={loadingMoreAfter} onLoadMore={onLoadMoreAfter} />
+        </div>
+      )}
+
+      <AnimatedCollapse open={hasFooterContent} durationMs={220}>
+        <div className="flex flex-col gap-4 pt-2 pb-6">
+          {pendingQuestionGroup && (
+            <div className="w-full">
+              <AskUserQuestionBlock
+                key={pendingQuestionGroup.requestId}
+                group={pendingQuestionGroup}
+                onSubmitted={onQuestionSubmitted}
+                variant={askUserVariant}
+              />
+            </div>
+          )}
+          {planCardVisible && planCardData && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%] w-full">
+                <PlanCardBlock
+                  data={planCardData}
+                  planState={planState ?? "off"}
+                  onOpenPanel={onOpenPlanPanel}
+                  onApprove={onApprovePlan}
+                  onExit={onExitPlan}
+                />
+              </div>
+            </div>
+          )}
+          {planSubagentRunning && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
+              <span>{t("planMode.planningInProgress")}</span>
+            </div>
+          )}
+          {showEmpty && !historyLoading && !heroComposer && (
+            <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
+              <ChatWelcomeHero
+                incognito={incognito}
+                context={welcomeContext}
+                projectName={projectName}
+                onProjectSuggestion={onProjectSuggestion}
+              />
+            </div>
+          )}
+        </div>
+      </AnimatedCollapse>
+    </>
+  )
+
   return (
     <SubagentRunsProvider
       sessionId={subagentRunsSnapshot || hasSubagentContent ? (sessionId ?? null) : null}
@@ -1763,85 +1904,41 @@ export default function MessageList({
             ref={contentRef}
             className={cn(
               "mx-auto w-full pt-4",
+              latestTurnFrameKey && "h-full",
               bottomInset && "pb-6",
               CHAT_CONTENT_MAX_WIDTH_CLASS,
             )}
           >
             {hasMore && displayedStart === 0 && (
-              <div className="pt-6">
+              <div data-transcript-segment className="pt-6">
                 <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
               </div>
             )}
 
-            {renderRows.map((row) => {
-              if (row.kind === "completed-turn-collapse") {
-                return (
-                  <div key={row.key} className="w-full min-w-0">
-                    <CompletedTurnCollapseSummary row={row} onToggle={toggleCompletedTurn} />
-                    <AnimatedCollapse
-                      open={row.expanded}
-                      overflow="visible-when-open"
-                      unmountOnExit
+            {anchorLatestTurn ? (
+              <>
+                {transcriptSegments.map((segment) => {
+                  const isLatestTurnFrame = segment.key === latestTurnFrameKey
+                  return (
+                    <div
+                      key={segment.key}
+                      data-transcript-segment
+                      data-testid={isLatestTurnFrame ? "latest-turn-frame" : undefined}
+                      className={cn(isLatestTurnFrame && "min-h-[calc(100%-4rem)]")}
                     >
-                      <div data-testid="completed-turn-details" className="min-w-0">
-                        {row.items.map(renderMessageItem)}
-                      </div>
-                    </AnimatedCollapse>
-                  </div>
-                )
-              }
-              return renderMessageItem(row.item)
-            })}
-
-            {hasMoreAfter && (
-              <div className="pt-2 pb-1">
-                <LoadMoreRow loadingMore={loadingMoreAfter} onLoadMore={onLoadMoreAfter} />
-              </div>
-            )}
-
-            <AnimatedCollapse open={hasFooterContent} durationMs={220}>
-              <div className="flex flex-col gap-4 pt-2 pb-6">
-                {pendingQuestionGroup && (
-                  <div className="w-full">
-                    <AskUserQuestionBlock
-                      key={pendingQuestionGroup.requestId}
-                      group={pendingQuestionGroup}
-                      onSubmitted={onQuestionSubmitted}
-                      variant={askUserVariant}
-                    />
-                  </div>
-                )}
-                {planCardVisible && planCardData && (
-                  <div className="flex justify-start">
-                    <div className="max-w-[85%] w-full">
-                      <PlanCardBlock
-                        data={planCardData}
-                        planState={planState ?? "off"}
-                        onOpenPanel={onOpenPlanPanel}
-                        onApprove={onApprovePlan}
-                        onExit={onExitPlan}
-                      />
+                      {segment.rows.map(renderMessageRow)}
+                      {isLatestTurnFrame && transcriptTail}
                     </div>
-                  </div>
-                )}
-                {planSubagentRunning && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
-                    <span>{t("planMode.planningInProgress")}</span>
-                  </div>
-                )}
-                {showEmpty && !historyLoading && !heroComposer && (
-                  <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
-                    <ChatWelcomeHero
-                      incognito={incognito}
-                      context={welcomeContext}
-                      projectName={projectName}
-                      onProjectSuggestion={onProjectSuggestion}
-                    />
-                  </div>
-                )}
-              </div>
-            </AnimatedCollapse>
+                  )
+                })}
+                {!latestTurnFrameKey && transcriptTail}
+              </>
+            ) : (
+              <>
+                {renderRows.map(renderMessageRow)}
+                {transcriptTail}
+              </>
+            )}
           </div>
         </div>
 

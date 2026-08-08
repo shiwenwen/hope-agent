@@ -956,6 +956,91 @@ describe("MessageList", () => {
     expect(el.scrollTop).toBe(2000)
   })
 
+  test("frames the latest human turn so short replies grow into reserved viewport space", () => {
+    const observed = new Set<Element>()
+    class ResizeObserverMock {
+      observe(target: Element) {
+        observed.add(target)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock)
+
+    const initialMessages = [
+      baseMessage({ role: "user", content: "earlier question", dbId: 1 }),
+      baseMessage({ role: "assistant", content: "earlier answer", dbId: 2 }),
+      baseMessage({ role: "user", content: "latest question", dbId: 3 }),
+      baseMessage({ role: "assistant", content: "short reply", dbId: 4 }),
+    ]
+    const { rerender } = render(
+      <MessageList
+        messages={initialMessages}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        anchorLatestTurn
+      />,
+    )
+
+    const frame = screen.getByTestId("latest-turn-frame")
+    expect(frame.classList.contains("min-h-[calc(100%-4rem)]")).toBe(true)
+    expect(frame.contains(screen.getByText("latest question"))).toBe(true)
+    expect(frame.contains(screen.getByText("short reply"))).toBe(true)
+    expect(frame.contains(screen.getByText("earlier answer"))).toBe(false)
+    expect(frame.parentElement?.classList.contains("h-full")).toBe(true)
+
+    const earlierAnswer = screen.getByText("earlier answer")
+    const earlierTurn = earlierAnswer.closest("[data-transcript-segment]")
+    expect(earlierTurn).toBeTruthy()
+    expect(observed.has(earlierTurn as Element)).toBe(true)
+
+    rerender(
+      <MessageList
+        messages={[
+          ...initialMessages,
+          baseMessage({ role: "user", content: "next question", dbId: 5 }),
+          baseMessage({ role: "assistant", content: "next reply", dbId: 6 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        anchorLatestTurn
+      />,
+    )
+
+    expect(screen.getByText("earlier answer")).toBe(earlierAnswer)
+    expect(earlierAnswer.closest("[data-transcript-segment]")).toBe(earlierTurn)
+    expect(screen.getByTestId("latest-turn-frame").textContent).toContain("next question")
+  })
+
+  test("does not frame an around-window search result as the latest turn", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "search-window question", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "search-window answer", dbId: 2 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        hasMoreAfter
+        sessionId="s1"
+        anchorLatestTurn
+      />,
+    )
+
+    expect(screen.queryByTestId("latest-turn-frame")).toBeNull()
+  })
+
   test("does not force-scroll to the last user message when switching sessions", () => {
     const scrollIntoViewSpy = vi
       .spyOn(Element.prototype, "scrollIntoView")

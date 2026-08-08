@@ -4170,6 +4170,7 @@ export default function ChatScreen({
                   onResetToLatest={session.resetToLatest}
                   sessionId={session.currentSessionId}
                   incognito={incognitoEnabled}
+                  anchorLatestTurn
                   heroComposer={heroComposerActive}
                   projectName={currentProject?.name ?? null}
                   onProjectSuggestion={currentProject ? handleProjectWelcomeSuggestion : undefined}
