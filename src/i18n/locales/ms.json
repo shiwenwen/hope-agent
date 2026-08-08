@@ -911,6 +911,7 @@
     "thinking": "Sedang berfikir...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} tidak menyokong mod pemikiran semasa. Thinking telah dilumpuhkan secara automatik dan permintaan telah dicuba semula.",
     "visionAutoDisabled": "{{provider}} / {{model}} tidak menyokong input imej. Imej diabaikan dan jawapan diteruskan.",
+    "visionBridgeConfigureAction": "Konfigurasikan jambatan penglihatan",
     "toolCalling": "Memanggil alat...",
     "totalTokens": "Jumlah",
     "unknownProvider": "Pembekal tidak diketahui",

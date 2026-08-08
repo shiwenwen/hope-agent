@@ -911,6 +911,7 @@
     "thinking": "جارٍ التفكير...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} لا يدعم وضع التفكير الحالي. تم تعطيل التفكير تلقائيًا وتمت إعادة محاولة الطلب.",
     "visionAutoDisabled": "{{provider}} / {{model}} لا يدعم إدخال الصور. تم تجاهل الصورة ومتابعة الرد.",
+    "visionBridgeConfigureAction": "إعداد جسر الرؤية",
     "toolCalling": "جارٍ استدعاء الأدوات...",
     "totalTokens": "الإجمالي",
     "unknownProvider": "مزود غير معروف",

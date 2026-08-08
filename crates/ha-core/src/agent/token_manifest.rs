@@ -435,6 +435,7 @@ mod tests {
                 activated_tool_count: tools.len().saturating_sub(1),
                 prompt_cache_key: Some("stable-key"),
                 history_for_api: &history,
+                vision_bridge_available: false,
                 reasoning_effort: None,
                 temperature: None,
                 max_tokens: 100,

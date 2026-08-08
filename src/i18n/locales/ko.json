@@ -911,6 +911,7 @@
     "thinking": "생각 중...",
     "thinkingAutoDisabled": "{{provider}} / {{model}}는 현재 사고 모드를 지원하지 않습니다. Thinking이 자동으로 비활성화되고 요청이 재시도되었습니다.",
     "visionAutoDisabled": "{{provider}} / {{model}}은(는) 이미지 입력을 지원하지 않습니다. 이미지를 무시하고 답변을 계속했습니다.",
+    "visionBridgeConfigureAction": "비전 브리지 설정",
     "toolCalling": "도구 호출 중...",
     "totalTokens": "합계",
     "unknownProvider": "알 수 없는 제공업체",

@@ -911,6 +911,7 @@
     "thinking": "Đang suy nghĩ...",
     "thinkingAutoDisabled": "{{provider}}/{{model}} không hỗ trợ chế độ tư duy hiện tại. Suy nghĩ đã tự động bị vô hiệu hóa và yêu cầu đã được thử lại.",
     "visionAutoDisabled": "{{provider}} / {{model}} không hỗ trợ đầu vào hình ảnh. Đã bỏ qua hình ảnh và tiếp tục trả lời.",
+    "visionBridgeConfigureAction": "Cấu hình cầu nối thị giác",
     "toolCalling": "Đang gọi công cụ...",
     "totalTokens": "Tổng",
     "unknownProvider": "Nhà cung cấp không xác định",

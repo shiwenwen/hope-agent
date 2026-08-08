@@ -83,6 +83,11 @@ pub(crate) struct RoundRequest<'a> {
     pub prompt_cache_key: Option<&'a str>,
     /// Conversation history prepared for API: `_oc_round` metadata stripped.
     pub history_for_api: &'a [Value],
+    /// A configured, resolvable vision bridge is ready to recover this round if
+    /// an optimistic multimodal request is rejected at runtime. Provider
+    /// adapters use this only to hand control back to the orchestrator instead
+    /// of immediately retrying with images silently removed.
+    pub vision_bridge_available: bool,
     /// Resolved reasoning effort for this round (live or fallback).
     pub reasoning_effort: Option<&'a str>,
     /// Sampling temperature override (None = API default).
@@ -96,6 +101,21 @@ pub(crate) struct RoundRequest<'a> {
     /// Round index (0-based) — used for logging and `_oc_round` stamping.
     pub round: u32,
 }
+
+/// Recoverable signal emitted by a provider adapter when an endpoint rejects
+/// image input that the static model catalog had optimistically allowed. The
+/// streaming orchestrator catches this exact type, applies the configured
+/// vision bridge to its ephemeral API-message copy, and retries the same round.
+#[derive(Debug)]
+pub(crate) struct VisionInputRejected;
+
+impl std::fmt::Display for VisionInputRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("provider rejected image input; retry through vision bridge")
+    }
+}
+
+impl std::error::Error for VisionInputRejected {}
 
 /// Canonical provider-independent ordering for per-turn system context. The
 /// first group precedes conversation history on Responses-shaped APIs; the
@@ -173,6 +193,7 @@ mod dynamic_context_contract_tests {
             activated_tool_count: 0,
             prompt_cache_key: None,
             history_for_api: &empty,
+            vision_bridge_available: false,
             reasoning_effort: None,
             temperature: None,
             max_tokens: 100,
@@ -200,6 +221,12 @@ mod dynamic_context_contract_tests {
             ]
         );
         assert!(!all_dynamic_suffixes(&req).contains(&"stable"));
+    }
+
+    #[test]
+    fn runtime_vision_rejection_is_a_typed_recovery_signal() {
+        let error: anyhow::Error = VisionInputRejected.into();
+        assert!(error.downcast_ref::<VisionInputRejected>().is_some());
     }
 }
 
@@ -255,6 +282,14 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     /// Whether this concrete endpoint/model can replace Hope's local
     /// `tool_search` with a provider-native deferred-tool search primitive.
     fn supports_native_tool_search(&self) -> bool {
+        false
+    }
+
+    /// Whether this endpoint/model has rejected image input at runtime. Only
+    /// adapters with an optimistic multimodal wire path need to override this;
+    /// the orchestrator uses it to activate a prepared vision bridge on the
+    /// retry without making provider-specific decisions.
+    fn vision_runtime_disabled(&self) -> bool {
         false
     }
 

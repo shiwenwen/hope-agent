@@ -911,6 +911,7 @@
     "thinking": "Думаю...",
     "thinkingAutoDisabled": "{{provider}}/{{model}} не поддерживает текущий режим мышления. Мышление было отключено автоматически, и запрос был повторен.",
     "visionAutoDisabled": "{{provider}} / {{model}} не поддерживает ввод изображений. Изображение проигнорировано, ответ продолжен.",
+    "visionBridgeConfigureAction": "Настроить мост зрения",
     "toolCalling": "Вызов инструментов...",
     "totalTokens": "Всего",
     "unknownProvider": "Неизвестный провайдер",

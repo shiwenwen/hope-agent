@@ -911,6 +911,7 @@
     "thinking": "Pensando...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} não suporta o modo de pensamento atual. O pensamento foi desativado automaticamente e a solicitação foi repetida.",
     "visionAutoDisabled": "{{provider}} / {{model}} não suporta entrada de imagem. A imagem foi ignorada e a resposta continuou.",
+    "visionBridgeConfigureAction": "Configurar ponte visual",
     "toolCalling": "Chamando ferramentas...",
     "totalTokens": "Total",
     "unknownProvider": "Provedor desconhecido",

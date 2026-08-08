@@ -911,6 +911,7 @@
     "thinking": "実行中...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} は現在の思考モードをサポートしていません。思考は自動的に無効になり、リクエストが再試行されました。",
     "visionAutoDisabled": "{{provider}} / {{model}} は画像入力に対応していません。画像を無視して回答を続けました。",
+    "visionBridgeConfigureAction": "視覚ブリッジを設定",
     "toolCalling": "ツール呼び出し中...",
     "totalTokens": "合計",
     "unknownProvider": "不明なプロバイダー",

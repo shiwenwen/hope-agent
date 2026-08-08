@@ -338,7 +338,10 @@ export default function SettingsView({
     if (initial === "developer" && import.meta.env.PROD) return "modelConfig"
     return initial
   })
-  const [modelConfigTab, setModelConfigTab] = useState(initialModelConfigTab ?? "providers")
+  const focusVisionBridge = initialModelConfigTab === "visionBridge"
+  const [modelConfigTab, setModelConfigTab] = useState(
+    focusVisionBridge ? "models" : (initialModelConfigTab ?? "providers"),
+  )
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
   const [resetRevision, setResetRevision] = useState(0)
@@ -479,6 +482,7 @@ export default function SettingsView({
                   onCodexReauth={onCodexReauth}
                   tab={modelConfigTab}
                   onTabChange={setModelConfigTab}
+                  focusVisionBridge={focusVisionBridge}
                 />
               ))}
             {activeSection === "skills" && <SkillsPanel />}

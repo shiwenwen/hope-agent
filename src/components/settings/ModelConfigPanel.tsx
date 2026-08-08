@@ -13,17 +13,23 @@ export default function ModelConfigPanel({
   onCodexReauth,
   tab,
   onTabChange,
+  focusVisionBridge = false,
 }: {
   onAddProvider: () => void
   onEditProvider: (provider: ProviderConfig) => void
   onCodexReauth?: () => void
   tab: string
   onTabChange: (tab: string) => void
+  focusVisionBridge?: boolean
 }) {
   const { t } = useTranslation()
 
   return (
-    <Tabs value={tab} onValueChange={onTabChange} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <Tabs
+      value={tab}
+      onValueChange={onTabChange}
+      className="flex-1 flex flex-col min-h-0 overflow-hidden"
+    >
       <div className="px-6 pt-4 pb-2 shrink-0">
         <TabsList className="w-fit">
           <TabsTrigger value="providers">{t("settings.providers")}</TabsTrigger>
@@ -41,15 +47,24 @@ export default function ModelConfigPanel({
         />
       </TabsContent>
       <TabsContent value="models" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
-        <GlobalModelPanel />
+        <GlobalModelPanel focusVisionBridge={focusVisionBridge} />
       </TabsContent>
-      <TabsContent value="localModels" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+      <TabsContent
+        value="localModels"
+        className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col"
+      >
         <LocalModelsPanel />
       </TabsContent>
-      <TabsContent value="embeddingModels" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+      <TabsContent
+        value="embeddingModels"
+        className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col"
+      >
         <EmbeddingModelsPanel />
       </TabsContent>
-      <TabsContent value="mediaModels" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+      <TabsContent
+        value="mediaModels"
+        className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col"
+      >
         <MediaProvidersPanel />
       </TabsContent>
     </Tabs>

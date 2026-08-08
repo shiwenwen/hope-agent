@@ -911,6 +911,7 @@
     "thinking": "Düşünüyor...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} mevcut düşünme modunu desteklemiyor. Düşünme otomatik olarak devre dışı bırakıldı ve istek yeniden denendi.",
     "visionAutoDisabled": "{{provider}} / {{model}} görüntü girişini desteklemiyor. Görüntü yoksayılarak yanıt sürdürüldü.",
+    "visionBridgeConfigureAction": "Görsel köprüyü ayarla",
     "toolCalling": "Araç çağrılıyor...",
     "totalTokens": "Toplam",
     "unknownProvider": "Bilinmeyen sağlayıcı",

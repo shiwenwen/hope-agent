@@ -242,7 +242,7 @@ interface ChatScreenProps {
   /** Called once the auto-send has fired so App can clear the pending slot. */
   onAutoSendConsumed?: (nonce: number) => void
   /** Open the settings view, optionally to a specific section. */
-  onOpenSettings?: (section?: SettingsSection) => void
+  onOpenSettings?: (section?: SettingsSection, modelTab?: string) => void
   /** Open the Knowledge Space view. */
   onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
 }
@@ -4211,6 +4211,9 @@ export default function ChatScreen({
                       : undefined
                   }
                   onOpenMemorySettings={onOpenSettings ? () => onOpenSettings("memory") : undefined}
+                  onConfigureVisionBridge={
+                    onOpenSettings ? () => onOpenSettings("modelConfig", "visionBridge") : undefined
+                  }
                   onOpenKnowledge={onOpenKnowledge}
                   onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                   onAddMessageQuote={handleMessageQuote}

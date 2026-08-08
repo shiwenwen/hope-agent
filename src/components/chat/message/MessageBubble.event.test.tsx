@@ -20,7 +20,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function renderEventMessage(content: Record<string, unknown>) {
+function renderEventMessage(
+  content: Record<string, unknown>,
+  onConfigureVisionBridge?: () => void,
+) {
   const msg: Message = {
     role: "event",
     content: JSON.stringify(content),
@@ -40,11 +43,27 @@ function renderEventMessage(content: Record<string, unknown>) {
       isCopied={false}
       onCopy={() => {}}
       sessionId="session-1"
+      onConfigureVisionBridge={onConfigureVisionBridge}
     />,
   )
 }
 
 describe("MessageBubble persisted events", () => {
+  test("opens the vision bridge settings from an ignored-image notice", () => {
+    const onConfigureVisionBridge = vi.fn()
+    renderEventMessage(
+      {
+        type: "vision_auto_disabled",
+        provider_name: "Gateway",
+        model_id: "text-only-model",
+      },
+      onConfigureVisionBridge,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.visionBridgeConfigureAction" }))
+    expect(onConfigureVisionBridge).toHaveBeenCalledTimes(1)
+  })
+
   test("renders a persisted model fallback with the fallback banner", () => {
     const payload = {
       type: "model_fallback",

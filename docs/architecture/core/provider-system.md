@@ -827,14 +827,14 @@ flowchart TD
 
 ## 11. 视觉桥（Vision Bridge）
 
-主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id) == false`，即模型 `input_types` 显式不含 `image`，如 DeepSeek 系列）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型；桥关闭时这张图只能被丢弃、留一个 `[image omitted]` 占位符。核心实现 `agent/vision_bridge.rs`。
+主模型不支持视觉（静态 `input_types` 显式不含 `image`，或 OpenAI 兼容端点运行时拒绝 `image_url`）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型；桥关闭时这张图只能被丢弃、留一个 `[image omitted]` 占位符。核心实现 `agent/vision_bridge.rs`。
 
 > `function_models.vision`（视觉桥）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者见 [模型 vs Agent 统一配置](automation-model.md)。
 
 ### 11.1 配置与解析
 
 - `AppConfig.function_models.vision: Option<ActiveModel>`。**opt-in**：`None` = 视觉桥关闭（维持占位符行为），不做自动挑选。
-- 设置三件套：GUI 全局模型区 `ModelSelector`（过滤 `inputTypes` 含 `image`）、`ha-settings` 的 `function_models` category（纯模型引用无凭据、不 redact）、SKILL.md 登记。专用命令 `get_vision_model` / `set_vision_model`（Tauri + HTTP `GET`/`PUT /api/models/vision`）。
+- 设置三件套：GUI 全局模型区 `ModelSelector`（过滤 `inputTypes` 含 `image`）、`ha-settings` 的 `function_models` category（纯模型引用无凭据、不 redact）、SKILL.md 登记。专用命令 `get_vision_model` / `set_vision_model`（Tauri + HTTP `GET`/`PUT /api/models/vision`）。未配置桥且图片被忽略时，GUI banner 提供直达该选择器的“配置视觉桥”动作；IM 提示给出同一路径。
 - `vision_bridge::prepare(session_id, incognito)` 解析：取 `function_models.vision` → `find_provider` → 校验 `model_supports_vision` → 构建 vision agent → 绑定 session id（`incognito` 由调用方传入，令 `KIND_VISION` 用量在无痕会话跳过入账）。任一步失败返回 `None`（桥关闭，回退占位符）。
 
 ### 11.2 流水线：memo-cache + 每轮临时 transform
@@ -846,6 +846,8 @@ flowchart TD
 1. 挂接点在 `streaming_loop.rs` 的 **round head**，`prepare_messages_for_api` 产出 `api_messages` 之后。`collect_identities` 递归识别图片（不读文件，用路径/hash 作 identity）：用户图块（各 Provider 的 `image` / `image_url` / `input_image`）+ 工具结果里的 `__IMAGE_BASE64__` / `__IMAGE_FILE__` marker。
 2. 对 cache miss 的图**并发有界**转述（每图超时约束），填 cache；仅 miss 才读盘编码。
 3. 递归把每张图换成 `[Image description: …]` 文本 part（或转述失败时的占位符）。
+
+OpenAI Chat 兼容端点还有一条运行时恢复路径：静态 catalog 乐观放行图片 → 端点以 400 明确拒绝 `image_url` → adapter 仅在当前 turn 标记运行时图片路径不可用 → 返回类型化恢复信号 → round head 用已配置视觉桥改写临时消息并**重试同一轮**。因此不会先删图完成一次错误回答。通用的 `image_url` 拒绝也可能只代表 `role=tool` 图片 wire 不受支持，证据不足以持久化改写模型 `input_types` 或污染跨 turn 缓存；后续含图 turn 会重新探测。
 
 单个 round-head hook 统一覆盖两条路：round 0 覆盖用户图，round N 覆盖上一轮追加的工具图。memo cache 让重扫廉价（每图只转述一次，跨 round / 跨 turn）。这个统一 transform 是**唯一降级点**，provider 无关——下游各 adapter 的 `expand_*_image_markers_for_api` 此时已无图可处理，自然 no-op。
 
@@ -859,7 +861,7 @@ flowchart TD
 - **取消可响应 + 不缓存**：`apply` 把"构建 + 并发转述"整体与取消信号 `tokio::select!` 竞速——用户 Stop 即腰斩在途工作、立即返回；被取消的图转述**绝不写缓存**（取消 ≠ 失败，须干净重试），并抑制 `unavailable` 提示（取消不是"视觉不可用"）。转述并发受 `Semaphore(MAX_CONCURRENT = 4)` + 每图 `TRANSCRIBE_TIMEOUT = 30s` 约束。
 - **扫描范围**：只处理 user / tool-result 消息，**跳过 assistant 消息**——其 tool_use / tool_call 参数可能形似图片块，改写会毁坏 tool 调用。
 - **防递归**：转述本身带图调视觉模型，`apply` 只在主对话 round head 挂接，**绝不在 side_query 路径触发**。
-- **已知限制**：① 门只看静态 catalog，被误标支持视觉的模型（OpenAI 兼容代理常见）运行时会 400 翻旧降级、桥不介入；② side_query 缓存快照仍按旧降级折成 `[image omitted]`，与桥改写的 `[Image description]` 不一致，桥活跃时 side_query prompt cache 可能 miss；③ 多图消息 round-head 转述受 `MAX_CONCURRENT` + 每图 30s 超时限。
+- **已知限制**：① 运行时能力探测目前只覆盖已有明确拒绝判定的 OpenAI Chat 兼容端点；Anthropic / Responses / Codex 仍依赖静态 catalog；② side_query 缓存快照仍按旧降级折成 `[image omitted]`，与桥改写的 `[Image description]` 不一致，桥活跃时 side_query prompt cache 可能 miss；③ 多图消息 round-head 转述受 `MAX_CONCURRENT` + 每图 30s 超时限。
 
 ---
 

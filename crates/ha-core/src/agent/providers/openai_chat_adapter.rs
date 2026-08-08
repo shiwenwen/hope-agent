@@ -20,7 +20,7 @@ use super::super::events::{
     openai_chat_history_has_images,
 };
 use super::super::streaming_adapter::{
-    ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
+    ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter, VisionInputRejected,
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat, ThinkTagFilter};
 use crate::provider::ThinkingStyle;
@@ -83,6 +83,7 @@ fn emit_vision_auto_disabled(
             "provider_id": provider_id,
             "provider_name": provider_name,
             "model_id": model,
+            "action": "configure_vision_bridge",
         })
         .to_string(),
     );
@@ -409,7 +410,7 @@ fn is_unsupported_prompt_cache_key_error(status: u16, error_text: &str) -> bool 
         .any(|signal| lower.contains(signal))
 }
 
-fn log_vision_auto_disabled(
+fn log_vision_runtime_disabled(
     provider_config: Option<&crate::provider::ProviderConfig>,
     model: &str,
     status: u16,
@@ -426,7 +427,7 @@ fn log_vision_auto_disabled(
         "agent",
         "agent::chat_openai_chat::vision_autofix",
         &format!(
-            "Auto-folded tool image content to text for {} / {} after image_url rejection",
+            "Detected text-only image capability for {} / {} after image_url rejection",
             provider_name, model
         ),
         Some(
@@ -479,6 +480,10 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         ToolProvider::OpenAI
     }
 
+    fn vision_runtime_disabled(&self) -> bool {
+        self.vision_runtime_disabled.load(Ordering::Relaxed)
+    }
+
     fn normalize_history(&self, history: &mut Vec<Value>) {
         *history = AssistantAgent::normalize_history_for_chat(history);
     }
@@ -497,7 +502,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             .provider_config
             .map(|pc| pc.model_supports_vision(self.model))
             .unwrap_or(true)
-            && !self.vision_runtime_disabled.load(Ordering::Relaxed);
+            && !self.vision_runtime_disabled();
         // Proactive notice: a text-only model can't see the image(s) the
         // conversation carries — surface it once, then fold the images to text
         // below so the request still succeeds instead of 400-ing.
@@ -667,10 +672,19 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                     ));
                 }
             } else if model_supports_vision && is_unsupported_image_url_error(status, &error_text) {
-                log_vision_auto_disabled(self.provider_config, self.model, status, &error_text);
-                // Remember the rejection so the remaining tool-loop rounds skip
-                // images directly instead of re-paying a 400 + retry each round.
+                log_vision_runtime_disabled(self.provider_config, self.model, status, &error_text);
+                // Scope this discovery to the current turn. A generic
+                // `image_url` rejection can mean only role=tool image content
+                // is unsupported; it is not strong enough evidence to rewrite
+                // the model's durable `input_types` or poison future turns.
                 self.vision_runtime_disabled.store(true, Ordering::Relaxed);
+                // A configured bridge must own the recovery so this same round
+                // receives image descriptions. Without this handoff, the
+                // adapter's legacy retry below would silently remove the image
+                // before the orchestrator ever sees the runtime capability.
+                if req.vision_bridge_available {
+                    return Err(VisionInputRejected.into());
+                }
                 if !self.vision_notice_emitted.swap(true, Ordering::Relaxed) {
                     emit_vision_auto_disabled(&on_delta, self.provider_config, self.model);
                 }
@@ -1081,8 +1095,8 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_chat_body, is_unsupported_image_url_error, is_unsupported_prompt_cache_key_error,
-        mark_prompt_cache_key_unsupported,
+        build_chat_body, emit_vision_auto_disabled, is_unsupported_image_url_error,
+        is_unsupported_prompt_cache_key_error, mark_prompt_cache_key_unsupported,
     };
     use crate::agent::streaming_adapter::RoundRequest;
     use crate::provider::ThinkingStyle;
@@ -1113,6 +1127,7 @@ mod tests {
             activated_tool_count: 0,
             prompt_cache_key: Some("stable-key"),
             history_for_api: &history,
+            vision_bridge_available: false,
             reasoning_effort: None,
             temperature: None,
             max_tokens: 100,
@@ -1166,6 +1181,7 @@ mod tests {
             activated_tool_count: 0,
             prompt_cache_key: Some("stable-key"),
             history_for_api: &history,
+            vision_bridge_available: false,
             reasoning_effort: None,
             temperature: None,
             max_tokens: 100,
@@ -1191,6 +1207,28 @@ mod tests {
             &req,
         );
         assert!(after_rejection.get("prompt_cache_key").is_none());
+    }
+
+    #[test]
+    fn ignored_image_notice_carries_vision_bridge_guidance_action() {
+        let payload = std::sync::Mutex::new(None);
+        emit_vision_auto_disabled(
+            &|event| {
+                *payload.lock().expect("payload lock") =
+                    serde_json::from_str::<serde_json::Value>(event).ok();
+            },
+            None,
+            "text-only-model",
+        );
+        assert_eq!(
+            payload
+                .into_inner()
+                .expect("payload lock")
+                .and_then(|value| value.get("action").cloned())
+                .and_then(|value| value.as_str().map(str::to_string))
+                .as_deref(),
+            Some("configure_vision_bridge")
+        );
     }
 
     #[test]

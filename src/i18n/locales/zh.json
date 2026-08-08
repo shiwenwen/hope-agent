@@ -911,6 +911,7 @@
     "thinking": "执行中…",
     "thinkingAutoDisabled": "{{provider}} / {{model}} 不支持当前 Think 模式，已自动关闭思考并重试本次请求。",
     "visionAutoDisabled": "{{provider}} / {{model}} 不支持图片输入，已忽略图片继续回答。",
+    "visionBridgeConfigureAction": "配置视觉桥",
     "toolCalling": "工具调用中…",
     "totalTokens": "总计",
     "unknownProvider": "未知服务商",
