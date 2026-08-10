@@ -53,7 +53,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 
 | Category | Fields |
 |----------|--------|
-| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `chatDisplayMode`, `serverMode`, `remoteServerUrl`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude`. `remoteApiKey` is credential-bearing, read-only/redacted here, and must be changed in Settings → Server |
+| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `enterToSend` (bool, default `true`; when `false`, Enter inserts a newline and Ctrl+Enter sends), `chatDisplayMode`, `serverMode`, `remoteServerUrl`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude`. `remoteApiKey` is credential-bearing, read-only/redacted here, and must be changed in Settings → Server |
 | `theme` | `theme` (`auto`/`light`/`dark`) |
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `focus_indicator` | `enhancedFocusIndicators` (bool, default `false`). Enables the stronger 2px focus outline for all input methods. When disabled, pointer/touch focus stays visually quiet while keyboard navigation keeps the lightweight focus indicator. System `prefers-contrast: more` and forced-colors modes still take precedence automatically. |

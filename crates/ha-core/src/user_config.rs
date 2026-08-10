@@ -77,6 +77,11 @@ pub struct UserConfig {
     #[serde(default = "crate::default_true")]
     pub auto_collapse_completed_turns: bool,
 
+    /// Whether Enter sends the current message. When disabled, Enter inserts a
+    /// newline and Ctrl+Enter sends instead (default: true).
+    #[serde(default = "crate::default_true")]
+    pub enter_to_send: bool,
+
     /// Preferred chat rendering mode: "bubble" or "timeline".
     #[serde(default)]
     pub chat_display_mode: Option<String>,
@@ -130,6 +135,7 @@ impl Default for UserConfig {
             auto_send_pending: false,
             auto_expand_thinking: true,
             auto_collapse_completed_turns: true,
+            enter_to_send: true,
             chat_display_mode: None,
             server_mode: None,
             remote_server_url: None,
@@ -156,7 +162,7 @@ pub fn load_user_config() -> Result<UserConfig> {
     Ok(config)
 }
 
-/// Save user config to ~/.hope-agent/user.json
+/// Save user config to ~/.hope-agent/user.json and notify active clients.
 pub fn save_user_config_to_disk(config: &UserConfig) -> Result<()> {
     let path = paths::user_config_path()?;
     if let Some(parent) = path.parent() {
@@ -167,6 +173,9 @@ pub fn save_user_config_to_disk(config: &UserConfig) -> Result<()> {
 
     let data = serde_json::to_string_pretty(config)?;
     std::fs::write(&path, data)?;
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit("config:changed", serde_json::json!({ "category": "user" }));
+    }
     Ok(())
 }
 
@@ -266,6 +275,7 @@ mod tests {
 
         assert!(config.auto_expand_thinking);
         assert!(config.auto_collapse_completed_turns);
+        assert!(config.enter_to_send);
         assert!(config.weather_enabled);
     }
 
@@ -275,6 +285,7 @@ mod tests {
 
         assert!(config.auto_expand_thinking);
         assert!(config.auto_collapse_completed_turns);
+        assert!(config.enter_to_send);
         assert!(config.weather_enabled);
     }
 }

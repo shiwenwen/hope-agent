@@ -4723,6 +4723,8 @@
     "channelsDesc": "إدارة تكاملات Telegram و WeChat و Feishu و Discord و Slack وقنوات IM الأخرى",
     "charLimitExceeded": "تجاوز الحد، سيتم اقتطاع المحتوى الزائد",
     "chat": "المحادثة",
+    "chatEnterToSend": "الإرسال بالضغط على Enter",
+    "chatEnterToSendDesc": "عند التفعيل، يرسل Enter وتضيف Shift+Enter سطراً جديداً. عند التعطيل، يضيف Enter سطراً جديداً ويرسل Ctrl+Enter.",
     "chatAutoExpandThinking": "توسيع عملية التفكير تلقائياً",
     "chatAutoExpandThinkingDesc": "توسيع كتل التفكير في فقاعات الدردشة تلقائياً. عند الإيقاف، انقر للتوسيع يدوياً.",
     "chatAutoCollapseCompletedTurns": "طي الأدوار المكتملة",

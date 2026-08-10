@@ -4723,6 +4723,8 @@
     "channelsDesc": "Quản lý tích hợp Telegram, WeChat, Feishu, Discord, Slack và các kênh IM khác",
     "charLimitExceeded": "Vượt quá giới hạn, nội dung thừa sẽ bị cắt bớt",
     "chat": "Trò chuyện",
+    "chatEnterToSend": "Nhấn Enter để gửi",
+    "chatEnterToSendDesc": "Khi bật, Enter gửi và Shift+Enter xuống dòng. Khi tắt, Enter xuống dòng và Ctrl+Enter gửi.",
     "chatAutoExpandThinking": "Tự động mở rộng quá trình suy nghĩ",
     "chatAutoExpandThinkingDesc": "Tự động mở rộng các khối suy nghĩ trong bóng chat. Khi tắt, nhấn để mở rộng thủ công.",
     "chatAutoCollapseCompletedTurns": "Thu gọn lượt đã hoàn tất",

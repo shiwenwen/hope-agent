@@ -4723,6 +4723,8 @@
     "channelsDesc": "Управление интеграциями Telegram, WeChat, Feishu, Discord, Slack и других IM-каналов",
     "charLimitExceeded": "Превышен лимит, лишнее содержимое будет обрезано",
     "chat": "Чат",
+    "chatEnterToSend": "Отправлять по Enter",
+    "chatEnterToSendDesc": "Включено: Enter отправляет, Shift+Enter добавляет строку. Выключено: Enter добавляет строку, Ctrl+Enter отправляет.",
     "chatAutoExpandThinking": "Автоматически разворачивать процесс размышления",
     "chatAutoExpandThinkingDesc": "Автоматически разворачивать блоки размышлений в чате. Если выключено, нажмите для ручного разворачивания.",
     "chatAutoCollapseCompletedTurns": "Сворачивать завершенные ходы",

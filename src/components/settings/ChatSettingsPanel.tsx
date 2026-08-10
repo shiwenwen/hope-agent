@@ -17,6 +17,7 @@ import AwarenessPanel from "@/components/settings/AwarenessPanel"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
 import { emitCompletedTurnCollapsePreference } from "@/components/chat/completedTurnCollapsePreference"
 import { emitAutoSendPendingPreference } from "@/components/chat/autoSendPendingPreference"
+import { emitEnterToSendPreference } from "@/components/chat/enterToSendPreference"
 import { Check, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import SettingsResetControl from "./SettingsResetControl"
@@ -34,6 +35,7 @@ interface ChatConfig {
   autoSendPending: boolean
   autoExpandThinking: boolean
   autoCollapseCompletedTurns: boolean
+  enterToSend: boolean
 }
 
 interface SessionTitleConfig {
@@ -55,6 +57,7 @@ export default function ChatSettingsPanel() {
     autoSendPending: true,
     autoExpandThinking: true,
     autoCollapseCompletedTurns: true,
+    enterToSend: true,
   })
   const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [sessionTitleConfig, setSessionTitleConfig] = useState<SessionTitleConfig>({
@@ -80,6 +83,7 @@ export default function ChatSettingsPanel() {
         autoSendPending?: boolean
         autoExpandThinking?: boolean
         autoCollapseCompletedTurns?: boolean
+        enterToSend?: boolean
       }>("get_user_config"),
       getTransport().call<boolean>("get_tool_call_narration_enabled"),
       getTransport().call<SessionTitleConfig>("get_session_title_config"),
@@ -89,6 +93,7 @@ export default function ChatSettingsPanel() {
         autoSendPending: cfg.autoSendPending !== false,
         autoExpandThinking: cfg.autoExpandThinking !== false,
         autoCollapseCompletedTurns: cfg.autoCollapseCompletedTurns !== false,
+        enterToSend: cfg.enterToSend !== false,
       })
       setNarrationEnabled(narration === true)
       const normalizedSessionTitle = {
@@ -124,7 +129,9 @@ export default function ChatSettingsPanel() {
     setRevisions((current) => ({ ...current, [tab]: current[tab] + 1 }))
   }
 
-  async function toggle(key: "autoSendPending" | "autoExpandThinking" | "autoCollapseCompletedTurns") {
+  async function toggle(
+    key: "autoSendPending" | "autoExpandThinking" | "autoCollapseCompletedTurns" | "enterToSend",
+  ) {
     const updated = { ...config, [key]: !config[key] }
     setConfig(updated)
     try {
@@ -136,6 +143,8 @@ export default function ChatSettingsPanel() {
         invalidateThinkingExpandCache()
       } else if (key === "autoCollapseCompletedTurns") {
         emitCompletedTurnCollapsePreference(updated.autoCollapseCompletedTurns)
+      } else if (key === "enterToSend") {
+        emitEnterToSendPreference(updated.enterToSend)
       }
     } catch (e) {
       logger.error("settings", "ChatSettingsPanel::save", "Failed to save chat config", e)
@@ -212,6 +221,19 @@ export default function ChatSettingsPanel() {
 
         <TabsContent value="basic" className="flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full space-y-6 pt-4">
+            <div
+              className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+              onClick={() => toggle("enterToSend")}
+            >
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">{t("settings.chatEnterToSend")}</div>
+                <div className="text-xs text-muted-foreground">
+                  {t("settings.chatEnterToSendDesc")}
+                </div>
+              </div>
+              <Switch checked={config.enterToSend} onCheckedChange={() => toggle("enterToSend")} />
+            </div>
+
             <div
               className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
               onClick={() => toggle("autoSendPending")}

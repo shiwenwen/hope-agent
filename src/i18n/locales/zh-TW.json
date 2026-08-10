@@ -4723,6 +4723,8 @@
     "channelsDesc": "管理 Telegram、微信、飛書、Discord、Slack 等 IM 頻道接入",
     "charLimitExceeded": "超出上限，多餘內容將被截斷",
     "chat": "對話與上下文",
+    "chatEnterToSend": "按 Enter 傳送訊息",
+    "chatEnterToSendDesc": "開啟時，Enter 傳送、Shift+Enter 換行；關閉時，Enter 換行、Ctrl+Enter 傳送。",
     "chatAutoExpandThinking": "自動展開Think過程",
     "chatAutoExpandThinkingDesc": "聊天氣泡中的Think過程預設自動展開，關閉後需手動點選展開",
     "chatAutoCollapseCompletedTurns": "完成後摺疊中間訊息",

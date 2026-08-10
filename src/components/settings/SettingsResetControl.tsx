@@ -28,6 +28,10 @@ import {
   normalizeAutoSendPendingPreference,
 } from "@/components/chat/autoSendPendingPreference"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
+import {
+  emitEnterToSendPreference,
+  normalizeEnterToSendPreference,
+} from "@/components/chat/enterToSendPreference"
 import { isTauriMode } from "@/lib/transport"
 import { getTransport, switchToEmbedded } from "@/lib/transport-provider"
 import { TauriTransport } from "@/lib/transport-tauri"
@@ -50,6 +54,7 @@ interface SettingsResetResult {
 interface ResettableUserPreferences {
   autoSendPending?: unknown
   autoCollapseCompletedTurns?: unknown
+  enterToSend?: unknown
   chatDisplayMode?: unknown
 }
 
@@ -79,6 +84,7 @@ async function syncFrontendPreferences(
         emitCompletedTurnCollapsePreference(
           normalizeCompletedTurnCollapsePreference(config.autoCollapseCompletedTurns),
         )
+        emitEnterToSendPreference(normalizeEnterToSendPreference(config.enterToSend))
       }
     } catch {
       // The persisted reset already succeeded. Other config listeners still

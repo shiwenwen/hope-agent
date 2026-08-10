@@ -4723,6 +4723,8 @@
     "channelsDesc": "Gestionar integraciones con Telegram, WeChat, Feishu, Discord, Slack y otros canales IM",
     "charLimitExceeded": "Límite excedido, el contenido excedente será truncado",
     "chat": "Chat",
+    "chatEnterToSend": "Enviar con Enter",
+    "chatEnterToSendDesc": "Activado: Enter envía y Shift+Enter añade una línea. Desactivado: Enter añade una línea y Ctrl+Enter envía.",
     "chatAutoExpandThinking": "Expandir el proceso de pensamiento automáticamente",
     "chatAutoExpandThinkingDesc": "Expandir automáticamente los bloques de pensamiento en las burbujas de chat. Cuando está desactivado, haz clic para expandir manualmente.",
     "chatAutoCollapseCompletedTurns": "Contraer turnos completados",

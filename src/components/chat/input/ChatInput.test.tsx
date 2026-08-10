@@ -13,6 +13,7 @@ import PermissionModeSwitcher from "./PermissionModeSwitcher"
 import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import { getPastedTextFileMeta } from "./pastedTextAttachment"
 import { createDraftAttachment, type DraftAttachment } from "@/components/chat/files/types"
+import { emitEnterToSendPreference } from "../enterToSendPreference"
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -48,11 +49,13 @@ vi.mock("./MentionComposerInput", async () => {
       ref: React.Ref<{
         focus: () => void
         getValue: () => string
+        insertNewline: () => void
         getSelectionRange: () => { start: number; end: number }
         setSelectionRange: (start: number, end: number) => void
       }>,
     ) {
       const value = props.value ?? ""
+      const onChange = props.onChange
       // Emulate the real ComposerInputHandle so the `@`-mention hook (which reads
       // the caret via getSelectionRange) can drive the popper under jsdom. Caret
       // sits at end-of-value, which is where these wiring tests expect it.
@@ -61,10 +64,11 @@ vi.mock("./MentionComposerInput", async () => {
         () => ({
           focus: () => {},
           getValue: () => value,
+          insertNewline: () => onChange?.(`${value}\n`),
           getSelectionRange: () => ({ start: value.length, end: value.length }),
           setSelectionRange: () => {},
         }),
-        [value],
+        [onChange, value],
       )
       return React.createElement("div", {
         role: "textbox",
@@ -116,6 +120,7 @@ const transportMock = vi.hoisted(() => {
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
   useTransport: () => transportMock,
+  useTransportRevision: () => 0,
 }))
 
 if (!Element.prototype.scrollIntoView) {
@@ -406,6 +411,38 @@ describe("ChatInput", () => {
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
 
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  test("supports Enter for newline and Ctrl+Enter for send when configured", () => {
+    const onSend = vi.fn()
+    const onInputChange = vi.fn()
+    renderChatInput({ input: "first line", onInputChange, onSend })
+
+    act(() => emitEnterToSendPreference(false))
+    const textbox = screen.getByRole("textbox")
+
+    fireEvent.keyDown(textbox, { key: "Enter" })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onInputChange).toHaveBeenCalledWith("first line\n")
+
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true })
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  test("does not send with Enter before the persisted shortcut preference loads", () => {
+    transportMock.call.mockImplementation((command) => {
+      if (command === "get_user_config") {
+        return new Promise(() => {})
+      }
+      return transportMock.defaultCall(command)
+    })
+    const onSend = vi.fn()
+    const onInputChange = vi.fn()
+    renderChatInput({ input: "first line", onInputChange, onSend })
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onInputChange).toHaveBeenCalledWith("first line\n")
   })
 
   test("allows sending when only attachments are present", () => {
@@ -1674,6 +1711,7 @@ describe("ChatInput", () => {
         <ChatInput {...props} input="second" />
       </TooltipProvider>,
     )
+    act(() => emitEnterToSendPreference(true))
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
     expect(onSend).toHaveBeenCalledTimes(1)
 

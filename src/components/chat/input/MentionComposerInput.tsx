@@ -628,9 +628,8 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
                 history(),
                 // Shift+Enter inserts a soft line break (standard IM
                 // convention). Plain Enter is deliberately left unbound so it
-                // bubbles to ChatInput's onKeyDown, which sends the message —
-                // CM6 without a binding swallows the structural edit, which is
-                // also why the editor could never insert a newline before.
+                // bubbles to ChatInput, which either sends or inserts a newline
+                // after open composer menus have had first chance to consume it.
                 keymap.of([{ key: "Shift-Enter", run: insertNewline }, ...historyKeymap]),
                 EditorView.lineWrapping,
                 // WebKit (Tauri) doesn't paint the native caret in an empty
@@ -726,6 +725,11 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       () => ({
         focus: () => viewRef.current?.focus(),
         getValue: () => valueRef.current,
+        insertNewline: () => {
+          const view = viewRef.current
+          if (!view) return
+          insertNewline(view)
+        },
         getSelectionRange: () => {
           const selection = viewRef.current?.state.selection.main
           if (!selection) {

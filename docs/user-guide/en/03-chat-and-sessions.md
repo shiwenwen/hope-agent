@@ -18,7 +18,7 @@ This chapter covers everyday use: how to use the chat interface, how to send ima
 
 ## 3.1 The chat interface
 
-- **Send**: `Enter` sends, `Shift+Enter` inserts a line break.
+- **Send**: by default, `Enter` sends and `Shift+Enter` inserts a line break. You can switch to `Enter` for a line break and `Ctrl+Enter` to send in Settings → Chat & Context → Basics.
 - **Stop**: while a reply is being generated, the send button turns into a square "Stop" button; click it to interrupt the current reply (equivalent to `/stop`).
 - **Browse history**: with the cursor in an empty input box, press `↑` / `↓` to browse messages you sent earlier (much like terminal history).
 - **Queue while busy**: if you send a message while the AI is still replying, it goes into a "pending queue"—you can edit it, delete it, or send it as the next standalone round. Whether queued messages are sent automatically once the AI is idle is controlled by the "Auto-send queued messages" setting (on by default).
@@ -84,6 +84,7 @@ Replies support full Markdown, syntax-highlighted code, math formulas (KaTeX), a
 
 | Setting | Default | What it does |
 | --- | --- | --- |
+| Press Enter to send | On | When off, `Enter` inserts a line break and `Ctrl+Enter` sends |
 | Auto-send queued messages | On | Whether messages you send while the AI is busy are queued and sent automatically |
 | Auto-expand the thinking process | On | Whether Thinking blocks are expanded by default while streaming |
 | Collapse intermediate messages when done | On | Whether completed rounds are collapsed automatically |
