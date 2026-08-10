@@ -401,6 +401,14 @@ fn write_replace(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
+    // Persist the directory entry as well as the file contents. Without this,
+    // power loss can discard a rename that was already reported as successful.
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::File::open(parent)?.sync_all()?;
+    }
     Ok(())
 }
 
@@ -519,11 +527,18 @@ pub(super) fn write_atomic_create_new(path: &Path, bytes: &[u8]) -> io::Result<(
 
 pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool) -> io::Result<()> {
     if overwrite {
-        fs::rename(source, target)
+        fs::rename(source, target)?;
     } else {
         fs::hard_link(source, target)?;
-        fs::remove_file(source)
+        fs::remove_file(source)?;
     }
+    if let Some(parent) = target
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
 }
 
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {

@@ -8,6 +8,46 @@ use std::time::Duration;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// Convert a filesystem path to the absolute Win32 verbatim form accepted by
+/// raw `*W` APIs. Rust's `std::fs` adds long-path handling internally, but a
+/// direct `MoveFileExW` call must supply the `\\?\` / `\\?\UNC\` prefix itself.
+fn to_win32_verbatim_wide(path: &Path) -> io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const BACKSLASH: u16 = b'\\' as u16;
+    const FORWARD_SLASH: u16 = b'/' as u16;
+    const QUESTION: u16 = b'?' as u16;
+    const DOT: u16 = b'.' as u16;
+    let absolute = std::path::absolute(path)?;
+    let mut path_wide = absolute
+        .as_os_str()
+        .encode_wide()
+        .map(|unit| {
+            if unit == FORWARD_SLASH {
+                BACKSLASH
+            } else {
+                unit
+            }
+        })
+        .collect::<Vec<_>>();
+    let already_verbatim_or_device = path_wide
+        .starts_with(&[BACKSLASH, BACKSLASH, QUESTION, BACKSLASH])
+        || path_wide.starts_with(&[BACKSLASH, BACKSLASH, DOT, BACKSLASH]);
+    if !already_verbatim_or_device {
+        if path_wide.starts_with(&[BACKSLASH, BACKSLASH]) {
+            let mut verbatim = r"\\?\UNC\".encode_utf16().collect::<Vec<_>>();
+            verbatim.extend_from_slice(&path_wide[2..]);
+            path_wide = verbatim;
+        } else {
+            let mut verbatim = r"\\?\".encode_utf16().collect::<Vec<_>>();
+            verbatim.extend_from_slice(&path_wide);
+            path_wide = verbatim;
+        }
+    }
+    path_wide.push(0);
+    Ok(path_wide)
+}
+
 pub(super) fn terminate_process_tree(pid: u32) {
     let _ = Command::new("taskkill")
         .args(["/F", "/T", "/PID", &pid.to_string()])
@@ -402,20 +442,13 @@ pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool)
         return fs::remove_file(source);
     }
 
-    use std::os::windows::ffi::OsStrExt;
-    fn to_wide(path: &Path) -> Vec<u16> {
-        path.as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    }
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
     const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
     extern "system" {
         fn MoveFileExW(source: *const u16, target: *const u16, flags: u32) -> i32;
     }
-    let source = to_wide(source);
-    let target = to_wide(target);
+    let source = to_win32_verbatim_wide(source)?;
+    let target = to_win32_verbatim_wide(target)?;
     let result = unsafe {
         MoveFileExW(
             source.as_ptr(),
@@ -427,6 +460,31 @@ pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool)
         Err(io::Error::last_os_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    fn from_nul_terminated_wide(mut wide: Vec<u16>) -> OsString {
+        assert_eq!(wide.pop(), Some(0));
+        OsString::from_wide(&wide)
+    }
+
+    #[test]
+    fn move_file_paths_use_absolute_verbatim_form() {
+        let disk = from_nul_terminated_wide(
+            to_win32_verbatim_wide(Path::new(r"C:\hope-agent\config.json")).unwrap(),
+        );
+        assert_eq!(disk, OsString::from(r"\\?\C:\hope-agent\config.json"));
+
+        let unc = from_nul_terminated_wide(
+            to_win32_verbatim_wide(Path::new(r"\\server\share\config.json")).unwrap(),
+        );
+        assert_eq!(unc, OsString::from(r"\\?\UNC\server\share\config.json"));
     }
 }
 
