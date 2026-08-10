@@ -4723,6 +4723,8 @@
     "channelsDesc": "Telegram, WeChat, Feishu, Discord, Slack 등 IM 채널 통합 관리",
     "charLimitExceeded": "제한 초과, 초과 내용은 잘립니다",
     "chat": "대화",
+    "chatEnterToSend": "Enter로 보내기",
+    "chatEnterToSendDesc": "켜면 Enter로 보내고 Shift+Enter로 줄을 바꿉니다. 끄면 Enter로 줄을 바꾸고 Ctrl+Enter로 보냅니다.",
     "chatAutoExpandThinking": "사고 과정 자동 확장",
     "chatAutoExpandThinkingDesc": "채팅 버블의 사고 블록을 자동으로 확장합니다. 끄면 클릭하여 수동으로 확장.",
     "chatAutoCollapseCompletedTurns": "완료된 턴 접기",

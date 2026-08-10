@@ -1121,11 +1121,6 @@ fn update_user_config(values: &Value) -> Result<String> {
     user_config::save_user_config_to_disk(&updated)?;
     drop(_reason);
 
-    // Notify frontend about user config change
-    if let Some(bus) = crate::get_event_bus() {
-        bus.emit("config:changed", serde_json::json!({ "category": "user" }));
-    }
-
     // Hot-reload: refresh weather cache if weather-related fields changed
     trigger_weather_refresh_if_needed(values);
 
@@ -2206,7 +2201,8 @@ mod tests {
 
         reject_blocked_user_update_fields(&json!({
             "weatherCity": "Shanghai",
-            "autoSendPending": true
+            "autoSendPending": true,
+            "enterToSend": false
         }))
         .expect("ordinary user preferences remain writable");
     }

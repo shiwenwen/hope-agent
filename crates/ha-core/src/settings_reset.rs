@@ -567,6 +567,7 @@ fn apply_user_target(config: &mut crate::user_config::UserConfig, target: Settin
                 config.auto_send_pending = defaults.auto_send_pending;
                 config.auto_expand_thinking = defaults.auto_expand_thinking;
                 config.auto_collapse_completed_turns = defaults.auto_collapse_completed_turns;
+                config.enter_to_send = defaults.enter_to_send;
             }
             _ => {}
         }
@@ -579,6 +580,7 @@ fn apply_user_target(config: &mut crate::user_config::UserConfig, target: Settin
             config.auto_send_pending = defaults.auto_send_pending;
             config.auto_expand_thinking = defaults.auto_expand_thinking;
             config.auto_collapse_completed_turns = defaults.auto_collapse_completed_turns;
+            config.enter_to_send = defaults.enter_to_send;
         }
         SettingsResetScope::Server => config.server_mode = defaults.server_mode,
         _ => {}
@@ -1263,6 +1265,7 @@ mod tests {
             auto_send_pending: true,
             auto_expand_thinking: false,
             auto_collapse_completed_turns: false,
+            enter_to_send: false,
             chat_display_mode: Some("timeline".into()),
             server_mode: Some(crate::user_config::SERVER_MODE_REMOTE.into()),
             ..Default::default()
@@ -1274,6 +1277,7 @@ mod tests {
         assert!(!user.auto_send_pending);
         assert!(user.auto_expand_thinking);
         assert!(user.auto_collapse_completed_turns);
+        assert!(user.enter_to_send);
         assert_eq!(user.chat_display_mode.as_deref(), Some("timeline"));
 
         apply_user_target(

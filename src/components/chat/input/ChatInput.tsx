@@ -112,6 +112,7 @@ import { parseGoalCriteriaDraft, type DraftGoalCriterionKind } from "../workspac
 import { parseGoalUpsertSlashCommand } from "../goalSlashCommand"
 import { parseLoopCreateSlashCommand } from "../loopSlashCommand"
 import type { WorkflowRun, WorkflowRunState } from "../workspace/useWorkflowRuns"
+import { useEnterToSendPreference } from "../enterToSendPreference"
 
 type WorkflowMode = "off" | "on" | "ultracode"
 type WorkflowTriggerHint = {
@@ -571,6 +572,7 @@ export default function ChatInput({
   overflowLeadingItems,
 }: ChatInputProps) {
   const { t } = useTranslation()
+  const enterToSend = useEnterToSendPreference()
   const maxAttachmentMb = Math.round(maxAttachmentBytes / MEBIBYTE_BYTES)
   const inputHandleRef = useRef<ComposerInputHandle>(null)
   const inputShellRef = useRef<HTMLDivElement>(null)
@@ -1330,9 +1332,29 @@ export default function ChatInput({
       onPermissionModeChange(getNextPermissionMode(permissionMode))
       return
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    const sendsWithEnter = enterToSend.ready && enterToSend.enabled && !e.shiftKey
+    const sendsWithCtrlEnter =
+      enterToSend.ready &&
+      !enterToSend.enabled &&
+      e.ctrlKey &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.metaKey
+    if (e.key === "Enter" && (sendsWithEnter || sendsWithCtrlEnter)) {
       e.preventDefault()
       handleSend()
+      return
+    }
+    if (
+      e.key === "Enter" &&
+      (!enterToSend.ready || !enterToSend.enabled) &&
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey
+    ) {
+      e.preventDefault()
+      inputHandleRef.current?.insertNewline()
     }
   }
 

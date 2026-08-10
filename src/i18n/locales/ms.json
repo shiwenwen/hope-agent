@@ -4723,6 +4723,8 @@
     "channelsDesc": "Urus integrasi saluran Telegram, WeChat, Feishu, Discord, Slack dan saluran IM lain",
     "charLimitExceeded": "Melebihi had, kandungan lebihan akan dipotong",
     "chat": "Sembang",
+    "chatEnterToSend": "Tekan Enter untuk hantar",
+    "chatEnterToSendDesc": "Apabila dihidupkan, Enter menghantar dan Shift+Enter menambah baris. Apabila dimatikan, Enter menambah baris dan Ctrl+Enter menghantar.",
     "chatAutoExpandThinking": "Auto-kembangkan proses pemikiran",
     "chatAutoExpandThinkingDesc": "Kembangkan blok pemikiran secara automatik dalam gelembung sembang. Apabila dimatikan, klik untuk kembangkan secara manual.",
     "chatAutoCollapseCompletedTurns": "Runtuhkan giliran selesai",

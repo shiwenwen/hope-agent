@@ -4723,6 +4723,8 @@
     "channelsDesc": "Telegram, WeChat, Feishu, Discord, Slack ve diğer IM kanal entegrasyonlarını yönet",
     "charLimitExceeded": "Sınır aşıldı, fazla içerik kesilecektir",
     "chat": "Sohbet",
+    "chatEnterToSend": "Enter ile gönder",
+    "chatEnterToSendDesc": "Açıkken Enter gönderir, Shift+Enter yeni satır ekler. Kapalıyken Enter yeni satır ekler, Ctrl+Enter gönderir.",
     "chatAutoExpandThinking": "Düşünme sürecini otomatik genişlet",
     "chatAutoExpandThinkingDesc": "Sohbet baloncuklarındaki düşünme bloklarını otomatik olarak genişlet. Kapalı olduğunda, manuel genişletmek için tıklayın.",
     "chatAutoCollapseCompletedTurns": "Tamamlanan turları daralt",
