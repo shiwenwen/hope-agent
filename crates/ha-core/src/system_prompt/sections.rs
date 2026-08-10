@@ -607,8 +607,8 @@ pub(super) fn build_acp_section() -> String {
 // ── Project sections ────────────────────────────────────────────
 
 /// Build a "Current Project" section describing the project this session
-/// belongs to: name and optional description. Project instructions are loaded
-/// exclusively from the working directory's `AGENTS.md` by
+/// belongs to: name, stable id, and optional description. Project instructions
+/// are loaded exclusively from the working directory's `AGENTS.md` by
 /// `build_session_working_dir_section`.
 ///
 /// Injected into the system prompt right before the Memory section so the
@@ -620,6 +620,7 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
         "You are currently working inside project **{}**.\n",
         project.name
     ));
+    out.push_str(&format!("Project ID: `{}`\n", project.id));
 
     if let Some(desc) = project
         .description
@@ -895,5 +896,34 @@ mod runtime_control_prompt_tests {
             .expect("team key actions");
         assert!(key_actions.contains("`pause`"));
         assert!(key_actions.contains("`resume`"));
+    }
+}
+
+#[cfg(test)]
+mod project_context_prompt_tests {
+    use crate::project::Project;
+
+    #[test]
+    fn current_project_section_includes_project_id() {
+        let project = Project {
+            id: "project-123".to_string(),
+            name: "Hope Agent".to_string(),
+            description: Some("Local AI assistant".to_string()),
+            logo: None,
+            color: None,
+            default_agent_id: None,
+            default_model_id: None,
+            working_dir: None,
+            created_at: 0,
+            updated_at: 0,
+            sort_order: 0,
+            archived: false,
+        };
+
+        let section = super::build_project_context_section(&project);
+
+        assert!(section.contains("project **Hope Agent**"));
+        assert!(section.contains("Project ID: `project-123`"));
+        assert!(section.contains("Description: Local AI assistant"));
     }
 }
