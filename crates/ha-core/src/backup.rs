@@ -472,6 +472,9 @@ mod tests {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
+                let quarantine_mode =
+                    std::fs::metadata(&quarantine).unwrap().permissions().mode() & 0o777;
+                assert_eq!(quarantine_mode, 0o700);
                 let mode = std::fs::metadata(&quarantined[0])
                     .unwrap()
                     .permissions()
@@ -791,6 +794,15 @@ fn quarantine_unparseable_legacy_token_backup(
             "Refusing credential quarantine directory {:?}",
             quarantine_dir
         ));
+    }
+    // A moved file keeps its original mode. Tighten the directory before the
+    // rename so even a crash before the file-level 0600 rewrite cannot expose
+    // a historical 0644 Owner Token to another local user.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&quarantine_dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("Cannot secure {:?}: {error}", quarantine_dir))?;
     }
 
     let quarantine_id = uuid::Uuid::new_v4().simple();

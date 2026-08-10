@@ -159,7 +159,7 @@ flowchart TB
 
 ## 备份文件里的凭据洗刷
 
-配置备份是普通的回滚数据，**可能被拷到别的机器**，因此其中不能残留敏感凭据。历史上 server Owner Token 曾以 `server.apiKey` 存在 `config.json` 里，凭据迁移到独立凭据库后，`scrub_legacy_server_tokens`（在 `backup.rs`）会**清扫所有历史备份**——遍历 `backups/autosave/*__config__*.json` 与每个 `backups/backup_*/config.json`，剥掉 `server.apiKey`，回写时用 `write_secure_file` 保持 0600 权限。解析与活动配置一样容忍 UTF-8 BOM；若文件已经损坏到无法解析，原始字节会以 0600 原子移入 `credentials/quarantine/legacy-config-backup-<id>.json.corrupt` 并告警，成功隔离后不再让一个不可用的回滚点阻断整次启动；隔离失败或并发检测到文件已变化则 fail closed、保留原文件并报错。它由凭据迁移路径（`server_auth::clear_legacy_config_token`）调用，且**拒绝跟随符号链接**：备份树是数据，不是改写树外任意文件的授权。
+配置备份是普通的回滚数据，**可能被拷到别的机器**，因此其中不能残留敏感凭据。历史上 server Owner Token 曾以 `server.apiKey` 存在 `config.json` 里，凭据迁移到独立凭据库后，`scrub_legacy_server_tokens`（在 `backup.rs`）会**清扫所有历史备份**——遍历 `backups/autosave/*__config__*.json` 与每个 `backups/backup_*/config.json`，剥掉 `server.apiKey`，回写时用 `write_secure_file` 保持 0600 权限。解析与活动配置一样容忍 UTF-8 BOM；若文件已经损坏到无法解析，隔离目录会先强制为 0700，原始字节再以 0600 原子移入 `credentials/quarantine/legacy-config-backup-<id>.json.corrupt` 并告警，成功隔离后不再让一个不可用的回滚点阻断整次启动；隔离失败或并发检测到文件已变化则 fail closed、保留原文件并报错。它由凭据迁移路径（`server_auth::clear_legacy_config_token`）调用，且**拒绝跟随符号链接**：备份树是数据，不是改写树外任意文件的授权。
 
 与之配套，`config::clear_legacy_server_token_without_backup` 在清除**活动** config 里的旧 token 时**刻意跳过 autosave**——否则会把带密的 config 拷进普通 autosave 树，等于把刚要清掉的密又留了一份。
 
