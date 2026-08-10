@@ -312,13 +312,11 @@ pub(crate) fn build_with_resolved_session(
     ));
 
     // ⑦b Current Project — injected before Memory so the LLM knows which
-    // project context it's in before reading project-scoped memories.
-    // Only in non-openclaw mode (openclaw already uses a "Project Context"
-    // heading for its 4-file markdown pack).
-    if !definition.config.openclaw_mode {
-        if let Some(proj) = project {
-            sections.push(build_project_context_section(proj));
-        }
+    // project context it's in before reading project-scoped memories. This is
+    // also required in OpenClaw mode: its earlier "Project Context" section
+    // describes the 4-file agent pack, not the current Hope Agent project.
+    if let Some(proj) = project {
+        sections.push(build_project_context_section(proj));
     }
 
     // ⑦d User-selected working directory for this session. Injected after
@@ -2429,6 +2427,49 @@ mod memory_section_tests {
             out.contains("Your avatar image is at: https://example.com/a.png"),
             "openclaw-mode prompt should include avatar line: {out}"
         );
+    }
+
+    #[test]
+    fn project_identity_injected_in_openclaw_mode() {
+        let mut definition = mk_definition();
+        definition.config.openclaw_mode = true;
+        let project = Project {
+            id: "openclaw-project-123".to_string(),
+            name: "OpenClaw Project".to_string(),
+            description: None,
+            logo: None,
+            color: None,
+            default_agent_id: None,
+            default_model_id: None,
+            working_dir: None,
+            created_at: 0,
+            updated_at: 0,
+            sort_order: 0,
+            archived: false,
+        };
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            Some(&project),
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
+        );
+
+        assert!(out.contains("# Project Context"));
+        assert!(out.contains("# Current Project"));
+        assert!(out.contains("Project ID: `openclaw-project-123`"));
     }
 
     #[test]

@@ -313,7 +313,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph PREFIX["稳定前缀（内容稳定 → cache 命中）"]
-        CP["# Current Project<br/>名称 + Description + save_memory 提示"]
+        CP["# Current Project<br/>名称 + Project ID + Description + save_memory 提示"]
         WD["# Working Directory<br/>路径 + AGENTS.md 指令注入"]
         MEM["# Memory 段 / Project Core Memory 索引"]
     end
@@ -322,7 +322,7 @@ flowchart TD
     CP --> WD --> MEM -.其余静态段.-> TAIL
 ```
 
-- **`# Current Project`**（[`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs)）：注入在 Memory 段**之前**。只含项目名称与可选 `Description`，并在长期记忆开启时尾随一句提示——本会话 `save_memory` 默认落 project scope（想逃出项目边界要显式传 `scope='global'` 或 `'agent'`）。它不再承载任何数据库指令。
+- **`# Current Project`**（[`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs)）：注入在 Memory 段**之前**。包含项目名称、稳定的 `Project ID` 与可选 `Description`，并在长期记忆开启时尾随一句提示——本会话 `save_memory` 默认落 project scope（想逃出项目边界要显式传 `scope='global'` 或 `'agent'`）。OpenClaw 模式同样注入此段；其更早的 `# Project Context` 只描述四文件 Agent pack，不能替代当前 HA 项目身份。它不再承载任何数据库指令。
 - **`# Working Directory`**（详见 [prompt-system.md](prompt-system.md)）：路径声明 + `## Working Directory Instructions` 子节，紧跟在 Project 段之后、Memory 段之前。项目工作目录始终有根 `AGENTS.md`，由既有 working-dir instruction loader 读取并按 20,000 字符上限注入——这也是项目指令的唯一入口。通用非项目工作目录仍保留 `AGENTS.md` 优先、`CLAUDE.md` fallback 的发现规则。
 - **`# Files in Working Directory`**（清单由 [`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) 的 `build_working_dir_files_section` 构建，在 `build.rs` 末尾 emit）：**独立顶层段，emit 在整个 prompt 最末**（在 Memory / 天气等所有静态段之后）。顶层文件清单——非递归、只列名、名称排序、跳过隐藏项与 `.git` / `node_modules`、上限 100 条、每轮刷新。刻意拆成尾块：文件增删只 bust 这一块，不波及前面的静态前缀缓存；同一目录状态产出 byte-identical 文本。模型靠普通 `read` 工具按需读文件。
 
