@@ -463,6 +463,22 @@ pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool)
     }
 }
 
+pub(super) fn move_file_atomic(source: &Path, target: &Path) -> io::Result<()> {
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    extern "system" {
+        fn MoveFileExW(source: *const u16, target: *const u16, flags: u32) -> i32;
+    }
+    let source = to_win32_verbatim_wide(source)?;
+    let target = to_win32_verbatim_wide(target)?;
+    // Omitting MOVEFILE_REPLACE_EXISTING preserves the no-clobber contract.
+    let result = unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH) };
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
     Command::new(cmd)
         .args(args)

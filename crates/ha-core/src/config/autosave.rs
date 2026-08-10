@@ -105,11 +105,11 @@ pub fn snapshot_before_write(src: &Path, kind: &str) {
     let safe_src = sanitize_slug(&reason.source);
     let filename = format!("{}__{}__{}__{}.json", ts, kind, safe_cat, safe_src);
     let dst = dir.join(&filename);
-    // Publish only after the source has been read completely. The legacy-token
-    // scrubber runs in other Hope Agent processes and must never observe the
-    // half-written destination that `fs::copy` exposes while it is in flight.
-    let snapshot_result =
-        std::fs::read(src).and_then(|bytes| crate::platform::write_secure_file(&dst, &bytes));
+    // Stream into a credential-grade sibling temp and publish only after the
+    // copy is complete. Config/user JSON can contain unbounded strings and
+    // vectors, so buffering another full copy here would amplify peak memory
+    // on every settings write.
+    let snapshot_result = crate::platform::copy_secure_file_atomic(src, &dst);
     if let Err(e) = snapshot_result {
         app_warn!(
             "backup",

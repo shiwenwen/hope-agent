@@ -433,7 +433,7 @@ pub(super) fn publish_dir_atomic(source: &Path, target: &Path) -> io::Result<()>
             "staging source is not a directory",
         ));
     }
-    rename_dir_noreplace(source, target)?;
+    rename_noreplace(source, target)?;
     if let Some(parent) = target.parent() {
         fs::File::open(parent)?.sync_all()?;
     }
@@ -441,7 +441,7 @@ pub(super) fn publish_dir_atomic(source: &Path, target: &Path) -> io::Result<()>
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn rename_dir_noreplace(source: &Path, target: &Path) -> io::Result<()> {
+fn rename_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     let source = std::ffi::CString::new(source.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "source path contains NUL"))?;
     let target = std::ffi::CString::new(target.as_os_str().as_bytes())
@@ -457,7 +457,7 @@ fn rename_dir_noreplace(source: &Path, target: &Path) -> io::Result<()> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn rename_dir_noreplace(source: &Path, target: &Path) -> io::Result<()> {
+fn rename_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     let source = std::ffi::CString::new(source.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "source path contains NUL"))?;
     let target = std::ffi::CString::new(target.as_os_str().as_bytes())
@@ -486,14 +486,32 @@ fn rename_dir_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     target_os = "linux",
     target_os = "android"
 )))]
-fn rename_dir_noreplace(source: &Path, target: &Path) -> io::Result<()> {
+fn rename_noreplace(source: &Path, target: &Path) -> io::Result<()> {
     if target.exists() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            "target directory already exists",
+            "target path already exists",
         ));
     }
     fs::rename(source, target)
+}
+
+pub(super) fn move_file_atomic(source: &Path, target: &Path) -> io::Result<()> {
+    rename_noreplace(source, target)?;
+    let target_parent = target
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    if let Some(parent) = target_parent {
+        fs::File::open(parent)?.sync_all()?;
+    }
+    let source_parent = source
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    match source_parent {
+        Some(parent) if Some(parent) != target_parent => fs::File::open(parent)?.sync_all()?,
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Atomically create a user document without replacing an existing path.

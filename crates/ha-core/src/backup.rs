@@ -811,7 +811,7 @@ fn quarantine_unparseable_legacy_token_backup(
     // Claim the exact directory entry in one operation. Copying first and
     // deleting `path` later could unlink a replacement published by another
     // Hope Agent process between those two operations.
-    std::fs::rename(path, &quarantined)
+    crate::platform::move_file_atomic(path, &quarantined)
         .map_err(|error| format!("Cannot move {:?} to {:?}: {error}", path, quarantined))?;
     let claimed_bytes = match std::fs::read(&quarantined) {
         Ok(bytes) => bytes,
@@ -848,11 +848,10 @@ fn quarantine_unparseable_legacy_token_backup(
 }
 
 /// Restore a quarantined file without overwriting a concurrently published
-/// replacement. A hard link claims the absent original name atomically; only
-/// then is the quarantine name removed.
+/// replacement. The platform move is no-clobber and durably records removal
+/// from quarantine as well as publication at the original path.
 fn restore_quarantined_backup(quarantined: &Path, original: &Path) -> std::io::Result<()> {
-    std::fs::hard_link(quarantined, original)?;
-    std::fs::remove_file(quarantined)
+    crate::platform::move_file_atomic(quarantined, original)
 }
 
 fn format_quarantine_rollback_error(

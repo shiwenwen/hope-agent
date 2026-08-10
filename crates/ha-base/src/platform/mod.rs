@@ -307,6 +307,26 @@ pub fn copy_secure_file_atomic(
     result
 }
 
+/// Move a fully-written file to a new path without replacing an existing
+/// destination. The directory entry change is atomic; on Unix both source and
+/// destination parent directories are fsynced before success is reported.
+///
+/// This is intended for cross-directory security transitions such as moving a
+/// malformed credential-bearing backup into quarantine. The paths must reside
+/// on the same filesystem.
+pub fn move_file_atomic(source: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+    if source == target {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "source and target must differ",
+        ));
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    imp::move_file_atomic(source, target)
+}
+
 /// Atomically replace `path` with `bytes` (temp in the same dir → fsync → rename),
 /// so a crash / power loss leaves either the old file intact or the new one
 /// complete — never a truncated file. Creates parent dirs if missing.
@@ -664,6 +684,30 @@ mod tests {
             let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
         }
+    }
+
+    #[test]
+    fn move_file_atomic_moves_without_clobbering() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_dir = dir.path().join("source");
+        let target_dir = dir.path().join("target");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::create_dir_all(&target_dir).unwrap();
+        let source = source_dir.join("config.json");
+        let target = target_dir.join("config.json");
+        std::fs::write(&source, b"secret").unwrap();
+
+        move_file_atomic(&source, &target).unwrap();
+
+        assert!(!source.exists());
+        assert_eq!(std::fs::read(&target).unwrap(), b"secret");
+
+        let replacement = source_dir.join("replacement.json");
+        std::fs::write(&replacement, b"replacement").unwrap();
+        let error = move_file_atomic(&replacement, &target).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&replacement).unwrap(), b"replacement");
+        assert_eq!(std::fs::read(&target).unwrap(), b"secret");
     }
 
     #[cfg(unix)]
