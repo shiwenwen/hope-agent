@@ -574,8 +574,18 @@ mod tests {
         let target = dir.path().join("secret.json");
         write_secure_file(&target, b"{}").unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "{}");
-        write_secure_file(&target, b"{\"k\":1}").unwrap();
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"k\":1}");
+        let replacement = r#"{"label":"服务器（测试）"}"#;
+        write_secure_file(&target, replacement.as_bytes()).unwrap();
+        let bytes = std::fs::read(&target).unwrap();
+        assert_eq!(bytes, replacement.as_bytes());
+        assert!(!bytes.starts_with(b"\xef\xbb\xbf"));
+
+        // The fully-written temp must be consumed by the atomic replacement.
+        let entries = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(entries, vec![target.file_name().unwrap().to_os_string()]);
     }
 
     #[cfg(unix)]

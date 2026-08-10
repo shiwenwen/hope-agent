@@ -300,8 +300,8 @@ pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::F
 }
 
 /// Shared atomic-replace core: write `bytes` to a sibling temp (same dir), fsync,
-/// then rename over the target. Windows `rename` fails if the destination exists,
-/// so it is removed first; the temp is cleaned up on a rename failure.
+/// then replace the target with one `MoveFileExW` operation. The temp is cleaned
+/// up on a publication failure.
 fn write_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -323,11 +323,10 @@ fn write_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     // lives under the user profile so by default only the owning user
     // and SYSTEM/Administrators can read. Hardening to an explicit DACL
     // (strip inherited ACEs, grant only the owner) is a future pass.
-    // Windows rename fails if the destination exists; remove first.
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
-    if let Err(e) = fs::rename(&tmp, path) {
+    // Publish in one Win32 rename operation. Removing the destination first
+    // leaves a crash window where config.json is missing; MoveFileExW with
+    // REPLACE_EXISTING keeps the old-or-new atomic replacement contract.
+    if let Err(e) = publish_atomic_file(&tmp, path, true) {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
@@ -340,7 +339,7 @@ pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Atomic write for user documents (knowledge-base notes). On Windows there is no
 /// Unix-style mode to preserve — NTFS DACL inheritance applies — so this shares
-/// the same temp + remove-dest + rename path as `write_secure_file`.
+/// the same temp + atomic-replace path as `write_secure_file`.
 pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_replace(path, bytes)
 }

@@ -60,7 +60,7 @@ mutate_config(("canvas", "settings-ui"), |cfg| {
 
 ### 异步上下文用 `mutate_config_async`
 
-`mutate_config` 是同步函数，它持锁期间会做真实的阻塞 IO（写前校验读、autosave 拷贝、`fs::write`）。若在 async fn 里 inline 调用，它会把一个 tokio worker 钉死到 IO 完成；若 home 目录被杀软扫描或云同步拖慢，被钉住的 worker 越积越多，runtime 会饿死。**async 上下文必须改用 `mutate_config_async`**——它把整套克隆→改→存→发布搬到 tokio 的 blocking 线程池，只占用可消耗的辅助线程。这也是后端"阻塞 IO 红线"在配置写路径上的落点。
+`mutate_config` 是同步函数，它持锁期间会做真实的阻塞 IO（写前校验读、autosave 拷贝、临时文件写入与原子替换）。若在 async fn 里 inline 调用，它会把一个 tokio worker 钉死到 IO 完成；若 home 目录被杀软扫描或云同步拖慢，被钉住的 worker 越积越多，runtime 会饿死。**async 上下文必须改用 `mutate_config_async`**——它把整套克隆→改→存→发布搬到 tokio 的 blocking 线程池，只占用可消耗的辅助线程。这也是后端"阻塞 IO 红线"在配置写路径上的落点。
 
 ## 并发模型
 
@@ -81,7 +81,7 @@ flowchart LR
 - **读者从不阻塞**：`ArcSwap` 允许无限个并发 reader，读路径永不等待写路径。
 - **写者互斥**：全局 `Mutex<()>` 保证临界区串行化。它防的是 lost-update——两个请求同时"读-改-写"，后写的会用自己那份陈旧快照覆盖先写的结果。写锁强制"读到的一定是最新快照"。
 - **快照原子性**：`store(Arc::new(new))` 是一次 release store。任何 `cached_config()` 调用要么看到旧快照、要么看到新快照，绝不会看到半更新状态。
-- **持锁时间可控**：写锁只覆盖一次配置克隆 + 闭包执行 + 序列化 + 一次 `fs::write` + 一次 Arc swap。磁盘 IO 虽是阻塞的，但写入频率极低（用户点保存），不会拖垮 runtime 的其它 worker。
+- **持锁时间可控**：写锁只覆盖一次配置克隆 + 闭包执行 + 序列化 + 一次安全原子写 + 一次 Arc swap。磁盘 IO 虽是阻塞的，但写入频率极低（用户点保存），不会拖垮 runtime 的其它 worker。
 
 ### 为什么坚持单一真相源
 
@@ -107,7 +107,7 @@ sequenceDiagram
     M->>A: load_config() 克隆最新快照
     M->>M: f(&mut cfg)（校验失败即在此返回 Err）
     M->>D: autosave 旧文件 → backups/autosave/
-    M->>D: 写入新 config.json
+    M->>D: 同目录临时文件 fsync → 原子替换 config.json
     M->>A: store 新 Arc（原子发布）
     M->>S: post_save：同步 terminal 远程写开关 + emit config:changed
     M->>S: config_changed hook（观察型）
@@ -118,6 +118,7 @@ sequenceDiagram
 几个要点：
 
 - **autosave 在覆盖前**：写盘之前先把"旧"文件拷进 `backups/autosave/`，所以每一次设置改动都可回滚。快照失败只 warn，绝不阻塞用户写入。
+- **磁盘发布也是原子的**：新 JSON 先完整序列化并写入同目录临时文件，`fsync` 后才替换目标；Windows 使用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`，崩溃时只能观察到旧文件或新文件，不会留下半个 UTF-8 字符或截断 JSON。
 - **发布在落盘后**：先写磁盘、再 `store` 新快照，保证内存里能被读到的一定是已经持久化过的状态。
 - **副作用经注入执行**：`post_save` 与 `config_changed` hook 不写死在 persistence 里，而是在装配期一次性注册（见[备份 / 回滚联动](#备份--回滚联动)）；未注册时（测试 / 纯 CLI）自动跳过。
 

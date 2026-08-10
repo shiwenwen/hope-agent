@@ -14,7 +14,7 @@ Backup / Autosave 是一张**配置安全网**。它不持有任何业务数据�
 - **一次手滑改坏配置**——比如把某项设置改错，事后想撤销；
 - **崩溃循环导致配置损坏**——比如 `config.json` 写到一半进程崩溃、下次启动读不出来。
 
-关键想法是用**两套预算独立、粒度不同的备份**分别覆盖这两类事故，而不是共用一套。**配置 autosave** 走细粒度：每次配置写盘前自动拷一份旧文件，单文件（`config.json` 或 `user.json`）粒度，保留最近 50 份，专供撤销某一次设置编辑。**全量备份** 走粗粒度：在崩溃诊断命中阈值、删除 Agent 前或用户手动时，把整套配置目录连同 Core Memory 一起快照，保留最近 5 份，用于崩溃自愈与整体回滚。逐项对照见下节《两套备份的分工》。
+关键想法是用**两套预算独立、粒度不同的备份**分别覆盖这两类事故，而不是共用一套。**配置 autosave** 走细粒度：每次配置写盘前完整读取旧文件，再原子发布单文件快照（`config.json` 或 `user.json`），保留最近 50 份，专供撤销某一次设置编辑。**全量备份** 走粗粒度：在崩溃诊断命中阈值、删除 Agent 前或用户手动时，把整套配置目录连同 Core Memory 一起快照，保留最近 5 份，用于崩溃自愈与整体回滚。逐项对照见下节《两套备份的分工》。
 
 两套都落在 `~/.hope-agent/backups/` 下，都以**「失败永不阻塞合法写」**为铁律实现：备份只是安全网，绝不能因为安全网破损而拦住用户的正常配置写。核心逻辑集中在 `ha-core`（零 Tauri 依赖），桌面 / server 只做薄壳转发。
 
@@ -30,7 +30,7 @@ flowchart TB
       GD["guardian.set_enabled_in_config<br/>raw JSON 旁路"]
     end
     subgraph fine["细粒度 · autosave（config::autosave）"]
-      SBW["snapshot_before_write<br/>写盘前拷旧文件"]
+      SBW["snapshot_before_write<br/>写盘前原子发布旧文件"]
       ADIR[("backups/autosave/*.json<br/>保留 50")]
     end
     subgraph crash["粗粒度 · 全量备份（backup.rs）"]
@@ -109,7 +109,7 @@ flowchart TB
 `snapshot_before_write(src, kind)` 是配置 autosave 的**唯一入口**（`kind ∈ "config" | "user"`）：
 
 1. 若 `src` 文件**不存在**（首次保存，无旧文件可拷）→ 早退，但**仍消费掉 reason 标签**（防止标签泄漏给下一次无关写）。
-2. `src` 存在 → 经 `take_save_reason` 取出并清空 reason 标签，把 `src` 复制进 `autosave_dir`，文件名编码 `{timestamp}__{kind}__{category}__{source}.json`，末尾 `rotate_autosaves` 轮转。
+2. `src` 存在 → 经 `take_save_reason` 取出并清空 reason 标签，完整读取 `src` 后以 `write_secure_file` 原子发布进 `autosave_dir`（不会暴露半写入的最终 `.json`），文件名编码 `{timestamp}__{kind}__{category}__{source}.json`，末尾 `rotate_autosaves` 轮转。
 3. **过程中任何错误只 `app_warn`，绝不向上传播**——合法写永远优先于快照成功。
 
 ### reason 标签机制（thread-local）
@@ -122,7 +122,7 @@ flowchart LR
     B --> C["snapshot_before_write<br/>take_save_reason 消费标签"]
     C --> D{"src 存在?"}
     D -- 否 --> E["早退<br/>但仍消费标签"]
-    D -- 是 --> F["拷成 {ts}__{kind}__{cat}__{src}.json"]
+    D -- 是 --> F["原子发布为 {ts}__{kind}__{cat}__{src}.json"]
     B --> G["guard Drop<br/>清空 thread-local（已消费则 no-op）"]
 ```
 
@@ -159,7 +159,7 @@ flowchart TB
 
 ## 备份文件里的凭据洗刷
 
-配置备份是普通的回滚数据，**可能被拷到别的机器**，因此其中不能残留敏感凭据。历史上 server Owner Token 曾以 `server.apiKey` 存在 `config.json` 里，凭据迁移到独立凭据库后，`scrub_legacy_server_tokens`（在 `backup.rs`）会**清扫所有历史备份**——遍历 `backups/autosave/*__config__*.json` 与每个 `backups/backup_*/config.json`，剥掉 `server.apiKey`，回写时用 `write_secure_file` 保持 0600 权限。它由凭据迁移路径（`server_auth::clear_legacy_config_token`）调用，且**拒绝跟随符号链接**：备份树是数据，不是改写树外任意文件的授权。
+配置备份是普通的回滚数据，**可能被拷到别的机器**，因此其中不能残留敏感凭据。历史上 server Owner Token 曾以 `server.apiKey` 存在 `config.json` 里，凭据迁移到独立凭据库后，`scrub_legacy_server_tokens`（在 `backup.rs`）会**清扫所有历史备份**——遍历 `backups/autosave/*__config__*.json` 与每个 `backups/backup_*/config.json`，剥掉 `server.apiKey`，回写时用 `write_secure_file` 保持 0600 权限。解析与活动配置一样容忍 UTF-8 BOM；若文件已经损坏到无法解析，原始字节会以 0600 原子移入 `credentials/quarantine/legacy-config-backup-<id>.json.corrupt` 并告警，成功隔离后不再让一个不可用的回滚点阻断整次启动；隔离失败或并发检测到文件已变化则 fail closed、保留原文件并报错。它由凭据迁移路径（`server_auth::clear_legacy_config_token`）调用，且**拒绝跟随符号链接**：备份树是数据，不是改写树外任意文件的授权。
 
 与之配套，`config::clear_legacy_server_token_without_backup` 在清除**活动** config 里的旧 token 时**刻意跳过 autosave**——否则会把带密的 config 拷进普通 autosave 树，等于把刚要清掉的密又留了一份。
 
@@ -229,7 +229,7 @@ autosave 文件名带毫秒（`%3f`），避免同一秒内多次写盘碰撞；
 - **回滚前自快照不可省**：`restore_autosave` 覆盖前先对当前态自快照，保证回滚动作本身也可逆——这一步是闭环可逆性的关键。
 - **符号链接一律不跟随**：`copy_dir_recursive` 遇符号链接跳过并 warn；`create_backup` / `restore_backup` / `scrub_legacy_server_tokens` 的源与目标都先 `symlink_metadata` 校验，拒绝非目录 / 符号链接。备份树是数据，不能被篡改的链接诱导去读写树外文件。
 - **Core Memory 恢复走原子替换**：`replace_dir_from_backup` 先把整份目录暂存到目标旁边，再原子 `rename` 就位、失败回滚——一份被篡改 / 半截失败的备份因此绝不会把当前可用的 Core Memory 目录删空。
-- **备份里不留凭据**：`scrub_legacy_server_tokens` 清扫历史备份中的旧 `server.apiKey`；`clear_legacy_server_token_without_backup` 刻意跳过 autosave，避免把带密 config 拷进快照树。
+- **备份里不留凭据**：`scrub_legacy_server_tokens` 清扫历史备份中的旧 `server.apiKey`；BOM 正常剥除，无法可靠解析的文件只有成功原子移入凭据隔离区后才退出普通备份枚举，隔离失败或并发变化均 fail closed；`clear_legacy_server_token_without_backup` 刻意跳过 autosave，避免把带密 config 拷进快照树。
 - **guardian.enabled 刻意绕过 mutate_config**：它是 `AppConfig` schema 之外的 raw JSON 字段，走不了 `mutate_config`，故意直接读写；写前仍手动 `scope_save_reason` + `snapshot_before_write` 守住 rollback 契约。
 - **预算分离有意为之**：`MAX_BACKUPS` / `MAX_AUTOSAVES` 各算各的，防一阵设置编辑的 autosave 洪水把用户上一次手动全量备份挤掉。
 - **轮转依赖时间序前缀**：轮转判「最旧」靠文件名 / 目录名字典序 == 时间序，改时间戳格式会破坏这一前提。
