@@ -463,31 +463,6 @@ pub(super) fn publish_atomic_file(source: &Path, target: &Path, overwrite: bool)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-
-    fn from_nul_terminated_wide(mut wide: Vec<u16>) -> OsString {
-        assert_eq!(wide.pop(), Some(0));
-        OsString::from_wide(&wide)
-    }
-
-    #[test]
-    fn move_file_paths_use_absolute_verbatim_form() {
-        let disk = from_nul_terminated_wide(
-            to_win32_verbatim_wide(Path::new(r"C:\hope-agent\config.json")).unwrap(),
-        );
-        assert_eq!(disk, OsString::from(r"\\?\C:\hope-agent\config.json"));
-
-        let unc = from_nul_terminated_wide(
-            to_win32_verbatim_wide(Path::new(r"\\server\share\config.json")).unwrap(),
-        );
-        assert_eq!(unc, OsString::from(r"\\?\UNC\server\share\config.json"));
-    }
-}
-
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
     Command::new(cmd)
         .args(args)
@@ -654,4 +629,29 @@ pub(super) fn atomic_replace_binary(target: &Path, source: &Path) -> io::Result<
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    fn from_nul_terminated_wide(mut wide: Vec<u16>) -> OsString {
+        assert_eq!(wide.pop(), Some(0));
+        OsString::from_wide(&wide)
+    }
+
+    #[test]
+    fn move_file_paths_use_absolute_verbatim_form() {
+        let disk = from_nul_terminated_wide(
+            to_win32_verbatim_wide(Path::new(r"C:\hope-agent\config.json")).unwrap(),
+        );
+        assert_eq!(disk, OsString::from(r"\\?\C:\hope-agent\config.json"));
+
+        let unc = from_nul_terminated_wide(
+            to_win32_verbatim_wide(Path::new(r"\\server\share\config.json")).unwrap(),
+        );
+        assert_eq!(unc, OsString::from(r"\\?\UNC\server\share\config.json"));
+    }
 }
