@@ -26,9 +26,7 @@ pub fn create_backup() -> Result<String, String> {
         let src = root.join(file);
         if src.exists() {
             let dst = backup_dir.join(file);
-            let copy_result = std::fs::read(&src)
-                .and_then(|bytes| crate::platform::write_secure_file(&dst, &bytes));
-            if let Err(e) = copy_result {
+            if let Err(e) = crate::platform::copy_secure_file_atomic(&src, &dst) {
                 app_warn!("backup", "create", "Failed to copy {}: {}", file, e);
             }
         }

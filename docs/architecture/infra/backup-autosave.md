@@ -76,7 +76,7 @@ flowchart TB
 
 `create_backup` 在 `backups/backup_{UTC 时间戳}/`（格式 `%Y-%m-%dT%H-%M-%S`）下逐项复制：
 
-- 顶层文件 `config.json` / `user.json` / `memory.md`（存在才拷）；
+- 顶层文件 `config.json` / `user.json` / `memory.md`（存在才拷；流式写入同目录临时文件、`fsync` 后原子发布，故无大小上限的旧 `memory.md` 不会被整体读入内存）；
 - `credentials/auth.json`（OAuth 凭据）；
 - `agents/` 整目录递归复制（含各 Agent 的 Core Memory）；
 - 全局 `memory/` 目录递归复制（全局 Core Memory）；

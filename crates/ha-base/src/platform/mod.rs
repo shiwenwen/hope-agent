@@ -254,6 +254,59 @@ pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Resul
     imp::write_secure_file(path, bytes)
 }
 
+/// Stream `source` into a credential-grade sibling temp file, `fsync` it, then
+/// atomically replace `target`. This keeps memory usage constant for unbounded
+/// inputs while preserving the old-or-new publication contract.
+pub fn copy_secure_file_atomic(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> std::io::Result<u64> {
+    if source == target {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "source and target must differ",
+        ));
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temp = target.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    let result = (|| {
+        let mut input = std::fs::File::open(source)?;
+        #[cfg(unix)]
+        let mut output = {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&temp)?
+        };
+        #[cfg(not(unix))]
+        let mut output = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp)?;
+        let copied = std::io::copy(&mut input, &mut output)?;
+        output.sync_all()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600))?;
+        }
+        imp::publish_atomic_file(&temp, target, true)?;
+        Ok(copied)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
 /// Atomically replace `path` with `bytes` (temp in the same dir → fsync → rename),
 /// so a crash / power loss leaves either the old file intact or the new one
 /// complete — never a truncated file. Creates parent dirs if missing.
@@ -586,6 +639,31 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect::<Vec<_>>();
         assert_eq!(entries, vec![target.file_name().unwrap().to_os_string()]);
+    }
+
+    #[test]
+    fn copy_secure_file_atomic_streams_exact_bytes_without_temp_leaks() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.bin");
+        let target = dir.path().join("target.json");
+        let bytes = vec![0x5a; 2 * 1024 * 1024 + 3];
+        std::fs::write(&source, &bytes).unwrap();
+
+        let copied = copy_secure_file_atomic(&source, &target).unwrap();
+
+        assert_eq!(copied, bytes.len() as u64);
+        assert_eq!(std::fs::read(&target).unwrap(), bytes);
+        let entries = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 2);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 
     #[cfg(unix)]
