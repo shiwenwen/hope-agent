@@ -1,4 +1,4 @@
-//! Autosave 快照原语：每次 config / user_config 写盘前把旧文件拷进
+//! Autosave 快照原语：每次 config / user_config 写盘前把旧文件原子发布到
 //! `backups/autosave/`，任何设置改动都可回滚。
 //!
 //! **为什么住在 config 而不是 backup**：写前快照是 config 写路径的安全网，
@@ -105,7 +105,12 @@ pub fn snapshot_before_write(src: &Path, kind: &str) {
     let safe_src = sanitize_slug(&reason.source);
     let filename = format!("{}__{}__{}__{}.json", ts, kind, safe_cat, safe_src);
     let dst = dir.join(&filename);
-    if let Err(e) = std::fs::copy(src, &dst) {
+    // Stream into a credential-grade sibling temp and publish only after the
+    // copy is complete. Config/user JSON can contain unbounded strings and
+    // vectors, so buffering another full copy here would amplify peak memory
+    // on every settings write.
+    let snapshot_result = crate::platform::copy_secure_file_atomic(src, &dst);
+    if let Err(e) = snapshot_result {
         app_warn!(
             "backup",
             "autosave",
@@ -163,4 +168,44 @@ fn rotate_autosaves(dir: &Path, keep: usize) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_is_atomically_published_with_exact_utf8_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let source = temp.path().join("config.json");
+            let content = r#"{"label":"服务器（测试）"}"#;
+            std::fs::write(&source, content.as_bytes()).unwrap();
+            let _reason = scope_save_reason("server", "test");
+
+            snapshot_before_write(&source, "config");
+
+            let autosave = paths::autosave_dir().unwrap();
+            let snapshots = std::fs::read_dir(&autosave)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            assert_eq!(snapshots.len(), 1);
+            assert_eq!(
+                snapshots[0].extension().and_then(|ext| ext.to_str()),
+                Some("json")
+            );
+            assert_eq!(std::fs::read(&snapshots[0]).unwrap(), content.as_bytes());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&snapshots[0])
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777;
+                assert_eq!(mode, 0o600);
+            }
+        });
+    }
 }

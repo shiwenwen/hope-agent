@@ -26,7 +26,7 @@ pub fn create_backup() -> Result<String, String> {
         let src = root.join(file);
         if src.exists() {
             let dst = backup_dir.join(file);
-            if let Err(e) = std::fs::copy(&src, &dst) {
+            if let Err(e) = crate::platform::copy_secure_file_atomic(&src, &dst) {
                 app_warn!("backup", "create", "Failed to copy {}: {}", file, e);
             }
         }
@@ -419,6 +419,118 @@ mod tests {
             "current"
         );
     }
+
+    #[test]
+    fn legacy_token_scrub_accepts_bom_and_preserves_utf8() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.json");
+        let body = r#"{"server":{"apiKey":"legacy-token"},"label":"服务器（测试）"}"#;
+        let bytes = [b"\xef\xbb\xbf".as_slice(), body.as_bytes()].concat();
+        std::fs::write(&path, bytes).unwrap();
+
+        scrub_legacy_server_token_file(&path).unwrap();
+
+        let rewritten = std::fs::read(&path).unwrap();
+        assert!(!rewritten.starts_with(b"\xef\xbb\xbf"));
+        let value: serde_json::Value = serde_json::from_slice(&rewritten).unwrap();
+        assert_eq!(value["label"], "服务器（测试）");
+        assert!(value["server"].get("apiKey").is_none());
+    }
+
+    #[test]
+    fn unparseable_backup_is_quarantined_without_stopping_the_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let autosave = paths::autosave_dir().unwrap();
+            std::fs::create_dir_all(&autosave).unwrap();
+            let malformed_path =
+                autosave.join("2026-08-08T00-00-00-000__config__server__test.json");
+            let malformed = b"{\"server\":{\"apiKey\":\"legacy-token\"},\"label\":\xe4";
+            std::fs::write(&malformed_path, malformed).unwrap();
+
+            let valid_path = autosave.join("2026-08-08T00-00-01-000__config__server__test.json");
+            std::fs::write(
+                &valid_path,
+                br#"{"server":{"apiKey":"second-token"},"theme":"dark"}"#,
+            )
+            .unwrap();
+
+            scrub_legacy_server_tokens().unwrap();
+
+            assert!(!malformed_path.exists());
+            let quarantine = paths::credentials_dir().unwrap().join("quarantine");
+            let quarantined = std::fs::read_dir(&quarantine)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            assert_eq!(quarantined.len(), 1);
+            assert_eq!(std::fs::read(&quarantined[0]).unwrap(), malformed);
+            assert_eq!(
+                quarantined[0].extension().and_then(|ext| ext.to_str()),
+                Some("corrupt")
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let quarantine_mode =
+                    std::fs::metadata(&quarantine).unwrap().permissions().mode() & 0o777;
+                assert_eq!(quarantine_mode, 0o700);
+                let mode = std::fs::metadata(&quarantined[0])
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777;
+                assert_eq!(mode, 0o600);
+            }
+
+            let valid: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&valid_path).unwrap()).unwrap();
+            assert_eq!(valid["theme"], "dark");
+            assert!(valid["server"].get("apiKey").is_none());
+        });
+    }
+
+    #[test]
+    fn quarantine_failure_is_fail_closed_and_preserves_the_backup() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let autosave = paths::autosave_dir().unwrap();
+            std::fs::create_dir_all(&autosave).unwrap();
+            let malformed_path =
+                autosave.join("2026-08-08T00-00-00-000__config__server__test.json");
+            let malformed = b"{\"server\":{\"apiKey\":\"legacy-token\"}";
+            std::fs::write(&malformed_path, malformed).unwrap();
+
+            let credentials = paths::credentials_dir().unwrap();
+            std::fs::create_dir_all(&credentials).unwrap();
+            std::fs::write(credentials.join("quarantine"), b"not a directory").unwrap();
+
+            let error = scrub_legacy_server_tokens().unwrap_err();
+            assert!(error.contains("Cannot quarantine unparseable config backup"));
+            assert_eq!(std::fs::read(&malformed_path).unwrap(), malformed);
+        });
+    }
+
+    #[test]
+    fn quarantine_detects_a_concurrent_replacement_and_restores_it() {
+        let temp = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let autosave = paths::autosave_dir().unwrap();
+            std::fs::create_dir_all(&autosave).unwrap();
+            let path = autosave.join("2026-08-08T00-00-00-000__config__server__test.json");
+            let stale_bytes = b"{\"server\":{\"apiKey\":\"stale-token\"}";
+            let replacement = br#"{"theme":"dark"}"#;
+            std::fs::write(&path, replacement).unwrap();
+
+            let error = quarantine_unparseable_legacy_token_backup(&path, stale_bytes)
+                .expect_err("a changed source must not be quarantined as the stale parse result");
+
+            assert!(error.contains("changed while it was being quarantined"));
+            assert_eq!(std::fs::read(&path).unwrap(), replacement);
+            let quarantine = paths::credentials_dir().unwrap().join("quarantine");
+            assert_eq!(std::fs::read_dir(quarantine).unwrap().count(), 0);
+        });
+    }
 }
 
 // ── Auto-Snapshot on every config write ────────────────────────────
@@ -616,8 +728,34 @@ fn scrub_legacy_server_token_file(path: &Path) -> Result<(), String> {
         ));
     }
     let bytes = std::fs::read(path).map_err(|error| format!("Cannot read {:?}: {error}", path))?;
-    let mut value: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Cannot parse {:?}: {error}", path))?;
+    // Match the live config parser: Windows editors commonly prefix JSON with
+    // EF BB BF, which is valid UTF-8 text but rejected by serde_json itself.
+    let json = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let mut value: serde_json::Value = match serde_json::from_slice(json) {
+        Ok(value) => value,
+        Err(parse_error) => {
+            // The file may still contain a plaintext legacy Owner Token. Move
+            // it out of the portable backup tree into the credential area,
+            // but never let one unusable rollback snapshot brick startup.
+            let quarantined = quarantine_unparseable_legacy_token_backup(path, &bytes).map_err(
+                |quarantine_error| {
+                    format!(
+                        "Cannot quarantine unparseable config backup {:?} (parse: {}; quarantine: {})",
+                        path, parse_error, quarantine_error
+                    )
+                },
+            )?;
+            app_warn!(
+                "backup",
+                "scrub_legacy_server_token",
+                "Quarantined unparseable config backup {} as {}: {}",
+                path.display(),
+                quarantined.display(),
+                parse_error
+            );
+            return Ok(());
+        }
+    };
     let Some(server) = value
         .as_object_mut()
         .and_then(|root| root.get_mut("server"))
@@ -635,4 +773,98 @@ fn scrub_legacy_server_token_file(path: &Path) -> Result<(), String> {
     // posture while replacing the file atomically.
     crate::platform::write_secure_file(path, &data)
         .map_err(|error| format!("Cannot rewrite {:?}: {error}", path))
+}
+
+/// Preserve an unparseable backup under the credential boundary before
+/// removing it from the portable backup tree. The opaque random filename
+/// avoids exposing a credential-derived content fingerprint in logs.
+fn quarantine_unparseable_legacy_token_backup(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<PathBuf, String> {
+    let quarantine_dir = paths::credentials_dir()
+        .map_err(|error| error.to_string())?
+        .join("quarantine");
+    std::fs::create_dir_all(&quarantine_dir)
+        .map_err(|error| format!("Cannot create {:?}: {error}", quarantine_dir))?;
+    let quarantine_metadata = std::fs::symlink_metadata(&quarantine_dir)
+        .map_err(|error| format!("Cannot inspect {:?}: {error}", quarantine_dir))?;
+    if quarantine_metadata.file_type().is_symlink() || !quarantine_metadata.is_dir() {
+        return Err(format!(
+            "Refusing credential quarantine directory {:?}",
+            quarantine_dir
+        ));
+    }
+    // A moved file keeps its original mode. Tighten the directory before the
+    // rename so even a crash before the file-level 0600 rewrite cannot expose
+    // a historical 0644 Owner Token to another local user.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&quarantine_dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("Cannot secure {:?}: {error}", quarantine_dir))?;
+    }
+
+    let quarantine_id = uuid::Uuid::new_v4().simple();
+    let quarantined =
+        quarantine_dir.join(format!("legacy-config-backup-{quarantine_id}.json.corrupt"));
+    // Claim the exact directory entry in one operation. Copying first and
+    // deleting `path` later could unlink a replacement published by another
+    // Hope Agent process between those two operations.
+    crate::platform::move_file_atomic(path, &quarantined)
+        .map_err(|error| format!("Cannot move {:?} to {:?}: {error}", path, quarantined))?;
+    let claimed_bytes = match std::fs::read(&quarantined) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let rollback = restore_quarantined_backup(&quarantined, path);
+            return Err(format_quarantine_rollback_error(
+                format!("Cannot verify {:?}: {error}", quarantined),
+                rollback,
+                &quarantined,
+                path,
+            ));
+        }
+    };
+    if claimed_bytes != bytes {
+        let rollback = restore_quarantined_backup(&quarantined, path);
+        return Err(format_quarantine_rollback_error(
+            format!("Backup {:?} changed while it was being quarantined", path),
+            rollback,
+            &quarantined,
+            path,
+        ));
+    }
+    if let Err(error) = crate::platform::write_secure_file(&quarantined, &claimed_bytes) {
+        let rollback = restore_quarantined_backup(&quarantined, path);
+        return Err(match rollback {
+            Ok(()) => format!("Cannot secure {:?}: {error}; move rolled back", quarantined),
+            Err(rollback_error) => format!(
+                "Cannot secure {:?}: {error}; cannot roll back to {:?}: {rollback_error}",
+                quarantined, path
+            ),
+        });
+    }
+    Ok(quarantined)
+}
+
+/// Restore a quarantined file without overwriting a concurrently published
+/// replacement. The platform move is no-clobber and durably records removal
+/// from quarantine as well as publication at the original path.
+fn restore_quarantined_backup(quarantined: &Path, original: &Path) -> std::io::Result<()> {
+    crate::platform::move_file_atomic(quarantined, original)
+}
+
+fn format_quarantine_rollback_error(
+    error: String,
+    rollback: std::io::Result<()>,
+    quarantined: &Path,
+    original: &Path,
+) -> String {
+    match rollback {
+        Ok(()) => format!("{error}; move rolled back"),
+        Err(rollback_error) => format!(
+            "{error}; cannot roll back {:?} to {:?}: {rollback_error}",
+            quarantined, original
+        ),
+    }
 }

@@ -750,7 +750,10 @@ fn save_config_with_change(
     super::autosave::snapshot_before_write(&path, "config");
 
     let data = serde_json::to_string_pretty(config)?;
-    std::fs::write(&path, data)?;
+    // Serialize completely before touching the destination, then fsync and
+    // atomically replace it. A crash can expose the old or the new UTF-8 JSON,
+    // never a half-written multibyte character or truncated document.
+    crate::platform::write_secure_file(&path, data.as_bytes())?;
 
     // Atomically publish the new snapshot so subsequent cached_config() calls
     // see the refreshed state without touching disk.
