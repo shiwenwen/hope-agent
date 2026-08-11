@@ -1393,7 +1393,7 @@ pub(crate) async fn run_chat_engine_classified(
                             follow_global_reasoning_effort,
                             source,
                             kb_origin,
-                            Some(durability_owned.admitted_stop_epoch()),
+                            Some(durability_owned.stop_admission()),
                             channel_kb_context_owned,
                         );
                         agent.set_turn_durability(durability_owned.clone());
@@ -2168,7 +2168,7 @@ pub(crate) async fn run_chat_engine_classified(
                         follow_global_reasoning_effort,
                         source,
                         kb_origin,
-                        Some(durability.admitted_stop_epoch()),
+                        Some(durability.stop_admission()),
                         channel_kb_context.clone(),
                     );
                     restore_agent_context(&db, &session_id, &compact_agent);
@@ -2799,7 +2799,7 @@ fn configure_agent(
     follow_global_reasoning_effort: bool,
     source: stream_seq::ChatSource,
     kb_origin: crate::knowledge::KbAccessSource,
-    turn_admitted_stop_epoch: Option<u64>,
+    turn_stop_admission: Option<(u64, u64, u64)>,
     channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) {
     agent.set_agent_id(agent_id);
@@ -2808,8 +2808,9 @@ fn configure_agent(
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);
     agent.set_turn_provenance(tool_turn_provenance(source));
-    if let Some(epoch) = turn_admitted_stop_epoch {
-        agent.set_turn_admitted_stop_epoch(epoch);
+    if let Some((lineage_epoch, global_stop_epoch, global_stop_receipt_count)) = turn_stop_admission
+    {
+        agent.set_turn_stop_admission(lineage_epoch, global_stop_epoch, global_stop_receipt_count);
     }
     agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);

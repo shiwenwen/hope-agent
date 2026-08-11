@@ -283,6 +283,10 @@ pub struct ToolExecContext {
     /// `session_continue` compares it with the live lineage generation so an
     /// older foreground turn cannot undo a newer user Stop.
     pub turn_admitted_stop_epoch: Option<u64>,
+    /// Session-free global Stop generation observed at admission.
+    pub turn_admitted_global_stop_epoch: Option<u64>,
+    /// Receipts from this or earlier global generations visible in the lineage.
+    pub turn_admitted_global_stop_receipt_count: Option<u64>,
     /// IM identity of the lineage origin, for the WS8 KB-access opt-in gate.
     /// `Some` only when the lineage contains an IM hop (top-level IM turn or an
     /// IM-origin subagent, which carries the origin's identity). `None` for

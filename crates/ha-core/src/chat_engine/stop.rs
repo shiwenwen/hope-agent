@@ -115,10 +115,14 @@ pub struct StopSessionOutcome {
 fn prepare_and_pause_session_autonomy_blocking(
     db: &SessionDB,
     session_id: &str,
+    global_stop_epoch: Option<u64>,
 ) -> anyhow::Result<crate::session::SessionAutonomyPause> {
     // The receipt lands first and is the durable restart fence. Controller
     // transitions then make the live process converge promptly.
-    let pause = db.prepare_session_autonomy_pause(session_id)?;
+    let pause = match global_stop_epoch {
+        Some(epoch) => db.prepare_session_autonomy_pause_for_global(session_id, epoch)?,
+        None => db.prepare_session_autonomy_pause(session_id)?,
+    };
     if let Some(goal_id) = pause.goal_id.as_deref() {
         if let Some(goal) = db.get_goal(goal_id)? {
             if goal.state != crate::goal::GoalState::Paused && !goal.state.is_terminal() {
@@ -160,7 +164,7 @@ async fn prepare_and_pause_session_autonomy(
             let _cleanup_gate = cleanup_gate;
             let _stop_claim = stop_claim;
             let _transition_guard = transition_guard;
-            prepare_and_pause_session_autonomy_blocking(db, &session_id).map(Some)
+            prepare_and_pause_session_autonomy_blocking(db, &session_id, None).map(Some)
         })
         .await
     })
@@ -597,6 +601,7 @@ async fn prepare_global_session_pauses(
     db: Arc<SessionDB>,
     session_ids: Vec<String>,
     excluded_root_session_ids: HashSet<String>,
+    global_stop_epoch: Option<u64>,
     cleanup_gate: Arc<super::active_turn::GlobalStopCleanupGuard>,
     stop_claim: Arc<GlobalAutonomyStopClaim>,
 ) -> Vec<String> {
@@ -626,7 +631,11 @@ async fn prepare_global_session_pauses(
             let mut root_session_ids = root_session_ids.into_iter().collect::<Vec<_>>();
             root_session_ids.sort();
             for session_id in root_session_ids {
-                match prepare_and_pause_session_autonomy_blocking(db, &session_id) {
+                match prepare_and_pause_session_autonomy_blocking(
+                    db,
+                    &session_id,
+                    global_stop_epoch,
+                ) {
                     Ok(_) => paused.push(session_id),
                     Err(error) => errors.push((session_id, error.to_string())),
                 }
@@ -667,6 +676,33 @@ async fn prepare_global_session_pauses(
             );
             Vec::new()
         }
+    }
+}
+
+async fn begin_global_stop_generation(
+    db: Arc<SessionDB>,
+    cleanup_gate: Arc<super::active_turn::GlobalStopCleanupGuard>,
+    stop_claim: Arc<GlobalAutonomyStopClaim>,
+) -> anyhow::Result<(u64, Vec<String>)> {
+    let task = tokio::spawn(async move {
+        let transition_guard = autonomy_transition_lock().lock_owned().await;
+        db.run(move |db| {
+            let _cleanup_gate = cleanup_gate;
+            let _stop_claim = stop_claim;
+            let _transition_guard = transition_guard;
+            db.begin_global_stop_enumeration()
+        })
+        .await
+    });
+    match tokio::time::timeout(STOP_DB_MARK_TIMEOUT, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(anyhow::anyhow!(
+            "global Stop generation task failed: {error}"
+        )),
+        Err(_) => Err(anyhow::anyhow!(
+            "global Stop generation timed out after {}ms",
+            STOP_DB_MARK_TIMEOUT.as_millis()
+        )),
     }
 }
 
@@ -1248,30 +1284,30 @@ pub async fn stop_all_sessions(
     }
     stopped_sessions.extend(crate::subagent::active_parent_injection_session_ids());
     stopped_sessions.extend(crate::wakeup::pending_session_ids_for_global_stop().await);
-    let autonomy_sessions = match tokio::time::timeout(
-        STOP_DB_MARK_TIMEOUT,
-        db.clone()
-            .run(|db| db.list_session_ids_with_active_autonomy()),
+    let (global_stop_epoch, autonomy_sessions) = match begin_global_stop_generation(
+        db.clone(),
+        Arc::clone(&global_stop_cleanup_guard),
+        Arc::clone(&global_autonomy_stop_claim),
     )
     .await
     {
-        Ok(Ok(session_ids)) => session_ids,
-        Ok(Err(error)) => {
+        Ok((epoch, session_ids)) => {
+            crate::app_info!(
+                "chat",
+                "stop_all_sessions",
+                "Published cross-process global Stop generation {}",
+                epoch
+            );
+            (Some(epoch), session_ids)
+        }
+        Err(error) => {
             crate::app_warn!(
                 "chat",
                 "stop_all_sessions",
-                "Failed to enumerate autonomous sessions for global Stop: {}",
+                "Failed to publish/enumerate cross-process global Stop: {}",
                 error
             );
-            Vec::new()
-        }
-        Err(_) => {
-            crate::app_warn!(
-                "chat",
-                "stop_all_sessions",
-                "Timed out enumerating autonomous sessions for global Stop"
-            );
-            Vec::new()
+            (None, Vec::new())
         }
     };
     stopped_sessions.extend(autonomy_sessions);
@@ -1279,10 +1315,15 @@ pub async fn stop_all_sessions(
         db.clone(),
         stopped_sessions.iter().cloned().collect(),
         HashSet::new(),
+        global_stop_epoch,
         Arc::clone(&global_stop_cleanup_guard),
         Arc::clone(&global_autonomy_stop_claim),
     )
     .await;
+    // Cancel same-process ACP/incognito coordinators immediately; other
+    // processes observe the session-free global epoch on their next watcher
+    // tick without ever persisting incognito session identity.
+    converge_local_session_autonomy_stop_fences(db.clone()).await;
     // Parent injections live outside the generic runtime registry. Signal only
     // after their session receipts are durable so ordinary delivery requeue
     // cannot cross this global Stop generation.
@@ -1378,12 +1419,13 @@ pub async fn stop_all_sessions(
         db.clone(),
         held_channel_sessions.clone(),
         paused_sessions.into_iter().collect(),
+        global_stop_epoch,
         Arc::clone(&global_stop_cleanup_guard),
         Arc::clone(&global_autonomy_stop_claim),
     )
     .await;
     let mut outcome = StopAllOutcome {
-        stopped: already_signalled || !stopped_sessions.is_empty(),
+        stopped: already_signalled || global_stop_epoch.is_some() || !stopped_sessions.is_empty(),
         stopped_session_count: stopped_sessions.len(),
         denied_approvals,
         cancelled_questions,
@@ -1712,6 +1754,43 @@ mod tests {
             .expect("durable Stop receipt");
         assert!(db.finish_session_autonomy_resume(&pause.id).unwrap());
 
+        converge_local_session_autonomy_stop_fences(db).await;
+
+        assert!(cancel.load(Ordering::SeqCst));
+        coordinator.mark_interrupted("interrupted");
+    }
+
+    #[tokio::test]
+    async fn global_stop_epoch_cancels_incognito_without_persisting_stream_identity() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("incognito-global-stop.db"))
+                .expect("session db"),
+        );
+        let session = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .expect("incognito session");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let coordinator = super::super::durability::StreamCoordinator::create(
+            db.clone(),
+            session.id.clone(),
+            crate::chat_engine::ChatSource::Http,
+            None,
+            None,
+            Arc::new(NullEventSink),
+            cancel.clone(),
+        )
+        .await
+        .expect("incognito foreground admission");
+        assert!(!coordinator.is_persistent());
+        assert!(db.recoverable_stream_runs().unwrap().is_empty());
+
+        let (epoch, durable_sessions) = db
+            .begin_global_stop_enumeration()
+            .expect("publish global Stop epoch");
+        assert_eq!(epoch, 1);
+        assert!(durable_sessions.is_empty());
         converge_local_session_autonomy_stop_fences(db).await;
 
         assert!(cancel.load(Ordering::SeqCst));

@@ -31,6 +31,10 @@ pub struct StreamRunRegistration {
     pub persistent: bool,
     /// Lineage Stop generation captured atomically with stream admission.
     pub admitted_stop_epoch: u64,
+    /// Session-free emergency Stop generation captured by the same admission.
+    pub admitted_global_stop_epoch: u64,
+    /// Receipts attributed to that or an earlier global generation.
+    pub admitted_global_stop_receipt_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,6 +328,13 @@ impl SessionDB {
                 &tx,
                 &input.session_id,
             )?;
+        let admitted_global_stop_epoch = super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
+        let admitted_global_stop_receipt_count =
+            super::autonomy_pause::lineage_attributed_global_stop_receipt_count_with_conn(
+                &tx,
+                &input.session_id,
+                admitted_global_stop_epoch,
+            )?;
         if incognito {
             tx.commit()?;
             return Ok(StreamRunRegistration {
@@ -332,6 +343,8 @@ impl SessionDB {
                 initial_context_json,
                 persistent: false,
                 admitted_stop_epoch,
+                admitted_global_stop_epoch,
+                admitted_global_stop_receipt_count,
             });
         }
         let now = chrono::Utc::now().to_rfc3339();
@@ -359,6 +372,8 @@ impl SessionDB {
             initial_context_json,
             persistent: true,
             admitted_stop_epoch,
+            admitted_global_stop_epoch,
+            admitted_global_stop_receipt_count,
         })
     }
 

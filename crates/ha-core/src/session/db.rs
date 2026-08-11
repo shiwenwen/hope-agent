@@ -583,12 +583,24 @@ impl SessionDB {
                 resumed_at TEXT,
                 resume_requested_at TEXT,
                 resume_replayed_at TEXT,
-                resume_replay_error TEXT
+                resume_replay_error TEXT,
+                global_stop_epoch INTEGER
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_session_autonomy_pause_active
                 ON session_autonomy_pauses(session_id) WHERE resumed_at IS NULL;
             CREATE INDEX IF NOT EXISTS idx_session_autonomy_pause_session
                 ON session_autonomy_pauses(session_id);
+
+            -- Cross-process emergency Stop visibility. This single counter
+            -- intentionally carries no session identity, so incognito turns
+            -- remain absent from durable stream/journal tables.
+            CREATE TABLE IF NOT EXISTS runtime_control_epochs (
+                key TEXT PRIMARY KEY,
+                epoch INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+            INSERT OR IGNORE INTO runtime_control_epochs (key, epoch, updated_at)
+            VALUES ('global_stop', 0, '1970-01-01T00:00:00Z');
 
             -- Sub-agent runs
             CREATE TABLE IF NOT EXISTS subagent_runs (
@@ -799,6 +811,10 @@ impl SessionDB {
             (
                 "resume_replay_error",
                 "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_replay_error TEXT;",
+            ),
+            (
+                "global_stop_epoch",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN global_stop_epoch INTEGER;",
             ),
         ];
         for (column, migration) in autonomy_pause_columns {

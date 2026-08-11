@@ -92,6 +92,80 @@ pub(super) fn session_autonomy_lineage_pause_epoch_with_conn(
     .map_err(Into::into)
 }
 
+pub(super) fn lineage_attributed_global_stop_receipt_count_with_conn(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    global_stop_epoch: u64,
+) -> Result<u64> {
+    let global_stop_epoch = i64::try_from(global_stop_epoch)
+        .map_err(|_| anyhow!("global Stop epoch exceeds SQLite INTEGER range"))?;
+    conn.query_row(
+        "WITH RECURSIVE session_lineage(id, parent_session_id) AS (
+             SELECT id, parent_session_id FROM sessions WHERE id = ?1
+             UNION
+             SELECT parent.id, parent.parent_session_id
+               FROM sessions parent
+               JOIN session_lineage child ON parent.id = child.parent_session_id
+         )
+         SELECT COUNT(*)
+           FROM session_autonomy_pauses pause
+           JOIN session_lineage lineage ON lineage.id = pause.session_id
+          WHERE pause.global_stop_epoch IS NOT NULL
+            AND pause.global_stop_epoch <= ?2",
+        params![session_id, global_stop_epoch],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|value| value.max(0) as u64)
+    .map_err(Into::into)
+}
+
+pub(super) fn global_stop_epoch_with_conn(conn: &rusqlite::Connection) -> Result<u64> {
+    conn.query_row(
+        "SELECT epoch FROM runtime_control_epochs WHERE key = 'global_stop'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|value| value.max(0) as u64)
+    .map_err(Into::into)
+}
+
+fn list_session_ids_with_active_autonomy_with_conn(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "WITH RECURSIVE active_sessions(id) AS (
+             SELECT session_id FROM goals
+              WHERE state IN ('active', 'evaluating')
+             UNION
+             SELECT session_id FROM workflow_runs
+              WHERE state IN ('draft', 'running', 'recovering')
+             UNION
+             SELECT parent_session_id FROM subagent_runs
+              WHERE status IN ('queued', 'spawning', 'running')
+             UNION
+             SELECT parent_session_id FROM subagent_result_deliveries
+              WHERE state IN ('pending', 'injecting')
+             UNION
+             SELECT session_id FROM chat_stream_runs
+              WHERE status = 'running'
+                AND source IN ('desktop', 'http', 'channel', 'acp')
+         ), session_lineage(active_id, id, parent_session_id) AS (
+             SELECT active.id, session.id, session.parent_session_id
+               FROM active_sessions active
+               JOIN sessions session ON session.id = active.id
+             UNION
+             SELECT lineage.active_id, parent.id, parent.parent_session_id
+               FROM session_lineage lineage
+               JOIN sessions parent ON parent.id = lineage.parent_session_id
+         )
+         SELECT DISTINCT id FROM session_lineage
+          WHERE parent_session_id IS NULL
+          ORDER BY id",
+    )?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 impl SessionDB {
     /// Resolve any hidden descendant conversation to its top-level, visible
     /// session. Global Stop uses this before publishing receipts so Continue
@@ -137,38 +211,30 @@ impl SessionDB {
     /// foreground stream and therefore need a receipt for global Stop.
     pub fn list_session_ids_with_active_autonomy(&self) -> Result<Vec<String>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let mut stmt = conn.prepare(
-            "WITH RECURSIVE active_sessions(id) AS (
-                 SELECT session_id FROM goals
-                  WHERE state IN ('active', 'evaluating')
-                 UNION
-                 SELECT session_id FROM workflow_runs
-                  WHERE state IN ('draft', 'running', 'recovering')
-                 UNION
-                 SELECT parent_session_id FROM subagent_runs
-                  WHERE status IN ('queued', 'spawning', 'running')
-                 UNION
-                 SELECT parent_session_id FROM subagent_result_deliveries
-                  WHERE state IN ('pending', 'injecting')
-                 UNION
-                 SELECT session_id FROM chat_stream_runs
-                  WHERE status = 'running'
-                    AND source IN ('desktop', 'http', 'channel', 'acp')
-             ), session_lineage(active_id, id, parent_session_id) AS (
-                 SELECT active.id, session.id, session.parent_session_id
-                   FROM active_sessions active
-                   JOIN sessions session ON session.id = active.id
-                 UNION
-                 SELECT lineage.active_id, parent.id, parent.parent_session_id
-                   FROM session_lineage lineage
-                   JOIN sessions parent ON parent.id = lineage.parent_session_id
-             )
-             SELECT DISTINCT id FROM session_lineage
-              WHERE parent_session_id IS NULL
-              ORDER BY id",
+        list_session_ids_with_active_autonomy_with_conn(&conn)
+    }
+
+    /// Atomically publish a cross-process global Stop generation and snapshot
+    /// every durable controller/foreground session admitted before it.
+    pub fn begin_global_stop_enumeration(&self) -> Result<(u64, Vec<String>)> {
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        tx.execute(
+            "UPDATE runtime_control_epochs
+                SET epoch = epoch + 1, updated_at = ?1
+              WHERE key = 'global_stop'",
+            params![now],
         )?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let epoch = global_stop_epoch_with_conn(&tx)?;
+        let sessions = list_session_ids_with_active_autonomy_with_conn(&tx)?;
+        tx.commit()?;
+        Ok((epoch, sessions))
+    }
+
+    pub fn global_stop_epoch(&self) -> Result<u64> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        global_stop_epoch_with_conn(&conn)
     }
 
     /// Capture the exact autonomous controllers owned by a session and publish
@@ -179,8 +245,28 @@ impl SessionDB {
     /// cannot make already-paused work impossible to resume, while a Continue
     /// bound to the older id can no longer consume the newer user decision.
     pub fn prepare_session_autonomy_pause(&self, session_id: &str) -> Result<SessionAutonomyPause> {
+        self.prepare_session_autonomy_pause_inner(session_id, None)
+    }
+
+    pub(crate) fn prepare_session_autonomy_pause_for_global(
+        &self,
+        session_id: &str,
+        global_stop_epoch: u64,
+    ) -> Result<SessionAutonomyPause> {
+        self.prepare_session_autonomy_pause_inner(session_id, Some(global_stop_epoch))
+    }
+
+    fn prepare_session_autonomy_pause_inner(
+        &self,
+        session_id: &str,
+        global_stop_epoch: Option<u64>,
+    ) -> Result<SessionAutonomyPause> {
+        let global_stop_epoch = global_stop_epoch
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| anyhow!("global Stop epoch exceeds SQLite INTEGER range"))?;
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
         let previous = tx
             .query_row(
@@ -315,8 +401,8 @@ impl SessionDB {
         tx.execute(
             "INSERT INTO session_autonomy_pauses (
                 id, session_id, goal_id, workflow_run_ids_json,
-                subagent_run_ids_json, created_at, resumed_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
+                subagent_run_ids_json, created_at, resumed_at, global_stop_epoch
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
             params![
                 pause.id,
                 pause.session_id,
@@ -324,6 +410,7 @@ impl SessionDB {
                 serde_json::to_string(&pause.workflow_run_ids)?,
                 serde_json::to_string(&pause.subagent_run_ids)?,
                 pause.created_at,
+                global_stop_epoch,
             ],
         )?;
         tx.commit()?;
@@ -425,18 +512,44 @@ impl SessionDB {
         session_autonomy_lineage_pause_epoch_with_conn(&conn, session_id)
     }
 
+    /// Stop admission snapshot used by foreground turns. The third component
+    /// attributes lineage receipts that belong to this or any earlier global
+    /// Stop generation. Receipts that land late can then be distinguished
+    /// from a newer global or session-scoped Stop.
+    pub fn session_autonomy_stop_admission(&self, session_id: &str) -> Result<(u64, u64, u64)> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let lineage_epoch = session_autonomy_lineage_pause_epoch_with_conn(&conn, session_id)?;
+        let global_stop_epoch = global_stop_epoch_with_conn(&conn)?;
+        let global_receipt_count = lineage_attributed_global_stop_receipt_count_with_conn(
+            &conn,
+            session_id,
+            global_stop_epoch,
+        )?;
+        Ok((lineage_epoch, global_stop_epoch, global_receipt_count))
+    }
+
+    pub fn session_lineage_attributed_global_stop_receipt_count(
+        &self,
+        session_id: &str,
+        global_stop_epoch: u64,
+    ) -> Result<u64> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        lineage_attributed_global_stop_receipt_count_with_conn(&conn, session_id, global_stop_epoch)
+    }
+
     /// Resolve durable Stop generations against process-local runtime
     /// snapshots. Pause rows are never deleted, so a fast Continue cannot hide
     /// an older generation from an injection or immutable sub-agent/workflow
     /// attempt that was admitted before that Stop.
     pub(crate) fn resolve_local_autonomy_stop_fences(
         &self,
-        foreground_generations: &[(String, String, u64)],
+        foreground_generations: &[(String, String, u64, u64, u64)],
         injection_generations: &[(String, u64)],
         subagent_run_ids: &[String],
         workflow_generations: &[(String, String, u64)],
     ) -> Result<(Vec<String>, Vec<String>, Vec<String>, Vec<String>)> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let global_stop_epoch = global_stop_epoch_with_conn(&conn)?;
         let mut epoch_stmt = conn.prepare(
             "WITH RECURSIVE session_lineage(id, parent_session_id) AS (
                  SELECT id, parent_session_id FROM sessions WHERE id = ?1
@@ -460,11 +573,28 @@ impl SessionDB {
         }
 
         let mut stale_foreground_runs = Vec::new();
-        for (run_id, session_id, admitted_epoch) in foreground_generations {
+        for (
+            run_id,
+            session_id,
+            admitted_epoch,
+            admitted_global_stop_epoch,
+            admitted_global_receipt_count,
+        ) in foreground_generations
+        {
             let epoch = epoch_stmt
                 .query_row(params![session_id], |row| row.get::<_, i64>(0))?
                 .max(0) as u64;
-            if epoch > *admitted_epoch {
+            let global_receipt_count = lineage_attributed_global_stop_receipt_count_with_conn(
+                &conn,
+                session_id,
+                *admitted_global_stop_epoch,
+            )?;
+            let added_lineage_receipts = epoch.saturating_sub(*admitted_epoch);
+            let added_attributed_global_receipts =
+                global_receipt_count.saturating_sub(*admitted_global_receipt_count);
+            if global_stop_epoch > *admitted_global_stop_epoch
+                || added_lineage_receipts > added_attributed_global_receipts
+            {
                 stale_foreground_runs.push(run_id.clone());
             }
         }
@@ -863,6 +993,8 @@ mod tests {
                     run_id.clone(),
                     child.id.clone(),
                     registration.admitted_stop_epoch,
+                    registration.admitted_global_stop_epoch,
+                    registration.admitted_global_stop_receipt_count,
                 )],
                 &[],
                 &[],
@@ -870,5 +1002,56 @@ mod tests {
             )
             .expect("resolve foreground Stop generation");
         assert_eq!(stale_foreground_runs, vec![run_id]);
+    }
+
+    #[test]
+    fn attributed_global_stop_receipts_landing_after_admission_do_not_cancel_new_turn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop-race.db"))
+            .expect("session db");
+        let session = db.create_session("ha-main").expect("session");
+        let (older_global_stop_epoch, _) = db
+            .begin_global_stop_enumeration()
+            .expect("publish older global Stop generation");
+        let (global_stop_epoch, _) = db
+            .begin_global_stop_enumeration()
+            .expect("publish current global Stop generation");
+        let registration = db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "new-foreground-after-global-stop".to_string(),
+                session_id: session.id.clone(),
+                source: "http".to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect("foreground stream admission");
+        db.prepare_session_autonomy_pause_for_global(&session.id, older_global_stop_epoch)
+            .expect("late older-generation global receipt");
+        db.prepare_session_autonomy_pause_for_global(&session.id, global_stop_epoch)
+            .expect("same-generation global receipt");
+
+        let foreground = vec![(
+            registration.run_id.clone(),
+            session.id.clone(),
+            registration.admitted_stop_epoch,
+            registration.admitted_global_stop_epoch,
+            registration.admitted_global_stop_receipt_count,
+        )];
+        let (_, _, _, stale_foreground_runs) = db
+            .resolve_local_autonomy_stop_fences(&foreground, &[], &[], &[])
+            .expect("resolve attributed global receipts");
+        assert!(stale_foreground_runs.is_empty());
+
+        db.prepare_session_autonomy_pause(&session.id)
+            .expect("newer targeted Stop receipt");
+        let (_, _, _, stale_foreground_runs) = db
+            .resolve_local_autonomy_stop_fences(&foreground, &[], &[], &[])
+            .expect("resolve newer targeted Stop");
+        assert_eq!(
+            stale_foreground_runs,
+            vec![registration.run_id],
+            "a targeted Stop after admission must still win"
+        );
     }
 }

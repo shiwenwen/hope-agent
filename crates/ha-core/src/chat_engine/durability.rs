@@ -138,6 +138,8 @@ pub struct StreamCoordinator {
     turn_id: Option<String>,
     run_id: String,
     admitted_stop_epoch: u64,
+    admitted_global_stop_epoch: u64,
+    admitted_global_stop_receipt_count: u64,
     persistent: bool,
     event_sink: Arc<dyn EventSink>,
     cancel: Arc<AtomicBool>,
@@ -214,6 +216,8 @@ impl StreamCoordinator {
             turn_id,
             run_id,
             admitted_stop_epoch: registration.admitted_stop_epoch,
+            admitted_global_stop_epoch: registration.admitted_global_stop_epoch,
+            admitted_global_stop_receipt_count: registration.admitted_global_stop_receipt_count,
             persistent: registration.persistent,
             event_sink,
             cancel,
@@ -642,6 +646,14 @@ impl StreamCoordinator {
         self.admitted_stop_epoch
     }
 
+    pub fn stop_admission(&self) -> (u64, u64, u64) {
+        (
+            self.admitted_stop_epoch,
+            self.admitted_global_stop_epoch,
+            self.admitted_global_stop_receipt_count,
+        )
+    }
+
     pub fn current_provider_shape(&self) -> Option<String> {
         self.provider_shape
             .lock()
@@ -1010,7 +1022,7 @@ pub(crate) fn active_snapshot(session_id: &str) -> Option<StreamSnapshot> {
 /// Immutable local foreground generations consumed by the cross-process Stop
 /// watcher. Include the run id so a delayed resolution cannot cancel a
 /// replacement coordinator for the same session.
-pub(crate) fn active_foreground_stop_generations() -> Vec<(String, String, u64)> {
+pub(crate) fn active_foreground_stop_generations() -> Vec<(String, String, u64, u64, u64)> {
     let mut map = registry()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1026,6 +1038,8 @@ pub(crate) fn active_foreground_stop_generations() -> Vec<(String, String, u64)>
                 coordinator.run_id.clone(),
                 coordinator.session_id.clone(),
                 coordinator.admitted_stop_epoch,
+                coordinator.admitted_global_stop_epoch,
+                coordinator.admitted_global_stop_receipt_count,
             ));
         }
         true

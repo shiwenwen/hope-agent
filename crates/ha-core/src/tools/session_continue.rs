@@ -23,6 +23,13 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
     let admitted_stop_epoch = ctx.turn_admitted_stop_epoch.ok_or_else(|| {
         anyhow!("session_continue requires a foreground turn admission generation")
     })?;
+    let admitted_global_stop_epoch = ctx.turn_admitted_global_stop_epoch.ok_or_else(|| {
+        anyhow!("session_continue requires a foreground global Stop admission generation")
+    })?;
+    let admitted_global_stop_receipt_count =
+        ctx.turn_admitted_global_stop_receipt_count.ok_or_else(|| {
+            anyhow!("session_continue requires a foreground global Stop receipt snapshot")
+        })?;
     let db = ctx
         .session_db
         .as_ref()
@@ -31,16 +38,26 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
         .ok_or_else(|| anyhow!("session_continue: session database is unavailable"))?;
 
     let lookup_session_id = session_id.to_string();
-    let (pause, current_stop_epoch) = db
+    let (pause, current_stop_epoch, current_global_stop_epoch, global_stop_receipt_count) = db
         .clone()
         .run(move |db| -> Result<_> {
             Ok((
                 db.active_session_or_ancestor_autonomy_pause(&lookup_session_id)?,
                 db.session_autonomy_lineage_pause_epoch(&lookup_session_id)?,
+                db.global_stop_epoch()?,
+                db.session_lineage_attributed_global_stop_receipt_count(
+                    &lookup_session_id,
+                    admitted_global_stop_epoch,
+                )?,
             ))
         })
         .await?;
-    if current_stop_epoch > admitted_stop_epoch {
+    let added_lineage_receipts = current_stop_epoch.saturating_sub(admitted_stop_epoch);
+    let added_attributed_global_receipts =
+        global_stop_receipt_count.saturating_sub(admitted_global_stop_receipt_count);
+    if current_global_stop_epoch > admitted_global_stop_epoch
+        || added_lineage_receipts > added_attributed_global_receipts
+    {
         anyhow::bail!(
             "session_continue belongs to a turn admitted before the latest Stop; the pause fence remains active"
         );
@@ -104,14 +121,16 @@ mod tests {
         db: Arc<crate::session::SessionDB>,
         session_id: String,
     ) -> ToolExecContext {
-        let admitted_stop_epoch = db
-            .session_autonomy_lineage_pause_epoch(&session_id)
-            .expect("admitted Stop epoch");
+        let (admitted_stop_epoch, admitted_global_stop_epoch, admitted_global_stop_receipt_count) =
+            db.session_autonomy_stop_admission(&session_id)
+                .expect("Stop admission");
         ToolExecContext {
             session_id: Some(session_id),
             session_db: Some(SessionDbHandle(db)),
             turn_provenance: ToolTurnProvenance::ForegroundUser,
             turn_admitted_stop_epoch: Some(admitted_stop_epoch),
+            turn_admitted_global_stop_epoch: Some(admitted_global_stop_epoch),
+            turn_admitted_global_stop_receipt_count: Some(admitted_global_stop_receipt_count),
             ..Default::default()
         }
     }
@@ -269,9 +288,9 @@ mod tests {
             .expect("session db"),
         );
         let session = db.create_session("ha-main").expect("session");
-        let admitted_stop_epoch = db
-            .session_autonomy_lineage_pause_epoch(&session.id)
-            .expect("initial epoch");
+        let (admitted_stop_epoch, admitted_global_stop_epoch, admitted_global_stop_receipt_count) =
+            db.session_autonomy_stop_admission(&session.id)
+                .expect("initial Stop admission");
         let pause = db
             .prepare_session_autonomy_pause(&session.id)
             .expect("pause receipt");
@@ -283,6 +302,8 @@ mod tests {
                 session_db: Some(SessionDbHandle(db.clone())),
                 turn_provenance: ToolTurnProvenance::ForegroundUser,
                 turn_admitted_stop_epoch: Some(admitted_stop_epoch),
+                turn_admitted_global_stop_epoch: Some(admitted_global_stop_epoch),
+                turn_admitted_global_stop_receipt_count: Some(admitted_global_stop_receipt_count),
                 ..Default::default()
             },
         )
@@ -299,6 +320,33 @@ mod tests {
                 .id,
             pause.id
         );
+    }
+
+    #[tokio::test]
+    async fn foreground_turn_after_global_generation_can_consume_its_late_receipt() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &dir.path().join("session-continue-global-race.db"),
+            )
+            .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let (global_stop_epoch, _) = db
+            .begin_global_stop_enumeration()
+            .expect("publish global Stop");
+        let context = foreground_context(db.clone(), session.id.clone());
+        let pause = db
+            .prepare_session_autonomy_pause_for_global(&session.id, global_stop_epoch)
+            .expect("late global receipt");
+
+        let output = tool_session_continue(&serde_json::json!({ "pause_id": pause.id }), &context)
+            .await
+            .expect("same-generation Continue");
+        let value: Value = serde_json::from_str(&output).expect("json result");
+
+        assert_eq!(value["resumed"], true);
+        assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
     }
 
     #[tokio::test]

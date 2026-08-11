@@ -1647,7 +1647,13 @@ impl AcpAgent {
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
                 agent.set_turn_provenance(ha_core::tool_defs::ToolTurnProvenance::ForegroundUser);
-                agent.set_turn_admitted_stop_epoch(durability.admitted_stop_epoch());
+                let (lineage_epoch, global_stop_epoch, global_stop_receipt_count) =
+                    durability.stop_admission();
+                agent.set_turn_stop_admission(
+                    lineage_epoch,
+                    global_stop_epoch,
+                    global_stop_receipt_count,
+                );
                 agent.set_session_db(db_clone.clone());
                 agent.set_turn_durability(durability.clone());
                 agent.set_compact_config(store.compact.clone());

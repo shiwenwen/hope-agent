@@ -395,6 +395,8 @@ impl AssistantAgent {
             origin_chat_source: None,
             turn_provenance: crate::tool_defs::ToolTurnProvenance::Unknown,
             turn_admitted_stop_epoch: None,
+            turn_admitted_global_stop_epoch: None,
+            turn_admitted_global_stop_receipt_count: None,
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -469,6 +471,8 @@ impl AssistantAgent {
             origin_chat_source: None,
             turn_provenance: crate::tool_defs::ToolTurnProvenance::Unknown,
             turn_admitted_stop_epoch: None,
+            turn_admitted_global_stop_epoch: None,
+            turn_admitted_global_stop_receipt_count: None,
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -669,6 +673,8 @@ impl AssistantAgent {
             origin_chat_source: None,
             turn_provenance: crate::tool_defs::ToolTurnProvenance::Unknown,
             turn_admitted_stop_epoch: None,
+            turn_admitted_global_stop_epoch: None,
+            turn_admitted_global_stop_receipt_count: None,
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -3175,6 +3181,19 @@ impl AssistantAgent {
         self.turn_admitted_stop_epoch = Some(epoch);
     }
 
+    /// Bind the full Stop admission snapshot captured atomically with the
+    /// foreground stream.
+    pub fn set_turn_stop_admission(
+        &mut self,
+        lineage_epoch: u64,
+        global_stop_epoch: u64,
+        global_stop_receipt_count: u64,
+    ) {
+        self.turn_admitted_stop_epoch = Some(lineage_epoch);
+        self.turn_admitted_global_stop_epoch = Some(global_stop_epoch);
+        self.turn_admitted_global_stop_receipt_count = Some(global_stop_receipt_count);
+    }
+
     /// Set the IM origin identity for the WS8 KB-access opt-in gate. `None` for
     /// non-IM lineages; an IM-origin subagent carries the origin's identity so
     /// the opt-in is judged against the account/chat that started the chain.
@@ -4252,6 +4271,8 @@ impl AssistantAgent {
             origin_chat_source: self.origin_chat_source,
             turn_provenance: self.turn_provenance,
             turn_admitted_stop_epoch: self.turn_admitted_stop_epoch,
+            turn_admitted_global_stop_epoch: self.turn_admitted_global_stop_epoch,
+            turn_admitted_global_stop_receipt_count: self.turn_admitted_global_stop_receipt_count,
             channel_kb_context: self.channel_kb_context.clone(),
             agent_tool_filter,
             denied_tools,
