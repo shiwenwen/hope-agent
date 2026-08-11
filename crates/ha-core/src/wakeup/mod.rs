@@ -137,9 +137,11 @@ struct DeliveringWakeup {
 static ARMED_TIMERS: LazyLock<Mutex<HashMap<String, ArmedTimer>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// In-memory-only wakeups parked by Stop. Durable wakeups remain represented by
-/// their database rows; incognito and persistence-degraded wakeups need this
-/// process-local receipt so Continue can reconstruct the exact timer.
+/// Process-local wakeups parked by Stop. Durable wakeups remain represented by
+/// their database rows; their local descriptor preserves the exact Stop epoch
+/// until Primary takes replay ownership. Incognito and persistence-degraded
+/// wakeups keep their descriptor here through Continue because no shared row
+/// can reconstruct them.
 static SUSPENDED_TIMERS: LazyLock<Mutex<HashMap<String, SuspendedTimer>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -266,11 +268,17 @@ pub(crate) fn local_wakeup_global_stop_states() -> Vec<(String, u64, bool)> {
 }
 
 /// Resume process-local wakeups after their durable session receipt has been
-/// consumed, regardless of whether this process is Primary.
+/// consumed. Volatile descriptors stay owner-local; persisted descriptors are
+/// re-armed only by Primary so another process cannot duplicate the same
+/// WakeupDB row.
 /// Re-admit each source at the epoch that actually fenced it, never at a live
 /// epoch read after Continue: a concurrent newer global Stop must remain able
 /// to identify and park the older source.
 pub(crate) fn resume_local_for_session(session_id: &str) -> usize {
+    resume_local_for_session_for_tier(session_id, crate::runtime_lock::is_primary())
+}
+
+fn resume_local_for_session_for_tier(session_id: &str, primary: bool) -> usize {
     let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
@@ -279,8 +287,14 @@ pub(crate) fn resume_local_for_session(session_id: &str) -> usize {
         .filter(|(_, timer)| timer.session_id == session_id)
         .map(|(id, _)| id.clone())
         .collect::<Vec<_>>();
+    let mut resumed = 0;
     for id in &ids {
         if let Some(timer) = suspended.remove(id) {
+            if timer.persisted && !primary {
+                // The durable Continue request is drained by Primary. Drop the
+                // old owner's parked shadow so it cannot race Primary's timer.
+                continue;
+            }
             arm_timer_locked(
                 &mut armed,
                 id.clone(),
@@ -292,13 +306,14 @@ pub(crate) fn resume_local_for_session(session_id: &str) -> usize {
                 timer.fenced_global_stop_epoch,
                 true,
             );
+            resumed += 1;
         }
     }
-    let mut resumed = ids.len();
-    for delivery in delivering
-        .values_mut()
-        .filter(|delivery| delivery.descriptor.session_id == session_id && delivery.paused)
-    {
+    for delivery in delivering.values_mut().filter(|delivery| {
+        delivery.descriptor.session_id == session_id
+            && delivery.paused
+            && (primary || !delivery.descriptor.persisted)
+    }) {
         let admitted_global_stop_epoch = delivery
             .fenced_global_stop_epoch
             .unwrap_or(delivery.descriptor.admitted_global_stop_epoch);
@@ -691,9 +706,8 @@ fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
         DeliveringFinish::Rearmed
     } else {
         // Keep the exact owner-local generation for both volatile and durable
-        // sources. Durable state is also retained in WakeupDB, but this parked
-        // descriptor is what lets another process's Stop/Continue coordinate
-        // without depending on a successful cross-process enumeration read.
+        // sources. Durable state is also retained in WakeupDB; on Continue a
+        // Secondary drops this local shadow and Primary replays the shared row.
         suspended.insert(
             id.to_string(),
             SuspendedTimer {
@@ -1198,7 +1212,7 @@ async fn replay_pending_for_session_for_tier(
     primary: bool,
     admitted_global_stop_epoch: u64,
 ) -> anyhow::Result<()> {
-    resume_local_for_session(session_id);
+    resume_local_for_session_for_tier(session_id, primary);
     if !primary {
         app_debug!(
             "wakeup",
@@ -1425,6 +1439,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn secondary_continue_hands_persisted_wakeup_to_primary() {
+        let sid = "test-wakeup-secondary-durable-handoff-session";
+        let parked_id = "test-wakeup-secondary-durable-handoff-parked";
+        let delivering_id = "test-wakeup-secondary-durable-handoff-delivering";
+        purge_for_session(sid);
+        SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                parked_id.into(),
+                SuspendedTimer {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: Some("Primary owns durable replay".into()),
+                    fire_at: now_secs() + 60,
+                    persisted: true,
+                    fenced_global_stop_epoch: 8,
+                },
+            );
+        DELIVERING.lock().unwrap_or_else(|p| p.into_inner()).insert(
+            delivering_id.into(),
+            DeliveringWakeup {
+                descriptor: WakeupDescriptor {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: None,
+                    fire_at: now_secs() + 60,
+                    persisted: true,
+                    admitted_global_stop_epoch: 7,
+                },
+                paused: true,
+                fenced_global_stop_epoch: Some(8),
+                resume_requested: false,
+            },
+        );
+
+        assert_eq!(resume_local_for_session_for_tier(sid, false), 0);
+        assert!(!SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(parked_id));
+        assert!(!ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(parked_id));
+        {
+            let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+            let delivery = delivering
+                .get(delivering_id)
+                .expect("old Secondary delivery remains fenced until it settles");
+            assert!(delivery.paused);
+            assert!(!delivery.resume_requested);
+        }
+
+        assert_eq!(
+            finish_delivering(delivering_id, true),
+            DeliveringFinish::Parked
+        );
+        assert_eq!(resume_local_for_session_for_tier(sid, false), 0);
+        assert!(!SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(delivering_id));
+        assert!(!ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(delivering_id));
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
     async fn incognito_wakeup_survives_suspend_and_replay() {
         let sid = "test-wakeup-incognito-pause-session";
         purge_for_session(sid);
@@ -1485,7 +1570,7 @@ mod tests {
             .iter()
             .any(|state| state == &(sid.to_string(), 8, true)));
 
-        assert_eq!(resume_local_for_session(sid), 1);
+        assert_eq!(resume_local_for_session_for_tier(sid, true), 1);
         let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
         let timer = armed.get(&scheduled.id).expect("continued wakeup is armed");
         assert_eq!(timer.admitted_global_stop_epoch, 8);
@@ -1520,7 +1605,7 @@ mod tests {
             assert_eq!(timer.fenced_global_stop_epoch, 8);
         }
 
-        assert_eq!(resume_local_for_session(sid), 1);
+        assert_eq!(resume_local_for_session_for_tier(sid, true), 1);
         let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
         let timer = armed.get(id).expect("durable timer re-armed by owner");
         assert!(timer.persisted);
