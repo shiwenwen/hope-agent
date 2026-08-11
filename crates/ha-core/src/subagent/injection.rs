@@ -175,12 +175,6 @@ impl OnInjected {
         self.pre_engine_claim
     }
 
-    fn release_retained_process_dispatch_after_preparation_failure(&self) {
-        if self.retain_process_dispatch_until_settle && self.is_no_replay_armed() {
-            self.release_process_dispatch();
-        }
-    }
-
     fn supports_unarmed_retry(&self) -> bool {
         self.release_unarmed.is_some()
     }
@@ -2284,9 +2278,6 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                             .into(),
                     ),
                 });
-                if let Some(receipt) = on_injected.as_ref() {
-                    receipt.release_retained_process_dispatch_after_preparation_failure();
-                }
                 // Never settle here. If arm succeeded, its durable no-replay
                 // fence is the terminal safety decision; reviving the source
                 // could duplicate a provider-side reply after a crash. Without

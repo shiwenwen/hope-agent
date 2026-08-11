@@ -924,11 +924,22 @@ async fn fire(id: String, descriptor: WakeupDescriptor) {
                     }
                     outcome
                 });
+                if matches!(
+                    outcome,
+                    crate::subagent::injection::InjectionOutcome::Injected
+                ) {
+                    // `Injected` is terminal even when an unsafe IM abort or a
+                    // post-claim preparation failure deliberately preserves
+                    // the durable fired=1 tombstone. Release only the local
+                    // owner descriptor; ordinary success already did so in
+                    // the settle callback, making this idempotent.
+                    finish_delivering(&id_for_mark, false);
+                }
                 // Queued attempts retain the exact descriptor through the
-                // receipt cloned into PendingInjection. Successful arm/settle
-                // callbacks already released it; an Abandoned attempt released
-                // it through the process-dispatch callback above. A failed DB
-                // callback intentionally keeps the claim pinned until restart.
+                // receipt cloned into PendingInjection. Terminal Injected
+                // outcomes release it above; an unarmed Abandoned attempt
+                // releases or parks it through the process-dispatch callback.
+                // Failed durable settlement keeps only the DB tombstone pinned.
                 guard.transfer_to_receipt();
                 if matches!(
                     outcome,
@@ -1698,6 +1709,36 @@ mod tests {
         purge_for_session(sid);
         assert_eq!(finish_delivering(id, true), DeliveringFinish::Released);
         assert_eq!(count_pending_for_session(sid), 0);
+    }
+
+    #[test]
+    fn terminal_no_replay_release_drops_claimed_delivery() {
+        let sid = "test-wakeup-terminal-no-replay-session";
+        let id = "test-wakeup-terminal-no-replay-id";
+        purge_for_session(sid);
+        DELIVERING.lock().unwrap_or_else(|p| p.into_inner()).insert(
+            id.into(),
+            DeliveringWakeup {
+                descriptor: WakeupDescriptor {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: None,
+                    fire_at: now_secs(),
+                    persisted: true,
+                    admitted_global_stop_epoch: 7,
+                },
+                paused: true,
+                fenced_global_stop_epoch: Some(8),
+                resume_requested: false,
+            },
+        );
+
+        assert_eq!(finish_delivering(id, false), DeliveringFinish::Released);
+        assert_eq!(count_pending_for_session(sid), 0);
+        assert!(!SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
     }
 
     #[tokio::test]
