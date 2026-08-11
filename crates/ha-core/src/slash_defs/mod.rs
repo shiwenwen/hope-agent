@@ -26,7 +26,83 @@ pub mod types;
 
 pub use history::append_slash_history_events;
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
 use types::SessionPickerItem;
+
+/// Collision-resolved typed command name paired with its source entry index.
+/// The contract layer stays generic so callers can apply the exact same table
+/// to Skills without introducing a kernel -> slash assembly dependency.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDynamicCommandName {
+    pub typed_name: String,
+    pub entry_index: usize,
+}
+
+/// Resolve dynamic command names against the built-in/reserved namespace.
+/// The first name of each entry is canonical: collisions gain `_skill`, then
+/// `_2`/`_3`/...; colliding aliases are dropped. Inputs are pre-normalized.
+pub fn resolve_dynamic_command_names(
+    command_names: &[Vec<String>],
+    reserved: &HashSet<String>,
+) -> Vec<ResolvedDynamicCommandName> {
+    let mut used = reserved.clone();
+    let mut out = Vec::with_capacity(command_names.len());
+    for (entry_index, names) in command_names.iter().enumerate() {
+        let Some(canonical) = names.first() else {
+            continue;
+        };
+        let mut display = if used.contains(canonical) {
+            format!("{canonical}_skill")
+        } else {
+            canonical.clone()
+        };
+        let base = display.clone();
+        let mut counter = 2;
+        while used.contains(&display) {
+            display = format!("{base}_{counter}");
+            counter += 1;
+        }
+        used.insert(display.clone());
+        out.push(ResolvedDynamicCommandName {
+            typed_name: display,
+            entry_index,
+        });
+
+        for alias in names.iter().skip(1) {
+            if used.insert(alias.clone()) {
+                out.push(ResolvedDynamicCommandName {
+                    typed_name: alias.clone(),
+                    entry_index,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Dispatcher aliases accepted by handlers but intentionally hidden from the
+/// registered command catalog. They still reserve names against Skills.
+const SILENT_BUILTIN_ALIASES: &[&str] = &["reasoning", "think"];
+
+/// Built-in command namespace shared by listing, dispatch, and typed binding
+/// validation. Kept in the contract layer so lower kernel paths never depend
+/// on the `slash_commands` composition root.
+pub fn builtin_command_names() -> &'static HashSet<String> {
+    static CACHE: OnceLock<HashSet<String>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut names: HashSet<String> = registry::all_commands()
+            .into_iter()
+            .map(|command| command.name)
+            .collect();
+        names.extend(
+            SILENT_BUILTIN_ALIASES
+                .iter()
+                .map(|name| (*name).to_string()),
+        );
+        names
+    })
+}
 
 /// Resolve silent built-in aliases to their canonical command names for
 /// metadata lookup paths (arg options, help text, etc.). Dispatch still matches

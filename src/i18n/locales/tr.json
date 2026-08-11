@@ -973,6 +973,9 @@
       "failed": "Sohbet dışa aktarılamadı.",
       "untitled": "Başlıksız"
     },
+    "capabilityMention": {
+      "heading": "Eklentiler ve bağlayıcılar"
+    },
     "skillMention": {
       "heading": "Beceriler",
       "labels": {

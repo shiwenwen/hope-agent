@@ -37,9 +37,7 @@ pub use config::{
 };
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub use context::build_compaction_provider;
-pub use plan_context::{
-    merge_extra_system_context, resolve_plan_context_for_session, PlanResolvedContext,
-};
+pub use plan_context::{resolve_plan_context_for_session, PlanResolvedContext};
 pub use types::{AssistantAgent, Attachment, ChatUsage, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::atomic::AtomicBool;
@@ -212,6 +210,43 @@ fn profile_snapshot_ref(
     })
 }
 
+fn legacy_dynamic_memory_ref(
+    source: crate::memory::sqlite::PromptMemoryRef,
+    role: &str,
+) -> active_memory::UsedMemoryRef {
+    active_memory::UsedMemoryRef {
+        kind: "memory".to_string(),
+        id: source.id.to_string(),
+        source_type: source.memory_type,
+        scope: source.scope,
+        origin: "legacy_memory".to_string(),
+        role: role.to_string(),
+        preview: source.preview,
+        path: None,
+        line: None,
+        col: None,
+        heading_path: None,
+        block_id: None,
+        score: None,
+        confidence: None,
+        salience: None,
+    }
+}
+
+fn format_legacy_dynamic_memory(
+    entries: &[crate::memory::MemoryEntry],
+    budget: usize,
+    role: &str,
+) -> (String, Vec<active_memory::UsedMemoryRef>) {
+    let summary = crate::memory::sqlite::format_prompt_summary_with_refs(entries, budget);
+    let refs = summary
+        .refs
+        .into_iter()
+        .map(|source| legacy_dynamic_memory_ref(source, role))
+        .collect();
+    (summary.text, refs)
+}
+
 fn memory_scope_label(scope: &crate::memory::MemoryScope) -> String {
     match scope {
         crate::memory::MemoryScope::Global => "global".to_string(),
@@ -377,16 +412,17 @@ impl AssistantAgent {
             thinking_style: ThinkingStyle::Anthropic,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
-            extra_system_context: None,
+            turn_id: None,
+            retrieval_query: None,
+            run_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
-            token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrators::default(),
-            ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
+            agent_binding_refs: Vec::new(),
+            context_resource_refs: Vec::new(),
             session_db: None,
             turn_durability: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
@@ -401,11 +437,12 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             tool_scope: None,
-            skill_allowed_tools: Vec::new(),
+            skill_allowed_tools: std::sync::Mutex::new(Vec::new()),
             plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
             plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
-            plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_instruction_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_data_context: arc_swap::ArcSwap::from_pointee(None),
             pending_hook_context: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
@@ -422,6 +459,9 @@ impl AssistantAgent {
             awareness_suffix: std::sync::Mutex::new(None),
             active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
+            legacy_memory_suffix: std::sync::Mutex::new(None),
+            legacy_memory_refs: std::sync::Mutex::new(Vec::new()),
+            legacy_memory_committed_refs: std::sync::Mutex::new(Vec::new()),
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
             static_memory_manifest: std::sync::Mutex::new(Default::default()),
@@ -453,16 +493,17 @@ impl AssistantAgent {
             thinking_style: ThinkingStyle::Openai,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
-            extra_system_context: None,
+            turn_id: None,
+            retrieval_query: None,
+            run_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
-            token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrators::default(),
-            ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
+            agent_binding_refs: Vec::new(),
+            context_resource_refs: Vec::new(),
             session_db: None,
             turn_durability: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
@@ -477,11 +518,12 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             tool_scope: None,
-            skill_allowed_tools: Vec::new(),
+            skill_allowed_tools: std::sync::Mutex::new(Vec::new()),
             plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
             plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
-            plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_instruction_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_data_context: arc_swap::ArcSwap::from_pointee(None),
             pending_hook_context: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
@@ -498,6 +540,9 @@ impl AssistantAgent {
             awareness_suffix: std::sync::Mutex::new(None),
             active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
+            legacy_memory_suffix: std::sync::Mutex::new(None),
+            legacy_memory_refs: std::sync::Mutex::new(Vec::new()),
+            legacy_memory_committed_refs: std::sync::Mutex::new(Vec::new()),
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
             static_memory_manifest: std::sync::Mutex::new(Default::default()),
@@ -655,16 +700,17 @@ impl AssistantAgent {
             thinking_style: effective_thinking_style,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
-            extra_system_context: None,
+            turn_id: None,
+            retrieval_query: None,
+            run_context: None,
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
-            token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrators::default(),
-            ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
+            agent_binding_refs: Vec::new(),
+            context_resource_refs: Vec::new(),
             session_db: None,
             turn_durability: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
@@ -679,11 +725,12 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             tool_scope: None,
-            skill_allowed_tools: Vec::new(),
+            skill_allowed_tools: std::sync::Mutex::new(Vec::new()),
             plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
             plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
-            plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_instruction_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_data_context: arc_swap::ArcSwap::from_pointee(None),
             pending_hook_context: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
@@ -700,6 +747,9 @@ impl AssistantAgent {
             awareness_suffix: std::sync::Mutex::new(None),
             active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
+            legacy_memory_suffix: std::sync::Mutex::new(None),
+            legacy_memory_refs: std::sync::Mutex::new(Vec::new()),
+            legacy_memory_committed_refs: std::sync::Mutex::new(Vec::new()),
             active_memory_trace: std::sync::Mutex::new(None),
             static_memory_refs: std::sync::Mutex::new(Vec::new()),
             static_memory_manifest: std::sync::Mutex::new(Default::default()),
@@ -770,6 +820,18 @@ impl AssistantAgent {
             .procedure_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .legacy_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        self.legacy_memory_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.legacy_memory_committed_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         // Record user activity so the Dreaming idle trigger has a fresh
         // "last activity" timestamp. Must be cheap — it's just an atomic store.
         crate::memory::dreaming::touch_activity();
@@ -887,6 +949,13 @@ impl AssistantAgent {
         self.turn_durability = Some(sink);
     }
 
+    /// Bind the exact user-authored request separately from its resolved turn
+    /// envelope. Retrieval and ranking consume this value; provider history
+    /// still receives the fully materialized message.
+    pub fn set_retrieval_query(&mut self, query: impl Into<String>) {
+        self.retrieval_query = Some(query.into());
+    }
+
     pub(crate) async fn flush_turn_durability(
         &self,
         reason: crate::turn_durability::FlushReason,
@@ -970,9 +1039,28 @@ impl AssistantAgent {
         arc
     }
 
-    /// Set extra context to append to the system prompt.
-    pub fn set_extra_system_context(&mut self, context: String) {
-        self.extra_system_context = Some(context);
+    /// Set typed run-scoped framing. It is emitted after the stable system
+    /// cache boundary by provider adapters.
+    pub fn set_run_context(&mut self, context: crate::prompt_context::RunInstructionContext) {
+        self.run_context = Some(context);
+    }
+
+    pub fn set_agent_binding_refs(
+        &mut self,
+        bindings: Vec<crate::prompt_context::AgentBindingRef>,
+    ) {
+        self.agent_binding_refs = bindings;
+    }
+
+    pub fn set_context_resource_refs(
+        &mut self,
+        resources: Vec<crate::prompt_context::ContextResourceRef>,
+    ) {
+        self.context_resource_refs = resources;
+    }
+
+    pub fn set_turn_id(&mut self, turn_id: Option<String>) {
+        self.turn_id = turn_id;
     }
 
     /// Set the current session ID (for sub-agent context propagation).
@@ -1046,6 +1134,45 @@ impl AssistantAgent {
             .clone()
     }
 
+    pub(crate) fn current_legacy_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+        self.legacy_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn current_legacy_memory_refs(&self) -> Vec<active_memory::UsedMemoryRef> {
+        self.legacy_memory_refs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    /// Record the exact legacy-memory refs carried by one successful provider
+    /// round. Preserve first-commit order and distinguish `injected` from
+    /// `selected`: both are immutable prompt facts when the same row appeared
+    /// under different rollback outcomes in separate rounds.
+    pub(crate) fn commit_legacy_memory_refs_for_round(
+        &self,
+        refs: &[active_memory::UsedMemoryRef],
+    ) {
+        let mut committed = self
+            .legacy_memory_committed_refs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for reference in refs {
+            let already_committed = committed.iter().any(|existing| {
+                existing.origin == reference.origin
+                    && existing.role == reference.role
+                    && existing.kind == reference.kind
+                    && existing.id == reference.id
+            });
+            if !already_committed {
+                committed.push(reference.clone());
+            }
+        }
+    }
+
     pub(crate) fn current_active_memory_trace(
         &self,
     ) -> Option<std::sync::Arc<active_memory::ActiveMemoryRecall>> {
@@ -1064,6 +1191,12 @@ impl AssistantAgent {
         if let Some(trace) = self.current_active_memory_trace() {
             refs.extend(trace.used_memory_refs());
         }
+        refs.extend(
+            self.legacy_memory_committed_refs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        );
         if let Some(trace) = self.current_related_notes_trace() {
             refs.extend(trace.refs.iter().map(|note| active_memory::UsedMemoryRef {
                 kind: "knowledge".to_string(),
@@ -1128,6 +1261,16 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let legacy_suffix = self
+            .legacy_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let legacy_ref_count = self
+            .legacy_memory_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len();
         let procedure_suffix = self
             .procedure_memory_suffix
             .lock()
@@ -1167,6 +1310,8 @@ impl AssistantAgent {
                 recall_skip_reason,
                 active_trace.as_deref(),
                 active_suffix.as_deref().map(|value| value.as_str()),
+                legacy_suffix.as_deref().map(|value| value.as_str()),
+                legacy_ref_count,
                 procedure_suffix.as_deref().map(|value| value.as_str()),
                 experience_ref_count,
                 graph_ref_count,
@@ -1442,7 +1587,6 @@ impl AssistantAgent {
                         procedure_memory: def.config.memory.procedure_memory,
                         graph_memory: def.config.memory.graph_memory,
                         retrieval_planner: def.config.memory.retrieval_planner,
-                        prompt_budget: def.config.memory.prompt_budget,
                     };
                     (memory, caps)
                 }
@@ -1455,7 +1599,6 @@ impl AssistantAgent {
                         procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
                         graph_memory: crate::agent_config::GraphMemoryConfig::default(),
                         retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
-                        prompt_budget: 5_000,
                     },
                     types::AgentCapsCache {
                         fingerprint,
@@ -3225,7 +3368,24 @@ impl AssistantAgent {
 
     /// Set skill-level allowed tools: when non-empty, only these tools are sent to the LLM.
     pub fn set_skill_allowed_tools(&mut self, tools: Vec<String>) {
-        self.skill_allowed_tools = tools;
+        *self
+            .skill_allowed_tools
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner()) = tools;
+    }
+
+    /// Commit a model-activated Skill ceiling for subsequent API rounds.
+    /// This is intentionally interior-mutable because the streaming loop owns
+    /// `&self`; the operation is monotonic and never grants a tool.
+    pub(crate) fn narrow_skill_allowed_tools(
+        &self,
+        ceiling: crate::skills::SkillToolCeiling,
+    ) -> bool {
+        let mut tools = self
+            .skill_allowed_tools
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        crate::skills::narrow_skill_execution_filter(&mut tools, ceiling)
     }
 
     /// Apply a Plan-mode snapshot supplied externally by the spawn caller
@@ -3264,8 +3424,10 @@ impl AssistantAgent {
         self.plan_agent_mode.store(std::sync::Arc::new(ctx.mode));
         self.plan_mode_allow_paths
             .store(std::sync::Arc::new(ctx.allow_paths));
-        self.plan_extra_context
-            .store(std::sync::Arc::new(ctx.extra_system_context));
+        self.plan_instruction_context
+            .store(std::sync::Arc::new(ctx.run_instruction));
+        self.plan_data_context
+            .store(std::sync::Arc::new(ctx.plan_data));
         self.plan_state_cached.store(std::sync::Arc::new(ctx.state));
     }
 
@@ -3292,16 +3454,16 @@ impl AssistantAgent {
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Snapshot of the current plan-derived system-prompt segment.
-    pub fn plan_extra_context(&self) -> std::sync::Arc<Option<String>> {
-        self.plan_extra_context.load_full()
+    /// Snapshot of the current fixed Plan run-instruction segment.
+    pub fn plan_instruction_context(&self) -> std::sync::Arc<Option<String>> {
+        self.plan_instruction_context.load_full()
     }
 
     /// Snapshot of the cached `PlanModeState` last applied to this agent.
     /// The streaming loop's mid-turn probe uses this — NOT the derived
     /// `plan_agent_mode` — because `Planning ↔ Review` and `Completed ↔
     /// Off` produce identical mode values but materially different
-    /// `extra_system_context` bundles.
+    /// Plan instruction/data bundles.
     pub fn plan_state_cached(&self) -> crate::plan::PlanModeState {
         **self.plan_state_cached.load()
     }
@@ -3322,12 +3484,12 @@ impl AssistantAgent {
     /// `PlanModeState` so any backend transition triggers a fresh
     /// `resolve_plan_context_for_session`.
     ///
-    /// All four plan slots — `state`, `mode`, `allow_paths`,
-    /// `extra_system_context` — are written through `apply_plan_resolved_from_backend`
+    /// All five plan slots — `state`, `mode`, `allow_paths`, fixed instruction,
+    /// and plan data — are written through `apply_plan_resolved_from_backend`
     /// in one shot so a flip Off→Planning (or any same-mode/different-prompt
     /// transition like Planning→Review) installs a coherent contract:
     /// matching tool schema, allow-list paths, AND the right plan-mode
-    /// system-prompt segment.
+    /// instruction and data segments.
     ///
     /// Called both at round head (catches state changes that happened
     /// between rounds) and before each sequential tool inside a round
@@ -3354,9 +3516,8 @@ impl AssistantAgent {
             cached_state,
             live_state
         );
-        // Single source of truth — pull the full bundle (state, mode,
-        // allow_paths, extra_system_context) through the same code path
-        // the chat_engine uses at turn start.
+        // Single source of truth — pull the full bundle through the same code
+        // path the chat engine uses at turn start.
         let resolved = plan_context::resolve_plan_context_for_session(sid).await;
         self.apply_plan_resolved_from_backend(resolved);
         true
@@ -3825,8 +3986,12 @@ impl AssistantAgent {
             _ => &[],
         };
         let denied_tools = crate::mcp::canonicalize_tool_filter_names(&self.denied_tools);
-        let skill_allowed_tools =
-            crate::mcp::canonicalize_tool_filter_names(&self.skill_allowed_tools);
+        let skill_allowed_tools = crate::mcp::canonicalize_tool_filter_names(
+            &self
+                .skill_allowed_tools
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
         let plan_allowed_tools = crate::mcp::canonicalize_tool_filter_names(plan_allowed_tools);
         schemas.retain(|t| {
             let name = tools::canonical_tool_schema_name(extract_tool_name(t));
@@ -3889,8 +4054,8 @@ impl AssistantAgent {
     /// Build the full system prompt, including any extra context.
     /// Precompute the blocking system-prompt inputs on the blocking pool and
     /// stash them in `turn_prompt_cache` for the turn's synchronous builders:
-    /// the base prompt (`build_system_prompt_with_session` — memory / goal /
-    /// working-dir sections, all SessionDB reads) and the LSP diagnostics
+    /// the base prompt (`build_system_prompt_with_session` — stable core memory,
+    /// agent/project instructions and working-dir contract) and the LSP diagnostics
     /// suffix (`git rev-parse` workspace-root discovery). Call from async
     /// context before `build_full_system_prompt` / `build_merged_system_prompt`
     /// so those stay off the async worker; readers that miss the cache fall
@@ -3937,6 +4102,7 @@ impl AssistantAgent {
             model: model.to_string(),
             provider: provider.to_string(),
             base_prompt: std::sync::Arc::new(bundle.prompt),
+            legacy_memory_selection: bundle.legacy_memory_selection,
         });
     }
 
@@ -3968,8 +4134,7 @@ impl AssistantAgent {
                     self.session_id.as_deref(),
                 )
             });
-        let attached_knowledge_section = self.build_attached_knowledge_section();
-        self.append_full_system_prompt_extras(prompt, attached_knowledge_section)
+        self.append_stable_capability_prompt(prompt)
     }
 
     /// Async chat-path variant. Agent/config files, session/project SQLite,
@@ -3988,15 +4153,10 @@ impl AssistantAgent {
                     self.session_id.as_deref(),
                 )
             });
-        let attached_knowledge_section = self.prepare_attached_knowledge_section().await;
-        self.append_full_system_prompt_extras(prompt, attached_knowledge_section)
+        self.append_stable_capability_prompt(prompt)
     }
 
-    fn append_full_system_prompt_extras(
-        &self,
-        mut prompt: String,
-        attached_knowledge_section: Option<String>,
-    ) -> String {
+    fn append_stable_capability_prompt(&self, mut prompt: String) -> String {
         // Single walk over the static catalog: classify every tool's fate
         // up front, then drive both the eager-capability guidance blocks
         // and the # Unconfigured Capabilities section from the same map.
@@ -4065,26 +4225,161 @@ impl AssistantAgent {
             }
         }
 
-        // Caller-supplied extra context (cron task description, subagent
-        // role, etc.) — frames the model's task before any Plan Mode
-        // contract.
-        if let Some(extra) = &self.extra_system_context {
-            prompt.push_str("\n\n");
-            prompt.push_str(extra);
+        // Run-scoped caller and Plan framing is intentionally excluded here.
+        // The streaming adapter emits it after the stable system cache
+        // boundary via `current_run_instruction_suffix()`.
+        prompt
+    }
+
+    /// Snapshot trusted run-scoped framing for one provider round. Keeping it
+    /// separate from `build_full_system_prompt` means cron/subagent/plan churn
+    /// does not invalidate the stable product + agent prefix.
+    pub(crate) fn current_run_instruction_suffix(&self) -> Option<String> {
+        let mut blocks = Vec::new();
+        if let Some(context) = &self.run_context {
+            if let Some(instruction) = context.instruction() {
+                blocks.push(instruction.to_string());
+            }
         }
-        // Plan-derived segment, kept separate so the streaming loop's
-        // mid-turn probe can swap it via `set_plan_extra_context`. Reads
-        // the ArcSwap so a probe that landed since the last build is
-        // observed on the very next system-prompt rebuild.
-        if let Some(plan_extra) = &**self.plan_extra_context.load() {
-            prompt.push_str("\n\n");
-            prompt.push_str(plan_extra);
+        if let Some(plan) = &**self.plan_instruction_context.load() {
+            if !plan.trim().is_empty() {
+                blocks.push(plan.clone());
+            }
         }
-        // Configured MCP servers advertise capabilities through a small
-        // appended section. Its lazy-discovery instruction is conditional on
-        // tool absence rather than mutable pending state, so a mid-turn
-        // catalog refresh cannot make the turn-stable prompt stale. Users with
-        // no effective MCP server keep the prompt shape unchanged.
+        (!blocks.is_empty()).then(|| blocks.join("\n\n"))
+    }
+
+    /// Snapshot data associated with the current run frame. Keeping this
+    /// separate is what prevents Hook/IM/Plan text from inheriting developer
+    /// authority merely because a trusted scheduler or shell carried it.
+    pub(crate) fn current_run_data_suffix(&self) -> Option<String> {
+        let mut blocks = self
+            .run_context
+            .as_ref()
+            .map(|context| context.data().to_vec())
+            .unwrap_or_default();
+        if let Some(plan_data) = &**self.plan_data_context.load() {
+            if !plan_data.trim().is_empty() {
+                blocks.push(format!("Plan document:\n\n{plan_data}"));
+            }
+        }
+        (!blocks.is_empty()).then(|| blocks.join("\n\n"))
+    }
+
+    /// Snapshot mutable session policies and Goal state on the blocking pool.
+    /// The trusted policy half is emitted after the stable cache boundary; the
+    /// user-authored Goal snapshot is emitted in the user-data lane. Keeping
+    /// the pair frozen for the turn also makes provider retries/failover see
+    /// the same initial policy revision.
+    async fn prepare_session_policy_context(&self) -> (Option<String>, Option<String>) {
+        let session_db = self.session_db.clone();
+        let session_id = self.session_id.clone();
+        let incognito = self.session_is_incognito();
+        let default_sandbox_mode = self.agent_caps().sandbox_mode;
+        crate::blocking::run_blocking(move || {
+            let meta = Self::lookup_session_meta_with(session_db.as_ref(), session_id.as_deref());
+            let active_goal = if incognito {
+                None
+            } else if let (Some(db), Some(session_id)) =
+                (session_db.as_ref(), session_id.as_deref())
+            {
+                db.active_goal_for_session(session_id).ok().flatten()
+            } else {
+                session_id.as_deref().and_then(|session_id| {
+                    crate::get_session_db()?
+                        .active_goal_for_session(session_id)
+                        .ok()
+                        .flatten()
+                })
+            };
+
+            let mut instructions = vec![crate::system_prompt::build_permission_mode_guidance(
+                meta.as_ref().map(|m| m.permission_mode).unwrap_or_default(),
+            )];
+            if let Some(section) = meta
+                .as_ref()
+                .map(|m| m.execution_mode)
+                .unwrap_or_default()
+                .system_prompt_section()
+            {
+                instructions.push(section.to_string());
+            }
+            if let Some(section) = meta
+                .as_ref()
+                .map(|m| m.workflow_mode)
+                .unwrap_or_default()
+                .system_prompt_section()
+            {
+                instructions.push(section.to_string());
+            }
+            if active_goal.is_some() {
+                instructions.push(crate::system_prompt::active_goal_runtime_contract().to_string());
+            }
+
+            let sandbox_mode = meta
+                .as_ref()
+                .map(|m| m.sandbox_mode)
+                .unwrap_or(default_sandbox_mode);
+            if sandbox_mode.enabled() {
+                let config = crate::sandbox::load_sandbox_config().unwrap_or_default();
+                instructions.push(crate::system_prompt::build_sandbox_mode_section(
+                    sandbox_mode,
+                    &config,
+                ));
+            }
+
+            let data = active_goal
+                .as_ref()
+                .map(crate::system_prompt::render_active_goal_data);
+            (
+                (!instructions.is_empty()).then(|| instructions.join("\n\n")),
+                data,
+            )
+        })
+        .await
+    }
+
+    /// Build the bounded knowledge-space data block listing the knowledge
+    /// spaces attached to this session (D7). Returns `None` when no KB is
+    /// accessible (incognito, none attached, IM origin not opted in) so the
+    /// section is omitted entirely. Uses the same `effective_kb_access` set the
+    /// note_* tools see, so it never advertises a KB the tools would deny.
+    async fn prepare_attached_knowledge_section(&self) -> Option<String> {
+        let access = (*self.resolve_kb_access()).clone();
+        crate::blocking::run_blocking(move || {
+            Self::build_attached_knowledge_section_for_access(&access)
+        })
+        .await
+    }
+
+    async fn prepare_im_attachment_data(&self) -> Option<String> {
+        let session_id = self.session_id.clone()?;
+        let session_db = self.session_db.clone();
+        crate::blocking::run_blocking(move || {
+            let info = Self::lookup_session_meta_with(session_db.as_ref(), Some(&session_id))?
+                .channel_info?;
+            Some(crate::system_prompt::build_im_channel_attachment_data(
+                &info,
+            ))
+        })
+        .await
+    }
+
+    async fn prepare_user_profile_data(&self) -> Option<String> {
+        crate::blocking::run_blocking(|| {
+            let config = crate::user_config::load_user_config().ok()?;
+            crate::user_config::build_user_context(&config)
+        })
+        .await
+    }
+
+    /// Build bounded capability metadata for the current turn. This is kept
+    /// out of the stable system prefix because configured server names are
+    /// user-owned data. Tool availability and execution authority remain
+    /// governed by the live dispatch and permission layers.
+    fn current_capability_catalog_suffix(&self) -> Option<String> {
+        let app_config = crate::config::cached_config();
+        let caps = self.agent_caps();
         let mcp_scope_allows_prompt = self
             .tool_scope
             .map(|scope| {
@@ -4092,38 +4387,9 @@ impl AssistantAgent {
                     || scope.allows(crate::tool_defs::TOOL_MCP_PROMPT)
             })
             .unwrap_or(true);
-        if caps.mcp_enabled && app_config.mcp_global.enabled && mcp_scope_allows_prompt {
-            if let Some(snippet) = crate::mcp::catalog::system_prompt_snippet() {
-                prompt.push_str("\n\n");
-                prompt.push_str(&snippet);
-            }
-        }
-        // Attached knowledge spaces (D7). Appended last, like the MCP snippet:
-        // present only when at least one KB is reachable, so non-KB sessions keep
-        // the prompt shape stable. Changes only on attach/detach → cache-friendly.
-        if let Some(section) = attached_knowledge_section {
-            prompt.push_str("\n\n");
-            prompt.push_str(&section);
-        }
-        prompt
-    }
-
-    /// Build the `# Knowledge Bases` system-prompt section listing the knowledge
-    /// spaces attached to this session (D7). Returns `None` when no KB is
-    /// accessible (incognito, none attached, IM origin not opted in) so the
-    /// section is omitted entirely. Uses the same `effective_kb_access` set the
-    /// note_* tools see, so it never advertises a KB the tools would deny.
-    fn build_attached_knowledge_section(&self) -> Option<String> {
-        let access = self.resolve_kb_access();
-        Self::build_attached_knowledge_section_for_access(&access)
-    }
-
-    async fn prepare_attached_knowledge_section(&self) -> Option<String> {
-        let access = (*self.resolve_kb_access()).clone();
-        crate::blocking::run_blocking(move || {
-            Self::build_attached_knowledge_section_for_access(&access)
-        })
-        .await
+        (caps.mcp_enabled && app_config.mcp_global.enabled && mcp_scope_allows_prompt)
+            .then(crate::mcp::catalog::system_prompt_snippet)
+            .flatten()
     }
 
     fn build_attached_knowledge_section_for_access(
@@ -4164,7 +4430,7 @@ impl AssistantAgent {
             return None;
         }
         Some(format!(
-            "# Knowledge Bases (已挂载知识空间)\n\n\
+            "Knowledge Bases (已挂载知识空间)\n\n\
              The user has attached the knowledge spaces below to this conversation. Use \
              `note_search` / `note_read` / the other `note_*` tools (pass the matching `kb` \
              id) to search and read their notes, and `knowledge_recall` to search notes and \
@@ -4185,20 +4451,16 @@ impl AssistantAgent {
         self.build_full_system_prompt(model, provider)
     }
 
-    /// Build the merged system prompt string (static prefix + dynamic suffixes
-    /// that should count toward compaction budgets). Provider adapters still
-    /// send those suffixes as separate system blocks when possible.
+    /// Build the trusted prompt used by the independent compaction call. Data
+    /// lanes such as awareness/recall/notes are intentionally absent: placing
+    /// them in the summarizer's system message would silently raise their
+    /// authority. Normal provider requests account for them through the round
+    /// token manifest instead.
     pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
         self.merge_dynamic_system_prompt(self.build_full_system_prompt(model, provider))
     }
 
     fn merge_dynamic_system_prompt(&self, mut prompt: String) -> String {
-        if let Some(suffix) = self.current_awareness_suffix() {
-            if !suffix.is_empty() {
-                prompt.push_str("\n\n");
-                prompt.push_str(&suffix);
-            }
-        }
         if let Some(suffix) = self.current_coding_profile_suffix() {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
@@ -4239,8 +4501,12 @@ impl AssistantAgent {
             .unwrap_or(caps.sandbox_mode);
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         let denied_tools = crate::mcp::canonicalize_tool_filter_names(&self.denied_tools);
-        let skill_allowed_tools =
-            crate::mcp::canonicalize_tool_filter_names(&self.skill_allowed_tools);
+        let skill_allowed_tools = crate::mcp::canonicalize_tool_filter_names(
+            &self
+                .skill_allowed_tools
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
         let plan_agent_mode = self.plan_agent_mode.load();
         let (plan_mode_allowed_tools, plan_mode_ask_tools) = match &**plan_agent_mode {
             types::PlanAgentMode::PlanAgent {
@@ -4258,6 +4524,9 @@ impl AssistantAgent {
             home_dir: self.agent_home(),
             session_working_dir,
             session_id: self.session_id.clone(),
+            turn_id: self.turn_id.clone(),
+            agent_binding_refs: self.agent_binding_refs.clone(),
+            context_resource_refs: self.context_resource_refs.clone(),
             workflow_run_id: None,
             session_db: self
                 .session_db
@@ -4362,31 +4631,28 @@ impl AssistantAgent {
         self.compaction_provider = provider;
     }
 
-    /// Apply the context engine's optional system prompt addition.
+    /// Apply the context engine's optional stable, trusted behavior contract.
     pub(super) fn apply_engine_prompt_addition(&self, system_prompt: &mut String) {
-        if let Some(addition) = self.context_engine.system_prompt_addition() {
+        if let Some(addition) = self.context_engine.stable_system_prompt_addition() {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&addition);
         }
     }
 
-    /// If LLM memory selection is enabled and enough candidates exist,
-    /// use side_query to select only the most relevant memories and replace
-    /// the `# Memory` section in the system prompt.
-    pub(crate) async fn select_memories_if_needed(
-        &self,
-        system_prompt: &mut String,
-        user_message: &str,
-    ) {
+    /// V1 rollback-only memory selector. Selected rows retain their capability
+    /// but are published through a dedicated dynamic legacy-memory data slot;
+    /// they neither replace Active Memory nor rewrite the stable system prefix.
+    pub(crate) async fn select_memories_if_needed(&self, user_message: &str) {
         if self.session_is_incognito() {
             return;
         }
         // Memory UX v2 owns dynamic selection through MemoryRecallPlanner and
         // optional Deep Recall. The legacy `memorySelection` field remains a
-        // mirrored compatibility setting, so running this V1 replacer while
-        // V2 is active would make the same opt-in issue a second side query
-        // and replace the Core/Guidelines `# Memory` section with SQLite
-        // content. Only a full V1 rollout rollback may execute this path.
+        // mirrored compatibility setting, so running this V1 selector while
+        // V2 is active would issue a duplicate side query. During a full V1
+        // rollback, config assembly omits only the legacy SQLite rows from the
+        // stable prefix; this function publishes either the selected set or a
+        // full fallback through the dynamic data lane.
         if !crate::config::cached_config()
             .memory
             .legacy_selection_replacer_enabled()
@@ -4394,40 +4660,13 @@ impl AssistantAgent {
             return;
         }
         let config = crate::memory::helpers::load_memory_selection_config();
-        if !config.enabled {
-            return;
-        }
-
-        let backend = match crate::get_memory_backend() {
-            Some(b) => b.clone(),
-            None => return,
-        };
-        let memory_config = self.active_memory_state.current_agent_config();
-        let shared = memory_config
-            .as_ref()
-            .map(|config| config.shared_global)
-            .unwrap_or(true);
-        let budget = memory_config
-            .as_ref()
-            .map(|config| config.prompt_budget)
-            .unwrap_or(5_000);
-        let agent_id = self.agent_id.clone();
-        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+        // Install the full snapshot before checking the opt-in or starting any
+        // fallible LLM work. Disabled selection, timeout, provider failure and
+        // malformed output therefore all retain the complete V1 fallback.
+        let Some(snapshot) = self.begin_legacy_memory_selection(config.enabled) else {
             return;
         };
-        let candidates = match tokio::time::timeout(
-            ACTIVE_MEMORY_RETRIEVAL_TIMEOUT,
-            crate::blocking::run_blocking(move || {
-                let _retrieval_slot = retrieval_slot;
-                backend.load_prompt_candidates(&agent_id, shared)
-            }),
-        )
-        .await
-        {
-            Ok(Ok(candidates)) => candidates,
-            Ok(Err(_)) | Err(_) => return,
-        };
-
+        let candidates = snapshot.candidates.as_ref();
         if candidates.len() <= config.threshold {
             return;
         }
@@ -4456,15 +4695,26 @@ impl AssistantAgent {
         {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
+                let failure = crate::cache_routing::audit_fingerprint(
+                    "legacy-memory-selection",
+                    e.to_string().as_bytes(),
+                );
                 app_warn!(
                     "memory",
                     "selection",
-                    "LLM memory selection failed, using full set: {}",
-                    e
+                    "LLM memory selection failed; using full data set ({})",
+                    &failure[..16]
                 );
                 return;
             }
-            Err(_) => return,
+            Err(_) => {
+                app_warn!(
+                    "memory",
+                    "selection",
+                    "LLM memory selection timed out; using full data set"
+                );
+                return;
+            }
         };
 
         let selected_ids = crate::memory::selection::parse_selection_response(&result.text);
@@ -4482,9 +4732,12 @@ impl AssistantAgent {
             return;
         }
 
-        let new_summary = crate::memory::sqlite::format_prompt_summary(&selected, budget);
-
-        crate::memory::selection::replace_memory_section(system_prompt, &new_summary);
+        let (new_summary, selected_refs) =
+            format_legacy_dynamic_memory(&selected, snapshot.budget, "selected");
+        if new_summary.is_empty() {
+            return;
+        }
+        self.set_legacy_memory_selection_data(new_summary, selected_refs);
 
         if let Some(logger) = crate::get_logger() {
             logger.log(
@@ -4502,6 +4755,95 @@ impl AssistantAgent {
                 None,
             );
         }
+    }
+
+    /// Publish the full V1 rollback fallback and return the frozen candidates
+    /// only when semantic selection is enabled. The fallback write deliberately
+    /// happens first: callers may return from any later failure without
+    /// blanking memory for this turn.
+    fn begin_legacy_memory_selection(
+        &self,
+        selection_enabled: bool,
+    ) -> Option<types::LegacyMemorySelectionSnapshot> {
+        let snapshot = self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .and_then(|cache| cache.legacy_memory_selection.clone());
+        let (fallback, refs, candidate_count) = snapshot.as_ref().map_or_else(
+            || (None, Vec::new(), 0),
+            |snapshot| {
+                (
+                    snapshot.full_fallback.clone(),
+                    snapshot.full_fallback_refs.as_ref().clone(),
+                    snapshot.candidates.len(),
+                )
+            },
+        );
+        *self
+            .legacy_memory_suffix
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = fallback;
+        *self
+            .legacy_memory_refs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = refs;
+        self.set_legacy_memory_layer(candidate_count);
+        selection_enabled.then_some(snapshot).flatten()
+    }
+
+    fn set_legacy_memory_selection_data(
+        &self,
+        content: String,
+        refs: Vec<active_memory::UsedMemoryRef>,
+    ) {
+        *self
+            .legacy_memory_suffix
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(std::sync::Arc::new(content));
+        *self
+            .legacy_memory_refs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = refs;
+        let candidate_count = self
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .and_then(|cache| cache.legacy_memory_selection.as_ref())
+            .map_or(0, |snapshot| snapshot.candidates.len());
+        self.set_legacy_memory_layer(candidate_count);
+    }
+
+    fn set_legacy_memory_layer(&self, candidate_count: usize) {
+        let (ref_count, injected_count, selected_count) = {
+            let refs = self
+                .legacy_memory_refs
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            (
+                refs.len(),
+                refs.iter()
+                    .filter(|reference| reference.role == "injected")
+                    .count(),
+                refs.iter()
+                    .filter(|reference| reference.role == "selected")
+                    .count(),
+            )
+        };
+        self.set_retrieval_planner_layer(retrieval_planner::RetrievalPlannerLayerTrace {
+            layer: "legacy_memory".to_string(),
+            status: if ref_count == 0 { "empty" } else { "used" }.to_string(),
+            ref_count,
+            injected_count,
+            selected_count,
+            candidate_count,
+            dropped_count: candidate_count.saturating_sub(ref_count),
+            skipped_reason: (ref_count == 0).then(|| "no_budgeted_rows".to_string()),
+            latency_ms: None,
+            cached: None,
+        });
     }
 
     pub async fn chat(
@@ -4525,11 +4867,8 @@ impl AssistantAgent {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .len();
-            let msg_preview = if message.len() > 200 {
-                format!("{}...", crate::truncate_utf8(message, 200))
-            } else {
-                message.to_string()
-            };
+            let message_fingerprint =
+                crate::cache_routing::audit_fingerprint("agent-chat-message", message.as_bytes());
             logger.log(
                 "info",
                 "agent",
@@ -4545,7 +4884,8 @@ impl AssistantAgent {
                         "reasoning_effort": reasoning_effort,
                         "attachments": attachments.len(),
                         "history_messages": history_len,
-                        "message_preview": msg_preview,
+                        "message_bytes": message.len(),
+                        "message_fingerprint": message_fingerprint,
                     })
                     .to_string(),
                 ),
@@ -4653,6 +4993,183 @@ mod tests {
         assert_eq!(backdate_instant_safely(now, Duration::MAX), now);
     }
 
+    fn legacy_selection_snapshot() -> super::types::LegacyMemorySelectionSnapshot {
+        super::types::LegacyMemorySelectionSnapshot {
+            candidates: Arc::new(vec![crate::memory::MemoryEntry {
+                id: 1,
+                memory_type: crate::memory::MemoryType::User,
+                scope: crate::memory::MemoryScope::Global,
+                content: "full legacy fallback".to_string(),
+                tags: Vec::new(),
+                source: "user".to_string(),
+                source_session_id: None,
+                pinned: false,
+                created_at: "2026-08-10T00:00:00Z".to_string(),
+                updated_at: "2026-08-10T00:00:00Z".to_string(),
+                relevance_score: None,
+                retrieval_evidence: None,
+                attachment_path: None,
+                attachment_mime: None,
+            }]),
+            full_fallback: Some(Arc::new("# Memory\nfull legacy fallback".to_string())),
+            full_fallback_refs: Arc::new(vec![super::active_memory::UsedMemoryRef {
+                kind: "memory".to_string(),
+                id: "1".to_string(),
+                source_type: "user".to_string(),
+                scope: "global".to_string(),
+                origin: "legacy_memory".to_string(),
+                role: "injected".to_string(),
+                preview: "full legacy fallback".to_string(),
+                path: None,
+                line: None,
+                col: None,
+                heading_path: None,
+                block_id: None,
+                score: None,
+                confidence: None,
+                salience: None,
+            }]),
+            budget: 5_000,
+        }
+    }
+
+    fn install_legacy_selection_cache(agent: &AssistantAgent) {
+        *agent
+            .turn_prompt_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(super::types::TurnPromptCache {
+            model: "test-model".to_string(),
+            provider: "test-provider".to_string(),
+            base_prompt: Arc::new("stable prompt".to_string()),
+            legacy_memory_selection: Some(legacy_selection_snapshot()),
+        });
+    }
+
+    #[test]
+    fn disabled_v1_selector_still_publishes_full_dynamic_fallback() {
+        let agent = AssistantAgent::new_anthropic("test-key");
+        install_legacy_selection_cache(&agent);
+        *agent
+            .active_memory_suffix
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) =
+            Some(Arc::new("modern active recall".to_string()));
+
+        assert!(agent.begin_legacy_memory_selection(false).is_none());
+        assert_eq!(
+            agent
+                .current_legacy_memory_suffix()
+                .as_deref()
+                .map(String::as_str),
+            Some("# Memory\nfull legacy fallback")
+        );
+        assert_eq!(
+            agent
+                .current_active_memory_suffix()
+                .as_deref()
+                .map(String::as_str),
+            Some("modern active recall")
+        );
+        let round_refs = agent.current_legacy_memory_refs();
+        agent.commit_legacy_memory_refs_for_round(&round_refs);
+        let refs = agent.current_used_memory_refs();
+        assert!(refs.iter().any(|reference| {
+            reference.origin == "legacy_memory"
+                && reference.id == "1"
+                && reference.role == "injected"
+        }));
+    }
+
+    #[test]
+    fn fallible_v1_selector_starts_with_full_fallback_installed() {
+        let agent = AssistantAgent::new_anthropic("test-key");
+        install_legacy_selection_cache(&agent);
+
+        let snapshot = agent
+            .begin_legacy_memory_selection(true)
+            .expect("selection snapshot");
+        assert_eq!(snapshot.budget, 5_000);
+        // A timeout/error path returns without replacing this value.
+        assert_eq!(
+            agent
+                .current_legacy_memory_suffix()
+                .as_deref()
+                .map(String::as_str),
+            Some("# Memory\nfull legacy fallback")
+        );
+    }
+
+    #[test]
+    fn v1_selected_dynamic_rows_emit_exact_selected_refs() {
+        let snapshot = legacy_selection_snapshot();
+        let (summary, refs) = super::format_legacy_dynamic_memory(
+            snapshot.candidates.as_ref(),
+            snapshot.budget,
+            "selected",
+        );
+
+        assert!(summary.contains("full legacy fallback"));
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].id, "1");
+        assert_eq!(refs[0].origin, "legacy_memory");
+        assert_eq!(refs[0].role, "selected");
+    }
+
+    #[test]
+    fn legacy_memory_committed_refs_survive_mid_turn_slot_replacement() {
+        let agent = AssistantAgent::new_anthropic("test-key");
+        install_legacy_selection_cache(&agent);
+
+        assert!(agent.begin_legacy_memory_selection(false).is_none());
+        let first_round_refs = agent.current_legacy_memory_refs();
+        agent.commit_legacy_memory_refs_for_round(&first_round_refs);
+
+        let mut second_round_ref = first_round_refs[0].clone();
+        second_round_ref.id = "2".to_string();
+        second_round_ref.preview = "selected after plan resync".to_string();
+        second_round_ref.role = "selected".to_string();
+        agent.set_legacy_memory_selection_data(
+            "# Memory\nselected after plan resync".to_string(),
+            vec![second_round_ref],
+        );
+        let second_round_refs = agent.current_legacy_memory_refs();
+        agent.commit_legacy_memory_refs_for_round(&second_round_refs);
+
+        let refs = agent.current_used_memory_refs();
+        let legacy = refs
+            .iter()
+            .filter(|reference| reference.origin == "legacy_memory")
+            .map(|reference| (reference.id.as_str(), reference.role.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(legacy, vec![("1", "injected"), ("2", "selected")]);
+    }
+
+    #[test]
+    fn unsubmitted_legacy_fallback_is_not_reported_after_selection_replaces_it() {
+        let agent = AssistantAgent::new_anthropic("test-key");
+        install_legacy_selection_cache(&agent);
+
+        assert!(agent.begin_legacy_memory_selection(true).is_some());
+        let mut selected = agent.current_legacy_memory_refs()[0].clone();
+        selected.id = "2".to_string();
+        selected.role = "selected".to_string();
+        agent.set_legacy_memory_selection_data("# Memory\nselected".to_string(), vec![selected]);
+        let selected_round_refs = agent.current_legacy_memory_refs();
+        agent.commit_legacy_memory_refs_for_round(&selected_round_refs);
+
+        let refs = agent.current_used_memory_refs();
+        assert!(!refs.iter().any(|reference| {
+            reference.origin == "legacy_memory"
+                && reference.id == "1"
+                && reference.role == "injected"
+        }));
+        assert!(refs.iter().any(|reference| {
+            reference.origin == "legacy_memory"
+                && reference.id == "2"
+                && reference.role == "selected"
+        }));
+    }
+
     #[test]
     fn incognito_tool_activations_survive_agent_rebuild_and_burn_on_purge() {
         let session_id = format!("incognito-{}", uuid::Uuid::new_v4());
@@ -4705,6 +5222,44 @@ mod tests {
         // Turn boundary clears it so the next turn re-resolves.
         agent.reset_chat_flags();
         assert!(!lock(&agent), "reset_chat_flags clears the per-turn memo");
+    }
+
+    #[tokio::test]
+    async fn im_attachment_data_reads_the_agent_bound_session_database() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        let channel_db = crate::channel::ChannelDB::new(db.clone());
+        channel_db.migrate().expect("migrate channel table");
+        let session = db.create_session("ha-main").expect("create session");
+        channel_db
+            .attach_session(
+                "telegram",
+                "bound-account",
+                "bound-chat",
+                None,
+                &session.id,
+                "attach",
+                None,
+                None,
+                Some("Bound Sender"),
+                &crate::channel::ChatType::Dm,
+            )
+            .expect("attach channel session");
+
+        let mut agent = super::AssistantAgent::new_anthropic("test-key");
+        agent.set_session_db(db);
+        agent.set_session_id(&session.id);
+        let data = agent
+            .prepare_im_attachment_data()
+            .await
+            .expect("bound IM metadata");
+        assert!(data.contains("telegram"));
+        assert!(data.contains("bound-account"));
+        assert!(data.contains("bound-chat"));
+        assert!(data.contains("Bound Sender"));
     }
 
     #[test]

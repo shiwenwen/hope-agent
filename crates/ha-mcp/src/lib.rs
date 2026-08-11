@@ -56,6 +56,15 @@ fn tool_definitions_snapshot() -> std::sync::Arc<Vec<ha_core::tools::ToolDefinit
     }
 }
 
+fn connector_mention_config_is_available(
+    server: &McpServerConfig,
+    denied_servers: &[String],
+) -> bool {
+    server.enabled
+        && !denied_servers.contains(&server.name)
+        && config::validate_server_config(server).is_ok()
+}
+
 /// Hot-sync the MCP runtime from the current cached app config.
 ///
 /// This handles both steady-state edits (`McpManager` already exists) and
@@ -124,6 +133,82 @@ pub(crate) async fn ensure_server_connected(
 pub fn wire() {
     static WIRED: std::sync::Once = std::sync::Once::new();
     WIRED.call_once(|| {
+        fn list_connector_mentions(
+            principal_agent_id: &str,
+        ) -> Vec<ha_core::mention_hooks::MentionCapabilityCandidate> {
+            if !ha_core::agent_loader::load_agent(principal_agent_id)
+                .map(|agent| agent.config.capabilities.mcp_enabled)
+                .unwrap_or(false)
+            {
+                return Vec::new();
+            }
+            let store = ha_core::config::cached_config();
+            if !store.mcp_global.enabled {
+                return Vec::new();
+            }
+            store
+                .mcp_servers
+                .iter()
+                .filter(|server| {
+                    connector_mention_config_is_available(
+                        server,
+                        &store.mcp_global.denied_servers,
+                    )
+                })
+                .map(|server| ha_core::mention_hooks::MentionCapabilityCandidate {
+                    kind: ha_core::prompt_context::MentionKind::Connector,
+                    target_id: server.id.clone(),
+                    display_label: server.name.clone(),
+                    namespace: String::new(),
+                    summary: server.description.clone().unwrap_or_else(|| {
+                        "Configured MCP connector; live tool, authentication, scope, disclosure, and approval checks apply at use time.".to_string()
+                    }),
+                })
+                .collect()
+        }
+        fn resolve_connector_mention(
+            kind: ha_core::prompt_context::MentionKind,
+            target_id: &str,
+            principal_agent_id: &str,
+        ) -> Option<ha_core::mention_hooks::ResolvedCapabilityMention> {
+            if kind != ha_core::prompt_context::MentionKind::Connector {
+                return None;
+            }
+            if !ha_core::agent_loader::load_agent(principal_agent_id)
+                .map(|agent| agent.config.capabilities.mcp_enabled)
+                .unwrap_or(false)
+            {
+                return None;
+            }
+            let store = ha_core::config::cached_config();
+            if !store.mcp_global.enabled {
+                return None;
+            }
+            let server = store
+                .mcp_servers
+                .iter()
+                .find(|server| {
+                    connector_mention_config_is_available(
+                        server,
+                        &store.mcp_global.denied_servers,
+                    )
+                        && server.id == target_id
+                })?;
+            Some(ha_core::mention_hooks::ResolvedCapabilityMention {
+                namespace: format!("mcp:{}", server.id),
+                display_alias: server.name.clone(),
+                capability_summary: "Configured MCP connector. Discover and call only the tools/resources needed for the user's request; live authentication, scope, disclosure, and approval checks still apply.".to_string(),
+            })
+        }
+        ha_core::mention_hooks::register_mention_provider(
+            ha_core::mention_hooks::MentionProvider {
+                namespace: "mcp",
+                list: list_connector_mentions,
+                resolve: resolve_connector_mention,
+            },
+        )
+        .expect("ha_mcp::wire() registers the MCP mention provider once");
+
         fn mcp_resource_handler<'a>(
             args: &'a serde_json::Value,
             _ctx: &'a ha_core::tools::ToolExecContext,
@@ -247,6 +332,38 @@ pub fn wire() {
 mod tests {
     use super::*;
 
+    fn valid_server() -> McpServerConfig {
+        McpServerConfig {
+            id: "id-1".into(),
+            name: "connector".into(),
+            enabled: true,
+            transport: McpTransportSpec::Stdio {
+                command: "true".into(),
+                args: vec![],
+                cwd: None,
+            },
+            env: Default::default(),
+            headers: Default::default(),
+            oauth: None,
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            connect_timeout_secs: 30,
+            call_timeout_secs: 120,
+            health_check_interval_secs: 60,
+            max_concurrent_calls: 4,
+            auto_approve: false,
+            trust_level: McpTrustLevel::Untrusted,
+            eager: false,
+            deferred_tools: false,
+            project_paths: vec![],
+            description: None,
+            icon: None,
+            created_at: 0,
+            updated_at: 0,
+            trust_acknowledged_at: None,
+        }
+    }
+
     #[test]
     fn disabled_catalog_snapshot_keeps_pointer_identity() {
         assert!(McpManager::global().is_none());
@@ -254,5 +371,20 @@ mod tests {
         let second = tool_definitions_snapshot();
         assert!(std::sync::Arc::ptr_eq(&first, &second));
         assert!(first.is_empty());
+    }
+
+    #[test]
+    fn connector_mentions_exclude_invalid_server_configs() {
+        let valid = valid_server();
+        assert!(connector_mention_config_is_available(&valid, &[]));
+
+        let mut invalid = valid;
+        invalid.transport = McpTransportSpec::Stdio {
+            command: " ".into(),
+            args: vec![],
+            cwd: None,
+        };
+        assert!(config::validate_server_config(&invalid).is_err());
+        assert!(!connector_mention_config_is_available(&invalid, &[]));
     }
 }

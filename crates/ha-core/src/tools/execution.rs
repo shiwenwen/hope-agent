@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use super::exec;
 use super::{
     approval, TOOL_APPLY_PATCH, TOOL_EDIT, TOOL_EXEC, TOOL_LS, TOOL_MAC_CONTROL, TOOL_READ,
-    TOOL_WORKFLOW, TOOL_WRITE,
+    TOOL_READ_CONTEXT_RESOURCE, TOOL_WORKFLOW, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -99,6 +99,7 @@ pub async fn resolve_tool_permission(
         agent_id: ctx.agent_id.as_deref(),
         default_path: Some(ctx.default_path()),
         is_internal_tool,
+        bound_context_resource_read: is_bound_context_resource_read(tool_name, args, ctx),
         smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
         unattended,
         task_intent: cron_intent.as_deref(),
@@ -311,7 +312,8 @@ impl ToolExecContext {
                 submitted_name
             ));
         }
-        if !self.skill_allowed_tools.is_empty()
+        if canonical != TOOL_READ_CONTEXT_RESOURCE
+            && !self.skill_allowed_tools.is_empty()
             && !self.skill_allowed_tools.iter().any(|t| t == submitted_name)
             && !crate::mcp::tool_filter_contains(&self.skill_allowed_tools, canonical)
         {
@@ -320,7 +322,8 @@ impl ToolExecContext {
                 submitted_name
             ));
         }
-        if !self.plan_mode_allowed_tools.is_empty()
+        if canonical != TOOL_READ_CONTEXT_RESOURCE
+            && !self.plan_mode_allowed_tools.is_empty()
             && !self
                 .plan_mode_allowed_tools
                 .iter()
@@ -606,6 +609,12 @@ fn needs_permission_engine(
     ctx: &ToolExecContext,
     effective_auto_approve: bool,
 ) -> bool {
+    // Turn-local immutable reads are deterministically classified inside the
+    // engine. Never bypass that single entrance, including for auto-approved
+    // surfaces; the engine receives whether this exact ref is actually bound.
+    if name == TOOL_READ_CONTEXT_RESOURCE {
+        return true;
+    }
     let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
     let plan_requires_ask =
         plan_mode_active && crate::mcp::tool_filter_contains(&ctx.plan_mode_ask_tools, name);
@@ -619,6 +628,25 @@ fn needs_permission_engine(
     (!effective_auto_approve || auto_approve_blocked_by_plan)
         && !is_skill_read(name, args)
         && (name != TOOL_EXEC || exec_skip_blocked_by_plan)
+}
+
+fn is_bound_context_resource_read(name: &str, args: &Value, ctx: &ToolExecContext) -> bool {
+    if name != TOOL_READ_CONTEXT_RESOURCE {
+        return false;
+    }
+    let Some(resource_ref) = args
+        .get("resource_ref")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    ctx.context_resource_refs.iter().any(|resource| {
+        resource.resource_ref == resource_ref
+            && ctx.session_id.as_deref() == Some(resource.parent_session_id.as_str())
+            && ctx.turn_id.as_deref() == resource.parent_turn_id.as_deref()
+            && ctx.agent_id.as_deref() == Some(resource.principal_agent_id.as_str())
+    })
 }
 
 async fn capture_mac_control_approval_focus_anchor(
@@ -1860,10 +1888,11 @@ mod tests {
     use super::{
         build_persisted_large_result_preview, canonical_mcp_execution_name_from,
         decide_async_path_with_config, exec_process_background_mode, execute_tool_with_context,
-        maybe_persist_large_tool_result, migrate_exec_process_mode_to_async_job_args,
-        needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
-        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
-        AsyncDecision, JobOrigin, ToolExecContext,
+        is_bound_context_resource_read, maybe_persist_large_tool_result,
+        migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
+        should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
+        tool_timeout, validate_async_background_contract, AsyncDecision, JobOrigin,
+        ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -2418,6 +2447,55 @@ export default async function main(workflow) {
             &json!({}),
             &ctx,
             true
+        ));
+    }
+
+    #[test]
+    fn bound_context_resource_read_always_enters_permission_engine() {
+        let mut ctx = ToolExecContext {
+            session_id: Some("session-1".into()),
+            turn_id: Some("turn-1".into()),
+            agent_id: Some("agent-1".into()),
+            context_resource_refs: vec![crate::prompt_context::ContextResourceRef {
+                resource_ref: "ctxref-1".into(),
+                mention_id: "mention-1".into(),
+                target_id: "notes/demo.txt".into(),
+                file_name: "demo.txt".into(),
+                mime_type: "text/plain".into(),
+                parent_session_id: "session-1".into(),
+                parent_turn_id: Some("turn-1".into()),
+                principal_agent_id: "agent-1".into(),
+                bytes: Arc::from(&b"frozen"[..]),
+                turn_budget: Arc::new(crate::prompt_context::ContextResourceTurnBudget::default()),
+            }],
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        let args = json!({"resource_ref": "ctxref-1"});
+
+        assert!(is_bound_context_resource_read(
+            crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+            &args,
+            &ctx,
+        ));
+        assert!(needs_permission_engine(
+            crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+            &args,
+            &ctx,
+            ctx.local_auto_approve(),
+        ));
+
+        ctx.turn_id = Some("other-turn".into());
+        assert!(!is_bound_context_resource_read(
+            crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+            &args,
+            &ctx,
+        ));
+        assert!(needs_permission_engine(
+            crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+            &args,
+            &ctx,
+            ctx.local_auto_approve(),
         ));
     }
 

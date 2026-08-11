@@ -554,6 +554,7 @@ pub fn handle_search(args: &str) -> Result<CommandResult, String> {
         content: String::new(),
         action: Some(CommandAction::PassThrough {
             message: format!("Please search the web for: {}", query),
+            skill_activation: None,
         }),
     })
 }

@@ -637,6 +637,15 @@ pub fn init_runtime(role: &'static str) {
         run_registered_init_tasks();
     }
 
+    if let Err(error) = crate::cache_routing::init() {
+        app_warn!(
+            "provider",
+            "cache_routing",
+            "persistent prompt-cache routing affinity unavailable; using a process-local key: {}",
+            error
+        );
+    }
+
     // Install a panic hook that flushes any in-flight stream persisters
     // before the original hook (Tauri's logger / test harness / etc.)
     // takes over. Idempotent — multiple `init_runtime` calls are no-op.
@@ -1756,10 +1765,78 @@ fn init_mcp_subsystem() -> bool {
     crate::mcp::init_subsystem()
 }
 
+const TYPED_RESOURCE_CLEANUP_BATCH: usize = 4_096;
+
+fn drain_pending_typed_resource_snapshots(session_db: &SessionDB) -> anyhow::Result<usize> {
+    drain_pending_typed_resource_snapshots_with_batch(session_db, TYPED_RESOURCE_CLEANUP_BATCH)
+}
+
+fn drain_pending_typed_resource_snapshots_with_batch(
+    session_db: &SessionDB,
+    batch_size: usize,
+) -> anyhow::Result<usize> {
+    let Some(through_row_id) = session_db.typed_resource_snapshot_cleanup_high_watermark()? else {
+        return Ok(0);
+    };
+    let mut acknowledged = 0usize;
+    let mut after_row_id = 0i64;
+    loop {
+        let pending = session_db.pending_typed_resource_snapshot_cleanups_through(
+            after_row_id,
+            through_row_id,
+            batch_size.max(1),
+        )?;
+        let Some(last_row_id) = pending.last().map(|cleanup| cleanup.ledger_row_id) else {
+            break;
+        };
+        for cleanup in pending {
+            if let Err(error) = crate::attachments::remove_pending_typed_resource_snapshot(&cleanup)
+            {
+                app_warn!(
+                    "session",
+                    "context_materialization_gc",
+                    "left pending typed-resource snapshot for run {} in place: {}",
+                    cleanup.run_id,
+                    error
+                );
+                continue;
+            }
+            if session_db.finish_typed_resource_snapshot_cleanup(&cleanup)? {
+                acknowledged += 1;
+            }
+        }
+        // Failed rows remain durable but are skipped for this bounded
+        // high-watermark pass, preventing one corrupt/unavailable path from
+        // starving later batches or creating an in-process retry loop. The
+        // next startup/daily pass retries them from rowid zero.
+        after_row_id = last_row_id;
+    }
+    Ok(acknowledged)
+}
+
 fn recover_durable_chat_streams(
     session_db: &Arc<SessionDB>,
     cause: crate::chat_engine::finalize::sentinel::StartupCause,
 ) {
+    // A run deletion and its ownership transition are one SQLite transaction;
+    // the unlink/ack half is intentionally recoverable across process death.
+    // Unknown run-shaped files without a ledger row are never guessed away.
+    match drain_pending_typed_resource_snapshots(session_db) {
+        Ok(count) if count > 0 => app_info!(
+            "session",
+            "context_materialization_gc",
+            "removed {} expired typed-resource snapshot(s) during startup",
+            count
+        ),
+        Ok(_) => {}
+        Err(error) => app_warn!(
+            "session",
+            "context_materialization_gc",
+            "cannot drain pending typed-resource snapshots during startup: {}",
+            error
+        ),
+    }
+
     let mut spool_integrity_errors = std::collections::HashMap::<String, String>::new();
     // Import every complete emergency-spool frame first. The spool is only
     // deleted after the corresponding run converges transactionally below.
@@ -1858,6 +1935,32 @@ fn recover_durable_chat_streams(
         else {
             continue;
         };
+        if snapshot.run.run_id != run.run_id || snapshot.run.session_id != run.session_id {
+            app_warn!(
+                "session",
+                "context_materialization_recovery",
+                "stream snapshot identity mismatch for run {}; leaving materializations in place",
+                run.run_id
+            );
+            continue;
+        }
+        match crate::chat_engine::reconcile_typed_resource_snapshots(&snapshot) {
+            Ok(removed) if removed > 0 => app_info!(
+                "session",
+                "context_materialization_recovery",
+                "removed {} uncommitted typed-resource snapshot(s) for run {}",
+                removed,
+                run.run_id
+            ),
+            Ok(_) => {}
+            Err(error) => app_warn!(
+                "session",
+                "context_materialization_recovery",
+                "left typed-resource snapshots for run {} in place because reconciliation failed: {}",
+                run.run_id,
+                error
+            ),
+        }
 
         // One shared selector is used by live failure convergence, ACP, and
         // startup replay so attempt choice and corruption truncation cannot
@@ -2008,6 +2111,83 @@ fn recover_durable_chat_streams(
         }
     }
 
+    // A terminal DB commit can win the final race immediately before process
+    // death, preventing the engine's Drop guard from deleting an uncommitted
+    // run-owned materialization. Recoverable-run enumeration intentionally
+    // excludes terminal rows, so discover those exact UUID owners from the
+    // attachment namespace and reconcile them while their journal is retained.
+    match crate::attachments::run_owned_typed_resource_snapshot_owners() {
+        Ok(owners) => {
+            for (session_id, run_id) in owners {
+                let status = match session_db.stream_run_status(&run_id) {
+                    Ok(status) => status,
+                    Err(error) => {
+                        app_warn!(
+                            "session",
+                            "context_materialization_recovery",
+                            "cannot inspect typed-resource owner run {}: {}",
+                            run_id,
+                            error
+                        );
+                        continue;
+                    }
+                };
+                // A missing run is removable only through the durable cleanup
+                // ledger drained above. Without that proof this owner is
+                // unknown (for example after a DB restore), so preserve it.
+                if status.as_deref().is_none_or(|status| status == "running") {
+                    continue;
+                }
+                let snapshot = match session_db.stream_run_snapshot(&run_id) {
+                    Ok(Some(snapshot)) => snapshot,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        app_warn!(
+                            "session",
+                            "context_materialization_recovery",
+                            "cannot load terminal typed-resource owner run {}: {}",
+                            run_id,
+                            error
+                        );
+                        continue;
+                    }
+                };
+                if snapshot.run.session_id != session_id || snapshot.run.run_id != run_id {
+                    app_warn!(
+                        "session",
+                        "context_materialization_recovery",
+                        "terminal typed-resource owner identity mismatch for run {}; leaving files in place",
+                        run_id
+                    );
+                    continue;
+                }
+                match crate::chat_engine::reconcile_typed_resource_snapshots(&snapshot) {
+                    Ok(removed) if removed > 0 => app_info!(
+                        "session",
+                        "context_materialization_recovery",
+                        "removed {} terminal-run uncommitted typed-resource snapshot(s) for run {}",
+                        removed,
+                        run_id
+                    ),
+                    Ok(_) => {}
+                    Err(error) => app_warn!(
+                        "session",
+                        "context_materialization_recovery",
+                        "left terminal-run typed-resource snapshots for run {} in place because reconciliation failed: {}",
+                        run_id,
+                        error
+                    ),
+                }
+            }
+        }
+        Err(error) => app_warn!(
+            "session",
+            "context_materialization_recovery",
+            "cannot enumerate run-owned typed-resource snapshots: {}",
+            error
+        ),
+    }
+
     // Crash window: the final DB transaction may have committed immediately
     // before the process died, leaving its spool file behind. Such a run is no
     // longer in `recoverable_stream_runs`, so converge the leftover file here
@@ -2075,6 +2255,26 @@ fn spawn_chat_stream_journal_gc(repeat_daily: bool) {
                     "session",
                     "stream_gc",
                     "stream journal retention sweep failed: {}",
+                    error
+                ),
+            }
+            let cleanup_db = db.clone();
+            match crate::blocking::run_blocking(move || {
+                drain_pending_typed_resource_snapshots(&cleanup_db)
+            })
+            .await
+            {
+                Ok(count) if count > 0 => app_info!(
+                    "session",
+                    "context_materialization_gc",
+                    "removed {} expired typed-resource snapshot(s)",
+                    count
+                ),
+                Ok(_) => {}
+                Err(error) => app_warn!(
+                    "session",
+                    "context_materialization_gc",
+                    "typed-resource snapshot retention sweep failed: {}",
                     error
                 ),
             }
@@ -2378,6 +2578,107 @@ mod tests {
             try_acquire_durable_replay_sweep(&running).is_some(),
             "normal completion/drop must re-arm the next ticker"
         );
+    }
+
+    #[test]
+    fn typed_resource_cleanup_drains_every_high_watermark_batch() {
+        with_temp_data_dir(|db| {
+            let session = db
+                .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+                .expect("session");
+            let run_id = uuid::Uuid::new_v4().to_string();
+            db.create_stream_run(&crate::session::CreateStreamRun {
+                run_id: run_id.clone(),
+                session_id: session.id.clone(),
+                source: "desktop".to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect("run");
+            let owner = uuid::Uuid::parse_str(&run_id).expect("run UUID").simple();
+            let snapshot_names = (0..3)
+                .map(|_| {
+                    format!(
+                        "context-snapshot-run_{owner}-resource_ref_{}",
+                        uuid::Uuid::new_v4().simple()
+                    )
+                })
+                .collect::<Vec<_>>();
+            db.register_typed_resource_snapshots(&run_id, &session.id, &snapshot_names)
+                .expect("register owners");
+            db.mark_stream_run_recovered(&run_id, 0, None)
+                .expect("terminal run");
+            assert_eq!(
+                db.gc_stream_journals("9999-12-31T23:59:59Z").expect("gc"),
+                1
+            );
+
+            assert_eq!(
+                drain_pending_typed_resource_snapshots_with_batch(&db, 1).expect("drain all pages"),
+                3
+            );
+            assert!(db
+                .typed_resource_snapshot_cleanup_high_watermark()
+                .expect("high watermark")
+                .is_none());
+        });
+    }
+
+    #[test]
+    fn typed_resource_cleanup_failure_does_not_starve_later_batches() {
+        with_temp_data_dir(|db| {
+            let session = db
+                .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+                .expect("session");
+            let run_id = uuid::Uuid::new_v4().to_string();
+            db.create_stream_run(&crate::session::CreateStreamRun {
+                run_id: run_id.clone(),
+                session_id: session.id.clone(),
+                source: "desktop".to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect("run");
+            let owner = uuid::Uuid::parse_str(&run_id).expect("run UUID").simple();
+            let snapshot_names = (0..3)
+                .map(|_| {
+                    format!(
+                        "context-snapshot-run_{owner}-resource_ref_{}",
+                        uuid::Uuid::new_v4().simple()
+                    )
+                })
+                .collect::<Vec<_>>();
+            db.register_typed_resource_snapshots(&run_id, &session.id, &snapshot_names)
+                .expect("register owners");
+            db.mark_stream_run_recovered(&run_id, 0, None)
+                .expect("terminal run");
+            db.gc_stream_journals("9999-12-31T23:59:59Z").expect("gc");
+            db.conn
+                .lock()
+                .expect("db lock")
+                .execute(
+                    "UPDATE chat_stream_typed_snapshots SET snapshot_name = 'malformed'
+                     WHERE rowid = (
+                         SELECT MIN(rowid) FROM chat_stream_typed_snapshots
+                         WHERE cleanup_pending = 1
+                     )",
+                    [],
+                )
+                .expect("corrupt one cleanup row");
+
+            assert_eq!(
+                drain_pending_typed_resource_snapshots_with_batch(&db, 1)
+                    .expect("drain around failed row"),
+                2
+            );
+            let remaining = db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("failed row remains retryable");
+            assert_eq!(remaining.len(), 1);
+            assert_eq!(remaining[0].snapshot_name, "malformed");
+        });
     }
 
     #[test]

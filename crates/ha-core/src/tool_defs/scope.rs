@@ -60,6 +60,7 @@ pub fn is_knowledge_scope_tool(name: &str) -> bool {
                 | TOOL_RUNTIME_CANCEL
                 | TOOL_SESSION_CONTINUE
                 | TOOL_JOB_STATUS
+                | TOOL_READ_CONTEXT_RESOURCE
         )
 }
 
@@ -90,6 +91,7 @@ pub fn is_design_scope_tool(name: &str) -> bool {
             | TOOL_RUNTIME_CANCEL
             | TOOL_SESSION_CONTINUE
             | TOOL_JOB_STATUS
+            | TOOL_READ_CONTEXT_RESOURCE
     )
 }
 
@@ -138,9 +140,14 @@ pub fn tool_visible_with_filters(
     if name == TOOL_SESSION_CONTINUE {
         return true;
     }
+    let turn_local_context_read = name == TOOL_READ_CONTEXT_RESOURCE;
     !denied_tools.iter().any(|t| t == name)
-        && (skill_allowed_tools.is_empty() || skill_allowed_tools.iter().any(|t| t == name))
-        && (plan_mode_allowed_tools.is_empty() || plan_mode_allowed_tools.iter().any(|t| t == name))
+        && (turn_local_context_read
+            || skill_allowed_tools.is_empty()
+            || skill_allowed_tools.iter().any(|t| t == name))
+        && (turn_local_context_read
+            || plan_mode_allowed_tools.is_empty()
+            || plan_mode_allowed_tools.iter().any(|t| t == name))
 }
 
 #[cfg(test)]

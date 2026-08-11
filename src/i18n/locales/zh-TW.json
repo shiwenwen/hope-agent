@@ -973,6 +973,9 @@
       "failed": "匯出失敗。",
       "untitled": "未命名會話"
     },
+    "capabilityMention": {
+      "heading": "外掛程式與連接器"
+    },
     "skillMention": {
       "heading": "技能",
       "labels": {

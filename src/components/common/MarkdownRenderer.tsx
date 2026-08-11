@@ -50,10 +50,15 @@ import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { AgentMentionChip } from "@/components/chat/agent-mention/AgentMentionChip"
-import { agentIdFromHref } from "@/components/chat/agent-mention/agentTokens"
+import { CapabilityMentionChip } from "@/components/chat/capability-mention/CapabilityMentionChip"
 import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
-import { isSkillMentionName, skillNameFromHref } from "@/components/chat/skill-mention/skillTokens"
+import { isSkillMentionName } from "@/components/chat/skill-mention/skillTokens"
 import { observeMarkdownFaviconVisibility } from "./markdownFaviconVisibility"
+import {
+  prepareTypedMentionLinks,
+  type ComposerMentionBinding,
+  type TypedMentionRenderLink,
+} from "@/components/chat/mentions/typedMentions"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -124,6 +129,9 @@ const streamingAnimation: AnimateOptions = {
 const ANIMATE_MAX_CHARS = 4000
 const MARKDOWN_FAVICON_MAX_REQUESTS = 48
 const MarkdownFaviconBudgetContext = createContext<SafeFaviconBudget | null>(null)
+const TypedMentionRenderContext = createContext<ReadonlyMap<string, TypedMentionRenderLink> | null>(
+  null,
+)
 
 // Streamdown 默认 linkSafety 弹窗的 "Open link" 按钮调用 window.open，
 // Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
@@ -419,25 +427,32 @@ export function MarkdownLink({
   ...rest
 }: MarkdownAnchorProps) {
   const isIncomplete = href === "streamdown:incomplete-link"
-  // `@skill` mentions are `[@label](#skill:<name>)` links — render the same
-  // lightweight inline treatment as the composer, not the raw link. Fragment
-  // href survives sanitize.
-  const skillName = isIncomplete ? null : skillNameFromHref(href)
-  if (skillName && isSkillMentionName(skillName)) {
-    return <SkillMentionChip name={skillName} />
+  const typedMentionLinks = useContext(TypedMentionRenderContext)
+  const typedMention = !isIncomplete && href ? typedMentionLinks?.get(href) : undefined
+  if (typedMention?.kind === "skill" && isSkillMentionName(typedMention.targetId)) {
+    return <SkillMentionChip name={typedMention.targetId} />
   }
-  const agentId = isIncomplete ? null : agentIdFromHref(href)
-  if (agentId) {
+  if (typedMention?.kind === "agent") {
     const fallbackName = typeof children === "string" ? children.replace(/^@/, "") : undefined
-    return <AgentMentionChip agentId={agentId} fallbackName={fallbackName} />
+    return <AgentMentionChip agentId={typedMention.targetId} fallbackName={fallbackName} />
+  }
+  if (typedMention?.kind === "plugin" || typedMention?.kind === "connector") {
+    const fallbackName = typeof children === "string" ? children.replace(/^@/, "") : undefined
+    return (
+      <CapabilityMentionChip
+        kind={typedMention.kind}
+        targetId={typedMention.targetId}
+        fallbackName={fallbackName}
+      />
+    )
   }
   const localPath = isIncomplete ? null : localPathFromHref(href)
   // Local file links follow the unified file-operation policy (preview / open /
   // download by kind × mode) + a right-click menu — but ONLY local links pay the
   // useFileResource hook + Radix ContextMenu cost. External links (the vast
   // majority, and the file's perf concern: a streamed message renders hundreds
-  // of anchors) render as a plain anchor with no hooks. So MarkdownLink itself
-  // calls no hooks and dispatches by kind.
+  // of anchors) only pay the shared typed-mention context lookup; file-resource
+  // hooks and Radix components remain isolated to local links.
   if (localPath) {
     return (
       <MarkdownFileLink localPath={localPath} href={href} className={className} {...rest}>
@@ -604,6 +619,9 @@ function autolinkRehypePlugin() {
 interface MarkdownRendererProps {
   content: string
   isStreaming?: boolean
+  /** Exact first-party/receipt-backed spans allowed to render as capability
+   * chips. Omitted means every lookalike token remains an ordinary link. */
+  typedMentions?: ComposerMentionBinding[]
 }
 
 function BareJsonRenderer({ content, isStreaming }: MarkdownRendererProps) {
@@ -620,8 +638,17 @@ function BareJsonRenderer({ content, isStreaming }: MarkdownRendererProps) {
   )
 }
 
-function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
-  const plugins = useHeavyPlugins(content)
+function StreamdownMarkdownRenderer({
+  content,
+  isStreaming = false,
+  typedMentions = [],
+}: MarkdownRendererProps) {
+  const preparedContent = useMemo(
+    () => prepareTypedMentionLinks(content, typedMentions),
+    [content, typedMentions],
+  )
+  const renderedContent = preparedContent.text
+  const plugins = useHeavyPlugins(renderedContent)
   const faviconBudget = useMemo<SafeFaviconBudget>(() => ({ seen: new Set() }), [])
 
   // 外部接管 Streamdown 的 animate plugin 生命周期。Streamdown 自带的
@@ -642,7 +669,7 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
   // 跨 render 稳定，且不通过 .current 访问，避开 react-hooks/refs 规则。
   const [animatePlugin] = useState<AnimatePlugin>(() => {
     const plugin = createAnimatePlugin(streamingAnimation)
-    plugin.setPrevContentLength(content.length)
+    plugin.setPrevContentLength(renderedContent.length)
     return plugin
   })
 
@@ -664,7 +691,7 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
   //
   // 超长内容关掉逐字动画（见 ANIMATE_MAX_CHARS）；仍是流式渲染，只是不挂 animate
   // plugin。布尔值跨帧只在跨阈值时翻转一次，不破坏下面 useMemo 的稳定性。
-  const animateActive = isActive && content.length <= ANIMATE_MAX_CHARS
+  const animateActive = isActive && renderedContent.length <= ANIMATE_MAX_CHARS
 
   // **必须 memo**：Streamdown 的 Block memo 比较器要求 `rehypePlugins` 引用相等
   // 才跳过重渲染（vendored chunk 里 `e.rehypePlugins!==t.rehypePlugins` 即判失效），
@@ -681,19 +708,21 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
   return (
     <div className="markdown-content">
       <div>
-        <MarkdownFaviconBudgetContext.Provider value={faviconBudget}>
-          <Streamdown
-            animated={false}
-            plugins={plugins}
-            isAnimating={isActive}
-            parseIncompleteMarkdown={isActive}
-            rehypePlugins={rehypePlugins}
-            linkSafety={linkSafetyDisabled}
-            components={markdownComponents}
-          >
-            {content}
-          </Streamdown>
-        </MarkdownFaviconBudgetContext.Provider>
+        <TypedMentionRenderContext.Provider value={preparedContent.links}>
+          <MarkdownFaviconBudgetContext.Provider value={faviconBudget}>
+            <Streamdown
+              animated={false}
+              plugins={plugins}
+              isAnimating={isActive}
+              parseIncompleteMarkdown={isActive}
+              rehypePlugins={rehypePlugins}
+              linkSafety={linkSafetyDisabled}
+              components={markdownComponents}
+            >
+              {renderedContent}
+            </Streamdown>
+          </MarkdownFaviconBudgetContext.Provider>
+        </TypedMentionRenderContext.Provider>
       </div>
     </div>
   )
@@ -703,11 +732,21 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
 // 流式 bubble 每帧重建所有 text block 的 MarkdownRenderer 元素，已定稿 block 的
 // 这两个 prop 都稳定——memo 让它们整体跳过 render，避免无谓的 Streamdown 全量
 // re-lex，只剩正在增长的末块真正重渲染。
-function MarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
+function MarkdownRenderer({
+  content,
+  isStreaming = false,
+  typedMentions = [],
+}: MarkdownRendererProps) {
   if (shouldRenderAsBareJson(content)) {
     return <BareJsonRenderer content={content} isStreaming={isStreaming} />
   }
-  return <StreamdownMarkdownRenderer content={content} isStreaming={isStreaming} />
+  return (
+    <StreamdownMarkdownRenderer
+      content={content}
+      isStreaming={isStreaming}
+      typedMentions={typedMentions}
+    />
+  )
 }
 
 export default memo(MarkdownRenderer)

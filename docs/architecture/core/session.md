@@ -114,14 +114,14 @@ flowchart TD
 | `forked_from_message_id` | `Option<i64>` | Fork 实际复制到的末条来源消息；完整 Fork 与首条 user 之前的空 Fork 均为 `None` |
 | `forked_from_session_title` | `Option<String>` | 来源会话当前标题的只读 JOIN 投影；来源删除或无标题时为空 |
 | `plan_mode` | `PlanModeState` | Plan Mode 状态：`off` / `planning` / `review` / `executing` / `completed`（snake_case，默认 off） |
-| `execution_mode` | `ExecutionMode` | 会话级执行强度：`off` / `guarded` / `deep` / `autonomous`（`/mode` 设置，注入 system prompt 以跨刷新存活） |
+| `execution_mode` | `ExecutionMode` | 会话级执行强度：`off` / `guarded` / `deep` / `autonomous`（`/mode` 设置，下一轮作为 run instruction 注入，不改稳定 system） |
 | `workflow_mode` | `WorkflowMode` | 工作流自治模式：`off` / `on` / `ultracode`；开启后模型可调工作流工具创建可观测的 durable run |
 | `permission_mode` | `SessionMode` | 会话级权限模式：`default` / `smart` / `yolo`（默认 default） |
 | `sandbox_mode` | `SandboxMode` | 会话级沙箱模式：`off` / `standard` / `isolated` / `workspace` / `trusted`（默认 off） |
 | `project_id` | `Option<String>` | 所属项目 ID；项目作用域记忆 / 文件在该项目内全部会话间共享 |
 | `channel_info` | `Option<ChannelSessionInfo>` | IM Channel 关联信息（LEFT JOIN `channel_conversations`） |
 | `incognito` | `bool` | 无痕开关：不注入被动记忆 / awareness、不做自动记忆提取，且关闭即焚 |
-| `working_dir` | `Option<String>` | 会话级工作目录绝对路径（注入 system prompt + 作为 `exec` / `read` 默认 cwd）；server 模式指 server 机器路径 |
+| `working_dir` | `Option<String>` | 会话级工作目录绝对路径（稳定工作目录合同进入 system，易变目录清单进入 user-data，并作为 `exec` / `read` 默认 cwd）；server 模式指 server 机器路径 |
 | `kind` | `SessionKind` | 会话分类：`regular` / `knowledge` / `design` / `eval_fixture`；专属空间会话从主 sidebar / picker 隐藏 |
 
 `SessionMeta::is_regular_chat()` 收敛了"这是否一段普通用户对话"的判定（供托盘下拉等跨界面复用）：非 cron、非子会话、非 IM、非无痕、非归档、`kind == Regular`。项目成员资格**允许**——项目对话仍是用户对话，只是装进了项目容器。

@@ -27,6 +27,7 @@ pub(super) async fn execute(entry: &SkillEntry, args: &str) -> Result<String> {
         .await
         .map_err(|e| anyhow!("spawn_blocking join error: {e}"))?
         .map_err(|e| anyhow!("Failed to read SKILL.md for '{}': {e}", entry.name))?;
+    crate::skills::validate_materialized_skill_snapshot(entry, &content)?;
 
     let substituted = content.replace("$ARGUMENTS", &args_owned);
 

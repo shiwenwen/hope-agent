@@ -10,20 +10,25 @@
 //! built-in skills from the `@` popper and they ride the next turn as activated
 //! skills. The set is intentionally fixed (office trio + local-first data
 //! analytics + browser + mac control) — `@skill` is NOT a general
-//! skill-injection vector; arbitrary / disabled / wrong-OS skill names are
-//! silently ignored at resolve time and stay in the message as plain text.
+//! skill-injection vector; an unavailable / disabled / wrong-OS typed binding
+//! rejects the whole explicit activation set atomically.
 //!
 //! Resolution mirrors the inline slash/tool activation path: read SKILL.md,
 //! substitute `$ARGUMENTS` (always empty for a mention), wrap with
-//! [`build_skill_context_payload`], and inject into the turn's system context
+//! [`build_skill_context_payload`], and inject into the user-owned turn context
 //! (see `chat_engine::engine`), parallel to `knowledge::inject`.
 
+#[cfg(test)]
 use std::sync::OnceLock;
 
+#[cfg(test)]
 use regex::Regex;
 use serde::Serialize;
 
-use super::{build_skill_context_payload, get_invocable_skills, SkillEntry};
+use super::{
+    build_skill_context_payload, get_invocable_skills, MentionSkillActivation, SkillEntry,
+    SkillToolCeiling,
+};
 
 /// Curated, fixed allowlist of built-in skills offered by the `@skill` menu.
 /// Order here is the menu display order. `ha-mac-control` is macOS-only (gated
@@ -66,19 +71,29 @@ fn is_mentionable_on_this_os(name: &str) -> bool {
 /// Built-in skills eligible for `@skill` on this host: allowlist ∩ currently
 /// invocable (respects `disabled_skills` / `user_invocable` / discoverable) ∩
 /// OS gate. Returned in [`AT_MENTIONABLE_SKILLS`] order.
-fn mentionable_entries() -> Vec<SkillEntry> {
+fn mentionable_entries(agent_id: Option<&str>) -> Vec<SkillEntry> {
     let cfg = ha_core::config::cached_config();
+    let env_check =
+        ha_core::skills::skill_env_check_enabled_for_agent(agent_id, cfg.skill_env_check);
     let invocable = get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     AT_MENTIONABLE_SKILLS
         .iter()
         .filter(|n| is_mentionable_on_this_os(n))
         .filter_map(|n| invocable.iter().find(|s| s.name == **n).cloned())
+        .filter(|entry| {
+            !env_check
+                || ha_core::skills::check_requirements_detail(
+                    &entry.requires,
+                    cfg.skill_env.get(&entry.name),
+                )
+                .eligible
+        })
         .collect()
 }
 
 /// Menu rows for the composer `@skill` section (allowlist ∩ invocable ∩ OS).
 pub fn list_mentionable_skills() -> Vec<MentionableSkill> {
-    mentionable_entries()
+    mentionable_entries(None)
         .into_iter()
         .map(|s| MentionableSkill {
             name: s.name,
@@ -91,6 +106,7 @@ pub fn list_mentionable_skills() -> Vec<MentionableSkill> {
 /// non-`]` run, captured group 1 is the skill id from the fragment href. Tied to
 /// the composer's insertion + history chip form, so a stray `#skill:` in prose
 /// (no link wrapper) never triggers.
+#[cfg(test)]
 fn skill_mention_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     // Label is `+` (non-empty), matching the frontend `parseSkillMentions`
@@ -99,8 +115,10 @@ fn skill_mention_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\[@[^\]\n]+\]\(#skill:([a-z0-9-]+)\)").unwrap())
 }
 
-/// Unique skill ids in first-seen order. Pure string scan — no allowlist / disk
-/// check (those happen in [`resolve_inline_skill_mentions`]).
+/// Unique skill ids in first-seen order for the test-only legacy fixture. Pure
+/// string scan—no allowlist/disk check (those happen in
+/// [`resolve_inline_skill_mentions`]).
+#[cfg(test)]
 fn scan_skill_mention_names(message: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for caps in skill_mention_re().captures_iter(message) {
@@ -114,39 +132,105 @@ fn scan_skill_mention_names(message: &str) -> Vec<String> {
     names
 }
 
-/// Scan `message` for `@skill:<name>` tokens, resolve each against the fixed
-/// allowlist (∩ invocable ∩ OS gate), read its SKILL.md, and return a single
-/// system-context block activating them — or `None` when nothing resolves.
-///
-/// Deterministic + user-controlled (parallel to `knowledge::inject`). Unknown /
-/// disabled / wrong-OS names are silently skipped, leaving the raw `@skill:`
-/// text in the user message. Deduped by name in first-seen order.
-pub fn resolve_inline_skill_mentions(message: &str) -> Option<String> {
+/// Test-only legacy scanner retained to pin the old serialization grammar.
+/// Production activation never calls it: raw/pasted markdown is inert and the
+/// typed sidecar passes canonical ids to [`resolve_named_skill_mentions`].
+#[cfg(test)]
+fn resolve_inline_skill_mentions(message: &str) -> Option<MentionSkillActivation> {
     let names = scan_skill_mention_names(message);
+    resolve_named_skill_mentions(&names, None)
+}
+
+/// Typed mention entrypoint. The caller proves the UI gesture and source span;
+/// this layer remains authoritative for the closed allowlist and live skill
+/// availability. No prompt authority is assigned here—the chat engine renders
+/// the returned payload in the current user turn.
+pub fn resolve_named_skill_mentions(
+    names: &[String],
+    agent_id: Option<&str>,
+) -> Option<MentionSkillActivation> {
     if names.is_empty() {
         return None;
     }
 
-    let entries = mentionable_entries();
+    let entries = mentionable_entries(agent_id);
+    let mut requested = Vec::new();
+    for name in names {
+        if requested
+            .iter()
+            .any(|existing: &&SkillEntry| existing.name == *name)
+        {
+            continue;
+        }
+        let Some(entry) = entries.iter().find(|s| &s.name == name) else {
+            let rejected_names = names.to_vec();
+            return Some(MentionSkillActivation {
+                content: format!(
+                    "# Skill activation rejected\n\nThe explicit skill set could not be resolved atomically because `{name}` is unavailable, disabled, unsupported on this OS, or failed its requirements. No skill in this set was activated. Ask the user to adjust the selection or use an isolated fork."
+                ),
+                resolved_names: Vec::new(),
+                rejected_names,
+                tool_ceiling: SkillToolCeiling::Unspecified,
+            });
+        };
+        requested.push(entry);
+    }
+
+    let tool_ceiling = requested
+        .first()
+        .map(|entry| entry.tool_ceiling())
+        .unwrap_or_default();
+    if requested
+        .iter()
+        .skip(1)
+        .any(|entry| entry.tool_ceiling() != tool_ceiling)
+    {
+        let rejected_names = requested.iter().map(|entry| entry.name.clone()).collect();
+        return Some(MentionSkillActivation {
+            content: "# Skill activation rejected\n\nThe explicitly selected skills declare different or mixed `allowed-tools` policies. They cannot be combined in one main-agent activation without a registered safe-composition profile. No skill in this set was activated; use separate turns or isolated forks.".to_string(),
+            resolved_names: Vec::new(),
+            rejected_names,
+            tool_ceiling: SkillToolCeiling::Unspecified,
+        });
+    }
+
     let mut activated: Vec<String> = Vec::new();
     let mut blocks: Vec<String> = Vec::new();
-    for name in &names {
-        let Some(entry) = entries.iter().find(|s| &s.name == name) else {
-            continue; // unknown / disabled / wrong-OS — leave as raw text
-        };
+    for entry in requested {
         let content = match std::fs::read_to_string(&entry.file_path) {
             Ok(c) => c,
-            Err(e) => {
+            Err(_error) => {
                 app_warn!(
                     "skill",
                     "mention",
-                    "Failed to read SKILL.md for @skill:{} ({}): skipping",
-                    entry.name,
-                    e
+                    "Failed to materialize one typed @skill; activation rejected"
                 );
-                continue;
+                let rejected_names = names.to_vec();
+                return Some(MentionSkillActivation {
+                    content: format!(
+                        "# Skill activation rejected\n\nThe explicit skill set could not be materialized atomically because `{}` could not be read. No skill in this set was activated.",
+                        entry.name
+                    ),
+                    resolved_names: Vec::new(),
+                    rejected_names,
+                    tool_ceiling: SkillToolCeiling::Unspecified,
+                });
             }
         };
+        if crate::skills::validate_materialized_skill_snapshot(entry, &content).is_err() {
+            app_warn!(
+                "skill",
+                "mention",
+                "Typed @skill control metadata changed during materialization; activation rejected"
+            );
+            return Some(MentionSkillActivation {
+                content: "# Skill activation rejected\n\nThe explicit skill set changed while it was being materialized. No skill in this set was activated; retry the selection."
+                    .to_string(),
+                resolved_names: Vec::new(),
+                rejected_names: names.to_vec(),
+                tool_ceiling: SkillToolCeiling::Unspecified,
+            });
+        }
         // A mention carries no arguments — strip the placeholder so it doesn't
         // leak into the activated instructions.
         let substituted = content.replace("$ARGUMENTS", "");
@@ -161,18 +245,22 @@ pub fn resolve_inline_skill_mentions(message: &str) -> Option<String> {
     app_info!(
         "skill",
         "mention",
-        "Activated {} @skill mention(s): {}",
-        activated.len(),
-        activated.join(", ")
+        "Activated {} typed @skill mention(s)",
+        activated.len()
     );
 
-    Some(format!(
-        "# Activated Skills (@skill)\n\n\
+    Some(MentionSkillActivation {
+        content: format!(
+            "# Activated Skills (@skill)\n\n\
          The user activated the following built-in skill(s) for this turn via `@skill`. \
-         Treat each skill's instructions below as authoritative guidance for completing \
+         Treat each skill's instructions below as user-level guidance for completing \
          the request.\n\n{}",
-        blocks.join("\n\n")
-    ))
+            blocks.join("\n\n")
+        ),
+        resolved_names: activated,
+        rejected_names: Vec::new(),
+        tool_ceiling,
+    })
 }
 
 #[cfg(test)]

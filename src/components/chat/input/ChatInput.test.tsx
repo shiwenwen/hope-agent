@@ -575,6 +575,27 @@ describe("ChatInput", () => {
     expect(onDiscardPendingItem).toHaveBeenCalledWith("queued")
   })
 
+  test("hides insert when the backend marks a queued row ineligible", () => {
+    renderChatInput({
+      loading: true,
+      pendingSends: [
+        pendingSend({
+          id: "full-turn-sidecar",
+          text: "Typed capability queued copy",
+          status: "fallback_after_reply",
+          canForceInsert: false,
+        }),
+      ],
+      onForceInsertPending: vi.fn(),
+      onDiscardPendingItem: vi.fn(),
+    })
+
+    const row = screen
+      .getByText("Typed capability queued copy")
+      .closest('[role="listitem"]') as HTMLElement
+    expect(within(row).queryByRole("button", { name: "chat.pendingInsert" })).toBeNull()
+  })
+
   test("only sends the FIFO head while idle and does not expose insert", () => {
     const onSendPending = vi.fn()
     renderChatInput({
@@ -1778,6 +1799,7 @@ describe("ChatInput", () => {
     fireEvent.select(screen.getByRole("textbox"))
 
     await waitFor(() => expect(screen.getByText("chat.quickPrompts.noMatches")).toBeTruthy())
+    act(() => emitEnterToSendPreference(true))
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
 
     expect(onSend).toHaveBeenCalledTimes(1)

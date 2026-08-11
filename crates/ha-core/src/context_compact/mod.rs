@@ -101,7 +101,9 @@ pub use boundary::{
     boundary_snapshot, build_message_rounds, recent_boundary, BoundaryMode, BoundarySnapshot,
     MessageRound, RecentBoundary, RoundKind,
 };
-pub use compact::{compact_if_needed, emergency_compact, microcompact};
+pub use compact::{
+    compact_if_needed, compact_if_needed_with_counter, emergency_compact, microcompact,
+};
 pub(crate) use compact::{compact_oversized_recovered_tool_results, RecoveredToolCleanup};
 pub use config::CompactConfig;
 pub use engine::{
@@ -135,4 +137,4 @@ pub use summarization::{
     apply_summary, build_summarization_prompt, peel_previous_summary, split_for_summarization,
 };
 pub use truncation::truncate_tool_results;
-pub use types::{CompactResult, TokenEstimateCalibrator, TokenEstimateCalibrators};
+pub use types::CompactResult;

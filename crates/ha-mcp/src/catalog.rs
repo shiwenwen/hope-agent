@@ -227,11 +227,11 @@ pub fn has_pending_catalogs() -> bool {
     })
 }
 
-/// Build a short "MCP Capabilities" system-prompt section for configured,
-/// effective servers. The lazy-discovery guidance is conditional on a tool
-/// being absent rather than on mutable catalog state, so the turn-stable prompt
-/// remains correct after a catalog refresh. Reads only sync config and never
-/// awaits a runtime lock.
+/// Build a short MCP capability-data block for configured, effective servers.
+/// The provider renderer places this in the dynamic user-data lane: configured
+/// server names are user-owned data, while the fixed discovery contract is
+/// already declared by the stable platform prompt. Reads only sync config and
+/// never awaits a runtime lock.
 ///
 /// The snippet intentionally does not enumerate every resource / prompt
 /// — that list can be large and requires an async read of the per-
@@ -262,7 +262,7 @@ pub fn system_prompt_snippet() -> Option<String> {
     }
     let list = configured.into_iter().collect::<Vec<_>>().join(", ");
     Some(format!(
-        "# MCP Capabilities\n\n\
+        "MCP Capabilities\n\n\
          Configured MCP servers: {list}\n\
          - Tools exposed by each server appear in the tool catalog with the `mcp__<server>__<tool>` naming.\n\
          - If a configured server's tool is absent, call `tool_search` once to attempt lazy discovery; follow its result instead of retrying automatically.\n\

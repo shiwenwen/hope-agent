@@ -39,7 +39,7 @@ fn is_hook_spawn(label: Option<&str>) -> bool {
     label == Some(HOOK_SPAWN_LABEL)
 }
 
-fn append_extra_system_context(existing: Option<String>, addition: String) -> Option<String> {
+fn append_run_instruction_context(existing: Option<String>, addition: String) -> Option<String> {
     Some(match existing {
         Some(current) if !current.trim().is_empty() => format!("{current}\n\n{addition}"),
         _ => addition,
@@ -250,8 +250,8 @@ async fn prepare_subagent_with_run_id(
                 match update_result {
                     Ok(_) => {
                         assigned_child_working_dir = true;
-                        params.extra_system_context = append_extra_system_context(
-                            params.extra_system_context.take(),
+                        params.run_instruction_context = append_run_instruction_context(
+                            params.run_instruction_context.take(),
                             format!(
                                 "## Managed Worktree\nThis sub-agent has an isolated managed git worktree at `{}`. Treat this as the default workspace for file reads, edits, commands, and evidence gathering. The parent session tracks it as `{}` for handoff, restore, and cleanup.",
                                 worktree.path, worktree.id
@@ -1018,7 +1018,8 @@ pub(crate) async fn launch_subagent_run(
     let plan_agent_mode = params.plan_agent_mode.clone();
     let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
     let lock_plan_agent_mode = params.lock_plan_agent_mode;
-    let extra_system_context = params.extra_system_context.clone();
+    let run_instruction_context = params.run_instruction_context.clone();
+    let run_data_context = params.run_data_context.clone();
     let skill_allowed_tools = params.skill_allowed_tools.clone();
     let reasoning_effort = params.reasoning_effort.clone();
     let skill_name_for_events = params.skill_name.clone();
@@ -1058,7 +1059,8 @@ pub(crate) async fn launch_subagent_run(
         let plan_agent_mode_exec = plan_agent_mode.clone();
         let plan_mode_allow_paths_exec = plan_mode_allow_paths.clone();
         let lock_plan_agent_mode_exec = lock_plan_agent_mode;
-        let extra_system_context_exec = extra_system_context.clone();
+        let run_instruction_context_exec = run_instruction_context.clone();
+        let run_data_context_exec = run_data_context.clone();
         let skill_allowed_tools_exec = skill_allowed_tools.clone();
         let reasoning_effort_exec = reasoning_effort.clone();
         let child_session_id_exec = child_session_id_clone.clone();
@@ -1106,7 +1108,8 @@ pub(crate) async fn launch_subagent_run(
             plan_agent_mode_exec,
             plan_mode_allow_paths_exec,
             lock_plan_agent_mode_exec,
-            extra_system_context_exec,
+            run_instruction_context_exec,
+            run_data_context_exec,
             skill_allowed_tools_exec,
             reasoning_effort_exec,
             origin_source,
@@ -1530,7 +1533,8 @@ fn execute_subagent(
     plan_agent_mode: Option<crate::agent::PlanAgentMode>,
     plan_mode_allow_paths: Vec<String>,
     lock_plan_agent_mode: bool,
-    extra_system_context_override: Option<String>,
+    run_instruction_context_override: Option<String>,
+    run_data_context: Option<String>,
     skill_allowed_tools: Vec<String>,
     reasoning_effort: Option<String>,
     origin_source: Option<crate::knowledge::KbAccessSource>,
@@ -1595,7 +1599,7 @@ fn execute_subagent(
             return Err(anyhow::anyhow!("No model configured for sub-agent execution").into());
         }
 
-        // Build extra system context for sub-agent
+        // Build the trusted, platform-owned sub-agent run frame.
         let effective_max = super::max_depth_for_agent(&agent_id);
         let depth_info = if depth >= effective_max {
             format!(
@@ -1612,12 +1616,11 @@ fn execute_subagent(
         let extra_context = format!(
         "## Execution Context\n\
          You are running as a **sub-agent** spawned by another agent.\n\
-         - Task: {}\n\
          - {}\n\
          - Complete the task directly and concisely. Your full response will be returned to the parent agent.\n\
          - You do NOT have access to the parent's conversation history.\n\
          - This is an isolated session.",
-        &task, depth_info
+        depth_info
     );
 
         let mut denied = agent_def.config.subagents.denied_tools.clone();
@@ -1636,7 +1639,7 @@ fn execute_subagent(
             }
         }
 
-        let extra_system_context = if let Some(ctx) = extra_system_context_override {
+        let run_instruction_context = if let Some(ctx) = run_instruction_context_override {
             Some(format!("{}\n\n{}", ctx, extra_context))
         } else {
             Some(extra_context)
@@ -1649,12 +1652,9 @@ fn execute_subagent(
         // sub-agents leave the override `None` so chat_engine reads the
         // child session's own backend state.
         //
-        // `extra_system_context` (already-merged spawn-generic + caller
-        // extras above) flows through ChatEngineParams.extra_system_context
-        // unchanged — chat_engine's `merge_extra_system_context` will fold
-        // it together with whatever the override / backend resolution
-        // contributed (currently `None` from this path; spawn callers put
-        // any plan-prompt text into the caller's extra_system_context).
+        // The fixed child frame and any caller-owned platform contract travel
+        // through the typed run-instruction lane. The task remains solely in
+        // the user message; Plan document data has its own data lane.
         let plan_context_override = if lock_plan_agent_mode {
             plan_agent_mode.map(|mode| crate::chat_engine::PlanResolvedContext {
                 // Spawn-supplied PlanAgent always means "child should run
@@ -1663,11 +1663,34 @@ fn execute_subagent(
                 state: crate::plan::PlanModeState::Planning,
                 mode,
                 allow_paths: plan_mode_allow_paths,
-                extra_system_context: None,
+                run_instruction: None,
+                plan_data: None,
             })
         } else {
             None
         };
+
+        let run_context = match (run_instruction_context, run_data_context) {
+            (Some(instruction), data) => Some(
+                crate::prompt_context::RunInstructionContext::new(
+                    crate::prompt_context::RunInstructionSource::Subagent,
+                    instruction,
+                )
+                .map(|context| match data {
+                    Some(data) => context.with_untrusted_data(data),
+                    None => context,
+                }),
+            ),
+            (None, Some(data)) => Some(crate::prompt_context::RunInstructionContext::data_only(
+                crate::prompt_context::RunInstructionSource::Subagent,
+                data,
+            )),
+            (None, None) => None,
+        }
+        .transpose()
+        .map_err(|error| {
+            SubagentExecutionFailure::new(SubagentTerminalReason::ModelError, error.to_string())
+        })?;
 
         let parent_subagent_config = crate::agent_loader::load_agent(&parent_agent_id)
             .map(|definition| definition.config.subagents)
@@ -1687,6 +1710,7 @@ fn execute_subagent(
                     agent_id: agent_id.clone(),
                     turn_id: None,
                     message: attempt_message,
+                    incoming_turn: None,
                     display_text: None,
                     attachments: attempt_attachments,
                     session_db: session_db.clone(),
@@ -1695,7 +1719,7 @@ fn execute_subagent(
                     codex_token: None,
                     resolved_temperature: agent_def.config.model.temperature.or(store.temperature),
                     compact_config: store.compact.clone(),
-                    extra_system_context: extra_system_context.clone(),
+                    run_context: run_context.clone(),
                     reasoning_effort: effective_reasoning_effort.clone(),
                     cancel: cancel.clone(),
                     plan_context_override: plan_context_override.clone(),
@@ -1904,7 +1928,8 @@ mod structural_limit_tests {
             plan_mode_allow_paths: Vec::new(),
             lock_plan_agent_mode: false,
             skip_parent_injection: false,
-            extra_system_context: None,
+            run_instruction_context: None,
+            run_data_context: None,
             skill_allowed_tools: Vec::new(),
             reasoning_effort: None,
             skill_name: None,
@@ -2048,7 +2073,8 @@ mod structural_limit_tests {
                 plan_mode_allow_paths: Vec::new(),
                 lock_plan_agent_mode: false,
                 skip_parent_injection: false,
-                extra_system_context: None,
+                run_instruction_context: None,
+                run_data_context: None,
                 skill_allowed_tools: Vec::new(),
                 reasoning_effort: None,
                 skill_name: None,
@@ -2126,7 +2152,8 @@ mod structural_limit_tests {
                 plan_mode_allow_paths: Vec::new(),
                 lock_plan_agent_mode: false,
                 skip_parent_injection: true,
-                extra_system_context: None,
+                run_instruction_context: None,
+                run_data_context: None,
                 skill_allowed_tools: Vec::new(),
                 reasoning_effort: None,
                 skill_name: None,

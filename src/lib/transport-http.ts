@@ -93,6 +93,7 @@ function generateHttpChatRequestId(): string {
  * gains more routes.
  */
 const COMMAND_MAP: Record<string, EndpointDef> = {
+  list_capability_mentions: { method: "GET", path: "/api/chat/capability-mentions" },
   // -- Projects --
   list_projects_cmd: { method: "GET", path: "/api/projects" },
   get_project_overview_cmd: { method: "GET", path: "/api/projects/{id}/overview" },

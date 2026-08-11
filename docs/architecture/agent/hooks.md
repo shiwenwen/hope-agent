@@ -1,8 +1,8 @@
 # Hooks 系统
 
-> 更新时间：2026-07-23
+> 更新时间：2026-08-11
 
-Hooks 让用户在 Agent 生命周期的关键节点插入自己的逻辑——工具即将执行、会话开始/结束、上下文压缩、权限审批等时刻，触发一段用户自定义的 shell 命令 / HTTP 请求 / MCP 工具调用 / 一次性 LLM 提问 / 子 Agent。它是一套**可拔插的观察与拦截层**：既能旁观（审计、埋点、通知），也能拦截（挡下危险命令、否决压缩、注入上下文、改写入参）。
+Hooks 让用户在 Agent 生命周期的关键节点插入自己的逻辑——工具即将执行、会话开始/结束、上下文压缩、权限审批等时刻，触发一段用户自定义的 shell 命令 / HTTP 请求 / MCP 工具调用 / 一次性 LLM 提问 / 子 Agent。它是一套**可拔插的观察与拦截层**：既能旁观（审计、埋点、通知），也能拦截（挡下危险命令、否决压缩、贡献非可信上下文数据、改写入参）。Hook 输出从不因配置 scope 或 handler 类型获得 system/developer authority。
 
 关键设计取舍是**字段级对齐 Claude Code 的 hooks 协议**——事件名、payload 字段、输出 JSON schema、退出码语义都照官方来，社区里为 Claude Code 写的 hook 脚本可以 paste 即用。这把「扩展 Agent 行为」这件事从「改代码、发版」降级为「写一段配置」。
 
@@ -20,7 +20,7 @@ flowchart LR
     M --> H["Handler<br/>command / http / mcp_tool<br/>prompt / agent"]
     H --> P["解析输出<br/>exit code + JSON stdout"]
     P --> D["决策聚合<br/>deny > block > defer > ask > allow"]
-    D --> O["HookOutcome<br/>决策 + 注入上下文 + 改写入参"]
+    D --> O["HookOutcome<br/>决策 + untrusted data + 改写入参"]
     D -.阻断型事件.-> G["拦住业务流程"]
     D -.观察型事件.-> L["降级为日志，不拦"]
 ```
@@ -139,7 +139,7 @@ hook 层加在既有权限体系的**外侧**：先跑 hook，没拦住才走 Pl
 
 | 事件 | Matcher 目标 | 触发位置 | 备注 |
 |------|-------------|---------|------|
-| `UserPromptSubmit` | 无（始终触发） | `agent::preflight::user_prompt_preflight` → `fire_user_prompt_submit` | `block` / `deny` / `continue:false` 拦住 prompt；可注入 `additionalContext` |
+| `UserPromptSubmit` | 无（始终触发） | `agent::preflight::user_prompt_preflight` → `fire_user_prompt_submit` | `block` / `deny` / `continue:false` 拦住 prompt；`additionalContext` 作为本 turn 的 untrusted user-data 冻结 |
 | `PreToolUse` | `tool_name` | `tools::execution::fire_pre_tool_use_hook`（可见性闸后、权限引擎前）| `deny` / `ask` / `defer` / `allow` 决策 + `updatedInput` 改写入参 |
 | `PreCompact` | `trigger` ∈ {auto, tool_loop} | `agent::context`（turn-start / tool-loop checkpoint）| `block` 跳过本次压缩；用量到紧急比例强制覆盖；连续 block 超过 `MAX_PRECOMPACT_BLOCKS=5` 后强制执行 |
 | `WorktreeCreate` | `name` | `worktree::create_managed_worktree` | 可 block / deny；若匹配 handler 接管创建，必须返回 `hookSpecificOutput.worktreePath` 绝对路径 |
@@ -387,7 +387,7 @@ matcher 目标按事件取（`HookInput::matcher_target`）：`tool_name`（工�
 
 ### 10.4 prompt
 
-- 走 `crate::automation::run` 一次性 LLM 调用（purpose `hooks.prompt`）；结果作 `additionalContext`。模型链解析优先级：`modelOverride`（`ModelChain`）→ 已弃用的 `model`（单冒号 `provider:model` 字符串，惰性解析，GUI 不再写）→ `function_models.automation` 全局默认链 → 聊天全局模型。详见 [automation-model](../core/automation-model.md)。因 hook 配置本身不持有存活的主对话 Agent 实例，不复用主对话 system_prompt 的 cache 前缀。
+- 走 `crate::automation::run` 一次性 LLM 调用（purpose `hooks.prompt`）；结果作 `additionalContext`，并按 Hook data 进入 untrusted user/tool-data 通道，不会成为主对话指令。模型链解析优先级：`modelOverride`（`ModelChain`）→ 已弃用的 `model`（单冒号 `provider:model` 字符串，惰性解析，GUI 不再写）→ `function_models.automation` 全局默认链 → 聊天全局模型。详见 [automation-model](../core/automation-model.md)。因 hook 配置本身不持有存活的主对话 Agent 实例，不复用主对话 stable-system cache 前缀。
 
 ### 10.5 agent
 
@@ -406,7 +406,7 @@ matcher 目标按事件取（`HookInput::matcher_target`）：`tool_name`（工�
 | `if` | 条件执行 `ToolName(pattern)`：**仅** PreToolUse / PostToolUse / PostToolUseFailure 求值（其余事件直接跳过，fail-safe）。复用权限引擎参数提取器 + glob（`*` 贪心、`**`≡`*`，不拆 Bash 子命令）；接受工具别名。例 `exec(rm *)` / `write(src/**)` / `web_fetch(*.github.com)` |
 | `once` | 该 handler 每会话只跑一次（per-process 内存去重，按 type+identity，重启重置）|
 | `statusMessage` | handler 即将运行时桌面 GUI 弹 toast（emit `hook:status`）。慢 handler 才有感；IM 渠道暂不展示 |
-| `asyncRewake` | （仅 `command`+`async`）后台 hook `exit 2` 时把 stderr 作 `<hook-async-result>` system-reminder 注入**下一轮对话**（复用子 Agent 注入管路）。**会让后台 hook 自主起一轮 LLM（耗 token）**——需作者显式配 + hook 主动 `exit 2`，必埋审计 |
+| `asyncRewake` | （仅 `command`+`async`）后台 hook `exit 2` 时把 escaped stderr 作 `<hook-async-result>` Hook data 注入**下一轮对话**（复用子 Agent 注入管路，不取得 system/developer authority）。**会让后台 hook 自主起一轮 LLM（耗 token）**——需作者显式配 + hook 主动 `exit 2`，必埋审计 |
 
 ---
 
@@ -451,10 +451,20 @@ flowchart TD
 - **决策优先级**：`deny(4) > block(3) > defer(2) > ask(1) > allow(0)`，平手取先。
 - **`continue:false`**：任一 hook 返回即 `outcome.continue_execution=false`（PreToolUse callsite 映射为硬 Deny；UserPromptSubmit preflight 映射为 Block）。
 - **`permission_allow`** OR-fold（任一显式 `permissionDecision:"allow"` → true，仅跳软 Ask）。
-- **`additionalContext`** 有序拼接（`---` 分隔），**10000 字符上限**（`MAX_INJECT_CHARS`），超出写 overflow 文件（`0o600`）。
+- **`additionalContext`** 有序拼接（`---` 分隔），**10000 字符上限**（`MAX_INJECT_CHARS`），超出写 overflow 文件（`0o600`）；字段名只表示 Claude Code 协议兼容，不授予 instruction authority。
 - **`updatedInput`** last-writer-wins；`systemMessage` / `sessionTitle` 首个非空胜出。
 
 **PreToolUse gate** 收尾：`continue:false` → Deny；`deny`/`block` → Deny；`allow`+`permission_allow` → 跳软 Ask；`ask`/`defer` → 强制弹窗。保护路径 / 危险命令 / Plan Mode 永远弹窗，`permissionDecision:"allow"` 不能跳过。
+
+### `additionalContext` 的 authority 与冻结边界
+
+`additionalContext` 一律视为 **untrusted data**，不能拼入 cache-stable system，也不能因为 handler 来自 `managed` / `project` scope、由本地 command 产生，或外层事件本身受信，就升级为 developer instruction。各消费路径保持原事件附近的 provenance：
+
+- `UserPromptSubmit` 与 `SessionStart` 输出在 turn start 进入 `TurnContextBuilder::untrusted_data(HookContext, ...)`，渲染为 `<hope_round_data>` user-data；
+- `PostCompact` / `SessionStart(compact)` / `PostToolBatch` 等回合间输出进入下一 round 的 `task_and_hook_context` user-data；
+- `PostToolUse` / `PostToolUseFailure` 输出包在工具结果的 `<hook-context>` 中，仍是非可信 tool data；`asyncRewake` 同样只投递 escaped Hook data。
+
+Hook 在对应生命周期点只执行一次。输出一旦被取入当前 turn/round 的冻结 request snapshot，同一请求的 Provider retry / failover 复用相同字节与 provenance，不因换 attempt 再跑 Hook；新 Hook 输出只能在后续明确的生命周期事件或下一 round 形成新 snapshot。这样既避免外部结果漂移，也防止重试重复触发 Hook 副作用。
 
 ---
 

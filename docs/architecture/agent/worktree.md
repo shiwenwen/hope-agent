@@ -321,7 +321,7 @@ GUI 上分三层展示：Workspace 环境面板列出当前 session 相关的 ma
 
 - 用户可见的 `subagent` / `batch_spawn` 工具**默认开启**（`subagent` 是 `!shared_read_only`，`batch_spawn` 恒 `true`）。
 - 内部的 plan / team / hook / skill fork 保持 `false`，避免内部 helper 默认制造大量 worktree。
-- 创建成功后，child session 的 `working_dir` 指向 worktree 路径，并注入一段 `## Managed Worktree` system context，告诉子 agent 把它当默认工作区。
+- 创建成功后，child session 的 `working_dir` 指向 worktree 路径，并在子 Agent 的受信 run-instruction 中加入 `## Managed Worktree` 固定合同，告诉它把该路径当默认工作区；路径/任务等可变正文不并回稳定 system 前缀。
 - 创建失败时**不阻断** subagent：继承父 session 的 effective working directory 并 `app_warn!`。
 
 ## Hooks 扩展点

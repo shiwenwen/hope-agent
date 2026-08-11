@@ -1,6 +1,6 @@
 # Project 项目系统架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
 
 ## 目录
 
@@ -13,7 +13,7 @@
 - [工作目录解析链](#工作目录解析链)
 - [Agent 解析链（7 级）](#agent-解析链7-级)
 - [会话懒创建与草稿态](#会话懒创建与草稿态)
-- [System Prompt 注入](#system-prompt-注入)
+- [Prompt 上下文装配](#prompt-上下文装配)
 - [记忆系统接入](#记忆系统接入)
 - [文件浏览器与 preview-by-path](#文件浏览器与-preview-by-path)
 - [级联删除与孤儿清理](#级联删除与孤儿清理)
@@ -38,10 +38,10 @@ Project 要解决的问题是：**一组相关会话需要共享同一份工作�
 |---|---|---|
 | **项目范围长期记忆** | `memory.db`（`MemoryScope::Project { id }`） | 可检索、可召回的结构化事实，项目内可见、跨项目隔离 |
 | **项目自动记忆** | `projects/{id}/memory/MEMORY.md` + 主题 `*.md` | 有界索引稳定注入、主题按需读取的本机项目经验 |
-| **项目指令** | 项目根目录 `AGENTS.md` | 文件即唯一真相源，直接编辑，装配进每个项目内会话的 System Prompt |
+| **项目指令** | 项目根目录 `AGENTS.md` | 文件即唯一真相源，直接编辑，装配进每个项目内会话的稳定 system 合同 |
 | **统一工作目录** | 用户显式选的目录，或默认 `projects/{id}/workspace/` | 上传、agent 产出、文件浏览都围绕它 |
 
-贯穿整个子系统的一条哲学是 **「项目文件就是工作目录里的真实文件」**（对齐 [文件操作统一](file-operations.md)）：上传的文件直接落工作目录，模型靠 System Prompt 里的顶层文件清单加 `read` 工具感知它们。系统中**没有** `project_files` 表、独立的 `files/` / `extracted/` 目录、文本预提取注入，也**没有** `project_read_file` 工具——文件读写一律走文件浏览器 API 的 `WorkspaceScope` 作用域闭合。
+贯穿整个子系统的一条哲学是 **「项目文件就是工作目录里的真实文件」**（对齐 [文件操作统一](file-operations.md)）：上传的文件直接落工作目录，模型靠每轮 environment user-data 中的顶层文件清单发现候选，再用 `read` / `read_context_resource` 按需读取。系统中**没有** `project_files` 表、独立的 `files/` / `extracted/` 目录、文本预提取注入，也**没有** `project_read_file` 工具——文件读写一律走文件浏览器 API 的 `WorkspaceScope` 作用域闭合。
 
 围绕这些目标，几条设计取舍决定了整体形态：
 
@@ -90,7 +90,7 @@ flowchart TB
     AGR -. default_agent_id .-> TP
 ```
 
-会话通过 `sessions.project_id` 挂进项目后，它的 Agent、工作目录、System Prompt、记忆作用域都会随之改变——这些改变都发生在解析期（lazy resolve），项目属性一变即对所有未单独覆盖的会话生效，不复制快照。
+会话通过 `sessions.project_id` 挂进项目后，它的 Agent、工作目录、稳定 system 合同、每轮 environment user-data 与记忆作用域都会随之改变——这些改变都发生在解析期（lazy resolve），项目属性一变即对所有未单独覆盖的会话生效，不在项目表里复制会话级副本。
 
 ## 三处存储与事务边界
 
@@ -235,7 +235,7 @@ flowchart TD
 
 | 消费方 | 作用 |
 |---|---|
-| **System Prompt 渲染**（[`agent/config.rs`](../../../crates/ha-core/src/agent/config.rs)） | 传给 `system_prompt::build`，注入 `# Working Directory` 段 |
+| **稳定 system 渲染**（[`agent/config.rs`](../../../crates/ha-core/src/agent/config.rs)） | 传给 `system_prompt::build`，注入 `# Working Directory` 固定合同；可变目录观察不进入该字符串 |
 | **主对话工具执行**（[`agent/mod.rs`](../../../crates/ha-core/src/agent/mod.rs)） | 写入 `ToolExecContext.session_working_dir`，被 `read` / `write` / `exec` 解析相对路径 |
 | **斜杠命令执行**（[`slash_commands/handlers/mod.rs`](../../../crates/ha-core/src/slash_commands/handlers/mod.rs)） | 让内置命令也走合并值 |
 
@@ -306,27 +306,28 @@ flowchart LR
 
 **首轮 Git bootstrap**：草稿在首发前还维护 `ProjectRuntimeDraft`（默认 `local`；Git 项目在 `local` / `worktree` 两种运行位置下都可从本地或 remote-tracking 分支选起点）。切换项目保留 composer 文本、普通附件与引用，但清空草稿 KB attach、Git 缓存与运行位置。首次发送经 `ChatStartArgs.projectBootstrap` 接入 Tauri / HTTP 共用的 `ha-core::project_bootstrap` 编排；已有 session 携带该字段、非项目草稿、归档项目、非法 ref 或非 Git 目录均 fail closed。统一目录、Bootstrap 状态机、脏改动复制与恢复契约见 [Managed Worktree 控制平面](../agent/worktree.md#项目首轮-bootstrap)；Session materialize 后的 Diff / 分支 / 提交 / 推送 / PR 与双向 Handoff 见 [Session Git 控制平面](../agent/git-control.md)。
 
-## System Prompt 注入
+## Prompt 上下文装配
 
-会话挂到项目后，System Prompt 里出现三个项目相关段落。它们的注入顺序刻意区分「稳定前缀」与「尾块」，以最大化 Provider prompt cache 复用：
+会话挂到项目后，项目上下文被分到两条 authority/lifecycle 明确的通道。项目身份、工作目录约定和 Core Memory 索引属于稳定 system 合同；日期、天气与可变的顶层目录清单属于当轮非可信 environment user-data。文件增删因此不会重拼稳定前缀，也不会因为由项目携带就继承 system/developer authority：
 
 ```mermaid
 flowchart TD
-    subgraph PREFIX["稳定前缀（内容稳定 → cache 命中）"]
+    subgraph PREFIX["Stable System（cache-stable）"]
         CP["# Current Project<br/>名称 + Project ID + Description + save_memory 提示"]
         WD["# Working Directory<br/>路径 + AGENTS.md 指令注入"]
         MEM["# Memory 段 / Project Core Memory 索引"]
     end
-    TAIL["# Files in Working Directory<br/>（emit 在最末，独立尾块）"]
+    DATA["Round Environment User Data<br/>日期 · 天气 · # Files in Working Directory"]
 
-    CP --> WD --> MEM -.其余静态段.-> TAIL
+    CP --> WD --> MEM
+    MEM -.稳定缓存断点之后.-> DATA
 ```
 
 - **`# Current Project`**（[`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs)）：注入在 Memory 段**之前**。包含项目名称、稳定的 `Project ID` 与可选 `Description`，并在长期记忆开启时尾随一句提示——本会话 `save_memory` 默认落 project scope（想逃出项目边界要显式传 `scope='global'` 或 `'agent'`）。OpenClaw 模式同样注入此段；其更早的 `# Project Context` 只描述四文件 Agent pack，不能替代当前 HA 项目身份。它不再承载任何数据库指令。
 - **`# Working Directory`**（详见 [prompt-system.md](prompt-system.md)）：路径声明 + `## Working Directory Instructions` 子节，紧跟在 Project 段之后、Memory 段之前。项目工作目录始终有根 `AGENTS.md`，由既有 working-dir instruction loader 读取并按 20,000 字符上限注入——这也是项目指令的唯一入口。通用非项目工作目录仍保留 `AGENTS.md` 优先、`CLAUDE.md` fallback 的发现规则。
-- **`# Files in Working Directory`**（清单由 [`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) 的 `build_working_dir_files_section` 构建，在 `build.rs` 末尾 emit）：**独立顶层段，emit 在整个 prompt 最末**（在 Memory / 天气等所有静态段之后）。顶层文件清单——非递归、只列名、名称排序、跳过隐藏项与 `.git` / `node_modules`、上限 100 条、每轮刷新。刻意拆成尾块：文件增删只 bust 这一块，不波及前面的静态前缀缓存；同一目录状态产出 byte-identical 文本。模型靠普通 `read` 工具按需读文件。
+- **`# Files in Working Directory`**（清单由 [`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) 的 `build_working_dir_files_section` 构建，再由 `system_prompt::build_round_environment_data` 装配）：进入 `<hope_round_data source="environment">` 的 **user-data lane**，不再进入 system prompt。清单非递归、只列名、名称排序、跳过隐藏项与 `.git` / `node_modules` / `target` / `__pycache__` / `.venv` 等目录、上限 100 条、每轮刷新；同一目录状态仍产出 byte-identical 文本。模型靠普通 `read` / `read_context_resource` 工具按需读具体内容。
 
-> 系统里不存在「目录清单 / 小文件内联 / `project_read_file`」的多层文件注入——它由上面的 `# Files in Working Directory` 尾段清单加 `read` 工具取代。
+> 系统里不存在「目录清单 / 小文件内联 / `project_read_file`」的多层 system 注入——它由上面的 environment user-data 清单加按需读取工具取代。目录内容、召回正文和其他外部观察始终是非可信 data，不能借项目上下文升权。
 
 ## 记忆系统接入
 

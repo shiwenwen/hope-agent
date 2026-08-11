@@ -12,15 +12,13 @@ pub mod handlers;
 
 // 契约层原路径兼容再导出（定义处 `crate::slash_defs`）。
 pub use crate::slash_defs::{
-    append_slash_history_events, canonical_builtin_command_name, fuzzy, parser, registry, types,
+    append_slash_history_events, builtin_command_names, canonical_builtin_command_name, fuzzy,
+    parser, registry, types,
 };
 // 迁移前是 `pub(crate)`，门面不得顺手放开（crate 外符号集须与归位前逐字
 // 相同——同 tool_defs 那刀的先例）。`format_session_picker_line` 的两个
 // 调用点都写全路径，不需要在此再导入。
 pub(crate) use crate::slash_defs::truncate_description;
-
-use std::collections::HashSet;
-use std::sync::OnceLock;
 
 use crate::skills::SkillEntry;
 use types::{
@@ -43,71 +41,19 @@ pub struct ResolvedSkillCommand<'a> {
 /// typed name stays in sync with the runtime-matched skill.
 pub fn resolve_skill_command_names<'a>(
     skills: &'a [SkillEntry],
-    reserved: &HashSet<String>,
+    reserved: &std::collections::HashSet<String>,
 ) -> Vec<ResolvedSkillCommand<'a>> {
-    let mut used: HashSet<String> = reserved.clone();
-    let mut out: Vec<ResolvedSkillCommand<'a>> = Vec::with_capacity(skills.len());
-
-    for skill in skills {
-        let mut names_iter = skill.all_command_names();
-        let canonical = names_iter.next().expect("canonical name always yielded");
-
-        let mut display = if used.contains(&canonical) {
-            format!("{}_skill", canonical)
-        } else {
-            canonical.clone()
-        };
-        let base = display.clone();
-        let mut counter = 2;
-        while used.contains(&display) {
-            display = format!("{}_{}", base, counter);
-            counter += 1;
-        }
-        used.insert(display.clone());
-        out.push(ResolvedSkillCommand {
-            typed_name: display,
-            skill,
-        });
-
-        for alias in names_iter {
-            if used.contains(&alias) {
-                continue;
-            }
-            used.insert(alias.clone());
-            out.push(ResolvedSkillCommand {
-                typed_name: alias,
-                skill,
-            });
-        }
-    }
-
-    out
-}
-
-/// Silent dispatcher aliases — names accepted by the dispatch match arm
-/// in `handlers::mod.rs` but deliberately NOT registered in
-/// `registry::all_commands()` (so they don't appear in IM slash menus).
-/// They must still be reserved against skill name collisions, otherwise
-/// a user-defined `/<alias>` skill would be shadowed silently by the
-/// built-in dispatch.
-const SILENT_BUILTIN_ALIASES: &[&str] = &["reasoning", "think"];
-
-/// Built-in (hardcoded) slash command names — cached since `registry::all_commands()`
-/// is compile-time constant. Includes silent dispatcher aliases (see
-/// [`SILENT_BUILTIN_ALIASES`]) so the skill collision check in
-/// [`resolve_skill_command_names`] sees them too.
-pub fn builtin_command_names() -> &'static HashSet<String> {
-    static CACHE: OnceLock<HashSet<String>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let mut names: HashSet<String> = registry::all_commands()
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        for alias in SILENT_BUILTIN_ALIASES {
-            names.insert((*alias).to_string());
-        }
-        names
-    })
+    let names = skills
+        .iter()
+        .map(|skill| skill.all_command_names().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    crate::slash_defs::resolve_dynamic_command_names(&names, reserved)
+        .into_iter()
+        .map(|resolved| ResolvedSkillCommand {
+            typed_name: resolved.typed_name,
+            skill: &skills[resolved.entry_index],
+        })
+        .collect()
 }
 
 /// List all available slash commands (for UI menu rendering).
@@ -503,6 +449,7 @@ mod tests {
             command_prompt_template: None,
             install: Vec::new(),
             allowed_tools: Vec::new(),
+            allowed_tools_declared: false,
             context_mode: None,
             agent: None,
             effort: None,
@@ -710,6 +657,7 @@ mod tests {
         assert!(!should_persist_slash_history(Some(
             &CommandAction::PassThrough {
                 message: "expanded".into(),
+                skill_activation: None,
             },
         )));
         assert!(!should_persist_slash_history(Some(

@@ -1,6 +1,6 @@
 # Chat Engine 对话引擎架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-07
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
 
 **关联源码**
 
@@ -158,7 +158,8 @@ pub trait EventSink: Send + Sync + 'static {
 | | `agent_id` | `String` | Agent ID |
 | | `turn_id` | `Option<String>` | 面向用户的桌面/HTTP 回合持久化 turn id；非交互入口（Cron/subagent/注入/IM）恒 `None`（见下文） |
 | | `message` | `String` | 发给模型的用户消息 |
-| | `display_text` | `Option<String>` | 友好呈现文案（如 slash 技能的 `Using skill X…`）；IM 镜像的用户引用前缀用它，让附着的 IM 看到桌面用户看到的、而非原始 `[SYSTEM:…]` |
+| | `incoming_turn` | `Option<IncomingTurnWire>` | typed mention/slash sidecar；绑定 canonical text digest、UTF-8 source anchors 与 prompt/mention contract version |
+| | `display_text` | `Option<String>` | 友好呈现文案（例如显示原始 slash 命令）；不参与 typed binding 真实性或模型 authority |
 | | `attachments` | `Vec<Attachment>` | 多模态附件 |
 | | `session_db` | `Arc<SessionDB>` | 会话数据库 |
 | 模型链 | `model_chain` | `Vec<ActiveModel>` | 预解析的模型降级链 |
@@ -166,7 +167,7 @@ pub trait EventSink: Send + Sync + 'static {
 | | `codex_token` | `Option<(String, String)>` | Codex OAuth `(access_token, account_id)`；可传 `None`，引擎在链真命中 Codex 时从磁盘 hydrate + refresh，三入口行为一致 |
 | Agent 配置 | `resolved_temperature` | `Option<f64>` | 三层覆盖后的温度值 |
 | | `compact_config` | `CompactConfig` | 上下文压缩配置 |
-| | `extra_system_context` | `Option<String>` | 额外系统提示词 |
+| | `run_context` | `Option<RunInstructionContext>` | 封闭来源的受信 Run instruction + 独立 untrusted run-data；不能承载 Skill/Note/File/任意外部正文 |
 | | `reasoning_effort` | `Option<String>` | 推理强度 |
 | 工具与权限 | `skill_allowed_tools` | `Vec<String>` | Skill 工具白名单（激活带 `allowed-tools` 的技能时设置） |
 | | `denied_tools` | `Vec<String>` | 调用方执行策略级工具黑名单（与 schema 级过滤双重防御） |
@@ -185,6 +186,24 @@ pub trait EventSink: Send + Sync + 'static {
 | | `origin_source` | `Option<KbAccessSource>` | 整条调用链的 KB access 来源；子 agent 承接父 turn 的 origin，防 IM 起源链经中性 `Subagent` 重获 KB access |
 | | `channel_kb_context` | `Option<ChannelKbContext>` | IM 起源身份，用于 KB access opt-in 门；仅 IM 起源 turn 为 `Some` |
 | 输出 | `event_sink` | `Arc<dyn EventSink>` | 事件输出通道 |
+
+#### Typed 资源冻结、准入与耐久发布
+
+引擎在任何 Provider/profile 尝试之前完成一次 turn resolution：验证 sidecar；以 canonical containment + 单次只读文件句柄冻结 typed `@file` 字节。打开过程是 descriptor/handle-rooted 而非 pathname 复检：Unix 从 `/` fd 开始对 canonical root 与相对目标逐组件 `openat(O_NOFOLLOW)`，目录组件叠 `O_DIRECTORY`，final 叠 `O_NONBLOCK` 后用 handle metadata 拒绝 FIFO/device；Windows 从 drive/UNC share root 起逐组件打开 direct-directory handle，拒 reparse point、核对每个 handle 的 final path，并在打开最终文件前一直以禁 `FILE_SHARE_DELETE` 的方式持有整条目录链，因而目录 rename/replacement 只能失败，证明后直接返回同一 file handle。Plans 页产生的 typed `@plan` 由后端独立重解析 registry path、与客户端附件做 canonical 精确匹配，并和 `@file` 作为一个原子批次冻结；解析 `@note`/`@skill`/capability/`@agent`；固定 Skill ceiling；构造 user-role Turn Envelope。Tauri/HTTP 的 direct 与 queue 入口都在任何附件/队列持久化前先做 message-bound/version 校验，并要求 unique File/Plan target set 与 `mention`/`plan_mention` attachment 数量逐类精确对应；同一 target 的重复 mention 共用一个 attachment，额外、缺失或无 sidecar 的 typed source 一律拒绝，ChatEngine 与 queue persistence 再各留一层 defense-in-depth。冻结前的 typed attachment 必须 `data=None`、不得混入 upload/quote metadata，name/MIME/client path 都有 byte 与控制字符上限；服务端冻结后再次验证 name/MIME。文件/Plan 批次的 256 MiB hard ceiling 同时计入 compact raw `Arc<[u8]>`、Attachment 上保留的 Base64、单文件 acquisition/decode peak、每资源 fail-visible reference envelope，以及 direct image 在 canonical conversation、Provider-normalized round、request value、诊断序列化与 HTTP body 间可能并存的 bulk payload copies；reference reserve 从“两次最大合法 filename 的 XML escape 上界 + 固定信封”推导，不依赖裸魔数。batch admission 另留一个不计作已消费的 256 KiB continuation floor，首轮 extraction 不得占用，保证即使只能 reference 也至少可请求一个小的 exact Base64 页。`get_base64_data` 对内联数据只借用，避免进入 Provider payload 前再 clone 一份。超限在分配/发布前显式失败；handle stat 与实际读取长度必须精确相等，stat 后增长或缩短都 fail closed，Vec 的 spare capacity 也在进入 retained turn state 前丢弃。这个上限约束 typed-resource bulk allocations，不代表 source-content 能力或注入字符上限。只读 acquisition 先留在内存，persistent stream run 建立后才把固定长度 snapshot basename（run UUID + resource ref，不含用户文件名）绑定到服务端生成的 run UUID；ownership ledger 在文件原子发布前先独立提交，因此文件不会在尚无 durable owner 时落盘。真正的 filesystem publish 在 `TransactionBehavior::Immediate` writer transaction 中先验证 live run/session、完整 ownership set 与所有 `cleanup_pending=0`，再保持写锁同步发布并 commit；run/session delete trigger 与 drain writer 只能在 gate 提交后推进。若 delete+`NotFound` drain 在 gate 前已完成，row pending/缺失会让晚到发布在写文件前失败；publish/commit 失败则显式把 ownership 标为 pending，由同一可恢复 GC 收敛，不使用时间 lease。普通会话的资源证据还包含 installation-keyed object identity 与 content fingerprint，不把绝对路径、文件正文或 raw hash 写入 receipt/Debug/日志；Incognito 只保留内存 bytes。`initial_context_committed` 事件把 receipt、source anchors、Agent refs、Skill ceiling 与 Run source 写入现有 append-only stream journal，并在 Provider I/O 前 flush。兼容字段 `fileSnapshots` 由 `resourceSnapshotVersion=2` 标识，v2 可同时承载 File/Plan resource snapshot；不另存第二份真相。每个 failover attempt 只引用同一 revision 0 快照，不重新读磁盘、Plan、Note、Skill 或 Hook。
+
+#### Typed 资源恢复与 ownership GC
+
+发布到首次 `initial_context_committed` flush 之间的崩溃窗口由同一 run UUID 收敛：正常失败/取消由 Drop guard 删除未提交批次；live abandoned recovery 与启动恢复先校验该 run **所有 attempt** 的 checksum 和连续 sequence，再扫描会话附件目录的精确 run 前缀。启动恢复还枚举仍由文件表示的 terminal run owner，覆盖 terminal DB commit 与 Drop 之间进程退出的窄窗口。只要任一已验证的 v2 Initial Context 引用某 basename 就保留，否则删除；journal 损坏、identity 不匹配或 basename 非单组件时 fail closed，文件留存而不猜测删除。terminal journal 的 24 小时 GC、消息 edit/retry 或 session cascade 删除 run 时，由 `BEFORE DELETE` trigger 在同一 DB 事务把独立 ownership ledger 标为 cleanup pending；ledger 不对 run/session 设 cascade FK，因而不会在 best-effort `remove_dir_all` 失败时丢掉唯一重试证据。后台先按精确 session/run/basename rooted unlink，Unix 逐组件 `openat` 后 `unlinkat`，Windows 在禁 delete-share 的目录 handle 链存活时删除 final entry；两端都不跟随 symlink/reparse ancestor，final link 只删除目录项本身。`NotFound` 视作崩溃重试成功，再删除 ledger row。清理按 high-watermark 分批跑完，单条失败留到下轮但不阻塞后项；session 整目录删除成功时由同一 `NotFound` ack 收敛。没有 ledger 的 missing/unknown owner 永不猜删。恢复绝不消费 client/journal 提供的任意路径。手输/粘贴的 `@plan:` 同形文本没有 typed sidecar 时只作为普通文本，不触发读取。
+
+#### Typed 资源首轮 materialization
+
+文件类资源首轮 materialization 使用模型上下文窗口的 20% 字符估算预算（总量钳在 8K–200K 字符），多资源等分，避免第一个大文件吃掉整个份额。份额内标记 `materialization="full"`；超限时确定性保留头部 75% 与尾部 25%，标记 `preview`、包含/提取字符数和继续读取工具。文本类型判定只有 `file_extract::is_text_like` 一份，首轮与续读不得各维护扩展名白名单。
+
+#### Typed 资源续读、Office 抽取与 turn 内存账本
+
+typed `@file/@plan` 的后续读取只接受 Turn Envelope 中的 opaque `resourceRef`，始终消费同一冻结 bytes；普通受管附件仍使用既有 `read` 路径。UTF-8 原文用 iterator 做行分页，单页正文最多 64 KiB，超长行通过同一行的 UTF-8 `byte_offset` 继续，不构造全文件 `lines Vec`。DOCX/PPTX/XLSX 首轮和续读共用 manual bounded Office extractor：ZIP 索引、entry 数、单 entry/aggregate declared size 在分配前检查，local/central declaration 必须一致，解压写入固定长度 Vec 后以栈上 1-byte probe 证明 EOF，并校验 CRC；内存 slice XML 走 borrowed event 读取，单属性 raw value/单元素属性数、text event/reference/element-name、最大深度、quick-xml opened-name Vec 的最坏 capacity、XLSX 单 cell 和各解析阶段 live set 都有分配前硬界。XML 的 encoding、attributes、decode/unescape、entity 和 EOF element state 任一异常都让整次抽取失败，且错误离开 bounded parser 前转成固定短分类，不回显恶意 tag/attribute；绝不返回 partial/full。XLSX 按 workbook relationship 保留用户 sheet 名和顺序，并支持 shared/inline string、布尔、错误和常见数值文本。Office 抽取达到 200K 字符上限时显式返回 `extractionTruncated=true`，最终文本页也不能冒充文档 EOF；剩余原始证据只可继续 Base64。
+
+`read_context_resource` 是串行工具。首轮 materialization 在抽取前验证全 turn refs 非空、共享同一 owner 且 baseline/ref-set 一致，并持有 turn ledger 锁直到实际消费提交；无法记账时只把 typed 部分降为预留过的 reference envelope、清掉 typed media，普通附件不受影响。ledger 记录首轮**实际总消费**（text/Office preview 与 PPT embedded media），Provider/profile rebuild 以 `max` 幂等替换、不会重复累加；续读成功结果才累计 retained charge，失败不扣。工具按 `ctx` 的全 turn refs 重建同一 raw/Base64/direct-image/reference baseline，减去 ledger 的 initial + cumulative continuation 后，再为解压、图片 decode 或结果 String/Base64 做 allocation-before-use reservation。ledger Arc 随 refs clone 穿过 Provider/profile rebuild，新 turn 创建新 owner、turn 释放即回收，不依赖进程全局表；因此不能把 256 MiB 当成每次调用的新额度。小且可完整 decode 的图片在同一预算内用 image marker 返回视觉上下文；损坏、像素工作集过大或总预算不足时明确引导 bounded Base64。PDF、legacy XLS 和未知 binary 不走进程内 eager parser，auto/text fail-visible，并保留每页最多 64 KiB 的 exact Base64 访问；请求页超过剩余额度时须缩小 `limit`。preview 是显式投递状态，不冒充模型已完整处理资源。
 
 ### ChatEngineResult
 
@@ -323,15 +342,16 @@ flowchart LR
     end
 ```
 
-### run / attempt / journal 三张台账
+### run / attempt / journal 主台账与 typed snapshot ledger
 
-每个跑 `AssistantAgent::chat` + tool loop 的会话 turn 都有独立 `persistence_run_id`。落库分三张表（定义在 [`session/stream_persistence.rs`](../../../crates/ha-core/src/session/stream_persistence.rs)）：
+每个跑 `AssistantAgent::chat` + tool loop 的会话 turn 都有独立 `persistence_run_id`。流恢复事实落在三张主表；typed 资源另用一张不可随 run/session cascade 丢失的 ownership ledger（均定义在 [`session/stream_persistence.rs`](../../../crates/ha-core/src/session/stream_persistence.rs)）：
 
 | 表 | 主键 | 记什么 |
 |---|---|---|
 | `chat_stream_runs` | `run_id` | 一次 turn 的 run 头：`accepted / durable / checkpoint / committed` 四条水位、`status`、可选 `turn_id`、`base_context_json` |
 | `chat_stream_attempts` | `(run_id, attempt_no)` | 每次 profile/model 尝试的状态与水位；失败尝试标 `superseded`，journal 保留 |
 | `chat_stream_journal` | `(run_id, attempt_no, block_no)` | 追加式 compact payload、`seq_start/seq_end` 范围与 BLAKE3 `checksum` |
+| `chat_stream_typed_snapshots` | `(run_id, snapshot_name)` | File/Plan snapshot 的独立 ownership ledger：filesystem publish 前先登记；publish gate 在 `IMMEDIATE` 事务内校验 live owner、精确 basename 集合与 `cleanup_pending=0`；run/session 删除先由 trigger 标 pending，rooted GC 删除文件或确认 `NotFound` 后才 ack 删除行 |
 
 另有 `chat_stream_context_checkpoints` 保存 provider-native context 的中途快照（`through_seq`），供 round checkpoint 与恢复重建。
 
@@ -610,6 +630,10 @@ stateDiagram-v2
 - `inserting`：工具边界已原子 claim；编辑、删除、取消均 CAS 失败。
 - `dispatching`：正在创建下一独立回合；同样不可变。
 - `held_after_stop`：用户从 Desktop / HTTP / IM 任一入口显式 Stop 后冻结的 Channel 行；启动恢复与后端泵都不消费，下一条普通 IM 模型消息才按原 FIFO 恢复，并排在该批旧消息之后。
+
+**完整 turn sidecar 边界**：工具边界插入只携带一条原始 `user` message，不能消费 typed mention、Skill ceiling 或 Knowledge inline injection。因此，非空 `incomingTurn.mentions`、非空 `skillAllowedTools`，以及正文中会被保留兼容路径消费的 legacy `[[wikilink]]` 都必须转 `fallback_after_reply`，由下一完整 turn 解析；future/malformed sidecar 同样 fail closed。版本合法且 mentions 为空的普通 wire 可插入，普通 Markdown `[label](url)` 不触发此守卫。owner 编辑排队正文时会在同一 SQLite 事务移除旧 `incomingTurn`/Skill ceiling 与 `mention|plan_mention` attachments，只保留普通 upload/quote；否则旧 typed attachment 会变成无 sidecar 的不可派发行。legacy detector 与 `ha-knowledge` injector 共用 `knowledge::legacy_wikilink_targets`；当前兼容 injector 是 raw-text scanner，故代码 span/fence 内的 `[[Roadmap]]` 也会解析，队列必须镜像为完整 turn，不能为了减少误挡而先行改变语义。未来若 injector 改为跳代码，两处须通过该共享 detector 同步切换。
+
+**Composer → durable queue 竞态契约**：忙时从可见 composer 入队时，前端先快照原文、typed mention spans/bindings、文件与引用，并在第一次异步 digest、附件持久化或 Transport 调用之前同步清空 composer 的文本、typed provenance、附件和引用状态。用户可以在 queue write 尚未完成时继续输入，新草稿不会再被迟到的成功回调清空。若持久化失败，前端先丢弃本次已取得的 upload leases、移除 `saving` 投影，再把失败消息放在等待期间新草稿之前；`mergeTypedMentionDrafts` 保留两侧各自的 typed binding，把新草稿 spans 按实际插入前缀精确平移，并只留下 `text[start..end] == raw` 的 provenance，绝不从同形文本重新推断 binding。若用户已切换会话，恢复结果合并进原会话的 draft cache，而不是污染当前 composer；文件和两类 quote 也按同一“失败旧稿在前、期间新稿保留”规则恢复。
 
 **桌面投影契约**：输入框上方只把这些持久状态投影成轻量的“待发送”消息条，不另建前端队列状态机。默认只展示前 2 条，更多消息可展开；`queued | fallback_after_reply` 显示“回复后发送”：当前回合仍运行且后端声明 `canForceInsert` 时提供“插入”，当前回合已 idle 时则只给 FIFO 队首“立即发送”（`autoSendPending=false` 或崩溃恢复后仍必须有人工出口）；`waiting_tool_boundary` 显示“等待插入”，菜单可“改为回复后发送”；`inserting | dispatching | saving` 显示进行中状态并锁定编辑、删除和重复动作；`held_after_stop` 的非 Channel 兼容投影只允许删除，真实 `managedBy=channel` 行全程只读。按钮与 Tooltip 必须使用用户术语“插入”，并明确它会等待**本批正在执行的工具全部完成**，不会中断批次中的工具；没有后续安全边界时仍按“回复后发送”收敛。队列编辑保存遵守统一的 `saving → saved/failed` 两秒反馈契约，失败或 Promise rejection 保留草稿并可重试。
 

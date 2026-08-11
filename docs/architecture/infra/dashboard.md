@@ -288,7 +288,7 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `sessions.db`
 | 类别 | 常量 | 触发点 |
 |------|------|----------|
 | Skill 生命周期 | `EVT_SKILL_CREATED` / `_PATCHED` / `_ACTIVATED` / `_DISCARDED` / `_USED` | `skills::author` CRUD + 激活 / 丢弃，见 [skill-system](../agent/skill-system.md) |
-| 记忆召回 | `EVT_RECALL_HIT` / `EVT_RECALL_SUMMARY_USED` | 召回命中 + 召回摘要被注入 system prompt，见 [memory](../core/memory.md) |
+| 记忆召回 | `EVT_RECALL_HIT` / `EVT_RECALL_SUMMARY_USED` | 召回命中 + 召回摘要进入动态 user-data，见 [memory](../core/memory.md) |
 | MCP 工具 | `EVT_MCP_TOOL_CALLED` / `EVT_MCP_TOOL_FAILED` | 每次 MCP 工具成功 / 失败，meta 含 `{ server, tool, durationMs, error? }` |
 
 ### 查询函数（learning.rs，4 个）

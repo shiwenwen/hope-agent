@@ -39,10 +39,9 @@ pub(super) fn find_git_root(start: &str) -> Option<String> {
     }
 }
 
-/// Get current date as a stable string (date-only, no time).
-/// Excludes time to maximize prompt cache hit rate — the system prompt
-/// stays identical throughout the day. Agents can use `exec date` for
-/// the precise time when needed.
+/// Get current date as bounded round-environment data (date-only, no time).
+/// It deliberately stays outside the stable system prefix; agents can use
+/// `exec date` for precise time when needed.
 pub(super) fn current_date() -> String {
     // Same as `uname`: a `date.exe` from Git-for-Windows / MSYS2 can resolve
     // on Windows, so suppress its console window too.

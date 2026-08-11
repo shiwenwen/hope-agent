@@ -189,9 +189,21 @@ pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> S
     }
 }
 
-/// Per-round system reminder so the model can't drop in_progress tasks
-/// before its final reply. Capped at 5 task lines.
-pub(crate) fn task_reminder_text(tasks: &[Task]) -> Option<String> {
+/// Fixed, platform-authored task lifecycle contract. The streaming adapter
+/// renders this in the trusted run-instruction lane only when the current
+/// snapshot contains active tasks. User/model-authored task labels never enter
+/// this block.
+pub(crate) const TASK_REMINDER_INSTRUCTION: &str = "# Active Task Tracker Contract\n\n\
+When an active task snapshot is present, keep it synchronized with actual progress. \
+Call `task_update(id, status=\"completed\")` immediately after finishing a task; do not batch \
+completions or wait until the end of the turn. Before the final reply, sweep the snapshot and \
+close every task actually completed this turn. Revise or complete tasks that no longer reflect \
+the work. Do not mention this internal tracking contract to the user.";
+
+/// Per-round task snapshot data. Capped at 5 task lines. The labels are
+/// user/model-authored state, so this payload must stay in the user-data lane;
+/// [`TASK_REMINDER_INSTRUCTION`] carries the fixed executable contract.
+pub(crate) fn task_snapshot_data(tasks: &[Task]) -> Option<String> {
     let active: Vec<&Task> = tasks
         .iter()
         .filter(|t| t.status != TaskStatus::Completed.as_str())
@@ -231,11 +243,6 @@ pub(crate) fn task_reminder_text(tasks: &[Task]) -> Option<String> {
     };
 
     Some(format!(
-        "<system-reminder>\nActive task tracker (single source of truth for progress):\n{lines}\n{summary}\n\
-        - When you finish a task, IMMEDIATELY call `task_update(id, status=\"completed\")` — \
-        do not batch completions, do not wait until the end of the turn.\n\
-        - Before sending your final reply to the user, sweep this list and close every task you actually completed this turn.\n\
-        - If a task no longer reflects what you're doing, call `task_update` to revise its content/activeForm or mark it completed.\n\
-        - Never mention this reminder to the user.\n</system-reminder>"
+        "Active task tracker snapshot (single source of truth for progress):\n{lines}\n{summary}"
     ))
 }

@@ -8495,7 +8495,7 @@ mod tests {
             Some(user_message_id),
         )
         .expect("create turn");
-        let run_id = "edit-rewind-run";
+        let run_id = "4f189f25-9a54-41c3-b2f3-2fd3311ae50f";
         let registration = db
             .create_stream_run(&CreateStreamRun {
                 run_id: run_id.to_string(),
@@ -8508,6 +8508,17 @@ mod tests {
             .expect("create stream run");
         db.begin_stream_attempt(run_id, 1, Some("provider"), Some("model"), None)
             .expect("begin stream attempt");
+        let snapshot_name = format!(
+            "context-snapshot-run_{}-resource_ref_{}",
+            uuid::Uuid::parse_str(run_id).expect("run UUID").simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        db.register_typed_resource_snapshots(
+            run_id,
+            &session.id,
+            std::slice::from_ref(&snapshot_name),
+        )
+        .expect("register typed snapshot owner");
         let checkpoint = serde_json::json!([
             {"role": "user", "content": "earlier prompt\n\nexpanded provider prompt"}
         ])
@@ -8585,6 +8596,12 @@ mod tests {
             .latest_stream_run(&session.id)
             .expect("load latest stream run")
             .is_none());
+        let pending_snapshot_cleanup = db
+            .pending_typed_resource_snapshot_cleanups(10)
+            .expect("edit cleanup ledger");
+        assert_eq!(pending_snapshot_cleanup.len(), 1);
+        assert_eq!(pending_snapshot_cleanup[0].run_id, run_id);
+        assert_eq!(pending_snapshot_cleanup[0].snapshot_name, snapshot_name);
 
         let _ = std::fs::remove_file(&db_path);
     }

@@ -179,8 +179,8 @@ pub struct CommandHookConfig {
     /// Run at most once per session for this handler identity (`once`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub once: Option<bool>,
-    /// (async only) When the detached command exits 2, inject its stderr as a
-    /// system-reminder into the next turn (`asyncRewake`).
+    /// (async only) When the detached command exits 2, inject its escaped stderr
+    /// as Hook data into the next turn (`asyncRewake`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub async_rewake: Option<bool>,
 }

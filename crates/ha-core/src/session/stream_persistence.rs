@@ -5,7 +5,7 @@
 //! kept readable during the compatibility window.
 
 use anyhow::{Context, Result};
-use rusqlite::{params, OptionalExtension, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 use crate::model_usage::ModelUsageEvent;
@@ -143,6 +143,17 @@ pub struct StreamRunSnapshot {
     pub through_seq: u64,
 }
 
+/// Filesystem cleanup work that must survive deletion of its owning stream
+/// journal. Rows are backend-minted before publication and become pending via
+/// a DB trigger in the same transaction that removes `chat_stream_runs`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TypedResourceSnapshotCleanup {
+    pub ledger_row_id: i64,
+    pub run_id: String,
+    pub session_id: String,
+    pub snapshot_name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct CommitAssistantTurn {
     pub run_id: Option<String>,
@@ -180,6 +191,20 @@ pub struct CommittedTurn {
     pub context_revision: i64,
     pub committed_seq: u64,
     pub persistence_status: String,
+}
+
+fn mark_typed_resource_snapshots_pending(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    session_id: &str,
+) -> Result<usize> {
+    conn.execute(
+        "UPDATE chat_stream_typed_snapshots
+            SET cleanup_pending = 1
+          WHERE run_id = ?1 AND session_id = ?2",
+        params![run_id, session_id],
+    )
+    .map_err(Into::into)
 }
 
 impl SessionDB {
@@ -257,8 +282,76 @@ impl SessionDB {
                     REFERENCES chat_stream_attempts(run_id, attempt_no) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_chat_stream_context_checkpoint_recovery
-                ON chat_stream_context_checkpoints(run_id, attempt_no, through_seq DESC);",
+                ON chat_stream_context_checkpoints(run_id, attempt_no, through_seq DESC);
+
+            CREATE TABLE IF NOT EXISTS chat_stream_typed_snapshots (
+                run_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                snapshot_name TEXT NOT NULL,
+                cleanup_pending INTEGER NOT NULL DEFAULT 0
+                    CHECK (cleanup_pending IN (0, 1)),
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, snapshot_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_stream_typed_snapshots_cleanup
+                ON chat_stream_typed_snapshots(cleanup_pending, created_at);
+            CREATE TRIGGER IF NOT EXISTS chat_stream_runs_typed_snapshots_bd
+            BEFORE DELETE ON chat_stream_runs
+            BEGIN
+                UPDATE chat_stream_typed_snapshots
+                   SET cleanup_pending = 1
+                 WHERE run_id = OLD.run_id;
+            END;",
         )?;
+        // A short-lived prerelease schema cascaded this ledger from sessions.
+        // That loses the only retry proof when `delete_session` removes the
+        // attachment directory best-effort and the filesystem operation fails.
+        // Rebuild transactionally without the FK; the run-delete trigger marks
+        // rows pending before either explicit or session-cascade run deletion.
+        let typed_snapshot_has_session_fk = {
+            let mut stmt = conn.prepare("PRAGMA foreign_key_list(chat_stream_typed_snapshots)")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(2))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+                .iter()
+                .any(|table| table == "sessions")
+        };
+        if typed_snapshot_has_session_fk {
+            if let Err(error) = conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 DROP TRIGGER IF EXISTS chat_stream_runs_typed_snapshots_bd;
+                 DROP INDEX IF EXISTS idx_chat_stream_typed_snapshots_cleanup;
+                 ALTER TABLE chat_stream_typed_snapshots
+                    RENAME TO chat_stream_typed_snapshots_prerelease;
+                 CREATE TABLE chat_stream_typed_snapshots (
+                    run_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    snapshot_name TEXT NOT NULL,
+                    cleanup_pending INTEGER NOT NULL DEFAULT 0
+                        CHECK (cleanup_pending IN (0, 1)),
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (run_id, snapshot_name)
+                 );
+                 INSERT INTO chat_stream_typed_snapshots (
+                    run_id, session_id, snapshot_name, cleanup_pending, created_at
+                 )
+                 SELECT run_id, session_id, snapshot_name, cleanup_pending, created_at
+                   FROM chat_stream_typed_snapshots_prerelease;
+                 DROP TABLE chat_stream_typed_snapshots_prerelease;
+                 CREATE INDEX idx_chat_stream_typed_snapshots_cleanup
+                    ON chat_stream_typed_snapshots(cleanup_pending, created_at);
+                 CREATE TRIGGER chat_stream_runs_typed_snapshots_bd
+                 BEFORE DELETE ON chat_stream_runs
+                 BEGIN
+                    UPDATE chat_stream_typed_snapshots
+                       SET cleanup_pending = 1
+                     WHERE run_id = OLD.run_id;
+                 END;
+                 COMMIT;",
+            ) {
+                let _ = conn.execute_batch("ROLLBACK;");
+                return Err(error.into());
+            }
+        }
         // These columns were added after the first additive journal migration.
         // Keep startup compatible with databases created by that prerelease.
         if conn
@@ -1274,6 +1367,282 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Persist backend-minted ownership before any typed snapshot file is
+    /// published. The row intentionally does not reference `chat_stream_runs`:
+    /// it must survive journal deletion long enough to drive recoverable
+    /// filesystem cleanup. It also intentionally has no session foreign key:
+    /// session-directory removal is best-effort, so the ledger must survive a
+    /// failed delete and retry the exact owner-scoped basename later.
+    pub(crate) fn register_typed_resource_snapshots(
+        &self,
+        run_id: &str,
+        session_id: &str,
+        snapshot_names: &[String],
+    ) -> Result<()> {
+        if snapshot_names.is_empty() {
+            return Ok(());
+        }
+        if snapshot_names
+            .iter()
+            .any(|name| name.is_empty() || name.len() > 255)
+        {
+            anyhow::bail!("typed-resource snapshot ownership has an invalid basename");
+        }
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let owner: Option<String> = tx
+            .query_row(
+                "SELECT session_id FROM chat_stream_runs
+                 WHERE run_id = ?1 AND status = 'running'",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if owner.as_deref() != Some(session_id) {
+            anyhow::bail!("typed-resource snapshot owner run is unavailable or mismatched");
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        for snapshot_name in snapshot_names {
+            tx.execute(
+                "INSERT INTO chat_stream_typed_snapshots (
+                    run_id, session_id, snapshot_name, cleanup_pending, created_at
+                 ) VALUES (?1, ?2, ?3, 0, ?4)
+                 ON CONFLICT(run_id, snapshot_name) DO NOTHING",
+                params![run_id, session_id, snapshot_name, now],
+            )?;
+            let registered_session: String = tx.query_row(
+                "SELECT session_id FROM chat_stream_typed_snapshots
+                 WHERE run_id = ?1 AND snapshot_name = ?2 AND cleanup_pending = 0",
+                params![run_id, snapshot_name],
+                |row| row.get(0),
+            )?;
+            if registered_session != session_id {
+                anyhow::bail!("typed-resource snapshot ownership conflicts with another session");
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Publish a previously registered durable typed-resource batch while an
+    /// IMMEDIATE writer transaction protects the ownership rows. The
+    /// filesystem callback deliberately runs inside that transaction: run or
+    /// session deletion (and the cleanup writer it enables) cannot overtake a
+    /// validated publication and acknowledge its ledger rows before the files
+    /// appear.
+    ///
+    /// Registration remains a separate committed phase so a crash before this
+    /// gate leaves durable cleanup proof. At the gate we require the exact
+    /// registered set to still belong to a live run/session and every row to
+    /// remain active. A delete+drain that wins before `BEGIN IMMEDIATE` thus
+    /// makes a late publisher fail before invoking `publish`.
+    pub(crate) fn publish_registered_typed_resource_snapshots<T>(
+        &self,
+        run_id: &str,
+        session_id: &str,
+        snapshot_names: &[String],
+        publish: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        if snapshot_names.is_empty() {
+            anyhow::bail!("durable typed-resource publication has no ownership rows");
+        }
+        let expected_names = snapshot_names
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::HashSet<_>>();
+        if expected_names.len() != snapshot_names.len() {
+            anyhow::bail!("durable typed-resource publication has duplicate ownership rows");
+        }
+
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        let live_owner: Option<String> = tx
+            .query_row(
+                "SELECT runs.session_id
+                   FROM chat_stream_runs AS runs
+                   JOIN sessions ON sessions.id = runs.session_id
+                  WHERE runs.run_id = ?1
+                    AND runs.session_id = ?2
+                    AND runs.status = 'running'",
+                params![run_id, session_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if live_owner.as_deref() != Some(session_id) {
+            anyhow::bail!(
+                "typed-resource snapshot publication owner run is unavailable or mismatched"
+            );
+        }
+
+        let registered_rows = {
+            let mut stmt = tx.prepare(
+                "SELECT session_id, snapshot_name, cleanup_pending
+                   FROM chat_stream_typed_snapshots
+                  WHERE run_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![run_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let registered_names = registered_rows
+            .iter()
+            .map(|(_, name, _)| name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        if registered_rows.len() != snapshot_names.len()
+            || registered_names != expected_names
+            || registered_rows
+                .iter()
+                .any(|(owner, _, cleanup_pending)| owner != session_id || *cleanup_pending != 0)
+        {
+            anyhow::bail!(
+                "typed-resource snapshot publication ownership is missing, pending, or mismatched"
+            );
+        }
+
+        match publish() {
+            Ok(output) => match tx.commit() {
+                Ok(()) => Ok(output),
+                Err(commit_error) => {
+                    // The files may already exist while the gate transaction
+                    // failed to commit. Persist recoverable cleanup work on
+                    // the writer connection before returning the failure.
+                    let cleanup_result =
+                        mark_typed_resource_snapshots_pending(&conn, run_id, session_id);
+                    match cleanup_result {
+                        Ok(_) => Err(anyhow::anyhow!(
+                            "commit typed-resource snapshot publication gate: {commit_error}"
+                        )),
+                        Err(cleanup_error) => Err(anyhow::anyhow!(
+                            "commit typed-resource snapshot publication gate: {commit_error}; \
+                             additionally failed to mark ownership pending: {cleanup_error}"
+                        )),
+                    }
+                }
+            },
+            Err(publish_error) => {
+                // Publication cleans any successfully-created prefix itself,
+                // but a failed unlink must remain retryable. Mark the complete
+                // batch pending in this same writer transaction.
+                if let Err(mark_error) = tx.execute(
+                    "UPDATE chat_stream_typed_snapshots
+                        SET cleanup_pending = 1
+                      WHERE run_id = ?1 AND session_id = ?2",
+                    params![run_id, session_id],
+                ) {
+                    drop(tx);
+                    let fallback_error =
+                        mark_typed_resource_snapshots_pending(&conn, run_id, session_id).err();
+                    return Err(match fallback_error {
+                        Some(fallback_error) => anyhow::anyhow!(
+                            "publish typed-resource snapshots: {publish_error}; failed to mark \
+                             ownership pending: {mark_error}; fallback also failed: {fallback_error}"
+                        ),
+                        None => anyhow::anyhow!(
+                            "publish typed-resource snapshots: {publish_error}; initial pending \
+                             mark failed: {mark_error}"
+                        ),
+                    });
+                }
+                if let Err(commit_error) = tx.commit() {
+                    let cleanup_result =
+                        mark_typed_resource_snapshots_pending(&conn, run_id, session_id);
+                    return Err(match cleanup_result {
+                        Ok(_) => anyhow::anyhow!(
+                            "publish typed-resource snapshots: {publish_error}; commit pending \
+                             ownership failed: {commit_error}"
+                        ),
+                        Err(cleanup_error) => anyhow::anyhow!(
+                            "publish typed-resource snapshots: {publish_error}; commit pending \
+                             ownership failed: {commit_error}; fallback also failed: {cleanup_error}"
+                        ),
+                    });
+                }
+                Err(publish_error
+                    .context("publish typed-resource snapshots; ownership was marked for cleanup"))
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_typed_resource_snapshot_cleanups(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<TypedResourceSnapshotCleanup>> {
+        let through_row_id = self
+            .typed_resource_snapshot_cleanup_high_watermark()?
+            .unwrap_or(0);
+        self.pending_typed_resource_snapshot_cleanups_through(0, through_row_id, limit)
+    }
+
+    pub(crate) fn typed_resource_snapshot_cleanup_high_watermark(&self) -> Result<Option<i64>> {
+        let conn = self.read_conn()?;
+        conn.query_row(
+            "SELECT MAX(rowid) FROM chat_stream_typed_snapshots
+             WHERE cleanup_pending = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
+    pub(crate) fn pending_typed_resource_snapshot_cleanups_through(
+        &self,
+        after_row_id: i64,
+        through_row_id: i64,
+        limit: usize,
+    ) -> Result<Vec<TypedResourceSnapshotCleanup>> {
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT rowid, run_id, session_id, snapshot_name
+             FROM chat_stream_typed_snapshots
+             WHERE cleanup_pending = 1 AND rowid > ?1 AND rowid <= ?2
+             ORDER BY rowid
+             LIMIT ?3",
+        )?;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = stmt.query_map(params![after_row_id, through_row_id, limit], |row| {
+            Ok(TypedResourceSnapshotCleanup {
+                ledger_row_id: row.get(0)?,
+                run_id: row.get(1)?,
+                session_id: row.get(2)?,
+                snapshot_name: row.get(3)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    /// Acknowledge only the exact pending row whose file was removed (or was
+    /// already absent). A failed filesystem operation leaves the durable work
+    /// item intact for startup/daily retry.
+    pub(crate) fn finish_typed_resource_snapshot_cleanup(
+        &self,
+        cleanup: &TypedResourceSnapshotCleanup,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        Ok(conn.execute(
+            "DELETE FROM chat_stream_typed_snapshots
+             WHERE run_id = ?1 AND session_id = ?2 AND snapshot_name = ?3
+               AND cleanup_pending = 1",
+            params![cleanup.run_id, cleanup.session_id, cleanup.snapshot_name],
+        )? > 0)
+    }
+
     pub fn gc_stream_journals(&self, older_than: &str) -> Result<usize> {
         let conn = self
             .conn
@@ -2067,6 +2436,7 @@ mod tests {
 
     struct RunFixture {
         _dir: tempfile::TempDir,
+        db_path: std::path::PathBuf,
         db: SessionDB,
         session_id: String,
         turn_id: String,
@@ -2077,7 +2447,8 @@ mod tests {
 
     fn fixture(tag: &str) -> RunFixture {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = SessionDB::open(&dir.path().join(format!("{tag}.db"))).expect("open db");
+        let db_path = dir.path().join(format!("{tag}.db"));
+        let db = SessionDB::open(&db_path).expect("open db");
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("create session");
@@ -2145,6 +2516,7 @@ mod tests {
         .expect("append journal");
         RunFixture {
             _dir: dir,
+            db_path,
             db,
             session_id: session.id,
             turn_id: turn.id,
@@ -2259,6 +2631,457 @@ mod tests {
             .expect("turn exists");
         assert_eq!(turn.status, ChatTurnStatus::Completed);
         assert_eq!(turn.assistant_message_id, Some(first.assistant_message_id));
+    }
+
+    fn snapshot_name_for_run(run_id: &str) -> String {
+        let owner = uuid::Uuid::parse_str(run_id).expect("run UUID").simple();
+        format!(
+            "context-snapshot-run_{owner}-resource_ref_{}",
+            uuid::Uuid::new_v4().simple()
+        )
+    }
+
+    #[test]
+    fn typed_snapshot_gc_is_ledgered_before_run_deletion_and_not_found_is_idempotent() {
+        let fixture = fixture("typed-snapshot-gc");
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let snapshot_name = snapshot_name_for_run(&fixture.run_id);
+            fixture
+                .db
+                .register_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                )
+                .expect("register ownership before publish");
+            let attachment_dir = crate::paths::attachments_dir(&fixture.session_id).expect("dir");
+            std::fs::create_dir_all(&attachment_dir).expect("create dir");
+            let snapshot_path = attachment_dir.join(&snapshot_name);
+            std::fs::write(&snapshot_path, b"sensitive snapshot").expect("snapshot");
+
+            fixture
+                .db
+                .commit_assistant_turn(&success_commit(&fixture, None))
+                .expect("commit run");
+            assert_eq!(
+                fixture
+                    .db
+                    .gc_stream_journals("9999-12-31T23:59:59Z")
+                    .expect("gc run"),
+                1
+            );
+            assert!(fixture
+                .db
+                .stream_run_status(&fixture.run_id)
+                .expect("status")
+                .is_none());
+
+            let pending = fixture
+                .db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("pending cleanup");
+            assert_eq!(pending.len(), 1);
+            assert!(
+                snapshot_path.exists(),
+                "DB delete must not race ahead of unlink"
+            );
+            crate::attachments::remove_pending_typed_resource_snapshot(&pending[0])
+                .expect("unlink snapshot");
+            assert!(!snapshot_path.exists());
+            assert!(fixture
+                .db
+                .finish_typed_resource_snapshot_cleanup(&pending[0])
+                .expect("ack cleanup"));
+            assert!(fixture
+                .db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("drained")
+                .is_empty());
+
+            // Simulate a crash after unlink but before ack: retrying the exact
+            // ledger row sees NotFound as success and never widens its target.
+            crate::attachments::remove_pending_typed_resource_snapshot(&pending[0])
+                .expect("missing snapshot is idempotent");
+            assert!(!fixture
+                .db
+                .finish_typed_resource_snapshot_cleanup(&pending[0])
+                .expect("already acked"));
+        });
+    }
+
+    #[test]
+    fn typed_snapshot_registration_requires_live_owner_and_survives_session_delete() {
+        let fixture = fixture("typed-snapshot-owner-guards");
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let missing_run = uuid::Uuid::new_v4().to_string();
+            let missing_name = snapshot_name_for_run(&missing_run);
+            fixture
+                .db
+                .register_typed_resource_snapshots(
+                    &missing_run,
+                    &fixture.session_id,
+                    &[missing_name],
+                )
+                .expect_err("publication cannot proceed without a live run owner");
+
+            let snapshot_name = snapshot_name_for_run(&fixture.run_id);
+            fixture
+                .db
+                .register_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                )
+                .expect("register owner");
+            fixture
+                .db
+                .conn
+                .lock()
+                .expect("db lock")
+                .execute_batch(
+                    "CREATE TABLE channel_conversations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        channel_id TEXT NOT NULL,
+                        account_id TEXT NOT NULL,
+                        chat_id TEXT NOT NULL,
+                        thread_id TEXT,
+                        session_id TEXT NOT NULL,
+                        sender_id TEXT,
+                        sender_name TEXT,
+                        chat_type TEXT NOT NULL DEFAULT 'dm',
+                        source TEXT NOT NULL DEFAULT 'inbound',
+                        attached_at TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                     );",
+                )
+                .expect("install channel projection schema used by session metadata");
+            fixture
+                .db
+                .delete_session(&fixture.session_id)
+                .expect("delete session");
+            let pending = fixture
+                .db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("session cleanup ownership survives");
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].snapshot_name, snapshot_name);
+            crate::attachments::remove_pending_typed_resource_snapshot(&pending[0])
+                .expect("already-removed session directory is an idempotent cleanup");
+            assert!(fixture
+                .db
+                .finish_typed_resource_snapshot_cleanup(&pending[0])
+                .expect("ack session cleanup"));
+            assert_eq!(
+                scalar_i64(
+                    &fixture.db,
+                    "SELECT COUNT(*) FROM chat_stream_typed_snapshots WHERE run_id = ?1",
+                    &fixture.run_id,
+                ),
+                0
+            );
+        });
+    }
+
+    #[test]
+    fn typed_snapshot_late_publish_after_delete_and_not_found_drain_is_rejected() {
+        let fixture = fixture("typed-snapshot-late-publish");
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let snapshot_name = snapshot_name_for_run(&fixture.run_id);
+            fixture
+                .db
+                .register_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                )
+                .expect("register ownership before publish");
+
+            fixture
+                .db
+                .conn
+                .lock()
+                .expect("db lock")
+                .execute(
+                    "DELETE FROM chat_stream_runs WHERE run_id = ?1",
+                    params![fixture.run_id],
+                )
+                .expect("delete owner run before publication");
+            let pending = fixture
+                .db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("pending cleanup");
+            assert_eq!(pending.len(), 1);
+            crate::attachments::remove_pending_typed_resource_snapshot(&pending[0])
+                .expect("NotFound is a successful drain");
+            assert!(fixture
+                .db
+                .finish_typed_resource_snapshot_cleanup(&pending[0])
+                .expect("ack missing snapshot"));
+
+            let attachment_dir =
+                crate::paths::attachments_dir(&fixture.session_id).expect("attachment dir");
+            let snapshot_path = attachment_dir.join(&snapshot_name);
+            let publish_invoked = std::sync::atomic::AtomicBool::new(false);
+            fixture
+                .db
+                .publish_registered_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                    || {
+                        publish_invoked.store(true, std::sync::atomic::Ordering::SeqCst);
+                        std::fs::create_dir_all(&attachment_dir)?;
+                        std::fs::write(&snapshot_path, b"late orphan")?;
+                        anyhow::Ok(())
+                    },
+                )
+                .expect_err("an acknowledged/deleted owner must reject late publication");
+            assert!(
+                !publish_invoked.load(std::sync::atomic::Ordering::SeqCst),
+                "publication callback must not run after ownership was acknowledged"
+            );
+            assert!(
+                !snapshot_path.exists(),
+                "late publication must not orphan a file"
+            );
+        });
+    }
+
+    #[test]
+    fn typed_snapshot_publish_gate_blocks_delete_and_drain_until_file_is_visible() {
+        let fixture = fixture("typed-snapshot-publish-lock");
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let snapshot_name = snapshot_name_for_run(&fixture.run_id);
+            fixture
+                .db
+                .register_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                )
+                .expect("register ownership before publish");
+
+            let attachment_dir =
+                crate::paths::attachments_dir(&fixture.session_id).expect("attachment dir");
+            std::fs::create_dir_all(&attachment_dir).expect("create attachment dir");
+            let snapshot_path = attachment_dir.join(&snapshot_name);
+            let publisher_db = std::sync::Arc::new(
+                SessionDB::open(&fixture.db_path).expect("open publisher connection"),
+            );
+            let cleanup_db = std::sync::Arc::new(
+                SessionDB::open(&fixture.db_path).expect("open cleanup connection"),
+            );
+
+            let (publish_entered_tx, publish_entered_rx) = std::sync::mpsc::sync_channel(0);
+            let (allow_publish_tx, allow_publish_rx) = std::sync::mpsc::sync_channel(0);
+            let publisher_run_id = fixture.run_id.clone();
+            let publisher_session_id = fixture.session_id.clone();
+            let publisher_snapshot_name = snapshot_name.clone();
+            let publisher_snapshot_path = snapshot_path.clone();
+            let publisher = {
+                let publisher_db = publisher_db.clone();
+                std::thread::spawn(move || {
+                    publisher_db.publish_registered_typed_resource_snapshots(
+                        &publisher_run_id,
+                        &publisher_session_id,
+                        std::slice::from_ref(&publisher_snapshot_name),
+                        || {
+                            publish_entered_tx
+                                .send(())
+                                .expect("signal held publication gate");
+                            allow_publish_rx.recv().expect("release publisher");
+                            crate::platform::write_atomic_create_new(
+                                &publisher_snapshot_path,
+                                b"published under writer lock",
+                            )?;
+                            anyhow::Ok(())
+                        },
+                    )
+                })
+            };
+            publish_entered_rx
+                .recv()
+                .expect("publisher acquired and validated immediate transaction");
+
+            let (delete_started_tx, delete_started_rx) = std::sync::mpsc::sync_channel(0);
+            let (cleanup_done_tx, cleanup_done_rx) = std::sync::mpsc::sync_channel(1);
+            let cleanup_run_id = fixture.run_id.clone();
+            let cleanup_worker = {
+                let cleanup_db = cleanup_db.clone();
+                std::thread::spawn(move || -> Result<()> {
+                    delete_started_tx.send(()).expect("signal delete attempt");
+                    cleanup_db
+                        .conn
+                        .lock()
+                        .map_err(|error| anyhow::anyhow!("Lock error: {error}"))?
+                        .execute(
+                            "DELETE FROM chat_stream_runs WHERE run_id = ?1",
+                            params![cleanup_run_id],
+                        )?;
+                    let pending = cleanup_db.pending_typed_resource_snapshot_cleanups(10)?;
+                    anyhow::ensure!(pending.len() == 1, "expected one cleanup row");
+                    crate::attachments::remove_pending_typed_resource_snapshot(&pending[0])?;
+                    anyhow::ensure!(
+                        cleanup_db.finish_typed_resource_snapshot_cleanup(&pending[0])?,
+                        "cleanup row disappeared before acknowledgement"
+                    );
+                    cleanup_done_tx.send(()).expect("signal cleanup completion");
+                    Ok(())
+                })
+            };
+            delete_started_rx.recv().expect("delete worker started");
+            assert_eq!(
+                cleanup_done_rx.recv_timeout(std::time::Duration::from_millis(100)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+                "delete/drain must wait while filesystem publication holds the writer gate"
+            );
+
+            allow_publish_tx.send(()).expect("allow publication");
+            publisher
+                .join()
+                .expect("publisher thread")
+                .expect("publish under gate");
+            cleanup_done_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("cleanup completes after gate commit");
+            cleanup_worker
+                .join()
+                .expect("cleanup thread")
+                .expect("delete and drain");
+
+            assert!(!snapshot_path.exists(), "published file must be drained");
+            assert!(cleanup_db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("cleanup ledger")
+                .is_empty());
+        });
+    }
+
+    #[test]
+    fn typed_snapshot_publish_failure_marks_the_registered_batch_pending() {
+        let fixture = fixture("typed-snapshot-publish-failure");
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let snapshot_name = snapshot_name_for_run(&fixture.run_id);
+            fixture
+                .db
+                .register_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                )
+                .expect("register ownership before publish");
+
+            fixture
+                .db
+                .publish_registered_typed_resource_snapshots(
+                    &fixture.run_id,
+                    &fixture.session_id,
+                    std::slice::from_ref(&snapshot_name),
+                    || -> Result<()> { anyhow::bail!("synthetic filesystem publication failure") },
+                )
+                .expect_err("publication failure must propagate");
+            let pending = fixture
+                .db
+                .pending_typed_resource_snapshot_cleanups(10)
+                .expect("failed batch remains recoverable");
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].snapshot_name, snapshot_name);
+            crate::attachments::remove_pending_typed_resource_snapshot(&pending[0])
+                .expect("missing failed-publication artifact is idempotent");
+            assert!(fixture
+                .db
+                .finish_typed_resource_snapshot_cleanup(&pending[0])
+                .expect("ack failed-publication cleanup"));
+        });
+    }
+
+    #[test]
+    fn prerelease_session_fk_ledger_is_rebuilt_without_losing_ownership() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("typed-ledger-migration.db");
+        let (run_id, snapshot_name) = {
+            let db = SessionDB::open(&path).expect("open db");
+            let session = db
+                .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+                .expect("session");
+            let run_id = uuid::Uuid::new_v4().to_string();
+            db.create_stream_run(&CreateStreamRun {
+                run_id: run_id.clone(),
+                session_id: session.id.clone(),
+                source: "desktop".to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect("run");
+            let snapshot_name = snapshot_name_for_run(&run_id);
+            db.register_typed_resource_snapshots(
+                &run_id,
+                &session.id,
+                std::slice::from_ref(&snapshot_name),
+            )
+            .expect("owner");
+            db.conn
+                .lock()
+                .expect("db lock")
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+                     DROP TRIGGER chat_stream_runs_typed_snapshots_bd;
+                     DROP INDEX idx_chat_stream_typed_snapshots_cleanup;
+                     ALTER TABLE chat_stream_typed_snapshots
+                        RENAME TO chat_stream_typed_snapshots_current;
+                     CREATE TABLE chat_stream_typed_snapshots (
+                        run_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        snapshot_name TEXT NOT NULL,
+                        cleanup_pending INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        PRIMARY KEY (run_id, snapshot_name),
+                        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                     );
+                     INSERT INTO chat_stream_typed_snapshots
+                     SELECT * FROM chat_stream_typed_snapshots_current;
+                     DROP TABLE chat_stream_typed_snapshots_current;
+                     CREATE INDEX idx_chat_stream_typed_snapshots_cleanup
+                        ON chat_stream_typed_snapshots(cleanup_pending, created_at);
+                     CREATE TRIGGER chat_stream_runs_typed_snapshots_bd
+                     BEFORE DELETE ON chat_stream_runs
+                     BEGIN
+                        UPDATE chat_stream_typed_snapshots SET cleanup_pending = 1
+                         WHERE run_id = OLD.run_id;
+                     END;
+                     COMMIT;",
+                )
+                .expect("install prerelease schema");
+            (run_id, snapshot_name)
+        };
+
+        let reopened = SessionDB::open(&path).expect("migrate db");
+        let conn = reopened.conn.lock().expect("db lock");
+        let foreign_tables = conn
+            .prepare("PRAGMA foreign_key_list(chat_stream_typed_snapshots)")
+            .expect("prepare foreign keys")
+            .query_map([], |row| row.get::<_, String>(2))
+            .expect("query foreign keys")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect foreign keys");
+        assert!(!foreign_tables.iter().any(|table| table == "sessions"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT snapshot_name FROM chat_stream_typed_snapshots WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("preserved owner"),
+            snapshot_name
+        );
     }
 
     #[test]
@@ -3054,6 +3877,7 @@ mod tests {
             "chat_stream_attempts",
             "chat_stream_journal",
             "chat_stream_context_checkpoints",
+            "chat_stream_typed_snapshots",
             "model_usage_events",
         ] {
             let count: i64 = conn

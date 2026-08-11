@@ -38,6 +38,7 @@ mod tests {
             command_prompt_template: None,
             install: vec![],
             allowed_tools: vec![],
+            allowed_tools_declared: false,
             context_mode: None,
             agent: None,
             effort: None,
@@ -70,6 +71,7 @@ mod tests {
             command_prompt_template: None,
             install: vec![],
             allowed_tools: vec![],
+            allowed_tools_declared: false,
             context_mode: None,
             agent: None,
             effort: None,
@@ -133,6 +135,69 @@ Body
         assert_eq!(parsed.disable_model_invocation, Some(false));
         assert_eq!(parsed.command_dispatch.as_deref(), Some("tool"));
         assert_eq!(parsed.command_tool.as_deref(), Some("slack_send"));
+    }
+
+    #[test]
+    fn allowed_tools_preserves_omitted_explicit_empty_and_restricted_states() {
+        let omitted = parse_frontmatter("---\nname: omitted\ndescription: omitted\n---\nBody")
+            .expect("omitted frontmatter");
+        assert!(!omitted.allowed_tools_declared);
+        assert!(omitted.allowed_tools.is_empty());
+
+        let empty =
+            parse_frontmatter("---\nname: empty\ndescription: empty\nallowed-tools: []\n---\nBody")
+                .expect("empty frontmatter");
+        assert!(empty.allowed_tools_declared);
+        assert!(empty.allowed_tools.is_empty());
+
+        let restricted = parse_frontmatter(
+            "---\nname: restricted\ndescription: restricted\nallowed-tools:\n  - read_file\n  - list_dir\n---\nBody",
+        )
+        .expect("restricted frontmatter");
+        assert!(restricted.allowed_tools_declared);
+        assert_eq!(restricted.allowed_tools, vec!["read_file", "list_dir"]);
+    }
+
+    #[test]
+    fn materialized_skill_rejects_frontmatter_ceiling_drift_but_allows_body_edits() {
+        let mut entry = make_skill("review", "Review files");
+        entry.allowed_tools_declared = true;
+        entry.allowed_tools = vec!["read_file".to_string()];
+        let matching =
+            "---\nname: review\ndescription: current\nallowed-tools: [read_file]\n---\nNew body";
+        crate::skills::validate_materialized_skill_snapshot(&entry, matching)
+            .expect("body-only edits preserve the frozen control snapshot");
+
+        let widened =
+            "---\nname: review\ndescription: current\nallowed-tools: [write_file]\n---\nNew body";
+        let error = crate::skills::validate_materialized_skill_snapshot(&entry, widened)
+            .expect_err("a new body cannot inherit a stale tool ceiling");
+        assert!(error.to_string().contains("metadata changed"));
+    }
+
+    #[test]
+    fn fork_skill_materialization_cannot_fall_back_or_pair_body_with_stale_ceiling() {
+        let mut entry = make_skill("review", "Review files");
+        entry.context_mode = Some("fork".to_string());
+        entry.allowed_tools_declared = true;
+        entry.allowed_tools = vec!["read_file".to_string()];
+
+        let missing = crate::skills::fork_helper::require_fork_skill_materialization(
+            &entry,
+            "src/lib.rs",
+            Err(anyhow::anyhow!("SKILL.md disappeared")),
+        )
+        .expect_err("a missing fork Skill must stop before spawning a child");
+        assert!(missing.to_string().contains("disappeared"));
+
+        let drifted = "---\nname: review\ndescription: current\ncontext: fork\nallowed-tools: [write_file]\n---\nReview $ARGUMENTS";
+        let error = crate::skills::fork_helper::require_fork_skill_materialization(
+            &entry,
+            "src/lib.rs",
+            Ok(drifted.to_string()),
+        )
+        .expect_err("a fork body cannot inherit a stale tool ceiling");
+        assert!(error.to_string().contains("metadata changed"));
     }
 
     #[test]

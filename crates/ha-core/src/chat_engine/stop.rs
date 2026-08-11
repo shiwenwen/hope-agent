@@ -2148,6 +2148,8 @@ mod tests {
             plan_comment: None,
             plan_mode: None,
             workflow_mode: None,
+            incoming_turn: None,
+            skill_allowed_tools: Vec::new(),
             source: crate::session::QueuedTurnMessageSource::Channel,
             channel_origin: Some(serde_json::json!({"channelId": "wechat"})),
         })
@@ -2237,6 +2239,8 @@ mod tests {
             plan_comment: None,
             plan_mode: None,
             workflow_mode: None,
+            incoming_turn: None,
+            skill_allowed_tools: Vec::new(),
             source: crate::session::QueuedTurnMessageSource::Desktop,
             channel_origin: None,
         })

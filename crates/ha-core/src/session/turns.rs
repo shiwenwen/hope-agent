@@ -184,6 +184,65 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Project the final, backend-verified typed mention receipt onto the
+    /// durable user message owned by this turn. Joining through `chat_turns`
+    /// prevents a caller from attaching provenance to an unrelated message;
+    /// incognito sessions intentionally receive no history sidecar.
+    pub(crate) fn merge_chat_turn_typed_mention_receipt(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        projection: &crate::prompt_context::TypedMentionReceiptProjection,
+    ) -> Result<bool> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let target = tx
+            .query_row(
+                "SELECT m.id, m.content, m.attachments_meta
+                   FROM chat_turns ct
+                   JOIN sessions s ON s.id = ct.session_id
+                   JOIN messages m
+                     ON m.id = ct.user_message_id AND m.session_id = ct.session_id
+                  WHERE ct.id = ?1 AND ct.session_id = ?2
+                    AND s.incognito = 0 AND m.role = 'user'",
+                params![turn_id, session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((message_id, persisted_content, existing)) = target else {
+            tx.commit()?;
+            return Ok(false);
+        };
+        if !crate::prompt_context::typed_mention_receipt_projection_matches_message(
+            &persisted_content,
+            projection,
+        ) {
+            tx.commit()?;
+            return Ok(false);
+        }
+        let merged =
+            super::types::merge_typed_mention_receipt_attachments_meta(projection, existing);
+        let updated = tx.execute(
+            "UPDATE messages SET attachments_meta = ?1
+              WHERE id = ?2 AND session_id = ?3 AND role = 'user'",
+            params![merged, message_id, session_id],
+        )?;
+        if updated != 1 {
+            anyhow::bail!("typed mention receipt user message changed during projection");
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
     pub fn create_chat_turn(
         &self,
         session_id: &str,
@@ -778,6 +837,32 @@ impl SessionDB {
 mod tests {
     use super::*;
 
+    fn typed_mention_projection(
+        canonical_message: &str,
+    ) -> crate::prompt_context::TypedMentionReceiptProjection {
+        crate::prompt_context::TypedMentionReceiptProjection {
+            receipt_version: crate::prompt_context::TYPED_MENTION_RECEIPT_VERSION,
+            source_journal_seq: 1,
+            prompt_contract_version: crate::prompt_context::PROMPT_CONTRACT_VERSION,
+            mention_wire_version: crate::prompt_context::MENTION_WIRE_VERSION,
+            canonical_text_fingerprint: crate::prompt_context::canonical_text_fingerprint(
+                canonical_message,
+            ),
+            context_fingerprint: "context".into(),
+            mentions: vec![crate::prompt_context::TypedMentionSpanReceipt {
+                mention_id: "file-1".into(),
+                kind: crate::prompt_context::MentionKind::File,
+                target_id: "README.md".into(),
+                display_label: "README".into(),
+                origin: crate::prompt_context::StructuredMentionOrigin::FirstPartyComposerGesture,
+                status: crate::prompt_context::MentionResolutionStatus::Resolved,
+                raw: "@README.md".into(),
+                start_utf8: 0,
+                end_utf8: 10,
+            }],
+        }
+    }
+
     fn temp_db() -> SessionDB {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
@@ -822,6 +907,150 @@ mod tests {
             Some(ChatTurnInterruptReason::UserStop)
         );
         assert!(persisted.error.is_none());
+    }
+
+    #[test]
+    fn typed_mention_receipt_merges_only_onto_turn_user_message() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let mut message = NewMessage::user("@README.md");
+        message.attachments_meta = Some(r#"{"plan_trigger":true}"#.into());
+        let (message_id, turn) = db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                "typed-turn",
+                &session.id,
+                "desktop",
+                None,
+                &message,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let projection = typed_mention_projection("@README.md");
+
+        assert!(db
+            .merge_chat_turn_typed_mention_receipt(&session.id, &turn.id, &projection)
+            .unwrap());
+        // Failover retries re-merge the same receipt without duplicating it.
+        assert!(db
+            .merge_chat_turn_typed_mention_receipt(&session.id, &turn.id, &projection)
+            .unwrap());
+
+        let persisted = db.get_message(message_id).unwrap().unwrap();
+        let meta: serde_json::Value =
+            serde_json::from_str(persisted.attachments_meta.as_deref().unwrap()).unwrap();
+        assert_eq!(meta["plan_trigger"], true);
+        assert_eq!(
+            meta[super::super::types::ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT]["mentions"][0]
+                ["raw"],
+            "@README.md"
+        );
+    }
+
+    #[test]
+    fn typed_mention_receipt_rejects_a_different_persisted_message_snapshot() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let persisted_message = NewMessage::user("@README.md rewritten by hook");
+        let (message_id, turn) = db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                "typed-turn-rewritten",
+                &session.id,
+                "desktop",
+                None,
+                &persisted_message,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        // The mention still occupies the same byte range, so raw/span-only
+        // validation would incorrectly attach provenance from the old prompt.
+        assert!(!db
+            .merge_chat_turn_typed_mention_receipt(
+                &session.id,
+                &turn.id,
+                &typed_mention_projection("@README.md"),
+            )
+            .unwrap());
+        assert!(db
+            .get_message(message_id)
+            .unwrap()
+            .unwrap()
+            .attachments_meta
+            .is_none());
+    }
+
+    #[test]
+    fn typed_mention_receipt_rejects_a_span_that_does_not_match_persisted_content() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let (message_id, turn) = db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                "typed-turn-invalid-span",
+                &session.id,
+                "desktop",
+                None,
+                &NewMessage::user("@README.md"),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let mut projection = typed_mention_projection("@README.md");
+        projection.mentions[0].raw = "@README.mismatch".into();
+
+        assert!(!db
+            .merge_chat_turn_typed_mention_receipt(&session.id, &turn.id, &projection)
+            .unwrap());
+        assert!(db
+            .get_message(message_id)
+            .unwrap()
+            .unwrap()
+            .attachments_meta
+            .is_none());
+    }
+
+    #[test]
+    fn typed_mention_receipt_skips_incognito_history() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .unwrap();
+        let (message_id, turn) = db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                "incognito-typed-turn",
+                &session.id,
+                "desktop",
+                None,
+                &NewMessage::user("@README.md"),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert!(!db
+            .merge_chat_turn_typed_mention_receipt(
+                &session.id,
+                &turn.id,
+                &typed_mention_projection("@README.md"),
+            )
+            .unwrap());
+        assert!(db
+            .get_message(message_id)
+            .unwrap()
+            .unwrap()
+            .attachments_meta
+            .is_none());
     }
 
     #[test]

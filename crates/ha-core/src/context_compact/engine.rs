@@ -20,6 +20,9 @@ pub struct CompactionContext<'a> {
     pub cache_ttl_throttled: bool,
     /// Whether the emergency override is triggered (usage ≥ 95%).
     pub cache_ttl_emergency: bool,
+    /// Current provider/model tokenizer snapshot. Pure synchronous counting;
+    /// compaction never performs Provider IO.
+    pub token_counter: Option<&'a crate::token_accounting::CompactionTokenCounter<'a>>,
 }
 
 /// Read-only context for emergency compaction (Tier 4).
@@ -48,9 +51,12 @@ pub trait ContextEngine: Send + Sync {
         ctx: &EmergencyCompactionContext<'_>,
     ) -> CompactResult;
 
-    /// Optional system-prompt addition injected by the engine.
-    /// A future Active Memory engine would return recall context here.
-    fn system_prompt_addition(&self) -> Option<String> {
+    /// Optional stable, trusted behavior contract supplied by the engine.
+    /// Implementations must not return recall results, user/project content,
+    /// mutable status, or any other turn-dependent data here; those belong in
+    /// the agent's dynamic user-data lanes so they cannot gain system authority
+    /// or invalidate the stable prompt prefix.
+    fn stable_system_prompt_addition(&self) -> Option<String> {
         None
     }
 }
@@ -71,20 +77,22 @@ impl ContextEngine for DefaultContextEngine {
             throttled.soft_trim_ratio = f64::INFINITY;
             throttled.hard_clear_ratio = f64::INFINITY;
             throttled.summarization_threshold = f64::INFINITY;
-            super::compact_if_needed(
+            super::compact_if_needed_with_counter(
                 messages,
                 ctx.system_prompt,
                 ctx.context_window,
                 ctx.max_output_tokens,
                 &throttled,
+                ctx.token_counter,
             )
         } else {
-            super::compact_if_needed(
+            super::compact_if_needed_with_counter(
                 messages,
                 ctx.system_prompt,
                 ctx.context_window,
                 ctx.max_output_tokens,
                 ctx.config,
+                ctx.token_counter,
             )
         };
         if let Some(manifest) = result.manifest.take() {

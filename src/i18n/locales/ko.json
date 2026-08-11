@@ -973,6 +973,9 @@
       "failed": "대화 내보내기에 실패했습니다.",
       "untitled": "제목 없음"
     },
+    "capabilityMention": {
+      "heading": "플러그인 및 커넥터"
+    },
     "skillMention": {
       "heading": "스킬",
       "labels": {

@@ -24,7 +24,15 @@ export type CommandAction =
   | { type: "stopStream" }
   | { type: "compact" }
   | { type: "sessionCleared" }
-  | { type: "passThrough"; message: string }
+  | {
+      type: "passThrough"
+      message: string
+      skillActivation?: {
+        skillName: string
+        commandName: string
+        skillAllowedTools?: string[]
+      }
+    }
   | { type: "exportFile"; content: string; filename: string }
   | { type: "setToolPermission"; mode: "default" | "smart" | "yolo" }
   | { type: "setWorkflowMode"; mode: "off" | "on" | "ultracode" }

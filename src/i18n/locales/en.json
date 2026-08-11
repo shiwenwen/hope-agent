@@ -973,6 +973,9 @@
       "failed": "Failed to export the conversation.",
       "untitled": "Untitled"
     },
+    "capabilityMention": {
+      "heading": "Plugins & connectors"
+    },
     "skillMention": {
       "heading": "Skills",
       "labels": {

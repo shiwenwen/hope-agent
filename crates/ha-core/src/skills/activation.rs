@@ -190,6 +190,7 @@ mod tests {
             command_prompt_template: None,
             install: vec![],
             allowed_tools: vec![],
+            allowed_tools_declared: false,
             context_mode: None,
             agent: None,
             effort: None,

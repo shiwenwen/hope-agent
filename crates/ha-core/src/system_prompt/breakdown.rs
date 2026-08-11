@@ -13,8 +13,9 @@ use super::sections::{build_skills_section, build_tools_section};
 use crate::agent_config::AgentDefinition;
 
 /// Per-section char counts for a built system prompt.
-/// All values are character counts, not tokens — the caller
-/// applies the `char / 4` heuristic.
+/// All values are character counts, not tokens. Token-facing callers use the
+/// unified token-accounting service; these fields remain useful for section
+/// attribution and content-free diagnostics.
 #[derive(Debug, Clone)]
 pub struct SystemPromptBreakdown {
     /// Total chars of the full system prompt (`build()` output).

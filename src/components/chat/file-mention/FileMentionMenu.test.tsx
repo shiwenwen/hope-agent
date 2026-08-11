@@ -36,6 +36,9 @@ describe("FileMentionMenu", () => {
         noteCapable
         skillEntries={[]}
         skillCapable={false}
+        capabilityEntries={[]}
+        capabilitiesLoading={false}
+        capabilityCapable={false}
         agentEntries={[]}
         agentCapable={false}
         selectedIndex={0}
@@ -49,6 +52,7 @@ describe("FileMentionMenu", () => {
         onSelect={() => {}}
         onSelectNote={() => {}}
         onSelectSkill={() => {}}
+        onSelectCapability={() => {}}
         onSelectAgent={() => {}}
         onHover={() => {}}
       />,

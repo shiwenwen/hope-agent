@@ -173,7 +173,7 @@ impl SkillDisplay {
 }
 
 /// Environment requirements parsed from SKILL.md frontmatter `requires:` block.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillRequires {
     /// Binaries that must exist in PATH (all required — AND logic).
     #[serde(default)]
@@ -299,6 +299,11 @@ pub struct SkillEntry {
     /// Parsed from SKILL.md frontmatter `allowed-tools:` field.
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+    /// Whether `allowed-tools` was present in frontmatter. This preserves the
+    /// security-significant distinction between legacy omission (no added
+    /// ceiling) and an explicitly empty list (deny every tool).
+    #[serde(default)]
+    pub allowed_tools_declared: bool,
     /// Context mode: "fork" runs skill in a sub-agent, "inline" (default) in main conversation.
     /// Parsed from SKILL.md frontmatter `context:` field.
     #[serde(default)]
@@ -339,7 +344,80 @@ pub struct SkillEntry {
     pub display: SkillDisplay,
 }
 
+/// Frozen result of resolving one or more explicit composer skill mentions.
+/// The prompt payload and execution narrowing are produced from the same
+/// entries so they cannot drift across the authority boundary.
+#[derive(Debug, Clone, Default)]
+pub struct MentionSkillActivation {
+    pub content: String,
+    pub resolved_names: Vec<String>,
+    pub rejected_names: Vec<String>,
+    /// Initial explicit-skill ceiling. The chat engine intersects it with any
+    /// pre-existing caller ceiling; it can never add tools.
+    pub tool_ceiling: SkillToolCeiling,
+}
+
+pub const SKILL_DENY_ALL_SENTINEL: &str = "__hope_skill_ceiling_denies_all__";
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SkillToolCeiling {
+    /// Legacy frontmatter omitted `allowed-tools`; no additional restriction.
+    #[default]
+    Unspecified,
+    /// Frontmatter explicitly declared an empty list.
+    DenyAll,
+    /// Frontmatter declared a non-empty allowlist.
+    Restricted(Vec<String>),
+}
+
+impl SkillToolCeiling {
+    pub fn execution_filter(&self) -> Vec<String> {
+        match self {
+            Self::Unspecified => Vec::new(),
+            Self::DenyAll => vec![SKILL_DENY_ALL_SENTINEL.to_string()],
+            Self::Restricted(tools) => tools.clone(),
+        }
+    }
+}
+
+/// Apply a skill ceiling to the legacy execution-filter representation.
+/// Empty `current` means unrestricted; the private impossible-name sentinel
+/// represents deny-all. The result is monotonic and never widens `current`.
+pub fn narrow_skill_execution_filter(
+    current: &mut Vec<String>,
+    selected: SkillToolCeiling,
+) -> bool {
+    let before = current.clone();
+    let selected = match selected {
+        SkillToolCeiling::Unspecified => return false,
+        SkillToolCeiling::DenyAll => vec![SKILL_DENY_ALL_SENTINEL.to_string()],
+        SkillToolCeiling::Restricted(tools) => tools,
+    };
+    if current.is_empty() {
+        *current = selected;
+    } else if !(current.len() == 1 && current[0] == SKILL_DENY_ALL_SENTINEL) {
+        current.retain(|tool| selected.iter().any(|allowed| allowed == tool));
+        if current.is_empty() {
+            current.push(SKILL_DENY_ALL_SENTINEL.to_string());
+        }
+    }
+    *current != before
+}
+
 impl SkillEntry {
+    pub fn tool_ceiling(&self) -> SkillToolCeiling {
+        if !self.allowed_tools_declared {
+            SkillToolCeiling::Unspecified
+        } else if self.allowed_tools.is_empty() {
+            SkillToolCeiling::DenyAll
+        } else {
+            let mut tools = crate::mcp::canonicalize_tool_filter_names(&self.allowed_tools);
+            tools.sort();
+            tools.dedup();
+            SkillToolCeiling::Restricted(tools)
+        }
+    }
+
     /// Text used to decide "when should this skill trigger" — the catalog
     /// renderer and any future scorer should go through here rather than
     /// branching on `when_to_use.is_some()` at the call site.
@@ -387,6 +465,7 @@ impl SkillEntry {
             any_bins,
             always,
             allowed_tools: self.allowed_tools,
+            allowed_tools_declared: self.allowed_tools_declared,
             context_mode: self.context_mode,
             agent: self.agent,
             effort: self.effort,
@@ -394,6 +473,46 @@ impl SkillEntry {
             authored_by: self.authored_by,
             display: self.display,
         }
+    }
+}
+
+#[cfg(test)]
+mod skill_tool_ceiling_tests {
+    use super::{narrow_skill_execution_filter, SkillToolCeiling, SKILL_DENY_ALL_SENTINEL};
+
+    #[test]
+    fn ceiling_preserves_omitted_empty_and_restricted_as_three_states() {
+        assert!(SkillToolCeiling::Unspecified.execution_filter().is_empty());
+        assert_eq!(
+            SkillToolCeiling::DenyAll.execution_filter(),
+            vec![SKILL_DENY_ALL_SENTINEL.to_string()]
+        );
+        assert_eq!(
+            SkillToolCeiling::Restricted(vec!["read_file".into()]).execution_filter(),
+            vec!["read_file"]
+        );
+    }
+
+    #[test]
+    fn narrowing_is_monotonic_and_disjoint_sets_become_deny_all() {
+        let mut filter = vec!["read_file".to_string(), "list_dir".to_string()];
+        assert!(narrow_skill_execution_filter(
+            &mut filter,
+            SkillToolCeiling::Restricted(vec!["list_dir".into(), "write_file".into()]),
+        ));
+        assert_eq!(filter, vec!["list_dir"]);
+
+        assert!(narrow_skill_execution_filter(
+            &mut filter,
+            SkillToolCeiling::Restricted(vec!["write_file".into()]),
+        ));
+        assert_eq!(filter, vec![SKILL_DENY_ALL_SENTINEL]);
+
+        assert!(!narrow_skill_execution_filter(
+            &mut filter,
+            SkillToolCeiling::Unspecified,
+        ));
+        assert_eq!(filter, vec![SKILL_DENY_ALL_SENTINEL]);
     }
 }
 
@@ -423,6 +542,8 @@ pub struct SkillSummary {
     /// Tool restriction from SKILL.md frontmatter.
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub allowed_tools_declared: bool,
     /// Context mode from SKILL.md frontmatter.
     #[serde(default)]
     pub context_mode: Option<String>,
@@ -483,6 +604,8 @@ pub struct SkillDetail {
     pub install: Vec<SkillInstallSpec>,
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub allowed_tools_declared: bool,
     #[serde(default)]
     pub context_mode: Option<String>,
     #[serde(default)]

@@ -820,7 +820,9 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         <ChatInput
           overflowLeadingItems={nextStepOverflowItems}
           input={stream.input}
+          structuredMentions={stream.typedMentions}
           onInputChange={stream.setInput}
+          onInputChangeWithMention={stream.setInputWithMention}
           onSend={() => stream.handleSend()}
           loading={session.loading}
           availableModels={session.availableModels}

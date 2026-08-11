@@ -85,12 +85,12 @@ pub struct Attachment {
 
 impl Attachment {
     /// Get base64-encoded data: use `data` field if present, otherwise read from `file_path`.
-    pub(super) fn get_base64_data(&self) -> anyhow::Result<String> {
+    pub(super) fn get_base64_data(&self) -> anyhow::Result<std::borrow::Cow<'_, str>> {
         if let Some(ref data) = self.data {
-            return Ok(data.clone());
+            return Ok(std::borrow::Cow::Borrowed(data));
         }
         if let Some(ref path) = self.file_path {
-            return read_and_encode_base64(path);
+            return read_and_encode_base64(path).map(std::borrow::Cow::Owned);
         }
         Err(anyhow::anyhow!(
             "Attachment '{}' has neither data nor file_path",
@@ -147,6 +147,32 @@ impl LlmProvider {
             | Self::Codex { model, .. } => model,
         }
     }
+
+    /// Installation-keyed cache partition for the credential/account actually
+    /// used by this provider attempt. The returned value is safe to include in
+    /// another keyed routing digest; raw API keys/account ids never leave this
+    /// method or enter logs/request fields.
+    pub(super) fn cache_tenant_partition(&self) -> String {
+        let (kind, backend, identity) = match self {
+            Self::Anthropic {
+                api_key, base_url, ..
+            } => ("anthropic-key", base_url.as_str(), api_key.as_str()),
+            Self::OpenAIChat {
+                api_key, base_url, ..
+            } => ("openai-chat-key", base_url.as_str(), api_key.as_str()),
+            Self::OpenAIResponses {
+                api_key, base_url, ..
+            } => ("openai-responses-key", base_url.as_str(), api_key.as_str()),
+            Self::Codex { account_id, .. } => ("codex-account", "codex-oauth", account_id.as_str()),
+        };
+        crate::cache_routing::keyed_digest([
+            kind.as_bytes(),
+            backend.trim_end_matches('/').as_bytes(),
+            identity.as_bytes(),
+        ])
+        .to_hex()
+        .to_string()
+    }
 }
 
 /// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Executing Agent (full tools + execution tracking).
@@ -174,8 +200,15 @@ pub struct AssistantAgent {
     pub(super) conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
     /// Current agent ID (for memory context loading)
     pub(super) agent_id: String,
-    /// Extra context appended to the system prompt (e.g. cron execution context)
-    pub(super) extra_system_context: Option<String>,
+    /// Durable parent turn identity used to scope opaque mention references.
+    pub(super) turn_id: Option<String>,
+    /// Canonical user-authored request used for retrieval queries. The
+    /// provider-facing message may also contain typed Skill/Note/Agent
+    /// envelopes; those resolved blocks must not feed back into recall.
+    pub(super) retrieval_query: Option<String>,
+    /// Trusted run-scoped instructions rendered after the stable system cache
+    /// boundary. User/data context cannot be represented by this type.
+    pub(super) run_context: Option<crate::prompt_context::RunInstructionContext>,
     /// Model context window size in tokens
     pub(super) context_window: u32,
     /// Context compaction configuration
@@ -186,13 +219,18 @@ pub struct AssistantAgent {
     /// When Some, tried first for summarization; falls back to side_query on failure.
     pub(super) compaction_provider:
         Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
-    /// Token estimate calibrator (updated with actual API usage)
-    pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrators>,
     /// Session-scoped deferred tools already discovered by `tool_search`.
     /// Persisted for regular sessions and kept memory-only for incognito.
     pub(super) activated_tool_names: std::sync::Mutex<Vec<String>>,
     /// Current session ID (for sub-agent context)
     pub(super) session_id: Option<String>,
+    /// Opaque typed `@agent` references valid only for this reconstructed turn.
+    /// The subagent tool resolves them from ToolExecContext and re-runs all
+    /// normal delegation gates before spawning.
+    pub(super) agent_binding_refs: Vec<crate::prompt_context::AgentBindingRef>,
+    /// Frozen typed `@file` / `@plan` handles available to
+    /// `read_context_resource`.
+    pub(super) context_resource_refs: Vec<crate::prompt_context::ContextResourceRef>,
     /// Session database backing the current chat-engine turn. Most runtime
     /// paths use the global DB, but deterministic/eval runners can provide an
     /// isolated DB; agent-side session lookups must honor that source first.
@@ -240,12 +278,12 @@ pub struct AssistantAgent {
     pub(super) tool_scope: Option<crate::tool_defs::ToolScope>,
     /// Active skill's allowed tools: when non-empty, only these tools are sent to the LLM.
     /// Set when a skill with `allowed-tools` frontmatter is activated.
-    pub(super) skill_allowed_tools: Vec<String>,
+    pub(super) skill_allowed_tools: std::sync::Mutex<Vec<String>>,
     /// Cached `PlanModeState` this agent's resolved plan slots were
     /// derived from. Used by the streaming loop's mid-turn probe as the
     /// dirty bit: `Planning ↔ Review` and `Completed ↔ Off` both produce
     /// identical `PlanAgentMode` values, so a mode-only diff would miss
-    /// these transitions even though their `extra_system_context` differs
+    /// these transitions even though their fixed run instruction differs
     /// materially (Review embeds the just-submitted plan; Completed
     /// embeds the executed plan).
     pub(super) plan_state_cached: ArcSwap<crate::plan::PlanModeState>,
@@ -262,14 +300,14 @@ pub struct AssistantAgent {
     /// updated in lockstep so write/edit path-aware allow stays accurate
     /// after a mid-turn mode change.
     pub(super) plan_mode_allow_paths: ArcSwap<Vec<String>>,
-    /// Plan-derived system-prompt segment, kept SEPARATE from the
-    /// caller-supplied `extra_system_context` so a mid-turn plan-state
-    /// flip can swap just this slice without losing the caller's context
-    /// (cron task description, sub-agent role, etc.). Read by
-    /// `build_full_system_prompt` which appends both. ArcSwap so the
-    /// streaming loop's mid-turn probe can install fresh plan guidance
-    /// without `&mut self`.
-    pub(super) plan_extra_context: ArcSwap<Option<String>>,
+    /// Fixed Plan run instruction, kept separate from caller framing so a
+    /// mid-turn state flip can replace only this slice. Provider adapters emit
+    /// it after the stable cache prefix. ArcSwap permits the streaming loop to
+    /// install fresh guidance without `&mut self`.
+    pub(super) plan_instruction_context: ArcSwap<Option<String>>,
+    /// User/model-authored plan document, kept separate from the fixed Plan
+    /// contract so provider adapters can only render it as dynamic data.
+    pub(super) plan_data_context: ArcSwap<Option<String>>,
     /// Pending hook-injected context: `additionalContext` from observation
     /// events that fire *outside* a round (PostCompact, SessionStart(compact),
     /// Notification). Drained into the next round's reminder suffix. ArcSwap so
@@ -317,19 +355,31 @@ pub struct AssistantAgent {
     /// call once we have a session id and the feature is enabled.
     pub(crate) awareness:
         std::sync::Mutex<Option<std::sync::Arc<crate::awareness::SessionAwareness>>>,
-    /// Latest dynamic awareness suffix to append to the system prompt as
-    /// a separate cache breakpoint. Rebuilt on each chat() turn by
-    /// `prepare_dynamic_suffix`.
+    /// Latest dynamic awareness data for the provider's trailing user-context
+    /// envelope. Rebuilt on each chat() turn by `prepare_dynamic_suffix`.
     pub(crate) awareness_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
     /// Active Memory per-agent runtime state (cache + inflight flags).
     /// Initialized once on construction and reused across all chat() turns.
     pub(crate) active_memory_state: std::sync::Arc<super::active_memory::ActiveMemoryState>,
-    /// Latest Active Memory recall suffix to append to the system prompt as
-    /// yet another independent cache breakpoint. Rebuilt every user turn by
-    /// `refresh_active_memory_suffix` when the side_query completes in time.
+    /// Latest Active Memory recall for the provider's trailing user-data
+    /// envelope. Rebuilt every user turn by `refresh_active_memory_suffix`
+    /// when the side_query completes in time.
     /// `None` means: nothing to inject this turn (empty shortlist, LLM said
     /// NONE, timeout, or feature disabled).
     pub(crate) active_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Full-V1-rollback SQLite memory block. This is a separate dynamic
+    /// user-data slot: the legacy fallback/selector must never overwrite an
+    /// independently resolved Active Memory recall from the same turn.
+    pub(crate) legacy_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Exact legacy SQLite rows represented by `legacy_memory_suffix` after
+    /// formatter budgets for the next provider round.
+    pub(crate) legacy_memory_refs: std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
+    /// Turn-wide prompt facts from legacy-memory blocks that were actually
+    /// submitted in successful provider rounds. A mid-turn Plan resync may
+    /// replace the current legacy slot, but it must not erase refs committed by
+    /// an earlier round from the assistant row's durable retrieval trace.
+    pub(crate) legacy_memory_committed_refs:
+        std::sync::Mutex<Vec<super::active_memory::UsedMemoryRef>>,
     /// Structured trace for the latest Active Memory suffix. This is not sent
     /// to the model; it powers UI explainability ("which memory was recalled")
     /// and future used-memory chips. Kept separate from the suffix so provider
@@ -389,7 +439,7 @@ pub struct AssistantAgent {
         std::sync::Mutex<Option<std::sync::Arc<super::related_notes::RelatedNotesRecall>>>,
     /// Per-turn memo of the resolved effective KB access map. `resolve_kb_access`
     /// is hit up to ~5× per turn (passive recall + the no-KB tool-schema gate +
-    /// the `# Knowledge Bases` system-prompt section, the last built twice and
+    /// the `Knowledge Bases` round-data section, the last built twice and
     /// again on plan-mode resync); its inputs (session / source / origin /
     /// channel / incognito / project / attach rows) only change at a turn
     /// boundary, so the resolution (a couple of SQLite round-trips) is memoized
@@ -423,11 +473,29 @@ pub struct AssistantAgent {
 /// See [`AssistantAgent::turn_prompt_cache`]: blocking prompt inputs
 /// precomputed off-worker once per turn, keyed by the turn's model/provider
 /// so a mismatched reader falls back to live compute.
+#[derive(Debug, Clone)]
+pub(crate) struct LegacyMemorySelectionSnapshot {
+    /// Exact scoped rows loaded with the base prompt. Reusing this immutable
+    /// snapshot prevents a later retrieval-slot timeout from deleting the V1
+    /// rollback fallback or selecting against a different DB generation.
+    pub(crate) candidates: std::sync::Arc<Vec<crate::memory::MemoryEntry>>,
+    /// Full budgeted fallback published before any optional LLM selection.
+    pub(crate) full_fallback: Option<std::sync::Arc<String>>,
+    /// Exact rows represented by `full_fallback`; budget-clipped candidates
+    /// are deliberately absent.
+    pub(crate) full_fallback_refs: std::sync::Arc<Vec<super::active_memory::UsedMemoryRef>>,
+    pub(crate) budget: usize,
+}
+
 #[derive(Debug)]
 pub(crate) struct TurnPromptCache {
     pub(crate) model: String,
     pub(crate) provider: String,
     pub(crate) base_prompt: std::sync::Arc<String>,
+    /// Present only for a full V1 rollback. This data is intentionally kept
+    /// out of the stable system prefix and delivered through an independent
+    /// legacy-memory dynamic data slot.
+    pub(crate) legacy_memory_selection: Option<LegacyMemorySelectionSnapshot>,
 }
 
 /// Cached parameters from the last main chat request.
@@ -471,6 +539,24 @@ impl ProviderFormat {
             Self::OpenAIChat => "OpenAIChat",
             Self::OpenAIResponses => "OpenAIResponses",
             Self::Codex => "Codex",
+        }
+    }
+
+    pub(super) const fn token_provider_family(self) -> crate::token_accounting::ProviderFamily {
+        match self {
+            Self::Anthropic => crate::token_accounting::ProviderFamily::Anthropic,
+            Self::OpenAIChat => crate::token_accounting::ProviderFamily::OpenAiChat,
+            Self::OpenAIResponses => crate::token_accounting::ProviderFamily::OpenAiResponses,
+            Self::Codex => crate::token_accounting::ProviderFamily::Codex,
+        }
+    }
+
+    pub(super) const fn token_request_shape(self) -> crate::token_accounting::RequestShape {
+        match self {
+            Self::Anthropic => crate::token_accounting::RequestShape::AnthropicMessages,
+            Self::OpenAIChat => crate::token_accounting::RequestShape::OpenAiChat,
+            Self::OpenAIResponses => crate::token_accounting::RequestShape::OpenAiResponses,
+            Self::Codex => crate::token_accounting::RequestShape::CodexResponses,
         }
     }
 }
@@ -580,6 +666,17 @@ pub struct ChatUsage {
     pub last_fresh_input_tokens: u64,
     pub last_cache_creation_input_tokens: u64,
     pub last_cache_read_input_tokens: u64,
+    /// Whether every provider round returned an input counter. Numeric zero is
+    /// meaningful only when coverage is present; missing usage must remain
+    /// distinguishable from an actual zero-token response.
+    pub input_coverage: crate::token_accounting::UsageCoverage,
+    pub output_coverage: crate::token_accounting::UsageCoverage,
+    /// Number of round observations folded into this turn accumulator.
+    pub rounds_observed: u32,
+    /// Bounded, content-free per-round prediction/actual pairs. Persisted as
+    /// metadata on the single final usage row to avoid double-counting model
+    /// calls in the dashboard ledger.
+    pub token_accounting_observations: Vec<crate::token_accounting::TokenAccountingObservation>,
 }
 
 impl ChatUsage {
@@ -631,12 +728,23 @@ impl ChatUsage {
         self.last_fresh_input_tokens = round_fresh;
         self.last_cache_creation_input_tokens = round.cache_creation_input_tokens;
         self.last_cache_read_input_tokens = round.cache_read_input_tokens;
+        if self.rounds_observed == 0 {
+            self.input_coverage = round.input_coverage;
+            self.output_coverage = round.output_coverage;
+        } else {
+            self.input_coverage = self.input_coverage.accumulate(round.input_coverage);
+            self.output_coverage = self.output_coverage.accumulate(round.output_coverage);
+        }
+        self.rounds_observed = self.rounds_observed.saturating_add(1);
+        self.token_accounting_observations
+            .extend(round.token_accounting_observations.iter().cloned());
     }
 }
 
 #[cfg(test)]
 mod chat_usage_tests {
-    use super::ChatUsage;
+    use super::{ChatUsage, LlmProvider};
+    use crate::token_accounting::UsageCoverage;
 
     #[test]
     fn anthropic_round_counts_disjoint_cache_counters_in_context() {
@@ -693,6 +801,63 @@ mod chat_usage_tests {
         assert_eq!(usage.last_input_tokens, 30);
         assert_eq!(usage.last_cache_creation_input_tokens, 0);
         assert_eq!(usage.last_cache_read_input_tokens, 7);
+    }
+
+    #[test]
+    fn actual_zero_usage_remains_complete() {
+        let mut usage = ChatUsage::default();
+        usage.accumulate_round(&ChatUsage {
+            input_coverage: UsageCoverage::Complete,
+            output_coverage: UsageCoverage::Complete,
+            ..Default::default()
+        });
+
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+        assert_eq!(usage.input_coverage, UsageCoverage::Complete);
+        assert_eq!(usage.output_coverage, UsageCoverage::Complete);
+    }
+
+    #[test]
+    fn mixed_round_coverage_is_partial_in_either_order() {
+        for rounds in [
+            [UsageCoverage::Complete, UsageCoverage::Missing],
+            [UsageCoverage::Missing, UsageCoverage::Complete],
+        ] {
+            let mut usage = ChatUsage::default();
+            for input_coverage in rounds {
+                usage.accumulate_round(&ChatUsage {
+                    input_coverage,
+                    output_coverage: input_coverage,
+                    ..Default::default()
+                });
+            }
+            assert_eq!(usage.input_coverage, UsageCoverage::Partial);
+            assert_eq!(usage.output_coverage, UsageCoverage::Partial);
+        }
+    }
+
+    #[test]
+    fn cache_tenant_partition_separates_credentials_without_exposing_them() {
+        let first = LlmProvider::OpenAIResponses {
+            api_key: "secret-a".into(),
+            base_url: "https://example.test".into(),
+            model: "model".into(),
+        };
+        let same = LlmProvider::OpenAIResponses {
+            api_key: "secret-a".into(),
+            base_url: "https://example.test".into(),
+            model: "model".into(),
+        };
+        let second = LlmProvider::OpenAIResponses {
+            api_key: "secret-b".into(),
+            base_url: "https://example.test".into(),
+            model: "model".into(),
+        };
+        let first_partition = first.cache_tenant_partition();
+        assert_eq!(first_partition, same.cache_tenant_partition());
+        assert_ne!(first_partition, second.cache_tenant_partition());
+        assert!(!first_partition.contains("secret"));
     }
 }
 

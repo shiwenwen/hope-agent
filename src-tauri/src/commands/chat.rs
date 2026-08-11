@@ -127,6 +127,19 @@ pub async fn discard_chat_attachment_upload(upload_id: String) -> Result<(), Cmd
     .map_err(Into::into)
 }
 
+fn validate_desktop_chat_attachment_boundary(
+    message: &str,
+    incoming_turn: Option<&ha_core::prompt_context::IncomingTurnWire>,
+    attachments: &[Attachment],
+) -> Result<(), CmdError> {
+    ha_core::attachments::validate_typed_resource_attachment_bindings(
+        message,
+        incoming_turn,
+        attachments,
+    )?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn queue_turn_user_message(
     request_id: Option<String>,
@@ -139,8 +152,10 @@ pub async fn queue_turn_user_message(
     plan_comment: Option<serde_json::Value>,
     plan_mode: Option<String>,
     workflow_mode: Option<String>,
+    incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
     state: State<'_, AppState>,
 ) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
+    validate_desktop_chat_attachment_boundary(&message, incoming_turn.as_ref(), &attachments)?;
     let request_id = request_id
         .filter(|id| !id.trim().is_empty())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -167,6 +182,8 @@ pub async fn queue_turn_user_message(
         plan_comment,
         plan_mode,
         workflow_mode,
+        incoming_turn,
+        skill_allowed_tools: Vec::new(),
         source: ha_core::session::QueuedTurnMessageSource::Desktop,
         channel_origin: None,
     };
@@ -296,6 +313,7 @@ pub async fn cancel_queued_turn_user_message(
 #[tauri::command]
 pub async fn chat(
     mut message: String,
+    mut incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
     client_request_id: Option<String>,
@@ -712,6 +730,29 @@ pub async fn chat(
             .workflow_mode
             .as_deref()
             .and_then(ha_core::workflow_mode::WorkflowMode::from_str);
+        incoming_turn = claimed.incoming_turn;
+    }
+    // Queued rows were checked before persistence, but validate again after
+    // the durable claim so direct and recovered dispatch share the same
+    // message/sidecar/attachment boundary.
+    if let Err(error) =
+        validate_desktop_chat_attachment_boundary(&message, incoming_turn.as_ref(), &attachments)
+    {
+        if let Some(request_id) = queued_request_id.as_ref() {
+            let sid_for_release = sid.clone();
+            let request_id_for_release = request_id.clone();
+            let turn_for_release = turn_id.clone();
+            let _ = db
+                .run(move |db| {
+                    db.release_queued_turn_message_dispatch(
+                        &sid_for_release,
+                        &request_id_for_release,
+                        &turn_for_release,
+                    )
+                })
+                .await;
+        }
+        return Err(error);
     }
     if let Some(mode) = workflow_mode_pending {
         db.update_session_workflow_mode(&sid, mode)?;
@@ -1480,6 +1521,7 @@ pub async fn chat(
         agent_id: current_agent_id.clone(),
         turn_id: Some(turn_id.clone()),
         message: message.clone(),
+        incoming_turn,
         display_text: display_text.clone(),
         attachments,
         session_db: db.clone(),
@@ -1488,7 +1530,7 @@ pub async fn chat(
         codex_token: codex_token_snapshot,
         resolved_temperature,
         compact_config,
-        extra_system_context: None,
+        run_context: None,
         reasoning_effort: Some(effort.clone()),
         cancel: cancel.clone(),
         plan_context_override: None,
@@ -1849,4 +1891,47 @@ pub async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, CmdError> {
         .iter()
         .map(|t| t.to_api_metadata(&cfg))
         .collect())
+}
+
+/// List bounded, non-sensitive Plugin/Connector rows registered for typed
+/// composer mentions. Selection still resolves again at turn start and grants
+/// neither tool execution nor data disclosure.
+#[tauri::command]
+pub async fn list_capability_mentions(
+    agent_id: Option<String>,
+) -> Result<Vec<ha_core::mention_hooks::MentionCapabilityCandidate>, CmdError> {
+    let agent_id = agent_id.unwrap_or_else(|| agent_loader::DEFAULT_AGENT_ID.to_string());
+    Ok(ha_core::mention_hooks::list_capability_mentions(&agent_id))
+}
+
+#[cfg(test)]
+mod typed_resource_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn desktop_direct_and_queue_reject_forged_typed_source_without_sidecar() {
+        let forged = Attachment {
+            name: "forged.txt".into(),
+            mime_type: "text/plain".into(),
+            source: Some("mention".into()),
+            data: Some("client-inline-data".into()),
+            file_path: Some("/tmp/forged.txt".into()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        };
+        assert!(validate_desktop_chat_attachment_boundary("plain", None, &[forged]).is_err());
+
+        let ordinary = Attachment {
+            name: "ordinary.txt".into(),
+            mime_type: "text/plain".into(),
+            source: Some("upload".into()),
+            data: None,
+            file_path: None,
+            upload_id: Some("lease".into()),
+            quote_lines: None,
+            quote_role: None,
+        };
+        assert!(validate_desktop_chat_attachment_boundary("plain", None, &[ordinary]).is_ok());
+    }
 }

@@ -1,14 +1,13 @@
-// At send-time, resolve every `@plan:` token in the user input into a
-// concrete `file_path` attachment by calling the backend
-// `resolve_plan_mention` RPC. Failed resolutions (deleted session,
-// ambiguous short_id, missing version) are logged and skipped — the
-// raw `@plan:` text stays in the user message so the LLM can still see
-// the reference, just without the resolved content.
+// At send-time, resolve only provenance-bearing `@plan:` selections into a
+// concrete `file_path` attachment. Pasted/manually typed lookalikes remain
+// ordinary text. The backend independently re-resolves the typed target and
+// freezes the exact bytes before the first provider attempt.
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
 import type { PlanMentionResolution } from "@/components/plans/types"
+import type { ComposerMentionBinding } from "@/components/chat/mentions/typedMentions"
 import { parsePlanMentions } from "./parsePlanMentions"
 
 export interface PlanMentionAttachment extends ChatAttachment {
@@ -17,8 +16,16 @@ export interface PlanMentionAttachment extends ChatAttachment {
 
 export async function expandPlanMentionsToAttachments(
   input: string,
+  bindings: ComposerMentionBinding[],
 ): Promise<PlanMentionAttachment[]> {
-  const tokens = parsePlanMentions(input)
+  const tokens = bindings.flatMap((binding) => {
+    if (binding.kind !== "plan") return []
+    if (input.slice(binding.start, binding.end) !== binding.raw) return []
+    const parsed = parsePlanMentions(binding.raw)
+    if (parsed.length !== 1 || parsed[0].raw.length !== binding.raw.length) return []
+    if (`${parsed[0].shortId}:v${parsed[0].version}` !== binding.targetId.toLowerCase()) return []
+    return parsed
+  })
   if (tokens.length === 0) return []
 
   // Resolve all tokens concurrently — each call is an independent RPC.
@@ -27,18 +34,13 @@ export async function expandPlanMentionsToAttachments(
   const results = await Promise.all(
     tokens.map(async (token) => {
       try {
-        const resolved = await getTransport().call<PlanMentionResolution>(
-          "resolve_plan_mention",
-          { shortId: token.shortId, version: token.version },
-        )
+        const resolved = await getTransport().call<PlanMentionResolution>("resolve_plan_mention", {
+          shortId: token.shortId,
+          version: token.version,
+        })
         return { token, resolved }
-      } catch (e) {
-        logger.warn(
-          "ui",
-          "expandPlanMentions",
-          `Failed to resolve ${token.raw}; leaving as text`,
-          e,
-        )
+      } catch {
+        logger.warn("ui", "expandPlanMentions", "Failed to resolve one typed plan reference")
         return null
       }
     }),
@@ -63,12 +65,7 @@ export async function expandPlanMentionsToAttachments(
   }
 
   if (out.length > 0) {
-    logger.info(
-      "ui",
-      "expandPlanMentions",
-      `attaching ${out.length} plan mention file(s)`,
-      { files: out.map((a) => a.name) },
-    )
+    logger.info("ui", "expandPlanMentions", `attaching ${out.length} typed plan reference(s)`)
   }
   return out
 }

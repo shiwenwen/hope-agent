@@ -56,6 +56,15 @@ import { useApprovals } from "./useApprovals"
 import { generateClientId } from "@/components/chat/chatScrollKeys"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { expandPlanMentionsToAttachments } from "@/components/chat/plan-mention/expandPlanMentions"
+import {
+  buildIncomingTurnWire,
+  mergeTypedMentionDrafts,
+  reconcileTypedMentions,
+  reconcileTypedMentionsForChange,
+  trimTextWithTypedMentions,
+  type ComposerMentionBinding,
+  type ComposerMentionTextChange,
+} from "@/components/chat/mentions/typedMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 import { modelOverrideFromManualSelection } from "../modelSelection"
@@ -184,6 +193,9 @@ function optimisticAttachmentForFile(file: File): MessageAttachment {
 
 interface SendOptions {
   displayText?: string
+  /** First-party structured bindings for a direct send such as `/skill`.
+   * The backend revalidates their source anchors and resolves live content. */
+  structuredMentions?: ComposerMentionBinding[]
   planMode?: string
   workflowMode?: "off" | "on" | "ultracode" | string
   isPlanTrigger?: boolean
@@ -236,6 +248,8 @@ interface PendingSend {
   isPlanTrigger?: boolean
   goalTrigger?: boolean
   planComment?: { selectedText: string; comment: string }
+  /** Authoritative backend projection; absent for the local `saving` row. */
+  canForceInsert?: boolean
   editable?: boolean
   managedBy?: "channel"
 }
@@ -254,6 +268,7 @@ interface QueuedTurnMessageView {
   planMode?: string
   workflowMode?: string
   managedBy?: "channel"
+  canForceInsert: boolean
   mode: "queue" | "force_insert"
   status:
     | "queued"
@@ -280,6 +295,7 @@ interface CancelQueuedTurnUserMessageResult {
 
 interface InputDraft {
   input: string
+  typedMentions: ComposerMentionBinding[]
   attachedFiles: DraftAttachment[]
   pendingQuotes: PendingFileQuote[]
   pendingMessageQuotes: PendingMessageQuote[]
@@ -402,7 +418,18 @@ export interface UseChatStreamOptions {
 
 export interface UseChatStreamReturn {
   input: string
+  typedMentions: ComposerMentionBinding[]
   setInput: React.Dispatch<React.SetStateAction<string>>
+  setInputWithMention: (
+    value: string,
+    mention: ComposerMentionBinding,
+    change?: ComposerMentionTextChange,
+  ) => void
+  appendInputMention: (
+    token: string,
+    mention: Omit<ComposerMentionBinding, "raw" | "start" | "end">,
+    trailingSpace?: boolean,
+  ) => void
   attachedFiles: DraftAttachment[]
   setAttachedFiles: React.Dispatch<React.SetStateAction<DraftAttachment[]>>
   maxChatAttachmentBytes: number
@@ -503,6 +530,7 @@ export function useChatStream({
   const [pendingQuotes, setPendingQuotesState] = useState<PendingFileQuote[]>([])
   const [pendingMessageQuotes, setPendingMessageQuotesState] = useState<PendingMessageQuote[]>([])
   const inputRef = useRef(input)
+  const typedMentionsRef = useRef<ComposerMentionBinding[]>([])
   const attachedFilesRef = useRef(attachedFiles)
   const pendingQuotesRef = useRef(pendingQuotes)
   const pendingMessageQuotesRef = useRef(pendingMessageQuotes)
@@ -512,6 +540,7 @@ export function useChatStream({
   const saveInputDraft = useCallback((key: string, draft: InputDraft) => {
     if (
       !draft.input &&
+      draft.typedMentions.length === 0 &&
       draft.attachedFiles.length === 0 &&
       draft.pendingQuotes.length === 0 &&
       draft.pendingMessageQuotes.length === 0
@@ -526,14 +555,105 @@ export function useChatStream({
     (value) => {
       setInputState((prev) => {
         const next = typeof value === "function" ? (value as (p: string) => string)(prev) : value
+        const nextMentions = reconcileTypedMentions(prev, next, typedMentionsRef.current)
         inputRef.current = next
+        typedMentionsRef.current = nextMentions
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: next,
+          typedMentions: nextMentions,
           attachedFiles: attachedFilesRef.current,
           pendingQuotes: pendingQuotesRef.current,
           pendingMessageQuotes: pendingMessageQuotesRef.current,
         })
         return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  const setInputWithMention = useCallback(
+    (next: string, mention: ComposerMentionBinding, change?: ComposerMentionTextChange) => {
+      setInputState((prev) => {
+        const reconciled = change
+          ? reconcileTypedMentionsForChange(prev, next, typedMentionsRef.current, change)
+          : reconcileTypedMentions(prev, next, typedMentionsRef.current)
+        const nextMentions = [
+          ...reconciled.filter((existing) => existing.id !== mention.id),
+          mention,
+        ].sort((a, b) => a.start - b.start)
+        inputRef.current = next
+        typedMentionsRef.current = nextMentions
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: next,
+          typedMentions: nextMentions,
+          attachedFiles: attachedFilesRef.current,
+          pendingQuotes: pendingQuotesRef.current,
+          pendingMessageQuotes: pendingMessageQuotesRef.current,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  /** Append a provenance-bearing token against the latest state snapshot.
+   * Global pickers may await a transport call before insertion, so deriving
+   * offsets from a render-captured `input` would overwrite intervening typing. */
+  const appendInputMention = useCallback(
+    (
+      token: string,
+      mentionBase: Omit<ComposerMentionBinding, "raw" | "start" | "end">,
+      trailingSpace = false,
+    ) => {
+      setInputState((prev) => {
+        const separator = prev && !prev.endsWith(" ") ? " " : ""
+        const suffix = trailingSpace ? " " : ""
+        const start = prev.length + separator.length
+        const next = `${prev}${separator}${token}${suffix}`
+        const mention: ComposerMentionBinding = {
+          ...mentionBase,
+          raw: token,
+          start,
+          end: start + token.length,
+        }
+        const reconciled = reconcileTypedMentionsForChange(prev, next, typedMentionsRef.current, {
+          oldStart: prev.length,
+          oldEnd: prev.length,
+          newEnd: next.length,
+        })
+        const nextMentions = [
+          ...reconciled.filter((existing) => existing.id !== mention.id),
+          mention,
+        ].sort((a, b) => a.start - b.start)
+        inputRef.current = next
+        typedMentionsRef.current = nextMentions
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: next,
+          typedMentions: nextMentions,
+          attachedFiles: attachedFilesRef.current,
+          pendingQuotes: pendingQuotesRef.current,
+          pendingMessageQuotes: pendingMessageQuotesRef.current,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  const replaceInputWithMentions = useCallback(
+    (next: string, mentions: ComposerMentionBinding[]) => {
+      const valid = mentions.filter(
+        (mention) => next.slice(mention.start, mention.end) === mention.raw,
+      )
+      inputRef.current = next
+      typedMentionsRef.current = valid
+      setInputState(next)
+      saveInputDraft(activeInputDraftKeyRef.current, {
+        input: next,
+        typedMentions: valid,
+        attachedFiles: attachedFilesRef.current,
+        pendingQuotes: pendingQuotesRef.current,
+        pendingMessageQuotes: pendingMessageQuotesRef.current,
       })
     },
     [saveInputDraft],
@@ -549,6 +669,7 @@ export function useChatStream({
         attachedFilesRef.current = next
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: inputRef.current,
+          typedMentions: typedMentionsRef.current,
           attachedFiles: next,
           pendingQuotes: pendingQuotesRef.current,
           pendingMessageQuotes: pendingMessageQuotesRef.current,
@@ -569,6 +690,7 @@ export function useChatStream({
         pendingQuotesRef.current = next
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: inputRef.current,
+          typedMentions: typedMentionsRef.current,
           attachedFiles: attachedFilesRef.current,
           pendingQuotes: next,
           pendingMessageQuotes: pendingMessageQuotesRef.current,
@@ -591,6 +713,7 @@ export function useChatStream({
         pendingMessageQuotesRef.current = next
         saveInputDraft(activeInputDraftKeyRef.current, {
           input: inputRef.current,
+          typedMentions: typedMentionsRef.current,
           attachedFiles: attachedFilesRef.current,
           pendingQuotes: pendingQuotesRef.current,
           pendingMessageQuotes: next,
@@ -608,6 +731,7 @@ export function useChatStream({
 
     saveInputDraft(previousKey, {
       input: inputRef.current,
+      typedMentions: typedMentionsRef.current,
       attachedFiles: attachedFilesRef.current,
       pendingQuotes: pendingQuotesRef.current,
       pendingMessageQuotes: pendingMessageQuotesRef.current,
@@ -617,6 +741,7 @@ export function useChatStream({
     const nextDraft = inputDraftsRef.current.get(nextKey) ??
       (previousKey === "draft" ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
         input: "",
+        typedMentions: [],
         attachedFiles: [],
         pendingQuotes: [],
         pendingMessageQuotes: [],
@@ -626,6 +751,7 @@ export function useChatStream({
       inputDraftsRef.current.delete(previousKey)
     }
     inputRef.current = nextDraft.input
+    typedMentionsRef.current = nextDraft.typedMentions
     attachedFilesRef.current = nextDraft.attachedFiles
     pendingQuotesRef.current = nextDraft.pendingQuotes
     pendingMessageQuotesRef.current = nextDraft.pendingMessageQuotes
@@ -674,6 +800,7 @@ export function useChatStream({
       goalTrigger: item.goalTrigger,
       planComment: item.planComment,
       managedBy: item.managedBy,
+      canForceInsert: item.canForceInsert,
       editable:
         item.managedBy !== "channel" &&
         !item.displayText &&
@@ -723,6 +850,7 @@ export function useChatStream({
       !pending.goalTrigger &&
       !pending.planComment &&
       pending.managedBy !== "channel" &&
+      pending.canForceInsert === true &&
       (pending.status === "queued" || pending.status === "fallback_after_reply") &&
       pending.mode !== "force_insert",
     [],
@@ -1275,6 +1403,7 @@ export function useChatStream({
       messageQuotesToSend: PendingMessageQuote[],
       targetSessionId: string | null,
       transport: Transport,
+      mentionBindings: ComposerMentionBinding[],
       signal?: AbortSignal,
     ): Promise<ChatAttachment[]> => {
       const attachments: ChatAttachment[] = []
@@ -1283,13 +1412,17 @@ export function useChatStream({
 
       const sessionWorkingDir = sessions.find((s) => s.id === targetSessionId)?.workingDir ?? null
       const resolvedWorkingDir = targetSessionId ? sessionWorkingDir : draftWorkingDir
-      const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
+      const mentionAttachments = expandMentionsToAttachments(
+        text,
+        resolvedWorkingDir ?? null,
+        mentionBindings,
+      )
       for (const m of mentionAttachments) {
         attachments.push(m)
       }
 
       const planAttachments = await awaitUnlessAborted(
-        expandPlanMentionsToAttachments(text),
+        expandPlanMentionsToAttachments(text, mentionBindings),
         signal,
       )
       for (const p of planAttachments) {
@@ -1402,6 +1535,14 @@ export function useChatStream({
   async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
     const usesComposerDraft = directText === undefined && !options?.draftOverride
+    const typedMentionsForSend = options?.structuredMentions
+      ? [...options.structuredMentions]
+      : usesComposerDraft
+        ? [...typedMentionsRef.current]
+        : []
+    const canonical = trimTextWithTypedMentions(rawText, typedMentionsForSend)
+    const canonicalText = canonical.text
+    const canonicalTypedMentions = canonical.mentions
     const draftFiles =
       options?.draftOverride?.attachedFiles ?? (usesComposerDraft ? attachedFiles : [])
     const draftQuotes =
@@ -1470,6 +1611,9 @@ export function useChatStream({
         setPendingMessageQuotes([])
       }
       try {
+        const incomingTurn = options?.queuedRequestId
+          ? undefined
+          : await buildIncomingTurnWire(canonicalText, canonicalTypedMentions)
         durableAttachments = await buildChatAttachments(
           rawText.trim(),
           queuedFiles,
@@ -1477,6 +1621,7 @@ export function useChatStream({
           queuedMessageQuotes,
           queueSessionId,
           queueTransport,
+          canonicalTypedMentions,
         )
         if (getExtraAttachments) {
           durableAttachments.push(...getExtraAttachments())
@@ -1493,6 +1638,7 @@ export function useChatStream({
           planComment: options?.planComment,
           planMode: options?.planMode,
           workflowMode: options?.workflowMode,
+          incomingTurn,
         })
         await syncPendingSends(queueSessionId)
       } catch (error) {
@@ -1510,13 +1656,18 @@ export function useChatStream({
             status: "error" as const,
             error: error instanceof Error ? error.message : String(error),
           }))
-          const restoreText = (existing: string) =>
-            existing.trim() ? `${rawText}\n${existing}` : rawText
           if (currentSessionIdRef.current === queueSessionId) {
             // Do not overwrite text/files the user entered while the durable
             // save was in flight. Put the failed send back ahead of the newer
             // draft so nothing silently disappears.
-            setInput(restoreText)
+            const current = inputRef.current
+            const restored = mergeTypedMentionDrafts(
+              rawText,
+              typedMentionsForSend,
+              current,
+              typedMentionsRef.current,
+            )
+            replaceInputWithMentions(restored.text, restored.mentions)
             setAttachedFiles((existing) => [...failedQueuedFiles, ...existing])
             setPendingQuotes((existing) => [...queuedQuotes, ...existing])
             setPendingMessageQuotes((existing) => [...queuedMessageQuotes, ...existing])
@@ -1527,12 +1678,20 @@ export function useChatStream({
             const key = inputDraftKey(queueSessionId)
             const existing = inputDraftsRef.current.get(key) ?? {
               input: "",
+              typedMentions: [],
               attachedFiles: [],
               pendingQuotes: [],
               pendingMessageQuotes: [],
             }
+            const restored = mergeTypedMentionDrafts(
+              rawText,
+              typedMentionsForSend,
+              existing.input,
+              existing.typedMentions,
+            )
             saveInputDraft(key, {
-              input: restoreText(existing.input),
+              input: restored.text,
+              typedMentions: restored.mentions,
               attachedFiles: [...failedQueuedFiles, ...existing.attachedFiles],
               pendingQuotes: [...queuedQuotes, ...existing.pendingQuotes],
               pendingMessageQuotes: [...queuedMessageQuotes, ...existing.pendingMessageQuotes],
@@ -1543,7 +1702,7 @@ export function useChatStream({
       return
     }
 
-    const text = rawText.trim()
+    const text = canonicalText
     // `text` goes to the LLM; `displayed` is the user bubble. Slash-skill passThrough
     // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
     const filesToSend = [...draftFiles]
@@ -1591,6 +1750,7 @@ export function useChatStream({
     }
     const sendTransport = getTransport()
     let attachments: ChatAttachment[]
+    let incomingTurn: Awaited<ReturnType<typeof buildIncomingTurnWire>> | undefined
     const sendingDraftIds = new Set(filesToSend.map((draft) => draft.id))
     if (usesComposerDraft && sendingDraftIds.size > 0) {
       setAttachedFiles((existing) =>
@@ -1602,6 +1762,9 @@ export function useChatStream({
       )
     }
     try {
+      incomingTurn = options?.queuedRequestId
+        ? undefined
+        : await buildIncomingTurnWire(canonicalText, canonicalTypedMentions)
       attachments = options?.queuedRequestId
         ? []
         : await buildChatAttachments(
@@ -1611,6 +1774,7 @@ export function useChatStream({
             messageQuotesToSend,
             sendSessionId,
             sendTransport,
+            canonicalTypedMentions,
             preparationAbort.signal,
           )
       if (getExtraAttachments && !options?.queuedRequestId) {
@@ -1718,12 +1882,15 @@ export function useChatStream({
       }))
       const merge = (current: InputDraft): InputDraft => {
         const restoredIds = new Set(restoredFiles.map((draft) => draft.id))
+        const restored = mergeTypedMentionDrafts(
+          rawText,
+          typedMentionsForSend,
+          current.input,
+          current.typedMentions,
+        )
         return {
-          input: current.input
-            ? rawText
-              ? `${rawText}${rawText.endsWith("\n") ? "" : "\n"}${current.input}`
-              : current.input
-            : rawText,
+          input: restored.text,
+          typedMentions: restored.mentions,
           attachedFiles: [
             ...restoredFiles,
             ...current.attachedFiles.filter((draft) => !restoredIds.has(draft.id)),
@@ -1739,6 +1906,7 @@ export function useChatStream({
           merge(
             inputDraftsRef.current.get(draftKey) ?? {
               input: "",
+              typedMentions: [],
               attachedFiles: [],
               pendingQuotes: [],
               pendingMessageQuotes: [],
@@ -1747,11 +1915,14 @@ export function useChatStream({
         )
         return
       }
-      setInput((current) => {
-        if (!current) return rawText
-        if (!rawText) return current
-        return `${rawText}${rawText.endsWith("\n") ? "" : "\n"}${current}`
-      })
+      const current = inputRef.current
+      const restored = mergeTypedMentionDrafts(
+        rawText,
+        typedMentionsForSend,
+        current,
+        typedMentionsRef.current,
+      )
+      replaceInputWithMentions(restored.text, restored.mentions)
       setAttachedFiles((current) => {
         const restoredIds = new Set(restoredFiles.map((draft) => draft.id))
         return [...restoredFiles, ...current.filter((draft) => !restoredIds.has(draft.id))]
@@ -1772,6 +1943,9 @@ export function useChatStream({
       content: displayed,
       timestamp: now,
       _clientId: optimisticUserClientId,
+      ...(displayed === text && canonicalTypedMentions.length > 0
+        ? { typedMentions: canonicalTypedMentions }
+        : {}),
       ...(optimisticAttachments.length > 0 && { attachments: optimisticAttachments }),
       ...(options?.isPlanTrigger && { isPlanTrigger: true }),
       ...(options?.goalTrigger && { isGoalTrigger: true }),
@@ -1971,6 +2145,7 @@ export function useChatStream({
       await sendTransport.startChat(
         {
           message: text,
+          incomingTurn,
           attachments,
           sessionId: sendSessionId,
           clientRequestId: chatRequestOwnerId,
@@ -2403,7 +2578,10 @@ export function useChatStream({
 
   return {
     input,
+    typedMentions: typedMentionsRef.current,
     setInput,
+    setInputWithMention,
+    appendInputMention,
     attachedFiles,
     setAttachedFiles,
     maxChatAttachmentBytes,

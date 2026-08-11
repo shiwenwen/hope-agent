@@ -91,7 +91,8 @@ impl HookHandler for AgentHandler {
             lock_plan_agent_mode: false,
             // The hook captures the result itself; don't echo into the parent.
             skip_parent_injection: true,
-            extra_system_context: None,
+            run_instruction_context: None,
+            run_data_context: None,
             skill_allowed_tools: self.config.allowed_tools.clone(),
             reasoning_effort: None,
             skill_name: None,

@@ -973,6 +973,9 @@
       "failed": "会話のエクスポートに失敗しました。",
       "untitled": "無題"
     },
+    "capabilityMention": {
+      "heading": "プラグインとコネクタ"
+    },
     "skillMention": {
       "heading": "スキル",
       "labels": {

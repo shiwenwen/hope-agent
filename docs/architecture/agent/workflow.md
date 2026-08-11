@@ -1,6 +1,6 @@
 # Workflow：Mode、Tool、Run 与 Execution Mode
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
 
 ## 1. 核心思想
 
@@ -12,7 +12,7 @@ Workflow 子系统解决的正是**长任务执行面的可控性**，以及**�
 
 | 名词 | 是什么 | 一句话职责 |
 | --- | --- | --- |
-| **Workflow Mode** | 会话级开关（`off` / `on` / `ultracode`） | 决定模型这一轮能不能看到并调用 `workflow` 工具，以及 prompt 里注入哪套编排策略。 |
+| **Workflow Mode** | 会话级开关（`off` / `on` / `ultracode`） | 决定模型这一轮能不能看到并调用 `workflow` 工具，以及 Run Instruction 使用哪套固定编排合同。 |
 | **Workflow Tool** | 模型能调用的 `workflow` 控制工具 | 模型创建 run、查状态、读 trace、暂停/恢复/取消、发起 follow-up 的唯一入口。 |
 | **Workflow Run** | 一次具体的脚本执行 | durable、可观察、可审批、可暂停/恢复/取消的编排单元，落在 `sessions.db`。 |
 | **Execution Mode** | 会话级推进强度策略（`off` / `guarded` / `deep` / `autonomous`） | 描述「多大胆地往前推、失败怎么守门」，创建 run 时快照进 run。 |
@@ -26,7 +26,7 @@ flowchart TD
         EM["Execution Mode<br/>sessions.execution_mode"]
     end
 
-    WM -->|"开启时注入 prompt 段<br/>+ 追加 workflow 工具 schema"| MODEL["主对话模型"]
+    WM -->|"开启时追加固定 Run Instruction<br/>+ workflow 工具 schema"| MODEL["主对话模型"]
     MODEL -->|"workflow(action=create)"| TOOL["Workflow Tool"]
     EM -.->|创建时快照| RUN
     TOOL --> GATE["Script Gate<br/>+ Permission Preview"]
@@ -54,7 +54,7 @@ flowchart TD
 
 1. 在输入框工具条 / `+` 菜单点「工作流」，或输入 `/workflow on`。
 2. 正常描述任务，例如「调研这三个方案并给出推荐」「整理这批会议材料」「做一次完整代码迁移」。
-3. 下一轮模型会看到 `workflow` 控制工具和 Workflow Mode prompt，自行判断是否值得创建 durable run；简单任务继续 inline 完成。
+3. 下一轮模型会看到 `workflow` 控制工具和 Workflow Mode 的固定 Run Instruction，自行判断是否值得创建 durable run；用户任务正文仍来自 user/history，简单任务继续 inline 完成。
 4. run 创建后，模型还能用 `workflow(action=status|trace|list|control|followup)` 查状态、读 bounded trace、暂停/恢复/取消可见 run，或基于失败/阻塞发起 follow-up run。模型不能替用户批准权限。
 5. run 一旦创建，Workspace 的 Workflow section 就会出现它：状态、当前焦点、Trace、Validation、Agents、授权清单、阶段检查点、失败原因和修复入口一应俱全。
 6. 用户在 GUI 或 slash command 控制 run：`/workflow status`（看模式和最近 run）、`/workflow runs`（列最近 run）、`/workflow trace [run_id]`（看 ops/events）、`/workflow approve|pause|resume|cancel [run_id]`（审批、暂停、恢复、取消）。
@@ -82,8 +82,8 @@ flowchart TB
     end
 
     subgraph base["ha-base（基础设施）"]
-        WMODE["workflow_mode.rs<br/>off/on/ultracode 解析 + prompt 段"]
-        EMODE["execution_mode.rs<br/>off/guarded/deep/autonomous + prompt 段"]
+        WMODE["workflow_mode.rs<br/>off/on/ultracode 解析 + 固定合同"]
+        EMODE["execution_mode.rs<br/>off/guarded/deep/autonomous + 固定合同"]
     end
 
     subgraph shells["薄壳（能力面对齐）"]
@@ -112,8 +112,8 @@ flowchart TB
 | 持久化 | `crates/ha-core/src/workflow/db.rs` | run/op/event/control/attempt/template 建表、CRUD、状态转换、replay 决策。 |
 | 预检 | `crates/ha-core/src/workflow/preview.rs` | Script Gate + permission preview + create/run 可行性判定。 |
 | runtime | `crates/ha-core/src/workflow/runtime.rs` | QuickJS runtime、Host API、durable replay、budget、repair guard、恢复 runner。 |
-| Workflow Mode | `crates/ha-base/src/workflow_mode.rs` | `off` / `on` / `ultracode` 解析、prompt 动态段与 session 开关语义。 |
-| Execution Mode | `crates/ha-base/src/execution_mode.rs` | `off` / `guarded` / `deep` / `autonomous` 解析与 prompt 动态段。 |
+| Workflow Mode | `crates/ha-base/src/workflow_mode.rs` | `off` / `on` / `ultracode` 解析、固定 Run Instruction 合同与 session 开关语义。 |
+| Execution Mode | `crates/ha-base/src/execution_mode.rs` | `off` / `guarded` / `deep` / `autonomous` 解析与固定 Run Instruction 合同。 |
 | 模型工具面 | `crates/ha-core/src/tools/workflow_tool.rs` | `workflow` 控制工具，仅 Workflow Mode 开启时对模型可见。 |
 | Managed Worktree | `crates/ha-core/src/worktree.rs` | 可选隔离执行目录，run 绑定 `worktree_id` 后 runtime 自动 restore 并切换 cwd。 |
 | Tauri owner API | `src-tauri/src/commands/workflow.rs`、`execution_mode.rs` | 桌面控制面命令，含 run 管理和 saved template 管理。 |
@@ -304,7 +304,9 @@ stateDiagram-v2
 
 Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具条、Workspace 的 Workflow section 和 `/workflow`。
 
-| Mode | 数据值 | 模型工具面 | Prompt 行为 | 用户语义 |
+模式说明是平台维护的固定合同：turn start 与 Permission / Execution / Sandbox / Active Goal 合同一起冻结到稳定缓存断点之后的 **Run Instruction**，不参与 stable system fingerprint。当前用户任务、Goal objective、Workflow 输入与外部证据仍留在 history、tool result 或 user-data；同一 turn 的 Provider retry / failover 复用相同模式快照。
+
+| Mode | 数据值 | 模型工具面 | Run Instruction 行为 | 用户语义 |
 | --- | --- | --- | --- | --- |
 | Off | `off` | 不注入 `workflow`，执行层也拒绝模型调用。 | 不注入 Workflow Mode 段。 | 普通对话/任务推进，用户仍可在控制面查看历史 run。 |
 | On | `on` | 注入 `workflow`。 | 告诉模型可在多步骤、fan-out、研究、迁移、验证、长任务场景按需创建 workflow，也可主动查 status/trace/control；明确「模型自己写脚本并创建 run」，不要求用户手写脚本或切 coding mode。 | 允许模型自主动态编排，但模型仍需判断是否值得。 |
@@ -320,10 +322,10 @@ Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具
 
 - `workflow` 是 Core Meta Tool，但不进入静态工具目录；schema 构建后只在当前 session `workflow_mode.enabled()` 且非 incognito 时追加。执行层会再次校验 session、incognito、DB、`workflow_mode`，所以即使旧 schema 或外部请求绕进来也 fail-closed。
 - **决策规则**：请求包含多阶段依赖、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行或可审计轨迹时，模型应自行调 `workflow(action=create)`；tiny 对话、单个显然动作或已验证机械任务保持 inline。这条规则适用于 Research、Writing、Data Analysis、Meeting Prep、Inbox / Project Ops、Knowledge Curation、Coding 等通用场景。
-- **`sizeGuideline` 规模意图**（`unrestricted` / `small` / `medium` / `large`）：`small` 表示少量有界步骤，`medium` 是普通多阶段编排，`large` 是宽 fan-out / 迁移 / 验证，`unrestricted` 只用于用户明确要求穷尽式覆盖。它是 prompt / GUI / 后续模型回合的 advisory，不是硬 cap，也不绕过 runtime budget、权限、审批或安全策略；后端规范化后写入 `budget_json.sizeGuideline`。模型省略时，普通 Workflow Mode 默认 `medium`，Ultracode 默认 `large`；follow-up 默认继承 parent。
+- **`sizeGuideline` 规模意图**（`unrestricted` / `small` / `medium` / `large`）：`small` 表示少量有界步骤，`medium` 是普通多阶段编排，`large` 是宽 fan-out / 迁移 / 验证，`unrestricted` 只用于用户明确要求穷尽式覆盖。它是 Run Instruction / GUI / 后续模型回合的 advisory，不是硬 cap，也不绕过 runtime budget、权限、审批或安全策略；后端规范化后写入 `budget_json.sizeGuideline`。模型省略时，普通 Workflow Mode 默认 `medium`，Ultracode 默认 `large`；follow-up 默认继承 parent。
 - **schema**：必须传 `action`。`create` / `followup` 接收 canonical `script`（不展示 `scriptSource` / `script_source` alias，避免脚本入口分裂，执行层仍兼容历史别名）。其它可选元数据：`kind`、`executionMode`、`budget`、`runImmediately`、`parentRunId`、`origin`、`goalId`、`goalCriterionId`、`worktreeId`；创建层校验 parent/goal/criteria/worktree 均属同一 session / Goal revision。
 - **`action` 一览**：
-  - `guide`：按需 authoring guide，返回当前 apiVersion、脚本形态、run inputs、Parallel/Pipeline、child/typed result、`resumeAgent`、失败闭环、Host API 和 timing contract；不创建 run、不读写外部系统。常驻 prompt 只保留决策与安全策略，写脚本前再调 guide，避免每轮重复支付完整 API token。
+  - `guide`：按需 authoring guide，返回当前 apiVersion、脚本形态、run inputs、Parallel/Pipeline、child/typed result、`resumeAgent`、失败闭环、Host API 和 timing contract；不创建 run、不读写外部系统。常驻 Run Instruction 只保留固定决策与安全合同，写脚本前再调 guide，避免每轮重复支付完整 API token。
   - `list` / `status` / `trace`：只返回当前模型可见 session 内的 bounded snapshot，不跨 session 查询；`status` 省略 `runId` 时选当前 active run 或最近 run。
   - `control`：只允许 `pause` / `resume` / `cancel`，写 `run_model_control_action` 审计事件；**故意不支持 `approve`**——模型不能替用户批准权限或外部动作。
   - `followup`：基于当前可见 run 创建 repair / continuation run，默认继承 parent 的 Goal / criterion 绑定。
@@ -345,11 +347,11 @@ Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具
 
 Execution Mode 是 session 级持久策略，入口是 `/mode` 与 Workspace 的 Workflow section。它只描述**推进强度与失败守门**，不负责定时、重复触发或条件轮询（那是 `/loop`）。
 
-| Mode | 数据值 | Prompt 行为 | runtime 行为 |
+| Mode | 数据值 | Run Instruction 行为 | runtime 行为 |
 | --- | --- | --- | --- |
 | Off | `off` | 不注入 Execution Mode 段。 | `validate` 失败不触发 guarded repair stop guard。 |
 | Guarded | `guarded` | 注入 guarded 推进策略（observe → plan → edit → targeted validate → report，失败最多一次聚焦修复）。 | validation failure 记录 repair event，并可因重复失败/无 diff 进展 block。 |
-| Deep | `deep` | 注入 deep 推进策略（更重的仓库侦察、最多两次修复）。 | repair guard 同 guarded；prompt 允许更深入探索与验证。 |
+| Deep | `deep` | 注入 deep 推进策略（更重的仓库侦察、最多两次修复）。 | repair guard 同 guarded；固定运行合同允许更深入探索与验证。 |
 | Autonomous | `autonomous` | 注入 autonomous 推进策略（不在普通 observe/edit/validate 步骤间等确认，但所有权限/审批/沙箱策略照旧）。 | 创建/运行 autonomous run 必须有明确 runtime + output token budget，否则 block。 |
 
 存储：session 当前模式 `sessions.execution_mode`；workflow 创建时快照 `workflow_runs.execution_mode`。
@@ -660,7 +662,7 @@ Workspace 的 Workflow section 是主要用户面，不要求用户记 slash com
 
 `run_id` 可省略（按状态选当前 active 或最近 run，短 id prefix 唯一时可用）。`/workflow status` 显示当前 active Goal，`/workflow runs` 在每条 run 后显示绑定 Goal，`/workflow trace` 显示 Linked Goal——命令面和 Workspace 一样不把 run 从最终目标语义里拆开。
 
-`/mode` 控制 session execution mode（`/mode / status / off / guarded / deep / autonomous`），写 `sessions.execution_mode`，影响后续 system prompt 与新建 run 的默认策略。
+`/mode` 控制 session execution mode（`/mode / status / off / guarded / deep / autonomous`），写 `sessions.execution_mode`，影响后续 turn 的 Run Instruction 快照与新建 run 的默认策略，不重拼 stable system。
 
 `/workflow approve` 与 `/workflow resume` 会启动 runtime，因此先过 `ensure_workflow_launcher_primary()`；非 Primary 直接报错且不改 run 状态，返回标注 runtime launch 是否 accepted，真实进度看 trace / snapshot。`/workflow pause` / `cancel` 只做状态变更与子任务取消，不启动 runtime。
 

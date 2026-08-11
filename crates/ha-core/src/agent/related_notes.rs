@@ -93,7 +93,8 @@ pub fn cache_key(
 }
 
 /// Escape note-derived text so a title/snippet can't close the untrusted wrapper
-/// and break into ordinary system context (mirrors `inject::escape_xml_text`).
+/// and break out of the untrusted data envelope (mirrors
+/// `inject::escape_xml_text`).
 fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;")
 }
@@ -122,7 +123,7 @@ pub fn render_recall(
     }
     // Attribute each note to its source KB only when the hits span more than one
     // knowledge space — a single-KB session already names that KB in the
-    // `# Knowledge Bases` system-prompt section, so per-line source would just
+    // `Knowledge Bases` round-data section, so per-line source would just
     // burn the (bounded) payload budget.
     let multi_kb = hits
         .iter()
@@ -298,7 +299,7 @@ mod tests {
 
     #[test]
     fn single_kb_omits_source_attribution() {
-        // One KB → no per-line source (the system prompt already names it).
+        // One KB → no per-line source (the round-data catalog already names it).
         let out = render_suffix(
             &[
                 hit_in("kb1", "Work", "A", ""),

@@ -1,6 +1,6 @@
 # Agent Team 多 Agent 协作系统
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-05
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
 
 ## 关联源码
 
@@ -187,7 +187,7 @@ stateDiagram-v2
 | `color` | TEXT | 颜色标识（hex，如 `#3B82F6`） |
 | `current_task_id` | INTEGER | 当前执行的任务 ID（可空） |
 | `model_override` | TEXT | 模型覆盖（可空） |
-| `role_description` | TEXT | 角色身份描述，注入成员 system prompt（来自模板成员的 `description`） |
+| `role_description` | TEXT | 角色身份描述（来自模板成员的 `description`）；固定 Team 行为契约进 run instruction，名称、角色、roster、任务与共享上下文进 untrusted run data，不改稳定 system prompt |
 | `joined_at` | TEXT | RFC 3339 |
 | `last_active_at` | TEXT | 最后活跃时间（可空） |
 | `input_tokens` / `output_tokens` | INTEGER | 累计 token（见下方 token 说明） |
@@ -356,7 +356,7 @@ flowchart TD
 
 ## 成员系统上下文
 
-每个成员的 subagent 通过 `SpawnParams.extra_system_context` 注入一段团队协作上下文（真实为英文），告诉它自己是谁、队友有谁、怎么沟通、任务是什么：
+每个成员的 subagent 使用两个物理隔离的通道：固定 `Team Collaboration Run Contract` 进入 `SpawnParams.run_instruction_context`；成员名、角色描述、队友、任务与 shared context 进入 `run_data_context`。这样协作规则保留 developer authority，而用户/模型生成的 roster 数据不能借 wrapper 升权。模型看到的数据形状如下：
 
 ```
 ## Team Collaboration Context

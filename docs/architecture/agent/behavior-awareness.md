@@ -11,7 +11,7 @@
 
 行为感知让每个会话获得一份**跨会话的实时旁白**：一小段动态 markdown，描述用户在其它并行会话里正在做什么。Agent 读到它，就能顺着"上次""之前""另一边"这类指代，接住用户脑子里那条没说完的线，也不必反复追问已经在别处交代过的背景。
 
-关键设计约束只有一个，但贯穿全篇：**这段旁白每轮都可能变，而 system prompt 的静态前缀绝不能因此失去 prompt cache**。整个子系统的形状——独立系统块、hash 判重、粗粒度时间桶、三层触发节流——都是为了在"信息够新"和"缓存不作废"之间走钢丝。
+关键设计约束只有一个，但贯穿全篇：**这段旁白每轮都可能变，而 system prompt 的静态前缀绝不能因此失去 prompt cache**。整个子系统的形状——独立 user-data block、hash 判重、粗粒度时间桶、三层触发节流——都是为了在"信息够新"和"缓存不作废"之间走钢丝。
 
 ### 三档模式
 
@@ -25,23 +25,23 @@
 
 ---
 
-## 心智模型：一条"外挂"的动态上下文
+## 心智模型：一条 user-data 动态上下文
 
-把发给模型的 system 内容想成两段拼接：
+发给模型的请求分成稳定 system prefix 与当轮 user-data 尾部：
 
 ```mermaid
 flowchart LR
     subgraph cached["缓存命中区 · 跨轮稳定"]
         P["静态 system prefix<br/>身份 / 工具指引 / 项目主题<br/>带 cache_control 断点"]
     end
-    subgraph tail["断点之后 · 每轮可变 · 不带 cache_control"]
+    subgraph tail["历史之后的 user-data · 每轮可变 · 不带 cache_control"]
         A["awareness suffix<br/>（本文主角）"]
         M["其它动态段<br/>活跃记忆 · 编码档案 · 过程记忆 · 相关笔记 · LSP 诊断 · 任务提醒"]
     end
     P --> A --> M
 ```
 
-静态前缀承载不随对话内容变化的东西，缓存断点打在它末尾。awareness suffix 连同其它每轮动态段一起，挂在断点**之后**：它怎么变，都不碰前缀那块缓存，只让尾巴这一小段重新计费。awareness 只是这一族动态段里的**第一段**——记忆、编码档案、笔记、诊断、任务提醒共用同一条"挂在缓存断点之后"的传输规约（顺序见下文 [Prompt Cache 安全](#prompt-cache-安全)）。
+静态前缀承载不随对话内容变化的东西，缓存断点打在它末尾。awareness suffix 连同其它每轮动态段一起，放在会话历史之后的 `<hope_round_data>` user message：它怎么变，都不碰前缀缓存，也不会因为“由后端生成”就获得 system authority。awareness 只是这一族动态段里的**第一段**——记忆、编码档案、笔记、诊断、任务提醒共用同一条 user-data 传输规约（顺序见下文 [Prompt Cache 安全](#prompt-cache-安全)）。
 
 于是子系统的两条主线呼之欲出：
 
@@ -103,7 +103,7 @@ facet 数据本属于 recap 子系统，而 recap 已随 `ha-dash` 独立成 cra
 
 ## 一轮对话里发生了什么
 
-每次 provider 的 `chat_*` 方法在构建 system prompt 前，都会先跑一遍 `refresh_awareness_suffix(user_text)`。它便宜——绝大多数轮次会命中缓存直接返回旧 suffix；只有该重建时才真正干活。
+每次 provider 的 `chat_*` 方法在组装当轮请求前，都会先跑一遍 `refresh_awareness_suffix(user_text)`。它便宜——绝大多数轮次会命中缓存直接返回旧 suffix；只有该重建时才真正干活。
 
 ```mermaid
 flowchart TD
@@ -127,7 +127,7 @@ flowchart TD
 
 - **发起方也在广播**：当前会话每次开口，都会先调 `touch_active_session` 把自己标成 active（让别的会话把它看成 active）并给所有 peer 置脏位（让它们下一轮考虑刷新）。感知是双向的。
 - **LLM 抽取是 inline 的**：`llm_digest` 模式下的抽取不是"甩到后台慢慢跑"，而是在构建 suffix **之前**同步跑一次、带 5 秒硬超时。所以摘要能落在**触发它的这一轮**里，而不是姗姗来迟到下一轮；超时也最多卡几秒。
-- **suffix 挂在 agent 上**：结果存进 `AssistantAgent::awareness_suffix`（`Mutex<Option<Arc<String>>>`），后续构建请求时取用。`build_merged_system_prompt` 会把它和编码档案段拼进一个字符串（其余动态段不进这个串）——但那**只用于压缩预算计数**；真正发给 API 时，各段仍作为独立系统块/消息传输（见下文）。
+- **suffix 挂在 agent 上**：结果存进 `AssistantAgent::awareness_suffix`（`Mutex<Option<Arc<String>>>`），后续构建请求时取用。`prompt_for_budget` 会把它和其他动态段拼进一个本地计数字符串——但那**只用于压缩预算计数**；真正发给 API 时，Awareness 位于 `<hope_round_data>` 的 user-data lane（见下文），不会获得 system/developer authority。
 
 ---
 
@@ -268,16 +268,16 @@ Current conversation's latest user message:
 
 ## Prompt Cache 安全
 
-awareness suffix（连同其它每轮动态段）**独立于静态 system prefix 传输**，缓存断点打在前缀末尾，suffix 挂在断点之后。这样 suffix 每轮变化都不作废前缀缓存。各 provider 的具体摆放：
+awareness suffix（连同其它每轮动态数据）**独立于静态 system prefix 传输**，稳定前缀先序列化，受信 run instruction 随后，历史之后再追加统一 user-data envelope。这样 suffix 每轮变化都不作废稳定 routing key，也不会被误当指令。各 provider 的具体摆放：
 
-| Provider | 静态前缀 | 动态段（awareness 打头） | 缓存效果 |
+| Provider | 静态前缀 | Awareness 数据 | 缓存效果 |
 |---|---|---|---|
-| **Anthropic** | `system[0]`，带 `cache_control: ephemeral` | 其后每段一个 text block，**均不带 cache_control** | 断点在前缀末；suffix 在断点之后重读，前缀缓存照命中 |
-| **OpenAI Chat** | `messages[0]` role=system | 其后每段一条 role=system 消息，位于对话历史之前 | 自动前缀缓存命中 `messages[0]` |
-| **OpenAI Responses** | `instructions` 字段（完全不变） | leading 段作为 `input` 首批 role=system 项，接历史，再接 trailing 段 | `instructions` 恒不变 → 缓存命中 |
-| **Codex** | `instructions` 字段 | 同 Responses 布局 | 同 Responses |
+| **Anthropic** | 首个 system block，带 `cache_control: ephemeral` | 历史之后的 `<hope_round_data>` user content，不带 cache marker | 稳定断点可复用；Awareness 只重读数据尾部 |
+| **OpenAI Chat** | 首个 role=system message | 历史之后的一条 role=user data envelope | 自动前缀缓存仍从稳定开头匹配 |
+| **OpenAI Responses** | 稳定 developer/instructions block | 历史之后的一条 role=user data envelope | routing key 不含 Awareness 正文 |
+| **Codex** | `instructions` 稳定前缀 | 历史之后的一条 role=user data envelope | 不发送不受支持的公共 OpenAI cache 参数 |
 
-动态段的**跨 provider 统一顺序**（`streaming_adapter`）：leading = awareness → 活跃记忆 → 编码档案 → 过程记忆；trailing = 相关笔记 → LSP 诊断 → 任务提醒。Responses/Codex 把 leading 放历史之前、trailing 贴在最靠近下一次模型决策处；Anthropic 与 Chat 则按同一顺序拼进各自的 system 块/消息序列。**awareness 恒为 leading 首段**。
+动态数据的**跨 provider 统一顺序**由 `streaming_adapter::dynamic_data_suffixes` 锁定：run data → awareness → active memory → procedure memory → related notes → attached knowledge → capability catalog → user profile → environment → LSP → task/hook。Coding Profile 与 run instruction 属于另一条 trusted instruction lane。四个 adapter 都只消费这两个公共序列，不各自发明 placement。
 
 **hash 判重收口**：每次 rebuild 后对 suffix 做 `DefaultHasher::hash` 与上次比对。相同则复用同一个 `Arc<String>`，保证 API body 字节完全一致——配合上面的粗粒度时间桶，就算实际 age 在变，只要没跨桶，suffix 就纹丝不动，缓存持续命中。
 

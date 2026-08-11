@@ -613,12 +613,7 @@ fn find_close(s: &str) -> Option<usize> {
 /// wikilink reference, so any non-parser caller (e.g. the transclusion owner
 /// entry `service::note_read_ref`) resolves the same notes the link graph does.
 pub fn wikilink_target(inner: &str) -> &str {
-    let before_alias = inner.split_once('|').map(|(t, _)| t).unwrap_or(inner);
-    before_alias
-        .split_once('#')
-        .map(|(t, _)| t)
-        .unwrap_or(before_alias)
-        .trim()
+    ha_core::knowledge::wikilink_target(inner)
 }
 
 fn parse_wikilink_inner(

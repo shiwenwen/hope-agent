@@ -78,7 +78,6 @@ pub struct CachedAgentConfig {
     pub procedure_memory: crate::agent_config::ProcedureMemoryConfig,
     pub graph_memory: crate::agent_config::GraphMemoryConfig,
     pub retrieval_planner: crate::agent_config::RetrievalPlannerConfig,
-    pub prompt_budget: usize,
 }
 
 /// Frontend- and log-safe reference to a memory candidate considered by Active
@@ -764,7 +763,6 @@ mod tests {
                 procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
                 graph_memory: crate::agent_config::GraphMemoryConfig::default(),
                 retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
-                prompt_budget: 5_000,
             }
         });
         let second = state.agent_config_or_load(Some(fp1), || {
@@ -777,7 +775,6 @@ mod tests {
                 procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
                 graph_memory: crate::agent_config::GraphMemoryConfig::default(),
                 retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
-                prompt_budget: 5_000,
             }
         });
         let third = state.agent_config_or_load(Some(fp2), || {
@@ -790,7 +787,6 @@ mod tests {
                 procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
                 graph_memory: crate::agent_config::GraphMemoryConfig::default(),
                 retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
-                prompt_budget: 5_000,
             }
         });
 

@@ -377,10 +377,14 @@ fn record_streaming_usage(
         "max_tokens": max_tokens,
     }));
     if let Some(usage) = usage {
-        event.input_tokens = Some(usage.input_tokens);
-        event.output_tokens = Some(usage.output_tokens);
-        event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-        event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+        if usage.input_coverage.is_present() {
+            event.input_tokens = Some(usage.input_tokens);
+            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+        }
+        if usage.output_coverage.is_present() {
+            event.output_tokens = Some(usage.output_tokens);
+        }
     }
     crate::model_usage::record_model_usage_best_effort(event);
 }

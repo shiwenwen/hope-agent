@@ -37,6 +37,7 @@ once_cell = { workspace = true }
 signal-hook = { workspace = true }
 arc-swap = { workspace = true }
 http = "1"
+tiktoken-rs = "0.12.0"
 
 # Non-workspace dependencies (core-specific)
 sqlite-vec = "0.1"

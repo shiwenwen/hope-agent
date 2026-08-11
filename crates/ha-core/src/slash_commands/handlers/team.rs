@@ -8,6 +8,9 @@ pub fn handle_team(args: &str) -> Result<CommandResult, String> {
     };
     Ok(CommandResult {
         content: String::new(),
-        action: Some(CommandAction::PassThrough { message }),
+        action: Some(CommandAction::PassThrough {
+            message,
+            skill_activation: None,
+        }),
     })
 }

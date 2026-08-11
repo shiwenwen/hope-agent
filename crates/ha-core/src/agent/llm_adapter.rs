@@ -534,12 +534,10 @@ impl<'a> CodexAdapter<'a> {
             let status = resp.status().as_u16();
             let err_text = resp.text().await.unwrap_or_default();
             let friendly = parse_error_response(status, &err_text);
-            let error_preview = if err_text.len() > 500 {
-                format!("{}...", crate::truncate_utf8(&err_text, 500))
-            } else {
-                err_text.clone()
-            };
-            let error_preview = crate::logging::redact_sensitive(&error_preview);
+            let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                "codex-one-shot-error",
+                err_text.as_bytes(),
+            );
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "error",
@@ -566,7 +564,8 @@ impl<'a> CodexAdapter<'a> {
                             "input_count": input_count,
                             "tool_count": tool_count,
                             "body_size_bytes": body_size,
-                            "error_preview": error_preview,
+                            "error_bytes": err_text.len(),
+                            "error_fingerprint": &error_fingerprint[..24],
                         })
                         .to_string(),
                     ),
@@ -583,19 +582,25 @@ impl<'a> CodexAdapter<'a> {
             match parse_openai_sse(resp, request_start, cancel, on_delta).await {
                 Ok(parsed) => parsed,
                 Err(e) => {
+                    let parse_error = e.to_string();
+                    let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                        "codex-one-shot-sse",
+                        parse_error.as_bytes(),
+                    );
                     app_warn!(
-                    "agent",
-                    "codex_one_shot",
-                    "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
-                    self.model,
-                    !self.token.is_empty(),
-                    !self.account_id.is_empty(),
-                    instructions_present,
-                    input_count,
-                    tool_count,
-                    body_size,
-                    e
-                );
+                        "agent",
+                        "codex_one_shot",
+                        "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B error_bytes={} error_fingerprint={}",
+                        self.model,
+                        !self.token.is_empty(),
+                        !self.account_id.is_empty(),
+                        instructions_present,
+                        input_count,
+                        tool_count,
+                        body_size,
+                        parse_error.len(),
+                        &error_fingerprint[..24]
+                    );
                     return Err(e);
                 }
             };
@@ -764,6 +769,8 @@ pub(super) fn extract_responses_text(result: &Value) -> String {
 /// Extract usage from Anthropic Messages API response.
 pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
     let usage = result.get("usage");
+    let input_present = usage.and_then(|u| u.get("input_tokens")).is_some();
+    let output_present = usage.and_then(|u| u.get("output_tokens")).is_some();
     let input_tokens = usage
         .and_then(|u| u.get("input_tokens"))
         .and_then(|v| v.as_u64())
@@ -797,12 +804,28 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
         last_fresh_input_tokens: input_tokens.saturating_add(cache_creation),
         last_cache_creation_input_tokens: cache_creation,
         last_cache_read_input_tokens: cache_read,
+        input_coverage: if input_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        output_coverage: if output_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        rounds_observed: 1,
+        token_accounting_observations: Vec::new(),
     }
 }
 
 /// Extract usage from OpenAI Chat/Responses API response.
 pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
     let usage = result.get("usage");
+    let input_present =
+        usage.is_some_and(|u| u.get("input_tokens").is_some() || u.get("prompt_tokens").is_some());
+    let output_present = usage
+        .is_some_and(|u| u.get("output_tokens").is_some() || u.get("completion_tokens").is_some());
     let cached = usage
         .and_then(|u| u.get("prompt_tokens_details"))
         .and_then(|d| d.get("cached_tokens"))
@@ -831,6 +854,18 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
         last_fresh_input_tokens: input_tokens.saturating_sub(cached),
         last_cache_creation_input_tokens: 0,
         last_cache_read_input_tokens: cached,
+        input_coverage: if input_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        output_coverage: if output_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        rounds_observed: 1,
+        token_accounting_observations: Vec::new(),
     }
 }
 
@@ -1312,5 +1347,34 @@ mod tests {
         assert_eq!(usage2.input_tokens, 200);
         assert_eq!(usage2.output_tokens, 150);
         assert_eq!(usage2.cache_read_input_tokens, 180);
+    }
+
+    #[test]
+    fn extract_usage_distinguishes_explicit_zero_from_missing() {
+        use crate::token_accounting::UsageCoverage;
+
+        for usage in [
+            extract_anthropic_usage(&json!({
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            })),
+            extract_openai_usage(&json!({
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            })),
+        ] {
+            assert_eq!(usage.input_tokens, 0);
+            assert_eq!(usage.output_tokens, 0);
+            assert_eq!(usage.input_coverage, UsageCoverage::Complete);
+            assert_eq!(usage.output_coverage, UsageCoverage::Complete);
+        }
+
+        for usage in [
+            extract_anthropic_usage(&json!({})),
+            extract_openai_usage(&json!({})),
+        ] {
+            assert_eq!(usage.input_tokens, 0);
+            assert_eq!(usage.output_tokens, 0);
+            assert_eq!(usage.input_coverage, UsageCoverage::Missing);
+            assert_eq!(usage.output_coverage, UsageCoverage::Missing);
+        }
     }
 }

@@ -107,12 +107,18 @@ fn build_chat_body(
 ) {
     let mut api_messages: Vec<Value> =
         vec![json!({ "role": "system", "content": req.system_prompt })];
-    for suffix in super::super::streaming_adapter::all_dynamic_suffixes(req) {
+    for suffix in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
+        // The stable system message remains the exact prefix. A separate
+        // dynamic system message is the compatibility form for chat endpoints
+        // that do not consistently support the developer role.
         api_messages.push(json!({ "role": "system", "content": suffix }));
     }
     let expanded_history =
         expand_openai_chat_image_markers_for_api(req.history_for_api, model_supports_vision);
     api_messages.extend(expanded_history);
+    if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+        api_messages.push(json!({ "role": "user", "content": content }));
+    }
 
     let tools_array: Vec<Value> = req
         .tool_schemas
@@ -162,20 +168,14 @@ fn log_openai_chat_request(
         model,
         "chat_completions",
         req,
+        body.get("tools")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
         body_size,
         false,
     );
     if let Some(logger) = crate::get_logger() {
-        let raw_body = if body_size > 32768 {
-            format!(
-                "{}...(truncated, total {}B)",
-                crate::truncate_utf8(&body_str, 32768),
-                body_size
-            )
-        } else {
-            body_str
-        };
-        let raw_body = crate::logging::redact_sensitive(&raw_body);
         logger.log(
             "debug",
             "agent",
@@ -195,7 +195,6 @@ fn log_openai_chat_request(
                     "message_count": api_messages.len(),
                     "tool_count": tools_array.len(),
                     "body_size_bytes": body_size,
-                    "request_body": raw_body,
                 })
                 .to_string(),
             ),
@@ -259,17 +258,22 @@ fn log_openai_chat_response(
 
 fn log_openai_chat_error(status: u16, error_text: &str, round: u32) {
     if let Some(logger) = crate::get_logger() {
-        let error_preview = if error_text.len() > 500 {
-            format!("{}...", crate::truncate_utf8(error_text, 500))
-        } else {
-            error_text.to_string()
-        };
+        let error_fingerprint =
+            crate::cache_routing::audit_fingerprint("openai-chat-error", error_text.as_bytes());
         logger.log(
             "error",
             "agent",
             "agent::chat_openai_chat::error",
-            &format!("OpenAI Chat API error ({}): {}", status, error_preview),
-            Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+            &format!("OpenAI Chat API error ({status})"),
+            Some(
+                json!({
+                    "status": status,
+                    "error_bytes": error_text.len(),
+                    "error_fingerprint": error_fingerprint,
+                    "round": round
+                })
+                .to_string(),
+            ),
             None,
             None,
         );
@@ -340,6 +344,10 @@ fn maybe_auto_disable_thinking(
     };
 
     if let Some(logger) = crate::get_logger() {
+        let error_fingerprint = crate::cache_routing::audit_fingerprint(
+            "openai-chat-thinking-autofix",
+            error_text.as_bytes(),
+        );
         logger.log(
             "warn",
             "agent",
@@ -354,7 +362,8 @@ fn maybe_auto_disable_thinking(
                     "provider_name": provider_name,
                     "model": model,
                     "status": status,
-                    "error": error_text,
+                    "error_bytes": error_text.len(),
+                    "error_fingerprint": error_fingerprint,
                 })
                 .to_string(),
             ),
@@ -422,6 +431,10 @@ fn log_vision_runtime_disabled(
     let (provider_id, provider_name) = provider_config
         .map(|p| (Some(p.id.clone()), p.name.clone()))
         .unwrap_or((None, "Unknown Provider".to_string()));
+    let error_fingerprint = crate::cache_routing::audit_fingerprint(
+        "openai-chat-vision-autofix",
+        error_text.as_bytes(),
+    );
     logger.log(
         "warn",
         "agent",
@@ -436,7 +449,8 @@ fn log_vision_runtime_disabled(
                 "provider_name": provider_name,
                 "model": model,
                 "status": status,
-                "error": error_text,
+                "error_bytes": error_text.len(),
+                "error_fingerprint": error_fingerprint,
             })
             .to_string(),
         ),
@@ -486,6 +500,22 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
 
     fn normalize_history(&self, history: &mut Vec<Value>) {
         *history = AssistantAgent::normalize_history_for_chat(history);
+    }
+
+    fn token_count_tool_schemas_for(
+        &self,
+        tool_schemas: &[Value],
+        _deferred_tool_schemas: &[Value],
+        _eager_tool_count: usize,
+        is_final_round: bool,
+    ) -> Vec<Value> {
+        if is_final_round {
+            return Vec::new();
+        }
+        tool_schemas
+            .iter()
+            .map(|tool| json!({ "type": "function", "function": tool }))
+            .collect()
     }
 
     async fn chat_round(
@@ -922,9 +952,12 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
                     if let Some(u) = chunk.get("usage") {
                         if let Some(pt) = u.get("prompt_tokens").and_then(|v| v.as_u64()) {
                             usage.input_tokens = pt;
+                            usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
                         }
                         if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
                             usage.output_tokens = ct;
+                            usage.output_coverage =
+                                crate::token_accounting::UsageCoverage::Complete;
                         }
                         // Anthropic-style at top level (some gateways forward).
                         if let Some(cr) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64())
@@ -1097,9 +1130,11 @@ mod tests {
     use super::{
         build_chat_body, emit_vision_auto_disabled, is_unsupported_image_url_error,
         is_unsupported_prompt_cache_key_error, mark_prompt_cache_key_unsupported,
+        OpenAIChatStreamingAdapter,
     };
-    use crate::agent::streaming_adapter::RoundRequest;
+    use crate::agent::streaming_adapter::{RoundRequest, StreamingChatAdapter};
     use crate::provider::ThinkingStyle;
+    use std::sync::{atomic::AtomicBool, Arc};
 
     #[test]
     fn openai_chat_request_golden_appends_dynamic_blocks_after_stable_system() {
@@ -1110,14 +1145,21 @@ mod tests {
         })];
         let deferred = vec![serde_json::json!({ "name": "browser" })];
         let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
-        let req = RoundRequest {
+        let mut req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
+            run_instruction_suffix: Some("run"),
+            run_data_suffix: Some("run data"),
             awareness_suffix: Some("awareness"),
             active_memory_suffix: Some("memory"),
+            legacy_memory_suffix: Some("legacy memory"),
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("notes"),
+            attached_knowledge_suffix: Some("attached"),
+            capability_catalog_suffix: Some("capabilities"),
+            user_profile_suffix: Some("profile"),
+            environment_context_suffix: Some("environment"),
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: Some("task"),
             tool_schemas: &tools,
@@ -1134,10 +1176,11 @@ mod tests {
             is_final_round: false,
             round: 0,
         };
+        let thinking_style = ThinkingStyle::None;
         let (body, messages, request_tools) = build_chat_body(
             "https://api.openai.com",
             "gpt-5.4",
-            &ThinkingStyle::None,
+            &thinking_style,
             false,
             &req,
         );
@@ -1145,19 +1188,32 @@ mod tests {
             messages,
             vec![
                 serde_json::json!({ "role": "system", "content": "stable" }),
-                serde_json::json!({ "role": "system", "content": "awareness" }),
-                serde_json::json!({ "role": "system", "content": "memory" }),
+                serde_json::json!({ "role": "system", "content": "run" }),
                 serde_json::json!({ "role": "system", "content": "coding" }),
-                serde_json::json!({ "role": "system", "content": "procedure" }),
-                serde_json::json!({ "role": "system", "content": "notes" }),
-                serde_json::json!({ "role": "system", "content": "task" }),
                 serde_json::json!({ "role": "user", "content": "question" }),
+                serde_json::json!({
+                    "role": "user",
+                    "content": crate::agent::streaming_adapter::render_dynamic_data_envelope(&req)
+                        .expect("data envelope")
+                }),
             ]
         );
         assert_eq!(body["prompt_cache_key"], "stable-key");
         assert_eq!(request_tools.len(), 1);
         assert_eq!(body["tools"][0]["function"]["name"], "read");
         assert!(body.to_string().find("browser").is_none());
+        let adapter = OpenAIChatStreamingAdapter {
+            api_key: "",
+            base_url: "https://api.openai.com",
+            model: "gpt-5.4",
+            thinking_style: &thinking_style,
+            provider_config: None,
+            vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
+            vision_notice_emitted: Arc::new(AtomicBool::new(false)),
+        };
+        assert_eq!(adapter.token_count_tool_schemas(&req), request_tools);
+        req.is_final_round = true;
+        assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }
 
     #[test]
@@ -1167,11 +1223,18 @@ mod tests {
         let req = RoundRequest {
             session_id: None,
             system_prompt: "stable",
+            run_instruction_suffix: None,
+            run_data_suffix: None,
             awareness_suffix: None,
             active_memory_suffix: None,
+            legacy_memory_suffix: None,
             coding_profile_suffix: None,
             procedure_memory_suffix: None,
             related_notes_suffix: None,
+            attached_knowledge_suffix: None,
+            capability_catalog_suffix: None,
+            user_profile_suffix: None,
+            environment_context_suffix: None,
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: None,
             tool_schemas: &tools,

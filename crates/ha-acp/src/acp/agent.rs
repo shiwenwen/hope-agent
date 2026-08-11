@@ -1522,7 +1522,7 @@ impl AcpAgent {
         // ourselves. Fired once before the failover loop (`claim_session_start`
         // only releases once); the resulting additionalContext is re-applied to
         // each rebuilt agent so it survives retries, mirroring how the engine
-        // threads it through `extra_system_context`.
+        // carries it in the dynamic user-data lane.
         let session_start_ctx = rt.block_on(async {
             tokio::select! {
                 biased;
@@ -1664,11 +1664,17 @@ impl AcpAgent {
                 // Restore context
                 restore_agent_context(&db_clone, &session_id_owned, &agent);
 
-                // Fold any SessionStart additionalContext into this turn's
-                // system prompt. Set after restore (and re-applied on every
-                // retry since the agent is rebuilt above) so it isn't clobbered.
+                // SessionStart/UserPromptSubmit hook output survives failover,
+                // but remains untrusted data rather than being promoted into
+                // the ACP run instruction lane.
                 if let Some(ref ctx) = session_start_ctx {
-                    agent.set_extra_system_context(ctx.clone());
+                    agent.set_run_context(
+                        ha_core::prompt_context::RunInstructionContext::data_only(
+                            ha_core::prompt_context::RunInstructionSource::Acp,
+                            ctx.clone(),
+                        )
+                        .map_err(|error| anyhow::anyhow!(error))?,
+                    );
                 }
 
                 let cancel_clone = cancel.clone();
@@ -1756,12 +1762,31 @@ impl AcpAgent {
                         let mut usage_event = ha_core::model_usage::ModelUsageEvent::new(
                             ha_core::model_usage::KIND_CHAT,
                         );
-                        usage_event = usage_event.with_usage(
-                            usage.input_tokens.unwrap_or(0) as u64,
-                            usage.output_tokens.unwrap_or(0) as u64,
-                            usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                            usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                        );
+                        usage_event.input_tokens =
+                            usage.input_tokens.map(|value| value.max(0) as u64);
+                        usage_event.output_tokens =
+                            usage.output_tokens.map(|value| value.max(0) as u64);
+                        usage_event.cache_creation_input_tokens = usage
+                            .cache_creation_input_tokens
+                            .map(|value| value.max(0) as u64);
+                        usage_event.cache_read_input_tokens = usage
+                            .cache_read_input_tokens
+                            .map(|value| value.max(0) as u64);
+                        usage_event.context_input_tokens = usage
+                            .context_input_tokens
+                            .or(usage.input_tokens)
+                            .map(|value| value.max(0) as u64);
+                        usage_event.fresh_input_tokens = usage
+                            .fresh_input_tokens
+                            .or(usage.input_tokens)
+                            .map(|value| value.max(0) as u64);
+                        usage_event.metadata = Some(serde_json::json!({
+                            "tokenAccounting": {
+                                "inputCoverage": usage.input_coverage,
+                                "outputCoverage": usage.output_coverage,
+                                "observations": usage.token_accounting_observations,
+                            }
+                        }));
                         usage_event.model_id = Some(
                             usage
                                 .model

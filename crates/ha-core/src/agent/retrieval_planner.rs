@@ -239,6 +239,9 @@ pub fn build_trace_with_context(
     add_ref_layer(&mut layers, refs, "active_memory", |origin| {
         origin == "active_memory"
     });
+    add_ref_layer(&mut layers, refs, "legacy_memory", |origin| {
+        origin == "legacy_memory"
+    });
     add_ref_layer(&mut layers, refs, "experience", |origin| {
         origin == "experience"
     });
@@ -952,11 +955,20 @@ fn reconcile_layer_counts(layers: &mut [RetrievalPlannerLayerTrace], refs: &[Use
             .filter(|r| is_candidate_role(&r.role))
             .count();
         let previous_ref_count = layer.ref_count;
+        let previous_candidate_count = layer.candidate_count;
         layer.ref_count = selected_ref_count;
         layer.injected_count = selected_injected;
         layer.selected_count = selected_selected;
-        layer.candidate_count = selected_candidates;
-        layer.dropped_count = previous_ref_count.saturating_sub(selected_ref_count);
+        if layer.layer == "legacy_memory" {
+            // The V1 selector freezes a content-free total before formatter
+            // budgets, while refs intentionally cover only rows that actually
+            // entered the dynamic prompt. Preserve both exact facts.
+            layer.candidate_count = previous_candidate_count;
+            layer.dropped_count = previous_candidate_count.saturating_sub(selected_ref_count);
+        } else {
+            layer.candidate_count = selected_candidates;
+            layer.dropped_count = previous_ref_count.saturating_sub(selected_ref_count);
+        }
     }
 }
 
@@ -969,6 +981,7 @@ fn ref_matches_layer(reference: &UsedMemoryRef, layer: &str) -> bool {
         "profile" => reference.origin == "profile",
         "knowledge" => reference.origin == "knowledge",
         "active_memory" => reference.origin == "active_memory",
+        "legacy_memory" => reference.origin == "legacy_memory",
         "experience" => reference.origin == "experience",
         "graph" => reference.origin == "graph",
         other => reference.origin == other,
@@ -981,9 +994,10 @@ fn layer_order(layer: &str) -> usize {
         "static_memory" => 1,
         "profile" => 2,
         "active_memory" => 3,
-        "graph" => 4,
-        "experience" => 5,
-        "knowledge" => 6,
+        "legacy_memory" => 4,
+        "graph" => 5,
+        "experience" => 6,
+        "knowledge" => 7,
         _ => 99,
     }
 }

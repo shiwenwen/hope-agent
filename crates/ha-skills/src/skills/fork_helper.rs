@@ -21,6 +21,25 @@ use super::types::SkillEntry;
 /// reintroduce the "dump the subagent transcript into main context" problem.
 pub const MAX_RESULT_CHARS: usize = 64_000;
 
+/// Pair the exact SKILL.md bytes used by a fork with the catalog entry that
+/// supplies its execution ceiling, agent, effort, and dispatch semantics.
+/// Missing content or control-frontmatter drift must stop before a child run
+/// is created; falling back to a description would execute a different task
+/// under the selected Skill's authority envelope.
+pub(crate) fn require_fork_skill_materialization(
+    skill: &SkillEntry,
+    args: &str,
+    raw_content: Result<String>,
+) -> Result<String> {
+    let raw_content = raw_content?;
+    crate::skills::validate_materialized_skill_snapshot(skill, &raw_content)?;
+    let substituted = raw_content.replace("$ARGUMENTS", args);
+    Ok(crate::skills::build_skill_context_payload(
+        skill,
+        &substituted,
+    ))
+}
+
 /// Spawn a sub-agent to execute the given skill. Returns the `run_id`.
 ///
 /// Caller is responsible for waiting on and extracting the result via
@@ -33,7 +52,7 @@ pub async fn spawn_skill_fork(
     parent_agent_id: &str,
     skip_parent_injection: bool,
 ) -> Result<String> {
-    let task = if args.is_empty() {
+    let requested_task = if args.is_empty() {
         format!(
             "Execute the skill '{}'. Follow the instructions in the skill context.",
             skill.name
@@ -45,11 +64,19 @@ pub async fn spawn_skill_fork(
         )
     };
 
-    let raw_skill_content = std::fs::read_to_string(&skill.file_path)
-        .unwrap_or_else(|_| format!("Skill: {}\n{}", skill.name, skill.description));
-    let substituted_skill_content = raw_skill_content.replace("$ARGUMENTS", args);
-    let skill_content =
-        crate::skills::build_skill_context_payload(skill, &substituted_skill_content);
+    let skill_path = skill.file_path.clone();
+    let skill_name = skill.name.clone();
+    let raw_skill_content = tokio::task::spawn_blocking(move || {
+        std::fs::read_to_string(&skill_path)
+            .map_err(|error| anyhow!("Failed to read SKILL.md for '{skill_name}': {error}"))
+    })
+    .await
+    .map_err(|error| anyhow!("SKILL.md read task failed for '{}': {error}", skill.name))?;
+    let skill_content = require_fork_skill_materialization(skill, args, raw_skill_content)?;
+    let task = format!(
+        "{}\n\n<current_user_request>\n{}\n</current_user_request>",
+        skill_content, requested_task
+    );
 
     let session_db = ha_core::globals::get_session_db()
         .ok_or_else(|| anyhow!("Session DB not initialized"))?
@@ -94,8 +121,9 @@ pub async fn spawn_skill_fork(
         plan_mode_allow_paths: Vec::new(),
         lock_plan_agent_mode: false,
         skip_parent_injection,
-        extra_system_context: Some(skill_content),
-        skill_allowed_tools: skill.allowed_tools.clone(),
+        run_instruction_context: None,
+        run_data_context: None,
+        skill_allowed_tools: skill.tool_ceiling().execution_filter(),
         reasoning_effort: skill.effort.clone(),
         skill_name: Some(skill.name.clone()),
         origin_source: None,

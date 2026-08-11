@@ -243,6 +243,24 @@ pub fn compact_if_needed(
     max_output_tokens: u32,
     config: &CompactConfig,
 ) -> CompactResult {
+    compact_if_needed_with_counter(
+        messages,
+        system_prompt,
+        context_window,
+        max_output_tokens,
+        config,
+        None,
+    )
+}
+
+pub fn compact_if_needed_with_counter(
+    messages: &mut [Value],
+    system_prompt: &str,
+    context_window: u32,
+    max_output_tokens: u32,
+    config: &CompactConfig,
+    token_counter: Option<&crate::token_accounting::CompactionTokenCounter<'_>>,
+) -> CompactResult {
     if !config.enabled || context_window == 0 || messages.is_empty() {
         return CompactResult {
             tier_applied: 0,
@@ -255,7 +273,13 @@ pub fn compact_if_needed(
         };
     }
 
-    let tokens_before = estimate_request_tokens(system_prompt, messages, max_output_tokens);
+    let estimate = |messages: &[Value]| {
+        token_counter.map_or_else(
+            || estimate_request_tokens(system_prompt, messages, max_output_tokens),
+            |counter| counter.count_request_upper(system_prompt, messages, max_output_tokens),
+        )
+    };
+    let tokens_before = estimate(messages);
     let usage_ratio = tokens_before as f64 / context_window as f64;
 
     // Quick exit if well below any threshold
@@ -280,7 +304,7 @@ pub fn compact_if_needed(
     // Tier 1: Truncate individual oversized tool results
     let tier1_count = truncate_tool_results(messages, context_window, config);
 
-    let tokens_after_t1 = estimate_request_tokens(system_prompt, messages, max_output_tokens);
+    let tokens_after_t1 = estimate(messages);
     let ratio_after_t1 = tokens_after_t1 as f64 / context_window as f64;
 
     if tier1_count > 0 && ratio_after_t1 < config.soft_trim_ratio {
@@ -315,7 +339,7 @@ pub fn compact_if_needed(
             config,
             &boundary,
         );
-        let tokens_after_t2 = estimate_request_tokens(system_prompt, messages, max_output_tokens);
+        let tokens_after_t2 = estimate(messages);
         let ratio_after_t2 = tokens_after_t2 as f64 / context_window as f64;
 
         if prune.soft_trimmed > 0 || prune.hard_cleared > 0 {
@@ -372,7 +396,7 @@ pub fn compact_if_needed(
             CompactResult {
                 tier_applied: 1,
                 tokens_before,
-                tokens_after: estimate_request_tokens(system_prompt, messages, max_output_tokens),
+                tokens_after: estimate(messages),
                 messages_affected: tier1_count,
                 description: "tool_results_truncated".to_string(),
                 details: Some(CompactDetails {

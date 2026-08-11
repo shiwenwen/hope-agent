@@ -103,6 +103,7 @@ fn register_hooks() {
     h::register_knowledge_hooks(h::KnowledgeHooks {
         search_notes,
         resolve_inline_injections: knowledge::inject::resolve_inline_injections,
+        resolve_bound_notes: knowledge::inject::resolve_bound_notes,
         apply_embedding_from_config: knowledge::embedding::apply_knowledge_embedding_from_config,
         start_reembed_job: knowledge::reembed::start_knowledge_reembed_job,
         init_index_db,

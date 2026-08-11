@@ -10,11 +10,11 @@ use super::super::{
     TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED,
     TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR,
     TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
-    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
-    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY,
-    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE,
-    TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_READ_CONTEXT_RESOURCE, TOOL_RECALL_MEMORY,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_CONTINUE, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
+    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -170,6 +170,45 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_READ_CONTEXT_RESOURCE.into(),
+            description: "Read the immutable byte snapshot associated with a typed @file or @plan binding in the current turn. The opaque resource_ref is scoped to this session, turn, and agent principal; it cannot open arbitrary paths. UTF-8 text and bounded DOCX/PPTX/XLSX extraction use 64 KiB text pages; small valid images can be returned to vision in auto mode. PDF, legacy XLS, unsupported binaries, and oversized images remain available through exact bounded Base64 paging.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
+            internal: false,
+            concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "resource_ref": {
+                        "type": "string",
+                        "description": "Opaque resource_ref from the current turn context."
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["auto", "text", "base64"],
+                        "description": "auto (default) pages UTF-8 or bounded Office text and returns small valid images to vision. text forces text/Office extraction. base64 returns an exact frozen byte range and is the continuation for PDF, legacy XLS, unsupported binaries, and oversized images."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "1-based line offset for text/auto, or 0-based byte offset for base64."
+                    },
+                    "byte_offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "UTF-8 byte offset within the selected text line, used only when nextByteOffset continues a long line."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Maximum lines for text/auto (default 1000, max 5000) or bytes for base64 (default 32768, max 65536)."
+                    }
+                },
+                "required": ["resource_ref"],
                 "additionalProperties": false
             }),
         },
@@ -2032,13 +2071,15 @@ fn note_tools() -> Vec<ToolDefinition> {
         ),
         read_tool(
             TOOL_NOTE_READ,
-            "Read a note's raw content plus its outgoing links, backlinks, and tags. `kb` optional — when omitted, searches the accessible KB set (returns a disambiguation error on cross-KB ties). Identify the note by `path` or `title`.",
+            "Read a note's raw content plus its outgoing links, backlinks, and tags. `kb` optional — when omitted, searches the accessible KB set (returns a disambiguation error on cross-KB ties). Identify the note by `path` or `title`. For continuation from a typed @note preview, pass its opaque `expected_content_version`; a changed note fails instead of mixing versions.",
             json!({
                 "type": "object",
                 "properties": {
                     "kb": { "type": "string", "description": "Optional knowledge base id." },
                     "path": { "type": "string", "description": "Note path (folder/note) or basename." },
-                    "title": { "type": "string", "description": "Note title (alternative to path)." }
+                    "title": { "type": "string", "description": "Note title (alternative to path)." },
+                    "expected_content_version": { "type": "string", "description": "Opaque version from a typed @note preview. Reject the read if the note changed." },
+                    "expected_file_hash": { "type": "string", "description": "Optional BLAKE3 from an earlier note_read, retained for exact read/write workflows." }
                 },
                 "additionalProperties": false
             }),
@@ -2644,5 +2685,21 @@ mod tests {
                 .get("label")
                 .is_some()
         );
+    }
+
+    #[test]
+    fn context_resource_schema_is_serial_and_advertises_bounded_continuations() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE)
+            .expect("read_context_resource schema");
+        assert!(!tool.concurrent_safe);
+        assert!(tool.description.contains("DOCX/PPTX/XLSX"));
+        assert!(tool.description.contains("Base64"));
+        assert_eq!(
+            tool.parameters["properties"]["mode"]["enum"],
+            serde_json::json!(["auto", "text", "base64"])
+        );
+        assert!(tool.parameters["properties"].get("byte_offset").is_some());
     }
 }

@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../../README.md)
 >
-> 更新时间：2026-07-23
+> 更新时间：2026-08-10
 >
 > 关联源码：
 > - 工具契约：[`crates/ha-core/src/tool_defs/`](../../../crates/ha-core/src/tool_defs/)（`types.rs` 定义 `ToolDefinition` / `ToolTier` / `BackgroundPolicy`，`metadata.rs` 派生 v2 元数据）
@@ -357,7 +357,7 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 | `task_update` | 按 `id` 更新。`status`：`pending` / `in_progress` / `completed`。完成时触发 `TaskCompleted` hook 并调 `plan::maybe_complete_plan`(所有任务完成后可自动收束 Plan)。 |
 | `task_list`（concurrent_safe） | 返回当前会话所有任务的 JSON。 |
 
-存在未完成任务时，运行期注入短 system reminder，要求模型开始前标 `in_progress`、完成后立即标 `completed`，且同时只保留一个 `in_progress`。无 session context 时这些工具 fail closed，不创建全局任务。
+存在未完成任务时，运行期生成短 reminder，要求模型开始前标 `in_progress`、完成后立即标 `completed`，且同时只保留一个 `in_progress`。该 reminder 进入每轮 `<hope_round_data source="task_and_hook_context">` user-data，不修改稳定 system 前缀。无 session context 时这些工具 fail closed，不创建全局任务。
 
 ### 12.1 Loop Runtime 控制
 
@@ -486,7 +486,15 @@ flowchart TD
 - [`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs)：`build_tools_section` 把 `InjectEager` 工具的详细描述写入 `# Available Tools`；`build_deferred_tools_section` 把 `InjectDeferred` 工具 + deferred MCP server 写成 `# Additional Tools (use tool_search to discover)` 的一行目录。
 - [`agent/mod.rs::build_full_system_prompt`](../../../crates/ha-core/src/agent/mod.rs)：`HintOnly` 累积到 `# Unconfigured Capabilities` 提示段（按工具名排序保证 prompt cache 命中），并把 `send_notification` / `image_generate` / `canvas` 三类工具的额外指引段拼到提示词末尾。
 
-定位 prompt cache 失效时可用 debug log：`system_prompt::build` 会记录 `prompt_fingerprint` 和每个 section 的 `index` / `label` / `chars` / `fingerprint`——先比相邻 turn 的 section fingerprint，确认是工具描述、deferred 目录、skills、memory、working directory 还是 runtime tail 变了。
+定位 prompt cache 失效时可用 debug log：`system_prompt::build` 只记录 installation-local keyed fingerprint，以及每个稳定 section 的 `index` / `label` / `chars` / keyed fingerprint，不记录正文。相邻 turn 的稳定 section 应保持不变；**显式 Skill 正文、动态 Recall/Profile/Awareness、工作目录顶层清单、typed mention** 等按回合内容已经移到 instruction/data lane。Skill 目录、Core Memory、项目/工作目录规则本来就是稳定配置，内容真实变化时仍应使前缀失效。Provider/model、prompt contract、稳定 system 或最终稳定 tool schema 变化才应改变 routing key。
+
+### 冻结上下文资源工具
+
+`read_context_resource` 只读取本轮 typed `@file` / `@plan` 在 provider I/O 前冻结的 opaque resource。`ctxref` 绑定 session、turn、principal 和不可变字节，不接受文件路径或 URL。它是用户已授予的同一冻结资源的 intrinsic continuation，不被 Skill / Plan ceiling 意外裁掉，但仍受 Agent `denied-tools`、`ToolScope` 与 turn / session / principal 绑定约束。调用恒经统一 permission engine 入口，只有当 `resource_ref` 完整命中当前绑定时才确定性 allow，handler 在解引用字节前再验 scope。它不能用来读取任意本地文件，也不能把 mention 扩权为写权限。
+
+该工具 `concurrent_safe=false`，始终进入串行组。`auto/text` 对 UTF-8 原文和 DOCX/PPTX/XLSX 使用最多 64 KiB 的 iterator 文本页；长行以 `nextOffset + nextByteOffset` 保持 UTF-8 边界续读，Office 复用首轮的 bounded ZIP/XML extractor。`extractionTruncated=true` 表示 Office 抽取本身已到上限，即使当前页 `truncated=false` 也不代表文档 EOF，余下只能查看 exact Base64。`auto` 可把通过尺寸预检且完整 decode 的小图片作为 image marker 交给视觉模型；损坏、过大或超预算图片明确引导 `mode=base64`。PDF、legacy XLS 与 unsupported binary 的 `auto/text` fail-visible，`base64` 按 0-based byte offset 返回同一冻结资源的 exact 64 KiB 以内片段。
+
+每次读取按 `ctx.context_resource_refs` 全量重建 256 MiB raw/Base64/direct-image/reference baseline，而不是只计算被选中的 handle。admission 为全 batch 预留 256 KiB continuation floor；首轮 materialization 在解压/投递前校验并锁住同一 turn ledger，提交实际 text/Office/PPT-media 总消费后才可交给 Provider。Provider/profile rebuild 对 initial consumption 取 `max`（幂等替换），continuation 成功结果才累加，失败不扣；工具从 baseline 中减去两者，再在任何解压、图片 decode 或结果 String/Base64 allocation 前预留本次 working + retained 峰值。refs clone 会让 rebuild 继续使用同一 ledger，新 turn 则创建新 Arc owner，结束后自然释放、没有进程全局账本。连续分页、重复图片读取也不能把 hard ceiling 重置成每个资源、每次调用各一份；Base64 页超过剩余额度时返回短错误并要求缩小 `limit`。
 
 ---
 

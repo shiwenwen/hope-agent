@@ -17,7 +17,30 @@ pub(super) enum ChannelSlashOutcome {
     },
     /// The command (e.g. a skill invocation) asks to pass a transformed message
     /// through to the LLM instead of the original "/" text.
-    PassThrough(String),
+    PassThrough {
+        message: String,
+        /// Execution ceiling declared by the explicitly invoked Skill. Empty
+        /// means no Skill ceiling; deny-all carries the kernel sentinel.
+        skill_allowed_tools: Vec<String>,
+    },
+}
+
+fn frozen_skill_allowed_tools(
+    activation: Option<ha_core::slash_defs::types::SlashSkillActivation>,
+) -> Vec<String> {
+    activation
+        // Consume the ceiling frozen by the same trusted resolution that
+        // expanded the message. Re-reading the live catalog here would let a
+        // concurrent disable/edit turn a restricted Skill into an empty
+        // (unrestricted) execution filter.
+        .map(|activation| activation.skill_allowed_tools)
+        .unwrap_or_default()
+}
+
+fn require_channel_slash_result(
+    result: Result<ha_core::slash_defs::types::CommandResult, String>,
+) -> Result<ha_core::slash_defs::types::CommandResult, anyhow::Error> {
+    result.map_err(anyhow::Error::msg)
 }
 
 /// Dispatch a slash command received via an IM channel.
@@ -110,15 +133,22 @@ pub(super) async fn dispatch_slash_for_channel(
         }
     }
 
-    let result = ha_core::slash_hooks::dispatch(Some(session_id), agent_id, &name, &args)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let result = require_channel_slash_result(
+        ha_core::slash_hooks::dispatch(Some(session_id), agent_id, &name, &args).await,
+    )?;
 
     use ha_core::slash_defs::types::CommandAction;
     match result.action {
         // Pass transformed message to the LLM (skill commands, /search, etc.)
-        Some(CommandAction::PassThrough { message }) => {
-            Ok(ChannelSlashOutcome::PassThrough(message))
+        Some(CommandAction::PassThrough {
+            message,
+            skill_activation,
+        }) => {
+            let skill_allowed_tools = frozen_skill_allowed_tools(skill_activation);
+            Ok(ChannelSlashOutcome::PassThrough {
+                message,
+                skill_allowed_tools,
+            })
         }
 
         // A new session was created — remap the channel conversation to it.
@@ -1080,6 +1110,39 @@ pub(super) fn render_slash_button_fallback(content: &str, buttons: &[Vec<InlineB
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_uses_the_ceiling_frozen_with_the_skill_prompt() {
+        let restricted =
+            frozen_skill_allowed_tools(Some(ha_core::slash_defs::types::SlashSkillActivation {
+                skill_name: "review".to_string(),
+                command_name: "review_skill".to_string(),
+                skill_allowed_tools: vec!["read".to_string(), "glob".to_string()],
+            }));
+        assert_eq!(restricted, ["read", "glob"]);
+
+        let deny_all =
+            frozen_skill_allowed_tools(Some(ha_core::slash_defs::types::SlashSkillActivation {
+                skill_name: "observe-only".to_string(),
+                command_name: "observe_only".to_string(),
+                skill_allowed_tools: vec![ha_core::skills::SKILL_DENY_ALL_SENTINEL.to_string()],
+            }));
+        assert_eq!(
+            deny_all,
+            [ha_core::skills::SKILL_DENY_ALL_SENTINEL.to_string()]
+        );
+    }
+
+    #[test]
+    fn channel_keeps_common_skill_materialization_failure_out_of_pass_through() {
+        let error = require_channel_slash_result(Err(
+            "Skill 'review' could not be materialized; activation stopped before model dispatch"
+                .to_string(),
+        ))
+        .expect_err("a common handler failure must remain a Channel control error");
+
+        assert!(error.to_string().contains("stopped before model dispatch"));
+    }
 
     #[test]
     fn kb_status_always_allowed() {

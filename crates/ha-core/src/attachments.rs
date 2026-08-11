@@ -8,12 +8,138 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::Write;
+use std::collections::HashSet;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::agent::Attachment;
 use crate::paths;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrozenMentionAttachment {
+    pub target_id: String,
+    pub resource_ref: String,
+    /// Session-attachment-store basename for durable recovery. Never an
+    /// absolute path; incognito snapshots have no durable materialization.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_name: Option<String>,
+    pub file_name: String,
+    pub mime_type: String,
+    pub source_bytes: u64,
+    pub durable: bool,
+    /// Installation-keyed identity of the object actually opened (inode/device
+    /// on Unix). This distinguishes path replacement without exposing a host
+    /// path or a raw enumerable identifier.
+    pub object_identity_fingerprint: String,
+    /// Integrity evidence for the protected journal/materialization path. This
+    /// value is not returned by public attachment metadata or logged.
+    pub content_fingerprint: String,
+    #[serde(skip_serializing)]
+    pub bytes: std::sync::Arc<[u8]>,
+}
+
+impl std::fmt::Debug for FrozenMentionAttachment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FrozenMentionAttachment")
+            .field("resource_ref", &self.resource_ref)
+            .field("mime_type", &self.mime_type)
+            .field("source_bytes", &self.source_bytes)
+            .field("durable", &self.durable)
+            .field("bytes_len", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Read-only acquisition result for one typed local resource. The chat engine
+/// prepares the complete batch before it creates an execution ledger, then
+/// records these refs in that ledger before publishing any durable bytes.
+pub(crate) struct PreparedMentionAttachment {
+    target_id: String,
+    resource_ref: String,
+    snapshot_name: Option<String>,
+    attachment_index: usize,
+    bytes: std::sync::Arc<[u8]>,
+    object_identity_fingerprint: String,
+    content_fingerprint: String,
+}
+
+impl std::fmt::Debug for PreparedMentionAttachment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedMentionAttachment")
+            .field("resource_ref", &self.resource_ref)
+            .field("attachment_index", &self.attachment_index)
+            .field("bytes_len", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PreparedTypedResourceMentions {
+    candidates: Vec<PreparedMentionAttachment>,
+}
+
+impl std::fmt::Debug for PreparedTypedResourceMentions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedTypedResourceMentions")
+            .field("candidate_count", &self.candidates.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PreparedTypedResourceMentions {
+    /// Bind every planned basename to the backend-generated persistence run.
+    /// The run UUID becomes the filesystem ownership boundary used by live and
+    /// startup crash reconciliation; no client-controlled path participates.
+    pub(crate) fn bind_persistence_run(&mut self, run_id: &str) -> Result<()> {
+        let prefix = typed_resource_run_prefix(run_id)?;
+        for candidate in &mut self.candidates {
+            // The durable basename is an internal ownership key, not a display
+            // name. Keeping user filenames out makes the component fixed-size,
+            // portable across NAME_MAX variants, and immune to path syntax.
+            candidate.snapshot_name = Some(format!("{prefix}{}", candidate.resource_ref));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn durable_snapshot_names(&self) -> Result<Vec<String>> {
+        self.candidates
+            .iter()
+            .map(|candidate| {
+                candidate
+                    .snapshot_name
+                    .clone()
+                    .context("durable typed-resource snapshot has no basename")
+            })
+            .collect()
+    }
+}
+
+fn typed_resource_run_prefix(run_id: &str) -> Result<String> {
+    let owner = uuid::Uuid::parse_str(run_id)
+        .context("typed-resource persistence owner is not a UUID")?
+        .simple()
+        .to_string();
+    Ok(format!("context-snapshot-run_{owner}-"))
+}
+
+fn typed_resource_snapshot_owner(name: &str) -> Option<String> {
+    let suffix = name.strip_prefix("context-snapshot-run_")?;
+    let (owner, remainder) = suffix.split_once('-')?;
+    if owner.len() != 32
+        || remainder.is_empty()
+        || !owner.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    uuid::Uuid::parse_str(owner)
+        .ok()
+        .map(|value| value.to_string())
+}
 
 /// Pseudo-session id for pre-session attachments (uploads that predate a
 /// chat session). Maps to `~/.hope-agent/attachments/_temp/`.
@@ -30,6 +156,34 @@ pub const MAX_AVATAR_BYTES: usize = 10 * 1024 * 1024;
 /// payloads. Only the generic upload-lease protocol can use a configured
 /// limit above 20 MiB.
 pub const LEGACY_MAX_CHAT_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
+/// Hard resident-memory ceiling for the complete typed-resource batch. The
+/// projected charge includes the frozen raw bytes, the provider-compatible
+/// Base64 string retained on `Attachment`, and one decode buffer used by the
+/// existing content adapters. Ordinary path-backed uploads are unaffected.
+pub const MAX_TYPED_RESOURCE_TURN_MEMORY_BYTES: usize = 256 * 1024 * 1024;
+/// A direct image's Base64 bytes can coexist in the canonical conversation,
+/// its provider-normalized round, intermediate API input, provider request,
+/// diagnostic/body serialization, and the HTTP request body. Codex's request
+/// builder is the worst case at seven copies beyond `Attachment.data`. This
+/// deliberately excludes small JSON/object overhead but includes a
+/// conservative per-image envelope below.
+pub(crate) const TYPED_RESOURCE_PROVIDER_PAYLOAD_COPIES: usize = 7;
+const TYPED_RESOURCE_PROVIDER_IMAGE_ENVELOPE_BYTES: usize = 256;
+/// A frozen resource may have to fall back to a short provider-visible
+/// reference envelope even when no extraction allowance remains. Reserve this
+/// projection in the immutable baseline so fail-visible delivery never spends
+/// bytes after the 256 MiB ceiling is already exhausted.
+const MAX_TYPED_RESOURCE_FILE_NAME_BYTES: usize = 256;
+const MAX_TYPED_RESOURCE_MIME_BYTES: usize = 256;
+const MAX_TYPED_RESOURCE_CLIENT_PATH_BYTES: usize = 32 * 1024;
+// A normal reference envelope renders the escaped filename twice (`name` and
+// opaque display `path`). The provider text projection applies the 6x escape
+// expansion; its fixed 2 KiB overhead covers the static envelope text.
+const TYPED_RESOURCE_REFERENCE_MATERIALIZED_BYTES: usize = MAX_TYPED_RESOURCE_FILE_NAME_BYTES * 2;
+/// Batch-global reserve that initial extraction cannot consume. It is enough
+/// for a small Base64 page plus its provider copies, without reserving a page
+/// per resource or reducing the existing 20 MiB single-image capability.
+pub(crate) const TYPED_RESOURCE_CONTINUATION_FLOOR_BYTES: usize = 256 * 1024;
 const UPLOAD_LEASE_TTL: Duration = Duration::from_secs(60 * 60);
 
 pub fn max_chat_attachment_mb() -> u32 {
@@ -292,6 +446,984 @@ pub fn save_attachment_file(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+/// Resolve and freeze every typed file mention before the first provider
+/// attempt. `target_ids` are canonical composer bindings relative to the
+/// session working directory; arbitrary attachment paths supplied by a client
+/// are never accepted as authority.
+///
+/// Normal sessions copy the exact bytes into the session-owned attachment
+/// store and point the model/tool layer at that immutable turn snapshot.
+/// Incognito sessions retain the bytes only in the in-memory `data` field, so
+/// provider retries see the same image/file payload without creating a durable
+/// prompt-context artifact.
+#[cfg(test)]
+pub fn freeze_typed_file_mentions(
+    session_id: &str,
+    working_dir: &str,
+    target_ids: &[String],
+    incognito: bool,
+    attachments: &mut [Attachment],
+) -> Result<Vec<FrozenMentionAttachment>> {
+    let sources = resolve_typed_file_sources(working_dir, target_ids)?;
+    freeze_resolved_mention_sources(session_id, &sources, incognito, attachments)
+}
+
+struct ResolvedMentionSource {
+    target_id: String,
+    containment_root: PathBuf,
+    relative_source: PathBuf,
+    source: PathBuf,
+    attachment_source: &'static str,
+}
+
+fn resolve_typed_file_sources(
+    working_dir: &str,
+    target_ids: &[String],
+) -> Result<Vec<ResolvedMentionSource>> {
+    use std::collections::HashSet;
+    use std::path::Component;
+
+    let root = Path::new(working_dir)
+        .canonicalize()
+        .with_context(|| format!("canonicalize session working directory {working_dir}"))?;
+    if !root.is_dir() {
+        anyhow::bail!("session working directory is not a directory");
+    }
+
+    let mut seen = HashSet::new();
+    let mut sources = Vec::new();
+    for target_id in target_ids {
+        if !seen.insert(target_id.clone()) {
+            continue;
+        }
+        let relative = Path::new(target_id);
+        if relative.as_os_str().is_empty()
+            || relative.is_absolute()
+            || relative.components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
+        {
+            anyhow::bail!("typed file mention is not a safe relative path: {target_id}");
+        }
+
+        let source = root
+            .join(relative)
+            .canonicalize()
+            .with_context(|| format!("resolve typed file mention {target_id}"))?;
+        if !source.starts_with(&root) {
+            anyhow::bail!("typed file mention escapes the session working directory");
+        }
+        let relative_source = source
+            .strip_prefix(&root)
+            .context("typed file mention is not relative to its authorized root")?
+            .to_path_buf();
+        sources.push(ResolvedMentionSource {
+            target_id: target_id.clone(),
+            containment_root: root.clone(),
+            relative_source,
+            source,
+            attachment_source: "mention",
+        });
+    }
+    Ok(sources)
+}
+
+/// Resolve registry-owned `@plan` bindings and freeze them through the same
+/// open-once snapshot path as workspace files. The client-supplied absolute
+/// attachment path is only a correlation hint: the backend independently
+/// resolves the short id/version and requires an exact canonical match.
+#[cfg(test)]
+pub fn freeze_typed_plan_mentions(
+    session_id: &str,
+    target_ids: &[String],
+    incognito: bool,
+    attachments: &mut [Attachment],
+) -> Result<Vec<FrozenMentionAttachment>> {
+    let sources = resolve_typed_plan_sources(target_ids)?;
+    freeze_resolved_mention_sources(session_id, &sources, incognito, attachments)
+}
+
+fn resolve_typed_plan_sources(target_ids: &[String]) -> Result<Vec<ResolvedMentionSource>> {
+    use std::collections::HashSet;
+
+    if target_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let containment_root = crate::paths::plans_dir()?
+        .canonicalize()
+        .context("canonicalize typed plan registry root")?;
+    let mut seen = HashSet::new();
+    let mut sources = Vec::new();
+    for target_id in target_ids {
+        if !seen.insert(target_id.clone()) {
+            continue;
+        }
+        let (short_id, version_text) = target_id
+            .split_once(":v")
+            .with_context(|| format!("typed plan mention has invalid target: {target_id}"))?;
+        if !(4..=16).contains(&short_id.len())
+            || !short_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || version_text.is_empty()
+            || !version_text.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            anyhow::bail!("typed plan mention has invalid target: {target_id}");
+        }
+        let version = version_text
+            .parse::<u32>()
+            .with_context(|| format!("typed plan version is out of range: {target_id}"))?;
+        let (_, _, source, resolved_version) =
+            crate::plan::resolve_plan_mention_path(short_id, version)?;
+        if resolved_version != version {
+            anyhow::bail!("typed plan mention resolved to an unexpected version");
+        }
+        let source = source
+            .canonicalize()
+            .with_context(|| format!("resolve typed plan mention {target_id}"))?;
+        if !source.starts_with(&containment_root) {
+            anyhow::bail!("typed plan mention escapes the plan registry root");
+        }
+        let relative_source = source
+            .strip_prefix(&containment_root)
+            .context("typed plan mention is not relative to its registry root")?
+            .to_path_buf();
+        sources.push(ResolvedMentionSource {
+            target_id: target_id.clone(),
+            containment_root: containment_root.clone(),
+            relative_source,
+            source,
+            attachment_source: "plan_mention",
+        });
+    }
+    Ok(sources)
+}
+
+/// Freeze all explicit local resource bindings as one atomic batch. This is
+/// the chat-turn entrypoint: mixed `@file` + `@plan` turns either publish every
+/// immutable snapshot or leave the original attachment array untouched.
+#[cfg(test)]
+pub fn freeze_typed_resource_mentions(
+    session_id: &str,
+    working_dir: Option<&str>,
+    file_target_ids: &[String],
+    plan_target_ids: &[String],
+    incognito: bool,
+    attachments: &mut [Attachment],
+) -> Result<Vec<FrozenMentionAttachment>> {
+    let mut prepared = prepare_typed_resource_mentions(
+        working_dir,
+        file_target_ids,
+        plan_target_ids,
+        incognito,
+        attachments,
+    )?;
+    if !incognito {
+        prepared.bind_persistence_run(&uuid::Uuid::new_v4().to_string())?;
+    }
+    publish_typed_resource_mentions(session_id, prepared, incognito, attachments)
+}
+
+/// Resolve, authorize, open, and read typed resources without publishing any
+/// durable artifact. This phase deliberately runs before the persistent chat
+/// stream is registered so deterministic local validation failures remain
+/// ledger-free, while successful bytes stay memory-only until the ledger is
+/// ready to record their materialization refs.
+pub(crate) fn prepare_typed_resource_mentions(
+    working_dir: Option<&str>,
+    file_target_ids: &[String],
+    plan_target_ids: &[String],
+    incognito: bool,
+    attachments: &[Attachment],
+) -> Result<PreparedTypedResourceMentions> {
+    let mut sources = if file_target_ids.is_empty() {
+        Vec::new()
+    } else {
+        resolve_typed_file_sources(
+            working_dir.context("typed file mentions require a session working directory")?,
+            file_target_ids,
+        )?
+    };
+    sources.extend(resolve_typed_plan_sources(plan_target_ids)?);
+    prepare_resolved_mention_sources(&sources, incognito, attachments)
+}
+
+fn prepare_resolved_mention_sources(
+    sources: &[ResolvedMentionSource],
+    _incognito: bool,
+    attachments: &[Attachment],
+) -> Result<PreparedTypedResourceMentions> {
+    prepare_resolved_mention_sources_with_budget(
+        sources,
+        attachments,
+        typed_resource_acquisition_budget_bytes()?,
+    )
+}
+
+fn base64_encoded_len(raw_bytes: usize) -> Option<usize> {
+    raw_bytes.checked_add(2)?.checked_div(3)?.checked_mul(4)
+}
+
+pub(crate) fn typed_provider_image_payload_bytes(
+    encoded_bytes: usize,
+    mime_len: usize,
+) -> Option<usize> {
+    encoded_bytes
+        .checked_add(mime_len.checked_mul(6)?)?
+        .checked_add(TYPED_RESOURCE_PROVIDER_IMAGE_ENVELOPE_BYTES)
+}
+
+pub(crate) fn typed_provider_text_resident_bytes(materialized_utf8_bytes: usize) -> Option<usize> {
+    // JSON control-character escaping can expand one input byte to six. Ten
+    // copies cover extraction/envelope, canonical/provider histories, request
+    // values, diagnostic serialization, and the HTTP body.
+    materialized_utf8_bytes
+        .checked_mul(6)?
+        .checked_add(2_048)?
+        .checked_mul(10)
+}
+
+fn ensure_typed_resource_metadata(file_name: &str, mime_type: &str) -> Result<()> {
+    if file_name.is_empty()
+        || file_name.len() > MAX_TYPED_RESOURCE_FILE_NAME_BYTES
+        || file_name.chars().any(char::is_control)
+    {
+        anyhow::bail!("typed resource filename is empty, too long, or contains control characters");
+    }
+    if mime_type.is_empty()
+        || mime_type.len() > MAX_TYPED_RESOURCE_MIME_BYTES
+        || mime_type.chars().any(char::is_control)
+    {
+        anyhow::bail!(
+            "typed resource MIME type is empty, too long, or contains control characters"
+        );
+    }
+    Ok(())
+}
+
+fn ensure_typed_resource_acquisition_shape(attachment: &Attachment) -> Result<()> {
+    ensure_typed_resource_metadata(&attachment.name, &attachment.mime_type)?;
+    if attachment.data.is_some() {
+        anyhow::bail!(
+            "typed resource mention must not carry client-supplied inline data before freezing"
+        );
+    }
+    if attachment.upload_id.is_some()
+        || attachment.quote_lines.is_some()
+        || attachment.quote_role.is_some()
+    {
+        anyhow::bail!("typed resource mention contains incompatible attachment metadata");
+    }
+    let path = attachment
+        .file_path
+        .as_deref()
+        .context("typed resource mention has no client path binding")?;
+    if path.is_empty()
+        || path.len() > MAX_TYPED_RESOURCE_CLIENT_PATH_BYTES
+        || path.chars().any(char::is_control)
+    {
+        anyhow::bail!("typed resource path is empty, too long, or contains control characters");
+    }
+    Ok(())
+}
+
+/// Validate the transport boundary between a canonical typed-mention sidecar
+/// and the attachment array that accompanies it. File and Plan attachments do
+/// not carry a client-controlled target id, so the shell first proves that the
+/// message-bound sidecar has exactly one attachment for every unique target;
+/// canonical path matching remains the freeze phase's independent authority.
+///
+/// Call this before persisting attachment data or queue rows. Repeated mentions
+/// of the same target intentionally share one frozen attachment.
+pub fn validate_typed_resource_attachment_bindings(
+    message: &str,
+    incoming_turn: Option<&crate::prompt_context::IncomingTurnWire>,
+    attachments: &[Attachment],
+) -> Result<()> {
+    crate::prompt_context::validate_incoming_turn(message, incoming_turn)?;
+
+    let mut file_targets = HashSet::new();
+    let mut plan_targets = HashSet::new();
+    if let Some(wire) = incoming_turn {
+        for mention in &wire.mentions {
+            match mention.kind {
+                crate::prompt_context::MentionKind::File => {
+                    file_targets.insert(mention.target_id.as_str());
+                }
+                crate::prompt_context::MentionKind::Plan => {
+                    plan_targets.insert(mention.target_id.as_str());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut file_attachments = 0usize;
+    let mut plan_attachments = 0usize;
+    for attachment in attachments {
+        match attachment.source.as_deref() {
+            Some("mention") => {
+                ensure_typed_resource_acquisition_shape(attachment)?;
+                file_attachments = file_attachments.saturating_add(1);
+            }
+            Some("plan_mention") => {
+                ensure_typed_resource_acquisition_shape(attachment)?;
+                plan_attachments = plan_attachments.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+
+    if file_attachments != file_targets.len() || plan_attachments != plan_targets.len() {
+        anyhow::bail!(
+            "typed resource attachments do not exactly match the unique File/Plan sidecar targets"
+        );
+    }
+    Ok(())
+}
+
+fn typed_resource_acquisition_budget_bytes() -> Result<usize> {
+    MAX_TYPED_RESOURCE_TURN_MEMORY_BYTES
+        .checked_sub(TYPED_RESOURCE_CONTINUATION_FLOOR_BYTES)
+        .context("typed resource continuation floor exceeds its hard memory ceiling")
+}
+
+fn standard_base64_decoded_len(encoded: &str) -> Option<usize> {
+    if encoded.len() % 4 != 0 {
+        return None;
+    }
+    let padding = encoded
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'=')
+        .count();
+    if padding > 2 {
+        return None;
+    }
+    encoded
+        .len()
+        .checked_div(4)?
+        .checked_mul(3)?
+        .checked_sub(padding)
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct TypedResourceMemoryProjection {
+    raw_batch_bytes: usize,
+    base64_batch_bytes: usize,
+    provider_image_payload_bytes: usize,
+    reference_text_bytes: usize,
+    max_transient_bytes: usize,
+}
+
+impl TypedResourceMemoryProjection {
+    fn with_candidate(
+        self,
+        raw_bytes: usize,
+        provider_image_mime_len: Option<usize>,
+    ) -> Option<Self> {
+        let encoded_bytes = base64_encoded_len(raw_bytes)?;
+        let provider_image_payload = match provider_image_mime_len {
+            Some(mime_len) => typed_provider_image_payload_bytes(encoded_bytes, mime_len)?,
+            None => 0,
+        };
+        let reference_text =
+            typed_provider_text_resident_bytes(TYPED_RESOURCE_REFERENCE_MATERIALIZED_BYTES)?;
+        Some(Self {
+            raw_batch_bytes: self.raw_batch_bytes.checked_add(raw_bytes)?,
+            base64_batch_bytes: self.base64_batch_bytes.checked_add(encoded_bytes)?,
+            provider_image_payload_bytes: self
+                .provider_image_payload_bytes
+                .checked_add(provider_image_payload)?,
+            reference_text_bytes: self.reference_text_bytes.checked_add(reference_text)?,
+            // Acquisition compacts one Vec into Arc storage at a time and
+            // non-image materialization decodes one Base64 item at a time.
+            max_transient_bytes: self.max_transient_bytes.max(raw_bytes),
+        })
+    }
+
+    fn resident_bytes(self) -> Option<usize> {
+        self.raw_batch_bytes
+            .checked_add(self.base64_batch_bytes)?
+            .checked_add(
+                self.provider_image_payload_bytes
+                    .checked_mul(TYPED_RESOURCE_PROVIDER_PAYLOAD_COPIES)?,
+            )?
+            .checked_add(self.reference_text_bytes)?
+            .checked_add(self.max_transient_bytes)
+    }
+}
+
+/// Remaining bulk-allocation allowance available to bounded extraction after
+/// the frozen typed-resource baseline is retained. `None` means this turn has
+/// no typed resources. The provider materializer recomputes the projection
+/// from the exact standard-Base64 strings so extraction cannot silently use a
+/// second, disconnected budget.
+pub(crate) fn typed_resource_extraction_budget_bytes(
+    attachments: &[Attachment],
+) -> Result<Option<usize>> {
+    let mut found = false;
+    let mut projection = TypedResourceMemoryProjection::default();
+    for attachment in attachments.iter().filter(|attachment| {
+        matches!(
+            attachment.source.as_deref(),
+            Some("mention" | "plan_mention")
+        )
+    }) {
+        found = true;
+        ensure_typed_resource_metadata(&attachment.name, &attachment.mime_type)?;
+        let encoded = attachment
+            .data
+            .as_deref()
+            .context("frozen typed resource has no retained Base64 bytes")?;
+        let raw_bytes = standard_base64_decoded_len(encoded)
+            .context("frozen typed resource has malformed standard Base64 length")?;
+        let image_mime_len = attachment
+            .mime_type
+            .starts_with("image/")
+            .then_some(attachment.mime_type.len());
+        projection = projection
+            .with_candidate(raw_bytes, image_mime_len)
+            .context("typed resource extraction budget overflow")?;
+    }
+    if !found {
+        return Ok(None);
+    }
+    let baseline = projection
+        .resident_bytes()
+        .context("typed resource extraction budget overflow")?;
+    let remaining = MAX_TYPED_RESOURCE_TURN_MEMORY_BYTES
+        .checked_sub(baseline)
+        .context("typed resource baseline exceeds its hard memory ceiling")?;
+    Ok(Some(remaining))
+}
+
+/// Rebuild the same turn-wide frozen-resource baseline from scoped raw refs
+/// when `read_context_resource` executes in a later tool round. Accounting all
+/// refs (rather than only the selected handle) prevents repeated continuation
+/// reads from treating the 256 MiB ceiling as a fresh per-resource allowance.
+pub(crate) fn context_resource_extraction_budget_bytes(
+    resources: &[crate::prompt_context::ContextResourceRef],
+) -> Result<usize> {
+    let mut projection = TypedResourceMemoryProjection::default();
+    for resource in resources {
+        ensure_typed_resource_metadata(&resource.file_name, &resource.mime_type)?;
+        let image_mime_len = resource
+            .mime_type
+            .starts_with("image/")
+            .then_some(resource.mime_type.len());
+        projection = projection
+            .with_candidate(resource.bytes.len(), image_mime_len)
+            .context("context resource extraction budget overflow")?;
+    }
+    let baseline = projection
+        .resident_bytes()
+        .context("context resource extraction budget overflow")?;
+    MAX_TYPED_RESOURCE_TURN_MEMORY_BYTES
+        .checked_sub(baseline)
+        .context("context resource baseline exceeds its hard memory ceiling")
+}
+
+fn max_raw_bytes_for_projected_budget(
+    projection: TypedResourceMemoryProjection,
+    memory_budget: usize,
+    provider_image_mime_len: Option<usize>,
+) -> usize {
+    let mut low = 0usize;
+    let mut high = memory_budget;
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if projection
+            .with_candidate(mid, provider_image_mime_len)
+            .and_then(TypedResourceMemoryProjection::resident_bytes)
+            .is_some_and(|value| value <= memory_budget)
+        {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    low
+}
+
+fn compact_frozen_bytes(bytes: Vec<u8>, declared_size: usize) -> Result<std::sync::Arc<[u8]>> {
+    if bytes.len() != declared_size {
+        anyhow::bail!("typed resource mention changed size while it was being frozen");
+    }
+    // `into_boxed_slice` drops any spare Vec capacity before the bytes become
+    // retained turn state. Projection can therefore charge the exact slice
+    // length instead of trusting a stale pre-read stat as allocation size.
+    Ok(std::sync::Arc::from(bytes.into_boxed_slice()))
+}
+
+fn read_exact_declared_bytes(reader: &mut impl Read, declared_size: usize) -> Result<Vec<u8>> {
+    let mut bytes = vec![0u8; declared_size];
+    reader
+        .read_exact(&mut bytes)
+        .context("typed resource mention changed size while it was being frozen")?;
+    let mut probe = [0u8; 1];
+    loop {
+        match reader.read(&mut probe) {
+            Ok(0) => break,
+            Ok(_) => anyhow::bail!("typed resource mention changed size while it was being frozen"),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error).context("probe typed resource mention EOF"),
+        }
+    }
+    Ok(bytes)
+}
+
+fn prepare_resolved_mention_sources_with_budget(
+    sources: &[ResolvedMentionSource],
+    attachments: &[Attachment],
+    memory_budget: usize,
+) -> Result<PreparedTypedResourceMentions> {
+    use std::collections::HashSet;
+
+    for attachment in attachments.iter().filter(|attachment| {
+        matches!(
+            attachment.source.as_deref(),
+            Some("mention" | "plan_mention")
+        )
+    }) {
+        ensure_typed_resource_acquisition_shape(attachment)?;
+    }
+
+    // Phase A is read-only: validate and acquire the complete set before
+    // mutating an attachment or publishing a durable snapshot. A failure in
+    // one mention therefore cannot leave a partially usable turn context.
+    let mut seen_sources = HashSet::new();
+    let mut candidates = Vec::new();
+    let mut memory_projection = TypedResourceMemoryProjection::default();
+    for resolved in sources {
+        let target_id = &resolved.target_id;
+        let source = &resolved.source;
+        if !seen_sources.insert(source.clone()) {
+            anyhow::bail!(
+                "multiple typed resource targets resolve to the same source object: {target_id}"
+            );
+        }
+        let attachment_index = attachments
+            .iter()
+            .position(|attachment| {
+                if attachment.source.as_deref() != Some(resolved.attachment_source) {
+                    return false;
+                }
+                attachment
+                    .file_path
+                    .as_deref()
+                    .and_then(|path| Path::new(path).canonicalize().ok())
+                    .is_some_and(|path| path == *source)
+            })
+            .with_context(|| {
+                format!("typed resource mention has no matching attachment: {target_id}")
+            })?;
+        let provider_image_mime_len = attachments[attachment_index]
+            .mime_type
+            .starts_with("image/")
+            .then_some(attachments[attachment_index].mime_type.len());
+        ensure_typed_resource_acquisition_shape(&attachments[attachment_index])?;
+
+        // Open exactly once through the authorized root namespace. Unix walks
+        // every component with openat + O_NOFOLLOW from a root descriptor;
+        // Windows holds a no-delete-share direct-directory handle chain from
+        // the drive/UNC root, validates every final path, and rejects reparse
+        // points. Pathname swaps after the resolver can therefore only fail
+        // closed, never redirect this handle.
+        let mut source_file = crate::platform::open_file_beneath(
+            &resolved.containment_root,
+            &resolved.relative_source,
+        )
+        .with_context(|| format!("open typed resource mention {target_id}"))?;
+        let metadata = source_file
+            .metadata()
+            .with_context(|| format!("stat opened typed resource mention {target_id}"))?;
+        if !metadata.is_file() {
+            anyhow::bail!("typed resource mention source is not a regular file");
+        }
+        let declared_size = usize::try_from(metadata.len())
+            .context("typed resource mention size exceeds this platform")?;
+        ensure_chat_attachment_size(declared_size)?;
+        let max_raw_bytes = max_raw_bytes_for_projected_budget(
+            memory_projection,
+            memory_budget,
+            provider_image_mime_len,
+        )
+        .min(max_chat_attachment_bytes());
+        if declared_size > max_raw_bytes {
+            anyhow::bail!(
+                "typed resource batch exceeds the {} MiB turn memory budget",
+                memory_budget / 1024 / 1024
+            );
+        }
+        let bytes = read_exact_declared_bytes(&mut source_file, declared_size)
+            .with_context(|| format!("read typed resource mention {target_id}"))?;
+        ensure_chat_attachment_size(bytes.len())?;
+        let bytes = compact_frozen_bytes(bytes, declared_size)?;
+        memory_projection = memory_projection
+            .with_candidate(bytes.len(), provider_image_mime_len)
+            .context("typed resource batch memory accounting overflow")?;
+        let projected_memory_bytes = memory_projection
+            .resident_bytes()
+            .context("typed resource batch memory accounting overflow")?;
+        if bytes.len() > max_raw_bytes || projected_memory_bytes > memory_budget {
+            anyhow::bail!(
+                "typed resource batch exceeds the {} MiB turn memory budget",
+                memory_budget / 1024 / 1024
+            );
+        }
+        let content_fingerprint =
+            crate::cache_routing::audit_fingerprint("typed-file-snapshot", &bytes);
+        let resource_ref = format!("resource_ref_{}", uuid::Uuid::new_v4().simple());
+        candidates.push(PreparedMentionAttachment {
+            target_id: target_id.clone(),
+            resource_ref,
+            snapshot_name: None,
+            attachment_index,
+            bytes,
+            object_identity_fingerprint: opened_file_identity_fingerprint(&source, &metadata),
+            content_fingerprint,
+        });
+    }
+    Ok(PreparedTypedResourceMentions { candidates })
+}
+
+/// File-publication half of a prepared typed-resource batch. For durable
+/// sessions the caller must run this synchronously inside the SessionDB
+/// publication gate; attachment mutation and Base64 encoding happen only
+/// after that gate commits so they do not extend the SQLite writer lock.
+pub(crate) struct PublishedTypedResourceMentions {
+    candidates: Vec<PreparedMentionAttachment>,
+    snapshot_paths: Vec<PathBuf>,
+    incognito: bool,
+}
+
+pub(crate) fn publish_typed_resource_snapshot_files(
+    session_id: &str,
+    prepared: PreparedTypedResourceMentions,
+    incognito: bool,
+) -> Result<PublishedTypedResourceMentions> {
+    let PreparedTypedResourceMentions { candidates } = prepared;
+
+    // Phase B prepares all durable copies before switching the attachment
+    // array to them. Best-effort cleanup makes a failed batch invisible to the
+    // execution path and avoids accumulating ordinary half-snapshots.
+    let mut snapshot_paths = Vec::new();
+    if !incognito {
+        let attachment_dir = paths::attachments_dir(session_id)?;
+        std::fs::create_dir_all(&attachment_dir).with_context(|| {
+            format!(
+                "create typed-resource snapshot directory {}",
+                attachment_dir.display()
+            )
+        })?;
+        for candidate in &candidates {
+            let snapshot_name = candidate
+                .snapshot_name
+                .as_deref()
+                .context("durable typed-resource snapshot has no basename")?;
+            let path = attachment_dir.join(snapshot_name);
+            match crate::platform::write_atomic_create_new(&path, &candidate.bytes) {
+                Ok(()) => snapshot_paths.push(path),
+                Err(error) => {
+                    for published_path in &snapshot_paths {
+                        let Some(published_name) =
+                            published_path.file_name().and_then(|v| v.to_str())
+                        else {
+                            continue;
+                        };
+                        if let Ok((root, relative)) =
+                            typed_snapshot_cleanup_path(session_id, published_name)
+                        {
+                            let _ = crate::platform::remove_file_beneath(&root, &relative);
+                        }
+                    }
+                    return Err(error)
+                        .with_context(|| format!("publish typed resource {}", path.display()));
+                }
+            }
+        }
+    }
+
+    Ok(PublishedTypedResourceMentions {
+        candidates,
+        snapshot_paths,
+        incognito,
+    })
+}
+
+/// Finish a successfully published batch after the DB publication gate has
+/// committed. This phase is deterministic/infallible for a prepared batch and
+/// may perform the large Base64 allocations without blocking unrelated DB
+/// writers.
+pub(crate) fn finalize_typed_resource_mentions(
+    published: PublishedTypedResourceMentions,
+    attachments: &mut [Attachment],
+) -> Vec<FrozenMentionAttachment> {
+    let PublishedTypedResourceMentions {
+        candidates,
+        snapshot_paths,
+        incognito,
+    } = published;
+
+    let mut frozen = Vec::with_capacity(candidates.len());
+    for (ordinal, candidate) in candidates.into_iter().enumerate() {
+        let attachment = &mut attachments[candidate.attachment_index];
+        let snapshot_name = candidate.snapshot_name;
+        if incognito {
+            attachment.data =
+                Some(base64::engine::general_purpose::STANDARD.encode(&candidate.bytes));
+        } else {
+            attachment.file_path = Some(snapshot_paths[ordinal].to_string_lossy().into_owned());
+            // Every provider/profile attempt consumes the same in-memory
+            // bytes. The durable snapshot is recovery evidence, not a mutable
+            // path that the hot path reopens between retries.
+            attachment.data =
+                Some(base64::engine::general_purpose::STANDARD.encode(&candidate.bytes));
+        }
+        frozen.push(FrozenMentionAttachment {
+            target_id: candidate.target_id,
+            resource_ref: candidate.resource_ref,
+            snapshot_name,
+            file_name: attachment.name.clone(),
+            mime_type: attachment.mime_type.clone(),
+            source_bytes: candidate.bytes.len() as u64,
+            durable: !incognito,
+            object_identity_fingerprint: candidate.object_identity_fingerprint,
+            content_fingerprint: candidate.content_fingerprint,
+            bytes: candidate.bytes,
+        });
+    }
+    frozen
+}
+
+/// Publish a fully prepared batch. Production durable turns wrap the
+/// file-publication half in SessionDB's writer gate; this convenience wrapper
+/// remains useful for focused attachment tests, including incognito flow.
+#[cfg(test)]
+pub(crate) fn publish_typed_resource_mentions(
+    session_id: &str,
+    prepared: PreparedTypedResourceMentions,
+    incognito: bool,
+    attachments: &mut [Attachment],
+) -> Result<Vec<FrozenMentionAttachment>> {
+    let published = publish_typed_resource_snapshot_files(session_id, prepared, incognito)?;
+    Ok(finalize_typed_resource_mentions(published, attachments))
+}
+
+#[cfg(test)]
+fn freeze_resolved_mention_sources(
+    session_id: &str,
+    sources: &[ResolvedMentionSource],
+    incognito: bool,
+    attachments: &mut [Attachment],
+) -> Result<Vec<FrozenMentionAttachment>> {
+    let mut prepared = prepare_resolved_mention_sources(sources, incognito, attachments)?;
+    if !incognito {
+        prepared.bind_persistence_run(&uuid::Uuid::new_v4().to_string())?;
+    }
+    publish_typed_resource_mentions(session_id, prepared, incognito, attachments)
+}
+
+/// Best-effort rollback for a batch whose Initial Context reference never
+/// became durable. Basename validation keeps cleanup scoped to artifacts that
+/// this typed-resource publisher owns.
+pub(crate) fn remove_uncommitted_typed_resource_snapshots(
+    session_id: &str,
+    snapshot_names: &[String],
+) {
+    for snapshot_name in snapshot_names {
+        let path = Path::new(snapshot_name);
+        let owned =
+            path.components().count() == 1 && snapshot_name.starts_with("context-snapshot-run_");
+        if owned {
+            if let Ok((root, relative)) = typed_snapshot_cleanup_path(session_id, snapshot_name) {
+                let _ = crate::platform::remove_file_beneath(&root, &relative);
+            }
+        }
+    }
+}
+
+fn typed_snapshot_cleanup_path(
+    session_id: &str,
+    snapshot_name: &str,
+) -> Result<(PathBuf, PathBuf)> {
+    use std::path::Component;
+
+    let session = Path::new(session_id);
+    if session.components().count() != 1
+        || !matches!(session.components().next(), Some(Component::Normal(_)))
+    {
+        anyhow::bail!("typed-resource cleanup session id is not one path component");
+    }
+    let data_root = paths::root_dir()?
+        .canonicalize()
+        .context("canonicalize typed-resource cleanup data root")?;
+    Ok((
+        data_root,
+        PathBuf::from("attachments")
+            .join(session)
+            .join(snapshot_name),
+    ))
+}
+
+/// Remove one exact ledger-owned snapshot after its stream run was deleted.
+/// Missing files acknowledge cleanly so a crash between unlink and DB ack is
+/// idempotent. Any malformed or cross-owner row fails closed and remains in the
+/// ledger for inspection instead of influencing an arbitrary path.
+pub(crate) fn remove_pending_typed_resource_snapshot(
+    cleanup: &crate::session::TypedResourceSnapshotCleanup,
+) -> Result<()> {
+    let prefix = typed_resource_run_prefix(&cleanup.run_id)?;
+    let path = Path::new(&cleanup.snapshot_name);
+    if path.components().count() != 1
+        || !cleanup.snapshot_name.starts_with(&prefix)
+        || typed_resource_snapshot_owner(&cleanup.snapshot_name).as_deref()
+            != Some(cleanup.run_id.as_str())
+    {
+        anyhow::bail!("typed-resource cleanup row is not owned by its run");
+    }
+    let (root, relative) =
+        typed_snapshot_cleanup_path(&cleanup.session_id, &cleanup.snapshot_name)?;
+    match crate::platform::remove_file_beneath(&root, &relative) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "remove expired typed-resource snapshot {}",
+                cleanup.snapshot_name
+            )
+        }),
+    }
+}
+
+/// Reconcile every snapshot owned by one backend-generated persistence run.
+/// Only exact, single-component names under that run's UUID prefix are ever
+/// considered; journal paths outside this namespace cannot influence cleanup.
+pub(crate) fn reconcile_run_typed_resource_snapshots(
+    session_id: &str,
+    run_id: &str,
+    referenced_snapshot_names: &HashSet<String>,
+) -> Result<usize> {
+    let prefix = typed_resource_run_prefix(run_id)?;
+    for snapshot_name in referenced_snapshot_names {
+        if !snapshot_name.starts_with(&prefix) || Path::new(snapshot_name).components().count() != 1
+        {
+            anyhow::bail!("typed-resource journal snapshot is not owned by this run");
+        }
+    }
+
+    let root = paths::attachments_dir(session_id)?;
+    let entries = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("enumerate typed-resource snapshots {}", root.display()))
+        }
+    };
+    let mut removed = 0usize;
+    for entry in entries {
+        let entry = entry
+            .with_context(|| format!("read typed-resource snapshot entry in {}", root.display()))?;
+        let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) || referenced_snapshot_names.contains(&name) {
+            continue;
+        }
+        let (cleanup_root, cleanup_relative) = typed_snapshot_cleanup_path(session_id, &name)?;
+        crate::platform::remove_file_beneath(&cleanup_root, &cleanup_relative)
+            .with_context(|| format!("remove uncommitted typed-resource snapshot {name}"))?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
+/// Enumerate exact `(session_id, persistence_run_id)` owners represented by
+/// run-scoped snapshot basenames. Startup uses this namespace to reconcile a
+/// terminal run if a hard crash prevented its normal Drop cleanup.
+pub(crate) fn run_owned_typed_resource_snapshot_owners() -> Result<Vec<(String, String)>> {
+    let root = paths::root_dir()?.join("attachments");
+    let session_entries = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("enumerate attachment sessions {}", root.display()))
+        }
+    };
+    let mut owners = HashSet::new();
+    for session_entry in session_entries {
+        let session_entry = session_entry
+            .with_context(|| format!("read attachment session entry in {}", root.display()))?;
+        if !session_entry
+            .file_type()
+            .with_context(|| format!("stat attachment session {}", session_entry.path().display()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let Some(session_id) = session_entry.file_name().to_str().map(ToOwned::to_owned) else {
+            continue;
+        };
+        for snapshot_entry in std::fs::read_dir(session_entry.path()).with_context(|| {
+            format!(
+                "enumerate session attachment snapshots {}",
+                session_entry.path().display()
+            )
+        })? {
+            let snapshot_entry = snapshot_entry.with_context(|| {
+                format!(
+                    "read session attachment snapshot in {}",
+                    session_entry.path().display()
+                )
+            })?;
+            let Some(name) = snapshot_entry.file_name().to_str().map(ToOwned::to_owned) else {
+                continue;
+            };
+            if let Some(run_id) = typed_resource_snapshot_owner(&name) {
+                owners.insert((session_id.clone(), run_id));
+            }
+        }
+    }
+    let mut owners = owners.into_iter().collect::<Vec<_>>();
+    owners.sort();
+    Ok(owners)
+}
+
+fn opened_file_identity_fingerprint(_path: &Path, metadata: &std::fs::Metadata) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let identity = format!(
+            "unix:{}:{}:{}",
+            metadata.dev(),
+            metadata.ino(),
+            metadata.mode()
+        );
+        crate::cache_routing::audit_fingerprint("typed-file-object", identity.as_bytes())
+    }
+    #[cfg(not(unix))]
+    {
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|value| value.as_nanos())
+            .unwrap_or_default();
+        let identity = format!(
+            "portable:{}:{}:{}",
+            _path.to_string_lossy(),
+            metadata.len(),
+            modified
+        );
+        crate::cache_routing::audit_fingerprint("typed-file-object", identity.as_bytes())
+    }
+}
+
 fn attachment_destination(session_id: Option<&str>, file_name: &str) -> Result<PathBuf> {
     let att_dir: PathBuf = match session_id {
         Some(sid) if !sid.is_empty() => paths::attachments_dir(sid)?,
@@ -531,12 +1663,15 @@ pub fn persist_chat_user_attachments_meta(
                         }
                     }
                     Err(err) => {
+                        let failure = crate::cache_routing::audit_fingerprint(
+                            "attachment-persist",
+                            err.to_string().as_bytes(),
+                        );
                         app_warn!(
                             "app",
                             "chat",
-                            "Falling back to attachment bytes for '{}': {}",
-                            att.name,
-                            err
+                            "Falling back to attachment bytes after persistence failure ({})",
+                            &failure[..16]
                         );
                     }
                 }
@@ -546,7 +1681,16 @@ pub fn persist_chat_user_attachments_meta(
             {
                 Ok(path) => path,
                 Err(err) => {
-                    app_warn!("app", "chat", "Skipping attachment '{}': {}", att.name, err);
+                    let failure = crate::cache_routing::audit_fingerprint(
+                        "attachment-persist",
+                        err.to_string().as_bytes(),
+                    );
+                    app_warn!(
+                        "app",
+                        "chat",
+                        "Skipping one attachment after persistence failure ({})",
+                        &failure[..16]
+                    );
                     continue;
                 }
             };
@@ -572,7 +1716,16 @@ pub fn persist_chat_user_attachments_meta(
         ) {
             Ok(path) => path,
             Err(err) => {
-                app_warn!("app", "chat", "Skipping attachment '{}': {}", att.name, err);
+                let failure = crate::cache_routing::audit_fingerprint(
+                    "attachment-persist",
+                    err.to_string().as_bytes(),
+                );
+                app_warn!(
+                    "app",
+                    "chat",
+                    "Skipping one attachment after path validation failure ({})",
+                    &failure[..16]
+                );
                 continue;
             }
         };
@@ -582,7 +1735,16 @@ pub fn persist_chat_user_attachments_meta(
         {
             Ok(path) => path,
             Err(err) => {
-                app_warn!("app", "chat", "Skipping attachment '{}': {}", att.name, err);
+                let failure = crate::cache_routing::audit_fingerprint(
+                    "attachment-persist",
+                    err.to_string().as_bytes(),
+                );
+                app_warn!(
+                    "app",
+                    "chat",
+                    "Skipping one attachment after canonicalization failure ({})",
+                    &failure[..16]
+                );
                 continue;
             }
         };
@@ -590,8 +1752,7 @@ pub fn persist_chat_user_attachments_meta(
             app_warn!(
                 "app",
                 "chat",
-                "attachment path outside allowed attachment directories: {}",
-                src_path.display()
+                "attachment path outside allowed attachment directories"
             );
             continue;
         }
@@ -625,6 +1786,18 @@ pub fn persist_queued_chat_attachments(
     request_id: &str,
     attachments: &mut [Attachment],
 ) -> Result<()> {
+    // This helper can also be reached by non-chat transports. Even if a shell
+    // accidentally omits the sidecar association check, never persist an
+    // unbounded/preloaded payload that claims typed-resource provenance.
+    for attachment in attachments.iter().filter(|attachment| {
+        matches!(
+            attachment.source.as_deref(),
+            Some("mention" | "plan_mention")
+        )
+    }) {
+        ensure_typed_resource_acquisition_shape(attachment)?;
+    }
+
     // A text-only queued message has no attachment directory to prepare. The
     // generic persistence helper intentionally returns before creating one for
     // an empty slice, so avoid canonicalizing a path that does not exist yet.
@@ -1114,6 +2287,40 @@ mod tests {
     use super::*;
     use crate::agent::Attachment;
 
+    #[test]
+    fn typed_resource_debug_omits_bytes_paths_names_and_fingerprints() {
+        const SENTINEL: &str = "PRIVATE-ATTACHMENT-SENTINEL";
+        let frozen = FrozenMentionAttachment {
+            target_id: format!("private/{SENTINEL}/target"),
+            resource_ref: "resource_ref_safe".into(),
+            snapshot_name: Some(format!("snapshot-{SENTINEL}")),
+            file_name: format!("{SENTINEL}.txt"),
+            mime_type: "text/plain".into(),
+            source_bytes: SENTINEL.len() as u64,
+            durable: true,
+            object_identity_fingerprint: format!("object-{SENTINEL}"),
+            content_fingerprint: format!("content-{SENTINEL}"),
+            bytes: std::sync::Arc::from(SENTINEL.as_bytes()),
+        };
+        let prepared = PreparedMentionAttachment {
+            target_id: format!("private/{SENTINEL}/prepared"),
+            resource_ref: "resource_ref_prepared".into(),
+            snapshot_name: Some(format!("prepared-{SENTINEL}")),
+            attachment_index: 3,
+            bytes: std::sync::Arc::from(SENTINEL.as_bytes()),
+            object_identity_fingerprint: format!("object-{SENTINEL}"),
+            content_fingerprint: format!("content-{SENTINEL}"),
+        };
+        let prepared_batch = PreparedTypedResourceMentions {
+            candidates: vec![prepared],
+        };
+
+        for debug in [format!("{frozen:?}"), format!("{prepared_batch:?}")] {
+            assert!(!debug.contains(SENTINEL));
+            assert!(!debug.contains("private/"));
+        }
+    }
+
     fn assert_session_attachment_path(path: &str, root: &Path, session_id: &str) {
         let path = Path::new(path);
         let expected_dir = root.join("attachments").join(session_id);
@@ -1126,6 +2333,599 @@ mod tests {
             path.display(),
             expected_dir.display()
         );
+    }
+
+    fn mention_attachment(path: &Path) -> Attachment {
+        Attachment {
+            name: "selected.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some("mention".to_string()),
+            data: None,
+            file_path: Some(path.to_string_lossy().into_owned()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        }
+    }
+
+    fn file_binding_wire(
+        message: &str,
+        spans: &[(usize, usize)],
+    ) -> crate::prompt_context::IncomingTurnWire {
+        let digest = crate::prompt_context::canonical_text_digest(message);
+        crate::prompt_context::IncomingTurnWire {
+            prompt_contract_version: crate::prompt_context::PROMPT_CONTRACT_VERSION,
+            mention_wire_version: crate::prompt_context::MENTION_WIRE_VERSION,
+            user_input: crate::prompt_context::CanonicalUserInput {
+                input_item_id: "input-1".into(),
+                canonicalization_version: 1,
+                text: message.into(),
+                digest: digest.clone(),
+            },
+            mentions: spans
+                .iter()
+                .enumerate()
+                .map(|(index, (start, end))| crate::prompt_context::MentionBindingWire {
+                    id: format!("file-{index}"),
+                    kind: crate::prompt_context::MentionKind::File,
+                    target_id: "selected.txt".into(),
+                    display_label: "selected.txt".into(),
+                    origin: crate::prompt_context::StructuredMentionOrigin::FirstPartyComposerGesture,
+                    source_anchor: crate::prompt_context::SourceAnchor::Inline {
+                        input_item_id: "input-1".into(),
+                        canonical_text_digest: digest.clone(),
+                        start_utf8: *start as u64,
+                        end_utf8: *end as u64,
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn typed_resource_transport_binding_is_exact_before_persistence() {
+        let path = Path::new("/tmp/selected.txt");
+        let attachment = mention_attachment(path);
+        let message = "@selected.txt";
+        let wire = file_binding_wire(message, &[(0, message.len())]);
+        validate_typed_resource_attachment_bindings(
+            message,
+            Some(&wire),
+            std::slice::from_ref(&attachment),
+        )
+        .expect("one unique target has one typed attachment");
+
+        assert!(validate_typed_resource_attachment_bindings(message, Some(&wire), &[]).is_err());
+        assert!(validate_typed_resource_attachment_bindings(
+            "plain",
+            None,
+            std::slice::from_ref(&attachment),
+        )
+        .is_err());
+
+        let repeated = "@selected.txt and @selected.txt";
+        let first = repeated.find("@selected.txt").unwrap();
+        let second = repeated.rfind("@selected.txt").unwrap();
+        let repeated_wire = file_binding_wire(
+            repeated,
+            &[
+                (first, first + "@selected.txt".len()),
+                (second, second + "@selected.txt".len()),
+            ],
+        );
+        validate_typed_resource_attachment_bindings(repeated, Some(&repeated_wire), &[attachment])
+            .expect("repeated mentions of one target share one attachment");
+    }
+
+    #[test]
+    fn queued_typed_resource_rejects_client_inline_data_before_disk_io() {
+        let mut attachment = mention_attachment(Path::new("/tmp/selected.txt"));
+        attachment.data = Some("forged-inline-payload".into());
+        let error = persist_queued_chat_attachments(
+            "does-not-need-to-exist",
+            "request",
+            std::slice::from_mut(&mut attachment),
+        )
+        .expect_err("queue persistence must reject typed inline data first");
+        assert!(error.to_string().contains("client-supplied inline data"));
+    }
+
+    #[test]
+    fn typed_resource_memory_projection_charges_batches_and_one_decode_peak() {
+        let reference =
+            typed_provider_text_resident_bytes(TYPED_RESOURCE_REFERENCE_MATERIALIZED_BYTES)
+                .expect("reference charge");
+        let projection = TypedResourceMemoryProjection::default()
+            .with_candidate(3, None)
+            .expect("first candidate")
+            .with_candidate(4, None)
+            .expect("second candidate");
+        assert_eq!(projection.raw_batch_bytes, 7);
+        assert_eq!(projection.base64_batch_bytes, 12);
+        assert_eq!(projection.provider_image_payload_bytes, 0);
+        assert_eq!(projection.reference_text_bytes, reference * 2);
+        assert_eq!(projection.max_transient_bytes, 4);
+        assert_eq!(projection.resident_bytes(), Some(23 + reference * 2));
+        assert_eq!(
+            max_raw_bytes_for_projected_budget(
+                TypedResourceMemoryProjection::default(),
+                reference + 9,
+                None,
+            ),
+            2,
+            "three raw bytes exceed nine non-reference resident bytes"
+        );
+    }
+
+    #[test]
+    fn typed_resource_projection_charges_provider_image_copies() {
+        let mime_len = "image/png".len();
+        let projection = TypedResourceMemoryProjection::default()
+            .with_candidate(3, Some(mime_len))
+            .expect("image candidate");
+        let one_payload = base64_encoded_len(3).unwrap()
+            + mime_len * 6
+            + TYPED_RESOURCE_PROVIDER_IMAGE_ENVELOPE_BYTES;
+        let reference =
+            typed_provider_text_resident_bytes(TYPED_RESOURCE_REFERENCE_MATERIALIZED_BYTES)
+                .expect("reference charge");
+        assert_eq!(
+            TYPED_RESOURCE_PROVIDER_PAYLOAD_COPIES, 7,
+            "Codex retains seven provider payload copies beyond Attachment.data"
+        );
+        assert_eq!(projection.provider_image_payload_bytes, one_payload);
+        assert_eq!(
+            projection.resident_bytes(),
+            Some(3 + 4 + one_payload * 7 + reference + 3)
+        );
+
+        let max_source = LEGACY_MAX_CHAT_ATTACHMENT_BYTES;
+        let max_image = TypedResourceMemoryProjection::default()
+            .with_candidate(max_source, Some(mime_len))
+            .expect("maximum image projection");
+        assert!(
+            max_image.resident_bytes().unwrap()
+                <= typed_resource_acquisition_budget_bytes().unwrap(),
+            "the aggregate guard must preserve the existing single-file source ceiling"
+        );
+        assert!(
+            max_raw_bytes_for_projected_budget(
+                max_image,
+                MAX_TYPED_RESOURCE_TURN_MEMORY_BYTES,
+                Some(mime_len),
+            ) < max_source,
+            "provider payload copies must constrain a second large image"
+        );
+    }
+
+    #[test]
+    fn thirty_two_resource_admission_preserves_one_global_continuation_floor() {
+        let acquisition_budget = typed_resource_acquisition_budget_bytes().unwrap();
+        let mut projection = TypedResourceMemoryProjection::default();
+        for _ in 0..31 {
+            projection = projection
+                .with_candidate(1, None)
+                .expect("small reference projection");
+        }
+        let final_raw = max_raw_bytes_for_projected_budget(projection, acquisition_budget, None);
+        let admitted = projection
+            .with_candidate(final_raw, None)
+            .expect("32-resource admitted projection");
+        let resident = admitted.resident_bytes().expect("resident projection");
+        assert!(resident <= acquisition_budget);
+        assert!(
+            MAX_TYPED_RESOURCE_TURN_MEMORY_BYTES - resident
+                >= TYPED_RESOURCE_CONTINUATION_FLOOR_BYTES
+        );
+        assert!(
+            projection
+                .with_candidate(final_raw + 1, None)
+                .and_then(TypedResourceMemoryProjection::resident_bytes)
+                .is_some_and(|value| value > acquisition_budget),
+            "one more source byte must cross the admission threshold"
+        );
+    }
+
+    #[test]
+    fn compact_frozen_bytes_rejects_stat_read_size_change() {
+        let mut oversized = Vec::with_capacity(1024);
+        oversized.extend_from_slice(b"x");
+        assert!(compact_frozen_bytes(oversized, 1024)
+            .expect_err("a post-stat truncate must fail closed")
+            .to_string()
+            .contains("changed size"));
+
+        let mut spare_capacity = Vec::with_capacity(1024);
+        spare_capacity.extend_from_slice(b"x");
+        let compact = compact_frozen_bytes(spare_capacity, 1).expect("compact exact bytes");
+        assert_eq!(&*compact, b"x");
+
+        assert!(read_exact_declared_bytes(&mut std::io::Cursor::new(b"x"), 2).is_err());
+        assert!(read_exact_declared_bytes(&mut std::io::Cursor::new(b"xy"), 1).is_err());
+        assert_eq!(
+            read_exact_declared_bytes(&mut std::io::Cursor::new(b"xy"), 2).unwrap(),
+            b"xy"
+        );
+    }
+
+    #[test]
+    fn typed_resource_prepare_enforces_aggregate_memory_before_publication() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let first = root.path().join("first.txt");
+        let second = root.path().join("second.txt");
+        std::fs::write(&first, b"four").expect("first");
+        std::fs::write(&second, b"more").expect("second");
+        let containment_root = root.path().canonicalize().expect("root canonical");
+        let sources = vec![
+            ResolvedMentionSource {
+                target_id: "first.txt".into(),
+                containment_root: containment_root.clone(),
+                relative_source: PathBuf::from("first.txt"),
+                source: first.canonicalize().expect("first canonical"),
+                attachment_source: "mention",
+            },
+            ResolvedMentionSource {
+                target_id: "second.txt".into(),
+                containment_root,
+                relative_source: PathBuf::from("second.txt"),
+                source: second.canonicalize().expect("second canonical"),
+                attachment_source: "mention",
+            },
+        ];
+        let attachments = vec![mention_attachment(&first), mention_attachment(&second)];
+
+        // raw batch 8 + Base64 batch 16 + one 4-byte decode peak = 28.
+        let error = prepare_resolved_mention_sources_with_budget(&sources, &attachments, 27)
+            .expect_err("aggregate projection must fail visibly");
+        assert!(error.to_string().contains("turn memory budget"));
+        assert!(attachments
+            .iter()
+            .all(|attachment| attachment.data.is_none()));
+    }
+
+    #[test]
+    fn typed_resource_prepare_rejects_unbounded_or_preloaded_client_metadata() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let source = root.path().join("selected.txt");
+        std::fs::write(&source, b"safe").expect("source");
+        let targets = vec!["selected.txt".to_string()];
+
+        let mut too_long = mention_attachment(&source);
+        too_long.name = "x".repeat(MAX_TYPED_RESOURCE_FILE_NAME_BYTES + 1);
+        let error = prepare_typed_resource_mentions(
+            root.path().to_str(),
+            &targets,
+            &[],
+            false,
+            &[too_long],
+        )
+        .expect_err("oversized display name");
+        assert!(error.to_string().contains("filename"));
+
+        let mut preloaded = mention_attachment(&source);
+        preloaded.data = Some("client-owned-inline-data".into());
+        let error = prepare_typed_resource_mentions(
+            root.path().to_str(),
+            &targets,
+            &[],
+            false,
+            &[preloaded],
+        )
+        .expect_err("preloaded typed data");
+        assert!(error.to_string().contains("client-supplied inline data"));
+
+        let mut long_path = mention_attachment(&source);
+        long_path.file_path = Some("p".repeat(MAX_TYPED_RESOURCE_CLIENT_PATH_BYTES + 1));
+        let error = prepare_typed_resource_mentions(
+            root.path().to_str(),
+            &targets,
+            &[],
+            false,
+            &[long_path],
+        )
+        .expect_err("oversized client path");
+        assert!(error.to_string().contains("path"));
+
+        let mut escape_heavy = mention_attachment(&source);
+        escape_heavy.name = "&".repeat(MAX_TYPED_RESOURCE_FILE_NAME_BYTES);
+        prepare_typed_resource_mentions(
+            root.path().to_str(),
+            &targets,
+            &[],
+            false,
+            &[escape_heavy],
+        )
+        .expect("bounded escape-heavy name");
+        assert!(
+            TYPED_RESOURCE_REFERENCE_MATERIALIZED_BYTES * 6
+                >= MAX_TYPED_RESOURCE_FILE_NAME_BYTES * 2 * "&amp;".len(),
+            "reference reserve must cover two maximally escaped filename attributes"
+        );
+    }
+
+    #[test]
+    fn typed_file_freeze_is_open_once_scoped_and_recoverable() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let workspace = root.path().join("workspace");
+            std::fs::create_dir_all(&workspace).expect("workspace");
+            let source = workspace.join("selected.txt");
+            std::fs::write(&source, b"frozen bytes").expect("source");
+
+            let mut incognito_attachment = vec![mention_attachment(&source)];
+            let incognito = freeze_typed_file_mentions(
+                "incognito-session",
+                workspace.to_str().unwrap(),
+                &["selected.txt".to_string()],
+                true,
+                &mut incognito_attachment,
+            )
+            .expect("freeze incognito");
+            assert_eq!(&*incognito[0].bytes, b"frozen bytes");
+            assert!(!incognito[0].durable);
+            assert!(incognito[0].snapshot_name.is_none());
+            assert!(!incognito[0].object_identity_fingerprint.is_empty());
+
+            let mut durable_attachment = vec![mention_attachment(&source)];
+            let durable = freeze_typed_file_mentions(
+                "durable-session",
+                workspace.to_str().unwrap(),
+                &["selected.txt".to_string()],
+                false,
+                &mut durable_attachment,
+            )
+            .expect("freeze durable");
+            let snapshot_name = durable[0].snapshot_name.as_deref().expect("snapshot ref");
+            assert_eq!(Path::new(snapshot_name).components().count(), 1);
+            assert_eq!(
+                std::fs::read(
+                    root.path()
+                        .join("attachments")
+                        .join("durable-session")
+                        .join(snapshot_name),
+                )
+                .expect("durable snapshot"),
+                b"frozen bytes"
+            );
+            assert_eq!(&*durable[0].bytes, b"frozen bytes");
+            assert!(durable[0].durable);
+        });
+    }
+
+    #[test]
+    fn typed_resource_prepare_is_read_only_and_publish_has_journal_owned_name() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let workspace = root.path().join("workspace");
+            std::fs::create_dir_all(&workspace).expect("workspace");
+            let source = workspace.join("selected.txt");
+            std::fs::write(&source, b"frozen bytes").expect("source");
+            let mut attachments = vec![mention_attachment(&source)];
+            attachments[0].name = format!("{}.txt", "x".repeat(220));
+            assert!(
+                !root.path().join("plans").exists(),
+                "file-only typed turns must not require a plan registry"
+            );
+
+            let mut prepared = prepare_typed_resource_mentions(
+                Some(workspace.to_str().unwrap()),
+                &["selected.txt".to_string()],
+                &[],
+                false,
+                &attachments,
+            )
+            .expect("prepare");
+            let run_id = "4b9c76fd-95e7-4cee-9670-9dd0d9b67263";
+            prepared
+                .bind_persistence_run(run_id)
+                .expect("bind persistence run");
+            let snapshot_name = prepared.candidates[0]
+                .snapshot_name
+                .clone()
+                .expect("planned snapshot basename");
+            assert_eq!(Path::new(&snapshot_name).components().count(), 1);
+            assert!(snapshot_name.starts_with(
+                "context-snapshot-run_4b9c76fd95e74cee96709dd0d9b67263-resource_ref_"
+            ));
+            assert!(snapshot_name.len() < 128);
+            assert!(!snapshot_name.contains(&"x".repeat(32)));
+            assert!(
+                !root
+                    .path()
+                    .join("attachments")
+                    .join("durable-session")
+                    .join(&snapshot_name)
+                    .exists(),
+                "read-only preparation must not publish bytes"
+            );
+
+            let frozen = publish_typed_resource_mentions(
+                "durable-session",
+                prepared,
+                false,
+                &mut attachments,
+            )
+            .expect("publish");
+            let published = root
+                .path()
+                .join("attachments")
+                .join("durable-session")
+                .join(&snapshot_name);
+            assert_eq!(
+                std::fs::read(&published).expect("snapshot"),
+                b"frozen bytes"
+            );
+            assert_eq!(
+                frozen[0].snapshot_name.as_deref(),
+                Some(snapshot_name.as_str())
+            );
+            assert!(run_owned_typed_resource_snapshot_owners()
+                .expect("enumerate owners")
+                .contains(&("durable-session".to_string(), run_id.to_string())));
+
+            let referenced = HashSet::from([snapshot_name.clone()]);
+            assert_eq!(
+                reconcile_run_typed_resource_snapshots("durable-session", run_id, &referenced)
+                    .expect("keep referenced snapshot"),
+                0
+            );
+            assert!(published.exists());
+            let foreign = HashSet::from([
+                "context-snapshot-run_00000000000000000000000000000000-resource_ref_other.txt"
+                    .to_string(),
+            ]);
+            assert!(
+                reconcile_run_typed_resource_snapshots("durable-session", run_id, &foreign)
+                    .is_err()
+            );
+            assert!(published.exists(), "foreign refs must fail closed");
+            assert_eq!(
+                reconcile_run_typed_resource_snapshots("durable-session", run_id, &HashSet::new())
+                    .expect("remove unreferenced snapshot"),
+                1
+            );
+            assert!(!published.exists());
+        });
+    }
+
+    #[test]
+    fn typed_resource_publish_failure_rolls_back_new_files() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let first = root.path().join("first.txt");
+            let second = root.path().join("second.txt");
+            std::fs::write(&first, b"first").expect("first");
+            std::fs::write(&second, b"second").expect("second");
+            let containment_root = root.path().canonicalize().expect("root canonical");
+            let sources = vec![
+                ResolvedMentionSource {
+                    target_id: "first.txt".into(),
+                    containment_root: containment_root.clone(),
+                    relative_source: PathBuf::from("first.txt"),
+                    source: first.canonicalize().expect("first canonical"),
+                    attachment_source: "mention",
+                },
+                ResolvedMentionSource {
+                    target_id: "second.txt".into(),
+                    containment_root,
+                    relative_source: PathBuf::from("second.txt"),
+                    source: second.canonicalize().expect("second canonical"),
+                    attachment_source: "mention",
+                },
+            ];
+            let mut attachments = vec![mention_attachment(&first), mention_attachment(&second)];
+            let mut prepared =
+                prepare_resolved_mention_sources(&sources, false, &attachments).expect("prepare");
+            prepared
+                .bind_persistence_run("a2b41080-9186-49ff-a417-2dc8167c25f4")
+                .expect("bind");
+            let first_name = prepared.candidates[0]
+                .snapshot_name
+                .clone()
+                .expect("first name");
+            let second_name = prepared.candidates[1]
+                .snapshot_name
+                .clone()
+                .expect("second name");
+            let attachment_dir = paths::attachments_dir("publish-failure").expect("dir");
+            std::fs::create_dir_all(&attachment_dir).expect("create dir");
+            std::fs::write(attachment_dir.join(&second_name), b"preexisting").expect("collision");
+
+            publish_typed_resource_mentions("publish-failure", prepared, false, &mut attachments)
+                .expect_err("create-new collision must abort the batch");
+
+            assert!(!attachment_dir.join(first_name).exists());
+            assert_eq!(
+                std::fs::read(attachment_dir.join(second_name)).expect("preexisting survives"),
+                b"preexisting"
+            );
+            assert!(attachments
+                .iter()
+                .all(|attachment| attachment.data.is_none()));
+            assert_eq!(attachments[0].file_path.as_deref(), first.to_str());
+            assert_eq!(attachments[1].file_path.as_deref(), second.to_str());
+        });
+    }
+
+    #[test]
+    fn typed_resource_cleanup_rejects_unknown_or_cross_owner_names() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let run_id = "dff53eeb-5c97-4f13-8f45-4bdacbe2ed92";
+            let foreign_run = "d6f693f0-4efe-4764-a9a2-ed415bbfef79";
+            let session_id = "cleanup-guard";
+            let attachment_dir = paths::attachments_dir(session_id).expect("dir");
+            std::fs::create_dir_all(&attachment_dir).expect("create dir");
+            let foreign_name = format!(
+                "{}resource_ref_{}",
+                typed_resource_run_prefix(foreign_run).expect("foreign prefix"),
+                uuid::Uuid::new_v4().simple()
+            );
+            let foreign_path = attachment_dir.join(&foreign_name);
+            std::fs::write(&foreign_path, b"keep").expect("foreign snapshot");
+            let cleanup = crate::session::TypedResourceSnapshotCleanup {
+                ledger_row_id: 1,
+                run_id: run_id.to_string(),
+                session_id: session_id.to_string(),
+                snapshot_name: foreign_name,
+            };
+
+            remove_pending_typed_resource_snapshot(&cleanup)
+                .expect_err("a ledger row cannot target another run prefix");
+            assert_eq!(std::fs::read(foreign_path).expect("preserved"), b"keep");
+        });
+    }
+
+    #[test]
+    fn mixed_typed_resources_freeze_as_one_snapshot_batch() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let workspace_file = root.path().join("workspace.txt");
+            let plan_file = root.path().join("plan.md");
+            std::fs::write(&workspace_file, b"workspace").expect("workspace source");
+            std::fs::write(&plan_file, b"plan").expect("plan source");
+            let mut attachments = vec![
+                mention_attachment(&workspace_file),
+                Attachment {
+                    name: "plan.md".to_string(),
+                    mime_type: "text/markdown".to_string(),
+                    source: Some("plan_mention".to_string()),
+                    data: None,
+                    file_path: Some(plan_file.to_string_lossy().into_owned()),
+                    upload_id: None,
+                    quote_lines: None,
+                    quote_role: None,
+                },
+            ];
+            let containment_root = root.path().canonicalize().expect("root canonical");
+            let sources = vec![
+                ResolvedMentionSource {
+                    target_id: "workspace.txt".into(),
+                    containment_root: containment_root.clone(),
+                    relative_source: PathBuf::from("workspace.txt"),
+                    source: workspace_file.canonicalize().expect("workspace canonical"),
+                    attachment_source: "mention",
+                },
+                ResolvedMentionSource {
+                    target_id: "abcdef12:v0".into(),
+                    containment_root,
+                    relative_source: PathBuf::from("plan.md"),
+                    source: plan_file.canonicalize().expect("plan canonical"),
+                    attachment_source: "plan_mention",
+                },
+            ];
+            let frozen = freeze_resolved_mention_sources(
+                "incognito-session",
+                &sources,
+                true,
+                &mut attachments,
+            )
+            .expect("freeze mixed resources");
+            assert_eq!(frozen.len(), 2);
+            assert_eq!(&*frozen[0].bytes, b"workspace");
+            assert_eq!(&*frozen[1].bytes, b"plan");
+            assert!(frozen.iter().all(|entry| !entry.durable));
+        });
     }
 
     #[test]

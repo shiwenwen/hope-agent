@@ -211,6 +211,29 @@ pub fn list_all_plans(filter: &PlanIndexFilter) -> Result<Vec<PlanIndexEntry>> {
 /// Resolve a `@plan:<short_id>:v<version>` mention to a concrete file.
 /// `version = 0` selects the current plan; positive values pick a backup.
 pub fn resolve_plan_mention(short_id: &str, version: u32) -> Result<PlanMentionResolution> {
+    let (session_id, agent_id, file_path, resolved_version) =
+        resolve_plan_mention_path(short_id, version)?;
+
+    let title = std::fs::read_to_string(&file_path)
+        .ok()
+        .and_then(|c| extract_plan_title(&c));
+
+    Ok(PlanMentionResolution {
+        session_id,
+        agent_id,
+        file_path: file_path.to_string_lossy().into_owned(),
+        version: resolved_version,
+        title,
+    })
+}
+
+/// Resolve a typed plan reference to its live registry-owned source path
+/// without opening the plan content. The prompt-context freezer owns the one
+/// authoritative content read, closing the resolve/read race for model input.
+pub(crate) fn resolve_plan_mention_path(
+    short_id: &str,
+    version: u32,
+) -> Result<(String, String, PathBuf, u32)> {
     let db = crate::get_session_db().ok_or_else(|| anyhow::anyhow!("Session DB unavailable"))?;
     let matches = db.find_sessions_by_id_prefix(short_id)?;
     if matches.is_empty() {
@@ -245,17 +268,12 @@ pub fn resolve_plan_mention(short_id: &str, version: u32) -> Result<PlanMentionR
         (PathBuf::from(&v.file_path), v.version)
     };
 
-    let title = std::fs::read_to_string(&file_path)
-        .ok()
-        .and_then(|c| extract_plan_title(&c));
-
-    Ok(PlanMentionResolution {
-        session_id: session_id.clone(),
-        agent_id: agent_id.clone(),
-        file_path: file_path.to_string_lossy().into_owned(),
-        version: resolved_version,
-        title,
-    })
+    Ok((
+        session_id.clone(),
+        agent_id.clone(),
+        file_path,
+        resolved_version,
+    ))
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

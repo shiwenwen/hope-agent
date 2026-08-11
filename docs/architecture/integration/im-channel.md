@@ -1,6 +1,6 @@
 # IM Channel 系统
 
-> 返回 [文档索引](../../README.md)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
 
 把 Hope Agent 接到 Telegram、Discord、Slack、飞书、微信等即时通讯平台，让用户在手机上直接和 Agent 对话。全部用 Rust 原生实现，不依赖任何 Node.js 桥接。
 
@@ -751,9 +751,10 @@ pub fn spawn_dispatcher(registry, channel_db, mut inbound_rx: mpsc::Receiver<Inb
 - **斜杠命令在调 LLM 前拦截**：`dispatch_slash_for_channel()` 经 `slash_hooks::dispatch()` 跳板转发给装配层 handler（IM 渠道**不得**直接 `use crate::slash_commands::…`，见 [backend-separation](../system/backend-separation.md)）。`Reply` 类命令（`/help` / `/clear` / `/model` / `/status`）把原始 slash 与结果落成 `messages.role="event"`（带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）把转换后的指令交给 LLM 并按真实 user turn 落库。详见 [slash-commands](slash-commands.md)。
 - **共享同一个 ChatEngine**：`run_chat_engine()` 与 UI 聊天用完全相同的执行引擎——流式、历史恢复、工具事件持久化、Failover、上下文压缩、Token 跟踪、异步记忆提取全都复用。
 - **每账户可绑独立 Agent**（`ChannelAccountConfig.agent_id`），未设时回退全局默认。
-- **注入 Channel 上下文**：通过 `extra_system_context` 向 Agent 注入 `## IM Channel Context`（channel、chat type、chat id、sender 及 group/topic/channel 额外 system prompt）。
+- **注入 Channel 上下文**：固定的 IM 行为契约与 owner 配置的 channel policy 进入 `RunInstructionContext`；channel、chat type、chat id、sender、title 等外部元数据进入独立的 untrusted run-data block。两者都按回合发送，不修改稳定 system 前缀。
+- **技能 ceiling 随队列保存**：IM 的 `/skill` 先解析为显式 Skill activation；`allowed-tools` ceiling 由产生转换后用户消息的同一次解析冻结并一起写入 turn queue，claim / retry 后原样恢复，禁止展开后再读 catalog。它只收窄 schema、`tool_search` 与执行层，不能被后续 Skill 或并发配置变化放宽；真正工具调用仍由模型决定并经过统一权限引擎。
 
-**Prompt 注入的安全边界。** 除了入站回合注入的 `## IM Channel Context`，只要会话绑定了 IM chat，`build_system_prompt_with_session()` 还会追加一段 `# IM Channel Attachment`——覆盖「桌面/HTTP 在同一 IM 绑定 session 里发起回合」的场景，让模型知道回复可能被 GUI→IM 镜像发到该 chat，需注意受众与格式。`sender_name`、chat id 等 IM metadata 可能来自外部平台，用单行 JSON 渲染并明确标注为 untrusted routing/audience context，模型只能把它们当数据、不能当指令。
+**Prompt 注入的安全边界。** 入站回合的固定 `## IM Channel Context` 是受信运行契约；只要会话绑定了 IM chat，`build_im_channel_attachment_data()` 还会生成 `IM Channel Attachment` 数据段——覆盖「桌面/HTTP 在同一 IM 绑定 session 里发起回合」的场景，让模型知道回复可能被 GUI→IM 镜像发到该 chat，需注意受众与格式。`sender_name`、chat id 等 IM metadata 可能来自外部平台，用单行 JSON 渲染并明确标注为 untrusted routing/audience context，模型只能把它们当数据、不能当指令。
 
 ---
 

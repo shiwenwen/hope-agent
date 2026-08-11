@@ -164,6 +164,17 @@ where
     join_all(wrapped).await
 }
 
+fn join_context_blocks(left: Option<String>, right: Option<String>) -> Option<String> {
+    match (left, right) {
+        (Some(left), Some(right)) if !left.is_empty() && !right.is_empty() => {
+            Some(format!("{left}\n\n{right}"))
+        }
+        (Some(left), _) if !left.is_empty() => Some(left),
+        (_, Some(right)) if !right.is_empty() => Some(right),
+        _ => None,
+    }
+}
+
 fn final_round_handoff_guidance(max_rounds: u32) -> String {
     format!(
         "# Tool-Call Limit Reached\n\n\
@@ -539,6 +550,8 @@ where
             adapter.provider_format(),
             &provider_message,
             &item.attachments,
+            agent.get_context_window(),
+            &[],
         );
         AssistantAgent::push_user_message(messages, user_content);
 
@@ -940,26 +953,95 @@ fn collect_tool_schema_updates(
     schema_catalog_changed
 }
 
+fn skill_activation_delta(
+    side: &super::streaming_adapter::ToolDispatchSideOutput,
+) -> Option<crate::skills::SkillToolCeiling> {
+    let metadata = side.metadata.as_ref()?;
+    if metadata.get("kind").and_then(|value| value.as_str()) != Some("skill_activation_delta") {
+        return None;
+    }
+    match metadata
+        .get("toolCeiling")
+        .and_then(|value| value.as_str())?
+    {
+        "unspecified" => Some(crate::skills::SkillToolCeiling::Unspecified),
+        "deny_all" => Some(crate::skills::SkillToolCeiling::DenyAll),
+        "restricted" => {
+            let tools = metadata
+                .get("allowedTools")?
+                .as_array()?
+                .iter()
+                .map(|value| value.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()?;
+            if tools.is_empty() {
+                None
+            } else {
+                Some(crate::skills::SkillToolCeiling::Restricted(tools))
+            }
+        }
+        _ => None,
+    }
+}
+
 fn prompt_cache_key(
     agent: &AssistantAgent,
     provider: super::types::ProviderFormat,
     model: &str,
     stable_prompt: &str,
+    tool_schemas: &[serde_json::Value],
+    deferred_tool_schemas: &[serde_json::Value],
 ) -> String {
-    const PROMPT_CONTRACT_VERSION: &str = "v2";
-    let prompt_hash = blake3::hash(stable_prompt.as_bytes()).to_hex();
+    const PROMPT_CONTRACT_VERSION: &str = "v3";
+    let tool_catalog = serde_json::to_vec(&(tool_schemas, deferred_tool_schemas))
+        .unwrap_or_else(|_| b"tool-catalog-serialization-error".to_vec());
+    let provider_instance = agent
+        .provider_config
+        .as_ref()
+        .map(|config| format!("{}\0{}", config.id, config.base_url.trim_end_matches('/')))
+        .unwrap_or_else(|| "provider-instance-unavailable".to_string());
+    let tenant_partition = agent.provider.cache_tenant_partition();
+    let routing_digest = crate::cache_routing::keyed_digest([
+        provider.label().as_bytes(),
+        model.as_bytes(),
+        PROMPT_CONTRACT_VERSION.as_bytes(),
+        provider_instance.as_bytes(),
+        tenant_partition.as_bytes(),
+        stable_prompt.as_bytes(),
+        tool_catalog.as_slice(),
+    ])
+    .to_hex();
     let scope = if agent.session_is_incognito() {
         agent.session_id.as_deref().unwrap_or("incognito")
     } else {
         agent.agent_id.as_str()
     };
-    let scope_hash = blake3::hash(scope.as_bytes()).to_hex();
+    let scope_hash = crate::cache_routing::keyed_digest([scope.as_bytes()]).to_hex();
     format!(
-        "ha:{}:{model}:{PROMPT_CONTRACT_VERSION}:{}:{}",
+        "ha:{PROMPT_CONTRACT_VERSION}:{}:{}:{}",
         provider.label(),
         &scope_hash[..12],
-        &prompt_hash[..16]
+        &routing_digest[..24]
     )
+}
+
+/// Local-only accounting view used by compaction. Dynamic blocks are appended
+/// here solely so their tokens reserve real context space; this string is not
+/// serialized as a provider system/developer message, so data-lane content
+/// does not gain authority through the accounting path.
+fn prompt_for_budget<'a>(
+    stable_prompt: &str,
+    dynamic_blocks: impl IntoIterator<Item = Option<&'a str>>,
+) -> String {
+    let mut prompt = stable_prompt.to_string();
+    for block in dynamic_blocks
+        .into_iter()
+        .flatten()
+        .filter(|s| !s.is_empty())
+    {
+        prompt.push_str("\n\n");
+        prompt.push_str(block);
+    }
+    prompt
 }
 
 impl AssistantAgent {
@@ -993,16 +1075,25 @@ impl AssistantAgent {
         event.duration_ms = Some(duration_ms);
         event.ttft_ms = ttft_ms;
         if let Some(usage) = usage {
-            event.input_tokens = Some(usage.input_tokens);
-            event.output_tokens = Some(usage.output_tokens);
-            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
-            event.context_input_tokens = Some(usage.context_input_tokens);
-            event.fresh_input_tokens = Some(usage.fresh_input_tokens);
+            if usage.input_coverage.is_present() {
+                event.input_tokens = Some(usage.input_tokens);
+                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+                event.context_input_tokens = Some(usage.context_input_tokens);
+                event.fresh_input_tokens = Some(usage.fresh_input_tokens);
+            }
+            if usage.output_coverage.is_present() {
+                event.output_tokens = Some(usage.output_tokens);
+            }
         }
         if let Some(error) = error {
             event.success = false;
-            event.error = Some(error.to_string());
+            let error_text = error.to_string();
+            event.error = Some(format!(
+                "provider_error bytes={} fingerprint={}",
+                error_text.len(),
+                crate::cache_routing::audit_fingerprint("model-usage-error", error_text.as_bytes(),)
+            ));
         }
         crate::eval_context::record_model_usage(&event);
     }
@@ -1040,7 +1131,8 @@ impl AssistantAgent {
         let provider_label = adapter.provider_format().label();
 
         self.reset_chat_flags();
-        self.refresh_coding_profile_suffix(message);
+        let retrieval_query = self.retrieval_query.as_deref().unwrap_or(message);
+        self.refresh_coding_profile_suffix(retrieval_query);
 
         // The user item is the turn's crash-recovery base, not merely transient
         // request state. Persist its exact provider-native shape at seq=0 before
@@ -1081,29 +1173,64 @@ impl AssistantAgent {
                 _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
             }
         }
-        self.configure_retrieval_planner_context(message);
+        self.configure_retrieval_planner_context(retrieval_query);
         // Dynamic context refreshers write independent slots / trace ledgers
         // and never read each other; run them concurrently so the worst case
         // stays bounded by the slowest refresher instead of their sum.
         let refresh_turn_context = async {
             tokio::join!(
-                self.refresh_awareness_suffix(message),
-                self.refresh_active_memory_suffix(message),
-                self.refresh_related_notes_suffix(message),
-                self.refresh_experience_memory_trace(message),
-                self.refresh_graph_memory_trace(message),
+                self.refresh_awareness_suffix(retrieval_query),
+                self.refresh_active_memory_suffix(retrieval_query),
+                self.refresh_related_notes_suffix(retrieval_query),
+                self.refresh_experience_memory_trace(retrieval_query),
+                self.refresh_graph_memory_trace(retrieval_query),
                 self.prepare_full_system_prompt(model, provider_label),
+                self.prepare_attached_knowledge_section(),
+                self.prepare_im_attachment_data(),
+                self.prepare_user_profile_data(),
+                self.prepare_session_policy_context(),
             )
         };
-        let (_, _, _, _, _, prepared_system_prompt) = tokio::select! {
+        let (
+            _,
+            _,
+            _,
+            _,
+            _,
+            prepared_system_prompt,
+            attached_knowledge_suffix,
+            im_attachment_data,
+            user_profile_suffix,
+            session_policy_context,
+        ) = tokio::select! {
             refreshed = refresh_turn_context => refreshed,
             _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
+        };
+        let (session_policy_instruction, session_policy_data) = session_policy_context;
+        let capability_catalog_suffix = self.current_capability_catalog_suffix();
+        let environment_context_suffix = {
+            let session_meta = self.lookup_session_meta();
+            let working_dir = session_meta
+                .as_ref()
+                .and_then(crate::session::effective_working_dir_for_meta);
+            crate::system_prompt::build_round_environment_data(working_dir.as_deref())
         };
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        if !self.session_is_incognito() {
+            if let Some(db) = self
+                .session_db
+                .clone()
+                .or_else(|| crate::get_session_db().cloned())
+            {
+                crate::token_accounting::service()
+                    .preload_recent_calibrations(db)
+                    .await;
+            }
+        }
 
         let mut activated_tool_names = self.load_activated_tool_names();
         // Track the exact atomic MCP catalog generation represented by the
@@ -1129,17 +1256,67 @@ impl AssistantAgent {
         let mut deferred_tool_count = tool_inventory.deferred_count;
         let mut deferred_tool_schemas = tool_inventory.deferred_schemas;
         let mut tool_schemas = tool_inventory.schemas;
+        let max_rounds_cfg = super::config::get_max_tool_rounds(&self.agent_id);
+        let max_rounds = if max_rounds_cfg == 0 {
+            u32::MAX
+        } else {
+            max_rounds_cfg
+        };
+        let round_limit_enabled = max_rounds_cfg != 0;
 
         // Static system prompt prefix (cache-friendly). Dynamic suffixes are
         // sent as independent provider-level blocks when supported.
-        let system_prompt = prepared_system_prompt;
-        let mut system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
+        let mut system_prompt = prepared_system_prompt;
+        self.select_memories_if_needed(retrieval_query).await;
+        self.apply_engine_prompt_addition(&mut system_prompt);
+        let initial_run_instruction = join_context_blocks(
+            self.current_run_instruction_suffix(),
+            session_policy_instruction.clone(),
+        );
+        let initial_run_data =
+            join_context_blocks(self.current_run_data_suffix(), session_policy_data.clone());
+        let initial_awareness = self.current_awareness_suffix();
+        let initial_active_memory = self.current_active_memory_suffix();
+        let initial_legacy_memory = self.current_legacy_memory_suffix();
+        let initial_coding_profile = self.current_coding_profile_suffix();
+        let initial_procedure_memory = self.current_procedure_memory_suffix();
+        let initial_related_notes = self.current_related_notes_suffix();
+        let mut system_prompt_for_budget = prompt_for_budget(
+            &system_prompt,
+            [
+                initial_run_instruction.as_deref(),
+                initial_run_data.as_deref(),
+                initial_awareness.as_deref().map(String::as_str),
+                initial_active_memory.as_deref().map(String::as_str),
+                initial_legacy_memory.as_deref().map(String::as_str),
+                initial_coding_profile.as_deref().map(String::as_str),
+                initial_procedure_memory.as_deref().map(String::as_str),
+                initial_related_notes.as_deref().map(String::as_str),
+                attached_knowledge_suffix.as_deref(),
+                capability_catalog_suffix.as_deref(),
+                user_profile_suffix.as_deref(),
+                environment_context_suffix.as_deref(),
+                im_attachment_data.as_deref(),
+            ],
+        );
 
+        let initial_provider_deferred_tool_schemas =
+            if local_tool_search_survived(keep_local_tool_search_for_turn, &tool_schemas) {
+                &[][..]
+            } else {
+                deferred_tool_schemas.as_slice()
+            };
+        let initial_request_tool_schemas = adapter.token_count_tool_schemas_for(
+            &tool_schemas,
+            initial_provider_deferred_tool_schemas,
+            eager_tool_count,
+            round_limit_enabled && max_rounds == 1,
+        );
         let compaction = self
             .run_compaction(
                 &mut messages,
                 &system_prompt_for_budget,
-                &tool_schemas,
+                &initial_request_tool_schemas,
                 model,
                 MAX_OUTPUT_TOKENS,
                 Some(cancel.clone()),
@@ -1161,11 +1338,6 @@ impl AssistantAgent {
             tool_schemas = tool_inventory.schemas;
         }
 
-        let mut system_prompt = system_prompt;
-        self.select_memories_if_needed(&mut system_prompt, message)
-            .await;
-        self.apply_engine_prompt_addition(&mut system_prompt);
-
         // Snapshot cache-safe params for side_query reuse (prompt cache sharing).
         // Must run AFTER compaction + memory selection so the snapshot matches
         // what the next API request actually sends.
@@ -1176,13 +1348,6 @@ impl AssistantAgent {
             model,
         );
 
-        let max_rounds_cfg = super::config::get_max_tool_rounds(&self.agent_id);
-        let max_rounds = if max_rounds_cfg == 0 {
-            u32::MAX
-        } else {
-            max_rounds_cfg
-        };
-        let round_limit_enabled = max_rounds_cfg != 0;
         let mut round_count: u32 = 0;
         let mut natural_exit = false;
         let mut collected_text = String::new();
@@ -1274,13 +1439,13 @@ impl AssistantAgent {
 
             // Mid-turn plan-state probe (round head): catches transitions
             // that happened between rounds. `maybe_resync_plan_mode_from_backend`
-            // updates ALL plan slots together (mode, allow_paths,
-            // plan_extra_context) so when it returns true we just have to
+            // updates ALL plan slots together (mode, allow_paths, fixed
+            // instruction, plan data) so when it returns true we just have to
             // rebuild dependent artifacts: tool_schemas (LLM sees new
             // tools next round) and the round's system_prompt mut local
-            // (LLM sees new plan contract next round). Prompt cache may
-            // miss for this round — acceptable cost since plan-state
-            // changes happen 1-2× per turn at most.
+            // (LLM sees new plan contract next round). The prompt-cache
+            // stable prefix remains unchanged; only the dynamic lanes
+            // and any deliberately changed tool catalog are rebuilt.
             //
             // Honors the externally-locked flag: spawn-supplied PlanAgent
             // child sessions (plan_subagent) skip the probe entirely.
@@ -1294,9 +1459,7 @@ impl AssistantAgent {
                 deferred_tool_schemas = tool_inventory.deferred_schemas;
                 tool_schemas = tool_inventory.schemas;
                 system_prompt = self.prepare_full_system_prompt(model, provider_label).await;
-                system_prompt_for_budget = self.merge_dynamic_system_prompt(system_prompt.clone());
-                self.select_memories_if_needed(&mut system_prompt, message)
-                    .await;
+                self.select_memories_if_needed(retrieval_query).await;
                 self.apply_engine_prompt_addition(&mut system_prompt);
             }
 
@@ -1357,17 +1520,32 @@ impl AssistantAgent {
             }
 
             let is_final_round = round + 1 == effective_max_rounds;
-            let final_round_system_prompt;
-            let round_system_prompt = if round_limit_enabled && is_final_round {
-                final_round_system_prompt = format!(
-                    "{}\n\n{}",
-                    system_prompt,
-                    final_round_handoff_guidance(max_rounds)
-                );
-                final_round_system_prompt.as_str()
-            } else {
-                system_prompt.as_str()
+            let mut run_instruction_suffix = join_context_blocks(
+                self.current_run_instruction_suffix(),
+                session_policy_instruction.clone(),
+            );
+            if im_attachment_data.is_some() {
+                let instruction = "# IM Channel Attachment\n\nThis session is attached to an IM conversation and assistant replies may be mirrored there. Keep the response suitable for that audience while completing desktop or HTTP requests normally.";
+                run_instruction_suffix = Some(match run_instruction_suffix {
+                    Some(existing) => format!("{existing}\n\n{instruction}"),
+                    None => instruction.to_string(),
+                });
+            }
+            let frozen_run_data =
+                join_context_blocks(self.current_run_data_suffix(), session_policy_data.clone());
+            let run_data_suffix = match (frozen_run_data, im_attachment_data.as_ref()) {
+                (Some(run), Some(im)) => Some(format!("{run}\n\n{im}")),
+                (Some(run), None) => Some(run),
+                (None, Some(im)) => Some(im.clone()),
+                (None, None) => None,
             };
+            if round_limit_enabled && is_final_round {
+                let guidance = final_round_handoff_guidance(max_rounds);
+                run_instruction_suffix = Some(match run_instruction_suffix {
+                    Some(existing) => format!("{existing}\n\n{guidance}"),
+                    None => guidance,
+                });
+            }
             let mut api_messages = crate::context_compact::prepare_messages_for_api(&messages);
             // Vision bridge: transcribe not-yet-cached images (once each) and
             // rewrite this round's ephemeral api_messages in place. Round 0
@@ -1399,6 +1577,8 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            let legacy_memory_suffix = self.current_legacy_memory_suffix();
+            let legacy_memory_refs = self.current_legacy_memory_refs();
             let coding_profile_suffix = self.current_coding_profile_suffix();
             let procedure_suffix = self.current_procedure_memory_suffix();
             let related_notes_suffix = self.current_related_notes_suffix();
@@ -1406,14 +1586,20 @@ impl AssistantAgent {
             // alloc), then list+format only when there's actually an active
             // task. Skips a full task list deserialize on every round of
             // every chat that's never used `task_create` (the common case).
-            let task_reminder = self.session_id.as_deref().and_then(|sid| {
+            let task_snapshot = self.session_id.as_deref().and_then(|sid| {
                 let db = crate::get_session_db()?;
                 if !db.has_active_tasks(sid).unwrap_or(false) {
                     return None;
                 }
                 let tasks = db.list_tasks(sid).ok()?;
-                tools::task_reminder_text(&tasks)
+                tools::task_snapshot_data(&tasks)
             });
+            if task_snapshot.is_some() {
+                run_instruction_suffix = Some(match run_instruction_suffix {
+                    Some(existing) => format!("{existing}\n\n{}", tools::TASK_REMINDER_INSTRUCTION),
+                    None => tools::TASK_REMINDER_INSTRUCTION.to_string(),
+                });
+            }
             let recovery_reminder = self
                 .session_id
                 .as_deref()
@@ -1424,20 +1610,21 @@ impl AssistantAgent {
                 }
                 None => None,
             };
-            let task_reminder = [task_reminder, recovery_reminder, pause_reminder]
+            let runtime_reminder = [recovery_reminder, pause_reminder]
                 .into_iter()
                 .flatten()
                 .reduce(|left, right| format!("{left}\n\n{right}"));
+            run_instruction_suffix = join_context_blocks(run_instruction_suffix, runtime_reminder);
             // Fold any pending hook context (PostCompact / SessionStart(compact)
             // / Notification additionalContext, queued outside a round) into
-            // this round's reminder suffix so it reaches the LLM as a system
-            // reminder block. A vision-bridge retry retains the context for the
-            // replacement request; otherwise it is consumed by this round.
+            // this round's user-data block. A vision-bridge retry retains the
+            // drained context for the replacement request; otherwise it is
+            // consumed by this round.
             let hook_context = merge_retry_hook_context(
                 retry_hook_context.take(),
                 self.drain_pending_hook_context(),
             );
-            let task_reminder = match (task_reminder, hook_context.as_deref()) {
+            let task_and_hook_data = match (task_snapshot, hook_context.as_deref()) {
                 (Some(t), Some(h)) => Some(format!("{t}\n\n{h}")),
                 (None, Some(h)) => Some(h.to_owned()),
                 (other, None) => other,
@@ -1473,9 +1660,25 @@ impl AssistantAgent {
             } else {
                 None
             };
-            let round_prompt_cache_key =
-                prompt_cache_key(self, adapter.provider_format(), model, round_system_prompt);
-
+            system_prompt_for_budget = prompt_for_budget(
+                &system_prompt,
+                [
+                    run_instruction_suffix.as_deref(),
+                    run_data_suffix.as_deref(),
+                    awareness_suffix.as_deref().map(String::as_str),
+                    active_suffix.as_deref().map(String::as_str),
+                    legacy_memory_suffix.as_deref().map(String::as_str),
+                    coding_profile_suffix.as_deref().map(String::as_str),
+                    procedure_suffix.as_deref().map(String::as_str),
+                    related_notes_suffix.as_deref().map(String::as_str),
+                    attached_knowledge_suffix.as_deref(),
+                    capability_catalog_suffix.as_deref(),
+                    user_profile_suffix.as_deref(),
+                    environment_context_suffix.as_deref(),
+                    lsp_diagnostics_suffix.as_deref(),
+                    task_and_hook_data.as_deref(),
+                ],
+            );
             // Provider-native search replaces Hope's `tool_search`. MCP turns
             // prefer the local tool because native search cannot express
             // Hope's `mcp_server` scope, but final Agent/Skill/Plan filters may
@@ -1487,6 +1690,14 @@ impl AssistantAgent {
                 } else {
                     &deferred_tool_schemas
                 };
+            let round_prompt_cache_key = prompt_cache_key(
+                self,
+                adapter.provider_format(),
+                model,
+                &system_prompt,
+                &tool_schemas,
+                provider_deferred_tool_schemas,
+            );
 
             crate::eval_context::ensure_model_budget(self.session_id.as_deref())?;
             let eval_max_tokens =
@@ -1495,14 +1706,21 @@ impl AssistantAgent {
                     .unwrap_or(MAX_OUTPUT_TOKENS);
             let req = RoundRequest {
                 session_id: self.session_id.as_deref(),
-                system_prompt: round_system_prompt,
+                system_prompt: &system_prompt,
+                run_instruction_suffix: run_instruction_suffix.as_deref(),
+                run_data_suffix: run_data_suffix.as_deref(),
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                legacy_memory_suffix: legacy_memory_suffix.as_deref().map(|s| s.as_str()),
                 coding_profile_suffix: coding_profile_suffix.as_deref().map(|s| s.as_str()),
                 procedure_memory_suffix: procedure_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
+                attached_knowledge_suffix: attached_knowledge_suffix.as_deref(),
+                capability_catalog_suffix: capability_catalog_suffix.as_deref(),
+                user_profile_suffix: user_profile_suffix.as_deref(),
+                environment_context_suffix: environment_context_suffix.as_deref(),
                 lsp_diagnostics_suffix: lsp_diagnostics_suffix.as_deref(),
-                task_reminder_suffix: task_reminder.as_deref(),
+                task_reminder_suffix: task_and_hook_data.as_deref(),
                 tool_schemas: &tool_schemas,
                 deferred_tool_schemas: provider_deferred_tool_schemas,
                 eager_tool_count,
@@ -1522,8 +1740,94 @@ impl AssistantAgent {
                 adapter.provider_format().label(),
                 model,
                 round,
-                round_system_prompt,
+                &system_prompt,
             );
+
+            let request_tool_schemas = adapter.token_count_tool_schemas(&req);
+            let token_request = crate::token_accounting::TokenCountRequest {
+                provider: adapter.provider_format().token_provider_family(),
+                model,
+                request_shape: adapter.provider_format().token_request_shape(),
+                // `system_prompt_for_budget` contains the stable prefix plus
+                // every dynamic lane in this exact round. Provider wrappers
+                // are represented by request-shape overhead in the service.
+                stable_prompt: &system_prompt_for_budget,
+                dynamic_prompt: "",
+                history: &api_messages,
+                eager_tool_schemas: &request_tool_schemas,
+                activated_tool_schemas: &[],
+            };
+            let round_token_prediction =
+                crate::token_accounting::service().count_local(&token_request);
+            crate::app_debug!(
+                "agent",
+                "token_accounting",
+                "round {} token prediction: source={:?}, estimated={}, upper={}, tokenizer={:?}, unknowns={}",
+                round,
+                round_token_prediction.source,
+                round_token_prediction.estimated,
+                round_token_prediction.upper_bound,
+                round_token_prediction.tokenizer_id,
+                round_token_prediction.unknowns.len()
+            );
+
+            let max_input_tokens =
+                u64::from(self.context_window.saturating_sub(eval_max_tokens).max(1));
+            if round_token_prediction.lower_bound > max_input_tokens {
+                return Err(crate::token_accounting::PreflightOverflow {
+                    input_tokens: round_token_prediction.upper_bound,
+                    max_input_tokens,
+                    source: round_token_prediction.source,
+                }
+                .into());
+            }
+            let mut effective_token_count = round_token_prediction.clone();
+            if crate::token_accounting::service()
+                .should_refine(&round_token_prediction, &[max_input_tokens])
+            {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(800),
+                    adapter.count_input_tokens(&client, &req, cancel),
+                )
+                .await
+                {
+                    Ok(Ok(Some(provider_total))) => {
+                        effective_token_count = round_token_prediction
+                            .clone()
+                            .with_provider_total(provider_total);
+                        crate::app_debug!(
+                            "agent",
+                            "token_accounting",
+                            "round {} provider preflight count: total={}, upper={}",
+                            round,
+                            provider_total,
+                            effective_token_count.upper_bound
+                        );
+                    }
+                    Ok(Ok(None)) => {}
+                    Ok(Err(error)) => crate::app_debug!(
+                        "agent",
+                        "token_accounting",
+                        "round {} provider preflight unavailable: {}",
+                        round,
+                        error
+                    ),
+                    Err(_) => crate::app_debug!(
+                        "agent",
+                        "token_accounting",
+                        "round {} provider preflight timed out",
+                        round
+                    ),
+                }
+            }
+            if effective_token_count.upper_bound > max_input_tokens {
+                return Err(crate::token_accounting::PreflightOverflow {
+                    input_tokens: effective_token_count.upper_bound,
+                    max_input_tokens,
+                    source: effective_token_count.source,
+                }
+                .into());
+            }
 
             let model_attempt_started = std::time::Instant::now();
             if let Some(fault) =
@@ -1579,6 +1883,7 @@ impl AssistantAgent {
                     return Err(error);
                 }
             };
+            self.commit_legacy_memory_refs_for_round(&legacy_memory_refs);
             self.record_eval_model_attempt(
                 model,
                 provider_label,
@@ -1609,23 +1914,44 @@ impl AssistantAgent {
                 tool_call.name = canonical;
             }
 
-            let raw_round_estimate = crate::context_compact::estimate_request_tokens_with_tools(
-                &system_prompt_for_budget,
-                &api_messages,
-                &tool_schemas,
-                0,
-            );
-            let calibrator_key = format!("{}:{model}", adapter.provider_format().label());
-            if outcome.usage.context_input_tokens > 0 {
-                self.token_calibrator
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .update(
-                        &calibrator_key,
-                        raw_round_estimate,
-                        outcome.usage.context_input_tokens.min(u64::from(u32::MAX)) as u32,
-                    );
+            if !self.session_is_incognito()
+                && outcome.usage.input_coverage == crate::token_accounting::UsageCoverage::Complete
+            {
+                crate::token_accounting::service().observe(
+                    &token_request,
+                    &round_token_prediction,
+                    outcome.usage.context_input_tokens,
+                );
             }
+            outcome.usage.token_accounting_observations.push(
+                crate::token_accounting::TokenAccountingObservation {
+                    operation_key: format!("chat_round:{round}"),
+                    provider: token_request.provider,
+                    model: model.to_string(),
+                    request_shape: token_request.request_shape,
+                    tokenizer_id: effective_token_count.tokenizer_id,
+                    tokenizer_registry_version: effective_token_count.tokenizer_registry_version,
+                    source: effective_token_count.source,
+                    raw_estimated: round_token_prediction.breakdown.total(),
+                    lower_bound: effective_token_count.lower_bound,
+                    estimated: effective_token_count.estimated,
+                    upper_bound: effective_token_count.upper_bound,
+                    actual_input_tokens: outcome
+                        .usage
+                        .input_coverage
+                        .is_present()
+                        .then_some(outcome.usage.context_input_tokens),
+                    input_coverage: outcome.usage.input_coverage,
+                    output_coverage: outcome.usage.output_coverage,
+                    reserved_output_tokens: u64::from(eval_max_tokens),
+                    has_media: effective_token_count.unknowns.iter().any(|unknown| {
+                        !matches!(
+                            unknown,
+                            crate::token_accounting::TokenCountUnknown::TokenizerUnavailable
+                        )
+                    }),
+                },
+            );
 
             if first_ttft_ms.is_none() {
                 first_ttft_ms = outcome.ttft_ms;
@@ -1666,21 +1992,10 @@ impl AssistantAgent {
             emit_usage(on_delta, &total_usage, model, None, false);
 
             // Estimate current token usage for adaptive tool output sizing.
-            let raw_estimated_prompt = crate::context_compact::estimate_request_tokens_with_tools(
-                &system_prompt,
-                &messages,
-                &tool_schemas,
-                0,
-            );
-            let estimated_used = self
-                .token_calibrator
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .calibrated_estimate(&calibrator_key, raw_estimated_prompt)
-                // Compaction/tool-output sizing must fail safe when the
-                // heuristic is slightly optimistic.
-                .saturating_add(raw_estimated_prompt / 10)
-                .saturating_add(MAX_OUTPUT_TOKENS);
+            let estimated_used = effective_token_count
+                .upper_bound
+                .saturating_add(u64::from(MAX_OUTPUT_TOKENS))
+                .min(u64::from(u32::MAX)) as u32;
 
             // Partition tool calls by concurrent-safety:
             //   Phase 1: parallel concurrent-safe tools (read-only)
@@ -1775,6 +2090,9 @@ impl AssistantAgent {
                     let (call_id, name, arguments, result, elapsed_ms, side) = result?;
                     tool_schema_refresh_requested |=
                         collect_tool_schema_updates(&side, &mut pending_tool_activations);
+                    if let Some(ceiling) = skill_activation_delta(&side) {
+                        tool_schema_refresh_requested |= self.narrow_skill_allowed_tools(ceiling);
+                    }
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
                     let (mut clean_result, media_items) = extract_media_items(&result);
@@ -1892,6 +2210,9 @@ impl AssistantAgent {
                 };
                 tool_schema_refresh_requested |=
                     collect_tool_schema_updates(&side, &mut pending_tool_activations);
+                if let Some(ceiling) = skill_activation_delta(&side) {
+                    tool_schema_refresh_requested |= self.narrow_skill_allowed_tools(ceiling);
+                }
 
                 // If a `PreToolUse` hook rewrote the tool input via
                 // `updatedInput`, execute_tool_with_cancel has already emitted
@@ -2048,11 +2369,24 @@ impl AssistantAgent {
 
             self.check_manual_memory_save(&outcome.tool_calls);
 
+            let next_provider_deferred_tool_schemas =
+                if local_tool_search_survived(keep_local_tool_search_for_turn, &tool_schemas) {
+                    &[][..]
+                } else {
+                    deferred_tool_schemas.as_slice()
+                };
+            let next_request_tool_schemas = adapter.token_count_tool_schemas_for(
+                &tool_schemas,
+                next_provider_deferred_tool_schemas,
+                eager_tool_count,
+                round_limit_enabled && round.saturating_add(2) == effective_max_rounds,
+            );
+
             self.maybe_compact_between_tool_rounds(
                 &mut messages,
                 &system_prompt_for_budget,
                 &system_prompt,
-                &tool_schemas,
+                &next_request_tool_schemas,
                 model,
                 MAX_OUTPUT_TOKENS,
                 cancel.clone(),

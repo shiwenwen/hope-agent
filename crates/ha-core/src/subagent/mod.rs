@@ -4,7 +4,6 @@ mod helpers;
 // 是「注入回投须在同一 future 内 await finalize」那条红线的唯一入口，不另开旁路。
 pub mod injection;
 mod mailbox;
-mod mention;
 pub(crate) mod queue;
 mod spawn;
 mod types;
@@ -351,7 +350,6 @@ pub(crate) use helpers::{
     replay_pending_parent_deliveries, replay_pending_parent_deliveries_for_session,
 };
 pub use mailbox::{ChatSessionGuard, SubagentMailboxMessage, SUBAGENT_MAILBOX};
-pub(crate) use mention::resolve_inline_agent_mentions;
 pub(crate) use spawn::{
     discard_prepared_subagent, launch_prepared_subagent, prepare_subagent,
     spawn_subagent_with_run_id, TeamMemberLaunchFence,

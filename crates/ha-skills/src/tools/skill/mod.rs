@@ -82,6 +82,20 @@ pub async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     if entry.context_mode.as_deref() == Some("fork") {
         fork::execute(entry, invocation_args, ctx).await
     } else {
-        inline::execute(entry, invocation_args).await
+        let rendered = inline::execute(entry, invocation_args).await?;
+        let ceiling = entry.tool_ceiling();
+        let (policy, allowed_tools) = match &ceiling {
+            ha_core::skills::SkillToolCeiling::Unspecified => ("unspecified", Vec::new()),
+            ha_core::skills::SkillToolCeiling::DenyAll => ("deny_all", Vec::new()),
+            ha_core::skills::SkillToolCeiling::Restricted(tools) => ("restricted", tools.clone()),
+        };
+        ctx.emit_metadata(serde_json::json!({
+            "kind": "skill_activation_delta",
+            "skillName": entry.name,
+            "toolCeiling": policy,
+            "allowedTools": allowed_tools,
+        }))
+        .await;
+        Ok(rendered)
     }
 }

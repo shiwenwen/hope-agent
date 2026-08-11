@@ -1,5 +1,5 @@
-//! Fork skill activation — spawn a sub-agent with the SKILL.md injected as
-//! extra system context, block until it terminates, and return only the final
+//! Fork skill activation — spawn a sub-agent with the SKILL.md carried in its
+//! user task, block until it terminates, and return only the final
 //! assistant text as the tool_result. Main conversation never sees the sub-agent
 //! transcript, which is the whole point of `context: fork`.
 

@@ -2168,6 +2168,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             agent_id: parent_agent_id.clone(),
             turn_id: None,
             message: push_message.clone(),
+            incoming_turn: None,
             display_text: None,
             attachments: Vec::new(),
             session_db: session_db.clone(),
@@ -2179,7 +2180,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 .and_then(|def| def.config.model.temperature)
                 .or(store.temperature),
             compact_config: store.compact.clone(),
-            extra_system_context: None,
+            run_context: None,
             reasoning_effort: resolved_reasoning_effort,
             cancel: cancel.clone(),
             plan_context_override: None,

@@ -31,7 +31,12 @@ impl AssistantAgent {
             base_url,
             model,
         };
-        let user_content = build_user_content_anthropic(message, attachments);
+        let user_content = build_user_content_anthropic(
+            message,
+            attachments,
+            self.get_context_window(),
+            &self.context_resource_refs,
+        );
         self.run_streaming_chat(
             &adapter,
             model,

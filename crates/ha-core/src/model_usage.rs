@@ -286,6 +286,44 @@ impl SessionDB {
         )?;
         Ok(changed > 0)
     }
+
+    pub(crate) fn load_recent_token_accounting_observations(
+        &self,
+        max_rows: usize,
+    ) -> Result<Vec<crate::token_accounting::TokenAccountingObservation>> {
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT metadata
+             FROM (
+                 SELECT id, metadata
+                 FROM model_usage_events
+                 WHERE kind = 'chat' AND metadata IS NOT NULL
+                 ORDER BY id DESC
+                 LIMIT ?1
+             ) recent
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([max_rows.min(1_024) as i64], |row| row.get::<_, String>(0))?;
+        let mut observations = Vec::new();
+        for row in rows {
+            let Ok(metadata) = row else { continue };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&metadata) else {
+                continue;
+            };
+            let Some(items) = value
+                .pointer("/tokenAccounting/observations")
+                .and_then(serde_json::Value::as_array)
+            else {
+                continue;
+            };
+            for item in items {
+                if let Ok(observation) = serde_json::from_value(item.clone()) {
+                    observations.push(observation);
+                }
+            }
+        }
+        Ok(observations)
+    }
 }
 
 pub fn record_model_usage_best_effort(mut event: ModelUsageEvent) {
@@ -329,6 +367,53 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(path.with_extension("db-wal"));
         let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    fn token_observation(
+        operation_key: &str,
+    ) -> crate::token_accounting::TokenAccountingObservation {
+        crate::token_accounting::TokenAccountingObservation {
+            operation_key: operation_key.to_string(),
+            provider: crate::token_accounting::ProviderFamily::Unknown,
+            model: "test".to_string(),
+            request_shape: crate::token_accounting::RequestShape::Json,
+            tokenizer_id: None,
+            tokenizer_registry_version: 1,
+            source: crate::token_accounting::TokenCountSource::Heuristic,
+            raw_estimated: 100,
+            lower_bound: 75,
+            estimated: 100,
+            upper_bound: 150,
+            actual_input_tokens: Some(110),
+            input_coverage: crate::token_accounting::UsageCoverage::Complete,
+            output_coverage: crate::token_accounting::UsageCoverage::Complete,
+            reserved_output_tokens: 100,
+            has_media: false,
+        }
+    }
+
+    #[test]
+    fn recent_calibration_rows_replay_in_chronological_order() {
+        let (db, path) = open_test_db();
+        for operation_key in ["older", "newer"] {
+            let mut event = ModelUsageEvent::new(KIND_CHAT);
+            event.metadata = Some(serde_json::json!({
+                "tokenAccounting": {
+                    "observations": [token_observation(operation_key)]
+                }
+            }));
+            db.insert_model_usage_event(&event).expect("insert usage");
+        }
+
+        let observations = db
+            .load_recent_token_accounting_observations(2)
+            .expect("load observations");
+        let keys = observations
+            .iter()
+            .map(|observation| observation.operation_key.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(keys, vec!["older", "newer"]);
+        cleanup(&path);
     }
 
     #[test]

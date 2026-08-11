@@ -314,6 +314,32 @@ pub(crate) struct SystemPromptBuild {
     pub static_memory_refs: Vec<super::active_memory::UsedMemoryRef>,
     pub static_memory_manifest: crate::memory::context_manifest::StaticMemoryContextManifest,
     pub core_memory_snapshot: Option<crate::memory::core_repository::CoreMemorySnapshot>,
+    pub legacy_memory_selection: Option<super::types::LegacyMemorySelectionSnapshot>,
+}
+
+fn route_legacy_memory_entries(
+    entries: Vec<crate::memory::MemoryEntry>,
+    dynamic_selection: bool,
+    budget: usize,
+) -> (
+    Vec<crate::memory::MemoryEntry>,
+    Option<super::types::LegacyMemorySelectionSnapshot>,
+) {
+    if !dynamic_selection {
+        return (entries, None);
+    }
+
+    let (full_fallback, full_fallback_refs) =
+        super::format_legacy_dynamic_memory(&entries, budget, "injected");
+    (
+        Vec::new(),
+        Some(super::types::LegacyMemorySelectionSnapshot {
+            candidates: std::sync::Arc::new(entries),
+            full_fallback: (!full_fallback.is_empty()).then(|| std::sync::Arc::new(full_fallback)),
+            full_fallback_refs: std::sync::Arc::new(full_fallback_refs),
+            budget,
+        }),
+    )
 }
 
 fn core_memory_ref(
@@ -396,7 +422,7 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
     session_db: Option<&crate::session::SessionDB>,
     existing_core_snapshot: Option<&crate::memory::core_repository::CoreMemorySnapshot>,
 ) -> SystemPromptBuild {
-    let (session_meta, active_goal) = resolve_prompt_session_state(session_id, session_db);
+    let session_meta = resolve_prompt_session_meta(session_id, session_db);
     let incognito = session_meta
         .as_ref()
         .map(|session| session.incognito)
@@ -508,24 +534,35 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             None
         };
 
-        let memory_entries: Vec<crate::memory::MemoryEntry> = if long_term_memory_enabled
-            && definition.config.memory.enabled
-            && !incognito
-            && legacy_static_memory
-        {
-            crate::get_memory_backend()
-                .and_then(|b| {
-                    b.load_prompt_candidates_with_project(
-                        agent_id,
-                        project.as_ref().map(|p| p.id.as_str()),
-                        definition.config.memory.shared,
-                    )
-                    .ok()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let loaded_legacy_memory_entries: Vec<crate::memory::MemoryEntry> =
+            if long_term_memory_enabled
+                && definition.config.memory.enabled
+                && !incognito
+                && legacy_static_memory
+            {
+                crate::get_memory_backend()
+                    .and_then(|b| {
+                        b.load_prompt_candidates_with_project(
+                            agent_id,
+                            project.as_ref().map(|p| p.id.as_str()),
+                            definition.config.memory.shared,
+                        )
+                        .ok()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+        // A full V1 rollback still keeps query-dependent selection out of the
+        // stable system prefix. Freeze the complete scoped candidate set and
+        // its budgeted fallback alongside the prompt instead. The dynamic
+        // selector publishes that fallback before any optional/fallible work
+        // and replaces it only after a valid selection is ready.
+        let (memory_entries, legacy_memory_selection) = route_legacy_memory_entries(
+            loaded_legacy_memory_entries,
+            app_cfg.memory.legacy_selection_replacer_enabled(),
+            definition.config.memory.prompt_budget,
+        );
 
         // Resolve the effective memory budget (agent override wins over global).
         let memory_budget = crate::agent_config::effective_memory_budget(
@@ -825,7 +862,9 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
                 rendered_project_core.as_deref(),
                 profile_snapshot.as_deref(),
                 rendered_legacy_static_block.as_deref(),
-                memory_entries.len(),
+                legacy_memory_selection
+                    .as_ref()
+                    .map_or(memory_entries.len(), |snapshot| snapshot.candidates.len()),
                 context_pack
                     .as_ref()
                     .map_or(0, |pack| pack.source_digest.len()),
@@ -863,14 +902,15 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
             permission_mode,
             execution_mode,
             workflow_mode,
-            active_goal.as_ref(),
-            session_meta.as_ref().map(|meta| meta.sandbox_mode),
+            None,
+            None,
         );
         return SystemPromptBuild {
             prompt,
             static_memory_refs,
             static_memory_manifest,
             core_memory_snapshot,
+            legacy_memory_selection,
         };
     }
     // Fallback: legacy prompt
@@ -880,9 +920,11 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         static_memory_manifest:
             crate::memory::context_manifest::StaticMemoryContextManifest::default(),
         core_memory_snapshot: None,
+        legacy_memory_selection: None,
     }
 }
 
+#[cfg(test)]
 fn resolve_prompt_session_state(
     session_id: Option<&str>,
     session_db: Option<&crate::session::SessionDB>,
@@ -890,21 +932,7 @@ fn resolve_prompt_session_state(
     Option<crate::session::SessionMeta>,
     Option<crate::goal::GoalSnapshot>,
 ) {
-    let session_meta = session_id.and_then(|sid| {
-        session_db.and_then(|db| match db.get_session(sid) {
-            Ok(meta) => meta,
-            Err(error) => {
-                crate::app_warn!(
-                    "session",
-                    "prompt_session_meta",
-                    "bound prompt meta lookup for {} failed: {}",
-                    sid,
-                    error
-                );
-                None
-            }
-        })
-    });
+    let session_meta = resolve_prompt_session_meta(session_id, session_db);
     let incognito = session_meta
         .as_ref()
         .map(|session| session.incognito)
@@ -921,9 +949,84 @@ fn resolve_prompt_session_state(
     (session_meta, active_goal)
 }
 
+fn resolve_prompt_session_meta(
+    session_id: Option<&str>,
+    session_db: Option<&crate::session::SessionDB>,
+) -> Option<crate::session::SessionMeta> {
+    session_id.and_then(|sid| {
+        session_db.and_then(|db| match db.get_session(sid) {
+            Ok(meta) => meta,
+            Err(error) => {
+                crate::app_warn!(
+                    "session",
+                    "prompt_session_meta",
+                    "bound prompt meta lookup for {} failed: {}",
+                    sid,
+                    error
+                );
+                None
+            }
+        })
+    })
+}
+
 #[cfg(test)]
 mod build_api_url_tests {
-    use super::{build_api_url, is_complete_endpoint_url, resolve_prompt_session_state};
+    use super::{
+        build_api_url, is_complete_endpoint_url, resolve_prompt_session_state,
+        route_legacy_memory_entries,
+    };
+
+    fn memory_entry(id: i64, content: &str) -> crate::memory::MemoryEntry {
+        crate::memory::MemoryEntry {
+            id,
+            memory_type: crate::memory::MemoryType::User,
+            scope: crate::memory::MemoryScope::Global,
+            content: content.to_string(),
+            tags: Vec::new(),
+            source: "user".to_string(),
+            source_session_id: None,
+            pinned: false,
+            created_at: "2026-08-10T00:00:00Z".to_string(),
+            updated_at: "2026-08-10T00:00:00Z".to_string(),
+            relevance_score: None,
+            retrieval_evidence: None,
+            attachment_path: None,
+            attachment_mime: None,
+        }
+    }
+
+    #[test]
+    fn v1_selection_routes_full_fallback_to_dynamic_snapshot_without_static_duplicates() {
+        let entries = vec![
+            memory_entry(1, "prefers concise release notes"),
+            memory_entry(2, "project uses deterministic migrations"),
+        ];
+
+        let (static_entries, snapshot) = route_legacy_memory_entries(entries, true, 5_000);
+        let snapshot = snapshot.expect("V1 rollback snapshot");
+        let fallback = snapshot.full_fallback.expect("full fallback");
+
+        assert!(static_entries.is_empty());
+        assert_eq!(snapshot.candidates.len(), 2);
+        assert!(fallback.contains("prefers concise release notes"));
+        assert!(fallback.contains("project uses deterministic migrations"));
+        assert_eq!(snapshot.full_fallback_refs.len(), 2);
+        assert!(snapshot
+            .full_fallback_refs
+            .iter()
+            .all(|reference| reference.origin == "legacy_memory" && reference.role == "injected"));
+    }
+
+    #[test]
+    fn static_legacy_mode_keeps_rows_out_of_dynamic_snapshot() {
+        let entries = vec![memory_entry(1, "stable legacy memory")];
+
+        let (static_entries, snapshot) = route_legacy_memory_entries(entries, false, 5_000);
+
+        assert_eq!(static_entries.len(), 1);
+        assert!(snapshot.is_none());
+    }
 
     #[test]
     fn prompt_session_state_reads_bound_database_goal() {

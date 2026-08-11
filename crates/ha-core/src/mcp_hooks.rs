@@ -27,7 +27,8 @@
 //!   查表）。未接线返 `None` → auto-approve 恒 false（fail-closed）。
 //! - `call_tool`：`mcp__<server>__<tool>` 分发（execution 逃逸口 +
 //!   hooks runner）。未接线 `Err`——与 manager None 的既有报错一致。
-//! - `system_prompt_snippet`：MCP Capabilities prompt 段。未接线 `None`。
+//! - `system_prompt_snippet`：兼容命名；返回 MCP capability data 段，
+//!   renderer 只能将其放入动态 user-data lane。未接线 `None`。
 //! - `reconcile_from_config`：settings 热更（`mcp_global` 类目）冷启用
 //!   /重协调。未接线 `Ok(())` + `app_warn` 审计（设置写路径不因特征
 //!   缺席硬失败）。
@@ -68,7 +69,7 @@ pub struct McpHooks {
         &'a serde_json::Value,
         &'a ToolExecContext,
     ) -> BoxFut<'a, anyhow::Result<String>>,
-    /// MCP Capabilities system prompt 段。
+    /// MCP capability data 段（兼容字段名；不得提升为 system）。
     pub system_prompt_snippet: fn() -> Option<String>,
     /// settings 热更：从 config cache 重协调（含冷启用）。
     pub reconcile_from_config: fn() -> BoxFut<'static, anyhow::Result<()>>,

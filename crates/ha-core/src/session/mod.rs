@@ -52,6 +52,7 @@ pub use ide_context::{
     SessionIdeContextSnapshot,
 };
 pub use pending::enrich_pending_interactions;
+pub(crate) use stream_persistence::TypedResourceSnapshotCleanup;
 pub use stream_persistence::{
     journal_events_have_assistant_output, select_recoverable_attempt_prefix,
     stream_attempt_context_checkpoint, trailing_text_from_journal_events, verify_block,
@@ -75,5 +76,5 @@ pub use types::{
     SessionKind, SessionMemoryPolicy, SessionMemoryPolicyValue, SessionMessage, SessionMeta,
     UnreadSessionTarget, ATTACHMENT_META_KEY_ACTIVE_MEMORY, ATTACHMENT_META_KEY_QUEUED_MESSAGE,
     ATTACHMENT_META_KEY_RETRIEVAL_PLANNER, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
-    ATTACHMENT_META_KEY_USED_MEMORY_REFS,
+    ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT, ATTACHMENT_META_KEY_USED_MEMORY_REFS,
 };

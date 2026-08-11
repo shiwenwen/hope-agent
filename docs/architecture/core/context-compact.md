@@ -329,32 +329,11 @@ Anthropic、OpenAI、Google 的 API 都支持 prompt cache（约 5 分钟 TTL）
 
 ## Token 估算
 
-主聊天路径用 `estimate_request_tokens_with_tools`，把当前 Provider 已实际加载的 tool schema 计入 prompt 预算；无工具路径（手动摘要、一次性 automation）用基础的 `estimate_request_tokens`。工具输出预算会在校准结果上再保留 10% 上界余量（`raw / 10`），让估算偏乐观时仍能 fail safe。
+统一契约见 [Token Accounting](token-accounting.md)。主聊天把当前 Provider、model、request shape、实际加载的 tool schema 和 history 交给 `TokenAccountingService`；`CompactionTokenCounter` 作为纯同步快照注入 `CompactionContext`，压缩层不联网、不读凭据、不访问 SQLite。所有容量决策使用 `TokenCount.upper_bound`。
 
 usage 三种口径分开记录：`input_tokens` 保留 Provider 原始/计费语义；`context_input_tokens` 是模型实际占用的总上下文；`fresh_input_tokens = context_input_tokens - cache_read`。Anthropic 的 context 总量 = uncached input + cache creation + cache read，OpenAI 的 input 已含 cache 子集。GUI 上下文条与 `/context` 用 context 口径，不能拿 cache 命中量抵扣窗口占用。
 
-### chars/4 启发式
-
-| 值类型 | 估算 |
-|---|---|
-| String | `len / 4` |
-| Array | 各元素之和 |
-| Object | 各键名 + 各值之和 |
-| Number / Bool / Null | 各 1 token |
-| 图片内容 | 固定 8000 chars（`IMAGE_CHAR_ESTIMATE`） |
-
-### 校准器
-
-`TokenEstimateCalibrator` 用 EMA 按 API 返回的实际 token 校准估算因子：
-
-```
-calibration_factor = calibration_factor × 0.7 + (actual / estimated) × 0.3
-calibrated_estimate = raw_estimate × calibration_factor
-```
-
-初始 `calibration_factor = 1.0`，`alpha = 0.3`（近期观测权重更高），每次 API 响应后用 `(estimated, actual)` 更新。
-
-校准器按 **provider:model 形状分桶**（`TokenEstimateCalibrators`，键为 `"providerId:modelId"`）：Anthropic 的分离式 cache 计数与 OpenAI 的包含式 input 计数会给出显著不同的比率，共用一个 EMA 会让 failover 或换模型后压缩来回震荡。
+`estimate_tokens()` / `estimate_request_tokens*()` 只保留为没有活跃模型快照的 compatibility wrapper；它们走统一的 Unicode/JSON conservative fallback，不再直接执行 `len()/4`。`CHARS_PER_TOKEN` 仍用于“token 预算反推最大字符截断量”等逆向 sizing，不是请求 token 主计数器。
 
 ## 配置项
 
@@ -437,7 +416,7 @@ calibrated_estimate = raw_estimate × calibration_factor
 
 | 常量 | 值 | 说明 |
 |---|---|---|
-| `CHARS_PER_TOKEN` | `4` | 通用文本 token 估算比率 |
+| `CHARS_PER_TOKEN` | `4` | token 预算反推字符截断量的 legacy sizing fallback；不是请求计数器 |
 | `TOOL_RESULT_CHARS_PER_TOKEN` | `2` | 工具结果 token 估算比率（结构化内容更密） |
 | `IMAGE_CHAR_ESTIMATE` | `8000` | 图片内容固定字符估算 |
 | `HARD_MAX_TOOL_RESULT_CHARS` | `400_000` | Tier 1 单结果绝对字符上限 |
@@ -456,8 +435,8 @@ calibrated_estimate = raw_estimate × calibration_factor
 |---|---|
 | `context_compact/mod.rs` | 模块入口、硬编码常量、re-exports |
 | `context_compact/config.rs` | 从 `ha-config-schema` 再导出 `CompactConfig`（wire 类型本体在 schema crate） |
-| `context_compact/types.rs` | `CompactResult` / `CompactDetails` / `PruneResult` / `SummarizationSplit` / `TokenEstimateCalibrator(s)` |
-| `context_compact/estimation.rs` | Token 估算、消息字符计数、三格式工具结果检测与读写 |
+| `context_compact/types.rs` | `CompactResult` / `CompactDetails` / `PruneResult` / `SummarizationSplit` |
+| `context_compact/estimation.rs` | Model-neutral compatibility 计数、消息字符计数、三格式工具结果检测与读写 |
 | `context_compact/boundary.rs` | 统一 round-safe 边界快照与三种边界模式 |
 | `context_compact/compact.rs` | 主入口 `compact_if_needed()` + Tier 0 `microcompact()` + Tier 4 `emergency_compact()` |
 | `context_compact/truncation.rs` | Tier 1 `truncate_tool_results()`、head+tail、结构与尾部检测 |

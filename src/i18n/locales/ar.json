@@ -973,6 +973,9 @@
       "failed": "تعذّر تصدير المحادثة.",
       "untitled": "بدون عنوان"
     },
+    "capabilityMention": {
+      "heading": "المكونات الإضافية والموصلات"
+    },
     "skillMention": {
       "heading": "المهارات",
       "labels": {

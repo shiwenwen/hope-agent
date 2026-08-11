@@ -100,6 +100,19 @@ pub struct QueuedTurnMessageRecord {
     pub plan_comment: Option<serde_json::Value>,
     pub plan_mode: Option<String>,
     pub workflow_mode: Option<String>,
+    pub incoming_turn: Option<crate::prompt_context::IncomingTurnWire>,
+    /// Frozen execution ceiling for server-expanded explicit Skill commands
+    /// (notably IM). First-party typed turns re-resolve their Skill binding.
+    pub skill_allowed_tools: Vec<String>,
+    /// Fail-closed durable marker derived from the raw options JSON. A typed
+    /// turn only requires full dispatch when it carries mention semantics; a
+    /// valid empty typed envelope may be inserted as ordinary text. A future
+    /// or malformed non-null sidecar must not become insertable merely because
+    /// this binary cannot deserialize its payload yet.
+    structured_sidecar_present: bool,
+    /// A durable sidecar that this binary cannot consume must never be
+    /// dispatched with an accidentally widened execution ceiling.
+    sidecar_decode_error: Option<QueuedSidecarDecodeError>,
     pub source: QueuedTurnMessageSource,
     /// Minimal, credential-free routing envelope for a Channel-managed row.
     /// Provider tokens and raw webhook payloads must never be stored here.
@@ -108,6 +121,55 @@ pub struct QueuedTurnMessageRecord {
     pub status: QueuedTurnMessageStatus,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl QueuedTurnMessageRecord {
+    /// Typed mention bindings and a frozen Skill tool ceiling are resolved only
+    /// while constructing a complete chat turn. Injecting either sidecar as a
+    /// raw mid-turn user message would silently discard its semantics.
+    fn requires_full_turn_dispatch(&self) -> bool {
+        self.structured_sidecar_present
+    }
+
+    fn sidecar_dispatch_error(&self) -> Option<anyhow::Error> {
+        self.sidecar_decode_error.map(|error| {
+            anyhow!(
+                "queued message sidecar cannot be safely decoded: {}",
+                error.message()
+            )
+        })
+    }
+
+    /// Authoritative UI eligibility for requesting a tool-boundary insert.
+    /// The execution path repeats these checks transactionally; this projection
+    /// only prevents clients from offering an action the backend must reject.
+    fn can_force_insert(&self) -> bool {
+        !self.source.is_channel_managed()
+            && self.sidecar_decode_error.is_none()
+            && !self.requires_full_turn_dispatch()
+            && matches!(
+                self.status,
+                QueuedTurnMessageStatus::Queued | QueuedTurnMessageStatus::FallbackAfterReply
+            )
+            && self.mode != QueuedTurnMessageMode::ForceInsert
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueuedSidecarDecodeError {
+    OptionsJson,
+    IncomingTurn,
+    SkillAllowedTools,
+}
+
+impl QueuedSidecarDecodeError {
+    fn message(self) -> &'static str {
+        match self {
+            Self::OptionsJson => "options_json is not a JSON object",
+            Self::IncomingTurn => "incomingTurn is not a supported typed turn",
+            Self::SkillAllowedTools => "skillAllowedTools must be an array containing only strings",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -126,7 +188,14 @@ pub struct QueuedTurnMessageView {
     pub plan_mode: Option<String>,
     pub workflow_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub incoming_turn: Option<crate::prompt_context::IncomingTurnWire>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_allowed_tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub managed_by: Option<&'static str>,
+    /// Backend-authoritative projection of whether this row may be requested
+    /// for tool-boundary insertion in its current state.
+    pub can_force_insert: bool,
     pub mode: QueuedTurnMessageMode,
     pub status: QueuedTurnMessageStatus,
     pub created_at: String,
@@ -156,7 +225,11 @@ impl From<&QueuedTurnMessageRecord> for QueuedTurnMessageView {
             plan_comment: value.plan_comment.clone(),
             plan_mode: value.plan_mode.clone(),
             workflow_mode: value.workflow_mode.clone(),
+            incoming_turn: value.incoming_turn.clone(),
+            skill_allowed_tools: (!value.skill_allowed_tools.is_empty())
+                .then(|| value.skill_allowed_tools.clone()),
             managed_by: value.source.is_channel_managed().then_some("channel"),
+            can_force_insert: value.can_force_insert(),
             mode: value.mode,
             status: value.status,
             created_at: value.created_at.clone(),
@@ -177,6 +250,8 @@ pub struct NewQueuedTurnMessage {
     pub plan_comment: Option<serde_json::Value>,
     pub plan_mode: Option<String>,
     pub workflow_mode: Option<String>,
+    pub incoming_turn: Option<crate::prompt_context::IncomingTurnWire>,
+    pub skill_allowed_tools: Vec<String>,
     pub source: QueuedTurnMessageSource,
     pub channel_origin: Option<serde_json::Value>,
 }
@@ -201,12 +276,60 @@ pub(super) fn emit_changed(session_id: &str, request_id: Option<&str>, operation
 }
 
 fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRecord> {
+    let message: String = row.get(3)?;
     let attachments_json: String = row.get(5)?;
     let plan_comment_json: Option<String> = row.get(8)?;
     let options_json: Option<String> = row.get(9)?;
-    let options = options_json
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        .unwrap_or_default();
+    let (options, options_parse_failed) = match options_json.as_deref() {
+        Some(raw) => match serde_json::from_str::<serde_json::Value>(raw) {
+            Ok(value) => (value, false),
+            Err(_) => (serde_json::Value::Null, true),
+        },
+        None => (serde_json::Value::Null, false),
+    };
+    let options_shape_invalid = !options.is_null() && !options.is_object();
+    let incoming_turn_present = options
+        .get("incomingTurn")
+        .is_some_and(|value| !value.is_null());
+    let incoming_turn = options
+        .get("incomingTurn")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok());
+    let incoming_turn_decode_failed = incoming_turn_present
+        && incoming_turn.as_ref().is_none_or(|wire| {
+            crate::prompt_context::validate_incoming_turn(&message, Some(wire)).is_err()
+        });
+    let incoming_turn_requires_full_dispatch = incoming_turn
+        .as_ref()
+        .is_some_and(|wire| !wire.mentions.is_empty());
+    let legacy_note_requires_full_dispatch = crate::knowledge::contains_legacy_wikilink(&message);
+    let (skill_allowed_tools, skill_ceiling_present, skill_ceiling_decode_failed) =
+        match options.get("skillAllowedTools") {
+            None | Some(serde_json::Value::Null) => (Vec::new(), false, false),
+            Some(serde_json::Value::Array(values)) => {
+                let tools = values
+                    .iter()
+                    .map(|value| value.as_str().map(str::to_string))
+                    .collect::<Option<Vec<_>>>();
+                match tools {
+                    Some(tools) => {
+                        let present = !tools.is_empty();
+                        (tools, present, false)
+                    }
+                    None => (Vec::new(), true, true),
+                }
+            }
+            Some(_) => (Vec::new(), true, true),
+        };
+    let sidecar_decode_error = if options_parse_failed || options_shape_invalid {
+        Some(QueuedSidecarDecodeError::OptionsJson)
+    } else if incoming_turn_decode_failed {
+        Some(QueuedSidecarDecodeError::IncomingTurn)
+    } else if skill_ceiling_decode_failed {
+        Some(QueuedSidecarDecodeError::SkillAllowedTools)
+    } else {
+        None
+    };
     let source: String = row.get(10)?;
     let channel_origin_json: Option<String> = row.get(11)?;
     let mode: String = row.get(12)?;
@@ -215,7 +338,7 @@ fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRe
         request_id: row.get(0)?,
         session_id: row.get(1)?,
         turn_id: row.get(2)?,
-        message: row.get(3)?,
+        message,
         display_text: row.get(4)?,
         attachments: serde_json::from_str(&attachments_json).unwrap_or_default(),
         is_plan_trigger: row.get::<_, i64>(6)? != 0,
@@ -229,6 +352,15 @@ fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRe
             .get("workflowMode")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
+        incoming_turn,
+        skill_allowed_tools,
+        structured_sidecar_present: options_parse_failed
+            || options_shape_invalid
+            || incoming_turn_decode_failed
+            || incoming_turn_requires_full_dispatch
+            || legacy_note_requires_full_dispatch
+            || skill_ceiling_present,
+        sidecar_decode_error,
         source: QueuedTurnMessageSource::parse(&source),
         channel_origin: channel_origin_json.and_then(|raw| serde_json::from_str(&raw).ok()),
         mode: QueuedTurnMessageMode::parse(&mode),
@@ -323,6 +455,11 @@ impl SessionDB {
         &self,
         input: NewQueuedTurnMessage,
     ) -> Result<EnqueueQueuedTurnMessageOutcome> {
+        crate::attachments::validate_typed_resource_attachment_bindings(
+            &input.message,
+            input.incoming_turn.as_ref(),
+            &input.attachments,
+        )?;
         match (input.source, input.channel_origin.is_some()) {
             (QueuedTurnMessageSource::Channel, false) => {
                 return Err(anyhow!(
@@ -425,6 +562,8 @@ impl SessionDB {
                 serde_json::to_string(&serde_json::json!({
                     "planMode": input.plan_mode,
                     "workflowMode": input.workflow_mode,
+                    "incomingTurn": input.incoming_turn,
+                    "skillAllowedTools": input.skill_allowed_tools,
                 }))?,
                 input.source.as_str(),
                 channel_origin_json,
@@ -529,22 +668,72 @@ impl SessionDB {
         {
             return Err(anyhow!("queued message is empty or too large"));
         }
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let changed = conn.execute(
-            "UPDATE queued_turn_user_messages SET message = ?1, display_text = ?2, updated_at = ?3
-             WHERE session_id = ?4 AND request_id = ?5
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let attachments_json = tx
+            .query_row(
+                "SELECT attachments_json FROM queued_turn_user_messages
+                 WHERE session_id = ?1 AND request_id = ?2
+                   AND source != 'channel'
+                   AND status IN ('queued', 'waiting_tool_boundary', 'fallback_after_reply')",
+                params![session_id, request_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(attachments_json) = attachments_json else {
+            tx.commit()?;
+            return Ok(false);
+        };
+        let attachments = serde_json::from_str::<Vec<Attachment>>(&attachments_json)?;
+        let (removed_typed_attachments, retained_attachments): (Vec<_>, Vec<_>) =
+            attachments.into_iter().partition(|attachment| {
+                matches!(
+                    attachment.source.as_deref(),
+                    Some("mention" | "plan_mention")
+                )
+            });
+        let retained_attachments_json = serde_json::to_string(&retained_attachments)?;
+        let changed = tx.execute(
+            "UPDATE queued_turn_user_messages SET message = ?1, display_text = ?2,
+                    attachments_json = ?3,
+                    options_json = CASE
+                        WHEN json_valid(COALESCE(options_json, '{}'))
+                        THEN CASE
+                            WHEN json_type(COALESCE(options_json, '{}')) = 'object'
+                            THEN json_remove(
+                                COALESCE(options_json, '{}'),
+                                '$.incomingTurn',
+                                '$.skillAllowedTools'
+                            )
+                            ELSE '{}'
+                        END
+                        ELSE '{}'
+                    END,
+                    updated_at = ?4
+             WHERE session_id = ?5 AND request_id = ?6
                AND source != 'channel'
                AND status IN ('queued', 'waiting_tool_boundary', 'fallback_after_reply')",
             params![
                 message,
                 display_text,
+                retained_attachments_json,
                 chrono::Utc::now().to_rfc3339(),
                 session_id,
                 request_id
             ],
         )? > 0;
+        tx.commit()?;
         drop(conn);
         if changed {
+            // Valid typed resources are path references and have no queued
+            // copy, but route legacy rows through the same owner-scoped
+            // request-prefix cleanup. The helper deliberately ignores an
+            // arbitrary external mention path.
+            crate::attachments::remove_discarded_queued_attachments(
+                session_id,
+                request_id,
+                &removed_typed_attachments,
+            );
             emit_changed(session_id, Some(request_id), "updated");
         }
         Ok(changed)
@@ -594,17 +783,66 @@ impl SessionDB {
         request_id: &str,
         turn_id: &str,
     ) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let changed = conn.execute(
-            "UPDATE queued_turn_user_messages SET mode = 'force_insert', status = 'waiting_tool_boundary',
-                 turn_id = ?1, updated_at = ?2 WHERE session_id = ?3 AND request_id = ?4
-               AND source != 'channel'
-               AND status IN ('queued', 'fallback_after_reply')",
-            params![turn_id, chrono::Utc::now().to_rfc3339(), session_id, request_id],
-        )? > 0;
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let record = tx
+            .query_row(
+                &format!(
+                    "{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2
+                     AND source != 'channel'
+                     AND status IN ('queued', 'fallback_after_reply')"
+                ),
+                params![session_id, request_id],
+                parse_record,
+            )
+            .optional()?;
+        let now = chrono::Utc::now().to_rfc3339();
+        if let Some(error) = record
+            .as_ref()
+            .and_then(QueuedTurnMessageRecord::sidecar_dispatch_error)
+        {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'queue', status = 'fallback_after_reply', turn_id = NULL,
+                     updated_at = ?1
+                 WHERE session_id = ?2 AND request_id = ?3 AND source != 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')",
+                params![now, session_id, request_id],
+            )?;
+            tx.commit()?;
+            drop(conn);
+            emit_changed(session_id, Some(request_id), "sidecar_decode_failed");
+            return Err(error);
+        }
+        let deferred = record
+            .as_ref()
+            .is_some_and(QueuedTurnMessageRecord::requires_full_turn_dispatch);
+        let changed = if deferred {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'queue', status = 'fallback_after_reply', turn_id = NULL,
+                     updated_at = ?1
+                 WHERE session_id = ?2 AND request_id = ?3 AND source != 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')",
+                params![now, session_id, request_id],
+            )?;
+            false
+        } else {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'force_insert', status = 'waiting_tool_boundary',
+                     turn_id = ?1, updated_at = ?2
+                 WHERE session_id = ?3 AND request_id = ?4 AND source != 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')",
+                params![turn_id, now, session_id, request_id],
+            )? > 0
+        };
+        tx.commit()?;
         drop(conn);
         if changed {
             emit_changed(session_id, Some(request_id), "waiting_tool_boundary");
+        } else if deferred {
+            emit_changed(session_id, Some(request_id), "fallback_after_reply");
         }
         Ok(changed)
     }
@@ -615,26 +853,78 @@ impl SessionDB {
         request_id: &str,
         turn_id: &str,
     ) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let changed = conn.execute(
-            "UPDATE queued_turn_user_messages SET mode = 'force_insert', status = 'waiting_tool_boundary',
-                 turn_id = ?1, updated_at = ?2 WHERE session_id = ?3 AND request_id = ?4
-               AND source = 'channel'
-               AND status IN ('queued', 'fallback_after_reply')
-               AND id = (
-                   SELECT MIN(id) FROM queued_turn_user_messages
-                   WHERE session_id = ?3 AND source = 'channel'
-               )",
-            params![
-                turn_id,
-                chrono::Utc::now().to_rfc3339(),
-                session_id,
-                request_id
-            ],
-        )? > 0;
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let record = tx
+            .query_row(
+                &format!(
+                    "{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2
+                     AND source = 'channel'
+                     AND status IN ('queued', 'fallback_after_reply')
+                     AND id = (
+                         SELECT MIN(id) FROM queued_turn_user_messages
+                         WHERE session_id = ?1 AND source = 'channel'
+                     )"
+                ),
+                params![session_id, request_id],
+                parse_record,
+            )
+            .optional()?;
+        let now = chrono::Utc::now().to_rfc3339();
+        if let Some(error) = record
+            .as_ref()
+            .and_then(QueuedTurnMessageRecord::sidecar_dispatch_error)
+        {
+            // Channel rows have no owner edit surface. Reuse the existing held
+            // state so the background FIFO pump cannot hot-loop on an
+            // undecodable execution ceiling. A later inbound message may retry
+            // it, but this binary will deterministically hold it again.
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'queue', status = 'held_after_stop', turn_id = NULL,
+                     updated_at = ?1
+                 WHERE session_id = ?2 AND request_id = ?3 AND source = 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')",
+                params![now, session_id, request_id],
+            )?;
+            tx.commit()?;
+            drop(conn);
+            emit_changed(session_id, Some(request_id), "sidecar_decode_failed");
+            return Err(error);
+        }
+        let deferred = record
+            .as_ref()
+            .is_some_and(QueuedTurnMessageRecord::requires_full_turn_dispatch);
+        let changed = if deferred {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'queue', status = 'fallback_after_reply', turn_id = NULL,
+                     updated_at = ?1
+                 WHERE session_id = ?2 AND request_id = ?3 AND source = 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')",
+                params![now, session_id, request_id],
+            )?;
+            false
+        } else {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'force_insert', status = 'waiting_tool_boundary',
+                     turn_id = ?1, updated_at = ?2
+                 WHERE session_id = ?3 AND request_id = ?4 AND source = 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')
+                   AND id = (
+                       SELECT MIN(id) FROM queued_turn_user_messages
+                       WHERE session_id = ?3 AND source = 'channel'
+                   )",
+                params![turn_id, now, session_id, request_id],
+            )? > 0
+        };
+        tx.commit()?;
         drop(conn);
         if changed {
             emit_changed(session_id, Some(request_id), "waiting_tool_boundary");
+        } else if deferred {
+            emit_changed(session_id, Some(request_id), "fallback_after_reply");
         }
         Ok(changed)
     }
@@ -684,7 +974,7 @@ impl SessionDB {
     ) -> Result<Vec<QueuedTurnMessageRecord>> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction()?;
-        let records = {
+        let candidates = {
             let mut stmt = tx.prepare(&format!(
                 "{RECORD_SELECT} WHERE session_id = ?1 AND turn_id = ?2
                  AND status = 'waiting_tool_boundary' ORDER BY id ASC"
@@ -694,15 +984,67 @@ impl SessionDB {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
-        if !records.is_empty() {
-            tx.execute(
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut deferred_count = 0;
+        let mut quarantined_count = 0;
+        let mut decode_failed_count = 0;
+        let mut records = Vec::with_capacity(candidates.len());
+        for record in candidates {
+            if record.sidecar_decode_error.is_some() {
+                let channel_managed = record.source.is_channel_managed();
+                let target_status = if channel_managed {
+                    "held_after_stop"
+                } else {
+                    "fallback_after_reply"
+                };
+                let changed = tx.execute(
+                    "UPDATE queued_turn_user_messages
+                     SET mode = 'queue', status = ?1, turn_id = NULL, updated_at = ?2
+                     WHERE session_id = ?3 AND request_id = ?4 AND turn_id = ?5
+                       AND status = 'waiting_tool_boundary'",
+                    params![target_status, now, session_id, record.request_id, turn_id],
+                )?;
+                decode_failed_count += changed;
+                if channel_managed {
+                    quarantined_count += changed;
+                } else {
+                    deferred_count += changed;
+                }
+            } else if record.requires_full_turn_dispatch() {
+                deferred_count += tx.execute(
+                    "UPDATE queued_turn_user_messages
+                     SET mode = 'queue', status = 'fallback_after_reply', turn_id = NULL,
+                         updated_at = ?1
+                     WHERE session_id = ?2 AND request_id = ?3 AND turn_id = ?4
+                       AND status = 'waiting_tool_boundary'",
+                    params![now, session_id, record.request_id, turn_id],
+                )?;
+            } else if tx.execute(
                 "UPDATE queued_turn_user_messages SET status = 'inserting', updated_at = ?1
-                 WHERE session_id = ?2 AND turn_id = ?3 AND status = 'waiting_tool_boundary'",
-                params![chrono::Utc::now().to_rfc3339(), session_id, turn_id],
-            )?;
+                 WHERE session_id = ?2 AND request_id = ?3 AND turn_id = ?4
+                   AND status = 'waiting_tool_boundary'",
+                params![now, session_id, record.request_id, turn_id],
+            )? > 0
+            {
+                records.push(record);
+            }
         }
         tx.commit()?;
         drop(conn);
+        if deferred_count > 0 {
+            emit_changed(session_id, None, "fallback_after_reply");
+        }
+        if quarantined_count > 0 {
+            emit_changed(session_id, None, "sidecar_decode_failed");
+        }
+        if decode_failed_count > 0 {
+            crate::app_warn!(
+                "session",
+                "turn_queue_sidecar_decode",
+                "held {} queued message(s) because a structured sidecar could not be decoded",
+                decode_failed_count
+            );
+        }
         if !records.is_empty() {
             emit_changed(session_id, None, "inserting");
         }
@@ -807,6 +1149,29 @@ impl SessionDB {
     ) -> Result<Option<QueuedTurnMessageRecord>> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction()?;
+        let candidate = tx
+            .query_row(
+                &format!(
+                    "{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2
+                     AND source != 'channel'
+                     AND status IN ('queued', 'fallback_after_reply')
+                     AND id = (
+                         SELECT MIN(id) FROM queued_turn_user_messages
+                         WHERE session_id = ?1 AND source != 'channel'
+                           AND status IN ('queued', 'fallback_after_reply')
+                     )"
+                ),
+                params![session_id, request_id],
+                parse_record,
+            )
+            .optional()?;
+        let Some(candidate) = candidate else {
+            tx.commit()?;
+            return Ok(None);
+        };
+        if let Some(error) = candidate.sidecar_dispatch_error() {
+            return Err(error);
+        }
         let changed = tx.execute(
             "UPDATE queued_turn_user_messages SET mode = 'queue', status = 'dispatching', turn_id = ?1,
                  updated_at = ?2 WHERE session_id = ?3 AND request_id = ?4
@@ -847,30 +1212,46 @@ impl SessionDB {
     ) -> Result<Option<QueuedTurnMessageRecord>> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction()?;
-        let request_id: Option<String> = tx
+        let candidate = tx
             .query_row(
-                "SELECT request_id FROM queued_turn_user_messages
-                 WHERE session_id = ?1 AND source = 'channel'
-                   AND status IN ('queued', 'fallback_after_reply')
-                   AND id = (
-                       SELECT MIN(id) FROM queued_turn_user_messages
-                       WHERE session_id = ?1 AND source = 'channel'
-                   )
-                   AND NOT EXISTS (
-                       SELECT 1 FROM queued_turn_user_messages active_claim
-                       WHERE active_claim.session_id = ?1
-                         AND active_claim.source = 'channel'
-                         AND active_claim.status = 'dispatching'
-                   )
-                 ORDER BY id ASC LIMIT 1",
+                &format!(
+                    "{RECORD_SELECT} WHERE session_id = ?1 AND source = 'channel'
+                     AND status IN ('queued', 'fallback_after_reply')
+                     AND id = (
+                         SELECT MIN(id) FROM queued_turn_user_messages
+                         WHERE session_id = ?1 AND source = 'channel'
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM queued_turn_user_messages active_claim
+                         WHERE active_claim.session_id = ?1
+                           AND active_claim.source = 'channel'
+                           AND active_claim.status = 'dispatching'
+                     )
+                     ORDER BY id ASC LIMIT 1"
+                ),
                 params![session_id],
-                |row| row.get(0),
+                parse_record,
             )
             .optional()?;
-        let Some(request_id) = request_id else {
+        let Some(candidate) = candidate else {
             tx.commit()?;
             return Ok(None);
         };
+        let request_id = candidate.request_id.clone();
+        if let Some(error) = candidate.sidecar_dispatch_error() {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'queue', status = 'held_after_stop', turn_id = NULL,
+                     updated_at = ?1
+                 WHERE session_id = ?2 AND request_id = ?3 AND source = 'channel'
+                   AND status IN ('queued', 'fallback_after_reply')",
+                params![chrono::Utc::now().to_rfc3339(), session_id, request_id],
+            )?;
+            tx.commit()?;
+            drop(conn);
+            emit_changed(session_id, Some(&request_id), "sidecar_decode_failed");
+            return Err(error);
+        }
         let changed = tx.execute(
             "UPDATE queued_turn_user_messages
              SET mode = 'queue', status = 'dispatching', turn_id = ?1, updated_at = ?2
@@ -1087,6 +1468,8 @@ mod tests {
             plan_comment: None,
             plan_mode: None,
             workflow_mode: None,
+            incoming_turn: None,
+            skill_allowed_tools: Vec::new(),
             source: QueuedTurnMessageSource::Desktop,
             channel_origin: None,
         }
@@ -1103,6 +1486,67 @@ mod tests {
             })),
             ..queued(session_id, request_id)
         }
+    }
+
+    fn incoming_turn_for(message: &str) -> crate::prompt_context::IncomingTurnWire {
+        crate::prompt_context::IncomingTurnWire {
+            prompt_contract_version: crate::prompt_context::PROMPT_CONTRACT_VERSION,
+            mention_wire_version: crate::prompt_context::MENTION_WIRE_VERSION,
+            user_input: crate::prompt_context::CanonicalUserInput {
+                input_item_id: "queued-input".into(),
+                canonicalization_version: 1,
+                text: message.into(),
+                digest: crate::prompt_context::canonical_text_digest(message),
+            },
+            mentions: Vec::new(),
+        }
+    }
+
+    fn incoming_turn_with_file_mention(
+        message: &str,
+        target_id: &str,
+    ) -> crate::prompt_context::IncomingTurnWire {
+        let mut wire = incoming_turn_for(message);
+        wire.mentions
+            .push(crate::prompt_context::MentionBindingWire {
+                id: "queued-file".into(),
+                kind: crate::prompt_context::MentionKind::File,
+                target_id: target_id.into(),
+                display_label: target_id.into(),
+                origin: crate::prompt_context::StructuredMentionOrigin::ExplicitApiBinding,
+                source_anchor: crate::prompt_context::SourceAnchor::Inline {
+                    input_item_id: wire.user_input.input_item_id.clone(),
+                    canonical_text_digest: wire.user_input.digest.clone(),
+                    start_utf8: 0,
+                    end_utf8: message.len() as u64,
+                },
+            });
+        wire
+    }
+
+    fn queued_file_attachment(target_id: &str) -> Attachment {
+        Attachment {
+            name: target_id.to_string(),
+            mime_type: "text/plain".into(),
+            source: Some("mention".into()),
+            data: None,
+            file_path: Some(format!("/workspace/{target_id}")),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        }
+    }
+
+    fn replace_options_json(db: &SessionDB, session_id: &str, request_id: &str, raw_options: &str) {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE queued_turn_user_messages SET options_json = ?1
+                 WHERE session_id = ?2 AND request_id = ?3",
+                params![raw_options, session_id, request_id],
+            )
+            .unwrap();
     }
 
     #[test]
@@ -1129,6 +1573,27 @@ mod tests {
     }
 
     #[test]
+    fn queue_round_trips_the_explicit_skill_tool_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let session_id = {
+            let db = SessionDB::open(&path).unwrap();
+            let session_id = db.create_session("ha-main").unwrap().id;
+            let mut input = channel_queued(&session_id, "skill-command");
+            input.skill_allowed_tools = vec!["read".into(), "glob".into()];
+            db.enqueue_turn_user_message(input).unwrap();
+            session_id
+        };
+
+        let reopened = SessionDB::open(&path).unwrap();
+        let row = reopened
+            .get_queued_turn_user_message(&session_id, "skill-command")
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.skill_allowed_tools, vec!["read", "glob"]);
+    }
+
+    #[test]
     fn insertion_claim_wins_over_late_cancel() {
         let dir = tempfile::tempdir().unwrap();
         let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
@@ -1145,6 +1610,399 @@ mod tests {
         assert!(!db
             .cancel_turn_message_insertion(&session_id, "item", "turn")
             .unwrap());
+    }
+
+    #[test]
+    fn valid_empty_incoming_turn_can_force_insert_at_tool_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let mut input = queued(&session_id, "empty-typed-envelope");
+        input.incoming_turn = Some(incoming_turn_for(&input.message));
+        let enqueued = db.enqueue_turn_user_message(input).unwrap();
+        assert!(enqueued.item.can_force_insert);
+
+        assert!(db
+            .request_turn_message_insertion(&session_id, "empty-typed-envelope", "active-turn",)
+            .unwrap());
+        let claimed = db
+            .claim_turn_messages_for_insertion(&session_id, "active-turn")
+            .unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert!(claimed[0]
+            .incoming_turn
+            .as_ref()
+            .is_some_and(|wire| wire.mentions.is_empty()));
+        assert_eq!(
+            db.get_queued_turn_user_message(&session_id, "empty-typed-envelope")
+                .unwrap()
+                .unwrap()
+                .status,
+            QueuedTurnMessageStatus::Inserting
+        );
+    }
+
+    #[test]
+    fn empty_incoming_turn_with_legacy_wikilink_requires_full_dispatch() {
+        for (request_id, message) in [
+            ("legacy-note", "Please use [[Roadmap]]"),
+            ("legacy-note-inline-code", "Please use `[[Roadmap]]`"),
+            (
+                "legacy-note-fenced-code",
+                "Example:\n```md\n[[Roadmap]]\n```",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+            let session_id = db.create_session("ha-main").unwrap().id;
+            let mut input = queued(&session_id, request_id);
+            input.message = message.into();
+            input.incoming_turn = Some(incoming_turn_for(&input.message));
+            let enqueued = db.enqueue_turn_user_message(input).unwrap();
+            assert!(!enqueued.item.can_force_insert);
+
+            assert!(!db
+                .request_turn_message_insertion(&session_id, request_id, "active-turn")
+                .unwrap());
+            assert!(db
+                .claim_turn_messages_for_insertion(&session_id, "active-turn")
+                .unwrap()
+                .is_empty());
+            let held = db
+                .get_queued_turn_user_message(&session_id, request_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(held.status, QueuedTurnMessageStatus::FallbackAfterReply);
+            let dispatched = db
+                .claim_queued_turn_message_for_dispatch(&session_id, request_id, "next-turn")
+                .unwrap()
+                .unwrap();
+            assert_eq!(dispatched.message, message);
+            assert!(dispatched
+                .incoming_turn
+                .as_ref()
+                .is_some_and(|wire| wire.mentions.is_empty()));
+        }
+    }
+
+    #[test]
+    fn empty_incoming_turn_with_markdown_link_can_force_insert() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let mut input = queued(&session_id, "markdown-link");
+        input.message = "[Roadmap](notes/Roadmap.md)".into();
+        input.incoming_turn = Some(incoming_turn_for(&input.message));
+        db.enqueue_turn_user_message(input).unwrap();
+
+        assert!(db
+            .request_turn_message_insertion(&session_id, "markdown-link", "active-turn")
+            .unwrap());
+        assert_eq!(
+            db.claim_turn_messages_for_insertion(&session_id, "active-turn")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn desktop_and_http_sidecars_fall_back_to_full_turn_dispatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+
+        let mut desktop = queued(&session_id, "desktop-typed");
+        desktop.message = "@README.md".into();
+        desktop.incoming_turn = Some(incoming_turn_with_file_mention(
+            &desktop.message,
+            "README.md",
+        ));
+        desktop.attachments = vec![queued_file_attachment("README.md")];
+        let desktop_enqueued = db.enqueue_turn_user_message(desktop).unwrap();
+        assert!(!desktop_enqueued.item.can_force_insert);
+
+        let mut http = queued(&session_id, "http-skill");
+        http.source = QueuedTurnMessageSource::Http;
+        http.skill_allowed_tools = vec!["read".into()];
+        let http_enqueued = db.enqueue_turn_user_message(http).unwrap();
+        assert!(!http_enqueued.item.can_force_insert);
+
+        assert!(!db
+            .request_turn_message_insertion(&session_id, "desktop-typed", "active-turn")
+            .unwrap());
+        assert!(!db
+            .request_turn_message_insertion(&session_id, "http-skill", "active-turn")
+            .unwrap());
+        assert!(db
+            .claim_turn_messages_for_insertion(&session_id, "active-turn")
+            .unwrap()
+            .is_empty());
+
+        for request_id in ["desktop-typed", "http-skill"] {
+            let row = db
+                .get_queued_turn_user_message(&session_id, request_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(row.mode, QueuedTurnMessageMode::Queue);
+            assert_eq!(row.status, QueuedTurnMessageStatus::FallbackAfterReply);
+            assert!(row.turn_id.is_none());
+        }
+
+        let desktop = db
+            .claim_queued_turn_message_for_dispatch(&session_id, "desktop-typed", "next-turn")
+            .unwrap()
+            .unwrap();
+        assert!(desktop.incoming_turn.is_some());
+        db.remove_claimed_turn_message(&session_id, "desktop-typed")
+            .unwrap();
+        let http = db
+            .claim_queued_turn_message_for_dispatch(&session_id, "http-skill", "next-turn")
+            .unwrap()
+            .unwrap();
+        assert_eq!(http.skill_allowed_tools, vec!["read"]);
+    }
+
+    #[test]
+    fn editing_typed_queue_row_drops_typed_attachments_and_preserves_ordinary_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let mut input = queued(&session_id, "edit-typed");
+        input.message = "@README.md".into();
+        input.incoming_turn = Some(incoming_turn_with_file_mention(&input.message, "README.md"));
+        let ordinary = Attachment {
+            name: "ordinary.txt".into(),
+            mime_type: "text/plain".into(),
+            source: Some("upload".into()),
+            data: None,
+            file_path: None,
+            upload_id: Some("ordinary-upload-lease".into()),
+            quote_lines: None,
+            quote_role: None,
+        };
+        input.attachments = vec![queued_file_attachment("README.md"), ordinary.clone()];
+        db.enqueue_turn_user_message(input).unwrap();
+
+        assert!(db
+            .update_queued_turn_user_message(&session_id, "edit-typed", "repaired message", None,)
+            .unwrap());
+        let edited = db
+            .get_queued_turn_user_message(&session_id, "edit-typed")
+            .unwrap()
+            .unwrap();
+        assert!(edited.incoming_turn.is_none());
+        assert_eq!(edited.attachments.len(), 1);
+        assert_eq!(edited.attachments[0].source.as_deref(), Some("upload"));
+        assert_eq!(edited.attachments[0].upload_id, ordinary.upload_id);
+
+        let dispatched = db
+            .claim_queued_turn_message_for_dispatch(&session_id, "edit-typed", "repaired-turn")
+            .unwrap()
+            .unwrap();
+        assert_eq!(dispatched.message, "repaired message");
+        assert!(dispatched.incoming_turn.is_none());
+        assert_eq!(dispatched.attachments.len(), 1);
+        assert_eq!(dispatched.attachments[0].source.as_deref(), Some("upload"));
+    }
+
+    #[test]
+    fn undecodable_non_channel_sidecars_fail_closed_and_remain_editable() {
+        let cases = [
+            (
+                "future-skill-ceiling",
+                r#"{"skillAllowedTools":{"version":2,"tools":["read"]}}"#,
+            ),
+            (
+                "mixed-skill-ceiling",
+                r#"{"skillAllowedTools":["read",{"future":"glob"}]}"#,
+            ),
+            (
+                "future-incoming-turn",
+                r#"{"incomingTurn":{"promptContractVersion":999,"mentionWireVersion":1,"userInput":{"inputItemId":"future-input","canonicalizationVersion":1,"text":"queued message","digest":"sha256:future"},"mentions":[]}}"#,
+            ),
+            ("malformed-options", "{not-json"),
+        ];
+
+        for (request_id, raw_options) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+            let session_id = db.create_session("ha-main").unwrap().id;
+            let mut input = queued(&session_id, request_id);
+            input.source = QueuedTurnMessageSource::Http;
+            db.enqueue_turn_user_message(input).unwrap();
+            replace_options_json(&db, &session_id, request_id, raw_options);
+
+            let insertion_error = db
+                .request_turn_message_insertion(&session_id, request_id, "active-turn")
+                .unwrap_err();
+            assert!(
+                insertion_error
+                    .to_string()
+                    .contains("sidecar cannot be safely decoded"),
+                "unexpected error for {request_id}: {insertion_error:#}"
+            );
+            let held = db
+                .get_queued_turn_user_message(&session_id, request_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(held.status, QueuedTurnMessageStatus::FallbackAfterReply);
+            assert!(held.turn_id.is_none());
+
+            let dispatch_error = db
+                .claim_queued_turn_message_for_dispatch(&session_id, request_id, "next-turn")
+                .unwrap_err();
+            assert!(dispatch_error
+                .to_string()
+                .contains("sidecar cannot be safely decoded"));
+
+            // Owner-managed rows remain repairable: editing the raw text
+            // intentionally drops stale typed sidecars and restores ordinary
+            // full-turn dispatch.
+            assert!(db
+                .update_queued_turn_user_message(&session_id, request_id, "repaired message", None,)
+                .unwrap());
+            let dispatched = db
+                .claim_queued_turn_message_for_dispatch(&session_id, request_id, "repaired-turn")
+                .unwrap()
+                .unwrap();
+            assert!(dispatched.incoming_turn.is_none());
+            assert!(dispatched.skill_allowed_tools.is_empty());
+        }
+    }
+
+    #[test]
+    fn undecodable_channel_skill_ceiling_is_held_out_of_the_fifo_pump() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let request_id = "future-skill-command";
+        db.enqueue_turn_user_message(channel_queued(&session_id, request_id))
+            .unwrap();
+        replace_options_json(
+            &db,
+            &session_id,
+            request_id,
+            r#"{"skillAllowedTools":{"version":2,"tools":["read"]}}"#,
+        );
+
+        let error = db
+            .claim_next_channel_turn_message_for_dispatch(&session_id, "next-turn")
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("skillAllowedTools must be an array containing only strings"));
+        let held = db
+            .get_queued_turn_user_message(&session_id, request_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(held.status, QueuedTurnMessageStatus::HeldAfterStop);
+        assert!(held.turn_id.is_none());
+        assert!(!db
+            .list_channel_queued_session_ids()
+            .unwrap()
+            .contains(&session_id));
+        assert!(db
+            .claim_next_channel_turn_message_for_dispatch(&session_id, "retry-turn")
+            .unwrap()
+            .is_none());
+
+        // A later inbound message may resume held Channel rows. The same
+        // binary must detect and hold the unsupported ceiling again instead of
+        // dispatching it as an unrestricted command.
+        assert_eq!(
+            db.resume_channel_turn_messages_after_stop(&session_id)
+                .unwrap(),
+            1
+        );
+        let retry_error = db
+            .request_channel_turn_message_insertion(&session_id, request_id, "active-turn")
+            .unwrap_err();
+        assert!(retry_error
+            .to_string()
+            .contains("skillAllowedTools must be an array containing only strings"));
+        assert_eq!(
+            db.get_queued_turn_user_message(&session_id, request_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            QueuedTurnMessageStatus::HeldAfterStop
+        );
+    }
+
+    #[test]
+    fn channel_sidecar_remains_fifo_head_for_after_reply_dispatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let mut first = channel_queued(&session_id, "skill-command");
+        first.skill_allowed_tools = vec!["read".into(), "glob".into()];
+        db.enqueue_turn_user_message(first).unwrap();
+        db.enqueue_turn_user_message(channel_queued(&session_id, "plain-second"))
+            .unwrap();
+
+        assert!(!db
+            .request_channel_turn_message_insertion(&session_id, "skill-command", "active-turn")
+            .unwrap());
+        assert!(!db
+            .request_channel_turn_message_insertion(&session_id, "plain-second", "active-turn")
+            .unwrap());
+        assert!(db
+            .claim_turn_messages_for_insertion(&session_id, "active-turn")
+            .unwrap()
+            .is_empty());
+
+        let row = db
+            .get_queued_turn_user_message(&session_id, "skill-command")
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, QueuedTurnMessageStatus::FallbackAfterReply);
+        assert_eq!(
+            db.next_channel_turn_message_for_insertion(&session_id)
+                .unwrap()
+                .as_deref(),
+            Some("skill-command")
+        );
+        let dispatched = db
+            .claim_next_channel_turn_message_for_dispatch(&session_id, "next-turn")
+            .unwrap()
+            .unwrap();
+        assert_eq!(dispatched.request_id, "skill-command");
+        assert_eq!(dispatched.skill_allowed_tools, vec!["read", "glob"]);
+    }
+
+    #[test]
+    fn insertion_claim_defers_preexisting_waiting_sidecar_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let mut input = queued(&session_id, "legacy-waiting");
+        input.message = "@README.md".into();
+        input.incoming_turn = Some(incoming_turn_with_file_mention(&input.message, "README.md"));
+        input.attachments = vec![queued_file_attachment("README.md")];
+        db.enqueue_turn_user_message(input).unwrap();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'force_insert', status = 'waiting_tool_boundary', turn_id = ?1
+                 WHERE session_id = ?2 AND request_id = ?3",
+                params!["active-turn", session_id, "legacy-waiting"],
+            )
+            .unwrap();
+
+        assert!(db
+            .claim_turn_messages_for_insertion(&session_id, "active-turn")
+            .unwrap()
+            .is_empty());
+        let row = db
+            .get_queued_turn_user_message(&session_id, "legacy-waiting")
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.mode, QueuedTurnMessageMode::Queue);
+        assert_eq!(row.status, QueuedTurnMessageStatus::FallbackAfterReply);
+        assert!(row.turn_id.is_none());
     }
 
     #[test]

@@ -102,7 +102,8 @@ pub struct UserConfig {
     #[serde(default)]
     pub remote_api_key: Option<String>,
 
-    /// Whether to inject weather info into system prompt (default: true)
+    /// Whether to expose weather observations in the dynamic environment-data
+    /// lane (default: true).
     #[serde(default = "crate::default_true")]
     pub weather_enabled: bool,
 

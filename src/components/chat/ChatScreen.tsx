@@ -57,6 +57,11 @@ import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { CommandResult } from "./slash-commands/types"
 import {
+  newMentionId,
+  slashSkillMentionBinding,
+  type ComposerMentionKind,
+} from "./mentions/typedMentions"
+import {
   goalSlashCommandDisplay,
   isGoalUpsertSlashCommand,
   parseGoalObjectiveAndCriteria,
@@ -200,12 +205,17 @@ function appendGoalCriterionLine(
   return current ? `${current}\n${nextLine}` : nextLine
 }
 
-/** A token to append to the chat composer on next render. `attachKbId` (set by the
- *  KnowledgeView "reference in chat" action) is auto-attached read-only so the
- *  `[[note]]` injection isn't dropped by `effective_kb_access` at send time. */
+/** A token to append to the chat composer on next render. `mention` preserves a
+ * first-party selection as typed provenance; lookalike text without it remains
+ * inert. `attachKbId` auto-attaches a referenced KB read-only when applicable. */
 export interface ChatInsert {
   token: string
   attachKbId?: string
+  mention?: {
+    kind: ComposerMentionKind
+    targetId: string
+    displayLabel: string
+  }
 }
 
 type SwitchSessionOptions = { targetMessageId?: number; highlightTerms?: string[] }
@@ -232,8 +242,7 @@ interface ChatScreenProps {
   onExternalChatFocusHandled?: (nonce: number) => void
   externalProjectFocus?: { projectId: string; nonce: number } | null
   onExternalProjectFocusHandled?: (nonce: number) => void
-  /** Token to append to the chat input on next render (e.g. `@plan:abcd:v0` or a
-   *  `[[note]]` ref). */
+  /** Token and optional typed provenance to append on next render. */
   pendingChatInsert?: ChatInsert
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
@@ -432,9 +441,9 @@ function appendUniqueSlashHistoryMessages(prev: Message[], additions: Message[])
 
 function goalTurnPrompt(visibleGoalText: string): string {
   return [
-    "[SYSTEM: The user has just created or updated the durable Goal for this session.",
-    "Treat the Active Goal system section as the source of truth, acknowledge briefly, then begin making progress.",
-    "Do not expose internal goal ids, revision ids, or slash-command help unless the user asks for status details.]",
+    "I just created or updated the durable Goal for this session.",
+    "Use the current Active Goal context as the source of truth, acknowledge briefly, then begin making progress.",
+    "Do not expose internal goal ids, revision ids, or slash-command help unless I ask for status details.",
     "",
     visibleGoalText,
   ].join("\n")
@@ -2174,7 +2183,7 @@ export default function ChatScreen({
   // sessions get zero KB access (D10) — skip the attach, never the insert.
   useEffect(() => {
     if (!pendingChatInsert) return
-    const { token, attachKbId } = pendingChatInsert
+    const { token, attachKbId, mention } = pendingChatInsert
     const run = async () => {
       if (attachKbId && !incognitoEnabled) {
         try {
@@ -2203,11 +2212,22 @@ export default function ChatScreen({
           )
         }
       }
-      // Functional updater (not the captured `stream.input`): the `attach` await
-      // above is a transport round-trip during which the user may keep typing —
-      // reading a stale snapshot here would drop those keystrokes. The updater
-      // also composes correctly if two refs are inserted back-to-back.
-      stream.setInput((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${token} `)
+      if (mention) {
+        // The KB attach above may await a transport round-trip. Append against
+        // the latest state so intervening typing and back-to-back refs survive.
+        stream.appendInputMention(
+          token,
+          {
+            id: newMentionId(),
+            kind: mention.kind,
+            targetId: mention.targetId,
+            displayLabel: mention.displayLabel,
+          },
+          true,
+        )
+      } else {
+        stream.setInput((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${token} `)
+      }
       onChatInsertConsumed?.()
     }
     void run()
@@ -2542,10 +2562,27 @@ export default function ChatScreen({
           break
         case "passThrough":
           if (result._isSkillPassThrough) {
-            // User bubble shows "/skillname args"; LLM gets the expanded prompt.
-            await stream.handleSend(action.message, {
-              displayText: result._skillCommandText,
-            })
+            const commandText = result._skillCommandText ?? result._slashCommandText
+            const activation = action.skillActivation
+            if (commandText && activation) {
+              // The model receives the user's command plus a backend-resolved,
+              // user-level skill binding. The legacy expanded action message is
+              // retained for transports that do not support typed sidecars.
+              await stream.handleSend(commandText, {
+                displayText: commandText,
+                structuredMentions: [
+                  slashSkillMentionBinding(
+                    commandText,
+                    activation.skillName,
+                    activation.commandName,
+                  ),
+                ],
+              })
+            } else {
+              await stream.handleSend(action.message, {
+                displayText: result._skillCommandText,
+              })
+            }
           } else if (isGoalUpsertSlashCommand(result._slashCommandText)) {
             const visibleGoal = goalSlashCommandDisplay(result._slashCommandText ?? "").content
             planMode.exitPlanMode()
@@ -4337,7 +4374,9 @@ export default function ChatScreen({
                           ) : undefined
                         }
                         input={stream.input}
+                        structuredMentions={stream.typedMentions}
                         onInputChange={stream.setInput}
+                        onInputChangeWithMention={stream.setInputWithMention}
                         inputHistory={inputHistory}
                         quickPrompts={quickPrompts}
                         onSend={() =>

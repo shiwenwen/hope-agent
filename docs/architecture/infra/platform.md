@@ -79,6 +79,8 @@ flowchart TD
 | `write_secure_file(path, bytes)` | **机密专用**：写完强制 0600（Unix `chmod` 二次收紧，不受 umask 影响；Windows 依赖 NTFS DACL 继承）。用于 OAuth token、API Key 等 |
 | `write_atomic(path, bytes)` | **用户文档专用**（知识库笔记等）：目标已存在则**保留其现有权限**，否则用常规默认（Unix 0644）。不强制 0600 |
 | `write_atomic_create_new(path, bytes)` | 原子**创建**，目标已存在则返回 `AlreadyExists`。两端都用 `hard_link` 做 no-clobber 发布（`std::fs::rename` 在 Windows 会替换已存在目标，不能用） |
+| `open_file_beneath(root, relative)` | 从已授权绝对 root 安全打开一个 regular file 并返回同一读取 handle；逐组件拒 symlink/reparse 与 `..`，路径竞态只允许 fail closed。Unix 用 rooted `openat`，Windows 持有禁 delete-share 的 drive/UNC→root→relative-parent handle 链 |
+| `remove_file_beneath(root, relative)` | `open_file_beneath` 的删除对偶：只移除 root 下精确 final directory entry，不跟随 symlink/reparse ancestor；用于 backend-owned ledger cleanup，禁止业务层先 canonicalize 再裸 `remove_file` |
 | `publish_atomic_file(src, dst, overwrite)` | 把已写好的兄弟 staging 文件发布到 `dst`，不再二次缓冲。Windows `overwrite=true` 走 `MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH)` |
 | `publish_dir_atomic(src, dst)` | 发布整个已备好的兄弟目录，要求同父且 `dst` 不存在。Unix 用 `renamex_np(RENAME_EXCL)` / `renameat2(RENAME_NOREPLACE)` 做原子 no-clobber |
 | `is_cross_device_rename(err) -> bool` | 判断 rename 失败是否因跨文件系统（Unix `EXDEV`=18，Windows `ERROR_NOT_SAME_DEVICE`=17）。新 Rust 也认 `ErrorKind::CrossesDevices` |
