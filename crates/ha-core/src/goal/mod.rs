@@ -3381,12 +3381,14 @@ pub fn maybe_schedule_goal_continuation(
          </goal-continuation>",
         snapshot.goal.id, snapshot.goal.revision, semantic_instruction
     );
+    let admitted_global_stop_epoch = db.global_stop_epoch()?;
     let outcome = crate::wakeup::schedule(
         session_id,
         agent_id,
         GOAL_AUTO_CONTINUE_DELAY_SECS,
         Some(note),
         false,
+        admitted_global_stop_epoch,
     )
     .map_err(|e| anyhow!("failed to schedule goal continuation: {e:?}"))?;
     let _ = db.append_goal_event(

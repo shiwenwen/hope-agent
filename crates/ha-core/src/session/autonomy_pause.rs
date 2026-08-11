@@ -149,6 +149,11 @@ fn list_session_ids_with_active_autonomy_with_conn(
              SELECT session_id FROM chat_stream_runs
               WHERE status = 'running'
                 AND source IN ('desktop', 'http', 'channel', 'acp')
+             UNION
+             SELECT session_id FROM queued_turn_user_messages
+              WHERE source = 'channel'
+                AND status IN ('queued', 'fallback_after_reply', 'waiting_tool_boundary',
+                               'inserting', 'dispatching')
          ), session_lineage(active_id, id, parent_session_id) AS (
              SELECT active.id, session.id, session.parent_session_id
                FROM active_sessions active
@@ -267,6 +272,29 @@ impl SessionDB {
             .map_err(|_| anyhow!("global Stop epoch exceeds SQLite INTEGER range"))?;
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        // One published global generation is idempotent across process-local
+        // watchers. Concurrent owners may discover the same volatile session,
+        // but they must converge on one pause id so a Continue cannot become
+        // stale merely because another process repeated the same receipt.
+        if let Some(global_stop_epoch) = global_stop_epoch {
+            if let Some(existing) = tx
+                .query_row(
+                    "SELECT id, session_id, goal_id, workflow_run_ids_json,
+                            subagent_run_ids_json, created_at, resumed_at
+                       FROM session_autonomy_pauses
+                      WHERE session_id = ?1
+                        AND global_stop_epoch = ?2
+                        AND resumed_at IS NULL
+                      ORDER BY created_at DESC LIMIT 1",
+                    params![session_id, global_stop_epoch],
+                    row_to_pause,
+                )
+                .optional()?
+            {
+                return Ok(existing);
+            }
+        }
 
         let previous = tx
             .query_row(
@@ -461,6 +489,46 @@ impl SessionDB {
             row_to_pause,
         )
         .optional()
+        .map_err(Into::into)
+    }
+
+    /// Whether this session lineage has an active or already-consumed receipt
+    /// attributed to one exact global Stop generation. Process-local volatile
+    /// controllers use this to follow a Stop/Continue handled by another
+    /// process without publishing their runtime identity in shared storage.
+    pub(crate) fn session_lineage_global_stop_receipt_state(
+        &self,
+        session_id: &str,
+        global_stop_epoch: u64,
+    ) -> Result<(bool, bool)> {
+        let global_stop_epoch = i64::try_from(global_stop_epoch)
+            .map_err(|_| anyhow!("global Stop epoch exceeds SQLite INTEGER range"))?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        conn.query_row(
+            "WITH RECURSIVE session_lineage(id, parent_session_id) AS (
+                 SELECT id, parent_session_id FROM sessions WHERE id = ?1
+                 UNION
+                 SELECT parent.id, parent.parent_session_id
+                   FROM sessions parent
+                   JOIN session_lineage child ON parent.id = child.parent_session_id
+             )
+             SELECT EXISTS(
+                        SELECT 1
+                          FROM session_autonomy_pauses pause
+                          JOIN session_lineage lineage ON lineage.id = pause.session_id
+                         WHERE pause.global_stop_epoch = ?2
+                           AND pause.resumed_at IS NULL
+                    ),
+                    EXISTS(
+                        SELECT 1
+                          FROM session_autonomy_pauses pause
+                          JOIN session_lineage lineage ON lineage.id = pause.session_id
+                         WHERE pause.global_stop_epoch = ?2
+                           AND pause.resumed_at IS NOT NULL
+                    )",
+            params![session_id, global_stop_epoch],
+            |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, i64>(1)? != 0)),
+        )
         .map_err(Into::into)
     }
 
@@ -1053,5 +1121,26 @@ mod tests {
             vec![registration.run_id],
             "a targeted Stop after admission must still win"
         );
+    }
+
+    #[test]
+    fn one_global_stop_generation_has_one_active_pause_id_per_session() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop-idempotent.db"))
+            .expect("session db");
+        let session = db.create_session("ha-main").expect("session");
+        let (global_stop_epoch, _) = db
+            .begin_global_stop_enumeration()
+            .expect("publish global Stop generation");
+
+        let first = db
+            .prepare_session_autonomy_pause_for_global(&session.id, global_stop_epoch)
+            .expect("first owner publishes receipt");
+        let repeated = db
+            .prepare_session_autonomy_pause_for_global(&session.id, global_stop_epoch)
+            .expect("second owner converges on receipt");
+
+        assert_eq!(repeated.id, first.id);
+        assert_eq!(db.session_autonomy_pause_epoch(&session.id).unwrap(), 1);
     }
 }

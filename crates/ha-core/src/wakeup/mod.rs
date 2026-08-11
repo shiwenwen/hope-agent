@@ -95,6 +95,7 @@ struct ArmedTimer {
     note: Option<String>,
     fire_at: i64,
     persisted: bool,
+    admitted_global_stop_epoch: u64,
     abort: tokio::task::AbortHandle,
 }
 
@@ -104,6 +105,7 @@ struct SuspendedTimer {
     agent_id: String,
     note: Option<String>,
     fire_at: i64,
+    fenced_global_stop_epoch: u64,
 }
 
 #[derive(Clone)]
@@ -113,6 +115,7 @@ struct WakeupDescriptor {
     note: Option<String>,
     fire_at: i64,
     persisted: bool,
+    admitted_global_stop_epoch: u64,
 }
 
 struct DeliveringWakeup {
@@ -120,6 +123,7 @@ struct DeliveringWakeup {
     /// The latest Stop for this session has fenced this delivery. A subsequent
     /// Continue clears it; a newer Stop clears an older resume request again.
     paused: bool,
+    fenced_global_stop_epoch: Option<u64>,
     /// Continue observed this exact in-flight source. If the old injection is
     /// later abandoned by the monotonic Stop epoch, its descriptor must be
     /// re-armed instead of waiting for a process restart.
@@ -221,6 +225,96 @@ pub(crate) async fn pending_session_ids_for_global_stop() -> Vec<String> {
     let mut session_ids = session_ids.into_iter().collect::<Vec<_>>();
     session_ids.sort();
     session_ids
+}
+
+/// Process-local wakeups that have no durable WakeupDB row. The session-free
+/// global epoch lets their owner process observe a Stop without publishing
+/// incognito timer identity. `paused=true` carries the epoch of the Stop that
+/// parked the timer so a Continue handled by another process can re-arm it.
+pub(crate) fn volatile_global_stop_states() -> Vec<(String, u64, bool)> {
+    let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    let mut states = armed
+        .values()
+        .filter(|timer| !timer.persisted)
+        .map(|timer| {
+            (
+                timer.session_id.clone(),
+                timer.admitted_global_stop_epoch,
+                false,
+            )
+        })
+        .collect::<Vec<_>>();
+    states.extend(suspended.values().map(|timer| {
+        (
+            timer.session_id.clone(),
+            timer.fenced_global_stop_epoch,
+            true,
+        )
+    }));
+    states.extend(
+        delivering
+            .values()
+            .filter(|delivery| !delivery.descriptor.persisted)
+            .map(|delivery| {
+                (
+                    delivery.descriptor.session_id.clone(),
+                    delivery
+                        .fenced_global_stop_epoch
+                        .unwrap_or(delivery.descriptor.admitted_global_stop_epoch),
+                    delivery.paused,
+                )
+            }),
+    );
+    states
+}
+
+/// Resume only process-local volatile wakeups after their durable session
+/// receipt has been consumed, regardless of whether this process is Primary.
+/// Re-admit each source at the epoch that actually fenced it, never at a live
+/// epoch read after Continue: a concurrent newer global Stop must remain able
+/// to identify and park the older source.
+pub(crate) fn resume_volatile_for_session(session_id: &str) -> usize {
+    let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    let ids = suspended
+        .iter()
+        .filter(|(_, timer)| timer.session_id == session_id)
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    for id in &ids {
+        if let Some(timer) = suspended.remove(id) {
+            arm_timer_locked(
+                &mut armed,
+                id.clone(),
+                timer.session_id,
+                timer.agent_id,
+                timer.note,
+                timer.fire_at,
+                false,
+                timer.fenced_global_stop_epoch,
+                true,
+            );
+        }
+    }
+    let mut resumed = ids.len();
+    for delivery in delivering.values_mut().filter(|delivery| {
+        delivery.descriptor.session_id == session_id
+            && !delivery.descriptor.persisted
+            && delivery.paused
+    }) {
+        let admitted_global_stop_epoch = delivery
+            .fenced_global_stop_epoch
+            .unwrap_or(delivery.descriptor.admitted_global_stop_epoch);
+        delivery.paused = false;
+        delivery.fenced_global_stop_epoch = None;
+        delivery.descriptor.admitted_global_stop_epoch = admitted_global_stop_epoch;
+        delivery.resume_requested = true;
+        resumed += 1;
+    }
+    resumed
 }
 
 /// Count unique durable or process-local wakeups that still target an Agent.
@@ -338,6 +432,7 @@ pub fn schedule(
     delay_secs: i64,
     note: Option<String>,
     incognito: bool,
+    admitted_global_stop_epoch: u64,
 ) -> Result<ScheduleOutcome, ScheduleError> {
     let cap = max_pending_per_session();
     if count_pending_for_session(session_id) >= cap {
@@ -385,6 +480,7 @@ pub fn schedule(
         note,
         fire_at,
         persisted,
+        admitted_global_stop_epoch,
     );
 
     app_info!(
@@ -414,8 +510,18 @@ fn arm_timer(
     note: Option<String>,
     fire_at: i64,
     persisted: bool,
+    admitted_global_stop_epoch: u64,
 ) {
-    arm_timer_with_resume_hint(id, session_id, agent_id, note, fire_at, persisted, false);
+    arm_timer_with_resume_hint(
+        id,
+        session_id,
+        agent_id,
+        note,
+        fire_at,
+        persisted,
+        admitted_global_stop_epoch,
+        false,
+    );
 }
 
 /// Arm a timer created by explicit Continue. The hint matters only if this
@@ -428,8 +534,18 @@ fn arm_timer_after_continue(
     note: Option<String>,
     fire_at: i64,
     persisted: bool,
+    admitted_global_stop_epoch: u64,
 ) {
-    arm_timer_with_resume_hint(id, session_id, agent_id, note, fire_at, persisted, true);
+    arm_timer_with_resume_hint(
+        id,
+        session_id,
+        agent_id,
+        note,
+        fire_at,
+        persisted,
+        admitted_global_stop_epoch,
+        true,
+    );
 }
 
 fn arm_timer_with_resume_hint(
@@ -439,6 +555,7 @@ fn arm_timer_with_resume_hint(
     note: Option<String>,
     fire_at: i64,
     persisted: bool,
+    admitted_global_stop_epoch: u64,
     resume_hint: bool,
 ) {
     let mut map = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
@@ -452,29 +569,9 @@ fn arm_timer_with_resume_hint(
         note,
         fire_at,
         persisted,
+        admitted_global_stop_epoch,
         resume_hint,
     );
-}
-
-/// Atomically move one in-memory Stop receipt back to the armed set. If purge
-/// or another Continue already consumed the receipt, this is a no-op.
-fn rearm_suspended_timer(id: &str) -> bool {
-    let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
-    let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
-    let Some(timer) = suspended.remove(id) else {
-        return false;
-    };
-    arm_timer_locked(
-        &mut armed,
-        id.to_string(),
-        timer.session_id,
-        timer.agent_id,
-        timer.note,
-        timer.fire_at,
-        false,
-        true,
-    );
-    true
 }
 
 /// Register a timer while the caller holds the armed-map lock. Keeping Stop,
@@ -488,6 +585,7 @@ fn arm_timer_locked(
     note: Option<String>,
     fire_at: i64,
     persisted: bool,
+    admitted_global_stop_epoch: u64,
     resume_hint: bool,
 ) {
     let delay = (fire_at - now_secs()).max(0) as u64;
@@ -500,7 +598,7 @@ fn arm_timer_locked(
             tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
         }
         if let Some(descriptor) = promote_armed_to_delivering(&task_id, resume_hint) {
-            fire(task_id, descriptor);
+            fire(task_id, descriptor).await;
         }
     });
     // Defensive: ids are fresh uuids so a collision shouldn't happen, but if one
@@ -514,6 +612,7 @@ fn arm_timer_locked(
             note,
             fire_at,
             persisted,
+            admitted_global_stop_epoch,
             abort: handle.abort_handle(),
         },
     ) {
@@ -533,12 +632,14 @@ fn promote_armed_to_delivering(id: &str, resume_hint: bool) -> Option<WakeupDesc
         note: timer.note,
         fire_at: timer.fire_at,
         persisted: timer.persisted,
+        admitted_global_stop_epoch: timer.admitted_global_stop_epoch,
     };
     match delivering.entry(id.to_string()) {
         Entry::Vacant(entry) => {
             entry.insert(DeliveringWakeup {
                 descriptor: descriptor.clone(),
                 paused: false,
+                fenced_global_stop_epoch: None,
                 // A fresh post-Continue delivery is already the resumed
                 // generation. The hint is only transferred to an older
                 // occupied generation in the duplicate branch below.
@@ -590,6 +691,7 @@ fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
             descriptor.note,
             descriptor.fire_at,
             descriptor.persisted,
+            descriptor.admitted_global_stop_epoch,
             false,
         );
         DeliveringFinish::Rearmed
@@ -604,6 +706,9 @@ fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
                 agent_id: descriptor.agent_id,
                 note: descriptor.note,
                 fire_at: descriptor.fire_at,
+                fenced_global_stop_epoch: delivery
+                    .fenced_global_stop_epoch
+                    .unwrap_or(descriptor.admitted_global_stop_epoch),
             },
         );
         DeliveringFinish::Parked
@@ -616,12 +721,13 @@ fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
 /// Deliver a fired wakeup: inject a `<wakeup>` message back into the session via
 /// the shared injection pipeline. Runs on a detached thread (its own runtime),
 /// exactly like `async_jobs::injection::dispatch_injection`.
-fn fire(id: String, descriptor: WakeupDescriptor) {
+async fn fire(id: String, descriptor: WakeupDescriptor) {
     let WakeupDescriptor {
         session_id,
         mut agent_id,
         note,
         persisted,
+        admitted_global_stop_epoch,
         ..
     } = descriptor;
     let session_db = match crate::get_session_db() {
@@ -631,6 +737,31 @@ fn fire(id: String, descriptor: WakeupDescriptor) {
             return;
         }
     };
+
+    // Durable wakeups are fenced by their shared row/session receipt. A
+    // volatile wakeup has no cross-process identity, so compare only the
+    // session-free global generation captured when it was admitted. If Stop
+    // advanced first, park it under the old epoch; the owner watcher will
+    // publish the matching session receipt before updating the parked fence.
+    if !persisted {
+        let global_stop_epoch = session_db
+            .clone()
+            .run(|db| db.global_stop_epoch())
+            .await
+            .unwrap_or(u64::MAX);
+        if global_stop_epoch > admitted_global_stop_epoch {
+            app_info!(
+                "wakeup",
+                "fire",
+                "Deferring volatile wakeup {} after global Stop generation {}",
+                id,
+                global_stop_epoch
+            );
+            suspend_for_session_at_global_epoch(&session_id, None);
+            finish_delivering(&id, true);
+            return;
+        }
+    }
 
     // A session Stop is a durable pause, not a deletion. Leave the wakeup row
     // pending so explicit Continue can re-arm it; never inject an autonomous
@@ -657,7 +788,7 @@ fn fire(id: String, descriptor: WakeupDescriptor) {
     // timer was armed. Read the row at delivery time so the task cannot replay
     // into an Agent that has since moved to trash.
     if persisted {
-        let Some(db) = get_wakeup_db() else {
+        let Some(db) = get_wakeup_db().cloned() else {
             app_warn!(
                 "wakeup",
                 "fire",
@@ -667,7 +798,8 @@ fn fire(id: String, descriptor: WakeupDescriptor) {
             finish_delivering(&id, true);
             return;
         };
-        match db.get_pending(&id) {
+        let lookup_id = id.clone();
+        match crate::blocking::run_blocking(move || db.get_pending(&lookup_id)).await {
             Ok(Some(row)) => {
                 agent_id = row.agent_id;
                 if let Some(delivery) = DELIVERING
@@ -958,7 +1090,7 @@ pub fn replay_pending() {
             continue;
         }
         *c += 1;
-        arm_timer(w.id, w.session_id, w.agent_id, w.note, w.fire_at, true);
+        arm_timer(w.id, w.session_id, w.agent_id, w.note, w.fire_at, true, 0);
         armed += 1;
     }
     if armed > 0 || dropped > 0 {
@@ -976,6 +1108,13 @@ pub fn replay_pending() {
 /// Continue re-arms those exact rows; session deletion still uses
 /// [`purge_for_session`] and removes them permanently.
 pub fn suspend_for_session(session_id: &str) -> usize {
+    suspend_for_session_at_global_epoch(session_id, None)
+}
+
+pub(crate) fn suspend_for_session_at_global_epoch(
+    session_id: &str,
+    global_stop_epoch: Option<u64>,
+) -> usize {
     let mut map = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
@@ -994,6 +1133,8 @@ pub fn suspend_for_session(session_id: &str) -> usize {
                         agent_id: timer.agent_id,
                         note: timer.note,
                         fire_at: timer.fire_at,
+                        fenced_global_stop_epoch: global_stop_epoch
+                            .unwrap_or(timer.admitted_global_stop_epoch),
                     },
                 );
             }
@@ -1001,15 +1142,27 @@ pub fn suspend_for_session(session_id: &str) -> usize {
         }
     }
     let mut affected = ids.len();
+    for timer in suspended
+        .values_mut()
+        .filter(|timer| timer.session_id == session_id)
+    {
+        if let Some(epoch) = global_stop_epoch {
+            timer.fenced_global_stop_epoch = epoch;
+        }
+    }
     for delivery in delivering
         .values_mut()
-        .filter(|delivery| delivery.descriptor.session_id == session_id && !delivery.paused)
+        .filter(|delivery| delivery.descriptor.session_id == session_id)
     {
+        if !delivery.paused {
+            affected += 1;
+        }
         delivery.paused = true;
+        delivery.fenced_global_stop_epoch =
+            Some(global_stop_epoch.unwrap_or(delivery.descriptor.admitted_global_stop_epoch));
         // A newer Stop supersedes any Continue that targeted the prior pause
         // generation. The next explicit Continue may set this again.
         delivery.resume_requested = false;
-        affected += 1;
     }
     affected
 }
@@ -1025,6 +1178,7 @@ async fn replay_pending_for_session_for_tier(
     session_id: &str,
     primary: bool,
 ) -> anyhow::Result<()> {
+    resume_volatile_for_session(session_id);
     if !primary {
         app_debug!(
             "wakeup",
@@ -1044,27 +1198,16 @@ async fn replay_pending_for_session_for_tier(
         delivering
             .iter_mut()
             .filter_map(|(id, delivery)| {
-                (delivery.descriptor.session_id == session_id).then(|| {
-                    delivery.paused = false;
-                    delivery.resume_requested = true;
-                    id.clone()
-                })
+                (delivery.descriptor.session_id == session_id && delivery.descriptor.persisted)
+                    .then(|| {
+                        delivery.paused = false;
+                        delivery.fenced_global_stop_epoch = None;
+                        delivery.resume_requested = true;
+                        id.clone()
+                    })
             })
             .collect::<std::collections::HashSet<_>>()
     };
-    let suspended_ids = {
-        let map = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
-        map.iter()
-            .filter(|(id, timer)| {
-                timer.session_id == session_id && !delivering_ids.contains(id.as_str())
-            })
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>()
-    };
-    for id in suspended_ids {
-        rearm_suspended_timer(&id);
-    }
-
     let Some(db) = get_wakeup_db().cloned() else {
         return Ok(());
     };
@@ -1092,6 +1235,7 @@ async fn replay_pending_for_session_for_tier(
             wakeup.note,
             wakeup.fire_at,
             true,
+            0,
         );
     }
     Ok(())
@@ -1183,26 +1327,26 @@ mod tests {
         purge_for_session(sid); // ensure clean slate
 
         // Sub-minimum delay is clamped up to MIN_DELAY_SECS (not busy-polled).
-        let out = schedule(sid, "ha-main", 2, Some("note".into()), true).unwrap();
+        let out = schedule(sid, "ha-main", 2, Some("note".into()), true, 0).unwrap();
         assert_eq!(out.delay_secs, MIN_DELAY_SECS);
 
         // Fill to the configured cap (we already armed 1). Reading the live cap
         // (not a hardcoded 5) keeps the test correct whatever config is loaded.
         let cap = max_pending_per_session();
         for _ in 1..cap {
-            schedule(sid, "ha-main", 60, None, true).unwrap();
+            schedule(sid, "ha-main", 60, None, true, 0).unwrap();
         }
         assert_eq!(count_pending_for_session(sid), cap);
 
         // One past the cap is a structural reject (not queued).
-        let err = schedule(sid, "ha-main", 60, None, true).unwrap_err();
+        let err = schedule(sid, "ha-main", 60, None, true, 0).unwrap_err();
         assert!(matches!(err, ScheduleError::TooManyPending { .. }));
 
         // Purge aborts every live timer and frees the session's budget.
         purge_for_session(sid);
         assert_eq!(count_pending_for_session(sid), 0);
         // Scheduling works again after purge.
-        schedule(sid, "ha-main", 60, None, true).unwrap();
+        schedule(sid, "ha-main", 60, None, true, 0).unwrap();
         assert_eq!(count_pending_for_session(sid), 1);
         purge_for_session(sid); // leave no lingering timers for sibling tests
     }
@@ -1212,13 +1356,13 @@ mod tests {
         let sid = "test-wakeup-maxclamp-session";
         purge_for_session(sid);
         let max = max_delay_secs();
-        let out = schedule(sid, "ha-main", max + 10_000, None, true).unwrap();
+        let out = schedule(sid, "ha-main", max + 10_000, None, true, 0).unwrap();
         assert_eq!(out.delay_secs, max);
         purge_for_session(sid);
     }
 
     #[tokio::test]
-    async fn secondary_continue_does_not_rearm_process_local_wakeup() {
+    async fn secondary_continue_rearms_owner_local_volatile_wakeup() {
         let sid = "test-wakeup-secondary-continue-session";
         let id = "test-wakeup-secondary-continue-id";
         purge_for_session(sid);
@@ -1232,18 +1376,19 @@ mod tests {
                     agent_id: "ha-main".into(),
                     note: Some("Primary owns replay".into()),
                     fire_at: now_secs() + 60,
+                    fenced_global_stop_epoch: 0,
                 },
             );
 
         replay_pending_for_session_for_tier(sid, false)
             .await
-            .expect("Secondary replay is a no-op");
+            .expect("Secondary resumes its process-local wakeup");
 
-        assert!(SUSPENDED_TIMERS
+        assert!(!SUSPENDED_TIMERS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .contains_key(id));
-        assert!(!ARMED_TIMERS
+        assert!(ARMED_TIMERS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .contains_key(id));
@@ -1261,6 +1406,7 @@ mod tests {
             60,
             Some("resume the original check".into()),
             true,
+            0,
         )
         .expect("schedule incognito wakeup");
 
@@ -1295,6 +1441,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn volatile_wakeup_tracks_global_stop_and_continue_generations() {
+        let sid = "test-wakeup-volatile-global-generation-session";
+        purge_for_session(sid);
+        let scheduled =
+            schedule(sid, "ha-main", 60, None, true, 7).expect("schedule volatile wakeup");
+
+        assert!(volatile_global_stop_states()
+            .iter()
+            .any(|state| state == &(sid.to_string(), 7, false)));
+
+        assert_eq!(suspend_for_session_at_global_epoch(sid, Some(8)), 1);
+        assert!(volatile_global_stop_states()
+            .iter()
+            .any(|state| state == &(sid.to_string(), 8, true)));
+
+        assert_eq!(resume_volatile_for_session(sid), 1);
+        let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let timer = armed.get(&scheduled.id).expect("continued wakeup is armed");
+        assert_eq!(timer.admitted_global_stop_epoch, 8);
+        drop(armed);
+
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
     async fn abandoned_delivery_rearms_after_continue() {
         let sid = "test-wakeup-delivery-continue-session";
         let id = "test-wakeup-delivery-continue-id";
@@ -1308,8 +1479,10 @@ mod tests {
                     note: Some("continue the exact wakeup".into()),
                     fire_at: now_secs() + 60,
                     persisted: false,
+                    admitted_global_stop_epoch: 0,
                 },
                 paused: true,
+                fenced_global_stop_epoch: None,
                 resume_requested: false,
             },
         );
@@ -1355,8 +1528,10 @@ mod tests {
                     note: None,
                     fire_at: now_secs() + 60,
                     persisted: false,
+                    admitted_global_stop_epoch: 0,
                 },
                 paused: false,
+                fenced_global_stop_epoch: None,
                 resume_requested: true,
             },
         );
@@ -1380,8 +1555,10 @@ mod tests {
                     note: None,
                     fire_at: now_secs() + 60,
                     persisted: false,
+                    admitted_global_stop_epoch: 0,
                 },
                 paused: false,
+                fenced_global_stop_epoch: None,
                 resume_requested: false,
             },
         );
@@ -1408,8 +1585,10 @@ mod tests {
                     note: None,
                     fire_at: now_secs() + 60,
                     persisted: false,
+                    admitted_global_stop_epoch: 0,
                 },
                 paused: true,
+                fenced_global_stop_epoch: None,
                 resume_requested: false,
             },
         );

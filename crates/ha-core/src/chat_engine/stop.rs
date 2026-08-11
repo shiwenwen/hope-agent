@@ -139,7 +139,7 @@ fn prepare_and_pause_session_autonomy_blocking(
         crate::workflow::request_workflow_runtime_pause(run_id);
     }
     for owned_session_id in db.list_session_autonomy_tree_ids(&pause.session_id)? {
-        crate::wakeup::suspend_for_session(&owned_session_id);
+        crate::wakeup::suspend_for_session_at_global_epoch(&owned_session_id, global_stop_epoch);
         crate::subagent::request_pause_parent_injection(&owned_session_id);
     }
     Ok(pause)
@@ -509,10 +509,12 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
         .map(|registry| registry.active_run_ids())
         .unwrap_or_default();
     let workflow_generations = crate::workflow::active_workflow_runtime_generations();
+    let volatile_wakeup_states = crate::wakeup::volatile_global_stop_states();
     if foreground_generations.is_empty()
         && injection_generations.is_empty()
         && subagent_run_ids.is_empty()
         && workflow_generations.is_empty()
+        && volatile_wakeup_states.is_empty()
     {
         return;
     }
@@ -557,6 +559,113 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
     }
     for run_id in captured_workflows {
         crate::workflow::request_workflow_runtime_pause(&run_id);
+    }
+
+    if volatile_wakeup_states.is_empty() {
+        return;
+    }
+
+    // Volatile wakeups deliberately have no shared WakeupDB identity. Collapse
+    // their owner-local snapshots by session, then use only the session-free
+    // global epoch plus the normal durable pause receipt for coordination.
+    let mut volatile_sessions = std::collections::HashMap::<String, (u64, bool)>::new();
+    for (session_id, observed_epoch, paused) in volatile_wakeup_states {
+        let entry = volatile_sessions
+            .entry(session_id)
+            .or_insert((observed_epoch, paused));
+        entry.0 = entry.0.min(observed_epoch);
+        entry.1 |= paused;
+    }
+    let decisions = db
+        .clone()
+        .run(move |db| {
+            let global_stop_epoch = db.global_stop_epoch()?;
+            let mut publish = Vec::new();
+            let mut fence = Vec::new();
+            let mut resume = Vec::new();
+            let mut purge = Vec::new();
+            for (session_id, (observed_epoch, paused)) in volatile_sessions {
+                if db.get_session(&session_id)?.is_none() {
+                    purge.push(session_id);
+                    continue;
+                }
+                let any_active = db.is_session_or_ancestor_autonomy_paused(&session_id)?;
+                let (active_global, resumed_global) =
+                    db.session_lineage_global_stop_receipt_state(&session_id, global_stop_epoch)?;
+                if global_stop_epoch > observed_epoch {
+                    if any_active || active_global {
+                        fence.push(session_id);
+                    } else if resumed_global {
+                        // The owner missed both Stop and Continue. Briefly park
+                        // the old generation before re-admitting it at the
+                        // consumed generation.
+                        fence.push(session_id.clone());
+                        resume.push(session_id);
+                    } else {
+                        publish.push(session_id);
+                    }
+                } else if paused && !any_active {
+                    // A parked owner-local timer can also belong to a targeted
+                    // Stop handled by another process. Once its durable
+                    // lineage has no active receipt, the final user decision
+                    // is Continue regardless of how that receipt was scoped.
+                    resume.push(session_id);
+                }
+            }
+            Ok::<_, anyhow::Error>((global_stop_epoch, publish, fence, resume, purge))
+        })
+        .await;
+    let (global_stop_epoch, publish, fence, resume, purge) = match decisions {
+        Ok(decisions) => decisions,
+        Err(error) => {
+            if !AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.swap(true, Ordering::SeqCst) {
+                crate::app_warn!(
+                    "chat",
+                    "stop_handoff",
+                    "Failed to resolve volatile wakeup Stop handoffs: {error:#}"
+                );
+            }
+            return;
+        }
+    };
+
+    for session_id in purge {
+        crate::wakeup::purge_for_session(&session_id);
+    }
+    for session_id in fence {
+        crate::wakeup::suspend_for_session_at_global_epoch(&session_id, Some(global_stop_epoch));
+    }
+    for session_id in resume {
+        crate::wakeup::resume_volatile_for_session(&session_id);
+    }
+
+    if !publish.is_empty() {
+        let transition_guard = autonomy_transition_lock().lock_owned().await;
+        let publish_result = db
+            .run(move |db| {
+                let _transition_guard = transition_guard;
+                let current_global_stop_epoch = db.global_stop_epoch()?;
+                for session_id in publish {
+                    prepare_and_pause_session_autonomy_blocking(
+                        db,
+                        &session_id,
+                        Some(current_global_stop_epoch),
+                    )?;
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+        if let Err(error) = publish_result {
+            if !AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.swap(true, Ordering::SeqCst) {
+                crate::app_warn!(
+                    "chat",
+                    "stop_handoff",
+                    "Failed to publish volatile wakeup Stop receipts: {error:#}"
+                );
+            }
+        } else {
+            AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.store(false, Ordering::SeqCst);
+        }
     }
 }
 
@@ -692,6 +801,7 @@ enum GlobalStopGenerationDispatch {
 
 async fn begin_global_stop_generation(
     db: Arc<SessionDB>,
+    seed_session_ids: Vec<String>,
     cleanup_gate: Arc<super::active_turn::GlobalStopCleanupGuard>,
     stop_claim: Arc<GlobalAutonomyStopClaim>,
 ) -> anyhow::Result<GlobalStopGenerationDispatch> {
@@ -701,29 +811,101 @@ async fn begin_global_stop_generation(
             let _cleanup_gate = cleanup_gate;
             let _stop_claim = stop_claim;
             let _transition_guard = transition_guard;
-            let (epoch, session_ids) = db.begin_global_stop_enumeration()?;
+            let (epoch, enumerated_session_ids) = db.begin_global_stop_enumeration()?;
             crate::app_info!(
                 "chat",
                 "stop_all_sessions",
                 "Published cross-process global Stop generation {}",
                 epoch
             );
-            // This task owns the enumeration result even after the transport
-            // timeout detaches its JoinHandle. Publish every enumerated root's
-            // receipt here so remote controllers never depend on a result the
-            // caller may no longer receive.
-            let mut paused_session_ids = Vec::new();
-            for session_id in &session_ids {
-                match prepare_and_pause_session_autonomy_blocking(db, session_id, Some(epoch)) {
-                    Ok(_) => paused_session_ids.push(session_id.clone()),
+            // This task owns both the durable enumeration and every local
+            // surface known before epoch publication, even after the transport
+            // timeout detaches its JoinHandle. The caller must never recreate
+            // these as un-attributed targeted receipts.
+            let mut session_ids = enumerated_session_ids.into_iter().collect::<HashSet<_>>();
+            for session_id in seed_session_ids {
+                match db.resolve_session_root_id(&session_id) {
+                    Ok(root_session_id) => {
+                        session_ids.insert(root_session_id);
+                    }
                     Err(error) => crate::app_warn!(
                         "chat",
                         "stop_all_sessions",
-                        "Failed to persist enumerated global Stop pause for session {}: {}",
+                        "Failed to resolve global Stop session {}: {}",
                         session_id,
                         crate::logging::redact_sensitive(&error.to_string())
                     ),
                 }
+            }
+            let mut session_ids = session_ids.into_iter().collect::<Vec<_>>();
+            session_ids.sort();
+
+            // A detached owner is the only component that still has the exact
+            // generation and session snapshot. Keep the Stop gate/claim while
+            // transient receipt failures retry; otherwise a remote controller
+            // could outlive a successful global epoch publication.
+            let mut paused_session_ids = Vec::new();
+            let mut pending_session_ids = session_ids.clone();
+            let mut retry_delay = Duration::from_millis(25);
+            let mut retry_round = 0_u64;
+            while !pending_session_ids.is_empty() {
+                let mut retry = Vec::new();
+                for session_id in pending_session_ids {
+                    match prepare_and_pause_session_autonomy_blocking(
+                        db,
+                        &session_id,
+                        Some(epoch),
+                    ) {
+                        Ok(_) => paused_session_ids.push(session_id),
+                        Err(error) => match db
+                            .session_lineage_global_stop_receipt_state(&session_id, epoch)
+                        {
+                            Ok((true, _)) => {
+                                // The authoritative restart fence committed;
+                                // only an eager controller transition failed.
+                                // Admission remains fail-closed on the receipt,
+                                // so do not pin the global gate forever on a
+                                // non-persistence error.
+                                crate::app_warn!(
+                                    "chat",
+                                    "stop_all_sessions",
+                                    "Global Stop receipt committed for session {} but eager controller pause failed: {}",
+                                    session_id,
+                                    crate::logging::redact_sensitive(&error.to_string())
+                                );
+                                paused_session_ids.push(session_id);
+                            }
+                            _ => match db.get_session(&session_id) {
+                            Ok(None) => crate::app_info!(
+                                "chat",
+                                "stop_all_sessions",
+                                "Stopped retrying global Stop receipt for deleted session {}",
+                                session_id
+                            ),
+                            _ => {
+                                if retry_round == 0 || retry_round.is_power_of_two() {
+                                    crate::app_warn!(
+                                        "chat",
+                                        "stop_all_sessions",
+                                        "Retrying global Stop receipt for session {} after persistence failure (round {}): {}",
+                                        session_id,
+                                        retry_round + 1,
+                                        crate::logging::redact_sensitive(&error.to_string())
+                                    );
+                                }
+                                retry.push(session_id);
+                            }
+                            },
+                        },
+                    }
+                }
+                if retry.is_empty() {
+                    break;
+                }
+                std::thread::sleep(retry_delay);
+                retry_delay = (retry_delay * 2).min(Duration::from_millis(500));
+                retry_round = retry_round.saturating_add(1);
+                pending_session_ids = retry;
             }
             Ok::<_, anyhow::Error>(GlobalStopGenerationOutcome {
                 epoch,
@@ -1332,6 +1514,7 @@ pub async fn stop_all_sessions(
     let (global_stop_epoch, autonomy_sessions, enumerated_paused_sessions, global_stop_dispatched) =
         match begin_global_stop_generation(
             db.clone(),
+            stopped_sessions.iter().cloned().collect(),
             Arc::clone(&global_stop_cleanup_guard),
             Arc::clone(&global_autonomy_stop_claim),
         )
@@ -1355,20 +1538,17 @@ pub async fn stop_all_sessions(
             }
         };
     stopped_sessions.extend(autonomy_sessions);
-    let mut paused_sessions = enumerated_paused_sessions
-        .into_iter()
-        .collect::<HashSet<_>>();
-    paused_sessions.extend(
-        prepare_global_session_pauses(
+    if !global_stop_dispatched {
+        let _ = prepare_global_session_pauses(
             db.clone(),
             stopped_sessions.iter().cloned().collect(),
-            paused_sessions.clone(),
+            enumerated_paused_sessions.into_iter().collect(),
             global_stop_epoch,
             Arc::clone(&global_stop_cleanup_guard),
             Arc::clone(&global_autonomy_stop_claim),
         )
-        .await,
-    );
+        .await;
+    }
     // Cancel same-process ACP/incognito coordinators immediately; other
     // processes observe the session-free global epoch on their next watcher
     // tick without ever persisting incognito session identity.
@@ -1455,7 +1635,6 @@ pub async fn stop_all_sessions(
             }
         }
     };
-
     let ((), denied_approvals, cancelled_questions, runtime_result, held_channel_sessions) = tokio::join!(
         mark_turns,
         deny_approvals,
@@ -1463,16 +1642,8 @@ pub async fn stop_all_sessions(
         cancel_runtime,
         hold_channel_queues
     );
-    stopped_sessions.extend(held_channel_sessions.iter().cloned());
-    let _ = prepare_global_session_pauses(
-        db.clone(),
-        held_channel_sessions.clone(),
-        paused_sessions,
-        global_stop_epoch,
-        Arc::clone(&global_stop_cleanup_guard),
-        Arc::clone(&global_autonomy_stop_claim),
-    )
-    .await;
+    let held_channel_session_count = held_channel_sessions.len();
+    stopped_sessions.extend(held_channel_sessions);
     let mut outcome = StopAllOutcome {
         stopped: already_signalled || global_stop_dispatched || !stopped_sessions.is_empty(),
         stopped_session_count: stopped_sessions.len(),
@@ -1507,7 +1678,7 @@ pub async fn stop_all_sessions(
         "Global stop settled: stopped={} sessions={} held_channel_sessions={} approvals_denied={} questions_cancelled={} runtime_cancellations={}",
         outcome.stopped,
         outcome.stopped_session_count,
-        held_channel_sessions.len(),
+        held_channel_session_count,
         outcome.denied_approvals,
         outcome.cancelled_questions,
         outcome.runtime_cancellations.len()
@@ -1667,6 +1838,7 @@ mod tests {
                 .expect("session db"),
         );
         let session = db.create_session("ha-main").expect("session");
+        let seed_only_session = db.create_session("ha-main").expect("seed-only session");
         let goal = db
             .create_goal(crate::goal::CreateGoalInput {
                 session_id: session.id.clone(),
@@ -1685,6 +1857,7 @@ mod tests {
 
         let dispatch = begin_global_stop_generation(
             db.clone(),
+            vec![seed_only_session.id.clone()],
             Arc::new(crate::chat_engine::active_turn::begin_global_stop_cleanup()),
             Arc::new(begin_global_autonomy_stop()),
         )
@@ -1696,11 +1869,18 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 let receipt_active = db.is_session_autonomy_paused(&session.id).unwrap();
+                let seed_receipt_active = db
+                    .is_session_autonomy_paused(&seed_only_session.id)
+                    .unwrap();
                 let goal_paused = db
                     .get_goal(&goal.goal.id)
                     .unwrap()
                     .is_some_and(|goal| goal.state == crate::goal::GoalState::Paused);
-                if receipt_active && goal_paused && !autonomy_stop_pending(&session.id) {
+                if receipt_active
+                    && seed_receipt_active
+                    && goal_paused
+                    && !autonomy_stop_pending(&session.id)
+                {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -1708,6 +1888,12 @@ mod tests {
         })
         .await
         .expect("detached owner finishes receipt and controller pause");
+        let global_stop_epoch = db.global_stop_epoch().expect("global Stop epoch");
+        assert_eq!(
+            db.session_lineage_global_stop_receipt_state(&seed_only_session.id, global_stop_epoch,)
+                .expect("seed receipt attribution"),
+            (true, false)
+        );
     }
 
     #[tokio::test]
