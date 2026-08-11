@@ -1014,10 +1014,24 @@ pub fn suspend_for_session(session_id: &str) -> usize {
     affected
 }
 
-/// Re-arm wakeups for one explicitly continued session. Durable rows come from
-/// SQLite; incognito and persistence-degraded timers come from the in-memory
-/// suspended receipt populated by [`suspend_for_session`] or a racing fire.
+/// Re-arm wakeups for one explicitly continued session. **Primary-only**:
+/// Secondary adapters may consume the shared pause receipt, but must not arm a
+/// second process-local timer for a durable row already owned by the Primary.
 pub async fn replay_pending_for_session(session_id: &str) {
+    replay_pending_for_session_for_tier(session_id, crate::runtime_lock::is_primary()).await;
+}
+
+async fn replay_pending_for_session_for_tier(session_id: &str, primary: bool) {
+    if !primary {
+        app_debug!(
+            "wakeup",
+            "resume",
+            "Skipped wakeup replay for continued session {} on Secondary; Primary owns durable replay",
+            session_id
+        );
+        return;
+    }
+
     // Mark in-flight sources before looking at parked/durable state. If an old
     // generation settles concurrently, the fixed lock order makes it either
     // observe this flag and re-arm itself, or move to SUSPENDED/DB before the
@@ -1200,6 +1214,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn secondary_continue_does_not_rearm_process_local_wakeup() {
+        let sid = "test-wakeup-secondary-continue-session";
+        let id = "test-wakeup-secondary-continue-id";
+        purge_for_session(sid);
+        SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                id.into(),
+                SuspendedTimer {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: Some("Primary owns replay".into()),
+                    fire_at: now_secs() + 60,
+                },
+            );
+
+        replay_pending_for_session_for_tier(sid, false).await;
+
+        assert!(SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+        assert!(!ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
     async fn incognito_wakeup_survives_suspend_and_replay() {
         let sid = "test-wakeup-incognito-pause-session";
         purge_for_session(sid);
@@ -1227,7 +1272,7 @@ mod tests {
         assert_eq!(suspended_note.as_deref(), Some("resume the original check"));
         assert_eq!(count_pending_for_session(sid), 1);
 
-        replay_pending_for_session(sid).await;
+        replay_pending_for_session_for_tier(sid, true).await;
         assert!(ARMED_TIMERS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -1261,7 +1306,7 @@ mod tests {
             },
         );
 
-        replay_pending_for_session(sid).await;
+        replay_pending_for_session_for_tier(sid, true).await;
         {
             let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
             let delivery = delivering.get(id).expect("delivery remains in flight");
@@ -1359,7 +1404,7 @@ mod tests {
             },
         );
 
-        replay_pending_for_session(sid).await;
+        replay_pending_for_session_for_tier(sid, true).await;
         assert_eq!(suspend_for_session(sid), 1);
         assert_eq!(finish_delivering(id, true), DeliveringFinish::Parked);
         assert!(!ARMED_TIMERS
