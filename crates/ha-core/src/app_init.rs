@@ -1303,6 +1303,7 @@ pub async fn start_background_tasks() {
     // R8 follow-up: mirror background-subagent inner approvals onto their
     // projection label (running ⇄ awaiting_approval). Idempotent per process.
     crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
+    crate::chat_engine::stop::spawn_session_autonomy_stop_fence_watcher();
 
     if primary {
         // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
@@ -1678,6 +1679,7 @@ pub async fn start_minimal_background_tasks() {
     // R8 follow-up: mirror background-subagent inner approvals onto their
     // projection label (running ⇄ awaiting_approval). Idempotent per process.
     crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
+    crate::chat_engine::stop::spawn_session_autonomy_stop_fence_watcher();
 
     if primary {
         // Manual mirror for the `ha-manual` skill — same as the full-tier

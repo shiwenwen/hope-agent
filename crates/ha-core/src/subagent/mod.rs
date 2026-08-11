@@ -122,6 +122,11 @@ pub static ACTIVE_CHAT_SESSIONS: std::sync::LazyLock<Mutex<HashMap<String, usize
 pub(crate) struct ActiveInjection {
     pub(crate) run_id: String,
     pub(crate) cancel: Arc<AtomicBool>,
+    /// Monotonic session-lineage Stop generation admitted before this parent
+    /// turn started. Cross-process Stop convergence cancels the turn whenever
+    /// the durable epoch advances, even if a fast Continue already cleared the
+    /// active pause flag.
+    pub(crate) admitted_pause_epoch: u64,
     /// Shared initial/late IM-mirror handoff. The coordinator owns the durable
     /// receipt and closes terminal-vs-install races without keeping the global
     /// active-injection registry locked across provider I/O.
@@ -153,6 +158,18 @@ pub(crate) fn active_parent_injection_session_ids() -> Vec<String> {
     INJECTION_CANCELS
         .lock()
         .map(|active| active.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+pub(crate) fn active_parent_injection_generations() -> Vec<(String, u64)> {
+    INJECTION_CANCELS
+        .lock()
+        .map(|active| {
+            active
+                .iter()
+                .map(|(session_id, injection)| (session_id.clone(), injection.admitted_pause_epoch))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -226,6 +243,10 @@ pub fn request_pause_run(run_id: &str) -> bool {
     request_run_interruption(run_id, cancel::SubagentCancelReason::SessionPaused)
 }
 
+fn session_pause_fallback_is_locally_owned(runner_owner: Option<&str>) -> bool {
+    runner_owner == Some(runtime_owner_token())
+}
+
 fn request_run_interruption(run_id: &str, reason: cancel::SubagentCancelReason) -> bool {
     // R7.2 promote-vs-cancel safety. The queue mutex serializes this dequeue
     // against the scheduler's promote (`take_for_session`): exactly one side can
@@ -268,12 +289,15 @@ fn request_run_interruption(run_id: &str, reason: cancel::SubagentCancelReason) 
     if let Some(db) = crate::get_session_db() {
         if let Ok(Some(run)) = db.get_subagent_run(run_id) {
             if !run.status.is_terminal() {
-                if reason == cancel::SubagentCancelReason::SessionPaused {
+                if reason == cancel::SubagentCancelReason::SessionPaused
+                    && session_pause_fallback_is_locally_owned(run.runner_owner.as_deref())
+                {
                     stamp_run_interrupted(run_id, reason);
-                } else {
+                    return true;
+                } else if reason == cancel::SubagentCancelReason::UserKilled {
                     stamp_run_killed(run_id);
+                    return true;
                 }
-                return true;
             }
         }
     }
@@ -375,6 +399,17 @@ mod concurrency_tests {
             crate::agent_config::SubagentConfig::default().default_timeout_secs,
             0
         );
+    }
+
+    #[test]
+    fn session_pause_fallback_never_terminalizes_another_process_runner() {
+        assert!(session_pause_fallback_is_locally_owned(Some(
+            runtime_owner_token()
+        )));
+        assert!(!session_pause_fallback_is_locally_owned(Some(
+            "another-process-owner"
+        )));
+        assert!(!session_pause_fallback_is_locally_owned(None));
     }
 
     #[test]

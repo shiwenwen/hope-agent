@@ -257,6 +257,7 @@ mod tests {
                 ActiveInjection {
                     run_id: target_run.clone(),
                     cancel: target_cancel.clone(),
+                    admitted_pause_epoch: 0,
                     im_mirror: Arc::new(
                         crate::subagent::injection::ActiveInjectionMirrorCoordinator::new(None),
                     ),
@@ -267,6 +268,7 @@ mod tests {
                 ActiveInjection {
                     run_id: other_run,
                     cancel: other_cancel.clone(),
+                    admitted_pause_epoch: 0,
                     im_mirror: Arc::new(
                         crate::subagent::injection::ActiveInjectionMirrorCoordinator::new(None),
                     ),

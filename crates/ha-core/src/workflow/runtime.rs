@@ -47,8 +47,14 @@ const WORKFLOW_TYPED_RESULT_MAX_ERRORS: usize = 20;
 
 #[derive(Default)]
 struct WorkflowRuntimeRegistry {
-    active: std::collections::HashMap<String, Arc<std::sync::atomic::AtomicBool>>,
+    active: std::collections::HashMap<String, ActiveWorkflowRuntime>,
     resume_after_pause: std::collections::HashMap<String, Arc<SessionDB>>,
+}
+
+struct ActiveWorkflowRuntime {
+    flag: Arc<std::sync::atomic::AtomicBool>,
+    session_id: String,
+    admitted_pause_epoch: u64,
 }
 
 static WORKFLOW_RUNTIME_REGISTRY: std::sync::LazyLock<std::sync::Mutex<WorkflowRuntimeRegistry>> =
@@ -60,13 +66,20 @@ struct WorkflowRuntimeCancelGuard {
 }
 
 impl WorkflowRuntimeCancelGuard {
-    fn register(run_id: &str) -> Self {
+    fn register(run_id: &str, session_id: &str, admitted_pause_epoch: u64) -> Self {
         let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         WORKFLOW_RUNTIME_REGISTRY
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .active
-            .insert(run_id.to_string(), flag.clone());
+            .insert(
+                run_id.to_string(),
+                ActiveWorkflowRuntime {
+                    flag: flag.clone(),
+                    session_id: session_id.to_string(),
+                    admitted_pause_epoch,
+                },
+            );
         Self {
             run_id: run_id.to_string(),
             flag,
@@ -83,7 +96,7 @@ impl Drop for WorkflowRuntimeCancelGuard {
             let removed = if registry
                 .active
                 .get(&self.run_id)
-                .is_some_and(|current| Arc::ptr_eq(current, &self.flag))
+                .is_some_and(|current| Arc::ptr_eq(&current.flag, &self.flag))
             {
                 registry.active.remove(&self.run_id);
                 true
@@ -118,12 +131,53 @@ pub(crate) fn request_workflow_runtime_pause(run_id: &str) -> bool {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .active
         .get(run_id)
-        .cloned();
+        .map(|runtime| runtime.flag.clone());
     if let Some(flag) = flag {
         flag.store(true, std::sync::atomic::Ordering::SeqCst);
         true
     } else {
         false
+    }
+}
+
+pub(crate) fn active_workflow_runtime_generations() -> Vec<(String, String, u64)> {
+    WORKFLOW_RUNTIME_REGISTRY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .active
+        .iter()
+        .map(|(run_id, runtime)| {
+            (
+                run_id.clone(),
+                runtime.session_id.clone(),
+                runtime.admitted_pause_epoch,
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod autonomy_generation_tests {
+    use super::*;
+
+    #[test]
+    fn active_runtime_exposes_its_admitted_stop_generation() {
+        let run_id = format!("workflow-stop-generation-{}", uuid::Uuid::new_v4());
+        let session_id = format!("session-stop-generation-{}", uuid::Uuid::new_v4());
+        let guard = WorkflowRuntimeCancelGuard::register(&run_id, &session_id, 7);
+
+        assert!(active_workflow_runtime_generations().contains(&(
+            run_id.clone(),
+            session_id.clone(),
+            7,
+        )));
+        assert!(request_workflow_runtime_pause(&run_id));
+        assert!(guard.flag.load(std::sync::atomic::Ordering::SeqCst));
+
+        drop(guard);
+        assert!(!active_workflow_runtime_generations()
+            .into_iter()
+            .any(|(active_run_id, _, _)| active_run_id == run_id));
     }
 }
 
@@ -1484,19 +1538,32 @@ pub async fn run_workflow_script_async(
     };
 
     let tokio_handle = TokioHandle::current();
-    let runtime_cancel = WorkflowRuntimeCancelGuard::register(run_id);
+    let admitted_pause_epoch = {
+        let session_id = run.session_id.clone();
+        db.clone()
+            .run(move |db| db.session_autonomy_lineage_pause_epoch(&session_id))
+            .await?
+    };
+    let runtime_cancel =
+        WorkflowRuntimeCancelGuard::register(run_id, &run.session_id, admitted_pause_epoch);
     let run_id_for_pause_check = run_id.to_string();
     let state_after_registration = db
         .clone()
         .run(move |db| {
-            db.get_workflow_run(&run_id_for_pause_check)
-                .map(|run| run.map(|run| run.state))
+            db.get_workflow_run(&run_id_for_pause_check)?
+                .map(|run| {
+                    let epoch = db.session_autonomy_lineage_pause_epoch(&run.session_id)?;
+                    Ok::<_, anyhow::Error>((run.state, epoch))
+                })
+                .transpose()
         })
         .await?;
-    if !matches!(state_after_registration, Some(WorkflowRunState::Running))
-        || runtime_cancel
-            .flag
-            .load(std::sync::atomic::Ordering::SeqCst)
+    if !matches!(
+        state_after_registration,
+        Some((WorkflowRunState::Running, epoch)) if epoch == admitted_pause_epoch
+    ) || runtime_cancel
+        .flag
+        .load(std::sync::atomic::Ordering::SeqCst)
     {
         runtime_cancel
             .flag

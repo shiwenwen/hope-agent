@@ -414,6 +414,67 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
+    /// Resolve durable Stop generations against process-local runtime
+    /// snapshots. Pause rows are never deleted, so a fast Continue cannot hide
+    /// an older generation from an injection or immutable sub-agent/workflow
+    /// attempt that was admitted before that Stop.
+    pub(crate) fn resolve_local_autonomy_stop_fences(
+        &self,
+        injection_generations: &[(String, u64)],
+        subagent_run_ids: &[String],
+        workflow_generations: &[(String, String, u64)],
+    ) -> Result<(Vec<String>, Vec<String>, Vec<String>)> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let mut epoch_stmt = conn.prepare(
+            "WITH RECURSIVE session_lineage(id, parent_session_id) AS (
+                 SELECT id, parent_session_id FROM sessions WHERE id = ?1
+                 UNION
+                 SELECT parent.id, parent.parent_session_id
+                   FROM sessions parent
+                   JOIN session_lineage child ON parent.id = child.parent_session_id
+             )
+             SELECT COUNT(*)
+               FROM session_autonomy_pauses pause
+               JOIN session_lineage lineage ON lineage.id = pause.session_id",
+        )?;
+        let mut stale_injections = Vec::new();
+        for (session_id, admitted_epoch) in injection_generations {
+            let epoch = epoch_stmt
+                .query_row(params![session_id], |row| row.get::<_, i64>(0))?
+                .max(0) as u64;
+            if epoch > *admitted_epoch {
+                stale_injections.push(session_id.clone());
+            }
+        }
+
+        let mut subagent_stmt = conn.prepare(
+            "SELECT EXISTS(
+                 SELECT 1
+                   FROM session_autonomy_pauses pause,
+                        json_each(pause.subagent_run_ids_json) captured
+                  WHERE captured.value = ?1
+             )",
+        )?;
+        let mut captured_subagents = Vec::new();
+        for run_id in subagent_run_ids {
+            if subagent_stmt.query_row(params![run_id], |row| row.get::<_, i64>(0))? != 0 {
+                captured_subagents.push(run_id.clone());
+            }
+        }
+
+        let mut stale_workflows = Vec::new();
+        for (run_id, session_id, admitted_epoch) in workflow_generations {
+            let epoch = epoch_stmt
+                .query_row(params![session_id], |row| row.get::<_, i64>(0))?
+                .max(0) as u64;
+            if epoch > *admitted_epoch {
+                stale_workflows.push(run_id.clone());
+            }
+        }
+
+        Ok((stale_injections, captured_subagents, stale_workflows))
+    }
+
     /// Consume the active receipt last and atomically publish a durable replay
     /// request for the Primary process. A crash before this CAS leaves the
     /// restart fence active and Continue safely retryable; a Secondary can
@@ -614,6 +675,14 @@ mod tests {
         assert_eq!(db.resolve_session_root_id(&child.id).unwrap(), session.id);
         assert!(db.finish_session_autonomy_resume(&duplicate.id).unwrap());
         assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
+        let (_, _, stale_workflows) = db
+            .resolve_local_autonomy_stop_fences(
+                &[],
+                &[],
+                &[(workflow.id.clone(), session.id.clone(), 0)],
+            )
+            .expect("resolve workflow Stop generation after fast Continue");
+        assert_eq!(stale_workflows, vec![workflow.id.clone()]);
         assert_eq!(
             db.list_pending_session_autonomy_resume_replays(10)
                 .unwrap()
@@ -702,6 +771,15 @@ mod tests {
             .expect("pause receipt");
         assert_eq!(pause.subagent_run_ids, vec![run.run_id.clone()]);
         assert!(db.finish_session_autonomy_resume(&pause.id).unwrap());
+        let (stale_injections, captured_subagents, _) = db
+            .resolve_local_autonomy_stop_fences(
+                &[(root.id.clone(), 0)],
+                std::slice::from_ref(&run.run_id),
+                &[],
+            )
+            .expect("resolved Stop survives fast Continue");
+        assert_eq!(stale_injections, vec![root.id.clone()]);
+        assert_eq!(captured_subagents, vec![run.run_id.clone()]);
 
         let conn = db.conn.lock().expect("session db lock");
         let delivery = conn

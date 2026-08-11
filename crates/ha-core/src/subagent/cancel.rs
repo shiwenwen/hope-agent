@@ -84,6 +84,13 @@ impl SubagentCancelRegistry {
             .and_then(|map| map.get(run_id).and_then(|entry| entry.reason))
     }
 
+    pub(crate) fn active_run_ids(&self) -> Vec<String> {
+        self.entries
+            .lock()
+            .map(|entries| entries.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// Cancel all active runs for a given parent session.
     pub fn cancel_all_for_session(&self, parent_session_id: &str, db: &SessionDB) -> u32 {
         let run_ids: Vec<String> = db

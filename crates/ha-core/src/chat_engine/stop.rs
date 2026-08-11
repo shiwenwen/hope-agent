@@ -18,6 +18,7 @@ const STOP_DB_MARK_TIMEOUT: Duration = Duration::from_secs(2);
 const PRE_TURN_QUEUE_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_INTERACTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_RUNTIME_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+const AUTONOMY_STOP_FENCE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const AUTONOMY_RESUME_REPLAY_INTERVAL: Duration = Duration::from_secs(2);
 const AUTONOMY_RESUME_REPLAY_BATCH_SIZE: usize = 100;
 
@@ -26,6 +27,8 @@ const AUTONOMY_RESUME_REPLAY_BATCH_SIZE: usize = 100;
 /// keeps controller state convergence from interleaving around that ordering.
 static AUTONOMY_TRANSITION_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
 static PENDING_AUTONOMY_STOPS: OnceLock<Mutex<PendingAutonomyStops>> = OnceLock::new();
+static AUTONOMY_STOP_FENCE_WATCHER_STARTED: AtomicBool = AtomicBool::new(false);
+static AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED: AtomicBool = AtomicBool::new(false);
 static AUTONOMY_RESUME_REPLAY_LOOP_STARTED: AtomicBool = AtomicBool::new(false);
 static AUTONOMY_RESUME_REPLAY_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -491,6 +494,83 @@ pub fn spawn_session_autonomy_resume_replay_loop() {
                 break;
             }
             replay_pending_session_autonomy_resumes(db.clone()).await;
+        }
+    });
+}
+
+async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
+    let injection_generations = crate::subagent::active_parent_injection_generations();
+    let subagent_run_ids = crate::get_subagent_cancels()
+        .map(|registry| registry.active_run_ids())
+        .unwrap_or_default();
+    let workflow_generations = crate::workflow::active_workflow_runtime_generations();
+    if injection_generations.is_empty()
+        && subagent_run_ids.is_empty()
+        && workflow_generations.is_empty()
+    {
+        return;
+    }
+
+    let fences = db
+        .run(move |db| {
+            db.resolve_local_autonomy_stop_fences(
+                &injection_generations,
+                &subagent_run_ids,
+                &workflow_generations,
+            )
+        })
+        .await;
+    let (stale_injections, captured_subagents, captured_workflows) = match fences {
+        Ok(fences) => {
+            AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.store(false, Ordering::SeqCst);
+            fences
+        }
+        Err(error) => {
+            if !AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.swap(true, Ordering::SeqCst) {
+                crate::app_warn!(
+                    "chat",
+                    "stop_handoff",
+                    "Failed to resolve durable Stop handoffs for local runtimes: {error:#}"
+                );
+            }
+            return;
+        }
+    };
+
+    for session_id in stale_injections {
+        crate::subagent::request_pause_parent_injection(&session_id);
+    }
+    for run_id in captured_subagents {
+        crate::subagent::request_pause_run(&run_id);
+    }
+    for run_id in captured_workflows {
+        crate::workflow::request_workflow_runtime_pause(&run_id);
+    }
+}
+
+/// Every process owns its own injection/sub-agent/workflow cancel flags, while
+/// Stop receipts live in the shared SQLite database. Poll only while a local
+/// autonomous runtime exists, and compare immutable generations/run ids so a
+/// quick Continue cannot hide the Stop before the owning process observes it.
+pub fn spawn_session_autonomy_stop_fence_watcher() {
+    if AUTONOMY_STOP_FENCE_WATCHER_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(db) = crate::get_session_db() else {
+        AUTONOMY_STOP_FENCE_WATCHER_STARTED.store(false, Ordering::SeqCst);
+        crate::app_warn!(
+            "chat",
+            "stop_handoff",
+            "Session DB unavailable; durable Stop fence watcher not started"
+        );
+        return;
+    };
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(AUTONOMY_STOP_FENCE_POLL_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            converge_local_session_autonomy_stop_fences(db.clone()).await;
         }
     });
 }
@@ -1548,6 +1628,47 @@ mod tests {
             .list_pending_session_autonomy_resume_replays(10)
             .expect("Primary acknowledged handoff")
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn cross_process_stop_epoch_cancels_an_injection_after_fast_continue() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("stop-handoff.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let admitted_epoch = db
+            .session_autonomy_lineage_pause_epoch(&session.id)
+            .expect("initial Stop epoch");
+        let cancel = Arc::new(AtomicBool::new(false));
+        crate::subagent::INJECTION_CANCELS
+            .lock()
+            .expect("injection registry")
+            .insert(
+                session.id.clone(),
+                crate::subagent::ActiveInjection {
+                    run_id: "run-cross-process-stop".into(),
+                    cancel: cancel.clone(),
+                    admitted_pause_epoch: admitted_epoch,
+                    im_mirror: Arc::new(
+                        crate::subagent::injection::ActiveInjectionMirrorCoordinator::new(None),
+                    ),
+                },
+            );
+        let pause = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("durable Stop receipt");
+        assert!(db.finish_session_autonomy_resume(&pause.id).unwrap());
+
+        converge_local_session_autonomy_stop_fences(db).await;
+
+        assert!(cancel.load(Ordering::SeqCst));
+        crate::subagent::INJECTION_CANCELS
+            .lock()
+            .expect("injection registry")
+            .remove(&session.id);
     }
 
     #[tokio::test]

@@ -1846,6 +1846,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             ActiveInjection {
                 run_id: run_id.clone(),
                 cancel: cancel.clone(),
+                admitted_pause_epoch,
                 im_mirror: im_mirror_coordinator.clone(),
             },
         );
