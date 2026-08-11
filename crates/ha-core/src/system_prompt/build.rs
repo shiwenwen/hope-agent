@@ -1945,29 +1945,38 @@ mod memory_section_tests {
             tools_filter: &definition.config.capabilities.tools,
             app_config: &app_config,
         };
-        let eager_schema_tokens: u32 = crate::tools::dispatch::all_dispatchable_tools()
-            .iter()
-            .filter(|tool| !crate::tool_defs::is_kb_scoped_tool(&tool.name))
-            .filter(|tool| {
-                matches!(
-                    crate::tools::dispatch::resolve_tool_fate(tool, &dispatch_ctx),
-                    crate::tools::dispatch::ToolFate::InjectEager
-                )
-            })
-            .map(|tool| {
-                crate::context_compact::estimate_tokens(
-                    &tool.to_provider_schema(crate::tool_defs::ToolProvider::OpenAI),
-                )
-            })
-            .sum();
-        let hi_tokens = crate::context_compact::estimate_tokens(&serde_json::json!({
+        let eager_tool_schemas: Vec<serde_json::Value> =
+            crate::tools::dispatch::all_dispatchable_tools()
+                .iter()
+                .filter(|tool| !crate::tool_defs::is_kb_scoped_tool(&tool.name))
+                .filter(|tool| {
+                    matches!(
+                        crate::tools::dispatch::resolve_tool_fate(tool, &dispatch_ctx),
+                        crate::tools::dispatch::ToolFate::InjectEager
+                    )
+                })
+                .map(|tool| tool.to_provider_schema(crate::tool_defs::ToolProvider::OpenAI))
+                .collect();
+        let messages = [serde_json::json!({
             "role": "user",
             "content": "hi"
-        }));
-        let total = static_prompt_tokens + eager_schema_tokens + hi_tokens;
+        })];
+        let request = crate::token_accounting::TokenCountRequest {
+            provider: crate::token_accounting::ProviderFamily::OpenAiChat,
+            model: "gpt-5.4",
+            request_shape: crate::token_accounting::RequestShape::OpenAiChat,
+            stable_prompt: &out,
+            dynamic_prompt: "",
+            history: &messages,
+            eager_tool_schemas: &eager_tool_schemas,
+            activated_tool_schemas: &[],
+        };
+        let total = crate::token_accounting::service().count_local(&request);
         assert!(
-            total <= 10_000,
-            "canonical empty hi request exceeds 10k heuristic: {total} tokens"
+            total.upper_bound <= 10_000,
+            "canonical empty hi request exceeds 10k tokenizer upper bound: estimated={}, upper={}",
+            total.estimated,
+            total.upper_bound
         );
     }
 

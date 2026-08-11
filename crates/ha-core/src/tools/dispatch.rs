@@ -955,7 +955,7 @@ mod tests {
         let mut f = Fixture::new();
         f.app.deferred_tools.mode = Some(crate::config::DeferredToolsMode::Recommended);
         let ctx = f.ctx(DEFAULT_AGENT_ID);
-        let mut schema_bytes = 0usize;
+        let mut eager_tool_schemas = Vec::new();
         for def in all_dispatchable_tools() {
             match resolve_tool_fate(def, &ctx) {
                 ToolFate::InjectEager => {
@@ -963,11 +963,8 @@ mod tests {
                     // the final live gate removes note_* schemas before the
                     // request is built.
                     if !crate::tools::is_kb_scoped_tool(&def.name) {
-                        schema_bytes += serde_json::to_vec(
-                            &def.to_provider_schema(crate::tools::ToolProvider::OpenAI),
-                        )
-                        .unwrap()
-                        .len();
+                        eager_tool_schemas
+                            .push(def.to_provider_schema(crate::tools::ToolProvider::OpenAI));
                     }
                 }
                 ToolFate::InjectDeferred | ToolFate::HintOnly { .. } | ToolFate::Hidden => {}
@@ -984,10 +981,22 @@ mod tests {
                 );
             }
         }
+        let request = crate::token_accounting::TokenCountRequest {
+            provider: crate::token_accounting::ProviderFamily::OpenAiChat,
+            model: "gpt-5.4",
+            request_shape: crate::token_accounting::RequestShape::OpenAiChat,
+            stable_prompt: "",
+            dynamic_prompt: "",
+            history: &[],
+            eager_tool_schemas: &eager_tool_schemas,
+            activated_tool_schemas: &[],
+        };
+        let schema_tokens = crate::token_accounting::service().count_local(&request);
         assert!(
-            schema_bytes / crate::context_compact::CHARS_PER_TOKEN <= 4_000,
-            "recommended eager schemas exceed 4k token heuristic: {} bytes",
-            schema_bytes
+            schema_tokens.estimated <= 4_000,
+            "recommended eager schemas exceed 4k tokenizer estimate: estimated={}, upper={}",
+            schema_tokens.estimated,
+            schema_tokens.upper_bound
         );
     }
 
