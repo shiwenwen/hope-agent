@@ -2743,6 +2743,19 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
     }
 }
 
+fn tool_turn_provenance(source: stream_seq::ChatSource) -> crate::tool_defs::ToolTurnProvenance {
+    use crate::tool_defs::ToolTurnProvenance;
+    use stream_seq::ChatSource;
+    match source {
+        ChatSource::Desktop | ChatSource::Http | ChatSource::Channel | ChatSource::Acp => {
+            ToolTurnProvenance::ForegroundUser
+        }
+        ChatSource::Subagent | ChatSource::ParentInjection | ChatSource::Cron => {
+            ToolTurnProvenance::Autonomous
+        }
+    }
+}
+
 /// Schedule turn-end browser cleanup, skipping `ParentInjection` turns.
 ///
 /// Background-job / wakeup completions inject into the PARENT session and run a
@@ -2794,6 +2807,7 @@ fn configure_agent(
     agent.set_session_id(session_id);
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);
+    agent.set_turn_provenance(tool_turn_provenance(source));
     agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);
     if let Some(ctx) = extra_system_context {

@@ -6,8 +6,9 @@ use super::ToolExecContext;
 /// Model-facing adapter for the canonical Stop/Continue service.
 ///
 /// The target is always derived from the bound tool context; the model never
-/// supplies a session id. Autonomous turns cannot reach this while paused, so
-/// a successful invocation necessarily belongs to a new foreground user turn.
+/// supplies a session id. The execution context must prove that the invocation
+/// belongs to a new foreground user turn; prompt instructions and Stop-watcher
+/// timing are not authorization boundaries.
 pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let pause_id = _args
         .get("pause_id")
@@ -61,6 +62,11 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
 }
 
 fn ensure_current_turn_can_continue(ctx: &ToolExecContext, session_id: &str) -> Result<()> {
+    if ctx.turn_provenance != crate::tool_defs::ToolTurnProvenance::ForegroundUser {
+        anyhow::bail!(
+            "session_continue requires a foreground user turn; autonomous work cannot clear Stop"
+        );
+    }
     if ctx
         .cancellation_token
         .as_ref()
@@ -79,7 +85,19 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::tool_defs::SessionDbHandle;
+    use crate::tool_defs::{SessionDbHandle, ToolTurnProvenance};
+
+    fn foreground_context(
+        db: Arc<crate::session::SessionDB>,
+        session_id: String,
+    ) -> ToolExecContext {
+        ToolExecContext {
+            session_id: Some(session_id),
+            session_db: Some(SessionDbHandle(db)),
+            turn_provenance: ToolTurnProvenance::ForegroundUser,
+            ..Default::default()
+        }
+    }
 
     #[tokio::test]
     async fn current_child_context_resumes_its_inherited_root_stop_receipt() {
@@ -115,11 +133,7 @@ mod tests {
 
         let output = tool_session_continue(
             &serde_json::json!({ "pause_id": pause.id }),
-            &ToolExecContext {
-                session_id: Some(child.id.clone()),
-                session_db: Some(SessionDbHandle(db.clone())),
-                ..Default::default()
-            },
+            &foreground_context(db.clone(), child.id.clone()),
         )
         .await
         .expect("continue result");
@@ -148,11 +162,7 @@ mod tests {
 
         let output = tool_session_continue(
             &serde_json::json!({ "pause_id": "pause_missing" }),
-            &ToolExecContext {
-                session_id: Some(session.id),
-                session_db: Some(SessionDbHandle(db)),
-                ..Default::default()
-            },
+            &foreground_context(db, session.id),
         )
         .await
         .expect("continue noop");
@@ -178,11 +188,7 @@ mod tests {
 
         let output = tool_session_continue(
             &serde_json::json!({ "pause_id": "pause_stale" }),
-            &ToolExecContext {
-                session_id: Some(session.id.clone()),
-                session_db: Some(SessionDbHandle(db.clone())),
-                ..Default::default()
-            },
+            &foreground_context(db.clone(), session.id.clone()),
         )
         .await
         .expect("stale continue result");
@@ -220,6 +226,7 @@ mod tests {
             &ToolExecContext {
                 session_id: Some(session.id.clone()),
                 session_db: Some(SessionDbHandle(db.clone())),
+                turn_provenance: ToolTurnProvenance::ForegroundUser,
                 cancellation_token: Some(cancellation_token),
                 ..Default::default()
             },
@@ -229,5 +236,41 @@ mod tests {
 
         assert!(error.to_string().contains("superseded by a newer Stop"));
         assert!(db.is_session_autonomy_paused(&session.id).unwrap());
+    }
+
+    #[tokio::test]
+    async fn autonomous_turn_cannot_consume_a_stop_receipt() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &dir.path().join("session-continue-autonomous.db"),
+            )
+            .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let pause = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("pause receipt");
+
+        let error = tool_session_continue(
+            &serde_json::json!({ "pause_id": pause.id }),
+            &ToolExecContext {
+                session_id: Some(session.id.clone()),
+                session_db: Some(SessionDbHandle(db.clone())),
+                turn_provenance: ToolTurnProvenance::Autonomous,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("autonomous work must not clear a user Stop");
+
+        assert!(error.to_string().contains("foreground user turn"));
+        assert_eq!(
+            db.active_session_autonomy_pause(&session.id)
+                .unwrap()
+                .expect("receipt remains")
+                .id,
+            pause.id
+        );
     }
 }

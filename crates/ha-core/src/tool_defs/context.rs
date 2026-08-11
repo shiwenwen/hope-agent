@@ -13,6 +13,23 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent_config::AsyncToolPolicy;
 
+/// Whether the model turn that owns a tool call represents live user intent.
+///
+/// This is deliberately separate from the knowledge-base access source: ACP
+/// and autonomous parent injections both map to the conservative KB `Other`
+/// bucket, but only ACP is a foreground user turn. Capability-like tools such
+/// as `session_continue` must fail closed when provenance was not threaded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolTurnProvenance {
+    /// A live user initiated this turn through GUI, HTTP, IM, or ACP.
+    ForegroundUser,
+    /// The turn was initiated by cron, a subagent, or a parent injection.
+    Autonomous,
+    /// A legacy or non-chat caller did not bind turn provenance.
+    #[default]
+    Unknown,
+}
+
 pub(crate) struct EffectiveArgsUpdate {
     pub(crate) value: Value,
     pub(crate) acknowledged: oneshot::Sender<std::result::Result<(), String>>,
@@ -258,6 +275,10 @@ pub struct ToolExecContext {
     /// origin so an IM-origin chain can't reacquire KB access through the
     /// neutral `Subagent` source. Consumed by `effective_kb_access`.
     pub origin_chat_source: Option<crate::knowledge::KbAccessSource>,
+    /// Execution provenance for tools that require fresh, live user intent.
+    /// Defaults to [`ToolTurnProvenance::Unknown`] so unthreaded callers cannot
+    /// acquire such capabilities accidentally.
+    pub turn_provenance: ToolTurnProvenance,
     /// IM identity of the lineage origin, for the WS8 KB-access opt-in gate.
     /// `Some` only when the lineage contains an IM hop (top-level IM turn or an
     /// IM-origin subagent, which carries the origin's identity). `None` for
