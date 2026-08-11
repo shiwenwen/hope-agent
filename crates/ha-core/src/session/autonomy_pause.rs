@@ -256,6 +256,19 @@ impl SessionDB {
         }
 
         let now = chrono::Utc::now().to_rfc3339();
+        // A newer Stop supersedes any durable resume handoff that the Primary
+        // has not consumed yet. Source-level pause fences still cover an
+        // already-running replay, while this update prevents a stale request
+        // from waking the session after the next Continue.
+        tx.execute(
+            "UPDATE session_autonomy_pauses
+                SET resume_replayed_at = ?1,
+                    resume_replay_error = 'superseded_by_newer_stop'
+              WHERE session_id = ?2
+                AND resume_requested_at IS NOT NULL
+                AND resume_replayed_at IS NULL",
+            params![now, session_id],
+        )?;
         let pause = SessionAutonomyPause {
             id: format!("pause_{}", uuid::Uuid::new_v4().simple()),
             session_id: session_id.to_string(),
@@ -401,8 +414,10 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
-    /// Consume the active receipt last. A crash before this CAS leaves the
-    /// restart fence active and Continue safely retryable.
+    /// Consume the active receipt last and atomically publish a durable replay
+    /// request for the Primary process. A crash before this CAS leaves the
+    /// restart fence active and Continue safely retryable; a Secondary can
+    /// report success only after the Primary handoff is durable.
     pub fn finish_session_autonomy_resume(&self, pause_id: &str) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction()?;
@@ -441,12 +456,77 @@ impl SessionDB {
         }
         let changed = tx.execute(
             "UPDATE session_autonomy_pauses
-                SET resumed_at = ?1
+                SET resumed_at = ?1,
+                    resume_requested_at = ?1,
+                    resume_replayed_at = NULL,
+                    resume_replay_error = NULL
               WHERE id = ?2 AND resumed_at IS NULL",
             params![now, pause_id],
         )?;
         tx.commit()?;
         Ok(changed > 0)
+    }
+
+    /// Pending Primary-owned replay requests published by Continue. There is
+    /// exactly one Primary process, and its replay loop is single-flight; the
+    /// source-specific wakeup/workflow/delivery claims remain the idempotency
+    /// boundary if the process crashes after dispatch but before the ack.
+    pub(crate) fn list_pending_session_autonomy_resume_replays(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<SessionAutonomyPause>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT pause.id, pause.session_id, pause.goal_id,
+                    pause.workflow_run_ids_json, pause.subagent_run_ids_json,
+                    pause.created_at, pause.resumed_at
+               FROM session_autonomy_pauses pause
+              WHERE pause.resume_requested_at IS NOT NULL
+                AND pause.resume_replayed_at IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM session_autonomy_pauses active
+                     WHERE active.session_id = pause.session_id
+                       AND active.resumed_at IS NULL
+                )
+              ORDER BY pause.resume_requested_at ASC, pause.id ASC
+              LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit.max(1) as i64], row_to_pause)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub(crate) fn finish_session_autonomy_resume_replay(&self, pause_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let changed = conn.execute(
+            "UPDATE session_autonomy_pauses
+                SET resume_replayed_at = ?1,
+                    resume_replay_error = NULL
+              WHERE id = ?2
+                AND resume_requested_at IS NOT NULL
+                AND resume_replayed_at IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM session_autonomy_pauses active
+                     WHERE active.session_id = session_autonomy_pauses.session_id
+                       AND active.resumed_at IS NULL
+                )",
+            params![chrono::Utc::now().to_rfc3339(), pause_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub(crate) fn record_session_autonomy_resume_replay_error(
+        &self,
+        pause_id: &str,
+        error: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        conn.execute(
+            "UPDATE session_autonomy_pauses
+                SET resume_replay_error = ?1
+              WHERE id = ?2 AND resume_replayed_at IS NULL",
+            params![error, pause_id],
+        )?;
+        Ok(())
     }
 }
 
@@ -534,12 +614,24 @@ mod tests {
         assert_eq!(db.resolve_session_root_id(&child.id).unwrap(), session.id);
         assert!(db.finish_session_autonomy_resume(&duplicate.id).unwrap());
         assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
+        assert_eq!(
+            db.list_pending_session_autonomy_resume_replays(10)
+                .unwrap()
+                .into_iter()
+                .map(|pause| pause.id)
+                .collect::<Vec<_>>(),
+            vec![duplicate.id.clone()]
+        );
 
         let second = db
             .prepare_session_autonomy_pause(&session.id)
             .expect("second receipt");
         assert_ne!(second.id, duplicate.id);
         assert_eq!(db.session_autonomy_pause_epoch(&session.id).unwrap(), 3);
+        assert!(db
+            .list_pending_session_autonomy_resume_replays(10)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

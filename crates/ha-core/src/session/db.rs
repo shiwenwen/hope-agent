@@ -580,7 +580,10 @@ impl SessionDB {
                 workflow_run_ids_json TEXT NOT NULL DEFAULT '[]',
                 subagent_run_ids_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
-                resumed_at TEXT
+                resumed_at TEXT,
+                resume_requested_at TEXT,
+                resume_replayed_at TEXT,
+                resume_replay_error TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_session_autonomy_pause_active
                 ON session_autonomy_pauses(session_id) WHERE resumed_at IS NULL;
@@ -780,6 +783,30 @@ impl SessionDB {
                     WHERE new.role IN ('user', 'assistant') AND length(new.content) > 0;
             END;"
         )?;
+
+        // Stop/Continue shipped from development builds before the durable
+        // Secondary->Primary resume handoff was added. Keep these probes so a
+        // database opened by one of those builds remains recoverable.
+        let autonomy_pause_columns = [
+            (
+                "resume_requested_at",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_requested_at TEXT;",
+            ),
+            (
+                "resume_replayed_at",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_replayed_at TEXT;",
+            ),
+            (
+                "resume_replay_error",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_replay_error TEXT;",
+            ),
+        ];
+        for (column, migration) in autonomy_pause_columns {
+            let probe = format!("SELECT {column} FROM session_autonomy_pauses LIMIT 1");
+            if conn.prepare(&probe).is_err() {
+                conn.execute_batch(migration)?;
+            }
+        }
 
         // Sub-agent Thread/Attempt migration. Keep every addition probe-based:
         // users can open databases produced by any earlier minor without a

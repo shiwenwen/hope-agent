@@ -152,7 +152,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **Bundled HTTP UI 只作观察者**：非 incognito 主对话由服务端持有执行；页面、WebSocket 或反向代理断开不得取消 turn，前端须以 durable `turnId` 重连终态；会话删除导致 turn 404 时须终止本地等待并释放轮询 / 订阅
 - **API-Round 分组**：新 Provider adapter 须经 `push_and_stamp` 标 `_oc_round`（否则压缩切割拆散 tool_use / tool_result 配对），请求体构建前统一 `prepare_messages_for_api()` 剥离元数据
 - **前台 idle guard 单一入口**：`run_chat_engine` 按 `ChatSource::holds_foreground_idle_guard()` 统一建 `ChatSessionGuard`（ACP 自建），新增对话入口不得手搓 per-shell guard
-- **Stop / Continue 是持久世代围栏**：Stop 必须先落 `session_autonomy_pauses` 再收敛 Goal / Workflow / Subagent / Wakeup；每次 Stop 新建 generation，Continue 必须 exact `pause_id`。用户输入“继续”由模型经 eager `session_continue` 解锁，owner Tauri / HTTP 也不得绕过精确回执；新增自主执行边界须接入暂停、重放与重启 fence
+- **Stop / Continue 是持久世代围栏**：Stop 必须先落 `session_autonomy_pauses` 再收敛 Goal / Workflow / Subagent / Wakeup；每次 Stop 新建 generation，Continue 必须 exact `pause_id`。用户输入“继续”由模型经 eager `session_continue` 解锁，owner Tauri / HTTP 也不得绕过精确回执；Secondary Continue 只在同一 CAS 发布 durable replay request，wakeup / workflow runtime 必须由 Primary 定时认领，禁在 Secondary 本地假恢复或消费后无 handoff；新增自主执行边界须接入暂停、重放与重启 fence
 
 ### 桌面宠物（Pet）
 

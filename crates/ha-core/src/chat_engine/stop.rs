@@ -5,6 +5,7 @@
 //! HTTP, and IM `/stop` resolve interaction waits and owned runtime work with
 //! the same semantics.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use std::{collections::HashSet, future::Future};
@@ -17,12 +18,16 @@ const STOP_DB_MARK_TIMEOUT: Duration = Duration::from_secs(2);
 const PRE_TURN_QUEUE_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_INTERACTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_RUNTIME_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+const AUTONOMY_RESUME_REPLAY_INTERVAL: Duration = Duration::from_secs(2);
+const AUTONOMY_RESUME_REPLAY_BATCH_SIZE: usize = 100;
 
 /// Serializes durable Stop generations and exact Continue consumption. The DB
 /// transaction creates the durable ordering; this process-local lock also
 /// keeps controller state convergence from interleaving around that ordering.
 static AUTONOMY_TRANSITION_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
 static PENDING_AUTONOMY_STOPS: OnceLock<Mutex<PendingAutonomyStops>> = OnceLock::new();
+static AUTONOMY_RESUME_REPLAY_LOOP_STARTED: AtomicBool = AtomicBool::new(false);
+static AUTONOMY_RESUME_REPLAY_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 struct PendingAutonomyStops {
@@ -214,7 +219,8 @@ pub async fn continue_session(
     session_id: &str,
     pause_id: &str,
 ) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
-    continue_session_inner(db, session_id, pause_id).await
+    continue_session_inner_for_tier(db, session_id, pause_id, crate::runtime_lock::is_primary())
+        .await
 }
 
 /// Model-facing Continue binds the decision to the exact receipt included in
@@ -225,13 +231,15 @@ pub(crate) async fn continue_session_from_pause(
     session_id: &str,
     pause_id: &str,
 ) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
-    continue_session_inner(db, session_id, pause_id).await
+    continue_session_inner_for_tier(db, session_id, pause_id, crate::runtime_lock::is_primary())
+        .await
 }
 
-async fn continue_session_inner(
+async fn continue_session_inner_for_tier(
     db: Arc<SessionDB>,
     session_id: &str,
     expected_pause_id: &str,
+    primary: bool,
 ) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
     let transition_guard = autonomy_transition_lock().lock_owned().await;
     if autonomy_stop_pending(session_id) || super::active_turn::stop_cleanup_active(session_id) {
@@ -239,19 +247,15 @@ async fn continue_session_inner(
     }
     let sid = session_id.to_string();
     let expected_pause_id = expected_pause_id.to_string();
-    let (outcome, replay_session_ids) = db
+    let outcome = db
         .clone()
         .run(move |db| {
             let Some(pause) = db.active_session_autonomy_pause(&sid)? else {
-                return Ok((
-                    crate::session::SessionAutonomyResumeOutcome::default(),
-                    Vec::new(),
-                ));
+                return Ok(crate::session::SessionAutonomyResumeOutcome::default());
             };
             if expected_pause_id != pause.id {
                 anyhow::bail!("session pause receipt changed before Continue could consume it");
             }
-            let replay_session_ids = db.list_session_autonomy_tree_ids(&pause.session_id)?;
 
             if let Some(goal_id) = pause.goal_id.as_deref() {
                 if let Some(goal) = db.get_goal(goal_id)? {
@@ -285,16 +289,13 @@ async fn continue_session_inner(
             if !db.finish_session_autonomy_resume(&pause.id)? {
                 anyhow::bail!("session pause receipt was consumed concurrently");
             }
-            Ok((
-                crate::session::SessionAutonomyResumeOutcome {
-                    resumed: true,
-                    pause_id: Some(pause.id),
-                    goal_id: pause.goal_id,
-                    workflow_run_ids,
-                    subagent_run_ids: pause.subagent_run_ids,
-                },
-                replay_session_ids,
-            ))
+            Ok(crate::session::SessionAutonomyResumeOutcome {
+                resumed: true,
+                pause_id: Some(pause.id),
+                goal_id: pause.goal_id,
+                workflow_run_ids,
+                subagent_run_ids: pause.subagent_run_ids,
+            })
         })
         .await?;
 
@@ -306,9 +307,107 @@ async fn continue_session_inner(
     }
     drop(transition_guard);
 
-    if outcome.resumed {
+    if outcome.resumed && primary {
+        replay_pending_session_autonomy_resumes_for_tier(db.clone(), true).await;
+    }
+    Ok(outcome)
+}
+
+struct AutonomyResumeReplayPermit;
+
+impl Drop for AutonomyResumeReplayPermit {
+    fn drop(&mut self) {
+        AUTONOMY_RESUME_REPLAY_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
+fn try_acquire_autonomy_resume_replay() -> Option<AutonomyResumeReplayPermit> {
+    AUTONOMY_RESUME_REPLAY_RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .ok()
+        .map(|_| AutonomyResumeReplayPermit)
+}
+
+/// Drain durable Continue handoffs in the Primary process. Secondary adapters
+/// only publish the request; wakeup timers and workflow runtimes are strictly
+/// process-local and must be restarted by their single owner.
+async fn replay_pending_session_autonomy_resumes(db: Arc<SessionDB>) {
+    replay_pending_session_autonomy_resumes_for_tier(db, crate::runtime_lock::is_primary()).await;
+}
+
+async fn replay_pending_session_autonomy_resumes_for_tier(db: Arc<SessionDB>, primary: bool) {
+    if !primary {
+        return;
+    }
+    let Some(_permit) = try_acquire_autonomy_resume_replay() else {
+        return;
+    };
+    let pending = match db
+        .clone()
+        .run(|db| {
+            db.list_pending_session_autonomy_resume_replays(AUTONOMY_RESUME_REPLAY_BATCH_SIZE)
+        })
+        .await
+    {
+        Ok(pending) => pending,
+        Err(error) => {
+            crate::app_warn!(
+                "chat",
+                "continue_handoff",
+                "Failed to list durable Continue handoffs: {error:#}"
+            );
+            return;
+        }
+    };
+
+    for pause in pending {
+        // Re-check the durable fence immediately before touching process-local
+        // sources. A newer Stop also marks this request superseded in its DB
+        // transaction; this check covers a replay snapshot racing that write.
+        let sid = pause.session_id.clone();
+        let replay_session_ids = match db
+            .clone()
+            .run(move |db| {
+                if db.is_session_autonomy_paused(&sid)? {
+                    return Ok(None);
+                }
+                db.list_session_autonomy_tree_ids(&sid).map(Some)
+            })
+            .await
+        {
+            Ok(Some(ids)) => ids,
+            Ok(None) => continue,
+            Err(error) => {
+                let pause_id = pause.id.clone();
+                let message = format!("resolve continued session tree: {error:#}");
+                let message_for_db = message.clone();
+                let _ = db
+                    .clone()
+                    .run(move |db| {
+                        db.record_session_autonomy_resume_replay_error(&pause_id, &message_for_db)
+                    })
+                    .await;
+                crate::app_warn!(
+                    "chat",
+                    "continue_handoff",
+                    "Failed to replay Continue handoff {}: {}",
+                    pause.id,
+                    message
+                );
+                continue;
+            }
+        };
+
+        let mut replay_error = None;
         for replay_session_id in replay_session_ids {
-            crate::wakeup::replay_pending_for_session(&replay_session_id).await;
+            if let Err(error) = crate::wakeup::replay_pending_for_session(&replay_session_id).await
+            {
+                replay_error = Some(format!(
+                    "replay wakeups for session {}: {error:#}",
+                    replay_session_id
+                ));
+                break;
+            }
             let replay_db = db.clone();
             crate::blocking::run_blocking(move || {
                 crate::subagent::replay_pending_parent_deliveries_for_session(
@@ -318,11 +417,82 @@ async fn continue_session_inner(
             })
             .await;
         }
-        for run_id in &outcome.workflow_run_ids {
+        if let Some(error) = replay_error {
+            let pause_id = pause.id.clone();
+            let error_for_db = error.clone();
+            let _ = db
+                .clone()
+                .run(move |db| {
+                    db.record_session_autonomy_resume_replay_error(&pause_id, &error_for_db)
+                })
+                .await;
+            crate::app_warn!(
+                "chat",
+                "continue_handoff",
+                "Deferred Continue handoff {} retry: {}",
+                pause.id,
+                error
+            );
+            continue;
+        }
+
+        for run_id in &pause.workflow_run_ids {
             crate::workflow::schedule_workflow_resume_after_pause(db.clone(), run_id.clone());
         }
+        let pause_id = pause.id.clone();
+        match db
+            .clone()
+            .run(move |db| db.finish_session_autonomy_resume_replay(&pause_id))
+            .await
+        {
+            Ok(true) => crate::app_info!(
+                "chat",
+                "continue_handoff",
+                "Primary replayed durable Continue handoff {} for session {}",
+                pause.id,
+                pause.session_id
+            ),
+            Ok(false) => {}
+            Err(error) => crate::app_warn!(
+                "chat",
+                "continue_handoff",
+                "Failed to acknowledge Continue handoff {}: {error:#}",
+                pause.id
+            ),
+        }
     }
-    Ok(outcome)
+}
+
+/// Install the Primary-owned cross-process Continue replay loop. The immediate
+/// first drain covers requests written while no Primary was alive; subsequent
+/// ticks hand off Secondary Continue calls without requiring a restart.
+pub fn spawn_session_autonomy_resume_replay_loop() {
+    if !crate::runtime_lock::is_primary()
+        || AUTONOMY_RESUME_REPLAY_LOOP_STARTED.swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    let Some(db) = crate::get_session_db() else {
+        AUTONOMY_RESUME_REPLAY_LOOP_STARTED.store(false, Ordering::SeqCst);
+        crate::app_warn!(
+            "chat",
+            "continue_handoff",
+            "Session DB unavailable; durable Continue replay loop not started"
+        );
+        return;
+    };
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(AUTONOMY_RESUME_REPLAY_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            if !crate::runtime_lock::is_primary() {
+                AUTONOMY_RESUME_REPLAY_LOOP_STARTED.store(false, Ordering::SeqCst);
+                break;
+            }
+            replay_pending_session_autonomy_resumes(db.clone()).await;
+        }
+    });
 }
 
 #[derive(Debug, Default)]
@@ -1345,6 +1515,39 @@ mod tests {
                 .expect("exact latest Continue")
                 .resumed
         );
+    }
+
+    #[tokio::test]
+    async fn secondary_continue_leaves_a_durable_primary_replay_handoff() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("secondary-continue.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let pause = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("pause receipt");
+
+        let resumed = continue_session_inner_for_tier(db.clone(), &session.id, &pause.id, false)
+            .await
+            .expect("Secondary Continue publishes durable handoff");
+
+        assert!(resumed.resumed);
+        assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
+        let pending = db
+            .list_pending_session_autonomy_resume_replays(10)
+            .expect("list durable resume handoffs");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, pause.id);
+
+        replay_pending_session_autonomy_resumes_for_tier(db.clone(), true).await;
+
+        assert!(db
+            .list_pending_session_autonomy_resume_replays(10)
+            .expect("Primary acknowledged handoff")
+            .is_empty());
     }
 
     #[tokio::test]

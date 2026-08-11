@@ -1017,11 +1017,14 @@ pub fn suspend_for_session(session_id: &str) -> usize {
 /// Re-arm wakeups for one explicitly continued session. **Primary-only**:
 /// Secondary adapters may consume the shared pause receipt, but must not arm a
 /// second process-local timer for a durable row already owned by the Primary.
-pub async fn replay_pending_for_session(session_id: &str) {
-    replay_pending_for_session_for_tier(session_id, crate::runtime_lock::is_primary()).await;
+pub async fn replay_pending_for_session(session_id: &str) -> anyhow::Result<()> {
+    replay_pending_for_session_for_tier(session_id, crate::runtime_lock::is_primary()).await
 }
 
-async fn replay_pending_for_session_for_tier(session_id: &str, primary: bool) {
+async fn replay_pending_for_session_for_tier(
+    session_id: &str,
+    primary: bool,
+) -> anyhow::Result<()> {
     if !primary {
         app_debug!(
             "wakeup",
@@ -1029,7 +1032,7 @@ async fn replay_pending_for_session_for_tier(session_id: &str, primary: bool) {
             "Skipped wakeup replay for continued session {} on Secondary; Primary owns durable replay",
             session_id
         );
-        return;
+        return Ok(());
     }
 
     // Mark in-flight sources before looking at parked/durable state. If an old
@@ -1063,7 +1066,7 @@ async fn replay_pending_for_session_for_tier(session_id: &str, primary: bool) {
     }
 
     let Some(db) = get_wakeup_db().cloned() else {
-        return;
+        return Ok(());
     };
     let pending = match crate::blocking::run_blocking(move || db.list_pending()).await {
         Ok(rows) => rows,
@@ -1075,7 +1078,7 @@ async fn replay_pending_for_session_for_tier(session_id: &str, primary: bool) {
                 session_id,
                 error
             );
-            return;
+            return Err(anyhow::anyhow!(error));
         }
     };
     for wakeup in pending
@@ -1091,6 +1094,7 @@ async fn replay_pending_for_session_for_tier(session_id: &str, primary: bool) {
             true,
         );
     }
+    Ok(())
 }
 
 /// Cancel & delete all wakeups for a session (session delete / incognito burn).
@@ -1231,7 +1235,9 @@ mod tests {
                 },
             );
 
-        replay_pending_for_session_for_tier(sid, false).await;
+        replay_pending_for_session_for_tier(sid, false)
+            .await
+            .expect("Secondary replay is a no-op");
 
         assert!(SUSPENDED_TIMERS
             .lock()
@@ -1272,7 +1278,9 @@ mod tests {
         assert_eq!(suspended_note.as_deref(), Some("resume the original check"));
         assert_eq!(count_pending_for_session(sid), 1);
 
-        replay_pending_for_session_for_tier(sid, true).await;
+        replay_pending_for_session_for_tier(sid, true)
+            .await
+            .expect("replay incognito wakeup");
         assert!(ARMED_TIMERS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -1306,7 +1314,9 @@ mod tests {
             },
         );
 
-        replay_pending_for_session_for_tier(sid, true).await;
+        replay_pending_for_session_for_tier(sid, true)
+            .await
+            .expect("resume in-flight wakeup");
         {
             let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
             let delivery = delivering.get(id).expect("delivery remains in flight");
@@ -1404,7 +1414,9 @@ mod tests {
             },
         );
 
-        replay_pending_for_session_for_tier(sid, true).await;
+        replay_pending_for_session_for_tier(sid, true)
+            .await
+            .expect("resume in-flight wakeup");
         assert_eq!(suspend_for_session(sid), 1);
         assert_eq!(finish_delivering(id, true), DeliveringFinish::Parked);
         assert!(!ARMED_TIMERS
