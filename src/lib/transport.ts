@@ -797,6 +797,8 @@ export type WorkspaceWriteState =
 export interface WorkspaceAccess {
   readable: boolean;
   writeState: WorkspaceWriteState;
+  /** Canonical root selected by the backend's session/project scope resolver. */
+  rootPath: string;
 }
 
 /** One entry in a workspace directory listing. Paths are relative to the

@@ -138,6 +138,8 @@ anchor 覆盖的原文 token 还必须与 `kind + targetId` 确定性匹配；`s
 
 投影只包含最终状态为 `resolved` 的 inline binding；`raw` 由后端按已验证 canonical message 的 UTF-8 span 精确提取，前端若使用 UTF-16 selection 必须显式换算，不能回退正则/parser。`sourceJournalSeq` 必须为正数，它把缓存投影绑定到已耐久的 Initial Context；journal 才是恢复真相源，message metadata 不参与执行、授权或重放。merge 事务必须重新读取目标 user-message 的 `content`，用同一 installation-keyed 算法重算 canonical fingerprint，并逐项复核 UTF-8 span/`raw` 后才可写 metadata；这样 Hook rewrite、`display_text` 或消息替换不会继承另一份输入快照的 provenance。legacy/空 binding、`unavailable`/`rejected`、span/fingerprint 不一致、durability flush 失败、缺少 turn→user-message 映射时均不写；Incognito 保持同形内存 receipt，但不新增 message metadata。Provider failover 重复投影同一 receipt 时该 key 覆盖自身、保留 plan/goal/user attachment 等其他 metadata。
 
+Markdown 消息不会把可见 token 或静态 href 当作 provenance。每个 renderer 实例生成一个不可预测且在组件生命周期内稳定的 marker namespace，把已验证 span 映射到实例内 lookup table；历史 hydration 即使替换 binding 数组对象也复用同一 marker，避免 Markdown block memo 留下旧 href 后退化为普通锚点。消息卸载后 namespace 与 lookup table 一起销毁，手输同形 marker 不会获得 chip 语义。
+
 `unavailable` / `rejected` 不能只存在 journal/UI receipt 中：在 Provider I/O 前，后端还会按已验证 source anchor 排序，把每个失败 binding 的 `mentionId`、`kind`、`displayLabel`、`status` 放进当前 user-level Turn Envelope。该状态块不含 target id、远程错误、目标正文或安全判定原因，不从可见 token 反推对象，也不获得 system/developer authority；它只让模型明确知道选中的 Note、Agent 或 Capability 当前不可用，避免把缺失数据静默当成已读取。显式 Skill 是更严格的例外：整组 Skill 的 live resolution、正文 materialization 与 `allowed-tools` ceiling 必须原子成功，否则整个 turn 在 Provider I/O 前 fail-closed，不靠状态块继续成 unrestricted prompt。
 
 ### Layer 1 — 静态基础段
@@ -175,7 +177,7 @@ flowchart LR
 | 15 | 工具轮次预算提醒 | 条件 | `capabilities.max_tool_rounds` 有界（非 0） |
 | 16 | `# Human-in-the-loop` | 恒定 | 编译常量，agent.md 不可覆盖 |
 | 17 | Skills 目录 | 恒定 | 按 allow/deny 与会话 `paths:` 激活过滤；显式 Skill 正文不在此层 |
-| 18 | `# Current Project` | 条件 | 非 OpenClaw 且会话属于项目 |
+| 18 | `# Current Project` | 条件 | 会话属于项目（含 OpenClaw；其更早的 `# Project Context` 只描述四文件 Agent pack） |
 | 19 | `# Working Directory`（含 `## Working Directory Instructions`） | 条件 | 会话 `working_dir` 非空；目录内容清单不在此层 |
 | 20 | `# Core Memory`（V2 三作用域） | 条件 | `v2_core_enabled` 且渲染结果非空 |
 | 21 | legacy Memory 段（Core 文件 / Pinned / Profile / SQLite + Guidelines） | 条件 | `memory_enabled`；子段再受 `legacy_core_enabled` / `legacy_static_enabled` 门控 |
@@ -733,7 +735,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 **缓存路由 key**。`prompt_cache_key` 由 installation-local 持久密钥对 provider、model、Provider instance（配置 id + base URL）、当前认证主体的 keyed partition、prompt contract v3、稳定 system，以及本轮最终 eager + deferred tool schema 做 keyed digest；非 Incognito 另以 Agent id、Incognito 以 session id 生成隔离 scope。API Key、account id 和裸 auth hash 不进入请求或日志。用户文本、History、Run frame、typed mention 的正文、Skill/Note/Hook/IM data 本身不进入 key；但 mention/Skill/Plan/KB/MCP 状态若改变了最终 tool schema，schema bytes 会使 key 有意变化。切换 auth profile/account、兼容 backend、Agent 或 Incognito session 会强制换 partition/scope。OpenAI Chat 对兼容端点做 capability 记忆；Anthropic 不使用 request-level key；Codex 明确不发送该字段。
 
-**持久 key 的发布与降级**。`init_runtime()` 从 credentials 目录读取 `prompt-cache-routing-v1.key`。首次安装由竞争进程对 `prompt-cache-routing-v1.lock` 取 OS 独占锁，持锁后再次读取，仍不存在才用 `write_secure_file` 原子发布 32-byte 随机 key；其他进程指数退避重读，最多等待 2 秒，因此并行启动不会各自覆盖安装 key。文件损坏、目录/锁/安全写失败或发布超时不会阻断聊天：进程记录不含密钥的 warning，改用仅驻留当前进程的随机 key。该降级仍保持 keyed digest 的隐私隔离，只牺牲跨进程/重启的 cache affinity；它不会回退到正文裸 hash，也不会在请求或日志中暴露安装 key。
+**持久 key 的发布与降级**。进程内以单一 `OnceLock<RoutingKeyState>` 串行化首次初始化；无论最先进入的是 `init_runtime()` 还是更早的 `keyed_digest` / 诊断 fingerprint，都会先从 credentials 目录读取或创建 `prompt-cache-routing-v1.key`，后续调用只复用同一份 key 与初始化状态，不会由另一路径用临时随机 key 抢占。首次安装由竞争进程对 `prompt-cache-routing-v1.lock` 取 OS 独占锁，持锁后再次读取，仍不存在才用 `write_secure_file` 原子发布 32-byte 随机 key；其他进程指数退避重读，最多等待 2 秒，因此并行启动不会各自覆盖安装 key。Unix 安全写可能在 rename 已完成后才因父目录 `fsync` 报错；此时必须先重读目标，若可见内容是完整 32-byte key 就采用它，避免其他进程使用已发布 key 而当前进程错误降级。只有初始 key 已损坏、目录/锁失败、安全写报错且重读仍无有效 key，或发布超时，才记录不含密钥的 warning 并冻结一份仅驻留当前进程的随机 key。该降级仍保持 keyed digest 的隐私隔离，只牺牲跨进程/重启的 cache affinity；它不会回退到正文裸 hash，也不会在请求或日志中暴露安装 key。
 
 **OpenAI Responses 的显式缓存**。仅 `api.openai.com` 上的 GPT-5.6+ 走显式缓存：稳定系统提示放在首个 `developer` `input_text` block，并设 `prompt_cache_breakpoint: {mode: explicit}` 与 `prompt_cache_options: {mode: explicit, ttl: 30m}`。5.4/5.5 保持自动缓存；Codex 和未知兼容端不假设支持这些字段。
 

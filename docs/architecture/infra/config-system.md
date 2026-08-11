@@ -1,6 +1,6 @@
 # 配置系统
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23 | 关联：[文件操作](../core/file-operations.md) · [Backup 备份](backup-autosave.md) · [Provider 系统](../core/provider-system.md)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11 | 关联：[文件操作](../core/file-operations.md) · [Backup 备份](backup-autosave.md) · [Provider 系统](../core/provider-system.md)
 
 应用配置 `AppConfig` 是整台应用的"设置总账"：面向用户的所有开关、Provider 列表、工具参数、记忆 / 知识 / 沙箱 / 服务器策略、UI 偏好，全部住在这一个结构里，持久化为 `~/.hope-agent/config.json`。本文讲清它怎么在一个进程里被安全地读、被安全地写，以及围绕读写的容错、事件、备份与恢复。
 
@@ -107,20 +107,40 @@ sequenceDiagram
     M->>A: load_config() 克隆最新快照
     M->>M: f(&mut cfg)（校验失败即在此返回 Err）
     M->>D: autosave 旧文件 → backups/autosave/
-    M->>D: 同目录临时文件 fsync → 原子替换 config.json
-    M->>A: store 新 Arc（原子发布）
-    M->>S: post_save：同步 terminal 远程写开关 + emit config:changed
-    M->>S: config_changed hook（观察型）
-    M->>L: unlock
-    M-->>C: 返回闭包结果 T
+    M->>D: 同目录临时文件 fsync → 原子替换 config.json → durability barrier
+    D-->>M: SecureWriteOutcome
+    alt NotPublished
+        M->>L: unlock
+        M-->>C: 返回普通写入错误（零运行时发布、零保存后副作用）
+    else Durable 或 PublishedButNotDurable
+        M->>A: store 新 Arc（逻辑提交）
+        M->>S: post_save：同步 terminal 远程写开关 + emit config:changed（一次）
+        M->>S: config_changed hook（观察型，一次）
+        M->>L: unlock
+        M-->>C: 返回闭包结果 T
+    end
 ```
 
 几个要点：
 
 - **autosave 在覆盖前**：写盘之前先把"旧"文件拷进 `backups/autosave/`，所以每一次设置改动都可回滚。快照失败只 warn，绝不阻塞用户写入。
-- **磁盘发布也是原子的**：新 JSON 先完整序列化并写入同目录临时文件，`fsync` 后才替换目标；Windows 使用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`，崩溃时只能观察到旧文件或新文件，不会留下半个 UTF-8 字符或截断 JSON。
-- **发布在落盘后**：先写磁盘、再 `store` 新快照，保证内存里能被读到的一定是已经持久化过的状态。
-- **副作用经注入执行**：`post_save` 与 `config_changed` hook 不写死在 persistence 里，而是在装配期一次性注册（见[备份 / 回滚联动](#备份--回滚联动)）；未注册时（测试 / 纯 CLI）自动跳过。
+- **磁盘发布也是原子的**：新 JSON 先完整序列化并写入同目录临时文件，`fsync` 后才替换目标；Unix 在 rename 后再 fsync 父目录，Windows 使用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`，路径上只能观察到完整旧文件或完整新文件，不会留下半个 UTF-8 字符或截断 JSON。
+- **内存发布在磁盘路径发布后**：只有 `NotPublished` 会保持旧 ArcSwap；只要新文件已经成为路径上的可见版本，即使后置 durability barrier 报错，也必须 `store` 新快照，避免下一次 mutation 从旧缓存克隆并覆盖已落盘修改。
+- **副作用经注入且恰好执行一次**：`post_save` 与 `config_changed` hook 不写死在 persistence 里，而是在装配期一次性注册（见[备份 / 回滚联动](#备份--回滚联动)）；未注册时（测试 / 纯 CLI）自动跳过。一次 `mutate_config` 的逻辑提交只发布一次 ArcSwap、调用一次 `post_save` 和一次 `config_changed`，不会因 durability 告警重放 mutation 或副作用。
+
+### 三态落盘结果与逻辑提交
+
+配置写使用 `platform::write_secure_file_outcome`，不能使用把发布后错误也压成普通 `io::Error` 的兼容入口。`SecureWriteOutcome` 的处理是配置一致性 contract，而不是诊断细节：
+
+| 结果 | 磁盘事实 | 配置层行为 |
+|---|---|---|
+| `Durable` | 完整新文件已原子发布，durability barrier 成功 | 逻辑提交：发布 ArcSwap、清除 load-failure 状态，`post_save` 与本次 `ConfigChange` 各执行一次，返回 mutation 结果 |
+| `PublishedButNotDurable(error)` | 完整新文件已原子发布，但发布后的 durability barrier 失败；典型为 Unix rename 成功后父目录 fsync 失败 | **仍按逻辑提交处理**，与 `Durable` 执行完全相同的 ArcSwap 和副作用各一次；另记录高等级 durability 告警，但不返回普通失败、不诱导调用方重跑已经执行过的闭包 |
+| `NotPublished(error)` | 本次未替换目标路径 | 返回普通失败；不发布 ArcSwap、不清除 load-failure 状态，也不执行 `post_save` / 本次 `ConfigChange` |
+
+这一区分防的是一个真实的分叉窗口：如果 rename 已成功却因父目录 fsync 报错而提前 `?` 返回，磁盘会是新配置、ArcSwap 仍是旧配置；下一次 mutation 随后从旧快照克隆，便会把第一次修改覆盖掉。安全副作用也会漏执行，例如关闭 `allowRemoteWrites` 后本应即时撤销的远程 shell。把 `PublishedButNotDurable` 认作逻辑提交，可以保持磁盘可见状态、进程快照与副作用一致，同时把断电持久性风险明确留在高等级日志中。
+
+`UserConfig` 的 `user.json` 虽没有 ArcSwap，但包含 `remoteApiKey`，并承载 Enter 发送偏好等需要即时刷新客户端的设置，因此走同一 `write_secure_file_outcome`：文件以 credential-grade 权限原子发布；`Durable` 与 `PublishedButNotDurable` 都恰好广播一次 `config:changed { category: "user" }`，`NotPublished` 才返回失败且不广播。禁止退回 `std::fs::write`，否则既会重新引入截断窗口，也可能让凭据文件继承过宽的默认权限。
 
 ## 启动加载与容错
 

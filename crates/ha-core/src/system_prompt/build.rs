@@ -2032,129 +2032,136 @@ mod memory_section_tests {
 
     #[test]
     fn execution_mode_does_not_change_stable_prompt() {
-        let definition = mk_definition();
-        let budget = MemoryBudgetConfig::default();
-        let out_off = build(
-            &definition,
-            Some("gpt-5.4"),
-            Some("OpenAI"),
-            &[],
-            &budget,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            SessionMode::Default,
-            ExecutionMode::Off,
-            crate::workflow_mode::WorkflowMode::Off,
-        );
-        let out_guarded = build(
-            &definition,
-            Some("gpt-5.4"),
-            Some("OpenAI"),
-            &[],
-            &budget,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            SessionMode::Default,
-            ExecutionMode::Guarded,
-            crate::workflow_mode::WorkflowMode::Off,
-        );
+        crate::test_support::with_env_vars(&[], || {
+            let definition = mk_definition();
+            let budget = MemoryBudgetConfig::default();
+            let out_off = build(
+                &definition,
+                Some("gpt-5.4"),
+                Some("OpenAI"),
+                &[],
+                &budget,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                SessionMode::Default,
+                ExecutionMode::Off,
+                crate::workflow_mode::WorkflowMode::Off,
+            );
+            let out_guarded = build(
+                &definition,
+                Some("gpt-5.4"),
+                Some("OpenAI"),
+                &[],
+                &budget,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                SessionMode::Default,
+                ExecutionMode::Guarded,
+                crate::workflow_mode::WorkflowMode::Off,
+            );
 
-        assert_eq!(out_off, out_guarded);
-        assert!(!out_guarded.contains("# Execution Mode"));
-        let run_instruction = ExecutionMode::Guarded
-            .system_prompt_section()
-            .expect("guarded mode has run guidance");
-        assert!(run_instruction.contains("# Execution Mode: Guarded"));
-        assert!(run_instruction.contains("observe -> plan -> edit -> targeted validate -> report"));
-        assert!(run_instruction.contains("Stop and ask the user"));
+            assert_eq!(out_off, out_guarded);
+            assert!(!out_guarded.contains("# Execution Mode"));
+            let run_instruction = ExecutionMode::Guarded
+                .system_prompt_section()
+                .expect("guarded mode has run guidance");
+            assert!(run_instruction.contains("# Execution Mode: Guarded"));
+            assert!(
+                run_instruction.contains("observe -> plan -> edit -> targeted validate -> report")
+            );
+            assert!(run_instruction.contains("Stop and ask the user"));
+        });
     }
 
     #[test]
     fn workflow_mode_does_not_change_stable_prompt() {
-        let definition = mk_definition();
-        let budget = MemoryBudgetConfig::default();
-        let out_off = build(
-            &definition,
-            Some("gpt-5.4"),
-            Some("OpenAI"),
-            &[],
-            &budget,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            SessionMode::Default,
-            ExecutionMode::Off,
-            crate::workflow_mode::WorkflowMode::Off,
-        );
-        let out_on = build(
-            &definition,
-            Some("gpt-5.4"),
-            Some("OpenAI"),
-            &[],
-            &budget,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            SessionMode::Default,
-            ExecutionMode::Off,
-            crate::workflow_mode::WorkflowMode::On,
-        );
-        let out_ultracode = build(
-            &definition,
-            Some("gpt-5.4"),
-            Some("OpenAI"),
-            &[],
-            &budget,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            SessionMode::Default,
-            ExecutionMode::Off,
-            crate::workflow_mode::WorkflowMode::Ultracode,
-        );
+        let data_root = tempfile::tempdir().expect("temp data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let definition = mk_definition();
+            let budget = MemoryBudgetConfig::default();
+            let out_off = build(
+                &definition,
+                Some("gpt-5.4"),
+                Some("OpenAI"),
+                &[],
+                &budget,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                SessionMode::Default,
+                ExecutionMode::Off,
+                crate::workflow_mode::WorkflowMode::Off,
+            );
+            let out_on = build(
+                &definition,
+                Some("gpt-5.4"),
+                Some("OpenAI"),
+                &[],
+                &budget,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                SessionMode::Default,
+                ExecutionMode::Off,
+                crate::workflow_mode::WorkflowMode::On,
+            );
+            let out_ultracode = build(
+                &definition,
+                Some("gpt-5.4"),
+                Some("OpenAI"),
+                &[],
+                &budget,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                SessionMode::Default,
+                ExecutionMode::Off,
+                crate::workflow_mode::WorkflowMode::Ultracode,
+            );
 
-        assert_eq!(out_off, out_on);
-        assert_eq!(out_off, out_ultracode);
-        assert!(!out_on.contains("# Workflow Mode"));
-        let on = crate::workflow_mode::WorkflowMode::On
-            .system_prompt_section()
-            .expect("on mode has run guidance");
-        let ultracode = crate::workflow_mode::WorkflowMode::Ultracode
-            .system_prompt_section()
-            .expect("ultracode mode has run guidance");
-        assert!(on.contains("# Workflow Mode: On"));
-        assert!(on.contains("workflow` with `action=create"));
-        assert!(on.contains("workflow.task.create"));
-        assert!(on.contains("Workflow is not coding-only"));
-        assert!(ultracode.contains("# Workflow Mode: Ultracode"));
-        assert!(ultracode.contains("Use `workflow` with `action=create` by default"));
+            assert_eq!(out_off, out_on);
+            assert_eq!(out_off, out_ultracode);
+            assert!(!out_on.contains("# Workflow Mode"));
+            let on = crate::workflow_mode::WorkflowMode::On
+                .system_prompt_section()
+                .expect("on mode has run guidance");
+            let ultracode = crate::workflow_mode::WorkflowMode::Ultracode
+                .system_prompt_section()
+                .expect("ultracode mode has run guidance");
+            assert!(on.contains("# Workflow Mode: On"));
+            assert!(on.contains("workflow` with `action=create"));
+            assert!(on.contains("workflow.task.create"));
+            assert!(on.contains("Workflow is not coding-only"));
+            assert!(ultracode.contains("# Workflow Mode: Ultracode"));
+            assert!(ultracode.contains("Use `workflow` with `action=create` by default"));
+        });
     }
 
     #[test]

@@ -292,8 +292,8 @@ pub fn try_acquire_exclusive_lock(
 /// Atomically write a file containing a secret (OAuth tokens, API keys).
 ///
 /// Creates parent directories if missing, writes to a temp file in the
-/// same directory, `fsync`s, sets 0600 (Unix) / clears inherited ACL
-/// entries (Windows), then renames over the target path. Callers should
+/// same directory, `fsync`s, sets 0600 (Unix) / uses the inherited NTFS
+/// DACL (Windows), then renames over the target path. Callers should
 /// use this for anything that must not be readable by other local users.
 ///
 /// Unix: `chmod 0600` after write so the file inherits the stricter
@@ -301,7 +301,46 @@ pub fn try_acquire_exclusive_lock(
 /// Windows: writes the file and relies on NTFS DACL inheritance — a
 /// stronger ACL pass can be layered on later without API change.
 pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    imp::write_secure_file(path, bytes)
+    write_secure_file_outcome(path, bytes).into_legacy_result()
+}
+
+/// Publication result for a credential-grade atomic file write.
+///
+/// A successful atomic rename can become visible before syncing its parent
+/// directory fails. Callers that mirror the file into process state must treat
+/// both published variants as a logical commit while retaining the durability
+/// warning for diagnostics.
+#[derive(Debug)]
+#[must_use = "the secure write publication outcome must be handled"]
+pub enum SecureWriteOutcome {
+    /// The replacement was published and its durability barrier completed.
+    Durable,
+    /// The replacement was published, but the final durability barrier failed.
+    PublishedButNotDurable(std::io::Error),
+    /// The replacement was not published; an existing target remains unchanged.
+    NotPublished(std::io::Error),
+}
+
+impl SecureWriteOutcome {
+    fn into_legacy_result(self) -> std::io::Result<()> {
+        match self {
+            Self::Durable => Ok(()),
+            Self::PublishedButNotDurable(error) | Self::NotPublished(error) => Err(error),
+        }
+    }
+}
+
+/// Atomically write a credential-bearing file and report whether publication
+/// happened independently from whether its final durability barrier succeeded.
+///
+/// Prefer this over [`write_secure_file`] when the caller also maintains an
+/// in-memory snapshot or must run post-commit side effects. On Unix, a parent
+/// directory open/`fsync` failure after `rename(2)` is reported as
+/// [`SecureWriteOutcome::PublishedButNotDurable`]. Windows uses a write-through
+/// atomic replacement, so it reports either [`SecureWriteOutcome::Durable`] or
+/// [`SecureWriteOutcome::NotPublished`].
+pub fn write_secure_file_outcome(path: &std::path::Path, bytes: &[u8]) -> SecureWriteOutcome {
+    imp::write_secure_file_outcome(path, bytes)
 }
 
 /// Stream `source` into a credential-grade sibling temp file, `fsync` it, then
@@ -325,22 +364,29 @@ pub fn copy_secure_file_atomic(
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
     ));
+    let mut temp_created = false;
     let result = (|| {
         let mut input = std::fs::File::open(source)?;
         #[cfg(unix)]
         let mut output = {
             use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
+            let file = std::fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
                 .mode(0o600)
-                .open(&temp)?
+                .open(&temp)?;
+            temp_created = true;
+            file
         };
         #[cfg(not(unix))]
-        let mut output = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp)?;
+        let mut output = {
+            let file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&temp)?;
+            temp_created = true;
+            file
+        };
         let copied = std::io::copy(&mut input, &mut output)?;
         output.sync_all()?;
         #[cfg(unix)]
@@ -351,7 +397,7 @@ pub fn copy_secure_file_atomic(
         imp::publish_atomic_file(&temp, target, true)?;
         Ok(copied)
     })();
-    if result.is_err() {
+    if result.is_err() && temp_created {
         let _ = std::fs::remove_file(&temp);
     }
     result
@@ -628,6 +674,51 @@ pub fn redirect_updater_tmpdir_if_cross_volume() -> UpdaterTmpdir {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secure_write_outcome_reports_durable_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("config.json");
+
+        let outcome = write_secure_file_outcome(&target, b"published");
+
+        assert!(matches!(outcome, SecureWriteOutcome::Durable));
+        assert_eq!(std::fs::read(&target).unwrap(), b"published");
+    }
+
+    #[test]
+    fn secure_write_outcome_reports_prepublication_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocked_parent = dir.path().join("not-a-directory");
+        std::fs::write(&blocked_parent, b"keep").unwrap();
+        let target = blocked_parent.join("config.json");
+
+        let outcome = write_secure_file_outcome(&target, b"unpublished");
+
+        assert!(matches!(outcome, SecureWriteOutcome::NotPublished(_)));
+        assert_eq!(std::fs::read(&blocked_parent).unwrap(), b"keep");
+        assert!(!target.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secure_write_outcome_distinguishes_postpublication_sync_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("config.json");
+
+        let outcome =
+            imp::write_secure_file_outcome_with_parent_sync(&target, b"published", |_| {
+                Err(std::io::Error::other("injected parent sync failure"))
+            });
+
+        match outcome {
+            SecureWriteOutcome::PublishedButNotDurable(error) => {
+                assert_eq!(error.kind(), std::io::ErrorKind::Other);
+            }
+            other => panic!("unexpected secure write outcome: {other:?}"),
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"published");
+    }
 
     #[test]
     fn write_atomic_creates_replaces_and_leaves_no_temp() {

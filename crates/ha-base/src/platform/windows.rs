@@ -548,22 +548,33 @@ pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::F
 /// Shared atomic-replace core: write `bytes` to a sibling temp (same dir), fsync,
 /// then replace the target with one `MoveFileExW` operation. The temp is cleaned
 /// up on a publication failure.
-fn write_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+fn write_replace(path: &Path, bytes: &[u8]) -> super::SecureWriteOutcome {
     let tmp = path.with_extension(format!(
         "tmp.{}.{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
     ));
-    {
+    let mut temp_created = false;
+    let prepared = (|| -> io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let mut f = fs::OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(&tmp)?;
+        temp_created = true;
         f.write_all(bytes)?;
         f.sync_all()?;
+        Ok(())
+    })();
+    if let Err(error) = prepared {
+        // `create_new` may fail because another same-process writer owns the
+        // candidate name. Never delete a temp we did not create.
+        if temp_created {
+            let _ = fs::remove_file(&tmp);
+        }
+        return super::SecureWriteOutcome::NotPublished(error);
     }
     // NTFS inherits a DACL from the parent directory — `~/.hope-agent/`
     // lives under the user profile so by default only the owning user
@@ -574,12 +585,12 @@ fn write_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     // REPLACE_EXISTING keeps the old-or-new atomic replacement contract.
     if let Err(e) = publish_atomic_file(&tmp, path, true) {
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return super::SecureWriteOutcome::NotPublished(e);
     }
-    Ok(())
+    super::SecureWriteOutcome::Durable
 }
 
-pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(super) fn write_secure_file_outcome(path: &Path, bytes: &[u8]) -> super::SecureWriteOutcome {
     write_replace(path, bytes)
 }
 
@@ -587,7 +598,11 @@ pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// Unix-style mode to preserve — NTFS DACL inheritance applies — so this shares
 /// the same temp + atomic-replace path as `write_secure_file`.
 pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_replace(path, bytes)
+    match write_replace(path, bytes) {
+        super::SecureWriteOutcome::Durable => Ok(()),
+        super::SecureWriteOutcome::PublishedButNotDurable(error)
+        | super::SecureWriteOutcome::NotPublished(error) => Err(error),
+    }
 }
 
 pub(super) fn publish_dir_atomic(source: &Path, target: &Path) -> io::Result<()> {

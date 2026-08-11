@@ -1,6 +1,8 @@
 import { Cable, Puzzle } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+export const CAPABILITY_MENTION_INLINE_CLASS =
+  "mx-0.5 inline-flex max-w-[16rem] items-baseline gap-1 whitespace-nowrap align-baseline font-normal leading-[inherit] text-cyan-700 dark:text-cyan-300"
+export const CAPABILITY_MENTION_ICON_CLASS = "h-[1em] w-[1em] shrink-0 self-center"
 
 export function CapabilityMentionChip({
   kind,
@@ -19,14 +21,9 @@ export function CapabilityMentionChip({
       data-capability-mention={targetId}
       data-capability-kind={kind}
       data-ha-title-tip={label}
-      className={cn(
-        "mx-0.5 inline-flex max-w-[16rem] items-center gap-1 rounded-md border px-1.5 align-baseline",
-        "text-[0.95em] font-medium leading-snug",
-        "border-cyan-500/20 bg-cyan-500/10 text-cyan-700",
-        "dark:border-cyan-300/20 dark:bg-cyan-300/15 dark:text-cyan-200",
-      )}
+      className={CAPABILITY_MENTION_INLINE_CLASS}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <Icon className={CAPABILITY_MENTION_ICON_CLASS} />
       <span className="min-w-0 truncate">{label}</span>
     </span>
   )

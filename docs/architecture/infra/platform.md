@@ -72,13 +72,16 @@ flowchart TD
 
 ### 原子与安全落盘
 
-写机密和写用户文档共用同一套"同目录 temp → fsync → rename"原子骨架（Unix `write_replace`、Windows `write_replace`），差别只在权限语义与 rename 细节。
+写机密和写用户文档共用同一套"同目录 temp → fsync → 原子发布"骨架（Unix `rename`、Windows `MoveFileExW`），差别只在权限语义、发布原语与 durability barrier。配置持久化还必须区分"尚未发布"和"已经发布但 durability barrier 失败"，不能把两者压成同一个 `io::Error`。
 
 | 入口 | 语义 |
 |---|---|
-| `write_secure_file(path, bytes)` | **机密专用**：写完强制 0600（Unix `chmod` 二次收紧，不受 umask 影响；Windows 依赖 NTFS DACL 继承）。用于 OAuth token、API Key 等 |
+| `write_secure_file_outcome(path, bytes) -> SecureWriteOutcome` | **机密专用、结果可判阶段**：写完强制 0600（Unix `chmod` 二次收紧，不受 umask 影响；Windows 依赖用户目录的 NTFS DACL 继承），返回 `Durable` / `PublishedButNotDurable` / `NotPublished`。配置等不能安全重试已发布 mutation 的调用方必须走此入口 |
+| `write_secure_file(path, bytes)` | 兼容入口，沿用 `io::Result<()>`；只有 `Durable` 返回 `Ok(())`，其余两态都映射为 `Err`。调用方若需要判断文件是否已经替换，禁止使用这个兼容入口 |
+| `copy_secure_file_atomic(source, target)` | **机密流式快照**：把无界 source 复制到 target 的 credential-grade sibling temp，`fsync` 后原子替换；保持常量内存并清理失败 temp。用于 config/user autosave |
 | `write_atomic(path, bytes)` | **用户文档专用**（知识库笔记等）：目标已存在则**保留其现有权限**，否则用常规默认（Unix 0644）。不强制 0600 |
 | `write_atomic_create_new(path, bytes)` | 原子**创建**，目标已存在则返回 `AlreadyExists`。两端都用 `hard_link` 做 no-clobber 发布（`std::fs::rename` 在 Windows 会替换已存在目标，不能用） |
+| `move_file_atomic(source, target)` | **同文件系统、跨目录 no-clobber 移动**：目标已存在即失败；Unix 成功前 fsync 两侧父目录。用于把含凭据的损坏备份原子移入 quarantine |
 | `open_file_beneath(root, relative)` | 从已授权绝对 root 安全打开一个 regular file 并返回同一读取 handle；逐组件拒 symlink/reparse 与 `..`，路径竞态只允许 fail closed。Unix 用 rooted `openat`，Windows 持有禁 delete-share 的 drive/UNC→root→relative-parent handle 链 |
 | `remove_file_beneath(root, relative)` | `open_file_beneath` 的删除对偶：只移除 root 下精确 final directory entry，不跟随 symlink/reparse ancestor；用于 backend-owned ledger cleanup，禁止业务层先 canonicalize 再裸 `remove_file` |
 | `publish_atomic_file(src, dst, overwrite)` | 把已写好的兄弟 staging 文件发布到 `dst`，不再二次缓冲。Windows `overwrite=true` 走 `MoveFileExW(REPLACE_EXISTING|WRITE_THROUGH)` |
@@ -160,17 +163,23 @@ flowchart TD
   Sec --> Rename["rename 原子替换"]
   Atom --> Rename
   Rename --> UnixR["Unix: rename 直接覆盖"]
-  Rename --> WinR["Windows: 目标存在先 remove<br/>(rename 不会自动 unlink 目标)"]
+  Rename --> WinR["Windows: MoveFileExW<br/>REPLACE_EXISTING | WRITE_THROUGH"]
   New --> Link["hard_link → remove temp<br/>无覆盖语义"]
 ```
 
-三者共享"temp + fsync + rename"骨架，保证任何时刻磁盘上要么是完整旧文件、要么是完整新文件，**永不出现半截文件**。分家的原因是权限与覆盖语义不同：
+三者共享"temp + fsync + 原子发布"骨架，保证任何时刻路径上要么是完整旧文件、要么是完整新文件，**永不出现半截文件**。分家的原因是权限与覆盖语义不同：
 
 - **`write_secure_file`** 服务机密。Unix 在 rename 前额外 `set_permissions(0o600)` 一次——`OpenOptions::mode(0o600)` 的初始位会被 umask 干扰，这一步等于"无论 umask 多宽都强制 0600"。
 - **`write_atomic`** 服务用户文档（知识库笔记）。它读目标现有权限并沿用，新文件才落 0644——一篇被用户手动 `chmod 600` 的笔记，重写后不会被悄悄放宽。
 - **`write_atomic_create_new`** 要"创建但绝不覆盖"。`std::fs::rename` 在 Windows 会替换已存在目标，达不到 no-clobber，所以两端都改用 `hard_link`：它要么给已 fsync 的 temp inode 加一个目标名，要么因该名已存在而失败（Windows 上把 `ERROR_FILE_EXISTS`/`ERROR_ALREADY_EXISTS` 归一成 `AlreadyExists`）。
 
-Windows 的额外一步：`rename` 目标存在时会失败（不像 POSIX 自动 unlink 目标），所以 rename 前先 `remove_file`。这些原语都有跨平台契约测试（`crates/ha-core/tests/platform_contracts.rs`）守着发布语义。
+`SecureWriteOutcome` 钉住发布边界，调用方必须按以下语义处理：
+
+- **`Durable`**：完整 temp 已 fsync、目标路径已被原子替换，平台要求的发布后 durability barrier 也成功；调用方可以把它当作完整持久化成功。
+- **`PublishedButNotDurable(error)`**：目标路径已经指向完整新文件，但发布后的 durability barrier 失败。Unix 的典型情形是 `rename` 成功而父目录 `fsync` 失败；此时不能回滚成"未执行"，也不能向上返回普通失败诱导调用方重跑有副作用的 mutation。
+- **`NotPublished(error)`**：失败发生在发布前或原子发布本身失败，目标路径没有被本次调用替换；只有这一态可按普通未提交失败处理。
+
+Unix 在 `rename` 后 fsync 父目录，因此能把后置 barrier 失败精确表达为 `PublishedButNotDurable`。Windows 不再采用"先删目标、再 rename"的两步方案，而是对 sibling temp 单次调用 `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`；调用成功为 `Durable`，写 temp 或该发布调用失败均为 `NotPublished`，当前没有发布后才失败的独立步骤。
 
 ### 二进制热替换：Unix 换 inode，Windows 挪一边
 
@@ -236,7 +245,7 @@ Windows 上用 `Command` spawn 一个**控制台子系统**程序（`git` / `doc
 | `service::{…}` | `service_install.rs`（保持历史 public API，CLI / updater / Tauri 从该 wrapper 进入系统服务管理，ha-base） |
 | `default_shell_command_tokio` | `tools/exec.rs`（工具 shell 命令执行） |
 | `hide_console` / `hide_console_tokio` | 所有在 Windows 会真实建进程的 `Command`：git 探测（`filesystem/git.rs` / `session/environment.rs` / `plan/git.rs`）、`hostname`/`uname`/`date`（`system_prompt/helpers.rs`）、docker（ha-vcs 经 `docker_command()` 统一）、MCP stdio（`transport.rs`，ha-mcp）、ACP backend（ha-acp）、IM sidecar（`channel/process_manager.rs`）、Chrome（`browser/spawn.rs`）、`gh` / ollama / skill 安装 / hooks shell / 自升级冷烟自检 等 |
-| `write_secure_file` | 0600 原子落盘：MCP OAuth 凭据（`credentials.rs`，ha-mcp）、Server 鉴权（`server_auth.rs`）、配置持久化（`config/persistence.rs`）、外部 Memory Provider 凭据、备份、issue 上报、权限 allowlist、浏览器扩展 broker（ha-browser）、IM 渠道启动状态（ha-channel）、设计部署凭据（ha-design）。**主 LLM OAuth 例外**——见「已知缺口」 |
+| `write_secure_file_outcome` / `write_secure_file` | 前者供配置持久化（`config/persistence.rs`、`user_config.rs`）区分已发布与未发布；后者供只接受完整 durable success 的兼容调用方。覆盖 MCP OAuth 凭据（`credentials.rs`，ha-mcp）、Server 鉴权（`server_auth.rs`）、外部 Memory Provider 凭据、备份、issue 上报、权限 allowlist、浏览器扩展 broker（ha-browser）、IM 渠道启动状态（ha-channel）、设计部署凭据（ha-design）。**主 LLM OAuth 例外**——见「已知缺口」 |
 | `write_atomic` | 用户文档：知识库笔记（`knowledge/source.rs`，ha-knowledge）、设计产物 / 头像（ha-design / ha-server）、agent 生命周期文件等 |
 | `atomic_replace_binary` / `is_cross_device_rename` | `ha-updater`（自升级二进制热替换）；`is_cross_device_rename` 另用于 `channel/worker/media.rs` |
 | `try_acquire_exclusive_lock` | `runtime_lock.rs`（全局单实例守门：桌面 / `server` / `acp` 三模式共用一把锁，ha-base）、Memory 核心仓库、`git_control.rs`（ha-vcs）、Pet store（ha-pet） |
@@ -251,7 +260,7 @@ Windows 上用 `Command` spawn 一个**控制台子系统**程序（`git` / `doc
 ## 已知缺口（技术债）
 
 - **主 LLM OAuth token 落盘没走 `write_secure_file`**：`oauth.rs::save_token` 直接 `std::fs::write(path, json)` 写 `~/.hope-agent/credentials/auth.json`——既不原子（写到一半 crash 留半截 JSON），也不强制 0600（依赖 umask 和父目录继承）。MCP 凭据已切到 `write_secure_file`，这条主 LLM 路径应对齐。改动很小（一行替换 + 错误类型 anyhow↔io），留待一次专门的安全收尾。
-- **Windows 显式 DACL**：`write_secure_file` 在 Windows 仅依赖 NTFS DACL 继承（`~/.hope-agent/` 在用户 profile 下、默认只 owner + SYSTEM/Administrators 可读），**没有 strip 继承 ACE、也没有显式只授予 owner**。同进程的低权限子进程理论上能读凭据。当前威胁模型可接受（本机 trust）；需要"零本地信任"姿态时按 `mod.rs`/`windows.rs` 注释里点明的"future DACL pass"加固，签名不变、向后兼容。
+- **Windows 显式 DACL**：`write_secure_file_outcome` / `write_secure_file` 在 Windows 仅依赖用户 profile 目录的 NTFS DACL 继承（`~/.hope-agent/` 默认只 owner + SYSTEM/Administrators 可读），**当前实现不会清除继承 ACE，也不会显式重建一份 owner-only DACL**。同进程的低权限子进程理论上能读凭据。当前威胁模型可接受（本机 trust）；需要"零本地信任"姿态时再加显式 DACL pass，结果三态与调用签名无需改变。
 - **`detect_system_proxy` 运行时不刷新**：进程级缓存意味着运行时改系统代理需重启应用。若未来加"代理变更感知"，应给所有平台加同一个缓存失效机制，保持入口语义跨平台一致。
 
 ## 关键源文件
@@ -259,8 +268,8 @@ Windows 上用 `Command` spawn 一个**控制台子系统**程序（`git` / `doc
 | 文件 | 职责 |
 |---|---|
 | [`crates/ha-base/src/platform/mod.rs`](../../../crates/ha-base/src/platform/mod.rs) | 门面：每个原语的 `pub fn` 入口 + 跨平台 doc，编译期按 `#[cfg(unix)]` / `#[cfg(windows)]` route 到对应 impl；`detect_dedicated_gpu` 的 nvidia-smi 前置层与 macOS 更新器跨卷逻辑也在此 |
-| [`crates/ha-base/src/platform/unix.rs`](../../../crates/ha-base/src/platform/unix.rs) | Unix 实现：`libc::kill` / `sh -c` / `write_replace`(0600·mode 保留) / `sw_vers` 兜底 / `flock` / `renameat2`·`renamex_np` / `lspci` / `which` |
-| [`crates/ha-base/src/platform/windows.rs`](../../../crates/ha-base/src/platform/windows.rs) | Windows 实现：`taskkill` / `cmd /C raw_arg` + `CREATE_NO_WINDOW` / NTFS DACL 继承 / winreg 读 Internet Settings + `OnceLock` 缓存 / `MoveFileExW` 热替换 / WSL / `%ProgramFiles%` 扫浏览器 |
+| [`crates/ha-base/src/platform/unix.rs`](../../../crates/ha-base/src/platform/unix.rs) | Unix 实现：`libc::kill` / `sh -c` / `write_replace`（0600·mode 保留、rename 后父目录 fsync、三态 outcome）/ `sw_vers` 兜底 / `flock` / `renameat2`·`renamex_np` / `lspci` / `which` |
+| [`crates/ha-base/src/platform/windows.rs`](../../../crates/ha-base/src/platform/windows.rs) | Windows 实现：`taskkill` / `cmd /C raw_arg` + `CREATE_NO_WINDOW` / NTFS DACL 继承 / winreg 读 Internet Settings + `OnceLock` 缓存 / `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)` 原子替换与二进制热替换 / WSL / `%ProgramFiles%` 扫浏览器 |
 | [`crates/ha-base/src/platform/service.rs`](../../../crates/ha-base/src/platform/service.rs) | 用户级后台服务：macOS LaunchAgent / Linux user systemd / Windows Task Scheduler；[`service_install.rs`](../../../crates/ha-base/src/service_install.rs) 只保留兼容 wrapper |
 | [`crates/ha-base/src/platform/system_permissions.rs`](../../../crates/ha-base/src/platform/system_permissions.rs) | 系统权限 OS 实现：macOS TCC / framework 检查与 prompt、`tccutil` 重置；非 macOS 明确 unsupported |
 | [`crates/ha-base/src/platform/keep_awake.rs`](../../../crates/ha-base/src/platform/keep_awake.rs) | 阻止系统休眠：`caffeinate` / `systemd-inhibit` / `SetThreadExecutionState`，均绑进程生命周期 |

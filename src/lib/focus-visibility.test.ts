@@ -2,7 +2,10 @@
 
 import { afterEach, describe, expect, test } from "vitest"
 
-import { installFocusVisibilityTracker } from "./focus-visibility"
+import {
+  installFocusVisibilityTracker,
+  restoreFocusInputModalityAfterConsumedTab,
+} from "./focus-visibility"
 
 let uninstall: (() => void) | null = null
 
@@ -63,6 +66,28 @@ describe("focus visibility input modality", () => {
     expect(document.documentElement.dataset.inputModality).toBe("pointer")
 
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }))
+    expect(document.documentElement.dataset.inputModality).toBe("keyboard")
+  })
+
+  test("a picker that consumes Tab restores the modality from before the keydown", () => {
+    install()
+    const input = document.createElement("input")
+    document.body.append(input)
+    input.addEventListener("keydown", (event) => {
+      event.preventDefault()
+      restoreFocusInputModalityAfterConsumedTab(event)
+    })
+
+    input.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    )
+    expect(document.documentElement.dataset.inputModality).toBe("pointer")
+
+    document.documentElement.dataset.inputModality = "keyboard"
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    )
     expect(document.documentElement.dataset.inputModality).toBe("keyboard")
   })
 

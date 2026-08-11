@@ -10,6 +10,9 @@ import { Fragment, type ReactNode } from "react"
 import { AgentMentionChip } from "../agent-mention/AgentMentionChip"
 import { parseAgentMentions } from "../agent-mention/agentTokens"
 import { CapabilityMentionChip } from "../capability-mention/CapabilityMentionChip"
+import { FileMentionChip } from "../file-mention/FileMentionChip"
+import { NoteMentionChip } from "../note-mention/NoteMentionChip"
+import { PlanMentionChip } from "../plan-mention/PlanMentionChip"
 import { SkillMentionChip } from "./SkillMentionChip"
 import { isSkillMentionName, parseSkillMentions } from "./skillTokens"
 import { parseCapabilityMentions, type ComposerMentionBinding } from "../mentions/typedMentions"
@@ -26,6 +29,25 @@ export function SkillMentionText({
   sourceOffset?: number
 }) {
   const spans = [
+    ...typedMentions
+      .filter(
+        (mention): mention is ComposerMentionBinding & { kind: "file" | "plan" | "note" } =>
+          mention.kind === "file" || mention.kind === "plan" || mention.kind === "note",
+      )
+      .map((mention) => ({
+        kind: mention.kind,
+        raw: mention.raw,
+        targetId: mention.targetId,
+        label: mention.displayLabel,
+        start: mention.start - sourceOffset,
+        end: mention.end - sourceOffset,
+      }))
+      .filter(
+        (span) =>
+          span.start >= 0 &&
+          span.end <= text.length &&
+          text.slice(span.start, span.end) === span.raw,
+      ),
     ...parseSkillMentions(text).map((span) => ({ ...span, kind: "skill" as const })),
     ...parseAgentMentions(text).map((span) => ({ ...span, kind: "agent" as const })),
     ...parseCapabilityMentions(text).map((span) => ({
@@ -54,7 +76,19 @@ export function SkillMentionText({
     if (span.start > cursor) {
       out.push(<Fragment key={`t-${i}`}>{text.slice(cursor, span.start)}</Fragment>)
     }
-    if (span.kind === "skill" && isSkillMentionName(span.name)) {
+    if (span.kind === "file") {
+      out.push(
+        <FileMentionChip key={`f-${i}`} targetId={span.targetId} displayLabel={span.label} />,
+      )
+    } else if (span.kind === "note") {
+      out.push(
+        <NoteMentionChip key={`n-${i}`} targetId={span.targetId} displayLabel={span.label} />,
+      )
+    } else if (span.kind === "plan") {
+      out.push(
+        <PlanMentionChip key={`p-${i}`} targetId={span.targetId} displayLabel={span.label} />,
+      )
+    } else if (span.kind === "skill" && isSkillMentionName(span.name)) {
       out.push(<SkillMentionChip key={`s-${i}`} name={span.name} />)
     } else if (span.kind === "agent") {
       out.push(<AgentMentionChip key={`a-${i}`} agentId={span.agentId} fallbackName={span.label} />)

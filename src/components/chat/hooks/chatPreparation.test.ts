@@ -2,12 +2,25 @@ import { describe, expect, it, vi } from "vitest"
 import type { ChatAttachment, Transport } from "@/lib/transport"
 import {
   beginChatBackendHandoff,
+  composerInputDraftKey,
   deferActiveTurnRelease,
   discardChatAttachmentUploads,
   loadingStateAfterPreparationRelease,
+  isUnmaterializedComposerDraftKey,
   shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
 } from "./chatPreparation"
+
+describe("composerInputDraftKey", () => {
+  it("isolates lazy drafts by project until each session materializes", () => {
+    expect(composerInputDraftKey(null, "project-a")).toBe("draft:project:project-a")
+    expect(composerInputDraftKey(null, "project-b")).toBe("draft:project:project-b")
+    expect(composerInputDraftKey(null, null)).toBe("draft:plain")
+    expect(composerInputDraftKey("session-a", "project-b")).toBe("session:session-a")
+    expect(isUnmaterializedComposerDraftKey("draft:project:project-a")).toBe(true)
+    expect(isUnmaterializedComposerDraftKey("session:session-a")).toBe(false)
+  })
+})
 
 describe("deferActiveTurnRelease", () => {
   it("keeps the turn visible through the current terminal event dispatch", async () => {

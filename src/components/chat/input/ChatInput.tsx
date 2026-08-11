@@ -16,6 +16,7 @@ import {
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import { restoreFocusInputModalityAfterConsumedTab } from "@/lib/focus-visibility"
 import { getTransport } from "@/lib/transport-provider"
 import { DEFAULT_MAX_CHAT_ATTACHMENT_MB, MEBIBYTE_BYTES } from "@/lib/filesystemConfig"
 import {
@@ -1340,10 +1341,15 @@ export default function ChatInput({
     // Slash menu first (owns header `/...` slot), then `[[note]]` picker, then
     // `@` file mention, then `#` quick prompts, then history/send. Each handler self-guards on its own open
     // state, so only the active popper consumes the key.
-    if (slash.handleKeyDown(e)) return
-    if (noteMention.handleKeyDown(e)) return
-    if (mention.handleKeyDown(e)) return
-    if (quickPrompt.handleKeyDown(e)) return
+    const menuHandledKey =
+      slash.handleKeyDown(e) ||
+      noteMention.handleKeyDown(e) ||
+      mention.handleKeyDown(e) ||
+      quickPrompt.handleKeyDown(e)
+    if (menuHandledKey) {
+      if (e.key === "Tab") restoreFocusInputModalityAfterConsumedTab(e.nativeEvent)
+      return
+    }
     if (handleHistoryKeyDown(e)) return
     if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
@@ -3274,7 +3280,7 @@ export default function ChatInput({
                       <Button
                         size="icon"
                         variant="destructive"
-                        className="h-8 w-8 rounded-full shrink-0"
+                        className="h-7 w-7 shrink-0 rounded-full"
                         onClick={onStop}
                         aria-label={t("chat.stopReply")}
                       >
@@ -3308,7 +3314,7 @@ export default function ChatInput({
                 >
                   <Button
                     size="icon"
-                    className="h-8 w-8 rounded-full shrink-0"
+                    className="h-7 w-7 shrink-0 rounded-full"
                     onClick={handleSend}
                     disabled={sendUnavailable || goalSubmitting || loopSubmitting}
                     aria-label={

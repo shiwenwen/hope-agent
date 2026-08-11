@@ -3,6 +3,7 @@ import {
   buildIncomingTurnWire,
   buildCollapsedTextPreviewWithTypedMentions,
   collapseWhitespaceWithTypedMentions,
+  filterTypedMentionsForWorkspace,
   mergeTypedMentionDrafts,
   prepareTypedMentionLinks,
   reconcileTypedMentions,
@@ -26,6 +27,26 @@ function binding(overrides: Partial<ComposerMentionBinding> = {}): ComposerMenti
 }
 
 describe("typed mention provenance", () => {
+  it("drops file provenance when the active workspace differs from the picker workspace", () => {
+    const fileMention = binding({
+      kind: "file",
+      targetId: "README.md",
+      displayLabel: "README.md",
+      workspaceRoot: "/workspace/project-a",
+      raw: "@README.md",
+      start: 0,
+      end: 10,
+    })
+    const agentMention = binding({ start: 11, end: 34 })
+
+    expect(
+      filterTypedMentionsForWorkspace([fileMention, agentMention], "/workspace/project-b"),
+    ).toEqual([agentMention])
+    expect(filterTypedMentionsForWorkspace([fileMention], "/workspace/project-a")).toEqual([
+      fileMention,
+    ])
+  })
+
   it("converts final JavaScript offsets to canonical UTF-8 byte offsets", async () => {
     const raw = "[@评审](#agent:reviewer)"
     const text = `前${raw}后`
@@ -158,7 +179,7 @@ describe("typed mention provenance", () => {
     expect(entries).toHaveLength(1)
     const [opaqueHref, target] = entries[0]
     expect(opaqueHref).toMatch(/^#ha-mention-/)
-    expect(target).toEqual({ kind: "agent", targetId: "reviewer" })
+    expect(target).toEqual({ kind: "agent", targetId: "reviewer", displayLabel: "评审" })
     expect(prepared.text).toBe(`[@评审](${opaqueHref}) 和 ${raw}`)
   })
 
@@ -177,8 +198,100 @@ describe("typed mention provenance", () => {
 
     const [[opaqueHref, target]] = [...prepared.links.entries()]
     expect(opaqueHref).toMatch(/^#ha-mention-/)
-    expect(target).toEqual({ kind: "connector", targetId: "google-drive" })
+    expect(target).toEqual({
+      kind: "connector",
+      targetId: "google-drive",
+      displayLabel: "Google Drive",
+    })
     expect(prepared.text).toBe(`[@Google Drive](${opaqueHref})`)
+  })
+
+  it("maps a provenance-bearing file token to an opaque render token", () => {
+    const raw = "@AGENTS.md"
+    const prepared = prepareTypedMentionLinks(`${raw} 中有哪些红线`, [
+      binding({
+        kind: "file",
+        targetId: "AGENTS.md",
+        displayLabel: "AGENTS.md",
+        raw,
+        start: 0,
+        end: raw.length,
+      }),
+    ])
+
+    const [[opaqueHref, target]] = [...prepared.links.entries()]
+    expect(target).toEqual({ kind: "file", targetId: "AGENTS.md", displayLabel: "AGENTS.md" })
+    expect(prepared.text).toBe(`[file](${opaqueHref}) 中有哪些红线`)
+  })
+
+  it("keeps opaque render links stable when history hydration replaces the bindings array", () => {
+    const raw = "@AGENTS.md"
+    const mention = binding({
+      kind: "file",
+      targetId: "AGENTS.md",
+      displayLabel: "AGENTS.md",
+      raw,
+      start: 0,
+      end: raw.length,
+    })
+
+    const first = prepareTypedMentionLinks(raw, [mention], "history-row")
+    const hydrated = prepareTypedMentionLinks(raw, [{ ...mention }], "history-row")
+
+    expect(hydrated.text).toBe(first.text)
+    expect([...hydrated.links]).toEqual([...first.links])
+  })
+
+  it("maps a provenance-bearing note token to the same trusted render path", () => {
+    const raw = "[[Welcome to your knowledge space]]"
+    const prepared = prepareTypedMentionLinks(
+      `${raw} 讲了什么`,
+      [
+        binding({
+          kind: "note",
+          targetId: "kb-1::Welcome.md",
+          displayLabel: "Welcome to your knowledge space",
+          raw,
+          start: 0,
+          end: raw.length,
+        }),
+      ],
+      "note-row",
+    )
+
+    const [[opaqueHref, target]] = [...prepared.links.entries()]
+    expect(target).toEqual({
+      kind: "note",
+      targetId: "kb-1::Welcome.md",
+      displayLabel: "Welcome to your knowledge space",
+    })
+    expect(prepared.text).toBe(`[note](${opaqueHref}) 讲了什么`)
+  })
+
+  it("maps a provenance-bearing plan token to the same trusted render path", () => {
+    const raw = "@plan:abcd1234:v2"
+    const prepared = prepareTypedMentionLinks(
+      `${raw} 还有哪些任务`,
+      [
+        binding({
+          kind: "plan",
+          targetId: "abcd1234:v2",
+          displayLabel: "发布计划",
+          raw,
+          start: 0,
+          end: raw.length,
+        }),
+      ],
+      "plan-row",
+    )
+
+    const [[opaqueHref, target]] = [...prepared.links.entries()]
+    expect(target).toEqual({
+      kind: "plan",
+      targetId: "abcd1234:v2",
+      displayLabel: "发布计划",
+    })
+    expect(prepared.text).toBe(`[plan](${opaqueHref}) 还有哪些任务`)
   })
 
   it("does not trust a static typed-agent marker without provenance", () => {

@@ -124,6 +124,10 @@ pub enum WorkspaceWriteState {
 pub struct WorkspaceAccess {
     pub readable: bool,
     pub write_state: WorkspaceWriteState,
+    /// Canonical root resolved by the same scope authority used for every
+    /// filesystem operation. Shells consume this instead of reconstructing
+    /// project default-workspace paths locally.
+    pub root_path: String,
 }
 
 impl WorkspaceScope {
@@ -199,6 +203,7 @@ impl WorkspaceScope {
         Ok(WorkspaceAccess {
             readable: true,
             write_state,
+            root_path: scope.root.to_string_lossy().into_owned(),
         })
     }
 

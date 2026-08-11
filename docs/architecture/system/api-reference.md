@@ -298,7 +298,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `previewExtractDoc(path,{sessionId})` | `invoke("preview_extract", {path})` | `GET /api/sessions/{id}/files/extract?path=`（会话鉴权） |
 | `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | `POST /api/sessions/{id}/files/by-path-ticket` 后用绑定单个 canonical file 的 `/api/resource/{ticket}/fs/raw` |
 | `fileRuntime()` | `{workspaceHost:"local",openMode:"system",canReveal:true}` | `{workspaceHost:"remote",openMode:"browser",canReveal:false}` |
-| `getWorkspaceAccess(scope)` | `project_fs_capabilities` | `GET /api/fs/capabilities` |
+| `getWorkspaceAccess(scope)` | `project_fs_capabilities` | `GET /api/fs/capabilities`（统一返回最终写能力与 canonical `rootPath`） |
 | `openWorkspaceFile` / `downloadWorkspaceFile` | 系统打开 | `POST /api/fs/raw-ticket` 后用绑定单个 canonical file 的 `/api/resource/{ticket}/fs/raw` 浏览/下载 |
 | `revealWorkspaceFile` | `reveal_in_folder` | 不支持（capability disabled） |
 | `uploadFile(file,purpose)` | `file_upload_start/status/chunk/complete`（chunk raw binary IPC） | `/api/file-uploads*`（chunk Blob body） |

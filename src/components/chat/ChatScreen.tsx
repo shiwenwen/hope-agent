@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
@@ -159,6 +159,7 @@ import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { TerminalPanel } from "./terminal/TerminalPanel"
 import { useProjects } from "./project/hooks/useProjects"
+import { useProjectWorkingDir } from "./project/hooks/useProjectWorkingDir"
 import {
   projectFocusLoadErrorToast,
   projectFocusMissingToast,
@@ -627,6 +628,7 @@ export default function ChatScreen({
   onOpenKnowledge,
 }: ChatScreenProps) {
   const { t } = useTranslation()
+  const transport = useTransport()
   const [messageTailVisible, setMessageTailVisible] = useState(true)
   const surfaceReadable = useReadableSurface(isViewVisible)
   const transcriptSurfaceReadable = surfaceReadable && messageTailVisible
@@ -1565,7 +1567,11 @@ export default function ChatScreen({
       materializedProjectDraftSessionIdRef.current = null
     }
   }, [session.currentSessionId, currentSessionMeta, draftProjectId])
-  const projectWorkingDir = useMemo(() => currentProject?.workingDir ?? null, [currentProject])
+  const projectWorkingDir = useProjectWorkingDir(
+    transport,
+    effectiveProjectId,
+    currentProject?.workingDir ?? null,
+  )
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
     ? "session"
@@ -2060,6 +2066,7 @@ export default function ChatScreen({
     reasoningEffort,
     incognitoEnabled,
     draftWorkingDir,
+    mentionWorkingDir: workspaceEffectiveWorkingDir,
     draftProjectId,
     draftProjectBootstrap,
     onProjectBootstrapFailure: (message) => {

@@ -12,6 +12,10 @@ export interface ComposerMentionBinding {
   kind: ComposerMentionKind
   targetId: string
   displayLabel: string
+  /** UI-local authority binding for first-party file selections. It is never
+   * serialized into IncomingTurnWire; send preparation requires the current
+   * workspace root to match so a project switch cannot retarget the file. */
+  workspaceRoot?: string
   raw: string
   /** JavaScript UTF-16 offsets. Converted to UTF-8 only after final text freezes. */
   start: number
@@ -21,6 +25,19 @@ export interface ComposerMentionBinding {
     | "explicit_api_binding"
     | "slash_command_ast"
     | "transport_structured_binding"
+}
+
+/** Keep file provenance only while the composer is still bound to the exact
+ * workspace in which the picker created it. Other mention kinds are resolved
+ * by their own backend registries and do not carry filesystem authority. */
+export function filterTypedMentionsForWorkspace(
+  mentions: ComposerMentionBinding[],
+  workspaceRoot: string | null,
+): ComposerMentionBinding[] {
+  return mentions.filter(
+    (mention) =>
+      mention.kind !== "file" || (!!workspaceRoot && mention.workspaceRoot === workspaceRoot),
+  )
 }
 
 /** Exact single-range composer edit supplied by a first-party picker or other
@@ -412,17 +429,19 @@ export function mergeTypedMentionDrafts(
 }
 
 export interface TypedMentionRenderLink {
-  kind: "skill" | "agent" | "plugin" | "connector"
+  kind: "file" | "plan" | "note" | "skill" | "agent" | "plugin" | "connector"
   targetId: string
+  displayLabel: string
 }
 
-/** Replace verified capability hrefs with per-render opaque fragments and
+/** Replace verified typed spans with per-render opaque Markdown links and
  * return the trusted lookup table separately. MarkdownLink requires an entry
  * in this table, so no string embedded in user/model/history content can
  * declare itself provenance-bearing. This changes display input only. */
 export function prepareTypedMentionLinks(
   text: string,
   mentions: ComposerMentionBinding[],
+  markerNamespace = newMentionId(),
 ): { text: string; links: Map<string, TypedMentionRenderLink> } {
   let rendered = text
   const links = new Map<string, TypedMentionRenderLink>()
@@ -430,20 +449,35 @@ export function prepareTypedMentionLinks(
     .filter(
       (mention): mention is ComposerMentionBinding & { kind: TypedMentionRenderLink["kind"] } =>
         mention.kind === "skill" ||
+        mention.kind === "file" ||
+        mention.kind === "plan" ||
+        mention.kind === "note" ||
         mention.kind === "agent" ||
         mention.kind === "plugin" ||
         mention.kind === "connector",
     )
     .filter((mention) => text.slice(mention.start, mention.end) === mention.raw)
     .sort((a, b) => b.start - a.start)
-  for (const mention of eligible) {
+  for (const [index, mention] of eligible.entries()) {
+    const opaqueHref = `#ha-mention-${markerNamespace}-${index}`
+    links.set(opaqueHref, {
+      kind: mention.kind,
+      targetId: mention.targetId,
+      displayLabel: mention.displayLabel,
+    })
+    if (mention.kind === "file" || mention.kind === "plan" || mention.kind === "note") {
+      rendered = `${rendered.slice(0, mention.start)}[${mention.kind}](${opaqueHref})${rendered.slice(mention.end)}`
+      continue
+    }
+
     const marker = `](#${mention.kind}:${mention.targetId})`
-    const opaqueHref = `#ha-mention-${newMentionId()}`
     const marked = `](${opaqueHref})`
     const raw = rendered.slice(mention.start, mention.end)
     const nextRaw = raw.replace(marker, marked)
-    if (nextRaw === raw) continue
-    links.set(opaqueHref, { kind: mention.kind, targetId: mention.targetId })
+    if (nextRaw === raw) {
+      links.delete(opaqueHref)
+      continue
+    }
     rendered = `${rendered.slice(0, mention.start)}${nextRaw}${rendered.slice(mention.end)}`
   }
   return { text: rendered, links }

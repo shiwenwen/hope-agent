@@ -241,6 +241,18 @@ html[data-focus-indicators="enhanced"] [data-focus-scope]:not([aria-disabled="tr
     var(--tw-shadow, 0 0 #0000);
 }
 
+/* The chat composer sits directly above a pinned action toolbar. Keep its
+   focus boundary inside the editable surface so the halo cannot overlap the
+   send/stop buttons, and use a single physical pixel instead of stacking an
+   outline with the global halo. Input-modality semantics remain unchanged. */
+html[data-input-modality="keyboard"]
+  [data-chat-composer][data-focus-scope]:not([aria-disabled="true"]):focus-within,
+html[data-focus-indicators="enhanced"]
+  [data-chat-composer][data-focus-scope]:not([aria-disabled="true"]):focus-within {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--ha-focus-color);
+}
+
 html[data-focus-indicators="enhanced"]
   :where(
     [role="menuitem"],

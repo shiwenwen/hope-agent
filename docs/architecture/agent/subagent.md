@@ -73,7 +73,7 @@ flowchart TB
 
 ## `@agent`：模型可见引用，不是直接路由
 
-Composer 选择 Agent 时会写入可读 token `[@别名](#agent:<id>)` 和 typed sidecar。`prompt_context` 校验 canonical text digest、UTF-8 source anchor 与目标后，才根据当前 principal 的 subagent capability/allowlist 生成 turn-scoped `agent_ref_*`。给模型的内容只有 mention id、opaque ref、有界 display alias/能力摘要和原文位置；不会复制目标 Agent 的 system prompt、凭据，也不会创建 child。
+Composer 的 `@` 候选来自当前 runnable Agent 列表，包含当前 Agent 本身；self target 表示让同一 Agent 配置 fork 一个独立 child 做并行工作，因此只有一个 Agent 的安装也必须有候选。选择 Agent 时会写入可读 token `[@别名](#agent:<id>)` 和 typed sidecar。`prompt_context` 校验 canonical text digest、UTF-8 source anchor 与目标后，才根据当前 principal 的 subagent capability/allowlist 生成 turn-scoped `agent_ref_*`。给模型的内容只有 mention id、opaque ref、有界 display alias/能力摘要和原文位置；不会复制目标 Agent 的 system prompt、凭据，也不会创建 child。
 
 主模型看到完整用户请求后自行决定是否、何时及如何调用正常 `subagent` 工具。例如“先完成 A，然后让 @agent甲 完成 B”仍由主模型先完成 A，再用 `agent_ref` 与 B（以及必要的 A 结果）发起 `spawn` 或 `spawn_and_wait`；mention resolver 本身保持零 tool call、零 approval、零 run/outbox/group。
 
