@@ -67,6 +67,7 @@ pub(crate) fn parse_selection_response(response: &str) -> Vec<i64> {
 
 /// Replace the `# Memory` section in a system prompt with new content.
 /// If no memory section exists, does nothing.
+#[cfg(test)]
 pub(crate) fn replace_memory_section(system_prompt: &mut String, new_memory_content: &str) {
     const MEMORY_HEADER: &str = "\n# Memory\n";
 

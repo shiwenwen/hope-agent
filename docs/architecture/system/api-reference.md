@@ -561,7 +561,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 
 `set_session_model` 接受 `{ providerId, modelId }`，把模型固定到当前会话（写 `sessions.provider_id` / `provider_name` / `model_id`），不写 `AppConfig.active_model`——v0.2.1 起这是「会话内切模型」的唯一合法入口。`get_active_model` / `POST /api/models/active` 仍然存在，但**只该被 Settings 「模型」面板 / onboarding wizard / 本地 LLM 安装路径**调用，用来修改应用全局默认；任何 chat 内或 IM 内的"切模型"语义都必须落到 session 级。chat_engine 解析优先级 `plan_model > 本轮 model_override > sessions.provider_id > agent.model.primary > AppConfig.active_model`（详见 [`provider-system.md` § 7.2](../core/provider-system.md#72-模型链解析)）。写入后 emit `session:model_updated`，桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker。
 
-`get_execution_mode` / `set_execution_mode` 是会话级执行模式入口，对应 `/mode off|guarded|deep|autonomous` 与 Workspace/Workflow 面板中的 Execution Mode 控件，写 `sessions.execution_mode`。该值会进入下一轮 system prompt 的动态段，控制长任务的观察、计划、验证、修复和停止策略；它不是 `/loop`，也不负责定时、重复触发或条件轮询。
+`get_execution_mode` / `set_execution_mode` 是会话级执行模式入口，对应 `/mode off|guarded|deep|autonomous` 与 Workspace/Workflow 面板中的 Execution Mode 控件，写 `sessions.execution_mode`。该值会在下一轮以 trusted run instruction 提供给模型，控制长任务的观察、计划、验证、修复和停止策略，但不改变稳定 system 前缀；它不是 `/loop`，也不负责定时、重复触发或条件轮询。
 
 ### Managed Worktrees
 
@@ -809,7 +809,7 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 | `chat` | Bundled Transport：`POST /api/chat/ui`（浏览器来源校验；非 incognito 返回 202 ACK 后服务端托管）；公共 owner API：`POST /api/chat`（忽略 `uiSurface`、同步完成）；流式输出均经 `/ws/events` | ✅（已有会话可带 `editMessageId`，仅允许最后一条非排队 user 且旧 turn 已终止；旧分支回退、replacement user 落库、新 turn 登记同一事务提交并保留 Bundled UI surface） |
 | — | `GET /api/chat/turns/{turnId}` | ✅ 查询精确 ChatTurn 终态，供 202 ACK 后断线/竞态恢复 |
 | `queue_turn_user_message` | `POST /api/chat/turn-message` | ✅ 持久入队，附件在入队时转 session-owned 引用 |
-| `list_queued_turn_user_messages` | `GET /api/chat/turn-message/{sessionId}` | ✅ UI/恢复单一查询入口；backend-owned IM 行带 `managedBy: "channel"`，可展示但不可由客户端 edit/delete/insert/claim |
+| `list_queued_turn_user_messages` | `GET /api/chat/turn-message/{sessionId}` | ✅ UI/恢复单一查询入口；`canForceInsert` 由后端按当前状态与完整 turn sidecar 边界权威投影，客户端不得自行猜测；backend-owned IM 行带 `managedBy: "channel"`，可展示但不可由客户端 edit/delete/insert/claim |
 | `update_queued_turn_user_message` | `PATCH /api/chat/turn-message` | ✅ CAS 拒绝 inserting/dispatching |
 | `delete_queued_turn_user_message` | `DELETE /api/chat/turn-message/{sessionId}/{requestId}` | ✅ CAS 拒绝 inserting/dispatching |
 | `insert_queued_turn_user_message` | `POST /api/chat/turn-message/insert` | ✅ 绑定活跃 turn 的工具边界 |
@@ -822,6 +822,7 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 | `stage_chat_attachment` | `POST /api/chat/attachment-stage` | ✅（旧 multipart 兼容，静态 20 MiB） |
 | `discard_chat_attachment_upload` | `DELETE /api/chat/attachment-stage/{uploadId}` | ✅ |
 | `list_builtin_tools` | `GET /api/chat/tools` | ✅ |
+| `list_capability_mentions` | `GET /api/chat/capability-mentions?agentId=` | ✅（仅返回已注册 Plugin/Connector 的有界非敏感选择器元数据；不连接远端、不授权调用或外发） |
 | `list_session_tasks` | `GET /api/sessions/{sessionId}/tasks` | ✅ TaskProgressPanel 用户控件 |
 | `create_session_task` | `POST /api/sessions/{sessionId}/tasks` | ✅ Workspace Context 候选转任务 |
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
@@ -841,6 +842,8 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 有界等待并行收敛 DB、审批、`ask_user` 与 session-owned runtime；响应超时不取消已经启动的
 后台清理。全局停止同样走 core `stop_all_sessions`，HTTP / Tauri 只先翻转 transport-local
 cancel handle。精确 `turnId` 不匹配时 fail closed，不得误停同 session 的新回合。
+
+`chat` / `/api/chat` 的可选 `incomingTurn` 是 typed composer sidecar，当前契约为 `promptContractVersion=3`、`mentionWireVersion=1`。它必须携带 canonical user text、SHA-256 digest、UTF-8 source anchor 与 `file|plan|note|skill|plugin|connector|agent` binding；后端逐项校验正文 token 与来源，typed 请求不回退为字符串猜测。`plan` 只由 Plans 页的 first-party 引用动作产生：服务端独立重解析 registry path、核对附件 canonical path 并 open-once 冻结。没有 sidecar 的普通或粘贴 `@...`（包括 `@plan:`）不产生引用，`[[note]]` 只作为单独登记的只读兼容语法。File/Plan binding 必须在 direct/queue 持久化前分别与 `source=mention|plan_mention` 的附件按 unique target 精确对齐（重复相同 target 只需一个附件）；typed attachment 禁止预装 `data`、upload/quote metadata，且 name/MIME/path 受有界元数据校验。额外、缺失或无 sidecar 的 typed source 直接返回 400/IPC error。队列入口把 `incomingTurn` 与显式 Skill 的 `skillAllowedTools` 一起持久化；编辑排队消息会在同一 DB 事务清除旧 binding/ceiling 和 `mention|plan_mention` 附件、保留普通 upload/quote，避免把旧 provenance 套到新正文或留下无法派发的无 sidecar typed source。
 
 #### Chat `attachments` wire format
 

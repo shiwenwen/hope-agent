@@ -24,10 +24,34 @@ import {
 } from "./contextCompactionEvents"
 import { hasToolError } from "./message/executionStatus"
 import { MAX_MESSAGES, KEEP_AFTER_CAP } from "./hooks/constants"
+import type { ComposerMentionBinding, ComposerMentionKind } from "./mentions/typedMentions"
 
 const ATTACHMENT_META_KEY_ACTIVE_MEMORY = "active_memory"
 const ATTACHMENT_META_KEY_USED_MEMORY_REFS = "used_memory_refs"
 const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER = "retrieval_planner"
+const ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT = "typed_mention_receipt"
+const TYPED_MENTION_RECEIPT_VERSION = 1
+const TYPED_MENTION_PROMPT_CONTRACT_VERSION = 3
+const TYPED_MENTION_WIRE_VERSION = 1
+const MAX_TYPED_MENTIONS = 32
+const TYPED_MENTION_KINDS = new Set<ComposerMentionKind>([
+  "file",
+  "plan",
+  "note",
+  "skill",
+  "plugin",
+  "connector",
+  "agent",
+])
+const TYPED_MENTION_ORIGINS = new Set<NonNullable<ComposerMentionBinding["origin"]>>([
+  "first_party_composer_gesture",
+  "explicit_api_binding",
+  "slash_command_ast",
+  "transport_structured_binding",
+])
+const AUDIT_FINGERPRINT_PATTERN = /^[0-9a-f]{24}$/
+const WIRE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+const CONTROL_CHARACTER_PATTERN = /\p{Cc}/u
 
 export function shouldSendDraftWorkflowMode(
   currentSessionId: string | null,
@@ -73,6 +97,112 @@ function parseToolMediaItemsMeta(metaJson: string | null | undefined): MediaItem
   return undefined
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+/** Map every valid UTF-8 boundary in `text` to its JavaScript UTF-16 offset.
+ * Receipt ranges are byte offsets because they originate in Rust. */
+function utf8Boundaries(text: string): Map<number, number> {
+  const boundaries = new Map<number, number>([[0, 0]])
+  let utf8Offset = 0
+  let utf16Offset = 0
+  while (utf16Offset < text.length) {
+    const codePoint = text.codePointAt(utf16Offset)!
+    utf8Offset += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    utf16Offset += codePoint > 0xffff ? 2 : 1
+    boundaries.set(utf8Offset, utf16Offset)
+  }
+  return boundaries
+}
+
+/** Hydrate only a backend-issued, fully-resolved receipt. A malformed item
+ * invalidates the entire receipt so partial metadata cannot confer typed
+ * provenance. Raw message text is never parsed to invent bindings. */
+function parseTypedMentionReceipt(
+  meta: unknown,
+  content: string,
+): ComposerMentionBinding[] | undefined {
+  if (!isRecord(meta)) return undefined
+  const receipt = meta[ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT]
+  if (!isRecord(receipt)) return undefined
+  if (
+    receipt.receiptVersion !== TYPED_MENTION_RECEIPT_VERSION ||
+    !Number.isSafeInteger(receipt.sourceJournalSeq) ||
+    (receipt.sourceJournalSeq as number) <= 0 ||
+    receipt.promptContractVersion !== TYPED_MENTION_PROMPT_CONTRACT_VERSION ||
+    receipt.mentionWireVersion !== TYPED_MENTION_WIRE_VERSION ||
+    typeof receipt.canonicalTextFingerprint !== "string" ||
+    !AUDIT_FINGERPRINT_PATTERN.test(receipt.canonicalTextFingerprint) ||
+    typeof receipt.contextFingerprint !== "string" ||
+    !AUDIT_FINGERPRINT_PATTERN.test(receipt.contextFingerprint) ||
+    !Array.isArray(receipt.mentions) ||
+    receipt.mentions.length > MAX_TYPED_MENTIONS
+  ) {
+    return undefined
+  }
+
+  const boundaries = utf8Boundaries(content)
+  const ids = new Set<string>()
+  const spans: Array<[number, number]> = []
+  const bindings: ComposerMentionBinding[] = []
+  const encoder = new TextEncoder()
+  for (const value of receipt.mentions) {
+    if (!isRecord(value)) return undefined
+    const { mentionId, kind, targetId, displayLabel, origin, status, raw, startUtf8, endUtf8 } =
+      value
+    if (
+      typeof mentionId !== "string" ||
+      !WIRE_ID_PATTERN.test(mentionId) ||
+      ids.has(mentionId) ||
+      typeof kind !== "string" ||
+      !TYPED_MENTION_KINDS.has(kind as ComposerMentionKind) ||
+      typeof targetId !== "string" ||
+      targetId.trim().length === 0 ||
+      encoder.encode(targetId).length > 2048 ||
+      CONTROL_CHARACTER_PATTERN.test(targetId) ||
+      typeof displayLabel !== "string" ||
+      encoder.encode(displayLabel).length > 256 ||
+      typeof origin !== "string" ||
+      !TYPED_MENTION_ORIGINS.has(origin as NonNullable<ComposerMentionBinding["origin"]>) ||
+      status !== "resolved" ||
+      typeof raw !== "string" ||
+      raw.length === 0 ||
+      !Number.isSafeInteger(startUtf8) ||
+      !Number.isSafeInteger(endUtf8) ||
+      (startUtf8 as number) < 0 ||
+      (endUtf8 as number) <= (startUtf8 as number)
+    ) {
+      return undefined
+    }
+
+    const start = boundaries.get(startUtf8 as number)
+    const end = boundaries.get(endUtf8 as number)
+    if (start === undefined || end === undefined || content.slice(start, end) !== raw) {
+      return undefined
+    }
+    ids.add(mentionId)
+    spans.push([start, end])
+    bindings.push({
+      id: mentionId,
+      kind: kind as ComposerMentionKind,
+      targetId,
+      displayLabel,
+      origin: origin as NonNullable<ComposerMentionBinding["origin"]>,
+      raw,
+      start,
+      end,
+    })
+  }
+
+  const sortedSpans = [...spans].sort((a, b) => a[0] - b[0])
+  if (sortedSpans.some((span, index) => index > 0 && sortedSpans[index - 1][1] > span[0])) {
+    return undefined
+  }
+  bindings.sort((a, b) => a.start - b.start)
+  return bindings.length > 0 ? bindings : undefined
+}
+
 function parseActiveMemoryMeta(
   metaJson: string | null | undefined,
 ): ActiveMemoryRecall | undefined {
@@ -80,11 +210,7 @@ function parseActiveMemoryMeta(
   try {
     const meta = JSON.parse(metaJson)
     const recall = meta?.[ATTACHMENT_META_KEY_ACTIVE_MEMORY]
-    if (
-      recall &&
-      typeof recall.summary === "string" &&
-      Array.isArray(recall.candidates)
-    ) {
+    if (recall && typeof recall.summary === "string" && Array.isArray(recall.candidates)) {
       return recall as ActiveMemoryRecall
     }
   } catch {
@@ -183,9 +309,7 @@ function parseUsedMemoryRefsMeta(
       const meta = JSON.parse(metaJson)
       const refs = meta?.[ATTACHMENT_META_KEY_USED_MEMORY_REFS]
       if (Array.isArray(refs)) {
-        const parsed = refs
-          .map(sanitizeUsedMemoryRef)
-          .filter((ref): ref is UsedMemoryRef => !!ref)
+        const parsed = refs.map(sanitizeUsedMemoryRef).filter((ref): ref is UsedMemoryRef => !!ref)
         if (parsed.length > 0) return parsed
       }
     } catch {
@@ -280,8 +404,7 @@ function isInterruptedStreamStatus(status: SessionMessage["streamStatus"]): bool
 
 function isStartupRecoveryNotice(content: string): boolean {
   return (
-    content === "上次会话异常中断,已保留中断前的内容" ||
-    content === "应用已关闭,中断前的内容已保留"
+    content === "上次会话异常中断,已保留中断前的内容" || content === "应用已关闭,中断前的内容已保留"
   )
 }
 
@@ -293,8 +416,7 @@ function upsertContextCompactionEventMessage(
   if (!isContextCompactionPayload(nextPayload)) return false
 
   const previous = displayMessages[displayMessages.length - 1]
-  const previousPayload =
-    previous?.role === "event" ? parseEventPayload(previous.content) : null
+  const previousPayload = previous?.role === "event" ? parseEventPayload(previous.content) : null
   if (!isContextCompactionPayload(previousPayload)) {
     displayMessages.push(nextMessage)
     return true
@@ -441,7 +563,9 @@ export function formatMessageTime(timestamp?: string): string {
     const time = `${hours}:${minutes}`
     if (isToday) return time
     if (isYesterday) {
-      return String(i18n.t("chat.messageTimeYesterday", { time, defaultValue: `Yesterday ${time}` }))
+      return String(
+        i18n.t("chat.messageTimeYesterday", { time, defaultValue: `Yesterday ${time}` }),
+      )
     }
     const month = date.getMonth() + 1
     const day = date.getDate()
@@ -609,10 +733,7 @@ export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFi
 
     if (!result) continue
 
-    if (
-      (name === "write" || name === "write_file") &&
-      result.startsWith("Successfully wrote")
-    ) {
+    if ((name === "write" || name === "write_file") && result.startsWith("Successfully wrote")) {
       try {
         const parsed = JSON.parse(args)
         const p = parsed.path || parsed.file_path
@@ -691,9 +812,11 @@ export function parseSessionMessages(
         | { channelId: string; accountId?: string; chatId?: string; senderName?: string }
         | undefined
       const attachments = parseUserAttachmentsMeta(msg.attachmentsMeta)
+      let typedMentions: ComposerMentionBinding[] | undefined
       if (msg.attachmentsMeta) {
         try {
           const meta = JSON.parse(msg.attachmentsMeta)
+          typedMentions = parseTypedMentionReceipt(meta, msg.content)
           if (meta?.subagent_result) {
             isSubagentResult = true
             subagentResultAgentId = meta.subagent_result.agent_id
@@ -776,6 +899,7 @@ export function parseSessionMessages(
         planComment,
         channelInbound,
         ...(attachments ? { attachments } : {}),
+        ...(typedMentions ? { typedMentions } : {}),
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
       pendingPersistenceRunId ||= msg.persistenceRunId || undefined
@@ -810,9 +934,12 @@ export function parseSessionMessages(
         name: msg.toolName || "",
         arguments: msg.toolArguments || "",
         result: msg.toolResult || undefined,
-        isError: msg.isError != null ? msg.isError : hasToolError({
-          result: msg.toolResult || undefined,
-        }),
+        isError:
+          msg.isError != null
+            ? msg.isError
+            : hasToolError({
+                result: msg.toolResult || undefined,
+              }),
         mediaUrls,
         mediaItems,
         durationMs: msg.toolDurationMs || undefined,
@@ -823,9 +950,10 @@ export function parseSessionMessages(
       if (existing) {
         if (msg.toolResult) existing.result = msg.toolResult
         if (msg.isError != null || msg.toolResult != null) {
-          existing.isError = msg.isError != null
-            ? msg.isError
-            : hasToolError({ result: msg.toolResult || undefined })
+          existing.isError =
+            msg.isError != null
+              ? msg.isError
+              : hasToolError({ result: msg.toolResult || undefined })
         }
         if (msg.toolName && !existing.name) existing.name = msg.toolName
         if (msg.toolArguments && !existing.arguments) existing.arguments = msg.toolArguments
@@ -866,7 +994,11 @@ export function parseSessionMessages(
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
         const interrupted = isInterruptedStreamStatus(msg.streamStatus)
-        pendingBlocks.push({ type: "text", content: msg.content, interrupted: interrupted || undefined })
+        pendingBlocks.push({
+          type: "text",
+          content: msg.content,
+          interrupted: interrupted || undefined,
+        })
       }
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
@@ -1025,9 +1157,7 @@ export async function resolveParentAgentId(
  * `messageId` breaking ties. FTS5's native rank order is opaque to humans
  * skimming history.
  */
-export function sortSessionSearchResults(
-  results: SessionSearchResult[],
-): SessionSearchResult[] {
+export function sortSessionSearchResults(results: SessionSearchResult[]): SessionSearchResult[] {
   return results.slice().sort((a, b) => {
     const kindCmp = (a.matchKind === "title" ? 0 : 1) - (b.matchKind === "title" ? 0 : 1)
     if (kindCmp !== 0) return kindCmp
@@ -1093,11 +1223,7 @@ function hasStableMessageIdentity(msg: Message): boolean {
 }
 
 function stableMessageIdentityMatches(a: Message, b: Message): boolean {
-  if (
-    typeof a.dbId === "number" &&
-    typeof b.dbId === "number" &&
-    a.dbId === b.dbId
-  ) {
+  if (typeof a.dbId === "number" && typeof b.dbId === "number" && a.dbId === b.dbId) {
     return true
   }
   return !!a._clientId && !!b._clientId && a._clientId === b._clientId
@@ -1110,10 +1236,7 @@ function sameTransientMessage(a: Message, b: Message): boolean {
   return a.role === b.role && a.timestamp === b.timestamp && a.content === b.content
 }
 
-function messagesAppendedAfterSnapshot(
-  snapshot: Message[],
-  latest: Message[],
-): Message[] {
+function messagesAppendedAfterSnapshot(snapshot: Message[], latest: Message[]): Message[] {
   if (latest.length <= snapshot.length) return []
   for (let i = 0; i < snapshot.length; i++) {
     if (!sameTransientMessage(snapshot[i], latest[i])) return []
@@ -1132,8 +1255,7 @@ function preserveMessagesAppendedDuringReload(
   const missing = appended.filter(
     (msg) =>
       !merged.some(
-        (mergedMsg) =>
-          mergedMsg === msg || stableMessageIdentityMatches(mergedMsg, msg),
+        (mergedMsg) => mergedMsg === msg || stableMessageIdentityMatches(mergedMsg, msg),
       ),
   )
   return missing.length > 0 ? [...merged, ...missing] : merged
@@ -1169,6 +1291,7 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&
+    typedMentionsFingerprint(a.typedMentions) === typedMentionsFingerprint(b.typedMentions) &&
     activeMemoryFingerprint(a.activeMemory) === activeMemoryFingerprint(b.activeMemory) &&
     usedMemoryRefsFingerprint(a.usedMemoryRefs) === usedMemoryRefsFingerprint(b.usedMemoryRefs) &&
     retrievalPlannerFingerprint(a.retrievalPlanner) ===
@@ -1179,11 +1302,26 @@ function messageContentEqual(a: Message, b: Message): boolean {
   )
 }
 
+function typedMentionsFingerprint(mentions: Message["typedMentions"]): string {
+  if (!mentions?.length) return ""
+  return mentions
+    .map((mention) =>
+      [
+        mention.id,
+        mention.kind,
+        mention.targetId,
+        mention.raw,
+        mention.start,
+        mention.end,
+        mention.origin ?? "",
+      ].join(":"),
+    )
+    .join("\u0000")
+}
+
 function activeMemoryFingerprint(memory: Message["activeMemory"]): string {
   if (!memory) return ""
-  const selected = memory.selected
-    ? activeMemoryCandidateFingerprint(memory.selected)
-    : ""
+  const selected = memory.selected ? activeMemoryCandidateFingerprint(memory.selected) : ""
   return [
     memory.summary,
     memory.mode ?? "",
@@ -1280,7 +1418,38 @@ function messageAttachmentsEqual(
   })
 }
 
+function typedMentionsMatchMessage(
+  content: string,
+  mentions: Message["typedMentions"],
+): mentions is NonNullable<Message["typedMentions"]> {
+  return (
+    !!mentions?.length &&
+    mentions.every(
+      (mention) =>
+        mention.start >= 0 &&
+        mention.end > mention.start &&
+        mention.end <= content.length &&
+        content.slice(mention.start, mention.end) === mention.raw,
+    )
+  )
+}
+
+/** Runtime provenance belongs to one exact user-input snapshot. Even when the
+ * same token still happens to occupy the same span, an edited/replaced DB row
+ * must not inherit evidence from the old text. */
+function transferableTypedMentions(fresh: Message, existing: Message): Message["typedMentions"] {
+  if (fresh.role !== "user" || existing.role !== "user" || fresh.content !== existing.content) {
+    return undefined
+  }
+  return typedMentionsMatchMessage(fresh.content, existing.typedMentions)
+    ? existing.typedMentions
+    : undefined
+}
+
 function transferPlaceholderState(fresh: Message, placeholder: Message): Message {
+  const inheritedTypedMentions = !fresh.typedMentions?.length
+    ? transferableTypedMentions(fresh, placeholder)
+    : undefined
   return {
     ...fresh,
     _clientId: placeholder._clientId,
@@ -1296,26 +1465,34 @@ function transferPlaceholderState(fresh: Message, placeholder: Message): Message
     ...(!fresh.attachments?.length && placeholder.attachments?.length
       ? { attachments: placeholder.attachments }
       : {}),
+    ...(inheritedTypedMentions ? { typedMentions: inheritedTypedMentions } : {}),
   }
 }
 
 function preserveRuntimeMessageState(fresh: Message, existing: Message): Message {
+  const inheritedTypedMentions = !fresh.typedMentions
+    ? transferableTypedMentions(fresh, existing)
+    : undefined
   if (
     (fresh.activeMemory || !existing.activeMemory) &&
     (fresh.usedMemoryRefs || !existing.usedMemoryRefs) &&
-    (fresh.retrievalPlanner || !existing.retrievalPlanner)
+    (fresh.retrievalPlanner || !existing.retrievalPlanner) &&
+    (fresh.typedMentions || !inheritedTypedMentions)
   ) {
     return fresh
   }
   return {
     ...fresh,
-    ...(!fresh.activeMemory && existing.activeMemory ? { activeMemory: existing.activeMemory } : {}),
+    ...(!fresh.activeMemory && existing.activeMemory
+      ? { activeMemory: existing.activeMemory }
+      : {}),
     ...(!fresh.usedMemoryRefs && existing.usedMemoryRefs
       ? { usedMemoryRefs: existing.usedMemoryRefs }
       : {}),
     ...(!fresh.retrievalPlanner && existing.retrievalPlanner
       ? { retrievalPlanner: existing.retrievalPlanner }
       : {}),
+    ...(inheritedTypedMentions ? { typedMentions: inheritedTypedMentions } : {}),
   }
 }
 

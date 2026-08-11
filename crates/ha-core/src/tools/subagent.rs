@@ -28,6 +28,52 @@ fn first_non_blank_str_arg<'a>(args: &'a Value, keys: &[&str]) -> Option<&'a str
     keys.iter().find_map(|key| non_blank_str_arg(args, key))
 }
 
+#[derive(Debug, Clone)]
+struct ResolvedAgentTarget {
+    agent_id: String,
+    binding: Option<crate::prompt_context::AgentBindingRef>,
+}
+
+fn resolve_agent_target(args: &Value, ctx: &ToolExecContext) -> Result<ResolvedAgentTarget> {
+    let direct = non_blank_str_arg(args, "agent_id");
+    let Some(binding_ref) = non_blank_str_arg(args, "agent_ref") else {
+        return Ok(ResolvedAgentTarget {
+            agent_id: direct.unwrap_or(DEFAULT_AGENT_ID).to_string(),
+            binding: None,
+        });
+    };
+    if direct.is_some() {
+        return Err(anyhow::anyhow!(
+            "agent_ref and agent_id are mutually exclusive"
+        ));
+    }
+    let binding = ctx
+        .agent_binding_refs
+        .iter()
+        .find(|binding| binding.binding_ref == binding_ref)
+        .ok_or_else(|| anyhow::anyhow!("Unknown or expired agent_ref for this turn"))?;
+    if ctx.session_id.as_deref() != Some(binding.parent_session_id.as_str())
+        || ctx.turn_id.as_deref() != binding.parent_turn_id.as_deref()
+        || ctx.agent_id.as_deref() != Some(binding.principal_agent_id.as_str())
+    {
+        return Err(anyhow::anyhow!(
+            "agent_ref is not valid for this session, turn, or principal"
+        ));
+    }
+    if !crate::agent_loader::list_agents()
+        .map(|agents| agents.iter().any(|agent| agent.id == binding.agent_id))
+        .unwrap_or(false)
+    {
+        return Err(anyhow::anyhow!(
+            "The Agent selected by agent_ref is no longer available"
+        ));
+    }
+    Ok(ResolvedAgentTarget {
+        agent_id: binding.agent_id.clone(),
+        binding: Some(binding.clone()),
+    })
+}
+
 /// Authenticate internal Workflow-only arguments against execution context.
 /// JSON schema omission is not a security boundary: a model can still emit
 /// unknown fields, so ownership must never be inferred from args alone.
@@ -147,6 +193,13 @@ fn check_subagent_delegation_allowed(parent_agent_id: &str, child_agent_id: &str
 /// aliases `resume` and `steer`.
 pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    if non_blank_str_arg(args, "agent_ref").is_some()
+        && !matches!(action, "spawn" | "spawn_and_wait")
+    {
+        return Err(anyhow::anyhow!(
+            "agent_ref is only valid for spawn or spawn_and_wait; batch_spawn uses tasks[].agent_ref"
+        ));
+    }
     if ctx.workflow_run_id.is_some()
         && !matches!(action, "spawn" | "send" | "resume" | "steer" | "kill")
     {
@@ -417,16 +470,36 @@ fn subagent_dispatch_handle(run: &crate::subagent::SubagentRun, dispatch_status:
     })
 }
 
+fn attach_agent_binding_receipt(
+    response: &mut Value,
+    binding: Option<&crate::prompt_context::AgentBindingRef>,
+    run_id: &str,
+) {
+    let Some(binding) = binding else {
+        return;
+    };
+    response["agentBinding"] = serde_json::json!({
+        "mentionId": binding.mention_id,
+        "bindingRef": binding.binding_ref,
+        "admission": "accepted",
+        "runId": run_id,
+    });
+}
+
+struct SpawnResolution {
+    run_id: String,
+    binding: Option<crate::prompt_context::AgentBindingRef>,
+}
+
 /// Core spawn logic shared by action_spawn and action_spawn_and_wait.
 /// Returns the run_id on success.
-async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<SpawnResolution> {
     let workflow_owner = authenticated_workflow_owner(args, ctx)?;
     let task = non_blank_str_arg(args, "task")
         .ok_or_else(|| anyhow::anyhow!("'task' is required for spawn action"))?;
 
-    let agent_id = non_blank_str_arg(args, "agent_id")
-        .unwrap_or(DEFAULT_AGENT_ID)
-        .to_string();
+    let target = resolve_agent_target(args, ctx)?;
+    let agent_id = target.agent_id;
 
     let model_override = non_blank_str_arg(args, "model").map(str::to_string);
 
@@ -502,9 +575,10 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         plan_mode_allow_paths,
         lock_plan_agent_mode,
         skip_parent_injection,
-        extra_system_context: shared_read_only.then(|| {
+        run_instruction_context: shared_read_only.then(|| {
             "## Workflow Read-only Shared Workspace\nThis child shares the parent workspace for inspection only. Do not write, edit, patch, create, delete, rename, or run commands that mutate workspace or external state. Return findings to the owning Workflow; request a worktree-isolated child when mutation is required.".to_string()
         }),
+        run_data_context: None,
         skill_allowed_tools: Vec::new(),
         reasoning_effort: None,
         skill_name: None,
@@ -535,16 +609,21 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     } else {
         subagent::spawn_subagent(params, session_db, cancel_registry).await?
     };
-    Ok(run_id)
+    Ok(SpawnResolution {
+        run_id,
+        binding: target.binding,
+    })
 }
 
 async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let run_id = do_spawn(args, ctx).await?;
+    let resolution = do_spawn(args, ctx).await?;
+    let run_id = resolution.run_id;
     let session_db = get_session_db()?;
     let run = load_subagent_run(&session_db, &run_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Sub-agent run '{}' was not persisted", run_id))?;
     let mut response = subagent_dispatch_handle(&run, "spawned");
+    attach_agent_binding_receipt(&mut response, resolution.binding.as_ref(), &run_id);
     response["message"] = Value::String(
         "Sub-agent dispatched asynchronously. Its durable result will be delivered when complete; polling is not required."
             .to_string(),
@@ -660,7 +739,7 @@ async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         plan_mode_allow_paths: Vec::new(),
         lock_plan_agent_mode: shared_read_only,
         skip_parent_injection: workflow_owner.is_some(),
-        extra_system_context: Some(if shared_read_only {
+        run_instruction_context: Some(if shared_read_only {
             format!(
                 "## Continuation\nThis turn continues terminal sub-agent run `{}` in the same read-only shared workspace. Reuse prior findings and conversation, remain strictly read-only, and do not repeat completed work unnecessarily.",
                 source_run_id
@@ -671,6 +750,7 @@ async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                 source_run_id
             )
         }),
+        run_data_context: None,
         skill_allowed_tools: Vec::new(),
         reasoning_effort: None,
         skill_name: None,
@@ -1284,6 +1364,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     struct BatchTask {
         task: String,
         agent_id: String,
+        binding: Option<crate::prompt_context::AgentBindingRef>,
         label: Option<String>,
         timeout_secs: Option<u64>,
         model_override: Option<String>,
@@ -1297,9 +1378,8 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     for task_def in tasks {
         let task = non_blank_str_arg(task_def, "task")
             .ok_or_else(|| anyhow::anyhow!("Each task in batch_spawn must have a 'task' field"))?;
-        let child_agent_id = non_blank_str_arg(task_def, "agent_id")
-            .unwrap_or(DEFAULT_AGENT_ID)
-            .to_string();
+        let target = resolve_agent_target(task_def, ctx)?;
+        let child_agent_id = target.agent_id;
         // Enforce the delegation gates per child, up front (same as `do_spawn`)
         // — `batch_spawn` must NOT be a bypass of the Tier 3 capability toggle /
         // allowed-agent list. Validated here in the pre-flight loop (before the
@@ -1322,6 +1402,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         parsed.push(BatchTask {
             task: task.to_string(),
             agent_id: child_agent_id,
+            binding: target.binding,
             label: non_blank_str_arg(task_def, "label").map(str::to_string),
             timeout_secs,
             model_override: non_blank_str_arg(task_def, "model").map(str::to_string),
@@ -1359,7 +1440,8 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             plan_mode_allow_paths: Vec::new(),
             lock_plan_agent_mode: false,
             skip_parent_injection: false,
-            extra_system_context: None,
+            run_instruction_context: None,
+            run_data_context: None,
             skill_allowed_tools: Vec::new(),
             reasoning_effort: None,
             skill_name: None,
@@ -1382,7 +1464,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             Ok(run_id) => {
                 let persisted = load_subagent_run(&session_db, &run_id).await.ok().flatten();
                 if let Some(run) = persisted.as_ref() {
-                    results.push(subagent_dispatch_handle(run, "spawned"));
+                    let mut response = subagent_dispatch_handle(run, "spawned");
+                    attach_agent_binding_receipt(&mut response, bt.binding.as_ref(), &run_id);
+                    results.push(response);
                 } else {
                     results.push(serde_json::json!({
                         "status": "error",
@@ -1598,7 +1682,8 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
         .unwrap_or(30)
         .min(120);
 
-    let run_id = do_spawn(args, ctx).await?;
+    let resolution = do_spawn(args, ctx).await?;
+    let run_id = resolution.run_id;
 
     // Poll for completion within foreground timeout
     let session_db = get_session_db()?;
@@ -1613,6 +1698,7 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
             // Completed within foreground timeout — return inline
             consume_subagent_result(&session_db, &run_id).await?;
             let mut response = subagent_dispatch_handle(&run, run.status.as_str());
+            attach_agent_binding_receipt(&mut response, resolution.binding.as_ref(), &run_id);
             response["mode"] = Value::String("foreground".to_string());
             response["resultDelivery"] = Value::String("inline_consumed".to_string());
             if let Some(ref result) = run.result {
@@ -1658,6 +1744,7 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
                 )
             };
             let mut response = subagent_dispatch_handle(&run, status);
+            attach_agent_binding_receipt(&mut response, resolution.binding.as_ref(), &run_id);
             response["mode"] = Value::String("background".to_string());
             response["message"] = Value::String(message);
             return Ok(serde_json::to_string_pretty(&response)?);
@@ -1689,6 +1776,47 @@ fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
 #[cfg(test)]
 mod delegation_gate_tests {
     use super::*;
+
+    fn scoped_binding_context() -> ToolExecContext {
+        ToolExecContext {
+            session_id: Some("session-1".into()),
+            turn_id: Some("turn-1".into()),
+            agent_id: Some("parent-1".into()),
+            agent_binding_refs: vec![crate::prompt_context::AgentBindingRef {
+                binding_ref: "agent_ref_test".into(),
+                mention_id: "mention-1".into(),
+                agent_id: "child-1".into(),
+                display_alias: "Child".into(),
+                parent_session_id: "session-1".into(),
+                parent_turn_id: Some("turn-1".into()),
+                principal_agent_id: "parent-1".into(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn agent_ref_is_mutually_exclusive_with_direct_agent_id() {
+        let error = resolve_agent_target(
+            &serde_json::json!({
+                "agent_ref": "agent_ref_test",
+                "agent_id": "child-1",
+            }),
+            &scoped_binding_context(),
+        )
+        .expect_err("selectors must be mutually exclusive");
+        assert!(error.to_string().contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn agent_ref_copied_to_another_turn_is_rejected_before_lookup() {
+        let mut ctx = scoped_binding_context();
+        ctx.turn_id = Some("turn-2".into());
+        let error =
+            resolve_agent_target(&serde_json::json!({ "agent_ref": "agent_ref_test" }), &ctx)
+                .expect_err("copied references must be inert");
+        assert!(error.to_string().contains("session, turn, or principal"));
+    }
 
     #[test]
     fn ordinary_owner_scope_excludes_shared_workflow_team_and_internal_children() {

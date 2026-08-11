@@ -25,6 +25,7 @@ import {
 } from "./chatUtils"
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
+import { collapseWhitespaceWithTypedMentions } from "./mentions/typedMentions"
 import MessageBubble from "./MessageBubble"
 import { assistantTurnHasFileMutations, editableLastUserMessageIndex } from "./message/messageEdit"
 import {
@@ -189,6 +190,7 @@ interface CompactUserAnchor {
   bodyStartRowKey: string
   bodyEndRowKey: string
   text: string
+  typedMentions: NonNullable<Message["typedMentions"]>
 }
 
 function preferredScrollBehavior(): ScrollBehavior {
@@ -345,11 +347,21 @@ function itemContainsAnyHighlightTerm(item: MessageRenderItem, terms: string[] |
   return containsAnyHighlightTerm(messageSearchText(item.msg), terms)
 }
 
-function compactAnchorTextForMessage(msg: Message): string | null {
-  const text = (msg.planComment?.comment || msg.slashEvent?.command || msg.content)
-    .replace(/\s+/g, " ")
-    .trim()
-  return text || null
+function compactAnchorTextForMessage(
+  msg: Message,
+): { text: string; typedMentions: NonNullable<Message["typedMentions"]> } | null {
+  let source = msg.content
+  let typedMentions = msg.typedMentions ?? []
+  if (msg.planComment?.comment) {
+    source = msg.planComment.comment
+    typedMentions = []
+  } else if (msg.slashEvent?.command) {
+    source = msg.slashEvent.command
+    typedMentions = []
+  }
+
+  const compact = collapseWhitespaceWithTypedMentions(source, typedMentions)
+  return compact.text ? { text: compact.text, typedMentions: compact.mentions } : null
 }
 
 function findActiveCompactUserAnchor(
@@ -946,9 +958,8 @@ export default function MessageList({
     if (latestHumanTurnIndex < 0) return null
 
     return (
-      transcriptSegments.find(
-        (segment) => segment.humanTurnOriginalIndex === latestHumanTurnIndex,
-      )?.key ?? null
+      transcriptSegments.find((segment) => segment.humanTurnOriginalIndex === latestHumanTurnIndex)
+        ?.key ?? null
     )
   }, [anchorLatestTurn, hasMoreAfter, messages, transcriptSegments])
 
@@ -1027,12 +1038,12 @@ export default function MessageList({
       const { msg } = row.item
       if (!msg.fromAgentId && !isCenteredSystemMessage(msg) && isUserAlignedMessage(msg)) {
         finishPendingAnchor()
-        const text = compactAnchorTextForMessage(msg)
-        if (text) {
+        const anchorText = compactAnchorTextForMessage(msg)
+        if (anchorText) {
           pendingAnchor = {
             dbId: msg.dbId,
             rowKey,
-            text,
+            ...anchorText,
           }
         }
       } else if (pendingAnchor) {
@@ -1978,7 +1989,10 @@ export default function MessageList({
               )}
             >
               <span className="min-w-0 flex-1 truncate">
-                <SkillMentionText text={compactUserAnchor.text} />
+                <SkillMentionText
+                  text={compactUserAnchor.text}
+                  typedMentions={compactUserAnchor.typedMentions}
+                />
               </span>
             </button>
           </div>

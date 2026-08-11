@@ -1,6 +1,6 @@
 # MCP 客户端架构
 
-> 返回 [文档索引](../../README.md)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
 
 Hope Agent 的 [Model Context Protocol](https://modelcontextprotocol.io/) **客户端**：把任意外部 MCP Server 暴露的 tools / resources / prompts 接入主对话循环，让模型能像调用内置工具一样调用远端能力。
 
@@ -347,6 +347,8 @@ Resources 和 Prompts 是 MCP server 暴露的**被动数据**（不是工具调
 - **blob 零分配验证**：`maybe_reencode` 用纯 charset 扫描判断是否已是合规 base64，避免为大 blob 走完整 `BASE64.decode` 分配临时缓冲
 - 内部工具 `mcp_resource(action=list|read, server, uri?)`
 
+**缓存边界**：当前只把 tools/resources/prompts catalog 保存在对应 server live connection 的 `Ready` generation；server 配置、凭据相关配置、enable/deny 或重连会替换该 generation。`resources/read` 正文不跨调用/Turn 缓存，每次都走 live handle、权限与实际远程请求；尚未协商 validator 的远端 `ttlMs` / `cacheScope` hint 不会被擅自解释成跨账号或跨 Turn 的正文缓存许可。这个保守实现避免把 catalog cache、资源正文和 prompt cache 混成一个授权边界。
+
 ### Prompts（`prompts.rs`）
 
 - `list_prompts(server)` 读快照；`get_prompt(server, name, arguments)` 调 `prompts/get` RPC
@@ -354,9 +356,22 @@ Resources 和 Prompts 是 MCP server 暴露的**被动数据**（不是工具调
 - 归一化 `PromptMessageContent` 的四个 variant（Text / Image / Resource / ResourceLink）为 `{ role, text }`
 - 内部工具 `mcp_prompt(action=list|get, server, name?, arguments?)`
 
-### System prompt 注入
+### 回合能力目录与类型化 `@connector`
 
-`catalog::system_prompt_snippet()` 在系统提示词末尾追加一小段 `# MCP Capabilities`：列出有效配置的 server 名，并以“目标工具缺席时才调用 `tool_search`”的稳定条件说明 lazy 建连发现，同时指向 `mcp_resource` / `mcp_prompt`。该段不编码会在 turn 中变化的 pending catalog 集合，目录刷新后无需重建 system prompt 也不会留下过时指令；它只经 config cache 同步读取、不 await 任何锁，可从同步的 prompt 构建路径调用；无任何有效 MCP server 时完全不注入。
+`catalog::system_prompt_snippet()` 保留了兼容命名，但产物已经是当前回合的 capability data：列出有效配置的 server 名，并说明目标工具缺席时可用 `tool_search` 做 lazy discovery，同时指向 `mcp_resource` / `mcp_prompt`。它只经 config cache 同步读取、不 await 运行时锁；结果进入 user-data lane，不进入稳定 system 前缀。无有效 MCP server 时整段省略。
+
+Composer 的统一 `@` 菜单通过 `mention_hooks` 获取 namespaced capability。当前 `ha-mcp::wire()` 注册的 provider namespace 是 `mcp`：picker 返回的稳定 target id 由 kernel 组合为 `mcp::<server-id>`，live resolution 后给模型的 untrusted capability metadata 使用 `namespace: mcp:<server-id>`。这里的双冒号是 provider 与 target 的 registry 分隔符，不能写成并不存在的 `connector::<server>` namespace。列表只读本地配置，不发起连接、OAuth、catalog refresh 或远程请求；展示字段有长度上限且不包含凭据。用户选择后，`IncomingTurnWire` 记录精确 source anchor，后端在回合开始时重新核对 principal Agent 的 `mcp_enabled`、全局开关，以及 server 的 enabled / deny / 配置合法性，解析为有界引用数据。
+
+`@connector` 的语义只是告诉模型“用户明确指到了这个已配置连接器”。它不会自动连接、授权、披露数据或调用工具，也不会因为 mention 绕过 `resolve_tool_fate`、permission / disclosure、server allow/deny、实时 auth 与执行层检查。模型结合完整请求自行决定是否调用现有 MCP 工具；普通文本、粘贴出的同形 token 和外部内容里的 `@connector` 都不会产生 binding。这个 provider 接口同样供后续 Plugin / Connector 扩展注册，要求 namespace 唯一、元数据有界、解析时重新鉴权。
+
+当前实现状态必须与通用 wire 能力分开理解：
+
+| Mention kind | 当前内置 provider | 当前产品行为 |
+| --- | --- | --- |
+| Connector | `ha-mcp` / `mcp` | **已实现** picker、typed binding 与 live resolution；选中后仍由模型决定是否发现/调用 MCP tool/resource/prompt |
+| Plugin | 无 | kernel/UI/wire 已保留 `MentionKind::Plugin` 与 provider 扩展面，但仓库当前没有内置 Plugin mention provider，也没有因此产生的 picker row、安装或调用语义；显式 typed target 找不到已注册 provider 时只会解析为 `unavailable` |
+
+因此，“支持 Plugin”目前只表示第三方特征可通过 sealed `MentionProvider` contract 接入，不表示产品已经具备 `@plugin` 的具体数据源。新增 provider 只能发布有界、不敏感的本地 discovery metadata；它不能借 mention 注册新 authority、拼接 system prompt、安装能力或绕过后续 live 执行检查。
 
 ---
 

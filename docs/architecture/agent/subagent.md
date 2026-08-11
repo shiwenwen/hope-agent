@@ -1,5 +1,5 @@
 # 子 Agent 系统架构
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
 
 关联源码：`crates/ha-core/src/subagent/`（编排与状态机）、`crates/ha-core/src/session/subagent_db.rs`（SQLite 台账）、`crates/ha-core/src/tools/subagent.rs`（工具接口）、`crates/ha-core/src/async_jobs/`（统一后台任务投影）。
 
@@ -67,10 +67,23 @@ flowchart TB
 | `subagent/injection.rs` | `inject_and_run_parent` 结果回注 + `wait_for_session_idle` + `PendingInjection` 重试队列 + push message 构建 |
 | `subagent/cancel.rs` | `SubagentCancelRegistry`：进程内 `AtomicBool` 取消 flag 注册表 |
 | `subagent/mailbox.rs` | `SubagentMailbox`（per-run steer 队列）+ `ChatSessionGuard`（前台 turn 的 RAII 标记） |
-| `subagent/mention.rs` | 解析用户消息里的 `@agent` 内联提及（`resolve_inline_agent_mentions`） |
 | `subagent/helpers.rs` | 事件发射、UTF-8 安全截断、`CleanupGuard`、启动孤儿清理、`mark_run_fetched` |
 | `session/subagent_db.rs` | SQLite 台账：run / thread / dispatch / delivery 读写、终态 choke point、活跃计数、启动 sweep |
 | `tools/subagent.rs` | 工具接口层：canonical `send` + spawn / query / cancel / batch / wait 与 resume / steer 兼容 alias、owner 校验、异步 DB 路由 |
+
+## `@agent`：模型可见引用，不是直接路由
+
+Composer 选择 Agent 时会写入可读 token `[@别名](#agent:<id>)` 和 typed sidecar。`prompt_context` 校验 canonical text digest、UTF-8 source anchor 与目标后，才根据当前 principal 的 subagent capability/allowlist 生成 turn-scoped `agent_ref_*`。给模型的内容只有 mention id、opaque ref、有界 display alias/能力摘要和原文位置；不会复制目标 Agent 的 system prompt、凭据，也不会创建 child。
+
+主模型看到完整用户请求后自行决定是否、何时及如何调用正常 `subagent` 工具。例如“先完成 A，然后让 @agent甲 完成 B”仍由主模型先完成 A，再用 `agent_ref` 与 B（以及必要的 A 结果）发起 `spawn` 或 `spawn_and_wait`；mention resolver 本身保持零 tool call、零 approval、零 run/outbox/group。
+
+执行层接受互斥的 `agent_ref` / `agent_id`：
+
+- `spawn` / `spawn_and_wait` 可直接使用当前 turn 的 `agent_ref`；`batch_spawn.tasks[]` 各自接受 `agent_ref`，并在建 Group 前预检完整 target 集合。
+- ref 必须同时匹配 parent session、parent turn 与 principal Agent；复制到别的 turn/session/Agent 会失败。
+- 执行时重新检查目标仍存在、principal capability/allowlist、tool fate、permission、depth、queue、sandbox、KB lineage 与 cancel，mention 不授权或扩权。
+- 工具成功回执附 `agentBinding { mentionId, bindingRef, admission, runId }`。`spawn` 只表示 accepted/pending；只有终态 result 才表示 completed。
+- 无 typed sidecar 的手写/粘贴 markdown 不再解析；旧 `subagent/mention.rs` 字符串扫描路径已删除。
 
 ## 数据模型
 
@@ -212,7 +225,7 @@ Primary 启动把带 consume request 的普通 `injecting` 收敛为 `suppressed
 | `plan_mode_allow_paths` | `Vec<String>` | Plan 模式文件写入白名单 |
 | `lock_plan_agent_mode` | `bool` | 标记本调用是 `plan_agent_mode` 真相源，防 child session 的 mid-turn probe 覆盖显式模式 |
 | `skip_parent_injection` | `bool` | 兼容输入，同时继续控制后台任务投影 gate；执行层交付真相源是 `delivery_kind` |
-| `extra_system_context` | `Option<String>` | 额外系统上下文（如 Plan 模式提示、worktree 声明） |
+| `run_instruction_context` | `Option<String>` | 平台维护的子运行框架（如 worktree 声明）；子任务正文仍只在 user message |
 | `skill_allowed_tools` | `Vec<String>` | Skill fork 模式继承的工具白名单 |
 | `reasoning_effort` | `Option<String>` | 转发给子 Agent Provider 的 thinking effort；未设时回退 Provider / Agent 默认 |
 | `skill_name` | `Option<String>` | `context: fork` Skill 名，只用于事件 / UI 投影 |
@@ -226,7 +239,7 @@ Primary 启动把带 consume request 的普通 `injecting` 收敛为 `suppressed
 
 - 用户可见的 `subagent` / `batch_spawn` 默认 `true`，让并行实现与长任务探索默认不污染父工作区。
 - 内部 plan / team / hook / skill fork helper 默认 `false`，避免只读分析或短生命周期 helper 大量制造 worktree。
-- 创建成功后 child session `working_dir` 指向 worktree path，并注入额外 system context 告知子 Agent 隔离路径与 worktree id。
+- 创建成功后 child session `working_dir` 指向 worktree path，并在稳定 system cache boundary 之后注入受信 Run instruction，告知隔离路径与 worktree id。
 - 创建失败时记录告警并**继承父会话有效 working dir**，避免因环境不支持 git worktree 而使整个父回合失败。需要强隔离保证的上层应显式检查 managed worktree 状态。
 
 ### 前端事件
@@ -611,7 +624,8 @@ flowchart TD
 | `crates/ha-core/src/subagent/injection.rs` | `inject_and_run_parent` 等空闲 + 恢复历史 + 流式注入、`wait_for_session_idle`、`PendingInjection` 队列、`flush_pending_injections`、push message 构建 |
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
 | `crates/ha-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII） |
-| `crates/ha-core/src/subagent/mention.rs` | `resolve_inline_agent_mentions`：解析用户消息里的 `@agent` 内联提及 |
+| `crates/ha-core/src/prompt_context.rs` | typed `@agent` wire 校验、opaque Agent binding 与 user-level context/receipt |
+| `crates/ha-core/src/tools/subagent.rs` | `agent_ref`/`agent_id` 互斥解析、live scope recheck 与 accepted receipt |
 | `crates/ha-core/src/subagent/helpers.rs` | `emit_subagent_event` / `emit_parent_stream_event` / `truncate_str` / `CleanupGuard`（精确释放 session/run owner）/ `cleanup_orphan_runs` / `mark_run_fetched` |
 | `crates/ha-core/src/session/subagent_db.rs` | SQLite 台账：run / thread / dispatch / delivery 读写、终态 choke point、活跃计数、启动 sweep |
 | `crates/ha-core/src/tools/subagent.rs` | 工具接口层：canonical send、spawn / query / cancel / batch / wait 与 resume / steer alias、owner 校验、异步 DB 路由 |

@@ -318,7 +318,7 @@ Mention local files as clickable markdown links: `[file.ext](/absolute/path/file
 /// Current per-session permission-mode guidance. This is intentionally short:
 /// the permission engine remains the source of truth, while the prompt gives
 /// the model enough state to choose how boldly to call tools.
-pub(super) fn build_permission_mode_guidance(mode: crate::permission::SessionMode) -> String {
+pub(crate) fn build_permission_mode_guidance(mode: crate::permission::SessionMode) -> String {
     let (label, behavior, boundary) = match mode {
         crate::permission::SessionMode::Default => (
             "`default` (standard approvals)",

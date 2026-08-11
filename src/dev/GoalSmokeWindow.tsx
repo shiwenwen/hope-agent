@@ -17,9 +17,9 @@ function nowIso(offsetMinutes = 0): string {
 
 function goalTurnPrompt(visibleGoalText: string): string {
   return [
-    "[SYSTEM: The user has just created or updated the durable Goal for this session.",
-    "Treat the Active Goal system section as the source of truth, acknowledge briefly, then begin making progress.",
-    "Do not expose internal goal ids, revision ids, or slash-command help unless the user asks for status details.]",
+    "I just created or updated the durable Goal for this session.",
+    "Use the current Active Goal context as the source of truth, acknowledge briefly, then begin making progress.",
+    "Do not expose internal goal ids, revision ids, or slash-command help unless I ask for status details.",
     "",
     visibleGoalText,
   ].join("\n")

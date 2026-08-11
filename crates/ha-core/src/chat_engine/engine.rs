@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use anyhow::Context;
+
 use crate::agent::AssistantAgent;
 use crate::failover::{
     self,
@@ -24,6 +26,31 @@ const CHAT_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from
 /// stop watchdog had already made the turn look terminal to the UI.
 const CHAT_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
+
+/// Deletes durable typed-resource snapshots unless the Initial Context event
+/// that references them has crossed the durability barrier. A backend run UUID
+/// in every basename gives crash recovery the same deterministic cleanup scope
+/// if the process exits before this guard can run.
+struct PendingTypedResourceSnapshots {
+    session_id: String,
+    snapshot_names: Vec<String>,
+    refs_committed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for PendingTypedResourceSnapshots {
+    fn drop(&mut self) {
+        if self
+            .refs_committed
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return;
+        }
+        crate::attachments::remove_uncommitted_typed_resource_snapshots(
+            &self.session_id,
+            &self.snapshot_names,
+        );
+    }
+}
 
 async fn wait_for_chat_cancel(cancel: Arc<std::sync::atomic::AtomicBool>) {
     loop {
@@ -86,6 +113,109 @@ fn has_resolvable_fallback(
         providers
             .iter()
             .any(|provider| provider.id == candidate.provider_id)
+    })
+}
+
+fn resolve_slash_skill_binding<'a>(
+    entries: &'a [crate::skills::SkillEntry],
+    target_id: &str,
+    command_name: &str,
+) -> Option<&'a crate::skills::SkillEntry> {
+    let names = entries
+        .iter()
+        .map(|entry| entry.all_command_names().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    crate::slash_defs::resolve_dynamic_command_names(
+        &names,
+        crate::slash_defs::builtin_command_names(),
+    )
+    .into_iter()
+    .find(|resolved| {
+        resolved.typed_name == command_name && entries[resolved.entry_index].name == target_id
+    })
+    .map(|resolved| &entries[resolved.entry_index])
+}
+
+fn ensure_explicit_slash_skill_requirements(
+    entry: &crate::skills::SkillEntry,
+    env_check: bool,
+    skill_env: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+) -> Result<(), String> {
+    if !env_check {
+        return Ok(());
+    }
+    let detail =
+        crate::skills::check_requirements_detail(&entry.requires, skill_env.get(&entry.name));
+    if detail.eligible {
+        Ok(())
+    } else {
+        Err(format!(
+            "Explicit slash skill '{}' is no longer eligible: {}",
+            entry.name,
+            crate::skills::format_requirements_diagnostic(entry, &detail)
+        ))
+    }
+}
+
+struct MaterializedSlashSkill {
+    content: String,
+    tool_ceiling: crate::skills::SkillToolCeiling,
+}
+
+fn require_explicit_mention_skill_activation(
+    requested_names: &[String],
+    activation: Option<crate::skills::MentionSkillActivation>,
+) -> Result<crate::skills::MentionSkillActivation, String> {
+    if requested_names.is_empty() {
+        return Err("explicit @skill activation set is empty".to_string());
+    }
+    let activation = activation
+        .ok_or_else(|| "explicit @skill resolver is unavailable; activation denied".to_string())?;
+    let requested = requested_names
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
+    let resolved = activation
+        .resolved_names
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
+    if !activation.rejected_names.is_empty()
+        || activation.content.trim().is_empty()
+        || resolved != requested
+    {
+        return Err(
+            "explicit @skill set could not be resolved and materialized atomically; activation denied"
+                .to_string(),
+        );
+    }
+    Ok(activation)
+}
+
+fn require_explicit_slash_skill_materialization(
+    entry: &crate::skills::SkillEntry,
+    args: Option<String>,
+    rendered: anyhow::Result<String>,
+) -> Result<MaterializedSlashSkill, String> {
+    let _args = args.ok_or_else(|| {
+        format!(
+            "Explicit slash skill '{}' arguments no longer match the validated command binding",
+            entry.name
+        )
+    })?;
+    let content = rendered.map_err(|error| {
+        format!(
+            "Explicit slash skill '{}' could not be materialized: {}",
+            entry.name, error
+        )
+    })?;
+    if content.trim().is_empty() {
+        return Err(format!(
+            "Explicit slash skill '{}' produced no model prompt",
+            entry.name
+        ));
+    }
+    Ok(MaterializedSlashSkill {
+        content,
+        tool_ceiling: entry.tool_ceiling(),
     })
 }
 
@@ -603,9 +733,12 @@ pub async fn compact_session_now(
         &mut agent,
         &agent_id,
         &session_id,
+        None,
         session_db.clone(),
         resolved_temperature,
         None,
+        &[],
+        &[],
         &[],
         &[],
         None,
@@ -668,6 +801,93 @@ pub async fn compact_session_now(
 
 // ── Core Chat Engine ────────────────────────────────────────────────
 
+fn merge_explicit_skill_ceiling(
+    current: &mut Vec<String>,
+    selected: crate::skills::SkillToolCeiling,
+) {
+    crate::skills::narrow_skill_execution_filter(current, selected);
+}
+
+/// Reserve at most one fifth of the primary model's context for explicit
+/// typed notes and split it fairly across the selected set. Small notes are
+/// therefore injected completely; larger notes get a deterministic preview
+/// plus a version-checked `note_read` continuation. This is a byte upper bound
+/// used before provider-exact token accounting, so keep a conservative floor
+/// and cap.
+fn typed_note_byte_budget(
+    model_chain: &[ActiveModel],
+    providers: &[ProviderConfig],
+    note_count: usize,
+) -> usize {
+    const MIN_PER_NOTE: usize = 8 * 1024;
+    const MAX_PER_NOTE: usize = 200_000;
+    let context_tokens = model_chain
+        .first()
+        .and_then(|model| {
+            crate::provider::model_context_window(providers, &model.provider_id, &model.model_id)
+        })
+        .unwrap_or(128_000) as usize;
+    // ~4 UTF-8 bytes/token conservative planning estimate, with 20% of the
+    // window available to all explicit notes.
+    let total_note_bytes = context_tokens.saturating_mul(4) / 5;
+    (total_note_bytes / note_count.max(1)).clamp(MIN_PER_NOTE, MAX_PER_NOTE)
+}
+
+/// Remove only the source spans already represented by typed Note bindings so
+/// the read-only `[[note]]` compatibility scanner can coexist with other typed
+/// mentions without resolving a typed Note twice. The wire has already passed
+/// UTF-8 boundary validation before this helper is called.
+fn message_without_typed_note_spans(
+    message: &str,
+    wire: &crate::prompt_context::IncomingTurnWire,
+) -> String {
+    let mut spans = wire
+        .mentions
+        .iter()
+        .filter(|mention| mention.kind == crate::prompt_context::MentionKind::Note)
+        .filter_map(|mention| match &mention.source_anchor {
+            crate::prompt_context::SourceAnchor::Inline {
+                start_utf8,
+                end_utf8,
+                ..
+            } => Some((*start_utf8 as usize, *end_utf8 as usize)),
+            crate::prompt_context::SourceAnchor::AdjacentContentPart { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    if spans.is_empty() {
+        return message.to_string();
+    }
+    spans.sort_unstable();
+    let mut result = String::with_capacity(message.len());
+    let mut cursor = 0usize;
+    for (start, end) in spans {
+        let (Some(prefix), true) = (message.get(cursor..start), end <= message.len()) else {
+            return message.to_string();
+        };
+        result.push_str(prefix);
+        result.push(' ');
+        cursor = end;
+    }
+    let Some(suffix) = message.get(cursor..) else {
+        return message.to_string();
+    };
+    result.push_str(suffix);
+    result
+}
+
+fn validate_engine_typed_resource_boundary(
+    message: &str,
+    incoming_turn: Option<&crate::prompt_context::IncomingTurnWire>,
+    attachments: &[crate::agent::Attachment],
+) -> Result<(), String> {
+    crate::attachments::validate_typed_resource_attachment_bindings(
+        message,
+        incoming_turn,
+        attachments,
+    )
+    .map_err(|error| format!("Invalid typed resource attachment binding: {error}"))
+}
+
 /// Run the shared chat execution engine.
 ///
 /// Handles: model chain traversal → agent building → config → history restoration
@@ -686,20 +906,21 @@ pub(crate) async fn run_chat_engine_classified(
         session_id,
         agent_id,
         turn_id,
-        message,
+        mut message,
+        incoming_turn,
         display_text,
-        attachments,
+        mut attachments,
         session_db: db,
         model_chain,
         providers,
         codex_token,
         resolved_temperature,
         compact_config,
-        mut extra_system_context,
+        run_context,
         reasoning_effort,
         cancel,
         plan_context_override,
-        skill_allowed_tools,
+        mut skill_allowed_tools,
         denied_tools,
         tool_scope,
         subagent_depth,
@@ -728,10 +949,211 @@ pub(crate) async fn run_chat_engine_classified(
     // IM-origin chain can't reacquire KB access via the neutral Subagent source.
     let kb_origin = origin_source.unwrap_or_else(|| kb_access_source(source));
 
-    // Wrap attachments in Arc<[T]> so the failover-executor closure's per-
-    // retry capture is a pointer bump instead of a deep clone of base64
-    // image data (Attachment.data may carry MB-sized strings).
-    let attachments: std::sync::Arc<[crate::agent::Attachment]> = std::sync::Arc::from(attachments);
+    // Freeze the typed composer contract once, before any provider/profile
+    // attempt. Every failover serializes the same resolved bindings and user
+    // envelope; no attempt re-reads display labels or reparses pasted tokens.
+    let canonical_user_message = message.clone();
+    validate_engine_typed_resource_boundary(
+        &canonical_user_message,
+        incoming_turn.as_ref(),
+        &attachments,
+    )?;
+    let (
+        mut turn_context_builder,
+        agent_binding_refs,
+        mut mention_receipts,
+        mention_wire_version,
+        mut legacy_compatibility,
+    ) = if let Some(ref wire) = incoming_turn {
+        let (builder, bindings, receipts) = crate::prompt_context::resolve_typed_turn_context(
+            &canonical_user_message,
+            wire,
+            &session_id,
+            turn_id.as_deref(),
+            &agent_id,
+        )
+        .map_err(|error| format!("Invalid typed mention context: {error}"))?;
+        (
+            builder,
+            bindings,
+            receipts,
+            Some(wire.mention_wire_version),
+            false,
+        )
+    } else {
+        (
+            crate::prompt_context::TurnContextBuilder::default(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            true,
+        )
+    };
+
+    // A typed file binding is only resolved when the same turn also carries a
+    // matching attachment. Resolve the canonical target beneath the session
+    // working directory and read its bytes exactly once. This phase is
+    // deliberately read-only: durable publication happens only after the
+    // stream run exists and owns a staged materialization journal fact.
+    let mut prepared_resource_mentions = None;
+    if let Some(ref wire) = incoming_turn {
+        let file_targets = wire
+            .mentions
+            .iter()
+            .filter(|mention| mention.kind == crate::prompt_context::MentionKind::File)
+            .map(|mention| mention.target_id.clone())
+            .collect::<Vec<_>>();
+        let plan_targets = wire
+            .mentions
+            .iter()
+            .filter(|mention| mention.kind == crate::prompt_context::MentionKind::Plan)
+            .map(|mention| mention.target_id.clone())
+            .collect::<Vec<_>>();
+        if !file_targets.is_empty() || !plan_targets.is_empty() {
+            let snapshot_db = db.clone();
+            let snapshot_session_id = session_id.clone();
+            let snapshot_attachments = attachments;
+            let (prepared_attachments, session_incognito, prepared) =
+                crate::blocking::run_blocking(move || {
+                    let session = snapshot_db
+                        .get_session(&snapshot_session_id)?
+                        .with_context(|| "typed resource mention session no longer exists")?;
+                    let prepared = crate::attachments::prepare_typed_resource_mentions(
+                        session.working_dir.as_deref(),
+                        &file_targets,
+                        &plan_targets,
+                        session.incognito,
+                        &snapshot_attachments,
+                    )?;
+                    anyhow::Ok((snapshot_attachments, session.incognito, prepared))
+                })
+                .await
+                .map_err(|error| format!("Cannot freeze typed resource mentions: {error}"))?;
+            attachments = prepared_attachments;
+            prepared_resource_mentions = Some((session_incognito, prepared));
+        }
+    }
+    if let Some(ref wire) = incoming_turn {
+        let skill_ids = wire
+            .mentions
+            .iter()
+            .filter(|mention| {
+                mention.kind == crate::prompt_context::MentionKind::Skill
+                    && mention.origin
+                        != crate::prompt_context::StructuredMentionOrigin::SlashCommandAst
+            })
+            .map(|mention| mention.target_id.clone())
+            .collect::<Vec<_>>();
+        if !skill_ids.is_empty() {
+            let activation = require_explicit_mention_skill_activation(
+                &skill_ids,
+                crate::skills_hooks::resolve_named_skill_mentions(&skill_ids, Some(&agent_id)),
+            )
+            .map_err(|error| format!("Invalid typed mention context: {error}"))?;
+            turn_context_builder.user_instruction(
+                crate::prompt_context::UserInstructionSource::ExplicitSkillMention,
+                activation.content,
+            );
+            merge_explicit_skill_ceiling(&mut skill_allowed_tools, activation.tool_ceiling.clone());
+            for receipt in &mut mention_receipts {
+                if receipt.kind == crate::prompt_context::MentionKind::Skill
+                    && activation
+                        .resolved_names
+                        .iter()
+                        .any(|name| name == &receipt.target_id)
+                {
+                    receipt.status = crate::prompt_context::MentionResolutionStatus::Resolved;
+                } else if receipt.kind == crate::prompt_context::MentionKind::Skill
+                    && activation
+                        .rejected_names
+                        .iter()
+                        .any(|name| name == &receipt.target_id)
+                {
+                    receipt.status = crate::prompt_context::MentionResolutionStatus::Rejected;
+                }
+            }
+        }
+
+        // Slash skills use the same typed binding/receipt channel but are not
+        // restricted to the composer's curated @skill allowlist. Re-resolve
+        // the canonical skill id against the live invocable catalog and render
+        // it here, so a client cannot smuggle prompt content or tool grants.
+        let slash_skill_mentions = wire
+            .mentions
+            .iter()
+            .filter(|mention| {
+                mention.kind == crate::prompt_context::MentionKind::Skill
+                    && mention.origin
+                        == crate::prompt_context::StructuredMentionOrigin::SlashCommandAst
+            })
+            .collect::<Vec<_>>();
+        if !slash_skill_mentions.is_empty() {
+            let cfg = crate::config::cached_config();
+            let env_check = crate::skills::skill_env_check_enabled_for_agent(
+                Some(&agent_id),
+                cfg.skill_env_check,
+            );
+            let skill_env = cfg.skill_env.clone();
+            let entries =
+                crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+            // Typed ownership must be rebuilt from the same globally surfaced
+            // catalog as list/help/dispatch. Agent-specific requirement checks
+            // still run after the collision-resolved binding is matched.
+            let entries = crate::skills::filter_catalog_eligible_skills(
+                entries,
+                cfg.skill_env_check,
+                &cfg.skill_env,
+            );
+            drop(cfg);
+
+            for mention in slash_skill_mentions {
+                let Some(entry) = resolve_slash_skill_binding(
+                    &entries,
+                    &mention.target_id,
+                    &mention.display_label,
+                ) else {
+                    return Err(format!(
+                        "Invalid typed mention context: slash command '{}' is not owned by skill '{}'",
+                        mention.display_label, mention.target_id
+                    )
+                    .into());
+                };
+                ensure_explicit_slash_skill_requirements(entry, env_check, &skill_env)
+                    .map_err(|error| format!("Invalid typed mention context: {error}"))?;
+                let args =
+                    crate::prompt_context::slash_skill_args(&canonical_user_message, mention);
+                let rendered = match args.as_deref() {
+                    Some(args) => match crate::skills::resolve_skill_slash_dispatch(entry, args) {
+                        crate::skills::SkillSlashDispatch::ModelTemplate { message } => Ok(message),
+                        crate::skills::SkillSlashDispatch::ModelInline => {
+                            crate::skills_hooks::render_skill_inline(entry, args).await
+                        }
+                        crate::skills::SkillSlashDispatch::Fork
+                        | crate::skills::SkillSlashDispatch::Tool => Err(anyhow::anyhow!(
+                            "typed slash binding targets a non-model Skill dispatch"
+                        )),
+                    },
+                    None => Err(anyhow::anyhow!(
+                        "validated slash command binding has no canonical arguments"
+                    )),
+                };
+                let activation =
+                    require_explicit_slash_skill_materialization(entry, args, rendered)
+                        .map_err(|error| format!("Invalid typed mention context: {error}"))?;
+                turn_context_builder.user_instruction(
+                    crate::prompt_context::UserInstructionSource::ExplicitSlashSkill,
+                    activation.content,
+                );
+                merge_explicit_skill_ceiling(&mut skill_allowed_tools, activation.tool_ceiling);
+                if let Some(receipt) = mention_receipts
+                    .iter_mut()
+                    .find(|receipt| receipt.mention_id == mention.id)
+                {
+                    receipt.status = crate::prompt_context::MentionResolutionStatus::Resolved;
+                }
+            }
+        }
+    }
 
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string().into());
@@ -764,12 +1186,9 @@ pub(crate) async fn run_chat_engine_classified(
     // so configure_agent picks the right setter and the streaming loop's
     // mid-turn probe knows whether to leave the bundle alone.
     //
-    // The plan-derived extra context is NOT merged into the caller's
-    // `extra_system_context` here — it goes into a separate agent slot
-    // (`plan_extra_context`) so the streaming loop's mid-turn probe can
-    // swap it on a state flip without losing the caller's framing
-    // (cron task / subagent role / etc.). `build_full_system_prompt`
-    // appends both.
+    // Plan's fixed platform contract and user/model-authored document occupy
+    // separate slots. A mid-turn state flip can replace both without losing
+    // caller framing, and adapters keep the document out of developer roles.
     let plan_context_locked = plan_context_override.is_some();
     let plan_resolved = match plan_context_override {
         Some(o) => o,
@@ -845,6 +1264,160 @@ pub(crate) async fn run_chat_engine_classified(
     stream_lifecycle
         .arm_abandoned_recovery(db.clone(), durability.persistence_run_id().to_string());
 
+    // Durable basenames are owned by the already-persisted stream run. Crash
+    // recovery reconciles this exact backend UUID prefix against every
+    // durable Initial Context event for the run; Incognito writes no file.
+    let mut durable_snapshot_names = Vec::new();
+    if let Some((session_incognito, prepared)) = prepared_resource_mentions.as_mut() {
+        if !*session_incognito {
+            prepared.bind_persistence_run(durability.persistence_run_id())?;
+            durable_snapshot_names = prepared.durable_snapshot_names()?;
+        }
+    }
+    if !durable_snapshot_names.is_empty() {
+        // Ownership must be durable before filesystem publication. The ledger
+        // deliberately survives later run deletion, letting GC/edit retries
+        // unlink the exact backend-minted basenames before acknowledging them.
+        let ownership_db = db.clone();
+        let ownership_run_id = durability.persistence_run_id().to_string();
+        let ownership_session_id = session_id.clone();
+        let ownership_snapshot_names = durable_snapshot_names.clone();
+        ownership_db
+            .run(move |db| {
+                db.register_typed_resource_snapshots(
+                    &ownership_run_id,
+                    &ownership_session_id,
+                    &ownership_snapshot_names,
+                )
+            })
+            .await
+            .map_err(|error| format!("Cannot register typed resource snapshots: {error}"))?;
+    }
+
+    let (published_attachments, frozen_resource_mentions) =
+        if let Some((session_incognito, prepared)) = prepared_resource_mentions.take() {
+            let publication_db = db.clone();
+            let publication_run_id = durability.persistence_run_id().to_string();
+            let snapshot_session_id = session_id.clone();
+            let publication_snapshot_names = durable_snapshot_names;
+            let mut snapshot_attachments = attachments;
+            publication_db
+                .run(move |db| {
+                    let publish_files = || {
+                        crate::attachments::publish_typed_resource_snapshot_files(
+                            &snapshot_session_id,
+                            prepared,
+                            session_incognito,
+                        )
+                    };
+                    let published = if session_incognito {
+                        publish_files()?
+                    } else {
+                        db.publish_registered_typed_resource_snapshots(
+                            &publication_run_id,
+                            &snapshot_session_id,
+                            &publication_snapshot_names,
+                            publish_files,
+                        )?
+                    };
+                    let frozen = crate::attachments::finalize_typed_resource_mentions(
+                        published,
+                        &mut snapshot_attachments,
+                    );
+                    anyhow::Ok((snapshot_attachments, frozen))
+                })
+                .await
+                .map_err(|error| format!("Cannot publish typed resource mentions: {error}"))?
+        } else {
+            (attachments, Vec::new())
+        };
+    attachments = published_attachments;
+    let frozen_resource_mentions = Arc::new(frozen_resource_mentions);
+    let snapshot_names = frozen_resource_mentions
+        .iter()
+        .filter_map(|snapshot| snapshot.snapshot_name.clone())
+        .collect::<Vec<_>>();
+    let snapshot_refs_committed = Arc::new(std::sync::atomic::AtomicBool::new(
+        snapshot_names.is_empty(),
+    ));
+    let _pending_snapshot_cleanup = PendingTypedResourceSnapshots {
+        session_id: session_id.clone(),
+        snapshot_names,
+        refs_committed: snapshot_refs_committed.clone(),
+    };
+
+    let context_resource_turn_budget =
+        Arc::new(crate::prompt_context::ContextResourceTurnBudget::default());
+    let context_resource_refs = frozen_resource_mentions
+        .iter()
+        .filter_map(|snapshot| {
+            let mention_id = incoming_turn.as_ref()?.mentions.iter().find(|mention| {
+                matches!(
+                    mention.kind,
+                    crate::prompt_context::MentionKind::File
+                        | crate::prompt_context::MentionKind::Plan
+                ) && mention.target_id == snapshot.target_id
+            })?;
+            turn_context_builder.untrusted_data(
+                crate::prompt_context::UntrustedDataSource::FileAttachment,
+                serde_json::json!({
+                    "mentionId": mention_id.id,
+                    "resourceRef": snapshot.resource_ref,
+                    "path": snapshot.target_id,
+                    "sourceBytes": snapshot.source_bytes,
+                    "continuationTool": crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+                })
+                .to_string(),
+            );
+            Some(crate::prompt_context::ContextResourceRef {
+                resource_ref: snapshot.resource_ref.clone(),
+                mention_id: mention_id.id.clone(),
+                target_id: snapshot.target_id.clone(),
+                file_name: snapshot.file_name.clone(),
+                mime_type: snapshot.mime_type.clone(),
+                parent_session_id: session_id.clone(),
+                parent_turn_id: turn_id.clone(),
+                principal_agent_id: agent_id.clone(),
+                bytes: snapshot.bytes.clone(),
+                turn_budget: context_resource_turn_budget.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if incoming_turn.is_some() {
+        for receipt in &mut mention_receipts {
+            if !matches!(
+                receipt.kind,
+                crate::prompt_context::MentionKind::File | crate::prompt_context::MentionKind::Plan
+            ) {
+                continue;
+            }
+            let snapshot = frozen_resource_mentions
+                .iter()
+                .find(|snapshot| snapshot.target_id == receipt.target_id);
+            receipt.status = if snapshot.is_some() {
+                crate::prompt_context::MentionResolutionStatus::Resolved
+            } else {
+                crate::prompt_context::MentionResolutionStatus::Unavailable
+            };
+            receipt.materialization = snapshot.map(|snapshot| {
+                crate::prompt_context::MentionMaterialization::FrozenSnapshot {
+                    source_bytes: snapshot.source_bytes,
+                    persistence: if snapshot.durable {
+                        crate::prompt_context::ContextPersistence::DurableSnapshot
+                    } else {
+                        crate::prompt_context::ContextPersistence::IncognitoMemoryOnly
+                    },
+                }
+            });
+        }
+    }
+
+    // Wrap attachments in Arc<[T]> only after the staged typed-resource batch
+    // has been published and its attachment paths/data have been frozen.
+    // Failover closure clones are then pointer bumps even for MB-sized data.
+    let attachments: std::sync::Arc<[crate::agent::Attachment]> = std::sync::Arc::from(attachments);
+
     // Idle/busy tracking (R2 — §5.4 fix). Mark this session active for the whole
     // turn so background-job / sub-agent completion injection yields to the live
     // turn instead of splicing into it. Created here at the shared engine entry
@@ -881,10 +1454,9 @@ pub(crate) async fn run_chat_engine_classified(
         }
     }
 
-    // SessionStart hook (startup / resume). Observation event — any
-    // additionalContext is merged into `extra_system_context` so it rides this
-    // turn's system prompt and survives failover retries (which rebuild the
-    // agent from this same local). The helper is shared with the ACP turn loop
+    // SessionStart hook (startup / resume). Observation output is frozen into
+    // this turn's untrusted data envelope and survives failover retries (which
+    // rebuild the agent from this same local). The helper is shared with ACP
     // (which runs `AssistantAgent::chat` directly, not this engine) so both
     // entry points fire SessionStart and resolve cwd identically.
     //
@@ -908,71 +1480,151 @@ pub(crate) async fn run_chat_engine_classified(
         )
         .await
         {
-            extra_system_context = Some(match extra_system_context.take() {
-                Some(e) => format!("{e}\n\n{extra}"),
-                None => extra,
-            });
+            turn_context_builder.untrusted_data(
+                crate::prompt_context::UntrustedDataSource::HookContext,
+                extra,
+            );
         }
     }
 
     // UserPromptSubmit hook context: the preflight chokepoint stashed any
     // `additionalContext` from the UserPromptSubmit hook keyed by session;
-    // drain it here so it rides this turn's system prompt next to SessionStart
+    // drain it here so it rides this turn's user-owned context next to SessionStart
     // (and survives failover for the same reason — it lives in this run-local).
     // Drained exactly once per turn.
     if let Some(extra) = crate::hooks::take_user_prompt_context(&session_id) {
-        extra_system_context = Some(match extra_system_context.take() {
-            Some(e) => format!("{e}\n\n{extra}"),
-            None => extra,
-        });
+        turn_context_builder.untrusted_data(
+            crate::prompt_context::UntrustedDataSource::HookContext,
+            extra,
+        );
     }
 
     // Knowledge read bridge channel ① (D7): deterministically inject notes the
     // user referenced inline with `[[ ]]`, scoped by `effective_kb_access` (D10)
     // and wrapped as untrusted external data (#7). Skipped for incognito inside
     // the resolver (zero KB access).
-    if let Some(extra) = crate::knowledge_hooks::resolve_inline_injections(
-        &message,
-        &session_id,
-        kb_access_source(source),
-        kb_origin,
-        channel_kb_context.clone(),
-    ) {
-        extra_system_context = Some(match extra_system_context.take() {
-            Some(e) => format!("{e}\n\n{extra}"),
-            None => extra,
-        });
+    let bound_notes = incoming_turn
+        .as_ref()
+        .map(crate::prompt_context::bound_note_refs)
+        .unwrap_or_default();
+    let typed_notes = if !bound_notes.is_empty() {
+        let per_note_budget = typed_note_byte_budget(&model_chain, &providers, bound_notes.len());
+        crate::knowledge_hooks::resolve_bound_notes(
+            &bound_notes,
+            &session_id,
+            kb_access_source(source),
+            kb_origin,
+            channel_kb_context.clone(),
+            per_note_budget,
+        )
+    } else {
+        None
+    };
+    let legacy_note_message = incoming_turn
+        .as_ref()
+        .map(|wire| message_without_typed_note_spans(&canonical_user_message, wire))
+        .unwrap_or_else(|| canonical_user_message.clone());
+    let legacy_note_slots = 5usize.saturating_sub(bound_notes.len().min(5));
+    let legacy_notes = (legacy_note_slots > 0)
+        .then(|| {
+            crate::knowledge_hooks::resolve_inline_injections(
+                &legacy_note_message,
+                &session_id,
+                kb_access_source(source),
+                kb_origin,
+                channel_kb_context.clone(),
+                legacy_note_slots,
+            )
+        })
+        .flatten();
+    if legacy_notes.is_some() {
+        // A current typed wire may legitimately coexist with the explicit
+        // read-only `[[note]]` compatibility syntax (for example a typed
+        // @agent plus a manually entered wikilink). Record that the legacy
+        // parser actually contributed context.
+        legacy_compatibility = true;
+    }
+    let referenced_notes = match (typed_notes, legacy_notes) {
+        (Some(mut typed), Some(legacy)) => {
+            typed.content.push_str("\n\n");
+            typed.content.push_str(&legacy);
+            Some(typed)
+        }
+        (Some(typed), None) => Some(typed),
+        (None, Some(content)) => Some(crate::knowledge_hooks::ResolvedBoundNotes {
+            content,
+            resolved_refs: Vec::new(),
+        }),
+        (None, None) => None,
+    };
+    if let Some(resolved_notes) = referenced_notes {
+        turn_context_builder.untrusted_data(
+            crate::prompt_context::UntrustedDataSource::KnowledgeNote,
+            resolved_notes.content,
+        );
+        for receipt in &mut mention_receipts {
+            if receipt.kind == crate::prompt_context::MentionKind::Note
+                && receipt
+                    .target_id
+                    .split_once("::")
+                    .is_some_and(|(kb_id, rel_path)| {
+                        resolved_notes.resolved_refs.iter().any(|resolved| {
+                            resolved.kb_id == kb_id && resolved.rel_path == rel_path
+                        })
+                    })
+            {
+                receipt.status = crate::prompt_context::MentionResolutionStatus::Resolved;
+                if let Some(resolved) = resolved_notes.resolved_refs.iter().find(|resolved| {
+                    receipt
+                        .target_id
+                        .split_once("::")
+                        .is_some_and(|(kb_id, rel_path)| {
+                            resolved.kb_id == kb_id && resolved.rel_path == rel_path
+                        })
+                }) {
+                    receipt.materialization =
+                        Some(if resolved.source_bytes == resolved.delivered_bytes {
+                            crate::prompt_context::MentionMaterialization::Complete {
+                                source_bytes: resolved.source_bytes,
+                                delivered_bytes: resolved.delivered_bytes,
+                            }
+                        } else {
+                            crate::prompt_context::MentionMaterialization::Preview {
+                                source_bytes: resolved.source_bytes,
+                                delivered_bytes: resolved.delivered_bytes,
+                                continuation_tool: crate::tools::TOOL_NOTE_READ.to_string(),
+                            }
+                        });
+                }
+            }
+        }
     }
 
-    // Built-in skill activation via the composer's `@skill` mention. Mirrors the
-    // note bridge above: deterministic, user-controlled, injected into this
-    // turn's system context. The fixed allowlist (office trio + data analytics
-    // + browser + mac control) and the OS gate are enforced inside the resolver, so arbitrary
-    // skill names in the message can't ride here — they stay as plain text.
-    //
-    // Gate on `fires_user_lifecycle_hooks()` (Desktop / HTTP / IM): only a real
-    // user turn carries a composer `@skill` gesture. Internal Subagent /
-    // ParentInjection runs are excluded so a sub-agent's untrusted output
-    // containing a `[@…](#skill:…)` token can't self-activate a built-in skill
-    // into the parent's system context.
-    if source.fires_user_lifecycle_hooks() {
-        if let Some(extra) = crate::skills_hooks::resolve_inline_skill_mentions(&message) {
-            extra_system_context = Some(match extra_system_context.take() {
-                Some(e) => format!("{e}\n\n{extra}"),
-                None => extra,
-            });
-        }
-        if let Some(extra) = crate::subagent::resolve_inline_agent_mentions(&message) {
-            extra_system_context = Some(match extra_system_context.take() {
-                Some(e) => format!("{e}\n\n{extra}"),
-                None => extra,
-            });
-        }
-    }
+    // Raw/pasted markdown that merely resembles `@skill` or `@agent` remains
+    // ordinary user text. Only a validated typed binding above may activate a
+    // Skill or mint an opaque Agent reference. `[[note]]` is the deliberately
+    // retained read-only legacy syntax handled by the knowledge bridge.
+
+    crate::prompt_context::append_unresolved_mention_statuses(
+        &mut turn_context_builder,
+        &mention_receipts,
+    );
+
+    let resolved_turn_context = crate::prompt_context::finalize_turn_context(
+        &canonical_user_message,
+        turn_context_builder,
+        agent_binding_refs,
+        mention_wire_version,
+        legacy_compatibility,
+        mention_receipts,
+    );
+    message = resolved_turn_context.model_message.clone();
+    let agent_binding_refs = resolved_turn_context.agent_bindings.clone();
+    let prompt_context_receipt = std::sync::Arc::new(resolved_turn_context.receipt);
 
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
     // rendered for `/skill` invocations) so attached IM chats see what the
-    // desktop user saw, not the raw `[SYSTEM:...]` prompt fed to the model.
+    // desktop user saw, not the internal structured turn envelope.
     // A normal Desktop / HTTP turn has a durable `turn_id`; the stream id is
     // the stable per-run fallback for internal callers that do not create a
     // chat-turn row. Pass it explicitly so the channel layer never has to
@@ -997,7 +1649,8 @@ pub(crate) async fn run_chat_engine_classified(
         im_mirror_generation,
         Some(crate::channel_hooks::LastUserSnapshot {
             source: source.as_str().to_string(),
-            text: crate::util::non_empty_trim_or(display_text.as_deref(), &message).to_owned(),
+            text: crate::util::non_empty_trim_or(display_text.as_deref(), &canonical_user_message)
+                .to_owned(),
             attachment_count: attachments.len(),
         }),
     )
@@ -1275,10 +1928,13 @@ pub(crate) async fn run_chat_engine_classified(
             let agent_id_ref = &agent_id;
             let session_id_ref = &session_id;
             let channel_kb_context_ref = &channel_kb_context;
-            let extra_system_context_ref = &extra_system_context;
+            let run_context_ref = &run_context;
+            let agent_binding_refs_ref = &agent_binding_refs;
+            let context_resource_refs_ref = &context_resource_refs;
             let skill_allowed_tools_ref = &skill_allowed_tools;
             let plan_resolved_ref = &plan_resolved;
             let message_ref = &message;
+            let canonical_user_message_ref = &canonical_user_message;
             let attachments_ref = &attachments;
             let effort_str_ref = &effort_str;
             let cancel_ref = &cancel;
@@ -1287,6 +1943,9 @@ pub(crate) async fn run_chat_engine_classified(
             let model_ref_for_op = model_ref;
             let codex_token_ref = &codex_token;
             let durability_ref = durability.clone();
+            let prompt_context_receipt_ref = prompt_context_receipt.clone();
+            let frozen_resource_mentions_ref = frozen_resource_mentions.clone();
+            let snapshot_refs_committed_ref = snapshot_refs_committed.clone();
             let fallback_event_ref = fallback_event_json.as_deref();
 
             let exec_result = execute_with_failover_observed(
@@ -1312,13 +1971,16 @@ pub(crate) async fn run_chat_engine_classified(
 
                     let agent_id_owned = agent_id_ref.clone();
                     let session_id_owned = session_id_ref.clone();
-                    let extra_ctx_owned = extra_system_context_ref.clone();
+                    let run_context_owned = run_context_ref.clone();
+                    let agent_bindings_owned = agent_binding_refs_ref.clone();
+                    let context_resources_owned = context_resource_refs_ref.clone();
                     let skill_tools_owned = skill_allowed_tools_ref.clone();
                     let denied_tools_owned = denied_tools.clone();
                     let steer_run_id_owned = steer_run_id.clone();
                     let plan_resolved_owned = plan_resolved_ref.clone();
                     let channel_kb_context_owned = channel_kb_context_ref.clone();
                     let message_owned = message_ref.clone();
+                    let canonical_user_message_owned = canonical_user_message_ref.clone();
                     // Arc<[Attachment]> clone is a pointer bump regardless
                     // of attachment size. See param destructure for the wrap.
                     let attachments_owned = attachments_ref.clone();
@@ -1328,6 +1990,9 @@ pub(crate) async fn run_chat_engine_classified(
                     let model_id_for_err = model_ref_for_op.model_id.clone();
                     let codex_token_owned = codex_token_ref.clone();
                     let durability_owned = durability_ref.clone();
+                    let prompt_context_receipt_owned = prompt_context_receipt_ref.clone();
+                    let frozen_resource_mentions_owned = frozen_resource_mentions_ref.clone();
+                    let snapshot_refs_committed_owned = snapshot_refs_committed_ref.clone();
                     let fallback_event_owned = fallback_event_ref.map(ToOwned::to_owned);
                     async move {
                         let provider_shape = match &prov.api_type {
@@ -1336,13 +2001,72 @@ pub(crate) async fn run_chat_engine_classified(
                             ApiType::OpenaiResponses => "openai_responses",
                             ApiType::Codex => "codex",
                         };
-                        durability_owned
+                        let attempt_no = durability_owned
                             .begin_attempt(
                                 Some(&model_ref_for_op.provider_id),
                                 Some(&model_ref_for_op.model_id),
                                 Some(provider_shape),
                             )
                             .await?;
+                        // Attempts are separate recovery prefixes. Re-commit a
+                        // reference to the exact same frozen revision in every
+                        // attempt so superseding attempt 1 cannot orphan the
+                        // Agent/resource bindings. No resolver, Hook, or source
+                        // read is repeated here.
+                        let event = serde_json::json!({
+                            "type": "initial_context_committed",
+                            "revision": 0,
+                            "attemptNo": attempt_no,
+                            "replayed": attempt_no > 1,
+                            "receipt": &*prompt_context_receipt_owned,
+                            "agentBindings": &agent_bindings_owned,
+                            // Compatibility key retained for journal/readers;
+                            // v2 entries may represent typed Plan resources too.
+                            "fileSnapshots": &*frozen_resource_mentions_owned,
+                            "resourceSnapshotVersion": 2,
+                            "skillAllowedTools": &skill_tools_owned,
+                            "runContextSource": run_context_owned.as_ref().map(|context| context.source()),
+                        })
+                        .to_string();
+                        durability_owned.accept_event(&event)?;
+                        let source_journal_seq = durability_owned
+                            .flush(crate::turn_durability::FlushReason::RoleSwitch)
+                            .await?;
+                        snapshot_refs_committed_owned
+                            .store(true, std::sync::atomic::Ordering::Release);
+                        if let (Some(turn_id), Some(projection)) = (
+                            turn_id_for_cb.as_deref(),
+                            crate::prompt_context::resolved_typed_mention_receipt_projection(
+                                &canonical_user_message_owned,
+                                &prompt_context_receipt_owned,
+                                source_journal_seq,
+                            ),
+                        ) {
+                            let receipt_db = db_owned.clone();
+                            let receipt_session_id = session_for_cb.clone();
+                            let receipt_turn_id = turn_id.to_string();
+                            if let Err(error) = receipt_db
+                                .run(move |db| {
+                                    db.merge_chat_turn_typed_mention_receipt(
+                                        &receipt_session_id,
+                                        &receipt_turn_id,
+                                        &projection,
+                                    )
+                                })
+                                .await
+                            {
+                                // This projection is UI provenance, not model
+                                // authority. A persistence failure must never
+                                // fabricate a chip or fail an otherwise valid
+                                // model turn; history simply has no receipt.
+                                crate::app_warn!(
+                                    "chat_engine",
+                                    "typed_mention_receipt_projection",
+                                    "failed to persist typed mention receipt: {}",
+                                    error
+                                );
+                            }
+                        }
                         if let Some(fallback_event) = fallback_event_owned.as_deref() {
                             emit_stream_event(
                                 &db_owned,
@@ -1374,9 +2098,12 @@ pub(crate) async fn run_chat_engine_classified(
                             &mut agent,
                             &agent_id_owned,
                             &session_id_owned,
+                            turn_id_for_cb.as_deref(),
                             db_owned.clone(),
                             resolved_temperature,
-                            extra_ctx_owned.as_deref(),
+                            run_context_owned.as_ref(),
+                            &agent_bindings_owned,
+                            &context_resources_owned,
                             &skill_tools_owned,
                             &denied_tools_owned,
                             tool_scope,
@@ -1390,6 +2117,7 @@ pub(crate) async fn run_chat_engine_classified(
                             kb_origin,
                             channel_kb_context_owned,
                         );
+                        agent.set_retrieval_query(canonical_user_message_owned);
                         agent.set_turn_durability(durability_owned.clone());
                         restore_agent_context(&db_owned, &session_id_owned, &agent);
 
@@ -2148,9 +2876,12 @@ pub(crate) async fn run_chat_engine_classified(
                         &mut compact_agent,
                         &agent_id,
                         &session_id,
+                        turn_id.as_deref(),
                         db.clone(),
                         resolved_temperature,
-                        extra_system_context.as_deref(),
+                        run_context.as_ref(),
+                        &agent_binding_refs,
+                        &context_resource_refs,
                         &skill_allowed_tools,
                         &denied_tools,
                         tool_scope,
@@ -2761,17 +3492,20 @@ fn schedule_browser_turn_finalize(source: stream_seq::ChatSource, session_id: &s
 /// Apply common agent configuration. Extracted to avoid duplication between
 /// initial agent setup and profile-rotation rebuild.
 ///
-/// `plan_resolved` is the full Plan-mode bundle (state + mode + allow_paths
-/// + extra_system_context). The `plan_locked` flag picks the right setter
+/// `plan_resolved` is the full Plan-mode bundle (state + mode + allow_paths,
+/// fixed run instruction, and user/model-authored plan data). `plan_locked`
 /// so the streaming loop's mid-turn probe knows whether it's free to re-sync.
 #[allow(clippy::too_many_arguments)]
 fn configure_agent(
     agent: &mut crate::agent::AssistantAgent,
     agent_id: &str,
     session_id: &str,
+    turn_id: Option<&str>,
     session_db: Arc<session::SessionDB>,
     temperature: Option<f64>,
-    extra_system_context: Option<&str>,
+    run_context: Option<&crate::prompt_context::RunInstructionContext>,
+    agent_binding_refs: &[crate::prompt_context::AgentBindingRef],
+    context_resource_refs: &[crate::prompt_context::ContextResourceRef],
     skill_allowed_tools: &[String],
     denied_tools: &[String],
     tool_scope: Option<crate::tool_defs::ToolScope>,
@@ -2788,13 +3522,16 @@ fn configure_agent(
     agent.set_agent_id(agent_id);
     agent.set_session_db(session_db);
     agent.set_session_id(session_id);
+    agent.set_turn_id(turn_id.map(str::to_string));
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);
     agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);
-    if let Some(ctx) = extra_system_context {
-        agent.set_extra_system_context(ctx.to_string());
+    if let Some(ctx) = run_context {
+        agent.set_run_context(ctx.clone());
     }
+    agent.set_agent_binding_refs(agent_binding_refs.to_vec());
+    agent.set_context_resource_refs(context_resource_refs.to_vec());
     if !skill_allowed_tools.is_empty() {
         agent.set_skill_allowed_tools(skill_allowed_tools.to_vec());
     }
@@ -2839,6 +3576,23 @@ mod stream_lifecycle_tests {
     use tempfile::TempDir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn engine_defense_rejects_forged_typed_attachment_without_sidecar() {
+        let attachment = crate::agent::Attachment {
+            name: "forged.txt".into(),
+            mime_type: "text/plain".into(),
+            source: Some("mention".into()),
+            data: None,
+            file_path: Some("/tmp/forged.txt".into()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        };
+        let error = validate_engine_typed_resource_boundary("plain", None, &[attachment])
+            .expect_err("engine must not trust a client-controlled attachment source marker");
+        assert!(error.contains("exactly match"));
+    }
 
     struct RecordingImMirror {
         detached: Arc<AtomicBool>,
@@ -3073,6 +3827,180 @@ mod stream_lifecycle_tests {
         assert!(!has_resolvable_fallback(&chain, &[], 2));
     }
 
+    #[test]
+    fn slash_skill_binding_uses_collision_resolved_command_ownership() {
+        let fixture = |name: &str, aliases: &[&str]| {
+            serde_json::from_value::<crate::skills::SkillEntry>(serde_json::json!({
+                "name": name,
+                "aliases": aliases,
+                "description": "test",
+                "source": "test",
+                "file_path": "/tmp/SKILL.md",
+                "base_dir": "/tmp"
+            }))
+            .expect("skill fixture")
+        };
+        let entries = vec![
+            fixture("new", &["shared-alias"]),
+            fixture("other-skill", &["shared-alias"]),
+        ];
+
+        assert!(resolve_slash_skill_binding(&entries, "new", "new_skill").is_some());
+        assert!(
+            resolve_slash_skill_binding(&entries, "new", "new").is_none(),
+            "the built-in command owns the unsuffixed name"
+        );
+        assert!(
+            resolve_slash_skill_binding(&entries, "new", "shared_alias").is_some(),
+            "the first skill owns a shared alias"
+        );
+        assert!(
+            resolve_slash_skill_binding(&entries, "other-skill", "shared_alias").is_none(),
+            "a later skill cannot claim an alias dropped by collision resolution"
+        );
+        assert!(resolve_slash_skill_binding(&entries, "other-skill", "other_skill").is_some());
+
+        let mut blocked = fixture("collision-name", &[]);
+        blocked.requires.os = vec!["definitely-unsupported-os".to_string()];
+        let available = fixture("available", &["collision-name"]);
+        let surfaced = crate::skills::filter_catalog_eligible_skills(
+            vec![blocked, available],
+            true,
+            &std::collections::HashMap::new(),
+        );
+        assert!(
+            resolve_slash_skill_binding(&surfaced, "available", "collision_name").is_some(),
+            "hard-blocked skills cannot reserve a command hidden from list/help"
+        );
+    }
+
+    #[test]
+    fn explicit_slash_skill_requirement_drift_fails_before_provider_dispatch() {
+        let mut entry = serde_json::from_value::<crate::skills::SkillEntry>(serde_json::json!({
+            "name": "restricted-review",
+            "description": "test",
+            "source": "test",
+            "file_path": "/tmp/restricted-review/SKILL.md",
+            "base_dir": "/tmp/restricted-review",
+            "allowed_tools": ["read"],
+            "allowed_tools_declared": true
+        }))
+        .expect("skill fixture");
+        entry.requires.os = vec!["definitely-unsupported-os".to_string()];
+
+        let error = ensure_explicit_slash_skill_requirements(
+            &entry,
+            true,
+            &std::collections::HashMap::new(),
+        )
+        .expect_err("a requirement race must reject the explicit slash turn");
+
+        assert!(error.contains("no longer eligible"));
+    }
+
+    #[test]
+    fn explicit_slash_skill_read_failure_has_no_unrestricted_activation() {
+        let entry = serde_json::from_value::<crate::skills::SkillEntry>(serde_json::json!({
+            "name": "restricted-review",
+            "description": "test",
+            "source": "test",
+            "file_path": "/missing/restricted-review/SKILL.md",
+            "base_dir": "/missing/restricted-review",
+            "allowed_tools": ["read"],
+            "allowed_tools_declared": true
+        }))
+        .expect("skill fixture");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let read_error = std::fs::read_to_string(temp.path().join("missing-SKILL.md"))
+            .map_err(anyhow::Error::from);
+
+        let error =
+            require_explicit_slash_skill_materialization(&entry, Some(String::new()), read_error)
+                .err()
+                .expect("a missing SKILL.md must stop before provider dispatch");
+
+        assert!(error.contains("could not be materialized"));
+
+        let activation = require_explicit_slash_skill_materialization(
+            &entry,
+            Some(String::new()),
+            Ok("restricted body".to_string()),
+        )
+        .expect("successful materialization");
+        assert_eq!(
+            activation.tool_ceiling,
+            crate::skills::SkillToolCeiling::Restricted(vec!["read".to_string()]),
+            "the body and execution ceiling must leave materialization together"
+        );
+    }
+
+    #[test]
+    fn explicit_slash_skill_argument_mismatch_fails_before_provider_dispatch() {
+        let entry = serde_json::from_value::<crate::skills::SkillEntry>(serde_json::json!({
+            "name": "review",
+            "description": "test",
+            "source": "test",
+            "file_path": "/tmp/review/SKILL.md",
+            "base_dir": "/tmp/review"
+        }))
+        .expect("skill fixture");
+
+        let error = require_explicit_slash_skill_materialization(
+            &entry,
+            None,
+            Ok("must not be sent".to_string()),
+        )
+        .err()
+        .expect("invalid canonical args must stop the explicit slash turn");
+
+        assert!(error.contains("arguments no longer match"));
+    }
+
+    #[test]
+    fn explicit_at_skill_rejection_cannot_continue_as_unrestricted_turn() {
+        let requested = vec!["restricted-review".to_string()];
+        let rejection = crate::skills::MentionSkillActivation {
+            content: "# Skill activation rejected".to_string(),
+            resolved_names: Vec::new(),
+            rejected_names: requested.clone(),
+            tool_ceiling: crate::skills::SkillToolCeiling::Unspecified,
+        };
+
+        let error = require_explicit_mention_skill_activation(&requested, Some(rejection))
+            .err()
+            .expect("a rejected typed @skill must stop before provider dispatch");
+
+        assert!(error.contains("activation denied"));
+    }
+
+    #[test]
+    fn explicit_at_skill_unwired_resolver_fails_closed() {
+        let requested = vec!["restricted-review".to_string()];
+        let error = require_explicit_mention_skill_activation(&requested, None)
+            .err()
+            .expect("missing skill machinery must stop the typed turn");
+
+        assert!(error.contains("resolver is unavailable"));
+    }
+
+    #[test]
+    fn explicit_at_skill_content_and_ceiling_are_accepted_as_one_atomic_set() {
+        let requested = vec!["restricted-review".to_string()];
+        let activation = crate::skills::MentionSkillActivation {
+            content: "restricted body".to_string(),
+            resolved_names: requested.clone(),
+            rejected_names: Vec::new(),
+            tool_ceiling: crate::skills::SkillToolCeiling::Restricted(vec!["read".to_string()]),
+        };
+
+        let accepted = require_explicit_mention_skill_activation(&requested, Some(activation))
+            .expect("complete typed @skill set");
+        assert_eq!(
+            accepted.tool_ceiling,
+            crate::skills::SkillToolCeiling::Restricted(vec!["read".to_string()])
+        );
+    }
+
     fn temp_db() -> (TempDir, Arc<SessionDB>) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
@@ -3174,6 +4102,7 @@ mod stream_lifecycle_tests {
             agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
             turn_id: None,
             message: "hello".to_string(),
+            incoming_turn: None,
             display_text: None,
             attachments: Vec::new(),
             session_db: db,
@@ -3182,7 +4111,7 @@ mod stream_lifecycle_tests {
             codex_token: None,
             resolved_temperature: None,
             compact_config: CompactConfig::default(),
-            extra_system_context: None,
+            run_context: None,
             reasoning_effort: Some("none".to_string()),
             cancel: Arc::new(AtomicBool::new(false)),
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),

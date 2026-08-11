@@ -54,6 +54,7 @@ async fn enqueue_channel_message(
     session_id: &str,
     engine_message: &str,
     user_text: &str,
+    skill_allowed_tools: &[String],
     cancel: &Arc<AtomicBool>,
     attempt_insert: bool,
 ) -> anyhow::Result<()> {
@@ -135,6 +136,8 @@ async fn enqueue_channel_message(
         plan_comment: None,
         plan_mode: None,
         workflow_mode: None,
+        incoming_turn: None,
+        skill_allowed_tools: skill_allowed_tools.to_vec(),
         source: ha_core::session::QueuedTurnMessageSource::Channel,
         channel_origin: Some(serde_json::to_value(origin)?),
     };
@@ -799,8 +802,8 @@ async fn handle_inbound_message_inner(
     // shared backstop once the turn reaches the engine.
     let _agent_admission = ha_core::agent_lifecycle::begin_agent_run(&agent_id)?;
 
-    // 3b. Resolve extra system prompt from group/topic/channel config
-    let config_system_prompt = match msg.chat_type {
+    // 3b. Resolve owner-configured channel run policy.
+    let configured_channel_policy = match msg.chat_type {
         ChatType::Group | ChatType::Forum => topic_config
             .and_then(|t| t.system_prompt.as_deref())
             .or_else(|| effective_group_config.and_then(|g| g.system_prompt.as_deref())),
@@ -897,11 +900,13 @@ async fn handle_inbound_message_inner(
     // For PassThrough commands (e.g. skill invocations), use the transformed message as the
     // engine input so the LLM receives the skill instruction rather than the raw "/" text.
     let engine_message: String;
+    let mut explicit_skill_allowed_tools = Vec::new();
     if let Some(record) = queued_record.as_ref() {
         // Slash/control routing happened on original receipt. Replaying it
         // would repeat side effects; only the already-normalized model input
         // is allowed through the durable queue.
         engine_message = record.message.clone();
+        explicit_skill_allowed_tools = record.skill_allowed_tools.clone();
     } else if ha_core::slash_defs::parser::is_command(&user_text) {
         // Channels without inline-button support get the handler's verbose
         // no-arg text response instead of the (un-tappable) `Select an
@@ -1015,9 +1020,13 @@ async fn handle_inbound_message_inner(
                 emit_channel_update(effective_sid);
                 return Ok(());
             }
-            Ok(ChannelSlashOutcome::PassThrough(message)) => {
+            Ok(ChannelSlashOutcome::PassThrough {
+                message,
+                skill_allowed_tools,
+            }) => {
                 // Fall through to LLM with the transformed message
                 engine_message = message;
+                explicit_skill_allowed_tools = skill_allowed_tools;
             }
             Err(e) => {
                 let error_reply = format!("⚠️ {}", e);
@@ -1100,6 +1109,7 @@ async fn handle_inbound_message_inner(
                 &session_id,
                 &engine_message,
                 &user_text,
+                &explicit_skill_allowed_tools,
                 &cancel,
                 false,
             )
@@ -1157,6 +1167,7 @@ async fn handle_inbound_message_inner(
                 &session_id,
                 &engine_message,
                 &user_text,
+                &explicit_skill_allowed_tools,
                 &cancel,
                 !resumed_held_messages,
             )
@@ -1214,6 +1225,7 @@ async fn handle_inbound_message_inner(
             &session_id,
             &engine_message,
             &user_text,
+            &explicit_skill_allowed_tools,
             &cancel,
             false,
         )
@@ -1487,39 +1499,43 @@ async fn handle_inbound_message_inner(
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
 
-    // 6. Build channel context for prompt injection
+    // 6. Build the fixed channel frame separately from untrusted routing and
+    // participant metadata. This prevents sender/title/id text from inheriting
+    // developer authority merely because it arrived through the IM shell.
     let chat_type_label = match msg.chat_type {
         ChatType::Dm => "direct message",
         ChatType::Group => "group chat",
         ChatType::Forum => "forum",
         ChatType::Channel => "channel",
     };
-    let mut channel_context = format!(
-        "## IM Channel Context\n\
-         You are responding to a message from an **IM channel** ({channel}), not a direct UI chat.\n\
-         - **Channel**: {channel}\n\
-         - **Chat type**: {chat_type}\n\
-         - **Chat ID**: {chat_id}",
+    let mut channel_data = format!(
+        "IM routing metadata:\n\
+         - Channel: {channel}\n\
+         - Chat type: {chat_type}\n\
+         - Chat ID: {chat_id}",
         channel = channel_id_str,
         chat_type = chat_type_label,
         chat_id = msg.chat_id,
     );
     if let Some(ref title) = msg.chat_title {
-        channel_context.push_str(&format!("\n- **Chat title**: {}", title));
+        channel_data.push_str(&format!("\n- Chat title: {}", title));
     }
     if let Some(ref name) = msg.sender_name {
-        channel_context.push_str(&format!("\n- **Sender**: {} (ID: {})", name, msg.sender_id));
+        channel_data.push_str(&format!("\n- Sender: {} (ID: {})", name, msg.sender_id));
     } else {
-        channel_context.push_str(&format!("\n- **Sender ID**: {}", msg.sender_id));
+        channel_data.push_str(&format!("\n- Sender ID: {}", msg.sender_id));
     }
-    channel_context.push_str(
-        "\n\nBehave exactly as you would in a normal conversation. \
+    let mut channel_instruction =
+        "## IM Channel Context\n\
+         You are responding through an IM channel, not a direct UI chat.\n\
+         Behave exactly as you would in a normal conversation. \
          The message comes through an IM channel but your capabilities and personality remain the same. \
          Keep responses concise and suitable for IM format."
-    );
-    // Inject per-group/topic/channel system prompt if configured
-    if let Some(prompt) = config_system_prompt {
-        channel_context.push_str(&format!("\n\n## Additional Context\n{}", prompt));
+            .to_string();
+    // This prompt is an owner-configured channel policy, not remote message
+    // metadata, so it remains in the trusted run frame.
+    if let Some(prompt) = configured_channel_policy {
+        channel_instruction.push_str(&format!("\n\n## Configured Channel Policy\n{}", prompt));
     }
 
     // 7. Build ChatEngineParams — load config from disk (no State dependency)
@@ -1631,6 +1647,7 @@ async fn handle_inbound_message_inner(
         agent_id: agent_id.clone(),
         turn_id: None,
         message: engine_message,
+        incoming_turn: None,
         // IM-inbound turns echo the user's typed text via the IM client
         // itself (no GUI display_text mechanism); leave the mirror quote on
         // the raw message.
@@ -1642,13 +1659,20 @@ async fn handle_inbound_message_inner(
         codex_token: None,
         resolved_temperature,
         compact_config: store.compact.clone(),
-        extra_system_context: Some(channel_context),
+        run_context: Some(
+            ha_core::prompt_context::RunInstructionContext::new(
+                ha_core::prompt_context::RunInstructionSource::Channel,
+                channel_instruction,
+            )
+            .map(|context| context.with_untrusted_data(channel_data))
+            .map_err(|error| anyhow::anyhow!(error))?,
+        ),
         reasoning_effort,
         // Shared with the single-flight guard above (registered once in the
         // channel cancel registry); removal is handled by `_cancel_handle_guard`.
         cancel: cancel.clone(),
         plan_context_override: None,
-        skill_allowed_tools: Vec::new(),
+        skill_allowed_tools: explicit_skill_allowed_tools,
         denied_tools: Vec::new(),
         tool_scope: None,
         subagent_depth: 0,

@@ -1,14 +1,16 @@
 # Hope Agent 提示词系统技术文档
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-07
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
 
 ## 目录
 
 - [核心思想](#核心思想)
-- [三层结构与缓存边界](#三层结构与缓存边界)
+- [四通道结构与缓存边界](#四通道结构与缓存边界)
+  - [首次提交 Typed Mention Wire 契约](#首次提交-typed-mention-wire-契约)
+  - [Typed Mention 历史 Receipt](#typed-mention-历史-receipt)
   - [Layer 1 — 静态基础段](#layer-1--静态基础段)
   - [Layer 2 — 静态能力补充](#layer-2--静态能力补充)
-  - [Layer 3 — 每轮动态后缀](#layer-3--每轮动态后缀)
+  - [Layer 3 — 受信运行指令与动态用户数据](#layer-3--受信运行指令与动态用户数据)
 - [两种组装模式](#两种组装模式)
   - [OpenClaw 兼容模式](#openclaw-兼容模式)
   - [Legacy 兜底路径](#legacy-兜底路径)
@@ -29,50 +31,114 @@
   - [ACP External Agents](#acp-external-agents)
   - [桌面专属 Markdown 路径链接](#桌面专属-markdown-路径链接)
 - [Prompt 缓存优化](#prompt-缓存优化)
+  - [Cache 失效矩阵](#cache-失效矩阵)
 - [关键文件索引](#关键文件索引)
 
 ---
 
 ## 核心思想
 
-发给大模型的第一段上下文（system prompt）决定了它的身份、能看到哪些工具、遵守哪些行为约束、记得哪些长期信息。Hope Agent 把这段上下文当作**可组装的产品**，而不是一个大字符串：它由几十个独立段落（section）按固定顺序拼接，每段可以按 Agent 配置、会话状态或运行模式独立启用、禁用或过滤。
+发给大模型的上下文不是一个无类型大字符串，而是四条有明确权威边界的通道：稳定 system、受信运行指令、当前用户 turn、非可信动态数据。稳定 system 仍由几十个 section 按固定顺序组装；`@`（包括 Plans 页产生的 typed `@plan`）、Skill 正文、Note、文件、Hook/IM metadata 不再追加到这个字符串。
 
 这套设计围绕三个相互支撑的想法：
 
-1. **稳定前缀 + 动态后缀 = 缓存友好**。LLM 的 prompt 缓存按**前缀**命中：只要请求开头的字节完全一致，那一段就免于重新 prefill，省钱又省首字延迟。因此系统把会话内基本不变的内容（人格、工具、技能、记忆快照、运行时信息）放进一个**静态 prefix**，把每轮都会变的内容（跨会话行为感知、动态记忆召回、任务提醒、LSP 诊断）拆成**动态后缀**，由 Provider 适配器作为独立 system block 追加。**层与层的边界，就是缓存的边界**——后缀的抖动不会波及前缀。
+1. **稳定前缀 + role-correct 动态通道 = 缓存友好**。LLM 的 prompt 缓存按前缀命中。人格、产品合同、稳定能力说明与 eager tool schema 放在稳定前缀；Cron/Subagent/Plan 等运行框架放在其后的受信 instruction；用户选择的 Skill 保持 user authority；Note、文件、召回、Profile、环境、LSP、Hook/IM metadata 放在尾部 user-data 信封。动态内容既不改变稳定前缀，也不会因“动态”被提升为 system。
 
 2. **行为红线编译进二进制，用户删不掉**。人格模板 `agent.md` 允许用户自定义甚至彻底重写。如果把「什么时候该问用户」「沙箱不是权限绕过」这类硬约束写进模板，用户一改就可能整段删掉，约束随之丢失。所以这些指引以编译期常量的形式由组装器直接注入，不经过任何用户可编辑的文件。
 
-3. **Per-Agent 差异化过滤，减少无关 token**。每个 Agent 的工具、技能、子 Agent 权限、记忆策略都可独立配置。工具描述、技能触发语按 allow/deny 列表过滤——Agent 只看到被授权的能力，未授权的既不占 token 也不诱导模型去调用。
+3. **Prompt 引导与执行授权分离**。每个 Agent 的工具、技能、子 Agent、KB 与 MCP 能力仍按 live policy 过滤；Skill 的 `allowed-tools` 对普通工具只会单调收窄，permission / sandbox / Tool Scope / KB access / subagent queue 才是执行边界。唯一 intrinsic continuation 例外 `read_context_resource` 不被 Skill / Plan ceiling 意外裁掉，但仍受 Agent `denied-tools`、`ToolScope`、turn / session / principal 绑定，并且只有统一 permission engine 验证的有效 bound ref 才确定性 allow。`@agent`、`@plugin`、`@connector` 只提供引用与能力数据，是否调用由主模型结合完整请求决定。
+
+`ContextEngine` 的扩展口同样遵守这条边界：`stable_system_prompt_addition()` 只允许返回稳定、受信的引擎行为合同；召回结果、用户/项目正文与任何可变状态不得通过该接口进入 system，必须走动态 Data lane。
 
 理解了这三点，后面所有的段序、条件、缓存策略都只是它们的落地细节。
 
 ---
 
-## 三层结构与缓存边界
+## 四通道结构与缓存边界
 
-一次请求的系统上下文由三层拼成。前两层是**同一个静态字符串**（缓存前缀），第三层是每轮重算、由适配器作为独立 block 追加的动态后缀。
+一次请求先冻结当前 turn 的 typed sidecar，再由四个 Provider adapter 按各自 wire 协议映射同一逻辑边界：
 
 ```mermaid
-flowchart TB
-    subgraph PREFIX["静态 prefix — 同一会话内字节稳定，命中 prompt cache"]
-        direction TB
-        L1["<b>Layer 1</b> · build_with_resolved_session()<br/>身份 / 人格 / 工具 / 技能 / 记忆快照 / 运行时 / 沙箱 …"]
-        L2["<b>Layer 2</b> · append_full_system_prompt_extras()<br/>eager 能力说明 · 未配置能力 · Plan 段 · MCP 目录 · 知识空间"]
-        L1 --> L2
-    end
-    subgraph SUFFIX["Layer 3 — 每轮重算，独立 system block"]
-        direction TB
-        LEAD["leading：awareness · 动态召回 · coding profile · procedure"]
-        TRAIL["trailing：相关笔记 · LSP 诊断 · task 提醒"]
-    end
-    PREFIX == 缓存边界 ==> SUFFIX
-    SUFFIX --> API["Provider 请求体"]
+flowchart LR
+    STABLE["Stable System<br/>产品规则 · Agent 合同 · 稳定能力说明"] --> RUN["Run Instruction<br/>Cron · Subagent · Team · Plan"]
+    RUN --> HISTORY["Conversation History<br/>含一次性 Turn Envelope"]
+    HISTORY --> DATA["Round User Data<br/>召回 · KB/MCP 目录 · Profile · 环境 · LSP"]
+    DATA --> API["Provider Request"]
+    CACHE["主缓存断点"] -.-> STABLE
 ```
 
-这个划分明确了「谁进稳定前缀、谁进动态后缀」的判定标准：凡是每轮都变的内容，一旦混进前缀，就会让整段前缀在每轮都 cache-miss——所以它们必须留在 Layer 3，且**不得反向改写前缀**。
+当前用户输入及其 typed bindings 只在 conversation history 中物化一次。Tool Loop 只追加完整 API round；Provider retry/failover 复用同一个冻结 context、文件字节、Agent ref 与 Skill ceiling。动态数据只参与完整上下文预算，不参与稳定 system fingerprint 或 request routing key。
 
-**易变内容刻意后置**。即使在 Layer 1 内部，越易变的段越靠后：会话级的权限 / 执行 / 工作流模式段集中放在工具描述之后，`/mode`、`/permission` 翻转只 bust 较小的一段；工作目录顶层文件清单作为最后一段 emit，增删一个文件只失效这一尾块，前面的工具 / 技能 / 记忆前缀纹丝不动。
+Composer 的可执行 `@` chip 也以 typed binding 列表为准，不再仅凭正文正则渲染：手输/粘贴的 `@file`、Skill/Agent/Capability link 或 `@plan:` 同形文本保持普通文本外观和普通文本语义；只有第一方 picker/命令 AST 产生的 binding 才显示对应 chip。独立登记的只读 `[[note]]` 兼容语法仍可按正文显示并解析。
+
+### 首次提交 Typed Mention Wire 契约
+
+首次提交当前用户 turn 时，正文与 `IncomingTurnWire` sidecar 一起进入 direct dispatch 或 durable queue；它不是 system prompt 的一部分。当前已发布 wire 固定为 `promptContractVersion=3`、`mentionWireVersion=1`、`canonicalizationVersion=1`，形状如下（摘要值仅作占位）：
+
+```json
+{
+  "promptContractVersion": 3,
+  "mentionWireVersion": 1,
+  "userInput": {
+    "inputItemId": "input_1",
+    "canonicalizationVersion": 1,
+    "text": "检查 @README.md",
+    "digest": "sha256:<64 lowercase hex>"
+  },
+  "mentions": [
+    {
+      "id": "mention_1",
+      "kind": "file",
+      "targetId": "README.md",
+      "displayLabel": "README.md",
+      "origin": "first_party_composer_gesture",
+      "sourceAnchor": {
+        "type": "inline",
+        "inputItemId": "input_1",
+        "canonicalTextDigest": "sha256:<same digest>",
+        "startUtf8": 7,
+        "endUtf8": 17
+      }
+    }
+  ]
+}
+```
+
+后端在解析对象或进行 Provider I/O 前执行原子校验：版本必须完全匹配；`userInput.text` 必须等于实际提交正文，SHA-256 必须由后端重算一致；`inputItemId` / mention id 只能含 ASCII 字母数字、`-`、`_` 且不超过 128 bytes；最多 32 个 mention；`targetId` 非空、无控制字符且不超过 2048 bytes，label 不超过 256 bytes。当前 transport **只接受** `SourceAnchor::Inline`：anchor 必须绑定同一 input id 与 digest，采用 canonical UTF-8 bytes 的半开区间，落在字符边界、非空且互不重叠；前端 DOM 的 UTF-16 offset 在构造 wire 时先转换为 UTF-8 offset。`AdjacentContentPart` 虽已存在于类型中，但当前校验会明确拒绝，不能把它写成已支持能力。
+
+anchor 覆盖的原文 token 还必须与 `kind + targetId` 确定性匹配；`slash_command_ast` 目前只允许 Skill 且必须锚定整条 `/skill` 命令。缺少 sidecar 的普通输入仍合法，但其中同形 `@` 文本不产生 binding；带 sidecar 而版本、digest、span、token 或上限任一不符时整轮 fail-visible，不回退到字符串猜测。校验和 live resolution 的结果只冻结一次，后续 Tool Loop、retry 与 failover 复用同一 Initial Context；不会再次从可见正文解析或重新读取已冻结资源。
+
+### Typed Mention 历史 Receipt
+
+历史消息中的 `@` chip 也不从正文猜测。后端完成 typed wire 校验以及 File/Plan/Note/Skill/Agent/Plugin/Connector 解析后，先把最终 `PromptContextReceipt` 随 `initial_context_committed` 写入 turn journal；`flush(RoleSwitch)` 返回正数 durable sequence 后，才把可删除的 UI 投影幂等 merge 到该 `chat_turn.user_message_id` 对应的 `messages.attachments_meta.typed_mention_receipt`：
+
+```json
+{
+  "receiptVersion": 1,
+  "sourceJournalSeq": 7,
+  "promptContractVersion": 3,
+  "mentionWireVersion": 1,
+  "canonicalTextFingerprint": "a4c9e21f8b3d670125ab4e9c",
+  "contextFingerprint": "73de0a416b92c58f10ad7e34",
+  "mentions": [
+    {
+      "mentionId": "file-1",
+      "kind": "file",
+      "targetId": "README.md",
+      "displayLabel": "README",
+      "origin": "first_party_composer_gesture",
+      "status": "resolved",
+      "raw": "@README.md",
+      "startUtf8": 0,
+      "endUtf8": 10
+    }
+  ]
+}
+```
+
+投影只包含最终状态为 `resolved` 的 inline binding；`raw` 由后端按已验证 canonical message 的 UTF-8 span 精确提取，前端若使用 UTF-16 selection 必须显式换算，不能回退正则/parser。`sourceJournalSeq` 必须为正数，它把缓存投影绑定到已耐久的 Initial Context；journal 才是恢复真相源，message metadata 不参与执行、授权或重放。merge 事务必须重新读取目标 user-message 的 `content`，用同一 installation-keyed 算法重算 canonical fingerprint，并逐项复核 UTF-8 span/`raw` 后才可写 metadata；这样 Hook rewrite、`display_text` 或消息替换不会继承另一份输入快照的 provenance。legacy/空 binding、`unavailable`/`rejected`、span/fingerprint 不一致、durability flush 失败、缺少 turn→user-message 映射时均不写；Incognito 保持同形内存 receipt，但不新增 message metadata。Provider failover 重复投影同一 receipt 时该 key 覆盖自身、保留 plan/goal/user attachment 等其他 metadata。
+
+`unavailable` / `rejected` 不能只存在 journal/UI receipt 中：在 Provider I/O 前，后端还会按已验证 source anchor 排序，把每个失败 binding 的 `mentionId`、`kind`、`displayLabel`、`status` 放进当前 user-level Turn Envelope。该状态块不含 target id、远程错误、目标正文或安全判定原因，不从可见 token 反推对象，也不获得 system/developer authority；它只让模型明确知道选中的 Note、Agent 或 Capability 当前不可用，避免把缺失数据静默当成已读取。显式 Skill 是更严格的例外：整组 Skill 的 live resolution、正文 materialization 与 `allowed-tools` ceiling 必须原子成功，否则整个 turn 在 Provider I/O 前 fail-closed，不靠状态块继续成 unrestricted prompt。
 
 ### Layer 1 — 静态基础段
 
@@ -80,13 +146,12 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    A["身份簇<br/>Identity · Avatar · APP_INTRO · 人格"] --> B["上下文簇<br/>User context · tools.md"]
+    A["身份簇<br/>Identity · Avatar · APP_INTRO · 人格"] --> B["合同簇<br/>Turn Context Contract · tools.md"]
     B --> C["工具簇<br/>Available Tools · Deferred · Async"]
-    C --> D["行为簇<br/>Narration · 路径链接 · 权限/执行/工作流 · Goal · 预算 · Human-in-the-loop"]
-    D --> E["技能与项目簇<br/>Skills · Current Project · Working Directory · IM"]
+    C --> D["行为簇<br/>Narration · 路径链接 · 工具预算 · Human-in-the-loop"]
+    D --> E["技能与项目簇<br/>Skills metadata · Current Project · Working Directory"]
     E --> F["记忆簇<br/>Core Memory · legacy · Incognito · 项目索引"]
-    F --> G["运行时与委托簇<br/>Runtime · SubAgent · Team · Sandbox · ACP · 天气"]
-    G --> H["尾段<br/>Files in Working Directory"]
+    F --> G["运行时与委托簇<br/>Runtime · SubAgent · Team · ACP"]
 ```
 
 完整段序（权威顺序以本表为准）：
@@ -100,84 +165,61 @@ flowchart LR
 | 5 | Personality | 条件 | 仅非 OpenClaw。`SoulMd` 模式注入 soul.md 正文 + 化身段；否则 `build_personality_section()` 非空时注入 |
 | 6 | agent.md | 条件 | 非 OpenClaw 且文件非空 |
 | 7 | persona.md | 条件 | 非 OpenClaw 且文件非空 |
-| 8 | User context | 条件 | `load_user_config()` 成功且 `build_user_context()` 返回 `Some` |
+| 8 | `# Turn Context Contract` | 恒定 | 声明 typed `@`、Skill、Resource、Agent ref 与执行权限的边界 |
 | 9 | tools.md | 条件 | 非 OpenClaw（OpenClaw 已并入 `# Project Context`）且文件存在 |
 | 10 | `# Available Tools` | 恒定 | 内容由 `dispatch::resolve_tool_fate` 过滤 |
 | 11 | `# Additional Tools`（deferred 目录） | 条件 | 开启 deferred 工具加载 |
 | 12 | 异步工具指南 | 条件 | 异步工具功能启用 |
 | 13 | Tool-Call Narration | 条件 | `AppConfig.tool_call_narration_enabled`（默认 `true`） |
 | 14 | `# File Path Formatting` | 条件 | `app_init::is_desktop()`，见[桌面专属 Markdown 路径链接](#桌面专属-markdown-路径链接) |
-| 15 | `# Current Permission Mode` | 恒定 | 内容随 `default` / `smart` / `yolo` 变 |
-| 16 | `# Execution Mode` | 条件 | `execution_mode != off` |
-| 17 | `# Workflow Mode` | 条件 | `workflow_mode != off` |
-| 18 | `# Active Goal` | 条件 | 非无痕且会话有 active goal |
-| 19 | 工具轮次预算提醒 | 条件 | `capabilities.max_tool_rounds` 有界（非 0） |
-| 20 | `# Human-in-the-loop` | 恒定 | 编译常量，agent.md 不可覆盖 |
-| 21 | Skills | 恒定 | 按 allow/deny 与会话 `paths:` 激活过滤，可能整段为空被过滤 |
-| 22 | `# Current Project` | 条件 | 非 OpenClaw 且会话属于项目 |
-| 23 | `# Working Directory`（含 `## Working Directory Instructions`） | 条件 | 会话 `working_dir` 非空 |
-| 24 | `# IM Channel Attachment` | 条件 | 会话绑定 IM chat |
-| 25 | `# Core Memory`（V2 三作用域） | 条件 | `v2_core_enabled` 且渲染结果非空 |
-| 26 | legacy Memory 段（Core 文件 / Pinned / Profile / SQLite + Guidelines） | 条件 | `memory_enabled`；子段再受 `legacy_core_enabled` / `legacy_static_enabled` 门控 |
-| 27 | `# Incognito Session` | 条件 | `incognito` |
-| 28 | 项目自动记忆索引 | 条件 | `legacy_core_enabled` 且传入了 `project_auto_memory_index` |
-| 29 | `# Runtime` | 恒定 | 含日期（精确到天）、模型 / provider、Agent home |
-| 30 | Sub-Agent Delegation | 条件 | subagent capability 开启 **且** `subagent` 工具 eager **且** 段非空 |
-| 31 | Agent Team | 条件 | `team.enabled` 且 `team` 工具 eager 且段非空 |
-| 32 | Sandbox Mode | 条件 | 有效 `sandbox_mode.enabled()` |
-| 33 | ACP External Agents | 条件 | `acp.enabled` 且 `acp_spawn` 工具 eager 且段非空 |
-| 34 | 天气上下文 | 条件 | 天气特征 crate 已 wire 且缓存中有数据 |
-| 35 | `# Files in Working Directory` | 条件 | 会话 `working_dir` 非空且清单非空 |
+| 15 | 工具轮次预算提醒 | 条件 | `capabilities.max_tool_rounds` 有界（非 0） |
+| 16 | `# Human-in-the-loop` | 恒定 | 编译常量，agent.md 不可覆盖 |
+| 17 | Skills 目录 | 恒定 | 按 allow/deny 与会话 `paths:` 激活过滤；显式 Skill 正文不在此层 |
+| 18 | `# Current Project` | 条件 | 非 OpenClaw 且会话属于项目 |
+| 19 | `# Working Directory`（含 `## Working Directory Instructions`） | 条件 | 会话 `working_dir` 非空；目录内容清单不在此层 |
+| 20 | `# Core Memory`（V2 三作用域） | 条件 | `v2_core_enabled` 且渲染结果非空 |
+| 21 | legacy Memory 段（Core 文件 / Pinned / Profile / SQLite + Guidelines） | 条件 | `memory_enabled`；子段再受 `legacy_core_enabled` / `legacy_static_enabled` 门控 |
+| 22 | `# Incognito Session` | 条件 | `incognito` |
+| 23 | 项目自动记忆索引 | 条件 | `legacy_core_enabled` 且传入了 `project_auto_memory_index` |
+| 24 | `# Runtime` | 恒定 | Host / OS / Shell、模型 / provider、Agent home；当天日期不在此层 |
+| 25 | Sub-Agent Delegation | 条件 | subagent capability 开启 **且** `subagent` 工具 eager **且** 段非空 |
+| 26 | Agent Team | 条件 | `team.enabled` 且 `team` 工具 eager 且段非空 |
+| 27 | ACP External Agents | 条件 | `acp.enabled` 且 `acp_spawn` 工具 eager 且段非空 |
 
-**记忆段的稳定性契约**：25–28 属于 Layer 1 静态 prefix，同一会话的 `CoreMemorySnapshot` 在 reload / Tier 3 compact / 资格变化 / 进程重启前保持字节稳定。自动的 Fast/Deep Recall、Profile、Procedure、Awareness 一律走 Layer 3，不得反向改写这几段。完整预算与 fail-closed 契约见 [记忆系统架构](memory.md)。
+**记忆段的稳定性契约**：20–23 属于 Layer 1 静态 prefix，同一会话的 `CoreMemorySnapshot` 在 reload / Tier 3 compact / 资格变化 / 进程重启前保持字节稳定。自动的 Fast/Deep Recall、Profile、Procedure、Awareness 一律走 Layer 3，不得反向改写这几段。完整预算与 fail-closed 契约见 [记忆系统架构](memory.md)。
 
 **代码位置**：`crates/ha-core/src/system_prompt/build.rs` — `build_with_resolved_session()`。
 
 ### Layer 2 — 静态能力补充
 
-入口 `Agent::append_full_system_prompt_extras()`。它仍写在同一个前缀字符串里，追加在 Layer 1 之后，按以下顺序：
+入口 `Agent::append_stable_capability_prompt()`。它仍写在同一个前缀字符串里，追加在 Layer 1 之后，按以下顺序：
 
 1. **eager 能力补充说明**：`send_notification` / `image_generate` / `audio_generate` / `canvas`——各自工具 eager 时才追加；`ToolScope` 收窄后按 scope 再过滤一遍（知识空间侧栏对话就不该宣传被裁掉的能力）。
 2. **`# Unconfigured Capabilities`**：`ToolFate::HintOnly` 的工具，即「功能存在但尚未全局配置」的升级提示。hints 先 `sort()` 保证顺序稳定以利缓存；`ToolScope` 非 `None` 时整段清空。
-3. **`extra_system_context`**：调用方注入的一次性任务框架（cron 任务描述、subagent 角色、IM 入站 turn 的 `## IM Channel Context`、发送时解析的 `[[note]]` 与 `@skill` 注入等）。
-4. **Plan 段**（`plan_extra_context`，以 `ArcSwap` 存放，便于流式循环 mid-turn 探测后热替换）。
-5. **MCP catalog 片段**：需 agent `mcp_enabled` + 全局 `mcp_global.enabled` + `ToolScope` 允许 MCP 工具，且至少一个 server 到达 `Ready`。
-6. **`# Knowledge Bases`**：附着的知识空间，经 `Agent::resolve_kb_access()` 与 `note_*` 工具同源；无可达 KB 时整段省略。
+3. 不再接受任何一次性自由字符串。Plan、MCP catalog、Knowledge Bases、用户 Profile 与 IM attach metadata 已分别进入 Run Instruction 或 Round User Data；`append_stable_capability_prompt()` 只补稳定、由本地 dispatch 决定的能力说明。
 
-第 5、6 项刻意排在最后：它们只在 MCP server 状态或知识空间 attach/detach 时改变，前面的段对不用这些功能的用户保持字节稳定。
+**代码位置**：`crates/ha-core/src/agent/mod.rs` — `append_stable_capability_prompt()`（经 `build_full_system_prompt` / `prepare_full_system_prompt` 进入）。
 
-**代码位置**：`crates/ha-core/src/agent/mod.rs` — `append_full_system_prompt_extras()`（经 `build_full_system_prompt` / `prepare_full_system_prompt` 进入）。
+### Layer 3 — 受信运行指令与动态用户数据
 
-### Layer 3 — 每轮动态后缀
-
-顺序由 `streaming_adapter::leading_dynamic_suffixes` / `trailing_dynamic_suffixes` 定义，四个 Provider 适配器（Anthropic / OpenAI Chat / OpenAI Responses / Codex）共用同一顺序，由 `dynamic_context_contract_tests` 锁定。
+顺序由 `streaming_adapter::dynamic_instruction_suffixes` / `dynamic_data_suffixes` 定义，四个 Provider 适配器共用同一来源顺序，由 `dynamic_context_contract_tests` 锁定。
 
 ```mermaid
 flowchart LR
-    PREFIX["静态 prefix<br/>(Layer 1 + 2)"] --> LEAD["<b>leading</b><br/>awareness → active memory<br/>→ coding profile → procedure"]
-    LEAD --> HIST["会话历史"]
-    HIST --> TRAIL["<b>trailing</b><br/>相关笔记 → LSP 诊断<br/>→ task 提醒"]
-    TRAIL --> NEXT["模型下一步决策"]
+    PREFIX["静态 prefix<br/>(Layer 1 + 2)"] --> INST["Developer/System<br/>Run frame · coding profile"]
+    INST --> HIST["会话历史<br/>含 typed Turn Envelope"]
+    HIST --> DATA["User data envelope<br/>run data · recall · KB/MCP · profile · environment · LSP · task"]
+    DATA --> NEXT["模型下一步决策"]
 ```
 
-leading 组在 Responses 形态 API 上位于会话历史之前，trailing 组紧贴模型的下一次决策。Chat / Anthropic 适配器把两组按同一顺序合并进 system-block 序列。
+`run_instruction_suffix` 与 Coding Profile 是受信运行指令；Permission / Execution / Workflow / Sandbox 当前模式、Active Goal 固定运行合同，以及仅在有活动任务时出现的固定 Task Tracker 合同，也在回合开始/round head 冻结到这一 lane，因此 mode、Goal 或任务正文变化不会重拼稳定 system。`run_data_suffix`、Active Goal 的用户目标与状态、Awareness、Active Memory、Procedure、相关笔记、已挂 KB、MCP 目录、User Profile、当天日期、天气/目录清单、LSP、任务 label/status snapshot 与 Hook 输出全部经 `<hope_round_data>` 放进 user role。Plan 固定合同与 plan 文档也分开存放，后者不能继承 developer authority。
 
-| 组 | 后缀 | 说明 |
-| -- | ---- | ---- |
-| leading | `awareness_suffix` | 跨会话行为感知 |
-| leading | `active_memory_suffix` | 动态记忆召回 |
-| leading | `coding_profile_suffix` | Coding Mode 每轮确定性策略块 |
-| leading | `procedure_memory_suffix` | Procedure Memory 软流程指引，每轮都变 |
-| trailing | `related_notes_suffix` | 被动相关笔记（untrusted，永不作指令） |
-| trailing | `lsp_diagnostics_suffix` | LSP 语义诊断：本轮改过的文件优先 + 全局最严重填余位（untrusted） |
-| trailing | `task_reminder_suffix` | 任务追踪提醒（+ 排空的 pending hook context），恒最后 |
+Anthropic 只给稳定 system 与最后一个 eager tool schema 标显式 cache breakpoint；OpenAI Responses 的受支持模型把稳定 developer block设为 explicit breakpoint；Codex 不发送公共 OpenAI cache 参数。所有动态 block 都不带显式 cache marker。
 
-**动态后缀不带缓存标记**：Anthropic 适配器只给静态 prefix 那个 system block 打 `cache_control`，awareness、active memory、coding profile 直到 task 提醒这些动态后缀一律作为普通 system block 追加、不带 `cache_control`——它们每轮都可能变，缓存也难命中。所以 Anthropic 端的缓存断点落在两处：静态 prefix system block，以及 tools 数组里最后一个 eager 工具；`api.anthropic.com` 还会在整个请求体上再挂一层 `cache_control`。
-
-**`merge_dynamic_system_prompt()` 只服务预算记账**：它把 awareness / coding profile 后缀并进一份字符串（`system_prompt_for_budget`）供压缩预算计算——这**不是**发给 Provider 的那一份。请求体用的是静态 `system_prompt` + `RoundRequest` 上的独立后缀字段（trailing 后缀的 token 记账走 `token_manifest` 的 `dynamic_parts`）。
+压缩预算使用 `prompt_for_budget()` 计入稳定 prompt、受信 Run 与全部动态 user-data，但它只做预算输入，不改变真实 Provider role。
 
 **代码位置**：
-- Layer 3 顺序契约：`crates/ha-core/src/agent/streaming_adapter.rs`（`RoundRequest` / `leading_dynamic_suffixes` / `trailing_dynamic_suffixes`）
+- Layer 3 顺序契约：`crates/ha-core/src/agent/streaming_adapter.rs`（`RoundRequest` / `dynamic_instruction_suffixes` / `dynamic_data_suffixes`）
 - 每轮组装：`crates/ha-core/src/agent/streaming_loop.rs`
 
 ---
@@ -265,31 +307,31 @@ The following project context files have been loaded:
 
 **项目指令没有数据库副本**：设置页直接编辑项目根 `AGENTS.md`，添加已有目录时可显式选择不创建缺失文件；`# Current Project` 只描述项目元数据，`# Working Directory` 是项目指令的唯一注入点。
 
-**顶层文件清单是另一个独立尾段 `# Files in Working Directory`**，emit 在所有静态段之后（最末）：非递归、只列名字、名称排序、跳过隐藏与 `.git`/`node_modules`/`target`/`__pycache__`/`.venv` 等目录、cap 100 条。它刻意拆成尾段——增删一个顶层文件只 bust 这一尾块，同一目录状态渲染 byte-identical 文本，不波及静态前缀缓存。模型靠普通 `read` 工具按需读工作目录里的具体文件，system prompt 不再内联文件正文。
+**当天日期与顶层文件清单不再属于 system prompt**。它们和天气合并为 `build_round_environment_data()` 的非可信环境观察，经 `<hope_round_data source="environment">` 放在 user-data 尾部；目录清单非递归、只列名字、名称排序、跳过隐藏与 `.git`/`node_modules`/`target`/`__pycache__`/`.venv` 等目录、cap 100 条。跨日、增删文件或天气刷新因此不改变 stable system fingerprint。模型靠 `date` 获取精确时区时间，靠 `read` / `read_context_resource` 等工具读取具体内容。
 
 执行层与 prompt 保持一致：path-aware 工具的相对路径按「显式绝对路径 > 会话工作目录 > Agent home」解析；`exec` 无 `cwd` 时再回退到用户 home。详细工具层规则见 [tool-system.md](tool-system.md#2-文件系统)。
 
 **代码位置**：
-- Runtime / Working Directory / 文件清单段：`crates/ha-core/src/system_prompt/sections.rs`
+- Runtime / Working Directory / 每轮环境数据：`crates/ha-core/src/system_prompt/sections.rs`
 - 注入顺序：`crates/ha-core/src/system_prompt/build.rs`
 - 会话 working dir 取值：`crates/ha-core/src/agent/config.rs`、`crates/ha-core/src/agent/mod.rs`
 
 ---
 
-## 会话状态段：权限 / 执行 / 工作流 / IM
+## 会话状态上下文：权限 / 执行 / 工作流 / IM
 
-`build_with_resolved_session()` 从 `SessionMeta` 读取当前会话状态，注入四类轻量状态段。它们都是**行为提示**而非权限开关——真正的裁决仍在权限引擎、sandbox、hook、workflow runtime。四段集中放在工具描述之后的动态执行控制区，避免 `/mode` 翻转冲掉更大的静态前缀缓存。
+`prepare_session_policy_context()` 在 blocking pool 从绑定的 `SessionDB` 读取权限、执行、工作流、Sandbox 与 Active Goal，冻结成当轮 policy snapshot。它们都是**行为提示**而非权限开关——真正的裁决仍在权限引擎、sandbox、hook、workflow runtime。IM 同样按 turn 拆为固定 Run instruction 与外部 Data；这些内容都不进入稳定 system 字符串。
 
 | 段落 | 来源 | 触发条件 | 作用 |
 | ---- | ---- | -------- | ---- |
-| `# Current Permission Mode` | `sessions.permission_mode` | 所有正常 `build()` 路径 | 告诉模型当前处于 `default` / `smart` / `yolo`，合理决定工具调用自主度；权限引擎仍是唯一真相 |
+| `# Current Permission Mode` | `sessions.permission_mode` | 每个正常 chat turn | 告诉模型当前处于 `default` / `smart` / `yolo`，合理决定工具调用自主度；权限引擎仍是唯一真相 |
 | `# Execution Mode` | `sessions.execution_mode` | `guarded` / `deep` / `autonomous`；`off` 不注入 | 告诉模型长任务推进策略、验证深度、修复次数和停止条件 |
 | `# Workflow Mode` | `sessions.workflow_mode` | `on` / `ultracode`；`off` 不注入 | 告诉模型可自主动态编排；由模型判断是否调 `workflow_run` 创建 durable run |
-| `# IM Channel Attachment` | `SessionMeta.channel_info`（`channel_conversations` join） | 会话绑定 IM chat | 告诉模型回复可能镜像到 IM chat，包括桌面 / HTTP 发起的 turn |
+| IM attachment/frame | `SessionMeta.channel_info` / inbound envelope | 会话绑定或消息来自 IM | 固定行为走 Run instruction；chat/sender 字段走 user-data |
 
 ### Permission Mode
 
-`build_permission_mode_guidance()` 按三档生成不同正文：
+`build_permission_mode_guidance()` 按三档生成不同正文，并由 `prepare_session_policy_context()` 在回合开始时作为 trusted run instruction 冻结；它不属于 Layer 1：
 
 - **`default`**：照常调用必要工具，是否弹审批由系统决定；不要因为「可能弹窗」而提前停下。
 - **`smart`**：在 default 语义上说明 `_confidence: "high"` 自报字段——`write`/`edit`/`apply_patch` 判断安全时可加此字段跳过审批（工作目录内常规编辑、本对话已改过的文件通常合格）；大范围覆盖、删除、目录外写入应留给审批。保护路径（`~/.ssh`、`.env`）与危险命令（`rm -rf /`、`git push --force`）永远不能靠该字段放行。
@@ -297,7 +339,7 @@ The following project context files have been loaded:
 
 ### Execution Mode
 
-`ExecutionMode::system_prompt_section()` 生成，枚举 `off | guarded | deep | autonomous`：
+`ExecutionMode::system_prompt_section()` 生成 run instruction，枚举 `off | guarded | deep | autonomous`：
 
 - **`off`**：默认，不注入。
 - **`guarded`**：非平凡 coding work 走 observe → plan → edit → targeted validate → report；验证失败**最多一次**定向修复。
@@ -308,7 +350,7 @@ The following project context files have been loaded:
 
 ### Workflow Mode
 
-`WorkflowMode::system_prompt_section()` 生成，枚举 `off | on | ultracode`：
+`WorkflowMode::system_prompt_section()` 生成 run instruction，枚举 `off | on | ultracode`：
 
 - **`off`**：默认，不注入段，也不向模型暴露 `workflow_run`。
 - **`on`**：提示模型在多阶段、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行或需可审计轨迹时自行调 `workflow_run`；tiny 对话、单个显然动作、已验证机械任务保持 inline。
@@ -318,7 +360,7 @@ The following project context files have been loaded:
 
 ### IM Channel Attachment
 
-`# IM Channel Attachment` 只描述稳定的 attach 状态，区别于 IM 入站 turn 通过 `extra_system_context` 携带的 `## IM Channel Context`（后者只在 IM 消息触发的 turn 存在，含当前 inbound sender / chat context）；前者覆盖桌面 / HTTP 在同一 IM 绑定 session 中继续发消息并镜像到 IM 的场景。IM metadata 来自外部平台，以单行 JSON 作为**不可信 routing/audience context** 渲染，模型必须把字段值当数据而非指令。
+`# IM Channel Attachment` 的固定行为合同通过 `RunInstructionContext::Channel` 放在稳定缓存断点之后；当前 inbound sender/chat metadata 以及桌面/HTTP attach 的 audience metadata 通过 `run_data_suffix` 放在 user-data lane。两者不再共享自由字符串：外部平台字段永远是非可信 routing/audience data。
 
 **代码位置**：
 - Permission mode guidance：`crates/ha-core/src/system_prompt/constants.rs`
@@ -326,6 +368,10 @@ The following project context files have been loaded:
 - Workflow mode section：`crates/ha-base/src/workflow_mode.rs`
 - IM attachment section：`crates/ha-core/src/system_prompt/sections.rs`
 - 会话状态解析：`crates/ha-core/src/agent/config.rs`
+
+### Active Goal 与 Sandbox
+
+`prepare_session_policy_context()` 在 blocking pool 读取绑定 `SessionDB`，把 permission / execution / workflow / sandbox 与 Active Goal 作为一个当轮快照。Active Goal 的固定自治、证据与完成规则由 `active_goal_runtime_contract()` 进入 trusted run instruction；objective、criteria、handoff、budget、audit 等可变字段由 `render_active_goal_data()` 进入 user-data。Sandbox 只把后端已生效的模式与配置告诉模型，执行真相仍由 sandbox / permission 层掌握。Provider retry / failover 复用同一初始快照。
 
 ---
 
@@ -474,9 +520,9 @@ fn build_tools_section(agent_id, agent_config, incognito) -> String {
 
 ---
 
-## Plan Mode 提示词
+## Plan Mode 上下文
 
-Plan Mode 使用独立于主 system prompt 的额外提示词，注入到对话上下文中。详细架构见 [Plan Mode 架构文档](../agent/plan-mode.md)。四条常量都在 `crates/ha-core/src/plan/constants.rs`。
+Plan Mode 不重拼稳定 system prompt。平台维护的 Planning / Review / Executing 固定合同在 turn start 冻结为稳定缓存断点之后的 Run Instruction；用户或模型写出的 plan 文档通过独立 `plan_data` 进入 user-data。两者由 `PlanResolvedContext` 同时解析，同一 turn 的 retry / failover 复用冻结快照。详细架构见 [Plan Mode 架构文档](../agent/plan-mode.md)。四条兼容命名常量位于 `crates/ha-core/src/plan/constants.rs`，其中的 `SYSTEM_PROMPT` 名称不代表实际 placement。
 
 ### 5 阶段规划 Prompt
 
@@ -622,7 +668,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 ### Sandbox Mode
 
-**触发条件**：当前有效 `sandbox_mode.enabled()`；有 `session_id` 时用 `sessions.sandbox_mode`，无 `session_id` 的构建路径回落到 `AgentConfig.capabilities.effective_default_sandbox_mode()`。
+**触发条件**：当前有效 `sandbox_mode.enabled()`；有 `session_id` 时用 `sessions.sandbox_mode`，无 session meta 时回落到 `AgentConfig.capabilities.effective_default_sandbox_mode()`。它由 `prepare_session_policy_context()` 生成 trusted run instruction，不进入 Layer 1。
 
 **注入内容**：
 
@@ -633,7 +679,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 - 四种非 `off` 模式差异：`standard` 不放松审批、`isolated` 临时副本不持久化、`workspace` 真实工作区挂载并放松部分软审批、`trusted` 沙箱内最大自治但 strict 仍审批
 - 安全/持久化边界：**沙箱不是权限绕过**；`write`/`edit`/`apply_patch` 仍是 host-side durable file 工具
 
-**边界**：该段是模型行为提示，不是安全边界。实际执行以当前 `SessionMeta.sandbox_mode` 经 `ToolExecContext.sandbox_mode` 传入工具执行层为准；会话可在创建后切换 sandbox mode。
+**边界**：该段是模型行为提示，不是安全边界。实际执行以当前 `SessionMeta.sandbox_mode` 经 `ToolExecContext.sandbox_mode` 传入工具执行层为准；会话可在创建后切换 sandbox mode，新值从下一 turn 的 policy snapshot 生效。
 
 ### ACP External Agents
 
@@ -649,7 +695,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 ### 桌面专属 Markdown 路径链接
 
-**触发条件**：`app_init::is_desktop()`（即 `runtime_role() == Some("desktop")`）。Server / ACP 模式跳过——server 用户点了也无从响应，ACP 的路径由外部编辑器接管。它是 Layer 1 段序里的第 14 段，紧跟 Tool-Call Narration、先于 `# Current Permission Mode`。
+**触发条件**：`app_init::is_desktop()`（即 `runtime_role() == Some("desktop")`）。Server / ACP 模式跳过——server 用户点了也无从响应，ACP 的路径由外部编辑器接管。它是 Layer 1 段序里的第 14 段，紧跟 Tool-Call Narration；会话 Permission policy 位于稳定边界之后，不参与这里的相对顺序。
 
 **注入内容**（`MARKDOWN_PATH_LINKS_GUIDANCE`，标题 `# File Path Formatting`）：
 
@@ -681,13 +727,32 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 整个提示词系统的组装策略最终服务一个目标：**最大化 prompt 缓存命中，压低费用与首字延迟**。
 
-**请求诊断只记形状不记正文**。`agent::token_manifest` 每轮生成 content-free 的 `RoundTokenManifest`：只记各 prompt/tool/history 段的字节数、估算 token、BLAKE3 指纹、工具计数和 transport body 大小，不记录正文。稳定 system + eager tools 位于前缀，awareness/召回/task 等动态段位于其后；deferred 工具通过 Provider 原生 reference 或客户端下一轮追加，不得重排稳定 eager 集合。
+**请求诊断只记形状不记正文**。`agent::token_manifest` 每轮生成 content-free 的 `RoundTokenManifest`：只记各 prompt/tool/history 段的字节数、估算 token、安装/进程本地 keyed fingerprint、工具计数和 transport body 大小，不记录正文或可离线枚举的裸内容 hash。稳定 system + eager tools 位于前缀；动态 instruction/data 位于其后。
 
 **返回后按 provider/model/round 记实际用量**。`contextInputTokens`、`freshInputTokens`、cache read/write、output 与 TTFT。Prompt Cache 只改变 fresh prefill、费用和 TTFT；`contextInputTokens` 始终表示模型本轮实际占用的完整上下文，不因 cache hit 减少。
 
-**缓存路由 key**。`prompt_cache_key` 形如 `ha:{provider}:{model}:v2:{scope_hash}:{prompt_hash}`——包含 provider、model、prompt contract version、agent/session scope hash 与稳定 prompt fingerprint。适配器只在端点已知支持该字段时才发送（OpenAI Chat 端点做一次探测并记住结果）。
+**缓存路由 key**。`prompt_cache_key` 由 installation-local 持久密钥对 provider、model、Provider instance（配置 id + base URL）、当前认证主体的 keyed partition、prompt contract v3、稳定 system，以及本轮最终 eager + deferred tool schema 做 keyed digest；非 Incognito 另以 Agent id、Incognito 以 session id 生成隔离 scope。API Key、account id 和裸 auth hash 不进入请求或日志。用户文本、History、Run frame、typed mention 的正文、Skill/Note/Hook/IM data 本身不进入 key；但 mention/Skill/Plan/KB/MCP 状态若改变了最终 tool schema，schema bytes 会使 key 有意变化。切换 auth profile/account、兼容 backend、Agent 或 Incognito session 会强制换 partition/scope。OpenAI Chat 对兼容端点做 capability 记忆；Anthropic 不使用 request-level key；Codex 明确不发送该字段。
+
+**持久 key 的发布与降级**。`init_runtime()` 从 credentials 目录读取 `prompt-cache-routing-v1.key`。首次安装由竞争进程对 `prompt-cache-routing-v1.lock` 取 OS 独占锁，持锁后再次读取，仍不存在才用 `write_secure_file` 原子发布 32-byte 随机 key；其他进程指数退避重读，最多等待 2 秒，因此并行启动不会各自覆盖安装 key。文件损坏、目录/锁/安全写失败或发布超时不会阻断聊天：进程记录不含密钥的 warning，改用仅驻留当前进程的随机 key。该降级仍保持 keyed digest 的隐私隔离，只牺牲跨进程/重启的 cache affinity；它不会回退到正文裸 hash，也不会在请求或日志中暴露安装 key。
 
 **OpenAI Responses 的显式缓存**。仅 `api.openai.com` 上的 GPT-5.6+ 走显式缓存：稳定系统提示放在首个 `developer` `input_text` block，并设 `prompt_cache_breakpoint: {mode: explicit}` 与 `prompt_cache_options: {mode: explicit, ttl: 30m}`。5.4/5.5 保持自动缓存；Codex 和未知兼容端不假设支持这些字段。
+
+### Cache 失效矩阵
+
+这里的“routing key”指应用发送的请求级亲和 key；它相同不等于整个请求 body 相同。动态 History/Turn 后缀仍会变化，Provider 自动缓存是否命中由 Provider 决定；OpenAI Responses 的显式 breakpoint 则只锚定稳定 system 段。
+
+| 变化 | 应用 routing key | Provider 可见变化 / 当前行为 |
+| --- | --- | --- |
+| 普通用户消息、History、Tool result | 不变 | History/Turn 后缀变化；不污染稳定 system 断点 |
+| `@file` / `@plan` / `@note` / `@agent` / `@connector` 的选择、内容或 receipt | 选择/data 本身不变；若同时改变最终 tool schema 才变化 | User instruction / untrusted data 变化；mention 不直接执行 |
+| `@skill` / `/skill` 或模型调用 `skill()` | Skill 正文与选择事实本身不变；`allowed-tools` 收窄或 deferred activation 改变最终 schema 时变化 | Skill 正文留在 user authority；工具集合变化有意切换 tools prefix |
+| Hook / IM、Profile、Recall / Awareness、环境、LSP、日期、天气、目录清单 | 不变 | 只改变 Run/Data/History 后缀 |
+| Permission、Sandbox、Execution、Workflow、Plan、Goal / Task 状态 | 单纯运行 frame 变化时不变；若 Plan/Workflow/ToolScope 等改变最终 schema 则变化 | 执行仍做 live policy 检查，prompt 不是授权缓存 |
+| Agent identity / personality / `agent.md` / `tools.md`、稳定 ContextEngine addition、冻结 Core Memory、Project / Working Directory 稳定说明、Skills metadata 目录 | 变化 | 稳定 system 输入确实变化，旧前缀不应复用 |
+| eager/deferred 工具 schema 的增删或内容变化，包括 Agent filter、`denied-tools`、Skill/Plan ceiling、KB 可见性、工具 activation、MCP catalog schema 实变 | 变化 | key 序列化本轮最终两组 schema；仅 catalog generation/顺序噪声而 schema bytes 未变时不额外失效 |
+| Provider format、model、Provider config id / base URL、认证主体、prompt contract | 变化 | 切到独立 Provider/tenant/contract 路由域 |
+| Agent 切换、Incognito 开关或 Incognito session 切换 | 变化 | scope 分别绑定 Agent id 或 Incognito session id，禁止跨域亲和 |
+| 持久 routing key 初始化失败 | 当前进程内稳定；重启/其他进程会变化 | 安全降级为 process-local key，只丢跨重启/进程复用 |
 
 **渐进式披露压低前缀体积**。工具详细描述只为 eager 工具注入；deferred 目录用紧凑名称索引，完整 schema 只在激活后出现。Skills 首轮只保留名称和有界触发语句，完整 SKILL.md 由 `skill` 工具加载。Subagent/Team/ACP 的长指南在工具 eager 时进入静态 prompt；deferred 时随完整 schema 组成 activation package，客户端激活和 Provider 原生 tool reference 都能加载而不改变稳定缓存前缀。
 
@@ -695,13 +760,13 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 | 策略         | 实现                          | 效果                              |
 | ------------ | ----------------------------- | --------------------------------- |
-| 日期精确到天 | `date +%Y-%m-%d %Z`（无时间） | 同一天的 system prompt 完全相同   |
+| 日期移出 prefix | `date +%Y-%m-%d %Z` 进入 environment user-data | 跨日不再使 stable system 失效 |
 | 固定段顺序   | 段落按固定顺序组装            | prompt prefix 稳定，利于 KV cache |
 | 常量描述     | 工具/行为描述为编译时常量     | 不受运行时数据影响                |
-| 截断上限     | markdown 注入限制 20K 字符    | 防止动态内容过大破坏缓存          |
-| 易变内容后置 | mode 段、工作目录文件清单靠后 | 翻转只失效小段，前缀不动          |
+| 注入预算     | markdown 配置段限制 20K；文件资源按 context window 的 20% 总预算（8K–200K）公平分摊 | 防止动态内容挤掉历史与输出空间 |
+| 易变内容后置 | Profile、天气、目录清单、召回、LSP 进 user-data 尾部 | 普通 turn churn 不动稳定前缀 |
 
-**日期函数**：`current_date()`（`system_prompt/helpers.rs`）——文档注释明确说明排除时间是为缓存优化；需要精确时间时模型可 `exec date`。
+**日期函数**：`current_date()`（`system_prompt/helpers.rs`）只生成 date-only 的 round environment data，不参与 stable system；需要精确时间时模型可 `exec date`。
 
 ---
 
@@ -712,8 +777,12 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | `crates/ha-core/src/system_prompt/build.rs`     | **核心**：结构化 / OpenClaw 两模式组装、`build_with_resolved_session()` 段序、记忆段预算 |
 | `crates/ha-core/src/system_prompt/constants.rs` | `TOOL_DESCRIPTIONS` 映射（每项对应一个 `TOOL_DESC_*` 常量）、`HUMAN_IN_THE_LOOP_GUIDANCE` / `TOOL_CALL_NARRATION_GUIDANCE` / `MARKDOWN_PATH_LINKS_GUIDANCE` / `MEMORY_GUIDELINES` 等行为常量、`build_permission_mode_guidance()` |
 | `crates/ha-core/src/system_prompt/sections.rs`  | 各 section builder（personality/tools/skills/runtime/subagent/acp/working-dir） |
-| `crates/ha-core/src/agent/mod.rs`               | Layer 2 `append_full_system_prompt_extras()`、`merge_dynamic_system_prompt()`、知识空间段 |
-| `crates/ha-core/src/agent/streaming_adapter.rs` | Layer 3 顺序契约：`RoundRequest` + `leading/trailing_dynamic_suffixes`     |
+| `crates/ha-core/src/prompt_context.rs`          | typed wire 校验、authority-safe Turn Envelope、receipt、Agent/resource refs |
+| `crates/ha-core/src/cache_routing.rs`           | installation-local cache routing key 与 content-free audit fingerprint |
+| `crates/ha-core/src/agent/mod.rs`               | Layer 2 稳定能力补充、Run/Data snapshot、知识与 capability data 构建 |
+| `crates/ha-core/src/agent/streaming_adapter.rs` | Run instruction 与 Round user-data 顺序契约                              |
+| `crates/ha-core/src/agent/content.rs`           | 文件/Plan/附件的模型窗口自适应 full/preview materialization               |
+| `crates/ha-core/src/agent/providers/`           | Anthropic/OpenAI Chat/OpenAI Responses/Codex 的 role 与 cache 序列化      |
 | `crates/ha-base/src/execution_mode.rs` · `workflow_mode.rs` | 执行 / 工作流模式枚举与 `system_prompt_section()`           |
 | `crates/ha-core/src/agent_config.rs`            | Agent 配置结构（personality/tools/skills/memory/subagents/openclaw_mode）  |
 | `crates/ha-core/src/agent_loader.rs`            | Agent 加载（agent.json + md 文件 + OpenClaw 模板）                        |

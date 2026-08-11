@@ -22,7 +22,7 @@ import {
   useState,
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { FileText, Folder } from "lucide-react"
+import { Cable, FileText, Folder, Puzzle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { AgentAvatarBadge } from "@/components/common/AgentSelectDisplay"
@@ -42,12 +42,23 @@ import {
   parseSkillMentions,
   skillMentionMeta,
 } from "../skill-mention/skillTokens"
+import { parseCapabilityMentions, type ComposerMentionBinding } from "../mentions/typedMentions"
 import type { ComposerInputHandle } from "./composerInputHandle"
 
 type MentionSpan =
   | { kind: "file"; raw: string; relPath: string; start: number; end: number }
+  | { kind: "plan"; raw: string; label: string; start: number; end: number }
   | { kind: "note"; raw: string; start: number; end: number }
   | { kind: "skill"; raw: string; name: string; start: number; end: number }
+  | {
+      kind: "capability"
+      raw: string
+      capabilityKind: "plugin" | "connector"
+      targetId: string
+      label: string
+      start: number
+      end: number
+    }
   | { kind: "agent"; raw: string; agentId: string; start: number; end: number }
 
 export interface ComposerPasteEvent {
@@ -58,12 +69,15 @@ export interface ComposerPasteEvent {
 
 interface MentionComposerInputProps {
   value: string
+  typedMentions?: ComposerMentionBinding[]
   placeholder: string
   workingDir: string | null
   fileEnabled: boolean
   noteEnabled: boolean
   /** Render `@skill:<name>` (allowlisted built-ins) as rose chips. */
   skillEnabled?: boolean
+  /** Render typed Plugin/Connector link tokens as capability chips. */
+  capabilityEnabled?: boolean
   /** Render `@agent` delegation mentions as teal chips. */
   agentMentionEnabled?: boolean
   agents?: AgentSummaryForSidebar[]
@@ -76,10 +90,12 @@ interface MentionComposerInputProps {
 }
 
 interface MentionConfig {
+  typedMentions: ComposerMentionBinding[]
   workingDir: string | null
   fileEnabled: boolean
   noteEnabled: boolean
   skillEnabled: boolean
+  capabilityEnabled: boolean
   agentMentionEnabled: boolean
   /** Resolve a skill id → localized chip label (threaded from `t`). */
   skillLabel: (name: string) => string
@@ -95,6 +111,10 @@ const SKILL_CHIP_CLASS =
   "cm-mention-chip cm-mention-skill mx-0.5 inline-flex max-w-[16rem] items-baseline gap-1 whitespace-nowrap align-baseline text-sm font-normal"
 const AGENT_CHIP_CLASS =
   "cm-mention-chip cm-mention-agent mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-teal-500/20 bg-teal-500/10 px-1.5 text-sm font-medium text-teal-700 shadow-sm dark:border-teal-300/20 dark:bg-teal-300/15 dark:text-teal-200"
+const CAPABILITY_CHIP_CLASS =
+  "cm-mention-chip cm-mention-capability mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-1.5 text-sm font-medium text-cyan-700 shadow-sm dark:border-cyan-300/20 dark:bg-cyan-300/15 dark:text-cyan-200"
+const PLAN_CHIP_CLASS =
+  "cm-mention-chip cm-mention-plan mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 text-sm font-medium text-amber-700 shadow-sm dark:border-amber-300/20 dark:bg-amber-300/15 dark:text-amber-200"
 const CHIP_ICON_CLASS = "h-4 w-4 shrink-0"
 const CHIP_LABEL_CLASS = "truncate"
 const widgetIconRoots = new WeakMap<HTMLElement, Root>()
@@ -105,6 +125,14 @@ function isCommittedMention(input: string, end: number): boolean {
 
 function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
   const spans: MentionSpan[] = []
+  const isTyped = (kind: ComposerMentionBinding["kind"], raw: string, start: number, end: number) =>
+    config.typedMentions.some(
+      (mention) =>
+        mention.kind === kind &&
+        mention.raw === raw &&
+        mention.start === start &&
+        mention.end === end,
+    )
 
   if (config.fileEnabled) {
     for (const mention of parseMentions(input)) {
@@ -113,10 +141,23 @@ function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
       // the `[@…](#skill:…)` link form — their `@` sits after `[`, so the bare
       // `@token` file grammar never matches them.)
       if (mention.relPath.startsWith("plan:")) continue
+      if (!isTyped("file", mention.raw, mention.start, mention.end)) continue
       spans.push({
         kind: "file",
         raw: mention.raw,
         relPath: mention.relPath,
+        start: mention.start,
+        end: mention.end,
+      })
+    }
+  }
+
+  for (const mention of config.typedMentions) {
+    if (mention.kind === "plan" && input.slice(mention.start, mention.end) === mention.raw) {
+      spans.push({
+        kind: "plan",
+        raw: mention.raw,
+        label: mention.displayLabel,
         start: mention.start,
         end: mention.end,
       })
@@ -134,6 +175,7 @@ function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
     // commitment gate needed. Only allowlisted built-ins become chips.
     for (const skill of parseSkillMentions(input)) {
       if (!isSkillMentionName(skill.name)) continue
+      if (!isTyped("skill", skill.raw, skill.start, skill.end)) continue
       spans.push({
         kind: "skill",
         raw: skill.raw,
@@ -144,10 +186,27 @@ function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
     }
   }
 
+  if (config.capabilityEnabled) {
+    spans.push(
+      ...parseCapabilityMentions(input)
+        .filter((mention) => isTyped(mention.kind, mention.raw, mention.start, mention.end))
+        .map((mention) => ({
+          kind: "capability" as const,
+          raw: mention.raw,
+          capabilityKind: mention.kind,
+          targetId: mention.targetId,
+          label: mention.label,
+          start: mention.start,
+          end: mention.end,
+        })),
+    )
+  }
+
   if (config.agentMentionEnabled) {
     // Same markdown-link token shape as `@skill`, so it is self-delimiting and
     // cannot collide with bare `@path` file mentions.
     for (const agent of parseAgentMentions(input)) {
+      if (!isTyped("agent", agent.raw, agent.start, agent.end)) continue
       spans.push({
         kind: "agent",
         raw: agent.raw,
@@ -210,8 +269,14 @@ class MentionWidget extends WidgetType {
       other.span.raw === this.span.raw &&
       (other.span.kind !== "file" ||
         (this.span.kind === "file" && other.span.relPath === this.span.relPath)) &&
+      (other.span.kind !== "plan" ||
+        (this.span.kind === "plan" && other.span.label === this.span.label)) &&
       (other.span.kind !== "agent" ||
         (this.span.kind === "agent" && other.span.agentId === this.span.agentId)) &&
+      (other.span.kind !== "capability" ||
+        (this.span.kind === "capability" &&
+          other.span.capabilityKind === this.span.capabilityKind &&
+          other.span.targetId === this.span.targetId)) &&
       other.workingDir === this.workingDir &&
       other.skillLabel === this.skillLabel &&
       other.agentById === this.agentById
@@ -230,6 +295,14 @@ class MentionWidget extends WidgetType {
       root.title = this.span.raw
       appendIcon(root, createElement(FileText, { className: CHIP_ICON_CLASS }))
       appendText(root, CHIP_LABEL_CLASS, title)
+      return root
+    }
+
+    if (this.span.kind === "plan") {
+      root.className = PLAN_CHIP_CLASS
+      root.setAttribute("aria-label", this.span.raw)
+      appendIcon(root, createElement(FileText, { className: CHIP_ICON_CLASS }))
+      appendText(root, CHIP_LABEL_CLASS, this.span.label || this.span.raw)
       return root
     }
 
@@ -264,6 +337,19 @@ class MentionWidget extends WidgetType {
         }),
       )
       appendText(root, CHIP_LABEL_CLASS, label)
+      return root
+    }
+
+    if (this.span.kind === "capability") {
+      root.className = CAPABILITY_CHIP_CLASS
+      root.setAttribute("aria-label", `${this.span.capabilityKind}:${this.span.targetId}`)
+      appendIcon(
+        root,
+        createElement(this.span.capabilityKind === "connector" ? Cable : Puzzle, {
+          className: CHIP_ICON_CLASS,
+        }),
+      )
+      appendText(root, CHIP_LABEL_CLASS, this.span.label)
       return root
     }
 
@@ -535,11 +621,13 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
   function MentionComposerInput(
     {
       value,
+      typedMentions = [],
       placeholder,
       workingDir,
       fileEnabled,
       noteEnabled,
       skillEnabled = false,
+      capabilityEnabled = false,
       agentMentionEnabled = false,
       agents = [],
       hero = false,
@@ -569,10 +657,12 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     const onPasteRef = useRef(onPaste)
     const onSelectionChangeRef = useRef(onSelectionChange)
     const configRef = useRef<MentionConfig>({
+      typedMentions,
       workingDir,
       fileEnabled,
       noteEnabled,
       skillEnabled,
+      capabilityEnabled,
       agentMentionEnabled,
       skillLabel,
       agentById,
@@ -593,10 +683,12 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     onPasteRef.current = onPaste
     onSelectionChangeRef.current = onSelectionChange
     configRef.current = {
+      typedMentions,
       workingDir,
       fileEnabled,
       noteEnabled,
       skillEnabled,
+      capabilityEnabled,
       agentMentionEnabled,
       skillLabel,
       agentById,
@@ -713,10 +805,12 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     }, [
       agentById,
       agentMentionEnabled,
+      capabilityEnabled,
       fileEnabled,
       noteEnabled,
       skillEnabled,
       skillLabel,
+      typedMentions,
       workingDir,
     ])
 

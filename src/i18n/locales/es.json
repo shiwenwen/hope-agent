@@ -971,6 +971,9 @@
       "failed": "No se pudo exportar la conversación.",
       "untitled": "Sin título"
     },
+    "capabilityMention": {
+      "heading": "Plugins y conectores"
+    },
     "skillMention": {
       "heading": "Habilidades",
       "labels": {

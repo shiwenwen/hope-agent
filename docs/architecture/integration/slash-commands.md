@@ -1,6 +1,6 @@
 # 斜杠命令系统 (Slash Commands)
 
-> 返回 [文档索引](../../README.md)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
 
 斜杠命令是 Hope Agent 的**控制面语言**：在聊天输入框或任意 IM 渠道（Telegram、Discord 等）里键入 `/` 前缀，就能不经过大模型直接切换模型、进入计划模式、导出会话、查看上下文占用、管理项目与会话——这些操作要么与模型对话无关，要么需要在对话之外即时生效。系统内置约 40 条命令，另有一批**动态技能命令**在运行时从技能目录合并进来；命令按类别分组，支持参数、模糊匹配和固定选项提示。
 
@@ -35,11 +35,11 @@
 ```mermaid
 flowchart TB
     subgraph kernel["ha-core kernel（下游都能依赖）"]
-        defs["slash_defs（契约层）<br/>命令表 · wire 类型 · 解析 · 模糊匹配 · 转录落库"]
+        defs["slash_defs（契约层）<br/>命令表 · 动态命名碰撞 · wire 类型 · 解析 · 模糊匹配 · 转录落库"]
         hooks["slash_hooks（分发钩子）<br/>dispatch / menu_entries / skill_command_help<br/>三槽 OnceLock 原子注册"]
     end
     subgraph asm["ha-core 装配层（依赖图顶端）"]
-        cmds["slash_commands<br/>list / execute / 技能命名解析<br/>handlers::dispatch → skills / cron / project ..."]
+        cmds["slash_commands<br/>list / execute / Skill 命名适配<br/>handlers::dispatch → skills / cron / project ..."]
     end
     channel["ha-channel（IM 渠道 worker）"]
     shells["src-tauri / ha-server（薄壳）"]
@@ -211,7 +211,7 @@ sequenceDiagram
 | `/workflow` | `[on\|off\|ultracode\|status\|runs\|trace\|approve\|pause\|resume\|cancel] [run_id]` | 开关当前会话 Workflow Mode，并查看 / 控制 durable workflow runs（详见下文） | `DisplayOnly` / `SetWorkflowMode` |
 | `/review` | `[run\|status\|resolved\|dismissed\|false_positive\|open] [id]` | 对当前会话工作区未提交改动运行本地 Review Engine；可查看 run / finding 并更新 finding 状态 | `DisplayOnly` |
 | `/loop` | 无参 / `<duration> <prompt>` / `<prompt> every <duration>` / `<prompt>` / `[every\|until\|status\|pause\|resume\|stop]` | 创建或控制当前会话 durable loop；无参创建维护型 Loop 并读取可选 `loop.md`，无间隔的 prompt-only 写法创建自定节奏 Loop，创建型命令后端立即触发第一轮（详见 [loop](../agent/loop.md)） | `DisplayOnly` |
-| `/mode` | `[off\|guarded\|deep\|autonomous\|status]` | 查看 / 设置当前会话 Execution Mode，影响后续 system prompt 的长任务策略段（详见下文） | `DisplayOnly` |
+| `/mode` | `[off\|guarded\|deep\|autonomous\|status]` | 查看 / 设置当前会话 Execution Mode，下一轮作为 trusted run instruction 影响长任务策略（不改稳定 system） | `DisplayOnly` |
 | `/recap` | `[--full\|--range=7d\|--range=30d]` | 生成深度复盘报告（后台流式），`--full` 跳转 Dashboard | `RecapCard` / `OpenDashboardTab` |
 | `/awareness` | `[on\|off\|mode <x>\|status]` | 控制行为感知的全局开关与模式（详见下文） | `DisplayOnly` |
 | `/imreply` | `[split\|final\|preview]` 可选 | **IM 专用**：设置当前 channel-account 回复模式（每 round 拆分 / 仅最终 / 流式合并预览）。详见 [im-channel](im-channel.md) | `DisplayOnly` |
@@ -237,16 +237,18 @@ sequenceDiagram
 - 冲突的 **alias** 直接丢弃（alias 是补充入口，不允许压过已占用名）
 - **内置命令永远优先**：用户键入 `/new` 时内置 `new` 先命中，同名 skill 本身不可达——要触发自家 skill，用菜单里显示的 `/new_skill`
 
+桌面/Web 送入模型的 typed `SlashCommandAst` 也按同一碰撞表验证 `(typed_name, skill target_id)` 唯一配对；不能把 `/new_skill`、共享 alias 或任意无害命令文本重新绑定到另一个 Skill。纯碰撞算法位于 `slash_defs::resolve_dynamic_command_names`，`slash_commands::resolve_skill_command_names` 只把结果映射回 live `SkillEntry`，因此 chat engine 不会反向依赖装配层。
+
 **分发路径**（由 SKILL.md frontmatter 决定，见 `handlers::handle_skill_command`）：
 
 | 条件 | 分发路径 | CommandAction |
 |---|---|---|
-| `context: fork` | 经 `skills_hooks::spawn_skill_fork` 启子 Agent，结果通过 EventBus injection 作为 user message 推回主对话 | `SkillFork { run_id, skill_name }` |
-| `command-dispatch: tool` + `command-tool: <name>` | 后端直接执行指定工具（零 LLM 往返），输出截断 4096 字节后展示 | `DisplayOnly` |
-| `command-dispatch: prompt` 或带 `command-prompt-template` | 模板展开 `$ARGUMENTS`；模板无该占位符时把参数尾附为 `User input:` 段 | `PassThrough { message }` |
-| 默认（无模板无 fork） | **内联 SKILL.md 全文 + `$ARGUMENTS`**，包进 `[SYSTEM: skill 已激活]` 头部的 `PassThrough` 直接送模型（跳过 `read` / `tool_search` 间接寻址） | `PassThrough { message }` |
+| `context: fork` | 经 `skills_hooks::spawn_skill_fork` 启子 Agent；Skill 正文与用户参数作为 child user task，结果通过 EventBus injection 回投主对话 | `SkillFork { run_id, skill_name }` |
+| `command-dispatch: tool` + `command-tool: <name>` | 后端按 Skill 明示契约直接执行指定工具（零 LLM 往返）；仍经过统一 permission resolver，输出截断 4096 字节后展示 | `DisplayOnly` |
+| `command-dispatch: prompt` 或带 `command-prompt-template` | 模板展开 `$ARGUMENTS`；模板无该占位符时把参数尾附为 `User input:` 段；Skill 激活信息结构化携带 | `PassThrough { message, skill_activation }` |
+| 默认（无模板无 fork） | 内联 SKILL.md 全文与 `$ARGUMENTS`，明确作为用户请求扩展发送；不伪装成 system role | `PassThrough { message, skill_activation }` |
 
-前端把技能命令的 `PassThrough` 通过 `handleSend(expandedMessage, { displayText: commandText })` 送出：用户气泡显示原始 `/skillname args` 并落库，模型收到的是内联了 SKILL.md 的展开消息。详见 [技能系统 §斜杠命令的 Inline 内联路径](../agent/skill-system.md)。
+桌面/Web 对技能 `PassThrough` 发送原始 `/skillname args` 与 typed slash binding：用户气泡与 canonical request 都保留原命令，Chat Engine 不信任前端回传的展开正文。公共 handler 和 engine 共用 kernel `resolve_skill_slash_dispatch()`，从同一 frozen `SkillEntry` 得出 fork/direct-tool/template/inline 语义；`command-dispatch: prompt` 及默认带模板的 Skill 保持后端模板展开，只有无模板 inline 才读取 SKILL.md。IM 端由产生展开指令的同一次可信解析冻结 `allowed-tools` ceiling，并随消息一起持久化到队列，禁止在展开后重新读取 catalog（否则并发禁用/修改会形成 TOCTOU 权限宽化）。inline 与 fork materializer 都会把当次读到的 SKILL.md 控制性 frontmatter 与该 catalog snapshot 核对，阻断“新正文 + 旧 ceiling/requirements/Agent”竞态；fork 读取失败不得以 description/generic task 继续创建 child，模板正文与 ceiling 则天然取自同一 entry snapshot。共用 slash handler 的 SKILL.md materialization 失败会直接返回可见错误，不再降级为路径指针进入 IM Provider；桌面/Web 另外在 turn 入口重做 canonical args、dispatch 与 requirements live recheck，任一失败都在 Provider I/O 前终止 turn，不允许退化成原始 slash 文本加 unrestricted 工具。Skill 能引导模型，但真实工具调用仍由模型决定；ceiling 在 schema、`tool_search` 和执行层做不可放宽的交集。详见 [技能系统](../agent/skill-system.md)。
 
 ---
 
@@ -297,8 +299,8 @@ stateDiagram-v2
 | Tool schemas | 发给 API 的 JSON 工具 schema（按当前 Provider 形状构建，含本会话已激活的 deferred 工具） |
 | Tool descriptions | system prompt 内的工具说明段（`# Available Tools`） |
 | Memory | 注入的静态记忆段之和：Agent Core + Global Core + 项目索引 + legacy 静态块 |
-| Skills | system prompt 内的技能说明段 |
-| Dynamic prompt | 稳定前缀之后的每轮动态后缀：Recall 召回、行为感知、流程、笔记、编码画像、任务提醒 |
+| Skills | 稳定 system 中的 Skill metadata / 使用说明目录；不含本轮按 typed `/skill` / `@skill` 加载的完整 `SKILL.md` 正文 |
+| Dynamic prompt | 稳定前缀之后的每轮动态上下文：受信运行/编码/任务合同，以及 user-data Recall、流程、笔记、任务 snapshot/Hook 输出 |
 | Messages | 会话历史（user / assistant + tool_use / tool_result） |
 | Reserved output | 预留输出 budget，常量 `16_384`，对齐 `run_compaction` |
 | Free space | `context_window − 上述总和`，饱和到 0 |
@@ -425,7 +427,7 @@ stateDiagram-v2
 
 **静默 dispatch 别名**：`handlers::dispatch` 的 match arm 接受多个名字（如 `"thinking" | "think"`、`"reason" | "reasoning"`），但只有 canonical name 进注册表与 IM 菜单。`/think` 是 `/thinking` 的别名，`/reasoning` 是 `/reason` 的别名——两者都能触发，但菜单只展示 canonical，避免视觉冗余。
 
-**别名 reserved 契约**：所有静默别名都登记在 [`SILENT_BUILTIN_ALIASES`](../../../crates/ha-core/src/slash_commands/mod.rs)（当前 = `["reasoning", "think"]`）里；`builtin_command_names()` 把别名一并塞进保留集，`resolve_skill_command_names` 用它判断 skill 是否需要 `_skill` 后缀。别名不在这份保留集里，同名 skill 就拿不到 `_skill` 后缀，键入时会先被 dispatch 里别名的 match arm 命中——它排在 `_ => handle_skill_command` 之前，于是技能本身永远触发不到。
+**别名 reserved 契约**：所有静默别名都登记在 [`slash_defs`](../../../crates/ha-core/src/slash_defs/mod.rs) 的 `SILENT_BUILTIN_ALIASES`（当前 = `["reasoning", "think"]`）里；`builtin_command_names()` 把别名一并塞进保留集，`resolve_skill_command_names` 用它判断 skill 是否需要 `_skill` 后缀。别名不在这份保留集里，同名 skill 就拿不到 `_skill` 后缀，键入时会先被 dispatch 里别名的 match arm 命中——它排在 `_ => handle_skill_command` 之前，于是技能本身永远触发不到。
 
 ---
 

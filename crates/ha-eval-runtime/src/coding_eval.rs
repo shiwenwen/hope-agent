@@ -1246,6 +1246,7 @@ async fn run_agent_execution_eval(
                 agent_id: agent_id.clone(),
                 turn_id: Some(turn_id.clone()),
                 message: prompt.clone(),
+                incoming_turn: None,
                 display_text: run.display_text.clone(),
                 attachments: Vec::new(),
                 session_db: db.clone(),
@@ -1254,7 +1255,17 @@ async fn run_agent_execution_eval(
                 codex_token: None,
                 resolved_temperature: None,
                 compact_config: run.compact_config.clone().unwrap_or_default(),
-                extra_system_context: run.extra_system_context.clone(),
+                run_context: run
+                    .extra_system_context
+                    .clone()
+                    .map(|content| {
+                        ha_core::prompt_context::RunInstructionContext::new(
+                            ha_core::prompt_context::RunInstructionSource::Evaluation,
+                            "# Coding Eval Execution\n\nExecute the evaluation task through normal tools and preserve auditable evidence.",
+                        )
+                        .map(|context| context.with_untrusted_data(content))
+                    })
+                    .transpose()?,
                 reasoning_effort: run
                     .reasoning_effort
                     .clone()

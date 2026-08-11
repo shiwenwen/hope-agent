@@ -31,7 +31,12 @@ impl AssistantAgent {
             vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
             vision_notice_emitted: Arc::new(AtomicBool::new(false)),
         };
-        let user_content = build_user_content_openai_chat(message, attachments);
+        let user_content = build_user_content_openai_chat(
+            message,
+            attachments,
+            self.get_context_window(),
+            &self.context_resource_refs,
+        );
         self.run_streaming_chat(
             &adapter,
             model,

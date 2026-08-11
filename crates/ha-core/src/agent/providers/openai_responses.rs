@@ -32,7 +32,12 @@ impl AssistantAgent {
             model,
             reasoning,
         };
-        let user_content = build_user_content_responses(message, attachments);
+        let user_content = build_user_content_responses(
+            message,
+            attachments,
+            self.get_context_window(),
+            &self.context_resource_refs,
+        );
         self.run_streaming_chat(
             &adapter,
             model,

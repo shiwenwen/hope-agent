@@ -459,6 +459,7 @@ fn resolve_tool_preview(
         agent_id: session_context.agent_id.as_deref(),
         default_path: Some(default_path),
         is_internal_tool: tools::is_internal_tool(tool_name),
+        bound_context_resource_read: false,
         smart_config: None,
         unattended: false,
         task_intent: None,

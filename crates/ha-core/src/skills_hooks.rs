@@ -39,7 +39,6 @@
 //! - [`invocable_skills`] / [`load_all_skills_with_budget`]：返回**空目录**。
 //!   逐位等价于迁出前「`skills/` 下一个 SKILL.md 都没有」——所有调用点
 //!   （slash 菜单、system prompt 段、条件激活）本就按空目录写的。
-//! - [`resolve_inline_skill_mentions`]：返回 `None`（无附加 system 段）。
 //! - [`auto_review_post_turn`]：no-op（不复盘，不落 draft）。
 //! - [`render_skill_inline`] / [`spawn_skill_fork`] / [`create_managed_skill_draft`]
 //!   / [`set_managed_skill_status`]：返回 **`Err`**。四者都是用户或学习循环
@@ -56,12 +55,12 @@ use ha_config_schema::skills::{SkillPromptBudget, SkillsAutoReviewConfig};
 
 type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// 九槽**原子注册**：行为 8 + 装配 1。
+/// 八槽**原子注册**：行为 7 + 装配 1。
 ///
 /// 与 `knowledge_hooks` / `channel_hooks` / `slash_hooks` 同样一次性注册整组——
 /// 部分注册＝一部分技能路径活着、另一部分静默返空目录，是最难查的破法。
 pub struct SkillsHooks {
-    // ——— 行为 8 ———
+    // ——— 行为 7 ———
     /// `skills::get_invocable_skills`——扫描内置 + 托管 + 额外目录，产出模型 /
     /// slash 可调用的技能目录。四个 kernel 调用点共用（slash 菜单、`/help`、
     /// slash 分发、条件激活快路径）。
@@ -70,10 +69,13 @@ pub struct SkillsHooks {
     /// 裁剪）。与 [`Self::invocable_skills`] 是两条不同的过滤链，不能合并。
     pub load_all_skills_with_budget:
         fn(extra_dirs: &[String], budget: &SkillPromptBudget) -> Vec<SkillEntry>,
-    /// `skills::resolve_inline_skill_mentions`——用户消息里的 `@skill` 提及。
-    /// 固定 allowlist（`AT_MENTIONABLE_SKILLS`）与 OS 门在 resolver 内部，
-    /// kernel 侧只负责「这一轮是不是真实用户轮」的门控。
-    pub resolve_inline_skill_mentions: fn(message: &str) -> Option<String>,
+    /// Typed-composer variant. Names already passed source-anchor validation in
+    /// `prompt_context`; the feature layer still enforces its allowlist,
+    /// enabled state, requirements, and OS gate.
+    pub resolve_named_skill_mentions: fn(
+        names: &[String],
+        agent_id: Option<&str>,
+    ) -> Option<crate::skills::MentionSkillActivation>,
     /// `tools::skill::render_inline`——读 SKILL.md + `$ARGUMENTS` 替换。
     /// slash 命令与 `skill` 工具共用同一份激活正文（两者必须逐字节相同）。
     pub render_skill_inline:
@@ -127,7 +129,7 @@ pub struct SkillsHooks {
 
 static SKILLS_HOOKS: OnceLock<SkillsHooks> = OnceLock::new();
 
-/// 装配期注册技能机器钩子（九槽原子）。重复注册返回 `Err`。
+/// 装配期注册技能机器钩子（八槽原子）。重复注册返回 `Err`。
 pub fn register_skills_hooks(hooks: SkillsHooks) -> Result<(), crate::AlreadyRegistered> {
     SKILLS_HOOKS
         .set(hooks)
@@ -159,10 +161,14 @@ pub fn load_all_skills_with_budget(
     }
 }
 
-/// 解析用户消息里的 `@skill` 提及。未装配即 `None`（无附加 system 段）。
-pub fn resolve_inline_skill_mentions(message: &str) -> Option<String> {
+/// Resolve already-validated typed skill ids. Unwired machinery yields no
+/// activation (fail closed).
+pub fn resolve_named_skill_mentions(
+    names: &[String],
+    agent_id: Option<&str>,
+) -> Option<crate::skills::MentionSkillActivation> {
     match hooks() {
-        Some(h) => (h.resolve_inline_skill_mentions)(message),
+        Some(h) => (h.resolve_named_skill_mentions)(names, agent_id),
         None => None,
     }
 }

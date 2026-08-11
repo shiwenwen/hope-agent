@@ -301,7 +301,9 @@ export default function QuickChatDialog({
         <div className="border-t border-border px-3 py-2">
           <ChatInput
             input={stream.input}
+            structuredMentions={stream.typedMentions}
             onInputChange={stream.setInput}
+            onInputChangeWithMention={stream.setInputWithMention}
             inputHistory={inputHistory}
             quickPrompts={quickPrompts}
             onSend={() => stream.handleSend()}

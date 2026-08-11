@@ -971,6 +971,9 @@
       "failed": "Не удалось экспортировать беседу.",
       "untitled": "Без названия"
     },
+    "capabilityMention": {
+      "heading": "Плагины и коннекторы"
+    },
     "skillMention": {
       "heading": "Навыки",
       "labels": {

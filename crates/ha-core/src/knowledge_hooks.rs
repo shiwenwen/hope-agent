@@ -40,6 +40,21 @@
 
 use std::sync::OnceLock;
 
+#[derive(Debug, Clone)]
+pub struct ResolvedBoundNotes {
+    pub content: String,
+    pub resolved_refs: Vec<ResolvedBoundNote>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedBoundNote {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub source_bytes: u64,
+    pub delivered_bytes: u64,
+    pub content_version: String,
+}
+
 /// 十槽**原子注册**：行为 4 + 装配 6。
 ///
 /// 与 `channel_hooks` / `cron_hooks` / `slash_hooks` 同样一次性注册整组——
@@ -58,7 +73,18 @@ pub struct KnowledgeHooks {
         source: crate::knowledge::KbAccessSource,
         origin: crate::knowledge::KbAccessSource,
         channel_info: Option<crate::knowledge::ChannelKbContext>,
+        max_notes: usize,
     ) -> Option<String>,
+    /// Resolve exact `(kb_id, rel_path)` bindings emitted by a typed composer.
+    /// The feature layer rechecks live KB access and containment before read.
+    pub resolve_bound_notes: fn(
+        refs: &[(String, String)],
+        session_id: &str,
+        source: crate::knowledge::KbAccessSource,
+        origin: crate::knowledge::KbAccessSource,
+        channel_info: Option<crate::knowledge::ChannelKbContext>,
+        max_bytes_per_note: usize,
+    ) -> Option<ResolvedBoundNotes>,
     /// `knowledge::embedding::apply_knowledge_embedding_from_config`。
     pub apply_embedding_from_config: fn(source: &str),
     /// `knowledge::reembed::start_knowledge_reembed_job`。
@@ -115,16 +141,45 @@ pub fn search_notes(
     }
 }
 
-/// `[[note]]` 内联注入。未装配即 `None`（无附加 system 段）。
+/// `[[note]]` 内联注入。未装配即 `None`（无附加 turn-context 段）。
 pub fn resolve_inline_injections(
     message: &str,
     session_id: &str,
     source: crate::knowledge::KbAccessSource,
     origin: crate::knowledge::KbAccessSource,
     channel_info: Option<crate::knowledge::ChannelKbContext>,
+    max_notes: usize,
 ) -> Option<String> {
     match hooks() {
-        Some(h) => (h.resolve_inline_injections)(message, session_id, source, origin, channel_info),
+        Some(h) => (h.resolve_inline_injections)(
+            message,
+            session_id,
+            source,
+            origin,
+            channel_info,
+            max_notes,
+        ),
+        None => None,
+    }
+}
+
+pub fn resolve_bound_notes(
+    refs: &[(String, String)],
+    session_id: &str,
+    source: crate::knowledge::KbAccessSource,
+    origin: crate::knowledge::KbAccessSource,
+    channel_info: Option<crate::knowledge::ChannelKbContext>,
+    max_bytes_per_note: usize,
+) -> Option<ResolvedBoundNotes> {
+    match hooks() {
+        Some(h) => (h.resolve_bound_notes)(
+            refs,
+            session_id,
+            source,
+            origin,
+            channel_info,
+            max_bytes_per_note,
+        ),
         None => None,
     }
 }

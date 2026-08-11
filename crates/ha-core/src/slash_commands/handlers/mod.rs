@@ -181,20 +181,6 @@ pub async fn dispatch(
     }
 }
 
-/// Expand a prompt template, replacing `$ARGUMENTS` with the user's args.
-/// If the template doesn't contain `$ARGUMENTS` and args are provided,
-/// appends them as a "User input:" section.
-fn expand_prompt_template(template: &str, args: &str) -> String {
-    let normalized = args.trim();
-    if template.contains("$ARGUMENTS") {
-        template.replace("$ARGUMENTS", normalized)
-    } else if !normalized.is_empty() {
-        format!("{}\n\nUser input:\n{}", template.trim(), normalized)
-    } else {
-        template.trim().to_string()
-    }
-}
-
 /// Try to handle a command as a skill slash command.
 /// Returns None if no matching skill found.
 ///
@@ -214,6 +200,14 @@ async fn handle_skill_command(
     let skill_env = store.skill_env.clone();
     let skills =
         crate::skills_hooks::invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
+    // Command ownership must use the same globally surfaced catalog as the UI
+    // and `/help`; the per-Agent switch below still decides whether activation
+    // returns a setup diagnostic after a command has been matched.
+    let skills = crate::skills::filter_catalog_eligible_skills(
+        skills,
+        store.skill_env_check,
+        &store.skill_env,
+    );
     drop(store);
 
     // Resolve via the shared collision-aware table so `/new_skill` (a skill named
@@ -240,14 +234,14 @@ async fn handle_skill_command(
         }
     }
 
-    // ── Fork mode: dispatch skill to sub-agent ──
-    if matched.context_mode.as_deref() == Some("fork") {
-        return Some(dispatch_skill_fork(&matched, args, session_id, agent_id).await);
-    }
+    let result = match crate::skills::resolve_skill_slash_dispatch(&matched, args) {
+        // ── Fork mode: dispatch skill to sub-agent ──
+        crate::skills::SkillSlashDispatch::Fork => {
+            return Some(dispatch_skill_fork(&matched, args, session_id, agent_id).await);
+        }
 
-    let result = match matched.command_dispatch.as_deref() {
         // ── Path 1: Direct tool execution (zero LLM round-trip) ──
-        Some("tool") => {
+        crate::skills::SkillSlashDispatch::Tool => {
             let tool_name = match &matched.command_tool {
                 Some(t) => t.clone(),
                 None => {
@@ -267,16 +261,15 @@ async fn handle_skill_command(
                     .unwrap_or_else(|_| serde_json::json!({ "query": args.trim() }))
             };
 
-            // Build execution context. Skill-triggered tools auto-approve via
-            // `auto_approve_tools` rather than the (now-removed) `require_approval`
-            // tool list — the legacy field was unread after the permission v2
-            // refactor.
+            // Selecting a skill is not approval for the tool it dispatches.
+            // Keep the normal permission engine in the loop.
             let ctx = crate::tool_defs::ToolExecContext {
                 session_id: session_id.map(String::from),
                 agent_id: Some(agent_id.to_string()),
                 home_dir: dirs::home_dir().map(|p| p.to_string_lossy().to_string()),
                 session_working_dir: crate::session::effective_session_working_dir(session_id),
-                auto_approve_tools: true,
+                skill_allowed_tools: matched.tool_ceiling().execution_filter(),
+                auto_approve_tools: false,
                 ..Default::default()
             };
 
@@ -296,42 +289,53 @@ async fn handle_skill_command(
         }
 
         // ── Path 2: Prompt template expansion ──
-        Some("prompt") => {
-            let template = matched.command_prompt_template.as_deref().unwrap_or("");
-            let message = expand_prompt_template(template, args);
+        crate::skills::SkillSlashDispatch::ModelTemplate { message } => {
+            if message.trim().is_empty() {
+                return Some(Err(format!(
+                    "Skill '{}' produced no model prompt; activation stopped before model dispatch",
+                    matched.name
+                )));
+            }
             Ok(CommandResult {
                 content: format!("Using skill **{}**...", matched.name),
-                action: Some(CommandAction::PassThrough { message }),
+                action: Some(CommandAction::PassThrough {
+                    message,
+                    skill_activation: Some(crate::slash_defs::types::SlashSkillActivation {
+                        skill_name: matched.name.clone(),
+                        command_name: command.to_string(),
+                        skill_allowed_tools: matched.tool_ceiling().execution_filter(),
+                    }),
+                }),
             })
         }
 
-        // ── Path 3: Default — template if available, otherwise inline SKILL.md ──
-        _ => {
-            let message = if let Some(template) = &matched.command_prompt_template {
-                expand_prompt_template(template, args)
-            } else {
-                // Inline SKILL.md so the LLM skips the tool_search → read indirection
-                // that the old "Read the skill file at <path>" prompt forced when
-                // deferred tools were enabled.
-                match crate::skills_hooks::render_skill_inline(&matched, args).await {
-                    Ok(skill_content) => {
-                        build_skill_activation_prompt(&matched.name, args, &skill_content)
-                    }
-                    Err(e) => {
-                        crate::app_warn!(
-                            "slash_cmd",
-                            "skill_inline",
-                            "Failed to inline SKILL.md for '{}': {}; falling back to path reference",
-                            matched.name,
-                            e
-                        );
-                        build_skill_path_pointer_prompt(&matched.name, &matched.file_path, args)
-                    }
+        // ── Path 3: Default with no template — inline SKILL.md ──
+        crate::skills::SkillSlashDispatch::ModelInline => {
+            // Inline SKILL.md so the LLM skips the tool_search → read indirection
+            // that the old "Read the skill file at <path>" prompt forced when
+            // deferred tools were enabled.
+            let rendered = crate::skills_hooks::render_skill_inline(&matched, args).await;
+            let message = match require_materialized_skill_prompt(&matched.name, args, rendered) {
+                Ok(message) => message,
+                Err(error) => {
+                    crate::app_warn!(
+                        "slash_cmd",
+                        "skill_inline",
+                        "Explicit slash skill could not be materialized; dispatch stopped"
+                    );
+                    return Some(Err(error));
                 }
             };
             Ok(CommandResult {
                 content: format!("Invoking skill **{}**...", matched.name),
-                action: Some(CommandAction::PassThrough { message }),
+                action: Some(CommandAction::PassThrough {
+                    message,
+                    skill_activation: Some(crate::slash_defs::types::SlashSkillActivation {
+                        skill_name: matched.name.clone(),
+                        command_name: command.to_string(),
+                        skill_allowed_tools: matched.tool_ceiling().execution_filter(),
+                    }),
+                }),
             })
         }
     };
@@ -348,24 +352,30 @@ fn build_skill_activation_prompt(name: &str, args: &str, skill_content: &str) ->
         format!(" with arguments: \"{}\"", args)
     };
     format!(
-        "[SYSTEM: The user has invoked the '{name}' skill via slash command{args_clause}. \
-         Follow the instructions in the skill content below without calling `read` or \
-         `tool_search` — the full skill is already loaded.]\n\n---\n\n{skill_content}"
+        "<explicit_skill_command name=\"{name}\">The user invoked this skill via a slash command{args_clause}. The full skill is already loaded below; follow it as user-level workflow guidance without reloading it. This command does not bypass tool permission or sandbox policy.</explicit_skill_command>\n\n{skill_content}"
     )
 }
 
-/// Fallback prompt used when SKILL.md can't be read inline. Degrades the
-/// activation rather than failing the command outright.
-fn build_skill_path_pointer_prompt(name: &str, file_path: &str, args: &str) -> String {
-    if args.is_empty() {
-        format!("Use the skill '{name}'. Read the skill file at {file_path} for instructions.")
-    } else {
-        format!("Use the skill '{name}' to: {args}. Read the skill file at {file_path} for instructions.")
-    }
+/// Pair the materialized Skill body with the slash activation prompt or fail
+/// before any transport can turn a missing body into an ordinary Provider
+/// request. This chokepoint is shared by Desktop/HTTP and IM dispatch.
+fn require_materialized_skill_prompt(
+    name: &str,
+    args: &str,
+    rendered: anyhow::Result<String>,
+) -> Result<String, String> {
+    rendered
+        .map(|content| build_skill_activation_prompt(name, args, &content))
+        .map_err(|_| {
+            format!(
+                "Skill '{name}' could not be materialized; activation stopped before model dispatch"
+            )
+        })
 }
 
 /// Dispatch a skill in fork mode: spawn a sub-agent to execute the skill.
-/// The skill's SKILL.md content is injected as extra system context.
+/// The skill's SKILL.md content is carried in the child user task; it is not
+/// promoted into the child's system prompt.
 async fn dispatch_skill_fork(
     skill: &crate::skills::SkillEntry,
     args: &str,
@@ -415,5 +425,18 @@ mod tests {
             Some(CommandAction::SetEffort { effort }) => assert_eq!(effort, "high"),
             other => panic!("expected SetEffort action, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn slash_skill_materialization_failure_cannot_fall_back_to_provider_prompt() {
+        let error = require_materialized_skill_prompt(
+            "restricted-review",
+            "check this",
+            Err(anyhow::anyhow!("SKILL.md disappeared")),
+        )
+        .expect_err("a missing Skill body must stop every transport before Provider dispatch");
+
+        assert!(error.contains("stopped before model dispatch"));
+        assert!(!error.contains("SKILL.md disappeared"));
     }
 }

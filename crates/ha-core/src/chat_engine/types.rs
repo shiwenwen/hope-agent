@@ -510,10 +510,14 @@ pub struct ChatEngineParams {
     /// must not be tied to the GUI/HTTP active-turn registry.
     pub turn_id: Option<String>,
     pub message: String,
+    /// Optional typed-composer sidecar bound to the exact canonical message.
+    /// Plain text lookalikes never acquire mention semantics when this wire is
+    /// present; the chat engine validates and freezes it once per turn.
+    pub incoming_turn: Option<crate::prompt_context::IncomingTurnWire>,
     /// Friendly user-facing rendering of the prompt (e.g. `Using skill **X**...`
     /// for slash-invoked skills). When set, the IM-mirror user-quote prefix
     /// uses this string so attached IM chats see what the desktop user saw,
-    /// not the raw `[SYSTEM:...]` prompt sent to the model. The DB-persisted
+    /// not the expanded user instruction sent to the model. The DB-persisted
     /// user message is set separately by the API caller (Tauri / HTTP).
     /// `None` for plain chat input.
     pub display_text: Option<String>,
@@ -532,7 +536,7 @@ pub struct ChatEngineParams {
     pub compact_config: CompactConfig,
 
     // Optional
-    pub extra_system_context: Option<String>,
+    pub run_context: Option<crate::prompt_context::RunInstructionContext>,
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
     /// Spawn-supplied Plan-mode override. `Some` means the caller is the

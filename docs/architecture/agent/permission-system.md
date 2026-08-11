@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../../README.md)
 >
-> 更新时间：2026-07-23
+> 更新时间：2026-08-11
 >
 > 关联源码：
 > - 决策引擎：[`crates/ha-core/src/permission/`](../../../crates/ha-core/src/permission/)（`engine.rs` / `mode.rs` / `judge.rs` / `allowlist.rs` / `approval_surface.rs` / 三个列表模块）
@@ -388,7 +388,7 @@ flowchart TD
 
 模型在 tool_call args 里主动加 `_confidence:"high"` 表示"高度确信此次安全"。约束：
 
-- 工具 schema **不暴露**这个字段——通过 system prompt（`build_permission_mode_guidance(SessionMode::Smart)`，注入位置在 `TOOL_CALL_NARRATION_GUIDANCE` 之后）引导；三种模式都会注入当前模式说明，Smart 额外说明 `_confidence` 用法。
+- 工具 schema **不暴露**这个字段——由 `build_permission_mode_guidance(SessionMode::Smart)` 生成平台固定合同，经 turn-start session-policy snapshot 放进稳定缓存断点之后的 **Run Instruction**；三种模式都有当前模式说明，Smart 额外说明 `_confidence` 用法。它不进入 stable system，也不把用户正文提升为高权指令。
 - 命中 `high` 直接 Allow，除非先命中 strict 层。
 - 字段缺失或值非 `"high"` 走 fallback。
 
@@ -746,7 +746,7 @@ Tauri 命令增删须同步 `invoke_handler!`，HTTP 端点增删须同步 `buil
 
 1. **AllowAlways 缺查看 / 撤销 UI**：多作用域授予（session / project / agent-home / global）已通过弹窗按钮生效并落库，但还没有"设置 → 权限 → AllowAlways"面板来审阅或撤销已有常驻授权。`exec` 的 AllowAlways 另用旧的命令前缀 store。
 2. **judge 不复用主对话 prompt cache**：`judge_one_shot` 走 bare 模式，每次 cache miss 是完整 token 成本（60s TTL 摊销）。要复用 prefix 命中 prompt cache 需把 agent 引用透传进 engine async 路径。
-3. **权限模式 guidance 使静态前缀缓存作废一次**：`build_permission_mode_guidance` 注入在 prefix 里，切模式会作废一次静态前缀缓存。作为独立 suffix cache block 的方案需改 4 个 provider 适配，尚未做。
+3. **权限模式按 turn 冻结**：`build_permission_mode_guidance` 已位于独立 Run Instruction lane，切换模式不会改写 stable system fingerprint；当前 turn 的 Provider retry / failover 复用同一 session-policy snapshot，新模式从下一 turn 生效。权限引擎始终按执行时 live policy 裁决，prompt 中的模式说明不是授权凭据。
 4. **不做老数据迁移**：`ToolPermissionMode` / `exec-approvals.json` / `auto_approve_tools` / `require_approval` 一律不读，老用户审批规则须重新设置。
 5. **保护路径无项目级分层**：仅全局唯一文件 `~/.hope-agent/permission/protected-paths.json`，未按项目叠加。
 

@@ -1309,13 +1309,13 @@ pub async fn build_and_run_agent_with_cancel(
 }
 
 /// Build an AssistantAgent and run a chat message via the shared chat engine
-/// with optional extra system context.
+/// with optional trusted run framing.
 pub async fn build_and_run_agent_with_context(
     agent_id: &str,
     message: &str,
     session_id: &str,
     session_db: &Arc<ha_core::session::SessionDB>,
-    extra_system_context: Option<&str>,
+    run_instruction_context: Option<&str>,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<String> {
     use ha_core::provider;
@@ -1356,6 +1356,7 @@ pub async fn build_and_run_agent_with_context(
         agent_id: agent_id.to_string(),
         turn_id: None,
         message: message.to_string(),
+        incoming_turn: None,
         display_text: None,
         attachments: Vec::new(),
         session_db: session_db.clone(),
@@ -1367,8 +1368,9 @@ pub async fn build_and_run_agent_with_context(
             .and_then(|def| def.config.model.temperature)
             .or(store.temperature),
         compact_config: store.compact.clone(),
-        extra_system_context: Some(
-            extra_system_context
+        run_context: Some(ha_core::prompt_context::RunInstructionContext::new(
+            ha_core::prompt_context::RunInstructionSource::Cron,
+            run_instruction_context
                 .unwrap_or(
                     "## Execution Context\n\
                  You are running as a **scheduled task** (cron job), not an interactive chat.\n\
@@ -1382,7 +1384,7 @@ pub async fn build_and_run_agent_with_context(
                    Protected paths and dangerous commands stay blocked regardless.",
                 )
                 .to_string(),
-        ),
+        )?),
         reasoning_effort: agent_def
             .as_ref()
             .and_then(|def| def.config.model.reasoning_effort.clone())

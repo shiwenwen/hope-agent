@@ -69,6 +69,7 @@ pub const ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: &str = "tool_media_items";
 pub const ATTACHMENT_META_KEY_ACTIVE_MEMORY: &str = "active_memory";
 pub const ATTACHMENT_META_KEY_USED_MEMORY_REFS: &str = "used_memory_refs";
 pub const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER: &str = "retrieval_planner";
+pub const ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT: &str = "typed_mention_receipt";
 
 /// Resolve the `attachments_meta` value for a user-message coming from the
 /// `chat` API surface (Tauri command + HTTP route). Centralizes the
@@ -131,6 +132,19 @@ fn merge_user_message_meta(base: Value, user_attachments: Option<String>) -> Str
         _ => {}
     }
     Value::Object(map).to_string()
+}
+
+/// Merge a backend-verified typed mention projection into an existing user
+/// message's metadata. The receipt key wins on retries so provider failover is
+/// idempotent, while unrelated plan/goal/attachment metadata is preserved.
+pub(crate) fn merge_typed_mention_receipt_attachments_meta(
+    projection: &crate::prompt_context::TypedMentionReceiptProjection,
+    existing: Option<String>,
+) -> String {
+    merge_user_message_meta(
+        json!({ ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT: projection }),
+        existing,
+    )
 }
 
 /// Persist structured media emitted by a tool result in `attachments_meta`

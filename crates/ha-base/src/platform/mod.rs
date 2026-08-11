@@ -81,6 +81,56 @@ pub fn prevent_process_dumping() -> std::io::Result<()> {
     Ok(())
 }
 
+fn validate_beneath_path(
+    root: &std::path::Path,
+    relative: &std::path::Path,
+) -> std::io::Result<()> {
+    if !root.is_absolute()
+        || relative.as_os_str().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "beneath-open requires an absolute root and a non-empty normal relative path",
+        ));
+    }
+    Ok(())
+}
+
+/// Open a regular-file candidate through an already-authorized directory
+/// namespace without allowing `..`, absolute paths, or symlink/reparse escapes.
+/// The returned handle is the exact object the caller must read; callers must
+/// not reopen `root.join(relative)` after this succeeds.
+pub fn open_file_beneath(
+    root: &std::path::Path,
+    relative: &std::path::Path,
+) -> std::io::Result<std::fs::File> {
+    validate_beneath_path(root, relative)?;
+    let file = imp::open_file_beneath(root, relative)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "beneath-open candidate is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+/// Remove one exact directory entry beneath an authorized root without
+/// following a symlink/reparse-point ancestor. The final entry itself is
+/// unlinked, never dereferenced. This is the destructive counterpart to
+/// [`open_file_beneath`] and is intended for backend-owned cleanup ledgers.
+pub fn remove_file_beneath(
+    root: &std::path::Path,
+    relative: &std::path::Path,
+) -> std::io::Result<()> {
+    validate_beneath_path(root, relative)?;
+    imp::remove_file_beneath(root, relative)
+}
+
 /// Try to discover the user-configured HTTP proxy from the OS.
 ///
 /// - macOS: reads `scutil --proxy`.
@@ -610,6 +660,160 @@ mod tests {
 
         assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&target).unwrap(), b"first");
+    }
+
+    #[test]
+    fn open_file_beneath_returns_the_authorized_handle_and_rejects_parent_paths() {
+        use std::io::Read;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir(root.join("nested")).unwrap();
+        std::fs::write(root.join("nested/note.txt"), b"authorized").unwrap();
+
+        let mut file = open_file_beneath(&root, Path::new("nested/note.txt")).unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "authorized");
+        assert_eq!(
+            open_file_beneath(&root, Path::new("../outside.txt"))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_file_beneath_rejects_symlinked_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
+        symlink(&outside, root.join("redirect")).unwrap();
+        let root = root.canonicalize().unwrap();
+
+        assert!(open_file_beneath(&root, Path::new("redirect/secret.txt")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_file_beneath_rejects_authorized_root_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let displaced = dir.path().join("displaced-root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
+        let authorized_root = root.canonicalize().unwrap();
+        std::fs::rename(&root, &displaced).unwrap();
+        symlink(&outside, &root).unwrap();
+
+        assert!(open_file_beneath(&authorized_root, Path::new("secret.txt")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn open_file_beneath_rejects_authorized_root_reparse_replacement() {
+        use std::os::windows::fs::symlink_dir;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let displaced = dir.path().join("displaced-root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
+        let authorized_root = root.canonicalize().unwrap();
+        std::fs::rename(&root, &displaced).unwrap();
+        if let Err(error) = symlink_dir(&outside, &root) {
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                return; // Windows developer-mode policy unavailable on this host.
+            }
+            panic!("create directory reparse point: {error}");
+        }
+
+        assert!(open_file_beneath(&authorized_root, Path::new("secret.txt")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn open_file_beneath_locks_out_direct_directory_rename_substitution() {
+        use std::io::Read;
+        use std::sync::{Arc, Mutex};
+
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("parent");
+        let root = parent.join("root");
+        let displaced = parent.join("displaced-root");
+        let replacement = parent.join("replacement-root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&replacement).unwrap();
+        std::fs::write(root.join("selected.txt"), b"authorized").unwrap();
+        std::fs::write(replacement.join("selected.txt"), b"outside").unwrap();
+        let root = root.canonicalize().unwrap();
+        let rename_result = Arc::new(Mutex::new(None));
+        let observed = rename_result.clone();
+
+        let mut file =
+            imp::open_file_beneath_with_root_hook(&root, Path::new("selected.txt"), || {
+                let result = std::fs::rename(&root, &displaced);
+                *observed.lock().unwrap() = Some(result);
+                if displaced.exists() {
+                    std::fs::rename(&replacement, &root).unwrap();
+                }
+            })
+            .unwrap();
+        assert!(rename_result
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("rename attempted")
+            .is_err());
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "authorized");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_file_beneath_rejects_fifo_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let fifo = root.join("pipe");
+        let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_c` is a live NUL-terminated path and mode is valid.
+        assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+
+        assert!(open_file_beneath(&root, Path::new("pipe")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_file_beneath_never_follows_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let outside_file = outside.join("owned.txt");
+        std::fs::write(&outside_file, b"keep").unwrap();
+        symlink(&outside, root.join("redirect")).unwrap();
+        let root = root.canonicalize().unwrap();
+
+        assert!(remove_file_beneath(&root, Path::new("redirect/owned.txt")).is_err());
+        assert_eq!(std::fs::read(outside_file).unwrap(), b"keep");
     }
 
     #[cfg(unix)]

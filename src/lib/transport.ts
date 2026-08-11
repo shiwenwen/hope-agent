@@ -80,6 +80,7 @@ export interface PetAssetLease {
  */
 export interface ChatStartArgs {
   message: string;
+  incomingTurn?: import("@/components/chat/mentions/typedMentions").IncomingTurnWire;
   attachments: ReadonlyArray<ChatAttachment>;
   sessionId: string | null;
   /** Opaque UI request identity used to stop a first turn before its lazy
@@ -118,7 +119,7 @@ export interface ChatStartArgs {
   /** First-turn Goal creation payload. Only honored when the chat request
    *  auto-creates a new session; the backend creates the durable Goal before
    *  the model turn starts so the first response can immediately use the
-   *  Active Goal system section. */
+   *  Active Goal run instruction + data context. */
   initialGoal?: {
     objective: string;
     completionCriteria?: string;

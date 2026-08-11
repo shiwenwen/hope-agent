@@ -58,7 +58,7 @@ struct CacheSafeParams {
 
 `save_cache_safe_params` 刻意**只捕获缓存安全的稳定前缀**，两类每轮都会变的内容被排除在外：
 
-- **Awareness / active-memory 后缀**：这些是每次请求现拼上去的（Anthropic 用独立的 `cache_control` block、OpenAI 系用打头的 `system` / input 项）。若把它们塞进快照，快照就会每个用户回合都变，反而毁掉"稳定前缀"这个不变量。
+- **Awareness / active-memory 后缀**：这些是每次请求现拼上去的 user-data（四个主对话 adapter 都放在 history 之后的 `<hope_round_data>` 中且不加显式 cache marker）。若把它们塞进稳定快照，快照就会每个用户回合都变，反而毁掉"稳定前缀"这个不变量。
 - **round 分组元数据**：写入前用 `round_grouping::strip_rounds` 剥掉 `_oc_round` 之类的内部标记，因为主请求发出前也会统一剥离，快照必须与之对齐。
 
 还有一个不显然的坑：**纯文本 OpenAIChat 后端的图片折叠**。当模型不支持视觉时，主对话会把历史里的图片内容折叠成文本再发送；快照必须用同样的方式折叠（`expand_openai_chat_image_markers_for_api`），否则一个"缓存友好"的侧查询照样会 POST `image_url`、照样吃 400，把记忆/摘要等后台特性静默打瘫。视觉模型则原样保留、不做折叠。

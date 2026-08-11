@@ -5,6 +5,11 @@ import type { ReferenceableNote, KbDraftAttachment } from "@/types/knowledge"
 import { detectActiveNoteRef, formatNoteInsertion, relPathToken } from "./noteTokens"
 import { noteMentionErrorDetail } from "./noteMentionFeedback"
 import type { ComposerInputHandle } from "../input/composerInputHandle"
+import {
+  newMentionId,
+  type ComposerMentionBinding,
+  type ComposerMentionTextChange,
+} from "../mentions/typedMentions"
 
 const MAX_ROWS = 50
 
@@ -38,6 +43,11 @@ export function useNoteMention(
   projectId: string | null,
   draftKbAttachments: KbDraftAttachment[],
   enabled: boolean,
+  setInputWithMention?: (
+    next: string,
+    mention: ComposerMentionBinding,
+    change: ComposerMentionTextChange,
+  ) => void,
 ): NoteMentionState {
   const [active, setActive] = useState<ActiveState | null>(null)
   const [allNotes, setAllNotes] = useState<ReferenceableNote[]>([])
@@ -156,7 +166,25 @@ export function useNoteMention(
       const before = inputRef.current.slice(0, a.anchor)
       const after = inputRef.current.slice(a.caret)
       const newCaret = (before + insertion).length
-      setInput(before + insertion + after)
+      const next = before + insertion + after
+      const raw = insertion.trimEnd()
+      if (setInputWithMention) {
+        setInputWithMention(
+          next,
+          {
+            id: newMentionId(),
+            kind: "note",
+            targetId: `${entry.kbId}::${entry.relPath}`,
+            displayLabel: entry.title,
+            raw,
+            start: before.length,
+            end: before.length + raw.length,
+          },
+          { oldStart: a.anchor, oldEnd: a.caret, newEnd: before.length + insertion.length },
+        )
+      } else {
+        setInput(next)
+      }
       setActive(null)
       requestAnimationFrame(() => {
         const inputHandle = inputHandleRef.current
@@ -166,7 +194,7 @@ export function useNoteMention(
         }
       })
     },
-    [active, allNotes, setInput, inputHandleRef],
+    [active, allNotes, setInput, setInputWithMention, inputHandleRef],
   )
 
   const handleKeyDown = useCallback(

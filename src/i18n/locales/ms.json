@@ -971,6 +971,9 @@
       "failed": "Gagal mengeksport perbualan.",
       "untitled": "Tiada tajuk"
     },
+    "capabilityMention": {
+      "heading": "Pemalam dan penyambung"
+    },
     "skillMention": {
       "heading": "Kemahiran",
       "labels": {

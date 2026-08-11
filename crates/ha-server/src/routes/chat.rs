@@ -47,6 +47,8 @@ pub struct InitialGoalRequest {
 pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
+    pub incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
+    #[serde(default)]
     pub ui_surface: Option<ha_core::pet::ChatUiSurface>,
     #[serde(default)]
     pub session_id: Option<String>,
@@ -174,6 +176,8 @@ pub struct QueueTurnUserMessageRequest {
     pub plan_mode: Option<String>,
     #[serde(default)]
     pub workflow_mode: Option<String>,
+    #[serde(default)]
+    pub incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -534,10 +538,99 @@ fn validate_http_mention_attachment(session_id: &str, file_path: &str) -> Result
     }
 }
 
+fn parse_plan_mention_target(target_id: &str) -> Option<(&str, u32)> {
+    let (short_id, version) = target_id.split_once(":v")?;
+    let version = version.parse::<u32>().ok()?;
+    Some((short_id, version))
+}
+
+fn validate_http_plan_mention_attachment_with<F>(
+    file_path: &str,
+    incoming_turn: Option<&ha_core::prompt_context::IncomingTurnWire>,
+    resolve_plan_path: &F,
+) -> Result<(), AppError>
+where
+    F: Fn(&str, u32) -> Option<PathBuf>,
+{
+    let requested = PathBuf::from(file_path);
+    if !requested.is_absolute() {
+        return Err(AppError::bad_request(
+            "plan mention attachment path must be absolute",
+        ));
+    }
+    let requested = requested.canonicalize().map_err(|_| {
+        AppError::forbidden("plan mention attachment does not match a registered plan")
+    })?;
+
+    let matches_registered_plan = incoming_turn
+        .into_iter()
+        .flat_map(|wire| wire.mentions.iter())
+        .filter(|mention| mention.kind == ha_core::prompt_context::MentionKind::Plan)
+        .filter_map(|mention| parse_plan_mention_target(&mention.target_id))
+        .filter_map(|(short_id, version)| resolve_plan_path(short_id, version))
+        .filter_map(|path| path.canonicalize().ok())
+        .any(|registered| registered == requested);
+    if matches_registered_plan {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "plan mention attachment does not match a registered plan",
+        ))
+    }
+}
+
+fn validate_http_chat_attachments_with_plan_resolver<F>(
+    session_id: &str,
+    message: &str,
+    incoming_turn: Option<&ha_core::prompt_context::IncomingTurnWire>,
+    attachments: &[Attachment],
+    resolve_plan_path: &F,
+) -> Result<(), AppError>
+where
+    F: Fn(&str, u32) -> Option<PathBuf>,
+{
+    ha_core::attachments::validate_typed_resource_attachment_bindings(
+        message,
+        incoming_turn,
+        attachments,
+    )
+    .map_err(|error| {
+        AppError::bad_request(format!(
+            "invalid typed resource attachment binding: {error}"
+        ))
+    })?;
+
+    validate_http_chat_attachments_inner(session_id, incoming_turn, attachments, resolve_plan_path)
+}
+
 fn validate_http_chat_attachments(
     session_id: &str,
+    message: &str,
+    incoming_turn: Option<&ha_core::prompt_context::IncomingTurnWire>,
     attachments: &[Attachment],
 ) -> Result<(), AppError> {
+    validate_http_chat_attachments_with_plan_resolver(
+        session_id,
+        message,
+        incoming_turn,
+        attachments,
+        &|short_id, version| {
+            ha_core::plan::resolve_plan_mention(short_id, version)
+                .ok()
+                .map(|resolution| PathBuf::from(resolution.file_path))
+        },
+    )
+}
+
+fn validate_http_chat_attachments_inner<F>(
+    session_id: &str,
+    incoming_turn: Option<&ha_core::prompt_context::IncomingTurnWire>,
+    attachments: &[Attachment],
+    resolve_plan_path: &F,
+) -> Result<(), AppError>
+where
+    F: Fn(&str, u32) -> Option<PathBuf>,
+{
     if attachments.len() > ha_core::attachments::MAX_CHAT_ATTACHMENTS {
         return Err(AppError::bad_request(format!(
             "a message can contain at most {} attachments",
@@ -573,6 +666,9 @@ fn validate_http_chat_attachments(
                 validate_http_uploaded_attachment_path(session_id, path)?
             }
             (Some("mention"), Some(path)) => validate_http_mention_attachment(session_id, path)?,
+            (Some("plan_mention"), Some(path)) => {
+                validate_http_plan_mention_attachment_with(path, incoming_turn, resolve_plan_path)?
+            }
             _ => {
                 return Err(AppError::bad_request(
                     "HTTP chat attachments must be staged through /api/chat/attachment-stage",
@@ -660,6 +756,13 @@ pub struct SystemPromptQuery {
     /// Optional session id — when set, the returned prompt is built with
     /// project context (if the session belongs to a project).
     pub session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityMentionQuery {
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1225,6 +1328,7 @@ async fn chat_inner(
         body.is_plan_trigger = Some(claimed.is_plan_trigger);
         body.goal_trigger = Some(claimed.goal_trigger);
         body.plan_comment = claimed.plan_comment;
+        body.incoming_turn = claimed.incoming_turn;
         workflow_mode_pending = claimed
             .workflow_mode
             .as_deref()
@@ -1440,7 +1544,12 @@ async fn chat_inner(
     // hook-rewritten `effective_prompt`, so the separate `persisted_content`
     // main computed (identical to `raw_prompt`, now consumed by the preflight) is
     // dropped.
-    if let Err(error) = validate_http_chat_attachments(&sid, &body.attachments) {
+    if let Err(error) = validate_http_chat_attachments(
+        &sid,
+        &body.message,
+        body.incoming_turn.as_ref(),
+        &body.attachments,
+    ) {
         if let Some(request_id) = queued_request_id.as_ref() {
             let sid_for_release = sid.clone();
             let request_id_for_release = request_id.clone();
@@ -1834,6 +1943,7 @@ async fn chat_inner(
         agent_id: agent_id.clone(),
         turn_id: Some(turn_id.clone()),
         message: body.message.clone(),
+        incoming_turn: body.incoming_turn,
         display_text: body.display_text.clone(),
         attachments: body.attachments,
         session_db: db.clone(),
@@ -1842,7 +1952,7 @@ async fn chat_inner(
         codex_token: None,
         resolved_temperature,
         compact_config,
-        extra_system_context: None,
+        run_context: None,
         reasoning_effort: Some(effort),
         cancel: cancel.clone(),
         plan_context_override: None,
@@ -1983,7 +2093,12 @@ pub async fn queue_turn_user_message(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<QueueTurnUserMessageRequest>,
 ) -> Result<Json<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult>, AppError> {
-    validate_http_chat_attachments(&body.session_id, &body.attachments)?;
+    validate_http_chat_attachments(
+        &body.session_id,
+        &body.message,
+        body.incoming_turn.as_ref(),
+        &body.attachments,
+    )?;
     let request_id = body
         .request_id
         .filter(|id| !id.trim().is_empty())
@@ -2014,6 +2129,8 @@ pub async fn queue_turn_user_message(
         plan_comment: body.plan_comment,
         plan_mode: body.plan_mode,
         workflow_mode: body.workflow_mode,
+        incoming_turn: body.incoming_turn,
+        skill_allowed_tools: Vec::new(),
         source: ha_core::session::QueuedTurnMessageSource::Http,
         channel_origin: None,
     };
@@ -2539,9 +2656,54 @@ pub async fn list_tools() -> Result<Json<Vec<Value>>, AppError> {
     Ok(Json(tools_json))
 }
 
+/// `GET /api/chat/capability-mentions` — local, bounded Plugin/Connector
+/// discovery metadata for the typed composer. This endpoint does not connect
+/// to remote services and does not return credentials or tool schemas.
+pub async fn list_capability_mentions(
+    axum::extract::Query(q): axum::extract::Query<CapabilityMentionQuery>,
+) -> Result<Json<Vec<ha_core::mention_hooks::MentionCapabilityCandidate>>, AppError> {
+    let agent_id = q
+        .agent_id
+        .unwrap_or_else(|| ha_core::agent_loader::DEFAULT_AGENT_ID.to_string());
+    Ok(Json(ha_core::mention_hooks::list_capability_mentions(
+        &agent_id,
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn http_direct_and_queue_boundary_rejects_unbound_typed_payload() {
+        let forged = Attachment {
+            name: "forged.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some("mention".to_string()),
+            data: Some("client-inline-data".to_string()),
+            file_path: Some("/tmp/forged.txt".to_string()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        };
+        assert!(
+            validate_http_chat_attachments("missing-session", "plain", None, &[forged]).is_err()
+        );
+
+        let ordinary = Attachment {
+            name: "upload.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some("upload".to_string()),
+            data: None,
+            file_path: None,
+            upload_id: Some("opaque-lease".to_string()),
+            quote_lines: None,
+            quote_role: None,
+        };
+        assert!(
+            validate_http_chat_attachments("missing-session", "plain", None, &[ordinary]).is_ok()
+        );
+    }
 
     #[test]
     fn http_chat_rejects_untrusted_file_path_attachments() {
@@ -2556,7 +2718,9 @@ mod tests {
             quote_role: None,
         }];
 
-        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
+        assert!(
+            validate_http_chat_attachments("missing-session", "hi", None, &attachments).is_err()
+        );
     }
 
     #[test]
@@ -2572,7 +2736,9 @@ mod tests {
             quote_role: None,
         }];
 
-        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
+        assert!(
+            validate_http_chat_attachments("missing-session", "hi", None, &attachments).is_err()
+        );
     }
 
     #[test]
@@ -2588,7 +2754,9 @@ mod tests {
             quote_role: None,
         }];
 
-        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
+        assert!(
+            validate_http_chat_attachments("missing-session", "hi", None, &attachments).is_err()
+        );
     }
 
     #[test]
@@ -2604,7 +2772,9 @@ mod tests {
             quote_role: None,
         }];
 
-        assert!(validate_http_chat_attachments("missing-session", &attachments).is_ok());
+        assert!(
+            validate_http_chat_attachments("missing-session", "hi", None, &attachments).is_ok()
+        );
     }
 
     #[test]
@@ -2620,7 +2790,82 @@ mod tests {
             quote_role: None,
         }];
 
-        assert!(validate_http_chat_attachments("missing-session", &attachments).is_err());
+        assert!(
+            validate_http_chat_attachments("missing-session", "hi", None, &attachments).is_err()
+        );
+    }
+
+    #[test]
+    fn http_chat_accepts_only_registry_bound_plan_mention_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let registered = temp.path().join("plan.md");
+        std::fs::write(&registered, "# Plan").expect("write plan");
+        let other = temp.path().join("other.md");
+        std::fs::write(&other, "# Other").expect("write other");
+
+        let message = "@plan:abcdef12:v3";
+        let digest = ha_core::prompt_context::canonical_text_digest(message);
+        let incoming_turn = ha_core::prompt_context::IncomingTurnWire {
+            prompt_contract_version: ha_core::prompt_context::PROMPT_CONTRACT_VERSION,
+            mention_wire_version: ha_core::prompt_context::MENTION_WIRE_VERSION,
+            user_input: ha_core::prompt_context::CanonicalUserInput {
+                input_item_id: "input-1".into(),
+                canonicalization_version: 1,
+                text: message.into(),
+                digest: digest.clone(),
+            },
+            mentions: vec![ha_core::prompt_context::MentionBindingWire {
+                id: "plan-1".into(),
+                kind: ha_core::prompt_context::MentionKind::Plan,
+                target_id: "abcdef12:v3".into(),
+                display_label: "Plan".into(),
+                origin: ha_core::prompt_context::StructuredMentionOrigin::FirstPartyComposerGesture,
+                source_anchor: ha_core::prompt_context::SourceAnchor::Inline {
+                    input_item_id: "input-1".into(),
+                    canonical_text_digest: digest,
+                    start_utf8: 0,
+                    end_utf8: message.len() as u64,
+                },
+            }],
+        };
+        let attachment_for = |path: &std::path::Path| Attachment {
+            name: "plan.md".to_string(),
+            mime_type: "text/markdown".to_string(),
+            source: Some("plan_mention".to_string()),
+            data: None,
+            file_path: Some(path.to_string_lossy().into_owned()),
+            upload_id: None,
+            quote_lines: None,
+            quote_role: None,
+        };
+        let resolver = |short_id: &str, version: u32| {
+            (short_id == "abcdef12" && version == 3).then(|| registered.clone())
+        };
+
+        assert!(validate_http_chat_attachments_with_plan_resolver(
+            "missing-session",
+            message,
+            Some(&incoming_turn),
+            &[attachment_for(&registered)],
+            &resolver,
+        )
+        .is_ok());
+        assert!(validate_http_chat_attachments_with_plan_resolver(
+            "missing-session",
+            message,
+            Some(&incoming_turn),
+            &[attachment_for(&other)],
+            &resolver,
+        )
+        .is_err());
+        assert!(validate_http_chat_attachments_with_plan_resolver(
+            "missing-session",
+            message,
+            None,
+            &[attachment_for(&registered)],
+            &resolver,
+        )
+        .is_err());
     }
 
     #[test]

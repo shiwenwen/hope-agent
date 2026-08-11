@@ -19,6 +19,9 @@ pub use approval::{pending_approvals_per_session, ApprovalReasonPayload, Session
 // 确认）从 crate 外复用同一入口，不 fork。
 pub mod ask_user_question;
 mod builtin_registry;
+mod context_resource;
+#[cfg(test)]
+pub(crate) use context_resource::tool_read_context_resource;
 mod core_memory;
 // `manage_cron` adapter 已随 ha-cron 迁出（§3.2 adapter 随特征走）；
 // schema 仍在 definitions::core_tools，handler 由 ha_cron::wire() 注册。
@@ -129,7 +132,7 @@ pub(crate) fn mac_control_exec_hooks() -> Option<&'static MacControlExecHooks> {
 // crate 外 `ha_core::tools::…` 与 tools/ 内部 `super::…` 既有路径全部保持。
 pub use crate::tool_defs::*;
 
-pub(crate) use task::task_reminder_text;
+pub(crate) use task::{task_snapshot_data, TASK_REMINDER_INSTRUCTION};
 
 pub use approval::{
     approval_timeout_secs, deny_all_pending, deny_pending_for_session, emit_approval_resolved,

@@ -475,6 +475,8 @@ impl AssistantAgent {
             provider_format,
             instruction,
             attachments,
+            self.get_context_window(),
+            &[],
         );
         let result = provider
             .as_adapter()

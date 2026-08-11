@@ -84,7 +84,13 @@ pub enum CommandAction {
     /// Session messages were cleared.
     SessionCleared,
     /// Do not intercept — pass message through to LLM as a normal user message.
-    PassThrough { message: String },
+    /// `skill_activation` is provenance for first-party slash skill dispatch;
+    /// it narrows available tools but never grants approval.
+    PassThrough {
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        skill_activation: Option<SlashSkillActivation>,
+    },
     /// Export: content is the file data, filename is the suggested name.
     ExportFile { content: String, filename: String },
     /// Set tool permission mode for current session.
@@ -158,6 +164,22 @@ pub enum CommandAction {
     },
 }
 
+/// Canonical skill identity attached to a slash-command pass-through. The
+/// expanded legacy `message` remains for non-GUI transports; the desktop chat
+/// uses this binding to reconstruct a typed user-turn activation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlashSkillActivation {
+    pub skill_name: String,
+    pub command_name: String,
+    /// Frozen execution filter from the same trusted catalog entry that
+    /// produced the expanded prompt. An empty list means the Skill omitted an
+    /// allowlist; an explicit deny-all is represented by the private sentinel
+    /// returned from `SkillToolCeiling::execution_filter`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_allowed_tools: Vec<String>,
+}
+
 /// Structured per-category context window usage snapshot. Request categories
 /// come from the same Provider-aware `RoundTokenManifest` that adapters emit;
 /// `context_input_tokens` is authoritative when the Provider returned usage.
@@ -190,8 +212,9 @@ pub struct ContextBreakdown {
     pub skill_tokens: u32,
     /// Conversation history (user/assistant messages + tool results).
     pub messages_tokens: u32,
-    /// Per-turn system suffixes (memory recall, awareness, procedure, notes,
-    /// coding profile and task reminder) appended after the stable prefix.
+    /// Per-turn dynamic context after the stable prefix. Trusted run/coding/task
+    /// contracts and user-data recall/note/task snapshots share this accounting
+    /// bucket but retain distinct Provider roles in the rendered request.
     #[serde(default)]
     pub dynamic_prompt_tokens: u32,
     /// Total used (sum of the categories above + reserved output).

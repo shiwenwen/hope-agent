@@ -113,6 +113,7 @@ import { parseGoalUpsertSlashCommand } from "../goalSlashCommand"
 import { parseLoopCreateSlashCommand } from "../loopSlashCommand"
 import type { WorkflowRun, WorkflowRunState } from "../workspace/useWorkflowRuns"
 import { useEnterToSendPreference } from "../enterToSendPreference"
+import type { ComposerMentionBinding, ComposerMentionTextChange } from "../mentions/typedMentions"
 
 type WorkflowMode = "off" | "on" | "ultracode"
 type WorkflowTriggerHint = {
@@ -256,7 +257,16 @@ function workflowRunIsLive(state: WorkflowRunState): boolean {
 
 interface ChatInputProps {
   input: string
+  /** Provenance-bearing bindings currently owned by the composer draft. Raw
+   * lookalike text is intentionally not rendered as an executable @ chip. */
+  structuredMentions?: ComposerMentionBinding[]
   onInputChange: (value: string) => void
+  /** Atomic text + provenance update used by picker-created typed mentions. */
+  onInputChangeWithMention?: (
+    value: string,
+    mention: ComposerMentionBinding,
+    change: ComposerMentionTextChange,
+  ) => void
   inputHistory?: string[]
   quickPrompts?: QuickPromptItem[]
   onSend: () => void
@@ -488,7 +498,9 @@ function toolbarVisibleWidth(container: HTMLElement): number {
 
 export default function ChatInput({
   input,
+  structuredMentions = [],
   onInputChange,
+  onInputChangeWithMention,
   inputHistory = [],
   quickPrompts = [],
   onSend,
@@ -928,6 +940,7 @@ export default function ChatInput({
     enableSkillMention,
     enableAgentMention ? agents : [],
     currentAgentId,
+    onInputChangeWithMention,
   )
   // `[[note]]` picker — knowledge-space notes reachable from this chat.
   const noteMention = useNoteMention(
@@ -938,6 +951,7 @@ export default function ChatInput({
     projectId ?? null,
     draftKbAttachments ?? [],
     enableNoteMention,
+    onInputChangeWithMention,
   )
   // User-global quick prompts (`#` popper).
   const quickPrompt = useQuickPrompts(input, setComposerInput, inputHandleRef, quickPrompts)
@@ -2036,6 +2050,9 @@ export default function ChatInput({
           noteCapable={mention.noteCapable}
           skillEntries={mention.skillEntries}
           skillCapable={mention.skillCapable}
+          capabilityEntries={mention.capabilityEntries}
+          capabilitiesLoading={mention.capabilitiesLoading}
+          capabilityCapable={mention.capabilityCapable}
           agentEntries={mention.agentEntries}
           agentCapable={mention.agentCapable}
           selectedIndex={mention.selectedIndex}
@@ -2049,6 +2066,7 @@ export default function ChatInput({
           onSelect={mention.applyEntry}
           onSelectNote={mention.applyNote}
           onSelectSkill={mention.applySkill}
+          onSelectCapability={mention.applyCapability}
           onSelectAgent={mention.applyAgent}
           onHover={mention.setSelectedIndex}
         />
@@ -2961,6 +2979,7 @@ export default function ChatInput({
                       : t("chat.askAnything")
             }
             value={input}
+            typedMentions={structuredMentions}
             onChange={setComposerInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -2973,6 +2992,7 @@ export default function ChatInput({
             fileEnabled={!!workingDir}
             noteEnabled={enableNoteMention}
             skillEnabled={enableSkillMention}
+            capabilityEnabled
             agentMentionEnabled={enableAgentMention}
             agents={agents}
             hero={hero}

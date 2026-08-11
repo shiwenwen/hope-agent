@@ -43,6 +43,7 @@ pub use file_io::{
 };
 
 // Cross-session index (read-only)
+pub(crate) use index::resolve_plan_mention_path;
 pub use index::{
     list_all_plans, resolve_plan_mention, PlanIndexEntry, PlanIndexFilter, PlanMentionResolution,
 };

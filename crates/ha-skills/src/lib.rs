@@ -120,7 +120,7 @@ fn register_hooks() {
     h::register_skills_hooks(h::SkillsHooks {
         invocable_skills: skills::get_invocable_skills,
         load_all_skills_with_budget: skills::load_all_skills_with_budget,
-        resolve_inline_skill_mentions: skills::resolve_inline_skill_mentions,
+        resolve_named_skill_mentions: skills::resolve_named_skill_mentions,
         render_skill_inline: |skill, args| Box::pin(tools::skill::render_inline(skill, args)),
         spawn_skill_fork: |skill, args, parent_session_id, agent_id, skip_parent_injection| {
             Box::pin(skills::spawn_skill_fork(

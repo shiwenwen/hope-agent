@@ -73,8 +73,8 @@ pub fn has_deferred_tool_server(servers: &[McpServerConfig]) -> bool {
     servers.iter().any(|cfg| cfg.enabled && cfg.deferred_tools)
 }
 
-/// MCP Capabilities system prompt 段（实现在 ha-mcp，ArcSwap 支撑、同步
-/// 可调）。未接线 `None`——prompt 无 MCP 段，与 manager 未初始化一致。
+/// MCP capability data 段（实现在 ha-mcp，ArcSwap 支撑、同步可调）。
+/// 字段名为兼容保留；Provider renderer 必须放入动态 user-data lane。
 pub fn system_prompt_snippet() -> Option<String> {
     let hooks = crate::mcp_hooks::mcp_hooks()?;
     (hooks.system_prompt_snippet)()

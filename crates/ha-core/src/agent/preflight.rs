@@ -4,7 +4,7 @@
 //!
 //! This is where the `UserPromptSubmit` hook runs. A blocking decision stops
 //! the prompt before it is persisted or run; otherwise any injected
-//! `additionalContext` is stashed for the turn to fold into its system prompt
+//! `additionalContext` is stashed for the turn's untrusted data envelope
 //! (drained next to `SessionStart`), and the prompt proceeds unchanged. All
 //! four entry points route through here, so the hook semantics live in one
 //! place — the call sites only branch on `Block`.
@@ -87,10 +87,9 @@ pub async fn user_prompt_preflight(args: PreflightArgs<'_>) -> PreflightOutcome 
         return PreflightOutcome::Block { reason };
     }
 
-    // Not blocked: stash any injected context (or clear the slot) for the turn
-    // to fold into its system prompt. The context rides the system prompt, not
-    // the persisted user message — so the message stays exactly what the user
-    // typed.
+    // Not blocked: stash any injected context (or clear the slot) for the
+    // turn-local data envelope. The persisted user message stays exactly what
+    // the user typed.
     crate::hooks::set_user_prompt_context(args.session_id, outcome.merged_additional_context());
     PreflightOutcome::Proceed {
         effective_prompt: args.raw_prompt.to_string(),

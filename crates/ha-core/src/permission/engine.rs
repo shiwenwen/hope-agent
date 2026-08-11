@@ -61,6 +61,11 @@ pub struct ResolveContext<'a> {
     /// `true` if the tool is internal (per `ToolDefinition.internal`); these
     /// always bypass approval regardless of mode.
     pub is_internal_tool: bool,
+    /// `true` only when `read_context_resource` names an immutable resource
+    /// already bound to this exact session, turn, and agent principal. The
+    /// execution adapter derives this from `ToolExecContext`; the handler
+    /// repeats the scope check before dereferencing bytes.
+    pub bound_context_resource_read: bool,
     /// Smart-mode configuration snapshot. Only consumed when
     /// `session_mode == Smart`. `None` = treat Smart like Default.
     pub smart_config: Option<&'a SmartModeConfig>,
@@ -244,6 +249,25 @@ fn check_external_connector_action(ctx: &ResolveContext<'_>) -> Option<AskReason
 
 /// The single entry point. Returns a final [`Decision`] for one tool call.
 pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
+    // A typed resource mention grants read authority to one immutable byte
+    // snapshot, not to a path or URL. Keep the call inside the single
+    // permission-engine entrance for policy auditability, then classify a
+    // verified binding as a deterministic read-only allow. Agent denied-tools
+    // remain authoritative because execution visibility is checked before the
+    // engine; the handler repeats the session/turn/principal check afterwards.
+    if ctx.tool_name == crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE
+        && ctx.bound_context_resource_read
+    {
+        app_info!(
+            "permission",
+            "bound_context_resource_allow",
+            "Allowed immutable context-resource read for session={} agent={}",
+            ctx.session_id.unwrap_or("<none>"),
+            ctx.agent_id.unwrap_or("<none>")
+        );
+        return Decision::Allow;
+    }
+
     if ctx.plan_mode {
         let allowed = ctx
             .plan_mode_allowed_tools
@@ -1333,6 +1357,7 @@ mod tests {
             agent_id: None,
             default_path: Some("/tmp/project"),
             is_internal_tool: false,
+            bound_context_resource_read: false,
             smart_config: None,
             unattended: false,
             task_intent: None,
@@ -1351,6 +1376,44 @@ mod tests {
                 reason: AskReason::EditTool
             }
         ));
+    }
+
+    #[test]
+    fn bound_context_resource_read_is_deterministically_allowed_in_plan_mode() {
+        let args = json!({"resource_ref": "ctxref-1"});
+        let plan: Vec<String> = vec![];
+        let custom = vec![crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE.to_string()];
+        let mut c = ctx(
+            crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        c.plan_mode = true;
+        c.agent_custom_approval_enabled = true;
+        c.bound_context_resource_read = true;
+        c.session_id = Some("session-1");
+        c.agent_id = Some("agent-1");
+
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn unbound_context_resource_read_does_not_bypass_plan_policy() {
+        let args = json!({"resource_ref": "copied-or-stale-ref"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx(
+            crate::tool_defs::TOOL_READ_CONTEXT_RESOURCE,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        c.plan_mode = true;
+
+        assert!(matches!(resolve(&c), Decision::Deny { .. }));
     }
 
     #[test]

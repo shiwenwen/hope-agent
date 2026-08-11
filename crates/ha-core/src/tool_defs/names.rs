@@ -13,6 +13,7 @@ pub const IMAGE_BASE64_PREFIX: &str = "__IMAGE_BASE64__";
 pub const TOOL_EXEC: &str = "exec";
 pub const TOOL_PROCESS: &str = "process";
 pub const TOOL_READ: &str = "read";
+pub const TOOL_READ_CONTEXT_RESOURCE: &str = "read_context_resource";
 pub const TOOL_WRITE: &str = "write";
 pub const TOOL_EDIT: &str = "edit";
 pub const TOOL_LS: &str = "ls";

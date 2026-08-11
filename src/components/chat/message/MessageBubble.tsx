@@ -111,6 +111,7 @@ import {
   isMemoryCandidateRole,
   shouldRenderMemoryTracePanel,
 } from "./memoryTraceFormat"
+import { buildCollapsedTextPreviewWithTypedMentions } from "../mentions/typedMentions"
 
 const USER_MESSAGE_COLLAPSE_CHARS = 900
 const USER_MESSAGE_COLLAPSE_LINES = 12
@@ -121,25 +122,16 @@ function shouldCollapseUserMessage(content: string): boolean {
   return content.split(/\r\n|\r|\n/).length > USER_MESSAGE_COLLAPSE_LINES
 }
 
-function collapsedUserMessagePreview(content: string): string {
-  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-  const lineLimited = normalized.split("\n").slice(0, USER_MESSAGE_COLLAPSE_LINES).join("\n")
-  const charLimited =
-    lineLimited.length > USER_MESSAGE_COLLAPSE_CHARS
-      ? lineLimited.slice(0, USER_MESSAGE_COLLAPSE_CHARS)
-      : lineLimited
-  const trimmed = charLimited.trimEnd()
-  return trimmed ? `${trimmed}...` : "..."
-}
-
 function UserMessageContent({
   content,
+  typedMentions,
   renderMode,
   fadeToClassName,
   forceExpanded = false,
   onForceExpandedDismiss,
 }: {
   content: string
+  typedMentions?: Message["typedMentions"]
   renderMode: ContentRenderMode
   fadeToClassName: string
   forceExpanded?: boolean
@@ -148,15 +140,24 @@ function UserMessageContent({
   const { t } = useTranslation()
   const [expandedState, setExpandedState] = useState(() => ({ content, expanded: false }))
   const collapsible = useMemo(() => shouldCollapseUserMessage(content), [content])
-  const preview = useMemo(() => collapsedUserMessagePreview(content), [content])
+  const preview = useMemo(
+    () =>
+      buildCollapsedTextPreviewWithTypedMentions(
+        content,
+        typedMentions ?? [],
+        USER_MESSAGE_COLLAPSE_LINES,
+        USER_MESSAGE_COLLAPSE_CHARS,
+      ),
+    [content, typedMentions],
+  )
   const expanded =
     forceExpanded || (expandedState.content === content ? expandedState.expanded : false)
 
   const rendered =
     renderMode === "markdown" ? (
-      <MarkdownRenderer content={content} />
+      <MarkdownRenderer content={content} typedMentions={typedMentions} />
     ) : (
-      <PlainTextRenderer content={content} />
+      <PlainTextRenderer content={content} typedMentions={typedMentions} />
     )
   const handleToggle = () => {
     if (expanded) onForceExpandedDismiss?.()
@@ -168,7 +169,11 @@ function UserMessageContent({
   return (
     <div>
       <div className="relative">
-        {expanded ? rendered : <PlainTextRenderer content={preview} />}
+        {expanded ? (
+          rendered
+        ) : (
+          <PlainTextRenderer content={preview.text} typedMentions={preview.mentions} />
+        )}
         {!expanded && (
           <div
             className={cn(
@@ -2251,6 +2256,7 @@ function MessageBubbleInner({
               <UserAttachments attachments={msg.attachments} sessionId={sessionId} />
               <UserMessageContent
                 content={msg.content}
+                typedMentions={msg.typedMentions}
                 renderMode={contentRenderMode}
                 fadeToClassName={userMessageFadeToClassName}
                 forceExpanded={forceExpandUserContent}

@@ -279,6 +279,7 @@ fn is_recommended_eager(name: &str) -> bool {
             | TOOL_RUNTIME_CANCEL
             | TOOL_SKILL
             | TOOL_READ
+            | TOOL_READ_CONTEXT_RESOURCE
             | TOOL_GREP
             | TOOL_EXEC
             | TOOL_APPLY_PATCH

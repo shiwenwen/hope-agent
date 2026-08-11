@@ -47,6 +47,62 @@ pub(crate) fn detect_image_mime(header: &[u8]) -> Option<&'static str> {
 const IMAGE_MAX_DIMENSION: u32 = 1200;
 /// Max bytes for base64-encoded image payload.
 const IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024; // 5 MB
+/// Conservative upper bound for decoder + resize working buffers. Dimension
+/// headers are inspected before decode so a tiny compressed image cannot force
+/// an unbounded pixel allocation through `read_context_resource`.
+const IMAGE_MAX_DECODE_WORKING_BYTES: usize = 128 * 1024 * 1024;
+
+fn inspect_image_for_bounded_decode(data: &[u8]) -> Result<(u32, u32, usize)> {
+    use image::ImageReader;
+    use std::io::Cursor;
+
+    let (width, height) = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_err(|e| anyhow::anyhow!("Cannot detect image format: {}", e))?
+        .into_dimensions()
+        .map_err(|e| anyhow::anyhow!("Cannot inspect image dimensions: {}", e))?;
+    let working_bytes = usize::try_from(width)
+        .ok()
+        .and_then(|value| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| value.checked_mul(height))
+        })
+        // DynamicImage variants, decoder scratch, and resize filters can keep
+        // several pixel buffers live. Sixteen bytes/pixel is conservative for
+        // the formats accepted by image-rs.
+        .and_then(|pixels| pixels.checked_mul(16))
+        .ok_or_else(|| anyhow::anyhow!("Image dimensions exceed the bounded decode budget"))?;
+    if working_bytes > IMAGE_MAX_DECODE_WORKING_BYTES {
+        anyhow::bail!("Image dimensions exceed the bounded decode budget");
+    }
+    Ok((width, height, working_bytes))
+}
+
+/// Upper bounds needed before a frozen context image allocates its decoded or
+/// Base64 result buffers. The output length is exact for pass-through images
+/// and the configured 5 MiB ceiling for a resized JPEG.
+pub(crate) fn bounded_image_delivery_projection(data: &[u8]) -> Result<(usize, usize)> {
+    let (width, height, working_bytes) = inspect_image_for_bounded_decode(data)?;
+    let output_raw = if width > IMAGE_MAX_DIMENSION
+        || height > IMAGE_MAX_DIMENSION
+        || data.len() > IMAGE_MAX_BYTES
+    {
+        IMAGE_MAX_BYTES
+    } else {
+        data.len()
+    };
+    let encoded_upper = output_raw
+        .checked_add(2)
+        .and_then(|value| value.checked_div(3))
+        .and_then(|value| value.checked_mul(4))
+        .ok_or_else(|| anyhow::anyhow!("Image Base64 projection overflow"))?;
+    let transient_bytes = working_bytes
+        .checked_add(output_raw)
+        .and_then(|value| value.checked_add(encoded_upper))
+        .ok_or_else(|| anyhow::anyhow!("Image delivery projection overflow"))?;
+    Ok((encoded_upper, transient_bytes))
+}
 
 /// Resize an image buffer if it exceeds dimension or byte limits.
 /// Returns (base64_data, mime_type).
@@ -57,18 +113,21 @@ pub(crate) fn resize_image_if_needed(
     use image::ImageReader;
     use std::io::Cursor;
 
-    let reader = ImageReader::new(Cursor::new(data))
-        .with_guessed_format()
-        .map_err(|e| anyhow::anyhow!("Cannot detect image format: {}", e))?;
-    let img = reader
-        .decode()
-        .map_err(|e| anyhow::anyhow!("Cannot decode image: {}", e))?;
-
-    let (w, h) = (img.width(), img.height());
+    let (w, h, _) = inspect_image_for_bounded_decode(data)?;
     let needs_resize =
         w > IMAGE_MAX_DIMENSION || h > IMAGE_MAX_DIMENSION || data.len() > IMAGE_MAX_BYTES;
 
+    // Decode even pass-through images after the dimension preflight. Returning
+    // a truncated/corrupt compressed payload merely postpones the failure to a
+    // provider and makes a successful read result misleading.
+    let img = ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_err(|e| anyhow::anyhow!("Cannot detect image format: {}", e))?
+        .decode()
+        .map_err(|e| anyhow::anyhow!("Cannot decode image: {}", e))?;
+
     if !needs_resize {
+        drop(img);
         // Return original data as base64
         let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
         // Keep original mime, but map to static str

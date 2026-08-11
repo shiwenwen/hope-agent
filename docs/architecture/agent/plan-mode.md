@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../../README.md)
 >
-> 更新时间：2026-08-04
+> 更新时间：2026-08-11
 
 ## 关联源码
 
@@ -13,7 +13,7 @@
 | 内存 store / DB 恢复 | `crates/ha-core/src/plan/store.rs` |
 | Plan 文件读写 / 版本备份 | `crates/ha-core/src/plan/file_io.rs` |
 | 提交质量闸 | `crates/ha-core/src/plan/gates.rs` |
-| System Prompt 注入 | `crates/ha-core/src/agent/plan_context.rs` + `crates/ha-core/src/plan/constants.rs` |
+| Run Instruction / plan data 装配 | `crates/ha-core/src/agent/plan_context.rs` + `crates/ha-core/src/plan/constants.rs` |
 | Git checkpoint | `crates/ha-core/src/plan/git.rs` |
 | 跨会话只读索引 | `crates/ha-core/src/plan/index.rs` |
 | 前端状态与视图 | `src/components/chat/plan-mode/` |
@@ -41,7 +41,7 @@ Plan Mode 的解法是彻底拆开两条轨道：
 | **plan.md** | 设计契约（用户审批的对象） | `submit_plan` | 自由 markdown，无 checkbox、无 status 字段 | 审批后冻结；要改重进 Plan Mode |
 | **task list** | 实施进度（执行心电图） | `task_create` / `task_update` / `task_list` | 结构化 `{content, activeForm, status}`，三态 | 实施期动态推进，随 session 持久化 |
 
-规则由 system prompt 直接约束模型：计划正文里**不得出现** markdown checkbox（`- [ ]` / `- [x]`）；细粒度的执行待办要等审批通过后，用 task 工具单独创建。plan 因此退回纯粹的、可读的执行指南；task 系统独占进度追踪。
+规则由平台固定的 Plan Run Instruction 约束模型：计划正文里**不得出现** markdown checkbox（`- [ ]` / `- [x]`）；细粒度的执行待办要等审批通过后，用 task 工具单独创建。plan 因此退回纯粹的、可读的执行指南；task 系统独占进度追踪。用户/模型写出的 plan 正文本身只是冻结的 user-data，不能反向改写这份运行合同。
 
 ## 状态机
 
@@ -144,7 +144,7 @@ flowchart TB
       GT[gates.rs<br/>质量闸]
       GIT[git.rs<br/>checkpoint]
       IDX[index.rs<br/>跨会话只读索引]
-      CTX[agent/plan_context.rs<br/>prompt 注入]
+      CTX[agent/plan_context.rs<br/>Run / data 装配]
     end
     subgraph tools[计划相关工具]
       EPM[enter_plan_mode]
@@ -183,7 +183,7 @@ crates/ha-core/src/plan/
 ├── file_io.rs     # plan 文件读写 + 版本备份 + flat→subdir 迁移
 ├── gates.rs       # 提交质量闸（check_plan_quality）
 ├── git.rs         # git checkpoint 创建 / 回滚 / 清理
-├── constants.rs   # PLAN_MODE_SYSTEM_PROMPT / 各阶段 prompt / 工具集常量
+├── constants.rs   # PLAN_MODE_SYSTEM_PROMPT / 各阶段固定 Run 合同 / 工具集常量
 ├── index.rs       # 跨会话只读索引（list_all_plans / resolve_plan_mention）
 ├── subagent.rs    # 计划子 agent 注册（可选并行探索）
 └── tests.rs       # 状态机 + transition 单测
@@ -236,21 +236,23 @@ flowchart TD
 - **`Completed` 与 `Off` 都会清理 git checkpoint**，但两者语义不同：`Off` 走 `set_plan_state` 的 `map.remove` 把整个 PlanMeta drop 掉，`checkpoint_ref` 自然消失；`Completed` 保留 PlanMeta，因此必须**额外显式**把 `meta.checkpoint_ref` 置 `None`，否则 `get_plan_checkpoint` 会返回一个 git 里已删的 branch，前端 Rollback 按钮可点却指向不存在的 ref。
 - `set_plan_state(Off)` 是唯一必然合法的边，所以「取消子 agent」这一步永远发生在合法转移之后。
 
-### System Prompt 注入
+### Run instruction / data 注入
 
-`resolve_plan_context_for_session`（`agent/plan_context.rs`）把后端的 `PlanModeState` 翻译成 chat engine 需要的整套输入：Plan agent 模式、路径允许清单、以及注入到 system prompt 的文本段。集中在这里，保证每个聊天入口——Tauri、HTTP、IM channel、cron、subagent——拿到完全一致的 Plan 行为。
+`resolve_plan_context_for_session`（`agent/plan_context.rs`）把后端的 `PlanModeState` 翻译成 chat engine 需要的整套输入：Plan agent 模式、路径允许清单、固定 run instruction 与 plan 文档 data。集中在这里，保证每个聊天入口——Tauri、HTTP、IM channel、cron、subagent——拿到完全一致的 Plan 行为，同时避免 plan 正文污染稳定 system 前缀或继承 developer authority。
 
-| 状态 | 注入 prompt | 来源 |
+| 状态 | 固定 Run Instruction | user-data |
 |---|---|---|
-| Off | 无 | — |
-| Planning | 规划工作流 + 限制条款 + Re-entry 检查 + 推荐 plan 结构 | `PLAN_MODE_SYSTEM_PROMPT` |
-| Review | `# Plan Review` header + 待审批 plan 正文 | plan 正文（文件中途消失时回退到 `PLAN_MODE_SYSTEM_PROMPT`） |
-| Executing | 「plan 已冻结，用 task 工具拆 todo + 推进」+ plan 正文 | `PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX` + 正文 |
-| Completed | 总结指令 + plan 正文 | `PLAN_COMPLETED_SYSTEM_PROMPT` + 正文 |
+| Off | 无 | 无 |
+| Planning | 规划工作流 + 限制条款 + Re-entry 检查 + 推荐 plan 结构（`PLAN_MODE_SYSTEM_PROMPT`） | 无 |
+| Review | `# Plan Review`：已提交、待用户批准、批准前不得执行 | 当前 plan 文件正文（存在时） |
+| Executing | `PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX`：plan 已冻结，用 task 工具拆 todo 并推进 | 当前 plan 文件正文（存在时） |
+| Completed | `PLAN_COMPLETED_SYSTEM_PROMPT`：总结已完成执行 | 当前 plan 文件正文（存在时） |
+
+常量名中的 `SYSTEM_PROMPT` 是兼容命名，不表示这些段仍被拼进 cache-stable system。`run_instruction` 与 `plan_data` 是两个独立字段：plan 文件读取失败时保持对应状态的固定合同、data 为空；不会把正文回退/提升成 Run Instruction，也不会回退到 Planning 合同。
 
 `PLAN_MODE_SYSTEM_PROMPT` 引导模型走一套规划工作流：深度探索（可派最多 3 个探索子 agent 并行）→ 需求澄清（用 `ask_user_question` 结构化提问）→ 方案设计 → 撰写计划 → 审批修订。顶部的 **Re-entry 检查**要求模型进 Plan Mode 后**先读老 plan 文件**，再判断「同任务增量修订」还是「不同任务重头覆盖」。
 
-**一个容易踩的坑**：chat engine 的 mid-turn 探针比较的是原始 `state`，而**不是**派生出来的 `mode`。因为 `Planning` 和 `Review` 都映射到同一个 `PlanAgent` 模式，`Completed` 和 `Off` 都映射到 `Off` 模式——如果只比 `mode`，就会漏掉 `Planning → Review` 和 `Completed → Off` 这两个转移，而它们的注入文本恰恰差别巨大（Review 内嵌刚提交的 plan 正文，Completed 内嵌已执行的 plan）。`PlanResolvedContext` 因此把原始 `state` 一并缓存在 agent 上。
+**一个容易踩的坑**：chat engine 的 mid-turn 探针比较的是原始 `state`，而**不是**派生出来的 `mode`。因为 `Planning` 和 `Review` 都映射到同一个 `PlanAgent` 模式，`Completed` 和 `Off` 都映射到 `Off` 模式——如果只比 `mode`，就会漏掉 `Planning → Review` 和 `Completed → Off`，而它们需要刷新不同的 Run Instruction / plan-data 快照。`PlanResolvedContext` 因此把原始 `state` 一并缓存在 agent 上；同一 Provider round 的 retry / failover 复用已经冻结的快照，不重新读 plan 文件。
 
 ### 提交质量闸
 
@@ -487,7 +489,7 @@ Tauri / HTTP 路径都显式拒绝 `state=="paused"`（保留兼容兜底，避�
 Plan Mode 与业界同类「先规划再执行」模式共享同一套骨架：自由 markdown 设计文档（无 checkbox）、plan 与进度双轨分离、执行期冻结、可重入修订。它额外提供两项能力：
 
 - **Git Checkpoint**——执行前自动打 branch，失败一键回滚，是同类工具通常没有的安全网。
-- **通用任务覆盖**——不局限于编程，system prompt 与示例同时覆盖调研、写作、决策等非代码任务。
+- **通用任务覆盖**——不局限于编程，固定 Plan Run Instruction 与示例同时覆盖调研、写作、决策等非代码任务。
 
 ## 参考：接口清单
 

@@ -59,6 +59,7 @@ pub fn is_knowledge_scope_tool(name: &str) -> bool {
                 | TOOL_ASK_USER_QUESTION
                 | TOOL_RUNTIME_CANCEL
                 | TOOL_JOB_STATUS
+                | TOOL_READ_CONTEXT_RESOURCE
         )
 }
 
@@ -88,6 +89,7 @@ pub fn is_design_scope_tool(name: &str) -> bool {
             | TOOL_ASK_USER_QUESTION
             | TOOL_RUNTIME_CANCEL
             | TOOL_JOB_STATUS
+            | TOOL_READ_CONTEXT_RESOURCE
     )
 }
 
@@ -133,9 +135,14 @@ pub fn tool_visible_with_filters(
     skill_allowed_tools: &[String],
     plan_mode_allowed_tools: &[String],
 ) -> bool {
+    let turn_local_context_read = name == TOOL_READ_CONTEXT_RESOURCE;
     !denied_tools.iter().any(|t| t == name)
-        && (skill_allowed_tools.is_empty() || skill_allowed_tools.iter().any(|t| t == name))
-        && (plan_mode_allowed_tools.is_empty() || plan_mode_allowed_tools.iter().any(|t| t == name))
+        && (turn_local_context_read
+            || skill_allowed_tools.is_empty()
+            || skill_allowed_tools.iter().any(|t| t == name))
+        && (turn_local_context_read
+            || plan_mode_allowed_tools.is_empty()
+            || plan_mode_allowed_tools.iter().any(|t| t == name))
 }
 
 #[cfg(test)]

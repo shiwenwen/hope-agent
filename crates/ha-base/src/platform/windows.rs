@@ -1,12 +1,218 @@
 use std::fs;
 use std::io::{self, Write};
+use std::os::windows::fs::MetadataExt;
 use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+const FILE_SHARE_READ: u32 = 0x0000_0001;
+const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+
+fn final_path_for_handle(file: &fs::File) -> io::Result<String> {
+    // FILE_NAME_NORMALIZED | VOLUME_NAME_DOS are both zero. Querying the
+    // required size first avoids truncation; the returned name is derived from
+    // the open handle, so later pathname swaps cannot change the decision.
+    let required = unsafe {
+        GetFinalPathNameByHandleW(file.as_raw_handle() as isize, std::ptr::null_mut(), 0, 0)
+    };
+    if required == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut buffer = vec![0u16; required as usize + 1];
+    let written = unsafe {
+        GetFinalPathNameByHandleW(
+            file.as_raw_handle() as isize,
+            buffer.as_mut_ptr(),
+            buffer.len().min(u32::MAX as usize) as u32,
+            0,
+        )
+    };
+    if written == 0 || written as usize >= buffer.len() {
+        return Err(if written == 0 {
+            io::Error::last_os_error()
+        } else {
+            io::Error::new(io::ErrorKind::InvalidData, "final handle path changed size")
+        });
+    }
+    String::from_utf16(&buffer[..written as usize]).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "final handle path is not UTF-16",
+        )
+    })
+}
+
+fn normalized_windows_path(path: &str) -> String {
+    let path = path.replace('/', "\\");
+    let path = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", rest)
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path
+    };
+    path.to_lowercase()
+}
+
+fn handle_path_matches(expected: &Path, actual: &str) -> bool {
+    let expected = normalized_windows_path(&expected.as_os_str().to_string_lossy());
+    let actual = normalized_windows_path(actual);
+    expected.trim_end_matches('\\') == actual.trim_end_matches('\\')
+}
+
+fn open_direct_directory(path: &Path) -> io::Result<fs::File> {
+    let handle = fs::OpenOptions::new()
+        .read(true)
+        // Holding every namespace component without FILE_SHARE_DELETE prevents
+        // a direct-directory rename substitution just as O_DIRECTORY fds do
+        // for the Unix openat walk. Read/write sharing remains compatible with
+        // ordinary editors operating inside the directory.
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let attributes = handle.metadata()?.file_attributes();
+    if attributes & FILE_ATTRIBUTE_DIRECTORY == 0 || attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "beneath-open component is not a direct directory handle",
+        ));
+    }
+    let final_path = final_path_for_handle(&handle)?;
+    if !handle_path_matches(path, &final_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "beneath-open directory changed after authorization",
+        ));
+    }
+    Ok(handle)
+}
+
+fn locked_directory_chain(root: &Path) -> io::Result<Vec<fs::File>> {
+    // `ancestors()` stops at the drive/UNC-share root. Open from that stable
+    // namespace root downward and keep every handle alive until the candidate
+    // is open; no component can be renamed out and replaced between checks.
+    let mut paths = root
+        .ancestors()
+        .filter(|path| path.is_absolute())
+        .collect::<Vec<_>>();
+    paths.reverse();
+    if paths.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "beneath-open root has no absolute namespace anchor",
+        ));
+    }
+    paths
+        .into_iter()
+        .map(open_direct_directory)
+        .collect::<io::Result<Vec<_>>>()
+}
+
+fn relative_components(relative: &Path) -> io::Result<Vec<std::ffi::OsString>> {
+    relative
+        .components()
+        .map(|component| match component {
+            std::path::Component::Normal(name) => Ok(name.to_os_string()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "beneath-open relative path has an invalid component",
+            )),
+        })
+        .collect()
+}
+
+fn open_file_beneath_inner<F>(
+    root: &Path,
+    relative: &Path,
+    after_root_locked: F,
+) -> io::Result<fs::File>
+where
+    F: FnOnce(),
+{
+    let mut directory_handles = locked_directory_chain(root)?;
+    after_root_locked();
+
+    let components = relative_components(relative)?;
+    let Some((file_name, parent_components)) = components.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "beneath-open relative path is empty",
+        ));
+    };
+    let mut candidate_path = root.to_path_buf();
+    for component in parent_components {
+        candidate_path.push(component);
+        directory_handles.push(open_direct_directory(&candidate_path)?);
+    }
+    candidate_path.push(file_name);
+
+    let candidate = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&candidate_path)?;
+    let attributes = candidate.metadata()?.file_attributes();
+    if attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "beneath-open candidate is a directory or reparse point",
+        ));
+    }
+    let candidate_final_path = final_path_for_handle(&candidate)?;
+    if !handle_path_matches(&candidate_path, &candidate_final_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "beneath-open candidate changed after authorization",
+        ));
+    }
+    Ok(candidate)
+}
+
+pub(super) fn open_file_beneath(root: &Path, relative: &Path) -> io::Result<fs::File> {
+    open_file_beneath_inner(root, relative, || {})
+}
+
+#[cfg(test)]
+pub(super) fn open_file_beneath_with_root_hook<F>(
+    root: &Path,
+    relative: &Path,
+    after_root_locked: F,
+) -> io::Result<fs::File>
+where
+    F: FnOnce(),
+{
+    open_file_beneath_inner(root, relative, after_root_locked)
+}
+
+pub(super) fn remove_file_beneath(root: &Path, relative: &Path) -> io::Result<()> {
+    let mut directory_handles = locked_directory_chain(root)?;
+    let components = relative_components(relative)?;
+    let Some((file_name, parent_components)) = components.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "beneath-remove relative path is empty",
+        ));
+    };
+    let mut candidate_path = root.to_path_buf();
+    for component in parent_components {
+        candidate_path.push(component);
+        directory_handles.push(open_direct_directory(&candidate_path)?);
+    }
+    candidate_path.push(file_name);
+    // Every ancestor is still locked against delete/rename. DeleteFile removes
+    // a final symlink/reparse directory entry itself rather than its target.
+    fs::remove_file(candidate_path)
+}
 
 /// Convert a filesystem path to the absolute Win32 verbatim form accepted by
 /// raw `*W` APIs. Rust's `std::fs` adds long-path handling internally, but a

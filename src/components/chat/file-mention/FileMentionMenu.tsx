@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { CircleAlert, File, FileText, Folder, Loader2 } from "lucide-react"
+import { Cable, CircleAlert, File, FileText, Folder, Loader2, Puzzle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
@@ -9,6 +9,7 @@ import { skillMentionMeta, type MentionableSkill } from "../skill-mention/skillT
 import type { MentionEntry, MentionMode } from "./types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { ReferenceableNote } from "@/types/knowledge"
+import type { MentionCapabilityCandidate } from "../mentions/typedMentions"
 
 interface FileMentionMenuProps {
   isOpen: boolean
@@ -25,6 +26,9 @@ interface FileMentionMenuProps {
   skillEntries: MentionableSkill[]
   /** Whether the skill section is enabled (drives its header). */
   skillCapable: boolean
+  capabilityEntries: MentionCapabilityCandidate[]
+  capabilitiesLoading: boolean
+  capabilityCapable: boolean
   /** Agent section rows (already filtered). */
   agentEntries: AgentSummaryForSidebar[]
   /** Whether the agent section is enabled (drives its header). */
@@ -43,6 +47,7 @@ interface FileMentionMenuProps {
   onSelect: (entry: MentionEntry) => void
   onSelectNote: (note: ReferenceableNote) => void
   onSelectSkill: (skill: MentionableSkill) => void
+  onSelectCapability: (candidate: MentionCapabilityCandidate) => void
   onSelectAgent: (agent: AgentSummaryForSidebar) => void
   /** Hover handler; receives the FLAT index across all sections. */
   onHover: (index: number) => void
@@ -57,6 +62,9 @@ export default function FileMentionMenu({
   noteCapable,
   skillEntries,
   skillCapable,
+  capabilityEntries,
+  capabilitiesLoading,
+  capabilityCapable,
   agentEntries,
   agentCapable,
   selectedIndex,
@@ -70,6 +78,7 @@ export default function FileMentionMenu({
   onSelect,
   onSelectNote,
   onSelectSkill,
+  onSelectCapability,
   onSelectAgent,
   onHover,
 }: FileMentionMenuProps) {
@@ -84,6 +93,7 @@ export default function FileMentionMenu({
   const hasNotes = noteEntries.length > 0
   const hasAgents = agentEntries.length > 0
   const hasSkills = skillEntries.length > 0
+  const hasCapabilities = capabilityEntries.length > 0
   const showFileSection = !!workingDir && hasFileQuery
   // Nothing to paint: no file section (working dir / its loading+empty/error),
   // no note rows or in-flight note load, and no skill rows. Avoids an empty
@@ -95,7 +105,9 @@ export default function FileMentionMenu({
     !notesLoading &&
     !noteLoadErrorDetail &&
     !hasAgents &&
-    !hasSkills
+    !hasSkills &&
+    !hasCapabilities &&
+    !capabilitiesLoading
   )
 
   // Compute breadcrumb relative to workingDir for list mode; search mode shows
@@ -104,6 +116,7 @@ export default function FileMentionMenu({
   const showNoteSection = hasNotes || (noteCapable && (notesLoading || !!noteLoadErrorDetail))
   const showAgentSection = agentCapable && hasAgents
   const showSkillSection = skillCapable && hasSkills
+  const showCapabilitySection = capabilityCapable && (hasCapabilities || capabilitiesLoading)
   const sectionHeaderClass =
     "flex items-center gap-2 px-2.5 py-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider"
   const rowClass = (selected: boolean) =>
@@ -279,12 +292,56 @@ export default function FileMentionMenu({
         )
       })}
 
+      {/* ── Registered Plugin/Connector capability section ── */}
+      {showCapabilitySection && (
+        <div
+          className={cn(
+            sectionHeaderClass,
+            ((showFileSection && hasFiles) || showNoteSection || showSkillSection) &&
+              "mt-1 border-t border-border/40 pt-1.5",
+          )}
+        >
+          <span className="truncate normal-case tracking-normal">
+            {t("chat.capabilityMention.heading", "Plugins & connectors")}
+          </span>
+          {capabilitiesLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+        </div>
+      )}
+
+      {capabilityEntries.map((candidate, c) => {
+        const flatIdx = entries.length + noteEntries.length + skillEntries.length + c
+        const isSelected = flatIdx === selectedIndex
+        const Icon = candidate.kind === "connector" ? Cable : Puzzle
+        return (
+          <button
+            key={`${candidate.kind}-${candidate.namespace}-${candidate.targetId}`}
+            ref={isSelected ? selectedRef : undefined}
+            type="button"
+            role="option"
+            aria-selected={isSelected}
+            className={rowClass(isSelected)}
+            onClick={() => onSelectCapability(candidate)}
+            onMouseEnter={() => onHover(flatIdx)}
+            data-ha-title-tip={candidate.summary}
+          >
+            <Icon className="h-4 w-4 shrink-0 text-cyan-600 dark:text-cyan-300" />
+            <span className="truncate text-[13px] text-foreground">{candidate.displayLabel}</span>
+            <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground/50">
+              @{candidate.kind}
+            </span>
+          </button>
+        )
+      })}
+
       {/* ── Agent section (`@agent:<id>`) ── */}
       {showAgentSection && (
         <div
           className={cn(
             sectionHeaderClass,
-            ((showFileSection && hasFiles) || showNoteSection || showSkillSection) &&
+            ((showFileSection && hasFiles) ||
+              showNoteSection ||
+              showSkillSection ||
+              showCapabilitySection) &&
               "mt-1 border-t border-border/40 pt-1.5",
           )}
         >
@@ -295,7 +352,8 @@ export default function FileMentionMenu({
       )}
 
       {agentEntries.map((agent, a) => {
-        const flatIdx = entries.length + noteEntries.length + skillEntries.length + a
+        const flatIdx =
+          entries.length + noteEntries.length + skillEntries.length + capabilityEntries.length + a
         const isSelected = flatIdx === selectedIndex
         return (
           <button

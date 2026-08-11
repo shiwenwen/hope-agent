@@ -1879,6 +1879,7 @@ async fn run_domain_eval_agent_execution(
         agent_id: agent_id.clone(),
         turn_id: Some(turn_id.clone()),
         message: prompt.clone(),
+        incoming_turn: None,
         display_text: execution.display_text.clone(),
         attachments: Vec::new(),
         session_db: db.clone(),
@@ -1887,11 +1888,15 @@ async fn run_domain_eval_agent_execution(
         codex_token: None,
         resolved_temperature: None,
         compact_config: execution.compact_config.clone().unwrap_or_default(),
-        extra_system_context: Some(domain_eval_fixture_execution_context(
-            fixture,
-            task,
-            execution.extra_system_context.as_deref(),
-        )),
+        run_context: Some(ha_core::prompt_context::RunInstructionContext::new(
+            ha_core::prompt_context::RunInstructionSource::Evaluation,
+            "# Domain Eval Execution\n\nExecute the current evaluation task and produce auditable evidence through the normal tool and workflow contracts.",
+        )?
+        .with_untrusted_data(domain_eval_fixture_execution_context(
+                fixture,
+                task,
+                execution.extra_system_context.as_deref(),
+            ))),
         reasoning_effort: execution
             .reasoning_effort
             .clone()

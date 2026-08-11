@@ -278,6 +278,10 @@ export type ContentBlock =
 export interface Message {
   role: "user" | "assistant" | "event"
   content: string
+  /** Client/runtime evidence for mention chips in this exact user message.
+   * Persisted history without a backend receipt intentionally leaves this
+   * unset, so lookalike markdown remains an ordinary link. */
+  typedMentions?: import("@/components/chat/mentions/typedMentions").ComposerMentionBinding[]
   contentBlocks?: ContentBlock[]
   toolCalls?: ToolCall[]
   thinking?: string

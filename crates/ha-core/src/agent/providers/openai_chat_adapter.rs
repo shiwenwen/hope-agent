@@ -106,12 +106,18 @@ fn build_chat_body(
 ) {
     let mut api_messages: Vec<Value> =
         vec![json!({ "role": "system", "content": req.system_prompt })];
-    for suffix in super::super::streaming_adapter::all_dynamic_suffixes(req) {
+    for suffix in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
+        // The stable system message remains the exact prefix. A separate
+        // dynamic system message is the compatibility form for chat endpoints
+        // that do not consistently support the developer role.
         api_messages.push(json!({ "role": "system", "content": suffix }));
     }
     let expanded_history =
         expand_openai_chat_image_markers_for_api(req.history_for_api, model_supports_vision);
     api_messages.extend(expanded_history);
+    if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+        api_messages.push(json!({ "role": "user", "content": content }));
+    }
 
     let tools_array: Vec<Value> = req
         .tool_schemas
@@ -165,16 +171,6 @@ fn log_openai_chat_request(
         false,
     );
     if let Some(logger) = crate::get_logger() {
-        let raw_body = if body_size > 32768 {
-            format!(
-                "{}...(truncated, total {}B)",
-                crate::truncate_utf8(&body_str, 32768),
-                body_size
-            )
-        } else {
-            body_str
-        };
-        let raw_body = crate::logging::redact_sensitive(&raw_body);
         logger.log(
             "debug",
             "agent",
@@ -194,7 +190,6 @@ fn log_openai_chat_request(
                     "message_count": api_messages.len(),
                     "tool_count": tools_array.len(),
                     "body_size_bytes": body_size,
-                    "request_body": raw_body,
                 })
                 .to_string(),
             ),
@@ -258,17 +253,22 @@ fn log_openai_chat_response(
 
 fn log_openai_chat_error(status: u16, error_text: &str, round: u32) {
     if let Some(logger) = crate::get_logger() {
-        let error_preview = if error_text.len() > 500 {
-            format!("{}...", crate::truncate_utf8(error_text, 500))
-        } else {
-            error_text.to_string()
-        };
+        let error_fingerprint =
+            crate::cache_routing::audit_fingerprint("openai-chat-error", error_text.as_bytes());
         logger.log(
             "error",
             "agent",
             "agent::chat_openai_chat::error",
-            &format!("OpenAI Chat API error ({}): {}", status, error_preview),
-            Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+            &format!("OpenAI Chat API error ({status})"),
+            Some(
+                json!({
+                    "status": status,
+                    "error_bytes": error_text.len(),
+                    "error_fingerprint": error_fingerprint,
+                    "round": round
+                })
+                .to_string(),
+            ),
             None,
             None,
         );
@@ -339,6 +339,10 @@ fn maybe_auto_disable_thinking(
     };
 
     if let Some(logger) = crate::get_logger() {
+        let error_fingerprint = crate::cache_routing::audit_fingerprint(
+            "openai-chat-thinking-autofix",
+            error_text.as_bytes(),
+        );
         logger.log(
             "warn",
             "agent",
@@ -353,7 +357,8 @@ fn maybe_auto_disable_thinking(
                     "provider_name": provider_name,
                     "model": model,
                     "status": status,
-                    "error": error_text,
+                    "error_bytes": error_text.len(),
+                    "error_fingerprint": error_fingerprint,
                 })
                 .to_string(),
             ),
@@ -421,6 +426,10 @@ fn log_vision_auto_disabled(
     let (provider_id, provider_name) = provider_config
         .map(|p| (Some(p.id.clone()), p.name.clone()))
         .unwrap_or((None, "Unknown Provider".to_string()));
+    let error_fingerprint = crate::cache_routing::audit_fingerprint(
+        "openai-chat-vision-autofix",
+        error_text.as_bytes(),
+    );
     logger.log(
         "warn",
         "agent",
@@ -435,7 +444,8 @@ fn log_vision_auto_disabled(
                 "provider_name": provider_name,
                 "model": model,
                 "status": status,
-                "error": error_text,
+                "error_bytes": error_text.len(),
+                "error_fingerprint": error_fingerprint,
             })
             .to_string(),
         ),
@@ -1099,11 +1109,18 @@ mod tests {
         let req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
+            run_instruction_suffix: Some("run"),
+            run_data_suffix: Some("run data"),
             awareness_suffix: Some("awareness"),
             active_memory_suffix: Some("memory"),
+            legacy_memory_suffix: Some("legacy memory"),
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("notes"),
+            attached_knowledge_suffix: Some("attached"),
+            capability_catalog_suffix: Some("capabilities"),
+            user_profile_suffix: Some("profile"),
+            environment_context_suffix: Some("environment"),
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: Some("task"),
             tool_schemas: &tools,
@@ -1130,13 +1147,14 @@ mod tests {
             messages,
             vec![
                 serde_json::json!({ "role": "system", "content": "stable" }),
-                serde_json::json!({ "role": "system", "content": "awareness" }),
-                serde_json::json!({ "role": "system", "content": "memory" }),
+                serde_json::json!({ "role": "system", "content": "run" }),
                 serde_json::json!({ "role": "system", "content": "coding" }),
-                serde_json::json!({ "role": "system", "content": "procedure" }),
-                serde_json::json!({ "role": "system", "content": "notes" }),
-                serde_json::json!({ "role": "system", "content": "task" }),
                 serde_json::json!({ "role": "user", "content": "question" }),
+                serde_json::json!({
+                    "role": "user",
+                    "content": crate::agent::streaming_adapter::render_dynamic_data_envelope(&req)
+                        .expect("data envelope")
+                }),
             ]
         );
         assert_eq!(body["prompt_cache_key"], "stable-key");
@@ -1152,11 +1170,18 @@ mod tests {
         let req = RoundRequest {
             session_id: None,
             system_prompt: "stable",
+            run_instruction_suffix: None,
+            run_data_suffix: None,
             awareness_suffix: None,
             active_memory_suffix: None,
+            legacy_memory_suffix: None,
             coding_profile_suffix: None,
             procedure_memory_suffix: None,
             related_notes_suffix: None,
+            attached_knowledge_suffix: None,
+            capability_catalog_suffix: None,
+            user_profile_suffix: None,
+            environment_context_suffix: None,
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: None,
             tool_schemas: &tools,

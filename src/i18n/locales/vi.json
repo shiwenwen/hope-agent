@@ -971,6 +971,9 @@
       "failed": "Không thể xuất cuộc trò chuyện.",
       "untitled": "Không có tiêu đề"
     },
+    "capabilityMention": {
+      "heading": "Plugin và trình kết nối"
+    },
     "skillMention": {
       "heading": "Kỹ năng",
       "labels": {

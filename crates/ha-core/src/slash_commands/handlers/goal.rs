@@ -32,6 +32,7 @@ pub async fn handle_goal(
                     .to_string(),
                 action: Some(CommandAction::PassThrough {
                     message: raw.trim().to_string(),
+                    skill_activation: None,
                 }),
             };
             Ok(result)

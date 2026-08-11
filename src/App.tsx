@@ -191,8 +191,8 @@ export default function App() {
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [currentChatProjectId, setCurrentChatProjectId] = useState<string | null>(null)
   const [configHealth, setConfigHealth] = useState<ConfigHealth | null>(null)
-  // PlansView pushes `@plan:<short_id>:v<n>` tokens here; KnowledgeView pushes
-  // `[[note]]` refs (with a KB to auto-attach). ChatScreen appends + clears.
+  // Cross-space "reference in chat" actions land here with any typed
+  // provenance/KB attachment metadata. ChatScreen appends once and clears.
   const [pendingChatInsert, setPendingChatInsert] = useState<ChatInsert | undefined>(undefined)
   // 设计空间「实现到代码」：跳到实现会话后把 handoff pack 作首条消息自动发送（一次性，nonce 防重放）。
   const [pendingAutoSend, setPendingAutoSend] = useState<
@@ -1286,7 +1286,15 @@ export default function App() {
                         setView("chat")
                       }}
                       onInsertMention={(token) => {
-                        setPendingChatInsert({ token })
+                        const targetId = token.slice("@plan:".length)
+                        setPendingChatInsert({
+                          token,
+                          mention: {
+                            kind: "plan",
+                            targetId,
+                            displayLabel: token,
+                          },
+                        })
                         setView("chat")
                       }}
                     />

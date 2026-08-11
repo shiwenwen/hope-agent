@@ -5,6 +5,62 @@ use super::types::*;
 
 // ── Slash Command Integration ───────────────────────────────────
 
+/// Frozen dispatch decision for one explicit Skill slash invocation.
+///
+/// Both the control-plane slash handler and the typed chat-engine path resolve
+/// this from the same trusted [`SkillEntry`]. The frontend may carry the raw
+/// slash text and binding, but never supplies the model prompt used here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkillSlashDispatch {
+    Fork,
+    Tool,
+    ModelTemplate { message: String },
+    ModelInline,
+}
+
+/// Resolve the Skill's slash dispatch and, for prompt/template modes, expand
+/// the trusted catalog template with the canonical arguments.
+///
+/// `context: fork` keeps its historical precedence over `command-dispatch`.
+/// `command-dispatch: prompt` always selects template semantics; discovery
+/// normally fills a missing explicit template from the SKILL.md body.
+pub fn resolve_skill_slash_dispatch(skill: &SkillEntry, args: &str) -> SkillSlashDispatch {
+    if skill.context_mode.as_deref() == Some("fork") {
+        return SkillSlashDispatch::Fork;
+    }
+    if skill.command_dispatch.as_deref() == Some("tool") {
+        return SkillSlashDispatch::Tool;
+    }
+    if skill.command_dispatch.as_deref() == Some("prompt") {
+        return SkillSlashDispatch::ModelTemplate {
+            message: expand_skill_prompt_template(
+                skill.command_prompt_template.as_deref().unwrap_or(""),
+                args,
+            ),
+        };
+    }
+    if let Some(template) = skill.command_prompt_template.as_deref() {
+        return SkillSlashDispatch::ModelTemplate {
+            message: expand_skill_prompt_template(template, args),
+        };
+    }
+    SkillSlashDispatch::ModelInline
+}
+
+/// Expand `$ARGUMENTS` in a Skill-owned prompt template. If the template has
+/// no placeholder, preserve the existing slash contract by appending a
+/// separate user-input section.
+pub fn expand_skill_prompt_template(template: &str, args: &str) -> String {
+    let normalized = args.trim();
+    if template.contains("$ARGUMENTS") {
+        template.replace("$ARGUMENTS", normalized)
+    } else if !normalized.is_empty() {
+        format!("{}\n\nUser input:\n{}", template.trim(), normalized)
+    } else {
+        template.trim().to_string()
+    }
+}
+
 /// Normalize a skill name into a valid slash command name.
 /// - Lowercase, non-alphanumeric -> `_`, truncate to 32 chars, deduplicate underscores.
 pub fn normalize_skill_command_name(name: &str) -> String {
@@ -93,4 +149,47 @@ pub fn check_all_skills_status(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> SkillEntry {
+        serde_json::from_value(serde_json::json!({
+            "name": "review",
+            "description": "test",
+            "source": "test",
+            "file_path": "/tmp/review/SKILL.md",
+            "base_dir": "/tmp/review"
+        }))
+        .expect("skill fixture")
+    }
+
+    #[test]
+    fn prompt_dispatch_expands_the_frozen_template() {
+        let mut skill = fixture();
+        skill.command_dispatch = Some("prompt".to_string());
+        skill.command_prompt_template = Some("Review $ARGUMENTS carefully".to_string());
+
+        assert_eq!(
+            resolve_skill_slash_dispatch(&skill, "  src/lib.rs  "),
+            SkillSlashDispatch::ModelTemplate {
+                message: "Review src/lib.rs carefully".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn default_dispatch_with_template_does_not_fall_through_to_inline_body() {
+        let mut skill = fixture();
+        skill.command_prompt_template = Some("Run the checklist".to_string());
+
+        assert_eq!(
+            resolve_skill_slash_dispatch(&skill, "src/lib.rs"),
+            SkillSlashDispatch::ModelTemplate {
+                message: "Run the checklist\n\nUser input:\nsrc/lib.rs".to_string()
+            }
+        );
+    }
 }

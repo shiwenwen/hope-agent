@@ -24,6 +24,7 @@ pub(super) struct ParsedFrontmatter {
     pub command_prompt_template: Option<String>,
     pub install: Vec<SkillInstallSpec>,
     pub allowed_tools: Vec<String>,
+    pub allowed_tools_declared: bool,
     pub context_mode: Option<String>,
     /// Agent id to use when running a `context: fork` skill in a sub-agent.
     /// When unset the sub-agent inherits the parent agent. Must resolve via
@@ -74,6 +75,7 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     let mut command_arg_options: Option<Vec<String>> = None;
     let mut command_prompt_template: Option<String> = None;
     let mut allowed_tools: Vec<String> = Vec::new();
+    let mut allowed_tools_declared = false;
     let mut context_mode: Option<String> = None;
     let mut agent: Option<String> = None;
     let mut effort: Option<String> = None;
@@ -195,6 +197,7 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             &["allowed-tools:", "allowed_tools:"],
         ) {
             allowed_tools = items;
+            allowed_tools_declared = true;
             i += consumed;
             continue;
         }
@@ -345,6 +348,7 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         command_prompt_template,
         install,
         allowed_tools,
+        allowed_tools_declared,
         context_mode,
         agent,
         effort,

@@ -127,17 +127,16 @@ impl std::fmt::Debug for SessionDbHandle {
 /// The tool loop runs concurrent-safe tools in parallel via `join_all`,
 /// `clone()`-ing this struct once per concurrent task (see
 /// `crates/ha-core/src/agent/providers/{anthropic,openai_chat,openai_responses,codex}.rs`,
-/// look for `let tool_ctx = tool_ctx.clone();`). All current fields are value
-/// types or owned `Vec`s, so the clone is independent and a tool only ever
-/// observes its own snapshot.
+/// look for `let tool_ctx = tool_ctx.clone();`). Most fields are value types or
+/// owned `Vec`s, so the clone is independent and a tool only ever observes its
+/// own snapshot. `ContextResourceRef` deliberately carries a turn-owned ledger
+/// Arc alongside its immutable byte Arc: profile rebuilds must share cumulative
+/// continuation accounting, while dropping the turn releases both.
 ///
-/// **Do not** add `Mutex`/`RwLock` directly to this struct. Each concurrent
-/// branch holds an independent clone, so writes through such a lock would be
-/// invisible to peers and to subsequent rounds. State that must be shared
-/// across concurrent tools belongs in a process-global
-/// `OnceLock<TokioMutex<...>>` (see
-/// [`crate::tools::pending_approvals_per_session`] for the canonical
-/// pattern).
+/// **Do not** add `Mutex`/`RwLock` directly to this struct without defining its
+/// owner and reset boundary. Process-global coordination belongs in a
+/// process-global `OnceLock<TokioMutex<...>>` (see
+/// [`crate::tools::pending_approvals_per_session`] for the canonical pattern).
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecContext {
     /// Model context window in tokens (for dynamic output truncation)
@@ -153,6 +152,15 @@ pub struct ToolExecContext {
     pub session_working_dir: Option<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
+    /// Durable chat-turn identity for turn-scoped opaque references.
+    pub turn_id: Option<String>,
+    /// Opaque Agent references resolved from typed composer gestures for this
+    /// turn. These are selectors only, never authorization or spawn commands.
+    pub agent_binding_refs: Vec<crate::prompt_context::AgentBindingRef>,
+    /// Exact frozen `@file` / `@plan` resources addressable only through their opaque,
+    /// turn-scoped handles. This enables pagination without reopening the
+    /// mutable source path, including for incognito turns.
+    pub context_resource_refs: Vec<crate::prompt_context::ContextResourceRef>,
     /// Durable Workflow owner identity for tools invoked by the Workflow host.
     ///
     /// This is an execution-context capability, not a model argument. Internal
@@ -214,8 +222,9 @@ pub struct ToolExecContext {
     /// expected to run them itself.
     ///
     /// Differs from [`Self::auto_approve_tools`], which means "skip ALL
-    /// approval gates including command-level" and is set only by IM
-    /// auto-approve accounts or slash-skill execution.
+    /// approval gates including command-level" and is reserved for explicit
+    /// owner-controlled unattended surfaces such as an IM auto-approve
+    /// account. Merely selecting or invoking a Skill never sets it.
     pub external_pre_approved: bool,
     /// Set ONLY by the async approval-reorder path
     /// (`execute_tool_with_context`) after it has already run `exec`'s

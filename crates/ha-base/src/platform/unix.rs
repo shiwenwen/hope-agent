@@ -1,10 +1,110 @@
 use std::fs;
 use std::io;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+fn openat_component(
+    parent: &fs::File,
+    name: &std::ffi::OsStr,
+    directory: bool,
+) -> io::Result<fs::File> {
+    let name = std::ffi::CString::new(name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path component contains NUL"))?;
+    let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+    if directory {
+        flags |= libc::O_DIRECTORY;
+    } else {
+        // A raced FIFO/device must not block before the caller can reject its
+        // handle metadata as non-regular. O_NONBLOCK is inert for files.
+        flags |= libc::O_NONBLOCK;
+    }
+    // SAFETY: `parent` is live for the syscall, `name` is NUL-terminated, and
+    // no creation flag is present so the variadic mode argument is unnecessary.
+    let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful openat returns a new owned descriptor.
+    Ok(unsafe { fs::File::from_raw_fd(fd) })
+}
+
+fn open_canonical_directory(root: &Path) -> io::Result<fs::File> {
+    // Anchor traversal at the immutable filesystem root, then acquire every
+    // canonical-root component through its parent descriptor. Renames/repoints
+    // after a component is opened cannot redirect descendants.
+    let mut directory = fs::File::open(Path::new("/"))?;
+    for component in root.components() {
+        match component {
+            std::path::Component::RootDir => {}
+            std::path::Component::Normal(name) => {
+                directory = openat_component(&directory, name, true)?;
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "canonical beneath-open root has an invalid component",
+                ))
+            }
+        }
+    }
+    Ok(directory)
+}
+
+fn normal_relative_components(relative: &Path) -> io::Result<Vec<std::ffi::OsString>> {
+    let components = relative
+        .components()
+        .map(|component| match component {
+            std::path::Component::Normal(name) => Ok(name.to_os_string()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "beneath-open relative path has an invalid component",
+            )),
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    Ok(components)
+}
+
+pub(super) fn open_file_beneath(root: &Path, relative: &Path) -> io::Result<fs::File> {
+    let mut directory = open_canonical_directory(root)?;
+    let components = normal_relative_components(relative)?;
+    let Some((file_name, parent_components)) = components.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "beneath-open relative path is empty",
+        ));
+    };
+    for component in parent_components {
+        directory = openat_component(&directory, component, true)?;
+    }
+    openat_component(&directory, file_name, false)
+}
+
+pub(super) fn remove_file_beneath(root: &Path, relative: &Path) -> io::Result<()> {
+    let mut directory = open_canonical_directory(root)?;
+    let components = normal_relative_components(relative)?;
+    let Some((file_name, parent_components)) = components.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "beneath-remove relative path is empty",
+        ));
+    };
+    for component in parent_components {
+        directory = openat_component(&directory, component, true)?;
+    }
+    let file_name = std::ffi::CString::new(file_name.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path component contains NUL"))?;
+    // SAFETY: `directory` is a live descriptor for the verified parent and
+    // `file_name` is NUL-terminated. With flags=0, unlinkat removes the final
+    // directory entry itself (including a symlink) rather than following it.
+    if unsafe { libc::unlinkat(directory.as_raw_fd(), file_name.as_ptr(), 0) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
 
 pub(super) fn terminate_process_tree(pid: u32) {
     unsafe {

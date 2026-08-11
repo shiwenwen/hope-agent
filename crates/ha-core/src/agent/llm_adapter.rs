@@ -534,12 +534,10 @@ impl<'a> CodexAdapter<'a> {
             let status = resp.status().as_u16();
             let err_text = resp.text().await.unwrap_or_default();
             let friendly = parse_error_response(status, &err_text);
-            let error_preview = if err_text.len() > 500 {
-                format!("{}...", crate::truncate_utf8(&err_text, 500))
-            } else {
-                err_text.clone()
-            };
-            let error_preview = crate::logging::redact_sensitive(&error_preview);
+            let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                "codex-one-shot-error",
+                err_text.as_bytes(),
+            );
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "error",
@@ -566,7 +564,8 @@ impl<'a> CodexAdapter<'a> {
                             "input_count": input_count,
                             "tool_count": tool_count,
                             "body_size_bytes": body_size,
-                            "error_preview": error_preview,
+                            "error_bytes": err_text.len(),
+                            "error_fingerprint": &error_fingerprint[..24],
                         })
                         .to_string(),
                     ),
@@ -583,19 +582,25 @@ impl<'a> CodexAdapter<'a> {
             match parse_openai_sse(resp, request_start, cancel, on_delta).await {
                 Ok(parsed) => parsed,
                 Err(e) => {
+                    let parse_error = e.to_string();
+                    let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                        "codex-one-shot-sse",
+                        parse_error.as_bytes(),
+                    );
                     app_warn!(
-                    "agent",
-                    "codex_one_shot",
-                    "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
-                    self.model,
-                    !self.token.is_empty(),
-                    !self.account_id.is_empty(),
-                    instructions_present,
-                    input_count,
-                    tool_count,
-                    body_size,
-                    e
-                );
+                        "agent",
+                        "codex_one_shot",
+                        "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B error_bytes={} error_fingerprint={}",
+                        self.model,
+                        !self.token.is_empty(),
+                        !self.account_id.is_empty(),
+                        instructions_present,
+                        input_count,
+                        tool_count,
+                        body_size,
+                        parse_error.len(),
+                        &error_fingerprint[..24]
+                    );
                     return Err(e);
                 }
             };

@@ -114,7 +114,7 @@ fn build_anthropic_body(
         "text": req.system_prompt,
         "cache_control": { "type": "ephemeral" }
     })];
-    for suffix in super::super::streaming_adapter::all_dynamic_suffixes(req) {
+    for suffix in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
         system_blocks.push(json!({
             "type": "text",
             "text": suffix,
@@ -125,7 +125,10 @@ fn build_anthropic_body(
         && supports_native_tool_search(base_url, model);
     let tools_with_cache = build_tools_with_cache(req, native_deferred);
     let thinking = map_think_anthropic_style(req.reasoning_effort, req.max_tokens);
-    let messages = expand_anthropic_image_markers_for_api(req.history_for_api);
+    let mut messages = expand_anthropic_image_markers_for_api(req.history_for_api);
+    if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+        append_anthropic_user_context(&mut messages, content);
+    }
     let mut body = json!({
         "model": model,
         "max_tokens": req.max_tokens,
@@ -146,6 +149,28 @@ fn build_anthropic_body(
         body["cache_control"] = json!({ "type": "ephemeral" });
     }
     (body, tools_with_cache, native_deferred)
+}
+
+fn append_anthropic_user_context(messages: &mut Vec<Value>, content: String) {
+    let block = json!({ "type": "text", "text": content });
+    if let Some(last) = messages
+        .last_mut()
+        .filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+    {
+        match last.get_mut("content") {
+            Some(Value::Array(parts)) => parts.push(block),
+            Some(Value::String(text)) => {
+                let original = std::mem::take(text);
+                last["content"] = json!([
+                    { "type": "text", "text": original },
+                    block
+                ]);
+            }
+            _ => last["content"] = json!([block]),
+        }
+    } else {
+        messages.push(json!({ "role": "user", "content": [block] }));
+    }
 }
 
 pub(crate) struct AnthropicStreamingAdapter<'a> {
@@ -185,8 +210,11 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         let api_url = build_api_url(self.base_url, "/v1/messages");
 
         // ── Log API request.
-        let body_str = serde_json::to_string(&body).unwrap_or_default();
-        let body_size = body_str.len();
+        // Measure with a temporary serialization; do not retain a second full
+        // image/Base64 request body until reqwest builds the actual body.
+        let body_size = serde_json::to_string(&body)
+            .map(|serialized| serialized.len())
+            .unwrap_or(0);
         super::super::token_manifest::log_round_manifest(
             "Anthropic",
             self.model,
@@ -196,16 +224,6 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             native_deferred,
         );
         if let Some(logger) = crate::get_logger() {
-            let raw_body = if body_size > 32768 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&body_str, 32768),
-                    body_size
-                )
-            } else {
-                body_str.clone()
-            };
-            let raw_body = crate::logging::redact_sensitive(&raw_body);
             logger.log(
                 "debug",
                 "agent",
@@ -226,7 +244,6 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                         "tool_count": tools_with_cache.len(),
                         "body_size_bytes": body_size,
                         "thinking_enabled": body.get("thinking").is_some(),
-                        "request_body": raw_body,
                     })
                     .to_string(),
                 ),
@@ -302,19 +319,23 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                 Err(_) => String::new(),
             };
             if let Some(logger) = crate::get_logger() {
-                let error_preview = if error_text.len() > 500 {
-                    format!("{}...", crate::truncate_utf8(&error_text, 500))
-                } else {
-                    error_text.clone()
-                };
+                let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                    "anthropic-error",
+                    error_text.as_bytes(),
+                );
                 logger.log(
                     "error",
                     "agent",
                     "agent::chat_anthropic::error",
-                    &format!("Anthropic API error ({}): {}", status, error_preview),
+                    &format!("Anthropic API error ({status})"),
                     Some(
-                        json!({"status": status, "error": error_text, "round": req.round})
-                            .to_string(),
+                        json!({
+                            "status": status,
+                            "error_bytes": error_text.len(),
+                            "error_fingerprint": error_fingerprint,
+                            "round": req.round
+                        })
+                        .to_string(),
                     ),
                     None,
                     None,
@@ -792,11 +813,18 @@ mod tests {
         let req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
+            run_instruction_suffix: None,
+            run_data_suffix: None,
             awareness_suffix: None,
             active_memory_suffix: None,
+            legacy_memory_suffix: None,
             coding_profile_suffix: None,
             procedure_memory_suffix: None,
             related_notes_suffix: None,
+            attached_knowledge_suffix: None,
+            capability_catalog_suffix: None,
+            user_profile_suffix: None,
+            environment_context_suffix: None,
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: None,
             tool_schemas: &loaded,
@@ -857,11 +885,18 @@ mod tests {
         let req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
+            run_instruction_suffix: Some("run"),
+            run_data_suffix: Some("run data"),
             awareness_suffix: Some("awareness"),
             active_memory_suffix: Some("memory"),
+            legacy_memory_suffix: Some("legacy memory"),
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("notes"),
+            attached_knowledge_suffix: Some("attached"),
+            capability_catalog_suffix: Some("capabilities"),
+            user_profile_suffix: Some("profile"),
+            environment_context_suffix: Some("environment"),
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: Some("task"),
             tool_schemas: &loaded,
@@ -884,15 +919,18 @@ mod tests {
             body["system"],
             serde_json::json!([
                 { "type": "text", "text": "stable", "cache_control": { "type": "ephemeral" } },
-                { "type": "text", "text": "awareness" },
-                { "type": "text", "text": "memory" },
+                { "type": "text", "text": "run" },
                 { "type": "text", "text": "coding" },
-                { "type": "text", "text": "procedure" },
-                { "type": "text", "text": "notes" },
-                { "type": "text", "text": "task" }
             ])
         );
-        assert_eq!(body["messages"], serde_json::json!(history));
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"][0]["text"], "question");
+        assert!(body["messages"][0]["content"][1]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("source=\"related_notes\"")));
+        assert!(body["messages"][0]["content"][1]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("source=\"legacy_memory\"")));
         assert_eq!(tools[0]["name"], "read");
         assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
         assert_eq!(tools[1]["name"], "browser");

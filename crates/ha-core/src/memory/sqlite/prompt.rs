@@ -173,8 +173,19 @@ pub fn format_prompt_summary_v2_with_refs(
 /// per-section budget control. Scales `SqliteSectionBudgets::default()` to
 /// the caller-provided total and dispatches to `format_prompt_summary_v2`.
 pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
+    format_prompt_summary_with_refs(entries, budget).text
+}
+
+/// Single-budget compatibility formatter with the exact set of rows that
+/// survived section and total-budget clipping. Dynamic V1 rollback injection
+/// uses these refs so durable diagnostics never claim a row that the provider
+/// did not actually receive.
+pub fn format_prompt_summary_with_refs(
+    entries: &[MemoryEntry],
+    budget: usize,
+) -> PromptSummaryWithRefs {
     let budgets = SqliteSectionBudgets::default().scaled_to(budget);
-    format_prompt_summary_v2(entries, &budgets, budget, LEGACY_ENTRY_MAX_CHARS, None)
+    format_prompt_summary_v2_with_refs(entries, &budgets, budget, LEGACY_ENTRY_MAX_CHARS, None)
 }
 
 /// Append a rendered section to `result` when it fits under `total_cap`.

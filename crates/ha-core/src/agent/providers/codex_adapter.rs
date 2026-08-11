@@ -67,12 +67,12 @@ fn build_codex_request(
     req: &RoundRequest<'_>,
 ) -> (ResponsesRequest, Vec<Value>) {
     let mut api_input: Vec<Value> = Vec::new();
-    for content in super::super::streaming_adapter::leading_dynamic_suffixes(req) {
+    for content in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
         api_input.push(json!({ "role": "system", "content": content }));
     }
     api_input.extend(expand_responses_image_markers_for_api(req.history_for_api));
-    for content in super::super::streaming_adapter::trailing_dynamic_suffixes(req) {
-        api_input.push(json!({ "role": "system", "content": content }));
+    if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+        api_input.push(json!({ "role": "user", "content": content }));
     }
     let request = ResponsesRequest {
         model: model.to_string(),
@@ -134,16 +134,6 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         );
 
         if let Some(logger) = crate::get_logger() {
-            let raw_body = if body_size > 32768 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&body_json, 32768),
-                    body_size
-                )
-            } else {
-                body_json.clone()
-            };
-            let raw_body = crate::logging::redact_sensitive(&raw_body);
             logger.log(
                 "debug",
                 "agent",
@@ -164,7 +154,6 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                         "tool_count": req.tool_schemas.len(),
                         "body_size_bytes": body_size,
                         "reasoning": self.reasoning.as_ref().map(|r| r.effort.as_str()),
-                        "request_body": raw_body,
                     })
                     .to_string(),
                 ),
@@ -262,10 +251,33 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                             delay
                         );
                         if let Some(logger) = crate::get_logger() {
-                            logger.log("warn", "agent", "agent::chat_codex::retry",
-                                &format!("Codex API error {}, retrying (attempt {}/{})", status, attempt + 1, MAX_RETRIES),
-                                Some(json!({"status": status, "attempt": attempt + 1, "delay_ms": delay, "error": &error_text}).to_string()),
-                                None, None);
+                            let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                                "codex-error",
+                                error_text.as_bytes(),
+                            );
+                            logger.log(
+                                "warn",
+                                "agent",
+                                "agent::chat_codex::retry",
+                                &format!(
+                                    "Codex API error {}, retrying (attempt {}/{})",
+                                    status,
+                                    attempt + 1,
+                                    MAX_RETRIES
+                                ),
+                                Some(
+                                    json!({
+                                        "status": status,
+                                        "attempt": attempt + 1,
+                                        "delay_ms": delay,
+                                        "error_bytes": error_text.len(),
+                                        "error_fingerprint": error_fingerprint
+                                    })
+                                    .to_string(),
+                                ),
+                                None,
+                                None,
+                            );
                         }
                         let cancelled = if let Some(wait) = recovery_wait {
                             matches!(
@@ -288,19 +300,23 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                     }
 
                     if let Some(logger) = crate::get_logger() {
-                        let error_preview = if error_text.len() > 500 {
-                            format!("{}...", crate::truncate_utf8(&error_text, 500))
-                        } else {
-                            error_text.clone()
-                        };
+                        let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                            "codex-error",
+                            error_text.as_bytes(),
+                        );
                         logger.log(
                             "error",
                             "agent",
                             "agent::chat_codex::error",
-                            &format!("Codex API error ({}): {}", status, error_preview),
+                            &format!("Codex API error ({status})"),
                             Some(
-                                json!({"status": status, "error": error_text, "round": req.round})
-                                    .to_string(),
+                                json!({
+                                    "status": status,
+                                    "error_bytes": error_text.len(),
+                                    "error_fingerprint": error_fingerprint,
+                                    "round": req.round
+                                })
+                                .to_string(),
                             ),
                             None,
                             None,
@@ -510,11 +526,18 @@ mod tests {
         let req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
+            run_instruction_suffix: Some("run"),
+            run_data_suffix: Some("run data"),
             awareness_suffix: Some("awareness"),
             active_memory_suffix: Some("memory"),
+            legacy_memory_suffix: Some("legacy memory"),
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("notes"),
+            attached_knowledge_suffix: Some("attached"),
+            capability_catalog_suffix: Some("capabilities"),
+            user_profile_suffix: Some("profile"),
+            environment_context_suffix: Some("environment"),
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: Some("task"),
             tool_schemas: &tools,
@@ -542,17 +565,10 @@ mod tests {
             .iter()
             .map(|item| item["content"].as_str().unwrap_or_default())
             .collect::<Vec<_>>();
-        assert_eq!(
-            contents,
-            vec![
-                "awareness",
-                "memory",
-                "coding",
-                "procedure",
-                "question",
-                "notes",
-                "task"
-            ]
-        );
+        assert_eq!(&contents[..3], &["run", "coding", "question"]);
+        assert_eq!(input[3]["role"], "user");
+        assert!(contents[3].contains("source=\"active_memory\""));
+        assert!(contents[3].contains("source=\"legacy_memory\""));
+        assert!(contents[3].contains("source=\"related_notes\""));
     }
 }

@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../../README.md)
 >
-> 更新时间：2026-07-23
+> 更新时间：2026-08-10
 
 ## 目录
 
@@ -234,7 +234,7 @@ When the user asks about GitHub operations, use the `gh` CLI.
 | `argument-hint` | string | 否 | `"[args]"` | 斜杠菜单参数占位提示。兼容 `argumentHint` / `command-arg-placeholder` |
 | `command-arg-options` | string[] | 否 | — | 固定参数选项（斜杠菜单弹下拉） |
 | `command-prompt-template` | string | 否 | (body) | `command-dispatch: prompt` 时的模板，支持 `$ARGUMENTS` 替换 |
-| `allowed-tools` | string[] | 否 | `[]` | "预批准工具"白名单（见 [激活路径](#七四条激活路径) 对执行范围的说明） |
+| `allowed-tools` | string[] | 否 | 未声明 | 执行上限：未声明=不新增限制，显式 `[]`=禁止普通工具，非空=白名单；绝不代表预批准 |
 | `context` | string | 否 | — | `"fork"` 在子 Agent 中跑、只回摘要；未设则 inline |
 | `agent` | string | 否 | — | **仅 fork 生效**：fork 时使用的 Agent id；无效则回退父 Agent |
 | `effort` | string | 否 | — | **仅 fork 生效**：`low` / `medium` / `high` / `xhigh` / `none` |
@@ -461,13 +461,13 @@ if req.always {
 
 ## 七、四条激活路径
 
-技能可以被四种方式激活。它们最终都要么走 **inline**（把 SKILL.md 正文喂给模型），要么走 **fork**（在子 Agent 里执行、只回摘要），但入口和"内容进哪里"各不相同：
+四条路径共享同一份 Skill 发现、requirements、参数替换与 `SkillToolCeiling` 语义。Skill 正文始终是用户级 workflow guidance，不是 system 指令；执行层白名单只会在已有 Agent/Plan/deny policy 上继续收窄。
 
 | 场景 | 入口 | Inline 行为 | Fork 行为（`context: fork`） |
 |------|------|-----------|--------------------------|
-| 模型自主 | `skill({name, args?})` 工具 | SKILL.md + `$ARGUMENTS` 替换作为 tool_result 返回 | 子 Agent 执行 → 摘要字符串作为 tool_result（主对话只见 `skill` 工具一条记录）|
-| 用户斜杠命令 | `/skillname [args]` | 直接内联 SKILL.md 全文到 PassThrough 消息，带 `[SYSTEM: skill 已加载]` 头部 | 复用 `spawn_skill_fork`，结果经 EventBus 注入 |
-| 用户 `@skill` 提及 | 输入框 `@` 菜单选"技能"段 → 插入链接 token | 后端 send-time 把技能内容注入本回合系统上下文（不进对话历史）| — |
+| 模型自主 | `skill({name, args?})` 工具 | 正文作为 tool_result；同一 journal revision 记录 activation metadata，下一 round 收紧工具 | 子 Agent 执行 → 摘要作为 tool_result |
+| 用户斜杠命令 | `/skillname [args]` | 桌面/Web 发送原命令 + typed `SlashCommandAst` sidecar；后端 live 重解析正文并放入当前 user Turn Envelope | 复用 `spawn_skill_fork`，结果经 EventBus 注入 |
+| 用户 `@skill` 提及 | Composer `@` 菜单产生 typed binding | 后端按固定 allowlist + live invocable/requirements 原子解析，正文放入当前 user Turn Envelope | — |
 | `read SKILL.md` | `read` 工具 | 仍能读原文（供作者对比 / diff），但系统提示词明确引导走 `skill` 工具 | — |
 
 ### 为什么要一个专用 `skill` 工具
@@ -481,6 +481,7 @@ if req.always {
 - 工具执行层统一分发 inline / fork，`context: fork` 在斜杠命令和模型自主两条路径**都生效**
 - 定义为 `internal: true` 的 Core/Meta 工具：跳过审批，且始终注入、永不进 deferred 池（即便 tool_search 场景也恒定可见）
 - 系统提示词明确引导"用 `skill` 工具，不要 `read` SKILL.md"
+- inline tool result 携带 activation metadata；streaming loop 将其与结果一起提交，并调用 `narrow_skill_allowed_tools()`，不会在同一 round 中途改 schema
 
 **查找边界**：`skill` 工具内部用 `get_invocable_skills(extra_dirs, disabled_skills)` 查找，会过滤全局禁用、`user-invocable: false` 和 `status != active`。命中后按 Agent / global 的 `skill_env_check` 做激活前 requirements 检查：硬不兼容返回 hard-block 诊断，可修复缺依赖返回 setup 诊断，只有 `eligible=true` 才加载 SKILL.md 或 fork。
 
@@ -561,50 +562,48 @@ pub async fn extract_fork_result(
 |------|-----------------|--------------------------|
 | 执行载体 | 主对话 LLM | 独立子 Agent 会话 |
 | 主对话看到 | 完整 SKILL.md + `$ARGUMENTS` 替换 | 一条 `Skill 'X' completed.\n\nResult:\n<text>` 摘要 |
-| `allowed-tools` 强制 | `skill` 工具路径经 `skill_allowed_tools` 收紧；斜杠内联 / `@skill` 路径不强制（见下） | 应用到子 Agent 的 `skill_allowed_tools` |
+| `allowed-tools` 强制 | `@skill`、`/skill`、模型 `skill()` 都进入 execution filter；模型激活从下一 round 生效 | 与父级 ceiling 求交后应用到子 Agent |
 | 适合场景 | 短指令、需用户中途介入、希望模型看到完整内容 | 多轮 exec 密集、产出可自包含总结、避免污染主 context |
 | tool_result 大小 | 等于 SKILL.md 正文 | ≤ `MAX_RESULT_CHARS = 64 KB`（超长截断） |
 | Prompt cache | 复用主对话前缀 | 子 Agent 独立上下文，可能独立 cache miss |
 
 ### 斜杠命令的 inline 内联路径
 
-当用户打 `/skillname [args]`，且技能不是 `context: fork`、也没有 `command-prompt-template` 时：斜杠分发调 `tools::skill::inline::execute`（与模型调 `skill` 工具**完全同一函数**）拿到 SKILL.md 全文 + `$ARGUMENTS` 替换，包进一段 `PassThrough` 消息：
+当用户打 `/skillname [args]`，且技能不是 `context: fork` / `command-dispatch: tool` 时，桌面/Web 保留用户原始命令并附带覆盖整条命令的 `SlashCommandAst` typed binding。公共 slash handler 与 Chat Engine 都调用 kernel `resolve_skill_slash_dispatch()`，从同一份可信 `SkillEntry` 冻结分派语义：`command-dispatch: prompt` 与默认但带 `command-prompt-template` 的 Skill 在后端展开模板；只有默认且无模板时才读取 SKILL.md、替换 `$ARGUMENTS`。前端返回的 `action.message` 只作旧 transport 兼容，不能成为 typed turn 的可信提示词来源。最终内容进入 user-level instruction block，新消息中没有伪 system 标记：
 
 ```
-[SYSTEM: The user has invoked the '<name>' skill via slash command with arguments: "<args>".
- Follow the instructions in the skill content below without calling `read` or `tool_search` —
- the full skill is already loaded.]
-
----
-
-<SKILL.md 全文>
+<user_instruction source="explicit_slash_skill">
+  <explicit_skill_command name="...">...</explicit_skill_command>
+  <SKILL.md 全文，$ARGUMENTS 已替换>
+</user_instruction>
 ```
 
-前端用 `handleSend(expandedMessage, { displayText: "/skillname args" })` 发出，实现"显示原命令、喂给模型全文"的分离：
+IM 目前没有 Composer sidecar，斜杠 handler 因此把同一份已解析 user-level内容作为普通 PassThrough message 持久化，同时把 tool ceiling 写入 durable FIFO row；重放不会丢失白名单。
 
-- UI user 气泡显示原始 `/skillname args`
-- LLM 收到含 SKILL.md 全文的 `expandedMessage`
-- DB 持久化 `displayText`（重载保持原命令显示）
-- Agent 上下文历史保留 `expandedMessage`（LLM 上下文连贯）
+- UI/DB 显示原始 `/skillname args`
+- LLM 看到 user role 的完整 Skill 内容
+- typed source anchor 与 input digest 防止编辑后保留伪 provenance；typed sidecar 若绑定到 fork/direct-tool 这类非模型分派也会 fail-visible，而不是改写成普通 Provider turn
+- canonical args 复核、requirements live recheck 或 inline SKILL.md materialization 任一失败都会在 Provider I/O 前 fail-visible 地终止该 turn；绝不把原始 `/skill` 文本当普通 unrestricted prompt 继续，也不接受客户端提供的正文或工具 grants。inline materializer 会从本次读到的正文重解析控制性 frontmatter，并与选中命令的 catalog snapshot 核对；`allowed-tools` / requirements / dispatch / context 等在两者之间发生竞态变化时整次激活失败，不允许新正文配旧 ceiling。模板模式则直接使用同一 frozen entry 内的模板与 ceiling，不再二次读盘
 
-直接返回全文而非"去 read 这个路径"的指针，避免了 deferred tools 场景下 `read` 不在初始 schema、模型要先 `tool_search` 找 `read` 而多花一轮。读 SKILL.md 失败时降级回路径指针 prompt，不阻断聊天。
+直接提供全文避免 deferred `read` 多一轮；Skill 不允许为适配预算被截半。
 
-### 非全路径强制的 `allowed-tools`
+### 全路径强制的 `allowed-tools`
 
-`allowed-tools` 在 `skill` 工具 fork 路径和子 Agent 里会通过 `ToolExecContext.skill_allowed_tools` 贯通到执行层、真正收紧工具白名单。但**斜杠内联路径和 `@skill` 注入路径只把 SKILL.md 作为消息 / 系统上下文注入，不改变模型握有的工具集**——它们靠 SKILL.md 文本引导用法，而非硬约束。`command-dispatch: tool` 直接执行绑定工具时也不套用技能的 `allowed-tools`。这些路径涉及的浏览器 / mac 控制等工具本就是默认可用的标准工具，SKILL.md 只是方法论指引。
+frontmatter 保留三态：未声明 = `Unspecified`（不新增限制），显式 `[]` = `DenyAll`，非空列表 = `Restricted`。对普通工具，`ToolScope`、Agent filter、Plan allowlist、denied tools 与 Skill ceiling 在 schema 和 execution 两层求交。`read_context_resource` 是当前 turn 已冻结用户字节的 intrinsic continuation，不被 Skill / Plan ceiling 意外裁掉，但仍受 Agent `denied-tools`、`ToolScope` 与 turn / session / principal 绑定检查；它仍进入统一 permission engine，仅有效 bound ref 可确定性 allow。
 
-如果需要在斜杠激活时也真正收紧工具，方向是把 SKILL.md 作为**一次性 system-prompt 追加**（经 `ChatEngineParams.extra_system_context` 送入，同轮结束后不进对话历史），同时用 `ChatEngineParams.skill_allowed_tools` 收紧——`@skill` 提及路径已经是这个模式的落地。
+多个显式 `@skill` 先全集解析：任一不可用/不可读，或 ceiling 形状混合，整组原子拒绝，不出现半激活。模型后续 `skill()` 与 fork 只能对当前 ceiling 求交，不能通过加载另一个 Skill 扩权。`command-dispatch: tool` 同样带本 Skill ceiling，并进入统一 permission engine；显式命令不是自动审批。
 
 ### `@skill` 提及（输入框内联注入）
 
-输入框 `@` 菜单除了文件 / 知识笔记，还有一段**内置技能**。用户选中后插入一个 **markdown 链接 token** `[@<标签>](#skill:<name>)`，留在消息文本里，由后端在 send-time 解析、把技能内容注入本回合系统上下文（不进对话历史）——这正是"一次性 system-prompt 追加"方案的实例。
+用户选择 Skill 时，Composer 同时写入可读 markdown token `[@<标签>](#skill:<name>)` 和 `IncomingTurnWire.mentions[]`。后端只信 sidecar：校验 canonical text SHA-256、UTF-8 半开 span、token/kind/target 与不重叠，再按当前 Agent 的 live catalog 解析。单独粘贴同形 markdown 只是普通文本。
 
 - **为什么 token 用 markdown 链接**：`[@标签](#skill:name)` 而非裸 `@skill:name`，好处是**同一 token 在输入框（编辑器装饰）和消息历史（`MarkdownLink` 拦截 `#skill:` href）都渲染成同一枚 chip**，历史里不会露出 `@skill:xxx` 原文；标签本地化、id 稳定，后端只认 href 里的 id。href 用 fragment `#skill:`（不是自定义 scheme），因为消息渲染的 sanitize 会剥掉未知 scheme 的 href，fragment 则像本地路径链接一样存活。
-- **固定 allowlist**：`@skill` 只对内置、固定的技能开放，不是通用注入入口。allowlist 是 `mention.rs::AT_MENTIONABLE_SKILLS`，共 6 项，按菜单顺序：`office-docx` / `office-pptx` / `office-xlsx` / `ha-data-analytics` / `ha-browser` / `ha-mac-control`（最后一个经 `cfg!(target_os = "macos")` 硬门控，其余跨平台）。任意 / 已禁用 / 非本 OS 的名字一律静默跳过，原 token 文本留在消息里不注入。
-- **解析与 `knowledge::inject` 平行**：`resolve_inline_skill_mentions(message)`（同步纯文本扫描）用正则 `\[@[^\]\n]+\]\(#skill:([a-z0-9-]+)\)` 抽 id → 去重 → 过 allowlist ∩ invocable ∩ OS → 读 SKILL.md（`$ARGUMENTS` 替换为空）→ 拼成一段 `# Activated Skills (@skill)` 块，在 chat engine 里紧跟 `[[note]]` 注入之后合并进 `extra_system_context`。**仅真实用户回合生效**（`source.fires_user_lifecycle_hooks()`）——子 Agent / 父注入不解析，挡掉子链路未转义输出里夹带的 `[@…](#skill:…)` 自激活技能。
+- **固定 allowlist + live recheck**：`mention.rs::AT_MENTIONABLE_SKILLS` 仍是 Composer 入口；解析再叠 invocable、OS、disabled 与 requirements。失败拒绝整个显式 activation set，不静默变成部分激活。
+- **原子失败**：显式 `@skill` 集合只有在全部 id 均 live resolved、全部正文可读取且得到同一安全组合下的 `allowed-tools` ceiling 时才进入 Provider；任一 unavailable/rejected/materialization failure 都在 Provider I/O 前终止 turn，不能把 visible token 或 rejection 提示当普通 unrestricted 请求继续。
+- **fork 同样原子**：slash 与模型 `skill()` 共用的 fork materializer 必须读取实际 SKILL.md 并把控制性 frontmatter 与 frozen entry 核对后才能创建 child run；读取/竞态失败直接返回可见错误，禁止退化成 description/generic task 后继续派发。child 的正文、`allowed-tools`、Agent 与 effort 因而来自同一 entry/body snapshot。
+- **用户 authority**：完整正文在 `<hope_turn_context>/<user_instruction source="explicit_skill_mention">`，随后才是 `<current_user_request>`；不会进入 stable system 或 Run instruction。
+- **重试冻结**：解析结果、receipt 与 `skillAllowedTools` 在首次 Provider I/O 前提交到 chat journal；同一 turn 的 profile retry/failover 不重读或重解析。
 - **菜单数据**：`list_mentionable_skills()`（Tauri `list_mentionable_skills` / HTTP `GET /api/skills/mentionable`）返回 allowlist ∩ invocable ∩ OS 的 `{ name, description }`；友好标签与图标在前端按 `name` 映射，后端不下发文案。
-
-**几处有意保留的取舍**（非疏漏）：前端 chip 只认静态 allowlist 成员、不感知 OS / `disabled_skills`，所以在非 macOS 上**手动粘贴** `[@Mac](#skill:ha-mac-control)` 会显示一枚误导性的 Mac chip，但后端 OS 门控不会注入——纯视觉、无权限泄漏。`enableSkillMention` 开关只 gate 输入框录入，不 gate 历史 chip 渲染与后端注入（与 `@path` / `[[note]]` 的"token 语义全局统一"一致）。这些若要收紧，需把 OS 感知 / flag 透传到全部渲染路径与后端。
 
 ---
 
@@ -628,7 +627,7 @@ sequenceDiagram
     LLM->>TOOL: skill({name, args})
     TOOL->>HELPER: 读 SKILL.md + 应用 agent/effort 覆盖
     HELPER->>HELPER: agent 存在? load_agent 校验 → 失败回退父 Agent
-    HELPER->>SPAWN: SpawnParams{ agent_id, reasoning_effort,<br/>skill_allowed_tools, skill_name,<br/>extra_system_context: SKILL.md,<br/>skip_parent_injection: true }
+    HELPER->>SPAWN: SpawnParams{ task: user-level Skill context,<br/>agent_id, reasoning_effort,<br/>skill_allowed_tools, skill_name,<br/>skip_parent_injection: true }
     SPAWN->>DB: INSERT subagent_runs (spawning)
     SPAWN->>FE: SubagentEvent{ skill_name, status: spawning }
     SPAWN->>CHILD: tokio::spawn 子 Agent loop
@@ -1317,8 +1316,9 @@ sequenceDiagram
     else command_dispatch: prompt
         BE-->>FE: PassThrough：展开 command-prompt-template
     else 默认 inline
-        BE-->>FE: PassThrough：[SYSTEM: skill 已加载] + SKILL.md 全文
-        FE->>LLM: 发送给模型 → 按内容执行
+        BE-->>FE: PassThrough + SlashSkillActivation provenance
+        FE->>LLM: 原命令 + typed sidecar
+        Note over LLM: 后端 live 重解析为 user-level Skill context
     end
 ```
 
@@ -1544,7 +1544,8 @@ pub struct SkillEntry {
     pub command_arg_options: Option<Vec<String>>,
     pub command_prompt_template: Option<String>,
     pub install: Vec<SkillInstallSpec>,
-    pub allowed_tools: Vec<String>,       // 工具白名单（空 = 全部可用）
+    pub allowed_tools: Vec<String>,       // 非空 Restricted 列表
+    pub allowed_tools_declared: bool,     // false=Unspecified；true+空=DenyAll
     pub context_mode: Option<String>,     // "fork" 或 None（inline）
     pub agent: Option<String>,            // fork 时的子 Agent id
     pub effort: Option<String>,           // low/medium/high/xhigh/none
@@ -1582,7 +1583,7 @@ pub struct SpawnParams {
     // ... 其他字段
     pub skill_allowed_tools: Vec<String>,     // SKILL.md 的 allowed-tools
     pub skip_parent_injection: bool,          // skill 工具 fork 路径为 true
-    pub extra_system_context: Option<String>, // 注入整段 SKILL.md 到子 Agent
+    // SKILL.md 已放进 task/current user request，不进入 run/system context
     pub reasoning_effort: Option<String>,     // SKILL.md 的 effort
     pub skill_name: Option<String>,           // 让 SubagentEvent 能辨别
 }

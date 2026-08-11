@@ -3,8 +3,8 @@
  * allowlist of built-in skills the user can activate from the `@` menu (office
  * trio + data analytics + browser + mac control). Parallel to
  * {@link parseMentions} (files) and the `[[note]]` picker, but the resolvable set is closed: the backend
- * (`skills::mention::resolve_inline_skill_mentions`) only activates the same
- * allowlist, so an arbitrary `#skill:foo` never injects anything.
+ * validates the typed sidecar against the same allowlist, so an arbitrary or
+ * pasted `#skill:foo` never activates anything.
  *
  * The token is a markdown link `[@<label>](#skill:<name>)` (see below). Its `@`
  * sits right after `[`, so it is structurally disjoint from the bare `@token`

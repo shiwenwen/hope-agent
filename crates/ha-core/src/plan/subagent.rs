@@ -130,10 +130,11 @@ pub async fn spawn_plan_subagent(
         // doesn't overwrite with the (Off) child-session backend state.
         lock_plan_agent_mode: true,
         skip_parent_injection: true,
-        extra_system_context: Some(format!(
+        run_instruction_context: Some(format!(
             "{}\n\n{}",
             PLAN_MODE_SYSTEM_PROMPT, PLAN_SUBAGENT_CONTEXT_NOTICE
         )),
+        run_data_context: None,
         skill_allowed_tools: Vec::new(),
         reasoning_effort: None,
         skill_name: None,

@@ -275,6 +275,24 @@ pub(crate) async fn tool_note_read(args: &Value, ctx: &ToolExecContext) -> Resul
     let bytes = read_note_raw(&scope, &rel)?;
     let content = String::from_utf8_lossy(&bytes).to_string();
     let content_hash = knowledge::blake3_hex(&bytes);
+    if let Some(expected) = str_arg(args, "expected_content_version") {
+        let current =
+            ha_core::prompt_context::opaque_resource_version("knowledge-note-version", &bytes);
+        if expected != current {
+            bail!(
+                "stale read: note '{}' changed since the referenced snapshot (expected_content_version mismatch); re-select or re-read it before combining versions",
+                rel
+            );
+        }
+    }
+    if let Some(expected) = str_arg(args, "expected_file_hash") {
+        if expected != content_hash {
+            bail!(
+                "stale read: note '{}' changed since the referenced snapshot (expected_file_hash mismatch); re-select or re-read it before combining versions",
+                rel
+            );
+        }
+    }
 
     let note = db
         .get_note_by_rel_path(&kb_id, &rel)?

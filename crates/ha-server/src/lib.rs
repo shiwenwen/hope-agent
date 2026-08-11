@@ -1092,6 +1092,10 @@ fn build_router_with_cors(
         .route("/chat/system-prompt", get(routes::chat::get_system_prompt))
         .route("/system-prompt", post(routes::chat::get_system_prompt_post))
         .route("/chat/tools", get(routes::chat::list_tools))
+        .route(
+            "/chat/capability-mentions",
+            get(routes::chat::list_capability_mentions),
+        )
         // Providers
         .route("/providers", get(routes::providers::list_providers))
         .route("/providers", post(routes::providers::add_provider))

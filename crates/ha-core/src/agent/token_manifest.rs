@@ -20,6 +20,11 @@ static LAST_ROUND_MANIFESTS: LazyLock<Mutex<lru::LruCache<String, RoundTokenMani
         ))
     });
 
+/// Process-local telemetry key. Fingerprints stay correlatable within the
+/// diagnostic window but cannot be dictionary-matched across installations or
+/// restarts. They are observability identifiers, not durable integrity hashes.
+static TELEMETRY_FINGERPRINT_KEY: LazyLock<[u8; 32]> = LazyLock::new(rand::random);
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RoundTokenManifest {
@@ -104,7 +109,7 @@ fn token_estimate_text(value: &str) -> u32 {
 }
 
 fn fingerprint(value: &[u8]) -> String {
-    blake3::hash(value).to_hex()[..16].to_string()
+    blake3::keyed_hash(&TELEMETRY_FINGERPRINT_KEY, value).to_hex()[..16].to_string()
 }
 
 fn json_bytes(values: &[serde_json::Value]) -> usize {
@@ -119,7 +124,7 @@ fn json_bytes(values: &[serde_json::Value]) -> usize {
 }
 
 fn json_fingerprint(values: &[serde_json::Value]) -> String {
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = blake3::Hasher::new_keyed(&TELEMETRY_FINGERPRINT_KEY);
     for value in values {
         if let Ok(encoded) = serde_json::to_vec(value) {
             hasher.update(&encoded);
@@ -138,15 +143,22 @@ impl RoundTokenManifest {
         native_deferred: bool,
     ) -> Self {
         let dynamic_parts = [
+            req.run_instruction_suffix,
+            req.run_data_suffix,
             req.awareness_suffix,
             req.active_memory_suffix,
+            req.legacy_memory_suffix,
             req.coding_profile_suffix,
             req.procedure_memory_suffix,
             req.related_notes_suffix,
+            req.attached_knowledge_suffix,
+            req.capability_catalog_suffix,
+            req.user_profile_suffix,
+            req.environment_context_suffix,
             req.lsp_diagnostics_suffix,
             req.task_reminder_suffix,
         ];
-        let mut dynamic_hasher = blake3::Hasher::new();
+        let mut dynamic_hasher = blake3::Hasher::new_keyed(&TELEMETRY_FINGERPRINT_KEY);
         let dynamic_values = dynamic_parts.iter().flatten().copied().collect::<Vec<_>>();
         let dynamic_prompt_bytes = dynamic_values
             .iter()
@@ -417,15 +429,22 @@ mod tests {
         ];
         let deferred = Vec::new();
         let history = vec![serde_json::json!({ "role": "user", "content": "hi" })];
-        let make = |tools: &[serde_json::Value], dynamic: &str| {
+        let make = |tools: &[serde_json::Value], dynamic: &str, legacy: Option<&str>| {
             let req = RoundRequest {
                 session_id: Some("session"),
                 system_prompt: "stable system",
+                run_instruction_suffix: None,
+                run_data_suffix: None,
                 awareness_suffix: Some(dynamic),
                 active_memory_suffix: None,
+                legacy_memory_suffix: legacy,
                 coding_profile_suffix: None,
                 procedure_memory_suffix: None,
                 related_notes_suffix: None,
+                attached_knowledge_suffix: None,
+                capability_catalog_suffix: None,
+                user_profile_suffix: None,
+                environment_context_suffix: None,
                 lsp_diagnostics_suffix: None,
                 task_reminder_suffix: None,
                 tool_schemas: tools,
@@ -443,8 +462,9 @@ mod tests {
             };
             RoundTokenManifest::from_request("test", "model", "shape", &req, 0, false)
         };
-        let first = make(&eager, "dynamic-a");
-        let second = make(&with_activation, "dynamic-b");
+        let first = make(&eager, "dynamic-a", None);
+        let second = make(&with_activation, "dynamic-b", None);
+        let with_legacy = make(&eager, "dynamic-a", Some("legacy fallback"));
         assert_eq!(
             first.stable_prompt_fingerprint,
             second.stable_prompt_fingerprint
@@ -461,6 +481,11 @@ mod tests {
             first.dynamic_prompt_fingerprint,
             second.dynamic_prompt_fingerprint
         );
+        assert_ne!(
+            first.dynamic_prompt_fingerprint,
+            with_legacy.dynamic_prompt_fingerprint
+        );
+        assert!(with_legacy.dynamic_prompt_tokens_estimate > first.dynamic_prompt_tokens_estimate);
         assert!(second.activated_tool_schema_tokens_estimate > 0);
     }
 }

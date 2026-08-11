@@ -22,6 +22,7 @@ import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDispl
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useEmbeddedChatReadReceipt } from "@/components/chat/hooks/useEmbeddedChatReadReceipt"
 import { useChatDisplayPreferences } from "@/components/chat/hooks/useChatDisplayPreferences"
+import { newMentionId } from "@/components/chat/mentions/typedMentions"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
@@ -52,7 +53,7 @@ const HISTORY_LOAD_OPERATIONS: ReadonlySet<KnowledgeChatLoadOperation> = new Set
 export interface KnowledgeChatPanelHandle {
   /** Stage a selection as a removable quote chip in the composer. */
   addQuote: (quote: PendingFileQuote) => void
-  /** Append a `[[note]]` reference (or any token) to the composer input. */
+  /** Append a provenance-bearing `[[note]]` reference to the composer input. */
   insertToken: (token: string) => void
   /** Open an exact knowledge-thread session (pet/history deep navigation). */
   focusThread: (sessionId: string) => void
@@ -236,11 +237,21 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               ? prev
               : [...prev, quote],
           ),
-        insertToken: (token) =>
-          stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
+        insertToken: (token) => {
+          if (!kbId || !notePath) {
+            stream.setInput((previous) => `${previous}${previous.trim() ? " " : ""}${token}`)
+            return
+          }
+          stream.appendInputMention(token, {
+            id: newMentionId(),
+            kind: "note",
+            targetId: `${kbId}::${notePath}`,
+            displayLabel: notePath,
+          })
+        },
         focusThread: (sessionId) => void session.switchThread(sessionId),
       }),
-      [session, stream],
+      [kbId, notePath, session, stream],
     )
 
     const sprite = useKnowledgeSprite({
@@ -508,7 +519,9 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
         <div>
           <ChatInput
             input={stream.input}
+            structuredMentions={stream.typedMentions}
             onInputChange={stream.setInput}
+            onInputChangeWithMention={stream.setInputWithMention}
             onSend={() => stream.handleSend()}
             loading={session.loading}
             availableModels={session.availableModels}

@@ -585,7 +585,7 @@ Phase 常量 `PHASE_REEMBED_KEEP="reembed-keep"` / `PHASE_REEMBED_FRESH="reembed
 
 Memory Center 的"自动召回相关记忆"主开关控制所有 Agent 的默认 Fast Recall（默认关，UI 必须说明关闭时仍自动用 Core、模型仍可按需调工具）；"深度召回"是次级开关，明确显示额外延迟/token 成本，仅主开关开启时可用。
 
-> **兼容窗口**：旧 `ActiveMemoryConfig.enabled=true` 是 per-agent 的 LLM 主动召回入口。V2 保留其反序列化、Agent override 和 rollback 执行链；在一个 minor 的兼容窗口内，已显式开启的旧 per-agent 配置继续**只为该 Agent** 启用 Fast + Deep Recall，配置迁移**不得**扩大为其它 Agent 的全局同意。旧 `memorySelection` 的 LLM 语义选择在 V2 里语义映射到 `deepRecall`（Fast shortlist 之上的可选 rerank），失败必须保留 Fast Top-K，禁止沿用旧实现的"全量静态注入"回退；只有 `rollout.enabled=false` 才执行旧选择与静态替换链。完整设计见 [`active_memory.rs`](../../../crates/ha-core/src/agent/active_memory.rs) 与 [dreaming.md](dreaming.md)。
+> **兼容窗口**：旧 `ActiveMemoryConfig.enabled=true` 是 per-agent 的 LLM 主动召回入口。V2 保留其反序列化、Agent override 和 rollback 执行链；在一个 minor 的兼容窗口内，已显式开启的旧 per-agent 配置继续**只为该 Agent** 启用 Fast + Deep Recall，配置迁移**不得**扩大为其它 Agent 的全局同意。旧 `memorySelection` 的 LLM 语义选择在 V2 里语义映射到 `deepRecall`（Fast shortlist 之上的可选 rerank），失败必须保留 Fast Top-K，禁止沿用旧实现的"全量静态注入"回退；只有 `rollout.enabled=false` 才执行旧选择链。该链的选择结果/全量 fallback 进入独立 `legacy_memory` 动态 user-data slot，不替换 query-specific Active Memory，也不重拼 stable `# Memory`；`used_memory_refs` 只记录实际通过 section/总预算送入成功 Provider round 的 legacy rows，并以 `role=selected|injected` 区分。同一 turn 的 Plan resync 可以替换下一 round 的动态 slot，但 durable refs 必须按首次提交顺序累计，不能抹掉早先 round 已进入模型的事实。完整设计见 [`active_memory.rs`](../../../crates/ha-core/src/agent/active_memory.rs) 与 [dreaming.md](dreaming.md)。
 
 ### 召回摘要（Recall Summary）
 
@@ -605,7 +605,7 @@ Memory Center 的"自动召回相关记忆"主开关控制所有 Agent 的默认
   "profile": { "summary": "...", "preferences": [...] } }
 ```
 
-`facts` 走 `add_with_dedup` 入库；`profile` 渲染成 system prompt 的 `## User Profile` 段（刻意不叫 "About You"——"You" 在 system prompt 里默认指 assistant，会引发角色混淆）。由 `enable_reflection`（默认 true，可 per-agent 覆盖）控制，关闭时回退到只抽 facts。
+`facts` 走 `add_with_dedup` 入库；`profile` 渲染成按回合的 `## User Profile` 数据段，经 `<hope_round_data source="user_profile">` 进入 user role，不进入稳定 system（仍刻意不叫 "About You"，避免角色混淆）。由 `enable_reflection`（默认 true，可 per-agent 覆盖）控制，关闭时回退到只抽 facts。
 
 ---
 
@@ -819,7 +819,7 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 | `dedup` | `thresholdHigh` / `thresholdMerge` | `0.02` / `0.012` | 去重跳过 / 合并阈值 |
 | `embeddingCache` | `enabled` / `maxEntries` | `true` / `10000` | embedding 缓存 |
 | `multimodal` | `enabled` / `modalities` / `maxFileBytes` | `false` / `["image","audio"]` / `10MB` | 多模态 embedding |
-| `memorySelection` | `enabled` / `threshold` / `maxSelected` | `false` / `8` / `5` | V1 LLM 语义选择兼容字段；V2 保存时映射到 `deepRecall` / `recall.maxSelected`，旧 replacer 只在完整 V1 rollback 执行 |
+| `memorySelection` | `enabled` / `threshold` / `maxSelected` | `false` / `8` / `5` | V1 LLM 语义选择兼容字段；V2 保存时映射到 `deepRecall` / `recall.maxSelected`，旧 selector 只在完整 V1 rollback 执行并输出动态 user-data |
 | `memoryExtract` | `autoExtract` / `flushBeforeCompact` | `true` / `true` | 旧提取细节字段；V2 简单模式由 `memory.learning.mode` 镜像 |
 | `memoryExtract` | `extractTokenThreshold` | `8000` | 累计 token 触发阈值 |
 | `memoryExtract` | `extractMessageThreshold` | `10` | 累计消息数触发阈值 |

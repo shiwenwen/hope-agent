@@ -147,6 +147,8 @@ pub(crate) struct DynamicMemoryContextManifest {
     pub active_recall_selected_count: usize,
     pub active_recall_latency_ms: Option<u64>,
     pub active_recall: MemoryContentMetric,
+    pub legacy_memory: MemoryContentMetric,
+    pub legacy_memory_ref_count: usize,
     pub procedure: MemoryContentMetric,
     pub dynamic_suffix_fingerprint: String,
     pub candidate_counts_by_source: BTreeMap<String, usize>,
@@ -163,11 +165,14 @@ impl DynamicMemoryContextManifest {
         recall_skip_reason: Option<String>,
         active: Option<&ActiveMemoryRecall>,
         active_suffix: Option<&str>,
+        legacy_memory_suffix: Option<&str>,
+        legacy_memory_ref_count: usize,
         procedure_suffix: Option<&str>,
         experience_ref_count: usize,
         graph_ref_count: usize,
     ) -> Self {
         let active_metric = MemoryContentMetric::from_optional(active_suffix);
+        let legacy_memory_metric = MemoryContentMetric::from_optional(legacy_memory_suffix);
         let procedure_metric = MemoryContentMetric::from_optional(procedure_suffix);
         let mut candidate_counts_by_source = BTreeMap::new();
         if let Some(active) = active {
@@ -179,8 +184,10 @@ impl DynamicMemoryContextManifest {
         }
         let dynamic_suffix_fingerprint = fingerprint(
             format!(
-                "{}:{}",
-                active_metric.fingerprint, procedure_metric.fingerprint
+                "{}:{}:{}",
+                active_metric.fingerprint,
+                legacy_memory_metric.fingerprint,
+                procedure_metric.fingerprint
             )
             .as_bytes(),
         );
@@ -201,8 +208,12 @@ impl DynamicMemoryContextManifest {
                 }
             }),
             active_recall_latency_ms: active.and_then(|recall| recall.latency_ms),
-            selected_tokens_estimate: active_metric.tokens_estimate,
+            selected_tokens_estimate: active_metric
+                .tokens_estimate
+                .saturating_add(legacy_memory_metric.tokens_estimate),
             active_recall: active_metric,
+            legacy_memory: legacy_memory_metric,
+            legacy_memory_ref_count,
             procedure: procedure_metric,
             dynamic_suffix_fingerprint,
             candidate_counts_by_source,
@@ -288,7 +299,7 @@ fn token_estimate(value: &str) -> u32 {
 }
 
 fn fingerprint(value: &[u8]) -> String {
-    blake3::hash(value).to_hex()[..16].to_string()
+    crate::cache_routing::audit_fingerprint("memory-context-diagnostic", value)[..16].to_string()
 }
 
 #[cfg(test)]
@@ -367,6 +378,8 @@ mod tests {
             Some("recall a"),
             None,
             0,
+            None,
+            0,
             0,
         );
         let second = DynamicMemoryContextManifest::from_runtime(
@@ -378,6 +391,8 @@ mod tests {
             Some("recall b"),
             None,
             0,
+            None,
+            0,
             0,
         );
         assert_ne!(
@@ -385,6 +400,26 @@ mod tests {
             second.active_recall.fingerprint
         );
         assert_eq!(first.procedure.fingerprint, second.procedure.fingerprint);
+
+        let with_legacy = DynamicMemoryContextManifest::from_runtime(
+            true,
+            super::super::MemoryRecallMode::Fast,
+            RetrievalIntent::Profile,
+            None,
+            None,
+            Some("recall a"),
+            Some("legacy fallback"),
+            2,
+            None,
+            0,
+            0,
+        );
+        assert!(with_legacy.legacy_memory.present);
+        assert_eq!(with_legacy.legacy_memory_ref_count, 2);
+        assert_ne!(
+            first.dynamic_suffix_fingerprint,
+            with_legacy.dynamic_suffix_fingerprint
+        );
     }
 
     #[test]

@@ -169,19 +169,6 @@ fn extract_request_id_from_message(message: &str) -> Option<&str> {
     }
 }
 
-fn redact_and_truncate_log_payload(raw: &str, max_bytes: usize) -> String {
-    let redacted = crate::logging::redact_sensitive(raw);
-    if redacted.len() > max_bytes {
-        format!(
-            "{}...(truncated, total {}B)",
-            crate::truncate_utf8(&redacted, max_bytes),
-            redacted.len()
-        )
-    } else {
-        redacted
-    }
-}
-
 pub(in crate::agent::providers) fn responses_assistant_message(text: &str) -> Option<Value> {
     if text.is_empty() {
         return None;
@@ -228,43 +215,34 @@ fn log_sse_error_event(
             .unwrap_or(request_id)
             .to_string()
     };
+    let message_fingerprint = crate::cache_routing::audit_fingerprint(
+        "openai-responses-sse-error-message",
+        message.as_bytes(),
+    );
+    let event_fingerprint = crate::cache_routing::audit_fingerprint(
+        "openai-responses-sse-error-event",
+        raw_data.as_bytes(),
+    );
     logger.log(
         "error",
         "agent",
         source,
         &format!(
-            "Responses SSE error event: request_id={}, type={}, message={}",
-            effective_request_id,
-            event_type,
-            crate::truncate_utf8(message, 300)
+            "Responses SSE error event: request_id={}, type={}",
+            effective_request_id, event_type
         ),
         Some(
             json!({
                 "request_id": effective_request_id,
                 "header_request_id": request_id,
                 "event_type": event_type,
-                "message": message,
+                "message_bytes": message.len(),
+                "message_fingerprint": message_fingerprint,
                 "error_code": sse_event_error_code(event),
                 "error_type": sse_event_error_type(event),
-                "top_level_message": event.message.as_deref(),
                 "top_level_code": event.code.as_deref(),
-                "top_level_error": event.error.as_ref().map(|e| {
-                    json!({
-                        "message": e.message.as_deref(),
-                        "code": e.code.as_deref(),
-                        "type": e.error_type.as_deref(),
-                    })
-                }),
-                "response_error": event.response.as_ref().and_then(|r| {
-                    r.error.as_ref().map(|e| {
-                        json!({
-                            "message": e.message.as_deref(),
-                            "code": e.code.as_deref(),
-                            "type": e.error_type.as_deref(),
-                        })
-                    })
-                }),
-                "raw_event": redact_and_truncate_log_payload(raw_data, 8192),
+                "event_bytes": raw_data.len(),
+                "event_fingerprint": event_fingerprint,
             })
             .to_string(),
         ),
@@ -278,6 +256,10 @@ fn log_sse_decode_error(request_id: &str, raw_data: &str, err: &serde_json::Erro
         return;
     };
 
+    let event_fingerprint = crate::cache_routing::audit_fingerprint(
+        "openai-responses-sse-decode-event",
+        raw_data.as_bytes(),
+    );
     logger.log(
         "warn",
         "agent",
@@ -290,7 +272,8 @@ fn log_sse_decode_error(request_id: &str, raw_data: &str, err: &serde_json::Erro
             json!({
                 "request_id": request_id,
                 "error": err.to_string(),
-                "raw_event": redact_and_truncate_log_payload(raw_data, 8192),
+                "event_bytes": raw_data.len(),
+                "event_fingerprint": event_fingerprint,
             })
             .to_string(),
         ),
@@ -613,12 +596,12 @@ fn build_responses_request(
     req: &RoundRequest<'_>,
 ) -> (ResponsesRequest, Vec<Value>, bool, bool) {
     let mut api_input: Vec<Value> = Vec::new();
-    for content in super::super::streaming_adapter::leading_dynamic_suffixes(req) {
-        api_input.push(json!({ "role": "system", "content": content }));
+    for content in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
+        api_input.push(json!({ "role": "developer", "content": content }));
     }
     api_input.extend(expand_responses_image_markers_for_api(req.history_for_api));
-    for content in super::super::streaming_adapter::trailing_dynamic_suffixes(req) {
-        api_input.push(json!({ "role": "system", "content": content }));
+    if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+        api_input.push(json!({ "role": "user", "content": content }));
     }
 
     let explicit_prompt_cache = supports_explicit_prompt_cache(base_url, model);
@@ -705,8 +688,11 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         let api_url = build_api_url(self.base_url, "/v1/responses");
 
         // ── Log API request.
-        let body_str = serde_json::to_string(&request).unwrap_or_default();
-        let body_size = body_str.len();
+        // Measure with a temporary serialization; retaining it beside
+        // reqwest's request body would duplicate every inline image payload.
+        let body_size = serde_json::to_string(&request)
+            .map(|serialized| serialized.len())
+            .unwrap_or(0);
         let request_tool_count = request.tools.as_ref().map_or(0, Vec::len);
         super::super::token_manifest::log_round_manifest(
             "OpenAIResponses",
@@ -717,16 +703,6 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             native_deferred,
         );
         if let Some(logger) = crate::get_logger() {
-            let raw_body = if body_size > 32768 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&body_str, 32768),
-                    body_size
-                )
-            } else {
-                body_str.clone()
-            };
-            let raw_body = crate::logging::redact_sensitive(&raw_body);
             logger.log(
                 "debug",
                 "agent",
@@ -747,7 +723,6 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                         "tool_count": request_tool_count,
                         "body_size_bytes": body_size,
                         "reasoning": self.reasoning.as_ref().map(|r| r.effort.as_str()),
-                        "request_body": raw_body,
                     })
                     .to_string(),
                 ),
@@ -829,19 +804,23 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 Err(_) => String::new(),
             };
             if let Some(logger) = crate::get_logger() {
-                let error_preview = if error_text.len() > 500 {
-                    format!("{}...", crate::truncate_utf8(&error_text, 500))
-                } else {
-                    error_text.clone()
-                };
+                let error_fingerprint = crate::cache_routing::audit_fingerprint(
+                    "openai-responses-error",
+                    error_text.as_bytes(),
+                );
                 logger.log(
                     "error",
                     "agent",
                     "agent::chat_openai_responses::error",
-                    &format!("OpenAI Responses API error ({}): {}", status, error_preview),
+                    &format!("OpenAI Responses API error ({status})"),
                     Some(
-                        json!({"status": status, "error": error_text, "round": req.round})
-                            .to_string(),
+                        json!({
+                            "status": status,
+                            "error_bytes": error_text.len(),
+                            "error_fingerprint": error_fingerprint,
+                            "round": req.round
+                        })
+                        .to_string(),
                     ),
                     None,
                     None,
@@ -1218,11 +1197,18 @@ mod tests {
         let req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
+            run_instruction_suffix: Some("run"),
+            run_data_suffix: Some("run data"),
             awareness_suffix: Some("awareness"),
             active_memory_suffix: Some("memory"),
+            legacy_memory_suffix: Some("legacy memory"),
             coding_profile_suffix: Some("coding"),
             procedure_memory_suffix: Some("procedure"),
             related_notes_suffix: Some("notes"),
+            attached_knowledge_suffix: Some("attached"),
+            capability_catalog_suffix: Some("capabilities"),
+            user_profile_suffix: Some("profile"),
+            environment_context_suffix: Some("environment"),
             lsp_diagnostics_suffix: None,
             task_reminder_suffix: Some("task"),
             tool_schemas: &tools,
@@ -1252,18 +1238,11 @@ mod tests {
             .iter()
             .map(|item| item["content"].as_str().unwrap_or_default())
             .collect::<Vec<_>>();
-        assert_eq!(
-            contents,
-            vec![
-                "awareness",
-                "memory",
-                "coding",
-                "procedure",
-                "question",
-                "notes",
-                "task"
-            ]
-        );
+        assert_eq!(&contents[..3], &["run", "coding", "question"]);
+        assert_eq!(input[3]["role"], "user");
+        assert!(contents[3].contains("source=\"active_memory\""));
+        assert!(contents[3].contains("source=\"legacy_memory\""));
+        assert!(contents[3].contains("source=\"task_and_hook_context\""));
         let request_tools = body["tools"].as_array().unwrap();
         assert_eq!(request_tools[0]["name"], "read");
         assert_eq!(request_tools[1]["name"], "browser");

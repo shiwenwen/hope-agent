@@ -1,6 +1,6 @@
 # Goal 控制平面
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
 
 ## 核心思想
 
@@ -139,7 +139,7 @@ Goal 严格区分**谁能碰契约本身**和**谁只能推进它**。
 | `goal_finish_request` | 请求完成；内部必须校验 current audit pass，成功后写 `accepted_v1` closure 并返回完成报告。 | `goal_finish_requested`、`goal_closure_decided`；失败时 `goal_finish_rejected` |
 | `goal_block_request` | 请求阻塞，必须带 reason + attempted。同一 fingerprint 重复 3 次才自动 block；确实需要用户输入或外部状态时可立即 block。 | `goal_block_requested`，必要时 `goal_state_changed(to='blocked')` |
 
-系统提示每轮都在 `# Active Goal` 段注入当前目标的 state、revision、objective、domain、workflow template、task type、completion criteria、required missing、follow-up pool、blocked reason、latest audit 摘要、closure decision，以及一份 Runtime Contract：把 active Goal 当作当前 north star，长任务里持续推进，只有用户修改 / 暂停 / 清除 / 完成或遇到真实阻塞才停下。Goal 一更新，下一轮 prompt 重建即让模型感知最新目标、旧 audit 已 stale、领域约束和用户关闭取舍。
+Goal 上下文不会拼回稳定 system。`prepare_session_policy_context()` 在 turn start 冻结两部分：平台维护、正文无关的 Active Goal 自治/证据/完成规则进入 **Run Instruction**；state、revision、objective、domain、workflow template、task type、completion criteria、required missing、follow-up pool、blocked reason、latest audit 摘要与 closure decision 由 `render_active_goal_data()` 放进当轮 **user-data**。Goal 更新后，下一 turn 的新快照让模型感知最新目标、stale audit、领域约束和用户关闭取舍；同一 turn 的 Provider retry / failover 复用已冻结快照，不重新查询或混用不同 revision。
 
 几条约束值得单独记住，它们是模型钻空子的常见入口：
 
@@ -461,7 +461,7 @@ Workspace 内有独立 Goal section，Goal 不再藏在 Workflow 区域里：
 ### 输入框（composer）目标模式
 
 - `+` 菜单 / toolbar 的"目标"进入目标模式。
-- **草稿新会话的首条目标消息不提前建空会话**：前端把 `initialGoal` 放进 chat start payload，后端在 auto-create session 后、prompt preflight 通过后、模型 turn 启动前才创建 durable Goal。这样首个 assistant 回合已能看到 Active Goal system section，历史里只有一条普通 Goal badge 用户气泡，不显示 `/goal` 前缀，也不会先出现空白会话。
+- **草稿新会话的首条目标消息不提前建空会话**：前端把 `initialGoal` 放进 chat start payload，后端在 auto-create session 后、prompt preflight 通过后、模型 turn 启动前才创建 durable Goal。这样首个 assistant 回合已能看到 Active Goal 的固定 run contract 与 user-data snapshot，历史里只有一条普通 Goal badge 用户气泡，不显示 `/goal` 前缀，也不会先出现空白会话。
 - 已有会话中，无 active Goal 时目标模式等价 `/goal <objective>` 创建并启动正常 turn；有 active Goal 时展示操作分段：更新当前目标、替代目标、追加必须项 / 可选项 / 后续项。"替代目标"先把旧目标记 `superseded` 再建新目标；"追加后续"调用 `append_goal_follow_up`。控制词只有在完整参数精确等于 `status` / `pause` / `resume` / `evaluate` / `clear` 时才当命令，较长文本一律按目标正文处理。
 - 输入框上方常驻当前 active Goal 摘要、状态、required 进度 / revision 与编辑 / 评估 / 暂停 / 恢复 / 清除操作，用户不用打开 Workspace 也能掌握目标；编辑区同样展示 criteria 草稿预览。
 

@@ -227,6 +227,8 @@ impl AssistantAgent {
                         ProviderFormat::from(&provider),
                         instruction,
                         attachments,
+                        self.get_context_window(),
+                        &[],
                     );
                     let acc = std::sync::Mutex::new(String::new());
                     let forward = |delta: &str| {
@@ -308,6 +310,8 @@ impl AssistantAgent {
             ProviderFormat::from(provider),
             instruction,
             attachments,
+            self.get_context_window(),
+            &[],
         );
         let acc = std::sync::Mutex::new(String::new());
         let forward = |delta: &str| {

@@ -363,8 +363,13 @@ pub struct SpawnParams {
     pub lock_plan_agent_mode: bool,
     /// If true, skip automatic result injection into parent conversation
     pub skip_parent_injection: bool,
-    /// Extra system context to inject into the sub-agent (e.g., PLAN_MODE_SYSTEM_PROMPT)
-    pub extra_system_context: Option<String>,
+    /// Additional platform-maintained run instruction for the child. The child
+    /// task itself remains the user message and must not be copied here.
+    pub run_instruction_context: Option<String>,
+    /// User/model-authored metadata associated with the child run (for example
+    /// a Team roster or shared context). Adapters always keep this in the
+    /// untrusted run-data lane, never in system/developer authority.
+    pub run_data_context: Option<String>,
     /// Skill-level tool restriction inherited from parent skill activation.
     /// When non-empty, the sub-agent only has access to these tools.
     pub skill_allowed_tools: Vec<String>,

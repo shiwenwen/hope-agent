@@ -273,6 +273,7 @@ pub fn run() {
             commands::chat::get_system_prompt,
             // Tools info
             commands::chat::list_builtin_tools,
+            commands::chat::list_capability_mentions,
             // Built-in user manual (Help Center)
             commands::manual::get_manual_bundle,
             commands::manual::search_manual,

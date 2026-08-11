@@ -1,6 +1,6 @@
 # Knowledge Base（知识空间）
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
 
 对外功能名叫「知识空间 / Knowledge Space」，代码里保持中性的技术名——模块目录 `knowledge/`、agent 工具前缀 `note_*`、文件作用域 `for_knowledge`。之所以两套名字，是因为中文「知识库」在语义上被 RAG / 客服系统占据，容易让人误以为这是个「上传文件搜答案」的面板；而它的真实定位比那大得多。
 
@@ -26,7 +26,7 @@ Hope Agent 里已经有三层「知识」，知识空间是与它们平级的第
 
 | 容器 | 真相源 | 谁写 | 谁读 | 用户可见度 |
 |---|---|---|---|---|
-| Memory | `memory.db` 原子条目 | 自动抽取 + `save_memory` | 注入 system prompt | 低（后台） |
+| Memory | `memory.db` 原子条目 | 自动抽取 + `save_memory` | 按回合作为非稳定上下文提供给模型 | 低（后台） |
 | Dreaming 日记 | `~/.hope-agent/memory/dreams/*.md` | AI 自省 | 用户翻看 | 中 |
 | Project | `working_dir` 真实文件 | 用户 / agent | `read` 工具 | 高 |
 | **知识空间** | **真实 `.md` 文件** | **用户手写 + agent 工具** | **agent 工具 + 按需召回** | **最高（一级导航）** |
@@ -45,7 +45,7 @@ flowchart LR
 
 **读取桥有三条通道**，它们都把笔记正文套进 `<untrusted_external_data>` 信封，永不提升为 system 指令：
 
-1. **确定性注入**：用户消息里写 `[[note]]`，后端解析后把目标笔记正文注入这一轮。
+1. **确定性引用**：Composer 的类型化 `@note` binding 精确绑定 `kb_id + rel_path`；兼容期仍只读解析 `[[note]]`。两者都只向当前回合提供笔记数据，不变成 system 指令。
 2. **主动检索**：agent 调 `note_search` / `knowledge_recall` 等工具。
 3. **被动相关笔记**：每轮自动把「相关笔记标题」当提示（默认开，但仅在该 KB 已授权时生效，且只给标题不给正文）。
 
@@ -192,7 +192,7 @@ flowchart TB
 | `schema.rs` | Schema Profile / Evidence：默认 profile、source refs / claim 级出处解析、`knowledge_evidence_refs` / `_claims` 派生索引、coverage score、source→claim 反查 |
 | `agent_api.rs` | 外部 agent 稳定门面：`search/read/expand/sources/compile.propose` |
 | `agent_mcp.rs` | stdio MCP server：`initialize` / `tools/list` / `tools/call` 薄包装 `agent_api` |
-| `inject.rs` | 读取桥①：用户消息 `[[note]]` 确定性注入 |
+| `inject.rs` | 读取桥①：类型化 `@note` / 兼容 `[[note]]` 的授权解析、版本化预览与确定性注入 |
 | `embedding.rs` / `reembed.rs` | 知识空间独立 embedding selector + 后台重嵌 job |
 | `maintenance/` | 自主维护（见后文） |
 | `mod.rs` | `blake3_hex`（hash 契约：BLAKE3 over raw bytes）+ `delete_kb_cascade`（registry 事务 + index prune + 内部目录 rm-rf，外部 root 永不删） |
@@ -300,19 +300,29 @@ flowchart LR
 
 **配置项进不进 `ha-settings`**：`knowledge_search`（纯查询期、无 reindex 副作用）是正常 MEDIUM 设置，同时进 `ha-settings`；`knowledge_chunk`（改动触发全 KB 重切）与 `knowledge_embedding`（模型选择 + reembed 副作用）**GUI-only 不进 `ha-settings`**，类比 `active_model` 的豁免。改共享 `embedding_models` 库时，对 memory 与 knowledge 的 active model 双向守门（改 / 删 active 一律拒）。
 
-**读取桥③——被动相关笔记**（[`agent/related_notes.rs`](../../../crates/ha-core/src/agent/related_notes.rs)，默认开）：每个用户轮在 `tokio::join!` 里与 awareness / active_memory 并发跑 `refresh_related_notes_suffix`——incognito 短路 → 从 agent 线接的来源重建 `KnowledgeAccessContext` → `effective_kb_access` 拿可访问 KB → 用 `user_text + access 指纹 + 展示配置` 做 TtlCache（默认 120s，防 KB detach / IM opt-in 变化后复用旧授权）→ `spawn_blocking` 里跑 `search_notes` 取 top-N → 渲染「## Related Notes」**只给标题**套 `<untrusted_external_data>` 信封。**无 LLM 调用**，没有 KB 授权时不注入任何内容。四个 Provider adapter 各自注入这一段，其中 **Anthropic 走纯 system block 不带 `cache_control`**——稳定前缀和最后一个 eager 工具各挂一个 ephemeral 缓存断点，per-turn 动态后缀（awareness / active_memory / related_notes）一律不缓存。
+**读取桥③——被动相关笔记**（[`agent/related_notes.rs`](../../../crates/ha-core/src/agent/related_notes.rs)，默认开）：每个用户轮在 `tokio::join!` 里与 awareness / active_memory 并发跑 `refresh_related_notes_suffix`——incognito 短路 → 从 agent 线接的来源重建 `KnowledgeAccessContext` → `effective_kb_access` 拿可访问 KB → 用 `user_text + access 指纹 + 展示配置` 做 TtlCache（默认 120s，防 KB detach / IM opt-in 变化后复用旧授权）→ `spawn_blocking` 里跑 `search_notes` 取 top-N → 渲染「## Related Notes」**只给标题**套 `<untrusted_external_data>` 信封。**无 LLM 调用**，没有 KB 授权时不提供任何内容。四个 Provider adapter 都把这段放到当前回合的 user-data lane；稳定 system 前缀及其缓存键不随召回结果变化。
 
 ---
 
 ## 十、会话感知注入与工具收窄
 
-**会话侧 KB 访问的唯一入口是 `Agent::resolve_kb_access()`**（[`agent/mod.rs`](../../../crates/ha-core/src/agent/mod.rs)）：它复刻 `chat_source / origin_chat_source / channel_kb_context` + IM-bound 会话的 fail-closed 重分类 + project_id 查询 + `effective_kb_access`，返回与工具面 `access_map` 同集的 `HashMap<kb_id, KbAccess>`。三处共用它——被动相关笔记、无 KB 工具门控、`# Knowledge Bases` 系统提示段，都**不得各自重写解析链**。结果按回合 memoize（回合起点与重绑 session 时失效），故一回合内约 5 次调用塌成单次 SQLite 解析。
+**会话侧 KB 访问的唯一入口是 `Agent::resolve_kb_access()`**（[`agent/mod.rs`](../../../crates/ha-core/src/agent/mod.rs)）：它复刻 `chat_source / origin_chat_source / channel_kb_context` + IM-bound 会话的 fail-closed 重分类 + project_id 查询 + `effective_kb_access`，返回与工具面 `access_map` 同集的 `HashMap<kb_id, KbAccess>`。三处共用它——被动相关笔记、无 KB 工具门控、`Knowledge Bases` 回合数据段，都**不得各自重写解析链**。结果按回合 memoize（回合起点与重绑 session 时失效），故一回合内约 5 次调用塌成单次 SQLite 解析。
 
 关键边界：**它只服务 schema / prompt / 召回，绝不据此 gate 工具执行**。执行边界永远是 live 的 `note.rs::access_map`——回合中途撤权仍即时拦截真实读写。
 
 - **无 KB 不注入笔记工具**：`is_kb_scoped_tool`（`note_*` + `session_to_note`，**不含 `knowledge_recall`**——跨 store，无 KB 仍可查 memory）在主组装点与 tool_search 之后过滤，`resolve_kb_access()` 为空则从 schema 剔除。这是纯 UX / 省 token，非安全边界（执行层由 `access_map` 兜底）。
-- **系统提示「# Knowledge Bases」段**：`build_full_system_prompt` 末尾追加静态段（仅 attach/detach 变动，cache-safe），逐库列 emoji+名、读/写、外部标记，库名转义防注入。`resolve_kb_access()` 为空则整段省略——绝不广告 `note_*` 会拒的库。
+- **回合数据「Knowledge Bases」段**：每轮从 `resolve_kb_access()` 的快照生成有界列表，逐库列 emoji+名、读/写、外部标记，库名转义并明确按数据解释。该段进入 user-data lane，不进入稳定 system；为空则整段省略——绝不广告 `note_*` 会拒的库。
 - **检索结果标来源（多库可辨）**：`NoteSearchHit` 带 `kb_name` / `kb_emoji`，收尾按 distinct kb_id 一次性从 registry 填充（防 N+1，index.db 只存 `kb_id`）。前端 `KnowledgeResultCard` 把结果按知识空间分组渲染。
+
+### 类型化 `@note` 与版本化续读
+
+Composer 选择笔记时同时发送 `IncomingTurnWire` sidecar；正文里的 `@标题` 只负责展示。后端先校验 wire 版本、原始 UTF-8 span、token 文本和 canonical digest，再按 sidecar 中的 `kb_id::rel_path` 走 live `effective_kb_access` 与 root containment。没有 sidecar 的粘贴文本不会获得 typed binding；只有独立登记的兼容语法 `[[note]]` 仍可走只读解析。typed Note 的已验证 UTF-8 span 会先从兼容扫描视图中移除，避免同一引用解析两次；同 turn 的其它 typed mention 不会让用户另行输入的 `[[note]]` 失效。
+
+兼容 `[[note]]` 的 raw-text 识别由 kernel `knowledge::legacy_wikilink_targets` 与 `ha-knowledge` injector 共用；普通 Markdown `[label](url)` 不命中。当前 injector 会识别代码 span/fence 内的 `[[note]]`，所以忙时队列也将其视为需要完整 turn 的语义而禁止 raw tool-boundary 插入；若未来切为跳过代码，必须先改共享 scanner，让 injector 与队列原子同步。
+
+typed `@note` 的首轮正文预算以 primary model 的 context window 为基数：先取窗口的 20%，在 Provider-exact 计数前按约 4 UTF-8 bytes/token 换算为目标 byte 总量，再按本 turn 的 typed Note 数量等分；等分后的每篇份额钳在 8 KiB–200,000 bytes，实际物化仍受每 turn 最多 5 篇的上限。正文不超过份额时，模型信封写 `materialization="complete"`，receipt 写 `state=complete` 并记录相等的 `sourceBytes/deliveredBytes`；超出份额时只提供 UTF-8 边界安全的确定性前缀，信封写 `materialization="preview"`、opaque `content_version` 与 `continuation_tool="note_read"`，receipt 则写 `state=preview`、源/已投递 byte 数和 `continuationTool=note_read`。这套自适应预算只适用于 typed `@note`；兼容 `[[note]]` 仍维持每篇 8 KiB 的固定预览上限。
+
+预览后的继续读取必须使用同一 `kb/path` 调用 `note_read(expected_content_version=...)`。工具会重新检查 live `effective_kb_access`，并从当前磁盘 bytes 重新计算 opaque version；版本不等即 fail closed，模型不能把旧预览和新正文拼成一个虚假的一致快照。完整正文、预览和被动召回都进入 `<untrusted_external_data>` user-data lane，`@note` 本身不调用工具、不授予写权；`complete` 也只证明该 Note 正文已投递，不证明模型已经完整处理任务。
 
 ---
 
@@ -471,7 +481,7 @@ flowchart LR
 - **作用域闭合** `WorkspaceScope::for_knowledge`（canonicalize + starts_with，外部只读 root 拒一切写、桌面也拒）；HTTP 写叠加 `allow_remote_writes`。
 - **写盘一律原子化**：所有笔记写经 `platform::write_atomic`（同目录 temp → fsync → 原子 rename），**禁止回退 `fs::write` 直写**；stale-write guard 比**磁盘当前 raw BLAKE3**（不比 `note.content_hash` 索引缓存）。
 - **`index.db` 含明文 chunk 片段**（敏感度等同 `.md`，随数据目录权限走），**绝不存 API Key / Token / 凭据**。
-- **注入即非可信**：`[[note]]` 注入与被动召回套 `<untrusted_external_data>` 信封 + 来源 + 截断，永不提升为 system 指令。
+- **注入即非可信**：类型化 `@note`、兼容 `[[note]]` 与被动召回都套 `<untrusted_external_data>` 信封 + 来源 + 版本 / 截断信息，永不提升为 system 指令。
 - **两条鉴权路线物理隔离**：owner 侧（HTTP / Tauri，面向用户本人）不经 `effective_kb_access` 看全部 KB；agent 侧（`note_*`，模型工具）必过 `effective_kb_access`。`/api/knowledge/agent/*` 也是 owner 侧，必须由 Bearer 保护；MCP / 外部集成不得绕过 `agent_api.rs` 另开读写路径。
 - **Raw Source 隔离**：资料舱 source 不注入 prompt、不进 `note_search` / `knowledge_recall`；内部 `stored_path` 始终是 Hope 管理目录的真相源；外部 raw 镜像只是 opt-in 的文本快照副本（原子写 + 相对路径逃逸校验 + canonical root containment，不镜像原始媒体，失败不阻断内部导入）。URL 导入 / refresh 必过 `security::ssrf::check_url`，重定向与最终 URL 复检；浏览器采集只读当前受控 tab、不后端重 fetch，refresh 默认要求当前 tab URL 与原 source URL（忽略 fragment）匹配。
 - **Compile / Query Filing 隔离**：编译与归档只落 proposal，approve 前不写 `.md`；approve 时仍走外部 root read-only cap + 磁盘 raw BLAKE3 stale-write guard；失败 proposal 标 `failed` 供复核。

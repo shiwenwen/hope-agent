@@ -186,7 +186,7 @@ fn reset_stop_continue(session_id: &str) {
 
 /// Pending `UserPromptSubmit` `additionalContext` per session. The preflight
 /// chokepoint sets this after the hook runs; the turn drains it once at start
-/// and folds it into `extra_system_context` next to `SessionStart`. Keyed by
+/// into the untrusted user-data lane next to `SessionStart`. Keyed by
 /// session so concurrent sessions never cross-contaminate, and preflight always
 /// overwrites/clears its session's slot before the turn runs — so a turn that
 /// never reaches the engine (rare persist failure between preflight and the
@@ -366,7 +366,7 @@ fn emit_hook_status(input: &HookInput, message: &str, handler_type: &str) {
 }
 
 /// Minimal XML escape (`<` / `>` / `&` only) for text embedded inside a
-/// tag-bounded system-reminder. Prevents hook stderr containing a literal
+/// tag-bounded data envelope. Prevents hook stderr containing a literal
 /// `</hook-async-result>` from breaking out of the reminder envelope —
 /// otherwise a hook author (or any tool the hook shells out to) could
 /// smuggle prompt-instruction text into the LLM's input.
@@ -383,8 +383,8 @@ fn escape_xml_text(s: &str) -> String {
     out
 }
 
-/// `asyncRewake`: a detached command hook exited 2 — inject its stderr as a
-/// system-reminder into the session's next turn (design §7.1). Reuses the
+/// `asyncRewake`: a detached command hook exited 2 — inject its escaped stderr
+/// as Hook data into the session's next turn (design §7.1). Reuses the
 /// subagent injection pipeline (waits for the session to idle, appends a
 /// `ParentInjection` user message, runs one turn). No-op without a session /
 /// resolvable agent. **Note:** this lets a background hook spend tokens by
@@ -758,7 +758,7 @@ pub async fn fire_user_prompt_submit(
 }
 
 /// Fire the `SessionStart` observation hook (startup/resume) and return any
-/// merged `additionalContext` to fold into this turn's system prompt. Fires
+/// merged `additionalContext` to freeze into this turn's data envelope. Fires
 /// once per session per process (`claim_session_start`); later turns return
 /// `None`. Shared by the chat engine and the ACP turn loop so both entry points
 /// inject identical context — ACP runs `AssistantAgent::chat` directly rather
@@ -896,8 +896,8 @@ pub fn fire_subagent_stop(
 /// (`completed` / `interrupted`).
 ///
 /// **Block-to-continue** (official `Stop` `exit 2` / `decision:block` = "prevent
-/// stopping, continue"): if the hook blocks, its reason is injected as a
-/// system-reminder and the session is re-driven for another turn (reusing the
+/// stopping, continue"): if the hook blocks, its escaped reason is injected as
+/// Hook data and the session is re-driven for another turn (reusing the
 /// subagent injection pipeline, like `asyncRewake`). Bounded by
 /// [`MAX_STOP_CONTINUES`] and gated by `stop_hook_active` so a hook can detect
 /// re-entrancy. A normal stop (no block) resets the counter.
@@ -963,7 +963,7 @@ pub fn fire_stop(
     }
 }
 
-/// Inject a `Stop`-hook block reason as a system-reminder and re-drive the
+/// Inject a `Stop`-hook block reason as escaped Hook data and re-drive the
 /// session for another turn (block-to-continue). Reuses the subagent injection
 /// pipeline (waits for idle, appends a `ParentInjection` user message, runs one
 /// turn) — the same mechanism as `asyncRewake`. No-op without a resolvable

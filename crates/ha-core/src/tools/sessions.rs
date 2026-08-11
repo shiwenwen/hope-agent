@@ -497,6 +497,7 @@ async fn run_agent_for_session(
             agent_id: agent_id.to_string(),
             turn_id: None,
             message: message.to_string(),
+            incoming_turn: None,
             display_text: None,
             attachments: Vec::new(),
             session_db: crate::get_session_db()
@@ -510,12 +511,13 @@ async fn run_agent_for_session(
                 .and_then(|definition| definition.config.model.temperature)
                 .or(store.temperature),
             compact_config: store.compact.clone(),
-            extra_system_context: Some(
+            run_context: Some(crate::prompt_context::RunInstructionContext::new(
+                crate::prompt_context::RunInstructionSource::CrossSession,
                 "## Execution Context\n\
                  You are responding to a cross-session message. Another agent or session sent you this message.\n\
                  - Respond concisely and directly to the message content."
                     .to_string(),
-            ),
+            )?),
             reasoning_effort: agent_def
                 .as_ref()
                 .and_then(|definition| definition.config.model.reasoning_effort.clone())

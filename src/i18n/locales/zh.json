@@ -971,6 +971,9 @@
       "failed": "导出失败。",
       "untitled": "未命名会话"
     },
+    "capabilityMention": {
+      "heading": "插件与连接器"
+    },
     "skillMention": {
       "heading": "技能",
       "labels": {

@@ -332,7 +332,7 @@ flowchart TB
 要点：
 
 - **预检钩子**：`do_prompt` 在跑模型前先过 `user_prompt_preflight_cancellable`，即 `UserPromptSubmit` 钩子的阻断点。钩子放行则用它返回的 `effective_prompt` 跑 turn（与其它用户消息入口的预检口径一致）；钩子阻断则回 `refusal` 并写一条仅 UI 可见的事件标记（不进 LLM 上下文）。ACP 不注册真正的 `active_turn`，这个 `turn_id` 只为给钩子一个 `prompt_id`。
-- **SessionStart 钩子**：ACP 直接跑 `AssistantAgent::chat` 而非共享 chat engine，所以引擎自带的 SessionStart 注入不会触发——`run_agent_chat` 自己在 failover 循环前调一次观察钩子，把返回的 additionalContext 折进每次重建 agent 的 system 上下文，让它跨重试存活。
+- **SessionStart 钩子**：ACP 直接跑 `AssistantAgent::chat` 而非共享 chat engine，所以引擎自带的 SessionStart 注入不会触发——`run_agent_chat` 自己在 failover 循环前调一次观察钩子，把返回的 additionalContext 冻结为 `RunInstructionContext::data_only(Acp, …)`，每次重建 agent 都复用同一份 user-data；它能跨重试存活，但不会取得 system/developer authority。
 - **失败也走持久化协议**：provider/构建失败不会留下一个悬空的 `running` run，而是经 `commit_interrupted_turn` 收敛成 `Failed` 终态，并写一条错误事件，让下次启动能恢复已显示的前缀。
 
 停止原因（返回给编辑器的 `stopReason`）有四种：`end_turn`（正常完成）、`cancelled`（被取消 / Stop）、`refusal`（预检阻断）、`error`（全模型失败）。

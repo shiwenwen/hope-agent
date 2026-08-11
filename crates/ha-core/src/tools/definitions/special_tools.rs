@@ -38,6 +38,10 @@ pub fn get_subagent_tool() -> ToolDefinition {
                     "type": "string",
                     "description": "Agent to delegate to (defaults to the main Agent)"
                 },
+                "agent_ref": {
+                    "type": "string",
+                    "description": "Opaque turn-local Agent reference from a typed @agent binding. Prefer this over copying a display name; it is resolved and re-authorized at execution time."
+                },
                 "run_id": {
                     "type": "string",
                     "description": "Run ID for resume/check/result/kill/steer; resume requires an eligible terminal run owned by the current parent."
@@ -88,12 +92,13 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "tasks": {
                     "type": "array",
-                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?, files?}]. Top-level files are shared by every task; task-level files are private to that child.",
+                    "description": "For batch_spawn: array of task objects [{task, agent_ref? or agent_id?, label?, timeout_secs?, model?, files?}]. Top-level files are shared by every task; task-level files are private to that child.",
                     "items": {
                         "type": "object",
                         "properties": {
                             "task": { "type": "string" },
                             "agent_id": { "type": "string" },
+                            "agent_ref": { "type": "string" },
                             "label": { "type": "string" },
                             "timeout_secs": {
                                 "type": "integer",
