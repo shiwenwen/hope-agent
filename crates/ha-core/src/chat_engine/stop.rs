@@ -1185,6 +1185,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_stop_marks_and_signals_the_exact_turn() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db, session_id, turn_id) = fixture();
         let cancel = Arc::new(AtomicBool::new(false));
         let _guard = crate::chat_engine::active_turn::try_acquire(
@@ -1208,6 +1209,7 @@ mod tests {
 
     #[tokio::test]
     async fn exact_stale_stop_does_not_cancel_a_newer_turn() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db, session_id, turn_id) = fixture();
         let cancel = Arc::new(AtomicBool::new(false));
         let _guard = crate::chat_engine::active_turn::try_acquire(
@@ -1227,6 +1229,7 @@ mod tests {
 
     #[tokio::test]
     async fn exact_stop_converges_a_durable_turn_after_live_entry_vanished() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db, session_id, turn_id) = fixture();
 
         let outcome = stop_session(db.clone(), &session_id, Some(&turn_id), false).await;
@@ -1243,6 +1246,7 @@ mod tests {
 
     #[tokio::test]
     async fn exact_stop_for_a_terminal_old_turn_does_not_pause_the_session() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db, session_id, turn_id) = fixture();
         db.finish_chat_turn_once(&turn_id, ChatTurnStatus::Completed, None, None, None)
             .expect("finish old turn");
@@ -1257,6 +1261,7 @@ mod tests {
 
     #[tokio::test]
     async fn global_stop_publishes_resumable_receipts_for_autonomous_sessions() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop.db"))
@@ -1306,6 +1311,7 @@ mod tests {
 
     #[tokio::test]
     async fn repeated_stop_supersedes_a_delayed_exact_continue() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("stop-generations.db"))
@@ -1343,6 +1349,7 @@ mod tests {
 
     #[tokio::test]
     async fn global_stop_normalizes_hidden_child_targets_to_the_visible_root() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop-root.db"))
@@ -1367,6 +1374,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_stop_cancels_channel_turn_without_a_gui_turn_row() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("channel-stop.db"))
@@ -1414,6 +1422,7 @@ mod tests {
 
     #[tokio::test]
     async fn pre_turn_cancel_cleanup_deletes_lazy_session_and_releases_gate() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("pre-turn-cleanup.db"))
@@ -1454,6 +1463,7 @@ mod tests {
 
     #[tokio::test]
     async fn pre_turn_cancel_cleanup_releases_exact_queued_dispatch() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("pre-turn-queue-cleanup.db"))
