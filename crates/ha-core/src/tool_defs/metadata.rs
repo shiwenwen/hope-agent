@@ -463,6 +463,15 @@ impl ToolMetadata {
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
                 render.result_kind = ToolResultKind::Status;
             }
+            crate::tool_defs::TOOL_SESSION_CONTINUE => {
+                push_all(
+                    &mut aliases,
+                    &["continue", "resume", "proceed", "keep going"],
+                );
+                push_unique(&mut effects, ToolEffect::RuntimeControl);
+                push_unique(&mut effects, ToolEffect::SessionWrite);
+                render.result_kind = ToolResultKind::Status;
+            }
             crate::tool_defs::TOOL_TOOL_SEARCH | crate::tool_defs::TOOL_SKILL => {
                 push_all(&mut aliases, &["discover tools", "load tool", "capability"]);
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
@@ -1132,7 +1141,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_status_tools_remain_read_only() {
+    fn runtime_control_tools_report_their_actual_mutability() {
         let tool_search = ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_TOOL_SEARCH));
         assert!(tool_search.read_only);
         assert!(tool_search.effects.contains(&ToolEffect::RuntimeControl));
@@ -1145,6 +1154,15 @@ mod tests {
             ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_RUNTIME_CANCEL));
         assert!(!runtime_cancel.read_only);
         assert!(runtime_cancel.destructive);
+
+        let session_continue =
+            ToolMetadata::for_definition(&def(crate::tool_defs::TOOL_SESSION_CONTINUE));
+        assert!(!session_continue.read_only);
+        assert!(!session_continue.destructive);
+        assert!(session_continue
+            .effects
+            .contains(&ToolEffect::RuntimeControl));
+        assert!(session_continue.effects.contains(&ToolEffect::SessionWrite));
     }
 
     #[test]

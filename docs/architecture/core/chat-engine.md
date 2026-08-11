@@ -461,7 +461,7 @@ stateDiagram-v2
 | Agent loop 协作收尾 | ≤ 6s | 已产生可见 runtime 事件的 loop 协作退出；超时 drop future 进统一中断提交（`CHAT_CANCEL_COOPERATIVE_GRACE`） |
 | watchdog 兜底 | 8s | 只作最后的 journal 收敛兜底，不与正常 finalizer 抢终态（`CHAT_STOP_WATCHDOG_GRACE`） |
 
-Stop 编排自身也有独立预算：先同步翻转所有已知 cancel flag、广播 `cancelling` 并启动 watchdog，再并行执行 DB 标记（2s）、审批/问答撤销（2s）与 runtime 清理（5s）。编排开始时须建立 session 的短暂 Stop gate（全局 Stop 用 process-wide gate），阻止替代 turn 在旧资源快照完成前 acquire；runtime 先快照精确 job/subagent/process id 再逐项取消，超时后不得重新按 session 枚举。审批/问答直接 timeout 原 future（禁止 detach 会话级 sweep），因此迟到清理不会消费续聊新建的交互。
+Stop 编排自身也有独立预算：先同步翻转所有已知 foreground cancel flag、广播 `cancelling` 并启动 watchdog，再写 `session_autonomy_pauses` 耐久暂停回执，随后取消 `turn_id=None` 的专用 parent-injection token，并行执行 DB 标记（2s）、审批/问答撤销（2s）与 runtime 清理（5s）。parent injection 必须在回执落库后才翻 token，确保其普通 requeue 路径先撞上 pause generation，不能立刻再发一轮 API。暂停回执先于 Goal / Workflow 状态迁移和 runtime 快照落库，是进程重启后的统一执行围栏；子 Agent 会话按 `sessions.parent_session_id` 继承祖先回执，快照与 wakeup 暂停/重放递归覆盖整棵会话树，避免嵌套 child 用不同 session id 穿过根会话 Stop。回执记录 Stop 当刻的 Goal、Workflow run 与 subagent attempt，故 Continue 只恢复本次捕获的工作，不会复活用户此前单独暂停的控制器。Workflow 在途 QuickJS worker 另有 run-scoped cancel flag 接入 interrupt handler，防纯脚本循环在 DB 已 Paused 后继续占用线程；子 Agent 则收敛为可续跑的 `Interrupted(session_paused)`。编排开始时须建立 session 的短暂 Stop gate（全局 Stop 用 process-wide gate），阻止替代 turn 在旧资源快照完成前 acquire；runtime 先快照精确 job/subagent/process id 再逐项取消，超时后不得重新按 session 枚举。审批/问答直接 timeout 原 future（禁止 detach 会话级 sweep），因此迟到清理不会消费续聊新建的交互。
 
 一些容易踩坑的、不读代码看不出来的约束：
 
@@ -470,10 +470,16 @@ Stop 编排自身也有独立预算：先同步翻转所有已知 cancel flag、
 - **请求生命周期资源也要能立即 abort**：GUI 的 plan mention 展开、文件系统配置读取、附件 staging 都属 request 生命周期；本地 Stop 必须立即 abort 等待。上传若不可物理取消，迟到返回的 upload lease 必须自动 discard，不得形成孤儿附件，也不得把用户停止显示为上传失败。
 - **项目首轮 bootstrap 已完成时**：回滚必须先把 bootstrap 置为终态并经 Git-aware 路径 discard 托管 worktree，再删空会话；禁止先靠 session FK cascade 丢掉 worktree 注册行。
 - **懒创建会话的定位**：`session_created` 前用不透明 `clientRequestId` 定位 active turn，此时点停止不得退化成"停止所有会话"；已知 session 但 `turn_started` 尚未到达的窗口也用同一 request id latch。
+- **精确 Stop 的 `NotFound` 要核对 durable turn**：Stop gate 已先阻止替代 turn；registry 没找到 expected turn 时，只有该 turn 仍属本 session 且为非终态，才按“live entry 先消失”继续收敛 Goal / Workflow / subagent。durable turn 已终态或不存在则拒绝，避免一条很晚的旧 Stop 暂停后来 generation 的工作；`TurnMismatch` 同样拒绝。
+- **Stop 前已排队的回注不能穿过快速 Continue**：每张暂停回执同时推进单调 generation。parent injector 在 idle wait 前后核对 generation；即使 active pause 已被 Continue 清掉，Stop 前 admitted 的旧 injector 也必须退回 durable source，由 Continue 重新认领，不能直接发起 provider round。
 
 ### 统一停止入口
 
 Desktop、HTTP 与 IM `/stop` 在解析出 session 后必须统一进入 [`chat_engine::stop::stop_session`](../../../crates/ha-core/src/chat_engine/stop.rs)：设置精确 active-turn cancel、写 `cancelling`、拒绝待审批、撤销 live `ask_user` 并取消 session-owned runtime；共享服务也翻转该 session 的全部 Channel preflight registrations，所以 GUI/HTTP 停止 attached session 时不会漏掉 IM 的 active-turn 注册前窗口。同 session 的并发入站逐个注册、一次 Stop 全部翻转；交互入口与 stream transport 可以不同，停止的业务语义不得分叉。
+
+显式 Continue 统一进入 `continue_session`：只恢复暂停回执捕获的 Goal / Workflow，最后以 CAS 消费回执，再重放该 session 的 wakeup 与 durable parent delivery。前台用户在暂停期间仍可正常发消息；每轮动态 `<session-paused>` system reminder 把围栏与精确捕获目标暴露给模型。用户明确表达“继续 / resume / keep going”时，模型先调用始终 eager、只绑定当前 session 的 `session_continue` harness 工具；若只是问状态、原因、检查结果或调整恢复方案，模型不得调用，围栏继续生效。GUI “继续”按钮也只向当前会话发送一条正常的前台续跑意图，不绕过模型直接解锁；Tauri `continue_chat` / HTTP `POST /api/chat/continue` 是 owner 平面的显式适配器，必须携带当前精确 `pauseId`，迟到请求不得消费更新一代 Stop。
+
+Workflow 新 runtime 必须等 Stop 前的 QuickJS guard Drop 后再由同一 registry handoff 发射，不能让两个 generation 并行跑同一脚本。Continue turn 从 durable Goal / Workflow 状态、`<runtime-recovery>` 与工具返回的精确目标读取恢复上下文。子 Agent attempt 是不可变审计记录，因此 Continue 不把旧 run 改回 Running，而是在当前权限 / owner / sandbox 下创建 continuation；本次回执捕获的 child terminal delivery（含崩溃后才收敛的 `process_interrupted`）统一由 Continue turn 消费并抑制独立回注，避免按钮或模型入口并发启动两轮父 Agent。
 
 无 target 的全局紧急停止统一进入 `stop_all_sessions`，Desktop / HTTP shell 只负责先翻转各自 transport-local handle；全局路径不复制一套 DB、审批或 runtime 清理逻辑。
 

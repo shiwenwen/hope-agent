@@ -250,6 +250,7 @@ mod tests {
             incognito: false,
             working_dir: None,
             kind: crate::session::SessionKind::Regular,
+            autonomy_paused: false,
         }
     }
 

@@ -216,6 +216,8 @@ const tabResetCases: Array<{
         maxBatchSize: null,
         archiveAfterMinutes: null,
         announceTimeoutSecs: null,
+        providerRetryAttempts: 3,
+        providerRetryBackoffSecs: 5,
       })
     },
   },

@@ -356,6 +356,8 @@ export interface AgentConfig {
     maxBatchSize?: number | null
     archiveAfterMinutes?: number | null
     announceTimeoutSecs?: number | null
+    providerRetryAttempts?: number
+    providerRetryBackoffSecs?: number
     model?: string | null
   }
 }

@@ -1414,6 +1414,20 @@ impl AssistantAgent {
                 let tasks = db.list_tasks(sid).ok()?;
                 tools::task_reminder_text(&tasks)
             });
+            let recovery_reminder = self
+                .session_id
+                .as_deref()
+                .and_then(crate::agent::runtime_ledger::subagent_recovery_reminder);
+            let pause_reminder = match self.session_id.as_deref() {
+                Some(session_id) => {
+                    crate::agent::runtime_ledger::session_pause_reminder(session_id).await
+                }
+                None => None,
+            };
+            let task_reminder = [task_reminder, recovery_reminder, pause_reminder]
+                .into_iter()
+                .flatten()
+                .reduce(|left, right| format!("{left}\n\n{right}"));
             // Fold any pending hook context (PostCompact / SessionStart(compact)
             // / Notification additionalContext, queued outside a round) into
             // this round's reminder suffix so it reaches the LLM as a system

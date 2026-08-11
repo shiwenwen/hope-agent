@@ -293,6 +293,13 @@ impl ToolExecContext {
         if let Some(err) = self.workflow_visibility_error(canonical).await {
             return Some(err);
         }
+        // A durable Stop blocks every autonomous entry. The only way a model
+        // can interpret a new foreground user's natural-language “continue” is
+        // through this current-session harness primitive, so skill/plan/agent
+        // filters must not hide or reject it.
+        if canonical == crate::tool_defs::TOOL_SESSION_CONTINUE {
+            return None;
+        }
         // 名单类门按「原名或规范名」双判：deny 了 `read` 的策略不能被
         // `read_file` 别名绕开；allowlist 侧则保持写别名或规范名均命中
         // （只收紧、不放松——两名皆不在 allowlist 才拒）。
@@ -1939,6 +1946,21 @@ mod tests {
             .await
             .expect("canonical deny must block a historical MCP alias");
         assert!(error.contains("denied"), "unexpected error: {error}");
+    }
+
+    #[tokio::test]
+    async fn session_continue_bypasses_context_tool_filters() {
+        let ctx = ToolExecContext {
+            denied_tools: vec![crate::tools::TOOL_SESSION_CONTINUE.to_string()],
+            skill_allowed_tools: vec![crate::tools::TOOL_READ.to_string()],
+            plan_mode_allowed_tools: vec![crate::tools::TOOL_WRITE.to_string()],
+            ..ToolExecContext::default()
+        };
+
+        assert!(ctx
+            .tool_visibility_error(crate::tools::TOOL_SESSION_CONTINUE)
+            .await
+            .is_none());
     }
 
     #[test]

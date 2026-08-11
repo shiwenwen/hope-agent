@@ -3,6 +3,8 @@ import type { AgentConfig } from "./types"
 
 export const DEFAULT_SUBAGENT_TIMEOUT_SECS = 0
 export const DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS = 120
+export const DEFAULT_SUBAGENT_PROVIDER_RETRY_ATTEMPTS = 3
+export const DEFAULT_SUBAGENT_PROVIDER_RETRY_BACKOFF_SECS = 5
 
 export function createDefaultAgentModelConfig(): AgentConfig["model"] {
   return {
@@ -36,6 +38,8 @@ export function createDefaultSubagentConfig(): AgentConfig["subagents"] {
     maxBatchSize: null,
     archiveAfterMinutes: null,
     announceTimeoutSecs: null,
+    providerRetryAttempts: DEFAULT_SUBAGENT_PROVIDER_RETRY_ATTEMPTS,
+    providerRetryBackoffSecs: DEFAULT_SUBAGENT_PROVIDER_RETRY_BACKOFF_SECS,
   }
 }
 
@@ -57,7 +61,11 @@ export function subagentTabUsesDefaults(config: AgentConfig): boolean {
     (subagents.maxBatchSize ?? 10) === 10 &&
     subagents.archiveAfterMinutes == null &&
     (subagents.announceTimeoutSecs ?? DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS) ===
-      DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS
+      DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS &&
+    (subagents.providerRetryAttempts ?? DEFAULT_SUBAGENT_PROVIDER_RETRY_ATTEMPTS) ===
+      DEFAULT_SUBAGENT_PROVIDER_RETRY_ATTEMPTS &&
+    (subagents.providerRetryBackoffSecs ?? DEFAULT_SUBAGENT_PROVIDER_RETRY_BACKOFF_SECS) ===
+      DEFAULT_SUBAGENT_PROVIDER_RETRY_BACKOFF_SECS
   )
 }
 

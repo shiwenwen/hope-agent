@@ -12,9 +12,9 @@ use super::super::{
     TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
     TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY,
-    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
-    TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE,
+    TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -125,6 +125,25 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["kind", "id"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_SESSION_CONTINUE.into(),
+            description: "Resume the current conversation's durable Stop receipt after the user explicitly asks to continue, resume, or keep going in a new foreground message (for example: '继续', '接着做', 'continue', or 'resume'). Copy `pause_id` exactly from the trusted `<session-paused>` system reminder; a stale id is rejected so an older Continue cannot override a newer Stop. This clears only the controllers captured by that Stop, restores their Goal/Workflow/wakeup delivery paths, and returns the exact recovery targets. It does not revive independently paused work. Call this before attempting to resume captured sub-agent threads. If the user is only asking for status, explanation, or changes to the recovery plan, do not call it.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
+            internal: true,
+            concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "pause_id": {
+                        "type": "string",
+                        "description": "Exact pause_id from the current <session-paused> system reminder."
+                    }
+                },
+                "required": ["pause_id"],
                 "additionalProperties": false
             }),
         },
@@ -2393,6 +2412,27 @@ mod tests {
         assert!(!kinds.iter().any(|kind| kind == "cron"));
         for contract in ["not termination", "`refused`", "not pause"] {
             assert!(runtime_cancel.description.contains(contract), "{contract}");
+        }
+
+        let session_continue = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_SESSION_CONTINUE)
+            .expect("session_continue schema");
+        assert!(session_continue.is_internal());
+        assert!(session_continue.is_always_load());
+        assert_eq!(
+            session_continue.parameters["required"],
+            serde_json::json!(["pause_id"])
+        );
+        assert_eq!(
+            session_continue.parameters["properties"]["pause_id"]["type"],
+            "string"
+        );
+        for contract in ["explicitly asks", "current conversation", "do not call"] {
+            assert!(
+                session_continue.description.contains(contract),
+                "{contract}"
+            );
         }
 
         let process = tools

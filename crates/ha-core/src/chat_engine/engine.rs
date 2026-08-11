@@ -255,6 +255,10 @@ impl ChatEngineFailure {
             message: message.into(),
         }
     }
+
+    pub(crate) fn cancelled(message: impl Into<String>) -> Self {
+        Self::new(ChatEngineFailureKind::Cancelled, message)
+    }
 }
 
 impl From<String> for ChatEngineFailure {

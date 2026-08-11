@@ -92,8 +92,38 @@ pub fn get_wakeup_db() -> Option<&'static Arc<WakeupDB>> {
 struct ArmedTimer {
     session_id: String,
     agent_id: String,
+    note: Option<String>,
+    fire_at: i64,
     persisted: bool,
     abort: tokio::task::AbortHandle,
+}
+
+#[derive(Clone)]
+struct SuspendedTimer {
+    session_id: String,
+    agent_id: String,
+    note: Option<String>,
+    fire_at: i64,
+}
+
+#[derive(Clone)]
+struct WakeupDescriptor {
+    session_id: String,
+    agent_id: String,
+    note: Option<String>,
+    fire_at: i64,
+    persisted: bool,
+}
+
+struct DeliveringWakeup {
+    descriptor: WakeupDescriptor,
+    /// The latest Stop for this session has fenced this delivery. A subsequent
+    /// Continue clears it; a newer Stop clears an older resume request again.
+    paused: bool,
+    /// Continue observed this exact in-flight source. If the old injection is
+    /// later abandoned by the monotonic Stop epoch, its descriptor must be
+    /// re-armed instead of waiting for a process restart.
+    resume_requested: bool,
 }
 
 /// Live process-local timers, keyed by wakeup id. Used to count per-session
@@ -102,35 +132,124 @@ struct ArmedTimer {
 static ARMED_TIMERS: LazyLock<Mutex<HashMap<String, ArmedTimer>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Per-process in-flight delivery set, mirroring `async_jobs::injection`'s
-/// dedup so a replay + a late timer can't double-inject the same wakeup.
-static DELIVERING: LazyLock<Mutex<std::collections::HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+/// In-memory-only wakeups parked by Stop. Durable wakeups remain represented by
+/// their database rows; incognito and persistence-degraded wakeups need this
+/// process-local receipt so Continue can reconstruct the exact timer.
+static SUSPENDED_TIMERS: LazyLock<Mutex<HashMap<String, SuspendedTimer>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Per-process in-flight deliveries, including enough source data to hand an
+/// abandoned pre-Stop injection to the post-Continue generation. Keeping the
+/// session id here also makes an in-flight incognito wakeup visible to global
+/// Stop even though it has neither an armed timer nor a durable database row.
+static DELIVERING: LazyLock<Mutex<HashMap<String, DeliveringWakeup>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
 fn count_pending_for_session(session_id: &str) -> usize {
-    ARMED_TIMERS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
+    let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    armed
         .values()
         .filter(|t| t.session_id == session_id)
         .count()
+        + suspended
+            .values()
+            .filter(|t| t.session_id == session_id)
+            .count()
+        + delivering
+            .values()
+            .filter(|delivery| delivery.descriptor.session_id == session_id)
+            .count()
+}
+
+/// Sessions with pending or in-flight wakeups that global Stop must fence.
+///
+/// Process-local state is captured first so a missing or temporarily locked
+/// WakeupDB cannot hide incognito work. SQLite access stays on the blocking
+/// pool; a read failure is diagnostic-only and preserves the local snapshot.
+pub(crate) async fn pending_session_ids_for_global_stop() -> Vec<String> {
+    let mut session_ids = {
+        let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+        let mut local = armed
+            .values()
+            .map(|timer| timer.session_id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        local.extend(suspended.values().map(|timer| timer.session_id.clone()));
+        local.extend(
+            delivering
+                .values()
+                .map(|delivery| delivery.descriptor.session_id.clone()),
+        );
+        local
+    };
+
+    if let Some(db) = get_wakeup_db().cloned() {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            crate::blocking::run_blocking(move || db.list_pending()),
+        )
+        .await
+        {
+            Ok(Ok(rows)) => {
+                session_ids.extend(rows.into_iter().map(|row| row.session_id));
+            }
+            Ok(Err(error)) => {
+                app_warn!(
+                    "wakeup",
+                    "global_stop",
+                    "Failed to enumerate durable wakeups for global Stop; preserving process-local sessions: {}",
+                    error
+                );
+            }
+            Err(_) => {
+                app_warn!(
+                    "wakeup",
+                    "global_stop",
+                    "Timed out enumerating durable wakeups for global Stop; preserving process-local sessions"
+                );
+            }
+        }
+    }
+
+    let mut session_ids = session_ids.into_iter().collect::<Vec<_>>();
+    session_ids.sort();
+    session_ids
 }
 
 /// Count unique durable or process-local wakeups that still target an Agent.
 /// Used by the owner lifecycle plane to prevent disabling a live route and to
 /// surface everything deletion will migrate or block.
 pub(crate) fn count_pending_for_agent(agent_id: &str) -> anyhow::Result<usize> {
-    let mut ids: std::collections::HashSet<String> = ARMED_TIMERS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .iter()
-        .filter(|(_, timer)| timer.agent_id == agent_id)
-        .map(|(id, _)| id.clone())
-        .collect();
+    let mut ids: std::collections::HashSet<String> = {
+        let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+        let mut ids = armed
+            .iter()
+            .filter(|(_, timer)| timer.agent_id == agent_id)
+            .map(|(id, _)| id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        ids.extend(
+            suspended
+                .iter()
+                .filter(|(_, timer)| timer.agent_id == agent_id)
+                .map(|(id, _)| id.clone()),
+        );
+        ids.extend(
+            delivering
+                .iter()
+                .filter(|(_, delivery)| delivery.descriptor.agent_id == agent_id)
+                .map(|(id, _)| id.clone()),
+        );
+        ids
+    };
     if let Some(db) = get_wakeup_db() {
         ids.extend(
             db.list_pending()?
@@ -145,12 +264,23 @@ pub(crate) fn count_pending_for_agent(agent_id: &str) -> anyhow::Result<usize> {
 /// In-memory-only wakeups cannot be durably rebound. They therefore count as
 /// active lifecycle work and must fire or be cancelled before Agent deletion.
 pub(crate) fn count_unpersisted_for_agent(agent_id: &str) -> usize {
-    ARMED_TIMERS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
+    let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    armed
         .values()
         .filter(|timer| timer.agent_id == agent_id && !timer.persisted)
         .count()
+        + suspended
+            .values()
+            .filter(|timer| timer.agent_id == agent_id)
+            .count()
+        + delivering
+            .values()
+            .filter(|delivery| {
+                delivery.descriptor.agent_id == agent_id && !delivery.descriptor.persisted
+            })
+            .count()
 }
 
 /// Keep the process-local timer index aligned with a durable lifecycle
@@ -285,20 +415,93 @@ fn arm_timer(
     fire_at: i64,
     persisted: bool,
 ) {
-    let delay = (fire_at - now_secs()).max(0) as u64;
-    // Clone the session id for the map entry before the rest moves into the task.
-    let session_for_map = session_id.clone();
-    let agent_for_map = agent_id.clone();
-    let task_id = id.clone();
-    // Hold the map lock across spawn so a delay==0 task can't `remove_armed`
-    // before we insert (its removal blocks on this same lock).
+    arm_timer_with_resume_hint(id, session_id, agent_id, note, fire_at, persisted, false);
+}
+
+/// Arm a timer created by explicit Continue. The hint matters only if this
+/// timer races an older delivery of the same id: the duplicate timer exits,
+/// but transfers the resume request to the older delivery's descriptor.
+fn arm_timer_after_continue(
+    id: String,
+    session_id: String,
+    agent_id: String,
+    note: Option<String>,
+    fire_at: i64,
+    persisted: bool,
+) {
+    arm_timer_with_resume_hint(id, session_id, agent_id, note, fire_at, persisted, true);
+}
+
+fn arm_timer_with_resume_hint(
+    id: String,
+    session_id: String,
+    agent_id: String,
+    note: Option<String>,
+    fire_at: i64,
+    persisted: bool,
+    resume_hint: bool,
+) {
     let mut map = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    suspended.remove(&id);
+    arm_timer_locked(
+        &mut map,
+        id,
+        session_id,
+        agent_id,
+        note,
+        fire_at,
+        persisted,
+        resume_hint,
+    );
+}
+
+/// Atomically move one in-memory Stop receipt back to the armed set. If purge
+/// or another Continue already consumed the receipt, this is a no-op.
+fn rearm_suspended_timer(id: &str) -> bool {
+    let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(timer) = suspended.remove(id) else {
+        return false;
+    };
+    arm_timer_locked(
+        &mut armed,
+        id.to_string(),
+        timer.session_id,
+        timer.agent_id,
+        timer.note,
+        timer.fire_at,
+        false,
+        true,
+    );
+    true
+}
+
+/// Register a timer while the caller holds the armed-map lock. Keeping Stop,
+/// Continue, purge, and lifecycle counts on the same lock order makes movement
+/// between armed and suspended states observable as one atomic transition.
+fn arm_timer_locked(
+    map: &mut HashMap<String, ArmedTimer>,
+    id: String,
+    session_id: String,
+    agent_id: String,
+    note: Option<String>,
+    fire_at: i64,
+    persisted: bool,
+    resume_hint: bool,
+) {
+    let delay = (fire_at - now_secs()).max(0) as u64;
+    let task_id = id.clone();
+    // Hold the map lock across spawn so a delay==0 task cannot promote itself
+    // before this insert lands. Promotion atomically moves the descriptor from
+    // ARMED to DELIVERING under that same lock.
     let handle = tokio::spawn(async move {
         if delay > 0 {
             tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
         }
-        remove_armed(&task_id);
-        fire(task_id, session_id, agent_id, note, persisted);
+        if let Some(descriptor) = promote_armed_to_delivering(&task_id, resume_hint) {
+            fire(task_id, descriptor);
+        }
     });
     // Defensive: ids are fresh uuids so a collision shouldn't happen, but if one
     // ever did, abort the displaced timer rather than silently dropping its
@@ -306,8 +509,10 @@ fn arm_timer(
     if let Some(old) = map.insert(
         id,
         ArmedTimer {
-            session_id: session_for_map,
-            agent_id: agent_for_map,
+            session_id,
+            agent_id,
+            note,
+            fire_at,
             persisted,
             abort: handle.abort_handle(),
         },
@@ -316,38 +521,137 @@ fn arm_timer(
     }
 }
 
-fn remove_armed(id: &str) {
-    ARMED_TIMERS
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .remove(id);
+fn promote_armed_to_delivering(id: &str, resume_hint: bool) -> Option<WakeupDescriptor> {
+    use std::collections::hash_map::Entry;
+
+    let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    let timer = armed.remove(id)?;
+    let descriptor = WakeupDescriptor {
+        session_id: timer.session_id,
+        agent_id: timer.agent_id,
+        note: timer.note,
+        fire_at: timer.fire_at,
+        persisted: timer.persisted,
+    };
+    match delivering.entry(id.to_string()) {
+        Entry::Vacant(entry) => {
+            entry.insert(DeliveringWakeup {
+                descriptor: descriptor.clone(),
+                paused: false,
+                // A fresh post-Continue delivery is already the resumed
+                // generation. The hint is only transferred to an older
+                // occupied generation in the duplicate branch below.
+                resume_requested: false,
+            });
+            Some(descriptor)
+        }
+        Entry::Occupied(mut entry) => {
+            if resume_hint {
+                entry.get_mut().resume_requested = true;
+            }
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeliveringFinish {
+    Released,
+    Parked,
+    Rearmed,
+}
+
+/// Finish one in-flight source while still entered in its Tokio runtime.
+///
+/// The three locks follow the module-wide order ARMED -> SUSPENDED ->
+/// DELIVERING. Moving/removing the descriptor and optionally arming its next
+/// timer is atomic with `purge_for_session`: purge either removes the delivery
+/// first, or observes and aborts the replacement timer, so an incognito source
+/// cannot resurrect after close-and-burn.
+fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
+    let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(delivery) = delivering.remove(id) else {
+        return DeliveringFinish::Released;
+    };
+    if !abandoned {
+        return DeliveringFinish::Released;
+    }
+
+    let descriptor = delivery.descriptor;
+    if delivery.resume_requested && !delivery.paused {
+        arm_timer_locked(
+            &mut armed,
+            id.to_string(),
+            descriptor.session_id,
+            descriptor.agent_id,
+            descriptor.note,
+            descriptor.fire_at,
+            descriptor.persisted,
+            false,
+        );
+        DeliveringFinish::Rearmed
+    } else if !descriptor.persisted {
+        // An incognito source has no database row for a Continue that consumes
+        // the receipt just after this Abandoned outcome. Park the descriptor so
+        // that replay_pending_for_session can still claim it.
+        suspended.insert(
+            id.to_string(),
+            SuspendedTimer {
+                session_id: descriptor.session_id,
+                agent_id: descriptor.agent_id,
+                note: descriptor.note,
+                fire_at: descriptor.fire_at,
+            },
+        );
+        DeliveringFinish::Parked
+    } else {
+        // Durable source remains in WakeupDB for Continue or restart replay.
+        DeliveringFinish::Released
+    }
 }
 
 /// Deliver a fired wakeup: inject a `<wakeup>` message back into the session via
 /// the shared injection pipeline. Runs on a detached thread (its own runtime),
 /// exactly like `async_jobs::injection::dispatch_injection`.
-fn fire(
-    id: String,
-    session_id: String,
-    mut agent_id: String,
-    note: Option<String>,
-    persisted: bool,
-) {
-    // Per-process in-flight dedup.
-    {
-        let mut g = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
-        if !g.insert(id.clone()) {
-            return;
-        }
-    }
-
+fn fire(id: String, descriptor: WakeupDescriptor) {
+    let WakeupDescriptor {
+        session_id,
+        mut agent_id,
+        note,
+        persisted,
+        ..
+    } = descriptor;
     let session_db = match crate::get_session_db() {
         Some(db) => db.clone(),
         None => {
-            release_delivering(&id);
+            finish_delivering(&id, true);
             return;
         }
     };
+
+    // A session Stop is a durable pause, not a deletion. Leave the wakeup row
+    // pending so explicit Continue can re-arm it; never inject an autonomous
+    // turn while the pause receipt is active.
+    if session_db
+        .is_session_or_ancestor_autonomy_paused(&session_id)
+        .unwrap_or(true)
+    {
+        app_info!(
+            "wakeup",
+            "fire",
+            "Deferring wakeup {} while session {} is paused",
+            id,
+            session_id
+        );
+        // Treat the pre-injection pause as an abandoned old generation. This
+        // atomically parks incognito state, or re-arms if Continue already
+        // marked the in-flight descriptor.
+        finish_delivering(&id, true);
+        return;
+    }
 
     // A lifecycle delete may have rebound this durable wakeup after its live
     // timer was armed. Read the row at delivery time so the task cannot replay
@@ -360,13 +664,22 @@ fn fire(
                 "Wakeup {} lost its durable database; leaving it for restart recovery",
                 id
             );
-            release_delivering(&id);
+            finish_delivering(&id, true);
             return;
         };
         match db.get_pending(&id) {
-            Ok(Some(row)) => agent_id = row.agent_id,
+            Ok(Some(row)) => {
+                agent_id = row.agent_id;
+                if let Some(delivery) = DELIVERING
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get_mut(&id)
+                {
+                    delivery.descriptor.agent_id = agent_id.clone();
+                }
+            }
             Ok(None) => {
-                release_delivering(&id);
+                finish_delivering(&id, false);
                 return;
             }
             Err(error) => {
@@ -377,7 +690,7 @@ fn fire(
                     id,
                     error
                 );
-                release_delivering(&id);
+                finish_delivering(&id, true);
                 return;
             }
         }
@@ -388,13 +701,32 @@ fn fire(
     let id_for_release = id.clone();
 
     std::thread::spawn(move || {
-        struct DeliverGuard(String);
-        impl Drop for DeliverGuard {
-            fn drop(&mut self) {
-                release_delivering(&self.0);
+        /// Releases a freshly promoted descriptor if setup unwinds before an
+        /// OnInjected receipt owns it. A normal injection outcome transfers
+        /// the claim to that clone-stable receipt, including FIFO deferral.
+        struct DeliverGuard {
+            id: String,
+            armed: bool,
+        }
+
+        impl DeliverGuard {
+            fn new(id: String) -> Self {
+                Self { id, armed: true }
+            }
+
+            fn transfer_to_receipt(&mut self) {
+                self.armed = false;
             }
         }
-        let _guard = DeliverGuard(id_for_release);
+
+        impl Drop for DeliverGuard {
+            fn drop(&mut self) {
+                if self.armed {
+                    release_delivering(&self.id);
+                }
+            }
+        }
+        let mut guard = DeliverGuard::new(id_for_release);
 
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -403,39 +735,64 @@ fn fire(
             Ok(rt) => {
                 let id_for_arm = id_for_mark.clone();
                 let id_for_settle = id_for_mark.clone();
+                let id_for_process_release = id_for_mark.clone();
                 let on_injected = crate::subagent::injection::OnInjected::new(
                     move || {
                         if persisted {
-                            claim_no_replay_with_retry(&id_for_arm)
-                        } else {
-                            Ok(())
+                            claim_no_replay_with_retry(&id_for_arm)?;
                         }
+                        finish_delivering(&id_for_arm, false);
+                        Ok(())
                     },
                     move || {
                         if persisted {
-                            delete_delivered_with_retry(&id_for_settle)
-                        } else {
-                            Ok(())
+                            delete_delivered_with_retry(&id_for_settle)?;
                         }
+                        finish_delivering(&id_for_settle, false);
+                        Ok(())
                     },
-                );
-                let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
-                    session_id,
-                    agent_id,
-                    crate::subagent::injection::WAKEUP_CHILD_AGENT_ID.to_string(),
-                    id,
-                    push_message,
-                    session_db,
-                    Some(on_injected),
-                ));
+                )
+                .with_process_dispatch_release(move || {
+                    finish_delivering(&id_for_process_release, true);
+                });
+                let release_receipt = on_injected.clone();
+                let receipt_run_id = id_for_mark.clone();
+                let outcome = rt.block_on(async move {
+                    let outcome = crate::subagent::injection::inject_and_run_parent(
+                        session_id,
+                        agent_id,
+                        crate::subagent::injection::WAKEUP_CHILD_AGENT_ID.to_string(),
+                        id,
+                        push_message,
+                        session_db,
+                        Some(on_injected),
+                    )
+                    .await;
+                    if matches!(
+                        outcome,
+                        crate::subagent::injection::InjectionOutcome::Abandoned
+                    ) {
+                        crate::subagent::injection::release_unarmed_injection_source(
+                            Some(&release_receipt),
+                            &receipt_run_id,
+                        );
+                    }
+                    outcome
+                });
+                // Queued attempts retain the exact descriptor through the
+                // receipt cloned into PendingInjection. Successful arm/settle
+                // callbacks already released it; an Abandoned attempt released
+                // it through the process-dispatch callback above. A failed DB
+                // callback intentionally keeps the claim pinned until restart.
+                guard.transfer_to_receipt();
                 if matches!(
                     outcome,
                     crate::subagent::injection::InjectionOutcome::Abandoned
                 ) {
-                    app_warn!(
+                    app_info!(
                         "wakeup",
                         "fire",
-                        "Wakeup {} abandoned (parent never went idle); left for restart replay",
+                        "Wakeup {} abandoned; source returned to its Stop/Continue recovery state",
                         id_for_mark
                     );
                 }
@@ -584,6 +941,16 @@ pub fn replay_pending() {
     let mut armed = 0usize;
     let mut dropped = 0usize;
     for w in pending {
+        if crate::get_session_db()
+            .and_then(|session_db| {
+                session_db
+                    .is_session_or_ancestor_autonomy_paused(&w.session_id)
+                    .ok()
+            })
+            .unwrap_or(true)
+        {
+            continue;
+        }
         let c = per_session.entry(w.session_id.clone()).or_insert(0);
         if *c >= cap {
             let _ = db.delete(&w.id);
@@ -605,11 +972,122 @@ pub fn replay_pending() {
     }
 }
 
+/// Abort live timers for a stopped session without deleting durable rows.
+/// Continue re-arms those exact rows; session deletion still uses
+/// [`purge_for_session`] and removes them permanently.
+pub fn suspend_for_session(session_id: &str) -> usize {
+    let mut map = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+    let ids = map
+        .iter()
+        .filter(|(_, timer)| timer.session_id == session_id)
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    for id in &ids {
+        if let Some(timer) = map.remove(id) {
+            if !timer.persisted {
+                suspended.insert(
+                    id.clone(),
+                    SuspendedTimer {
+                        session_id: timer.session_id,
+                        agent_id: timer.agent_id,
+                        note: timer.note,
+                        fire_at: timer.fire_at,
+                    },
+                );
+            }
+            timer.abort.abort();
+        }
+    }
+    let mut affected = ids.len();
+    for delivery in delivering
+        .values_mut()
+        .filter(|delivery| delivery.descriptor.session_id == session_id && !delivery.paused)
+    {
+        delivery.paused = true;
+        // A newer Stop supersedes any Continue that targeted the prior pause
+        // generation. The next explicit Continue may set this again.
+        delivery.resume_requested = false;
+        affected += 1;
+    }
+    affected
+}
+
+/// Re-arm wakeups for one explicitly continued session. Durable rows come from
+/// SQLite; incognito and persistence-degraded timers come from the in-memory
+/// suspended receipt populated by [`suspend_for_session`] or a racing fire.
+pub async fn replay_pending_for_session(session_id: &str) {
+    // Mark in-flight sources before looking at parked/durable state. If an old
+    // generation settles concurrently, the fixed lock order makes it either
+    // observe this flag and re-arm itself, or move to SUSPENDED/DB before the
+    // snapshots below.
+    let delivering_ids = {
+        let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+        delivering
+            .iter_mut()
+            .filter_map(|(id, delivery)| {
+                (delivery.descriptor.session_id == session_id).then(|| {
+                    delivery.paused = false;
+                    delivery.resume_requested = true;
+                    id.clone()
+                })
+            })
+            .collect::<std::collections::HashSet<_>>()
+    };
+    let suspended_ids = {
+        let map = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        map.iter()
+            .filter(|(id, timer)| {
+                timer.session_id == session_id && !delivering_ids.contains(id.as_str())
+            })
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>()
+    };
+    for id in suspended_ids {
+        rearm_suspended_timer(&id);
+    }
+
+    let Some(db) = get_wakeup_db().cloned() else {
+        return;
+    };
+    let pending = match crate::blocking::run_blocking(move || db.list_pending()).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            app_warn!(
+                "wakeup",
+                "resume",
+                "Failed to list wakeups for continued session {}: {}",
+                session_id,
+                error
+            );
+            return;
+        }
+    };
+    for wakeup in pending
+        .into_iter()
+        .filter(|wakeup| wakeup.session_id == session_id && !delivering_ids.contains(&wakeup.id))
+    {
+        arm_timer_after_continue(
+            wakeup.id,
+            wakeup.session_id,
+            wakeup.agent_id,
+            wakeup.note,
+            wakeup.fire_at,
+            true,
+        );
+    }
+}
+
 /// Cancel & delete all wakeups for a session (session delete / incognito burn).
 pub fn purge_for_session(session_id: &str) {
-    // Abort live timers for this session.
-    let aborted: Vec<String> = {
+    // Abort live timers and consume both Stop receipts and in-flight delivery
+    // descriptors atomically. The lock order matches finish_delivering, so a
+    // late Abandoned outcome cannot re-arm an incognito timer after burn.
+    let (aborted, suspended, delivering): (Vec<String>, Vec<String>, Vec<String>) = {
         let mut map = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let mut suspended_map = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let mut delivering_map = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
         let ids: Vec<String> = map
             .iter()
             .filter(|(_, t)| t.session_id == session_id)
@@ -620,7 +1098,23 @@ pub fn purge_for_session(session_id: &str) {
                 t.abort.abort();
             }
         }
-        ids
+        let suspended_ids = suspended_map
+            .iter()
+            .filter(|(_, timer)| timer.session_id == session_id)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in &suspended_ids {
+            suspended_map.remove(id);
+        }
+        let delivering_ids = delivering_map
+            .iter()
+            .filter(|(_, delivery)| delivery.descriptor.session_id == session_id)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in &delivering_ids {
+            delivering_map.remove(id);
+        }
+        (ids, suspended_ids, delivering_ids)
     };
     if let Some(db) = get_wakeup_db() {
         if let Err(e) = db.delete_for_session(session_id) {
@@ -633,12 +1127,12 @@ pub fn purge_for_session(session_id: &str) {
             );
         }
     }
-    if !aborted.is_empty() {
+    if !aborted.is_empty() || !suspended.is_empty() || !delivering.is_empty() {
         app_info!(
             "wakeup",
             "purge",
             "Cancelled {} wakeup(s) for session {}",
-            aborted.len(),
+            aborted.len() + suspended.len() + delivering.len(),
             session_id
         );
     }
@@ -702,6 +1196,181 @@ mod tests {
         let max = max_delay_secs();
         let out = schedule(sid, "ha-main", max + 10_000, None, true).unwrap();
         assert_eq!(out.delay_secs, max);
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
+    async fn incognito_wakeup_survives_suspend_and_replay() {
+        let sid = "test-wakeup-incognito-pause-session";
+        purge_for_session(sid);
+
+        let scheduled = schedule(
+            sid,
+            "ha-main",
+            60,
+            Some("resume the original check".into()),
+            true,
+        )
+        .expect("schedule incognito wakeup");
+
+        assert_eq!(suspend_for_session(sid), 1);
+        assert!(!ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&scheduled.id));
+        let suspended_note = SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&scheduled.id)
+            .and_then(|timer| timer.note.as_deref())
+            .map(str::to_string);
+        assert_eq!(suspended_note.as_deref(), Some("resume the original check"));
+        assert_eq!(count_pending_for_session(sid), 1);
+
+        replay_pending_for_session(sid).await;
+        assert!(ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&scheduled.id));
+        assert!(!SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&scheduled.id));
+
+        purge_for_session(sid);
+        assert_eq!(count_pending_for_session(sid), 0);
+    }
+
+    #[tokio::test]
+    async fn abandoned_delivery_rearms_after_continue() {
+        let sid = "test-wakeup-delivery-continue-session";
+        let id = "test-wakeup-delivery-continue-id";
+        purge_for_session(sid);
+        DELIVERING.lock().unwrap_or_else(|p| p.into_inner()).insert(
+            id.into(),
+            DeliveringWakeup {
+                descriptor: WakeupDescriptor {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: Some("continue the exact wakeup".into()),
+                    fire_at: now_secs() + 60,
+                    persisted: false,
+                },
+                paused: true,
+                resume_requested: false,
+            },
+        );
+
+        replay_pending_for_session(sid).await;
+        {
+            let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+            let delivery = delivering.get(id).expect("delivery remains in flight");
+            assert!(!delivery.paused);
+            assert!(delivery.resume_requested);
+        }
+
+        assert_eq!(finish_delivering(id, true), DeliveringFinish::Rearmed);
+        assert!(ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+        assert!(!DELIVERING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+        assert!(!SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
+    async fn purge_invalidates_delivering_resume_request() {
+        let sid = "test-wakeup-delivery-purge-session";
+        let id = "test-wakeup-delivery-purge-id";
+        purge_for_session(sid);
+        DELIVERING.lock().unwrap_or_else(|p| p.into_inner()).insert(
+            id.into(),
+            DeliveringWakeup {
+                descriptor: WakeupDescriptor {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: None,
+                    fire_at: now_secs() + 60,
+                    persisted: false,
+                },
+                paused: false,
+                resume_requested: true,
+            },
+        );
+
+        purge_for_session(sid);
+        assert_eq!(finish_delivering(id, true), DeliveringFinish::Released);
+        assert_eq!(count_pending_for_session(sid), 0);
+    }
+
+    #[tokio::test]
+    async fn global_stop_enumerates_inflight_wakeup() {
+        let sid = "test-wakeup-global-stop-delivery-session";
+        let id = "test-wakeup-global-stop-delivery-id";
+        purge_for_session(sid);
+        DELIVERING.lock().unwrap_or_else(|p| p.into_inner()).insert(
+            id.into(),
+            DeliveringWakeup {
+                descriptor: WakeupDescriptor {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: None,
+                    fire_at: now_secs() + 60,
+                    persisted: false,
+                },
+                paused: false,
+                resume_requested: false,
+            },
+        );
+
+        assert!(pending_session_ids_for_global_stop()
+            .await
+            .iter()
+            .any(|candidate| candidate == sid));
+
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
+    async fn newer_stop_cancels_older_delivery_resume_request() {
+        let sid = "test-wakeup-delivery-restop-session";
+        let id = "test-wakeup-delivery-restop-id";
+        purge_for_session(sid);
+        DELIVERING.lock().unwrap_or_else(|p| p.into_inner()).insert(
+            id.into(),
+            DeliveringWakeup {
+                descriptor: WakeupDescriptor {
+                    session_id: sid.into(),
+                    agent_id: "ha-main".into(),
+                    note: None,
+                    fire_at: now_secs() + 60,
+                    persisted: false,
+                },
+                paused: true,
+                resume_requested: false,
+            },
+        );
+
+        replay_pending_for_session(sid).await;
+        assert_eq!(suspend_for_session(sid), 1);
+        assert_eq!(finish_delivering(id, true), DeliveringFinish::Parked);
+        assert!(!ARMED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+        assert!(SUSPENDED_TIMERS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(id));
+
         purge_for_session(sid);
     }
 

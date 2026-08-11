@@ -143,6 +143,10 @@ impl OnInjected {
         self.durable_handoff
     }
 
+    fn supports_unarmed_retry(&self) -> bool {
+        self.release_unarmed.is_some()
+    }
+
     fn settle(&self) -> anyhow::Result<()> {
         (self.settle)()?;
         self.release_process_dispatch();
@@ -1511,6 +1515,16 @@ fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> b
     !matches!(db.get_session(session_id), Ok(None))
 }
 
+fn session_autonomy_fence(
+    db: &crate::session::SessionDB,
+    session_id: &str,
+) -> anyhow::Result<(u64, bool)> {
+    Ok((
+        db.session_autonomy_lineage_pause_epoch(session_id)?,
+        db.is_session_or_ancestor_autonomy_paused(session_id)?,
+    ))
+}
+
 /// `child_agent_id` label used by `crate::wakeup` when reusing this injection
 /// pipeline for a self-scheduled wakeup (R10). `inject_and_run_parent` branches
 /// on it to write a `wakeup_trigger` marker instead of `subagent_result`.
@@ -1655,6 +1669,38 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
     }
+
+    // Capture a monotonic Stop generation before the potentially long idle
+    // wait. An active flag alone is insufficient: Stop followed quickly by
+    // Continue could clear it while this pre-Stop injector is still parked.
+    // The generation never decreases, so such an injector must abandon and let
+    // the durable source be reclaimed after Continue.
+    let admitted_pause_epoch = match session_autonomy_fence(&session_db, &parent_session_id) {
+        Ok((epoch, false)) => epoch,
+        Ok((_, true)) => {
+            app_info!(
+                "subagent",
+                "inject",
+                "Deferring parent injection {} while session {} is paused",
+                run_id,
+                parent_session_id
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+        Err(error) => {
+            app_warn!(
+                "subagent",
+                "inject",
+                "Cannot read Stop fence for parent injection {} in session {}: {}",
+                run_id,
+                parent_session_id,
+                error
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+    };
 
     // Admit against both active ownership and the existing FIFO under one lock
     // critical section. A new B must never claim the session while an older A
@@ -1890,6 +1936,36 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         );
         settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
+    }
+
+    match session_autonomy_fence(&session_db, &parent_session_id) {
+        Ok((epoch, false)) if epoch == admitted_pause_epoch => {}
+        Ok((epoch, paused)) => {
+            app_info!(
+                "subagent",
+                "inject",
+                "Abandoning stale parent injection {} for session {} after Stop fence changed (admitted_epoch={} current_epoch={} paused={})",
+                run_id,
+                parent_session_id,
+                admitted_pause_epoch,
+                epoch,
+                paused
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+        Err(error) => {
+            app_warn!(
+                "subagent",
+                "inject",
+                "Cannot revalidate Stop fence for parent injection {} in session {}: {}",
+                run_id,
+                parent_session_id,
+                error
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
     }
 
     // Acquire after the potentially long idle wait but before writing the push
@@ -2271,9 +2347,15 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         }
     }
 
-    // All models failed (not cancelled): surface a terminal event row so
-    // the log doesn't show a silent user push without a response.
-    if engine_failed_without_cancel {
+    let retry_provider_failure = engine_failed_without_cancel
+        && im_terminal_safe_for_retry
+        && on_injected.as_ref().is_some_and(|receipt| {
+            receipt.supports_unarmed_retry() && !receipt.is_no_replay_armed()
+        });
+
+    // A no-replay/ephemeral source cannot be retried safely. Persist its error;
+    // ordinary durable sources return to the replay pool below instead.
+    if engine_failed_without_cancel && !retry_provider_failure {
         let _ = session_db.append_message(
             &parent_session_id,
             &crate::session::NewMessage::error_event(&format!("[injection failed] {}", last_error))
@@ -2376,9 +2458,48 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             error: None,
         });
         InjectionOutcome::Injected
+    } else if retry_provider_failure {
+        release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+        let retry_config = crate::agent_loader::load_agent(&parent_agent_id)
+            .map(|definition| definition.config.subagents)
+            .unwrap_or_default();
+        let max_retries = retry_config.provider_retry_attempts.min(10);
+        let base_delay_secs = retry_config.provider_retry_backoff_secs.clamp(1, 60);
+        let deferred = match session_db.defer_subagent_result_delivery_retry(
+            &run_id,
+            &last_error,
+            max_retries,
+            base_delay_secs,
+        ) {
+            Ok(deferred) => deferred,
+            Err(error) => {
+                app_warn!(
+                    "subagent",
+                    "inject",
+                    "Failed to defer parent delivery retry for run {}: {}",
+                    run_id,
+                    error
+                );
+                false
+            }
+        };
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "error".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: Some(if deferred {
+                "All parent models failed; durable result delivery will retry".into()
+            } else {
+                "All parent models failed; automatic result delivery retries are exhausted".into()
+            }),
+        });
+        InjectionOutcome::Abandoned
     } else {
-        // All models failed: a terminal error row was persisted above. Mark
-        // injected so the failure isn't re-injected on every restart.
+        // A provider mutation may have crossed the no-replay boundary, or this
+        // source has no durable replay receipt. Settle rather than risk a
+        // duplicate external reply.
         settle_injection_source(on_injected.as_ref(), &run_id);
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),

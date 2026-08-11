@@ -5,7 +5,7 @@
 //! HTTP, and IM `/stop` resolve interaction waits and owned runtime work with
 //! the same semantics.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use std::{collections::HashSet, future::Future};
 
@@ -18,6 +18,80 @@ const PRE_TURN_QUEUE_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_INTERACTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_RUNTIME_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Serializes durable Stop generations and exact Continue consumption. The DB
+/// transaction creates the durable ordering; this process-local lock also
+/// keeps controller state convergence from interleaving around that ordering.
+static AUTONOMY_TRANSITION_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
+static PENDING_AUTONOMY_STOPS: OnceLock<Mutex<PendingAutonomyStops>> = OnceLock::new();
+
+#[derive(Default)]
+struct PendingAutonomyStops {
+    global: usize,
+    sessions: std::collections::HashMap<String, usize>,
+}
+
+struct SessionAutonomyStopClaim {
+    session_id: String,
+}
+
+impl Drop for SessionAutonomyStopClaim {
+    fn drop(&mut self) {
+        let mut pending = pending_autonomy_stops()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(count) = pending.sessions.get_mut(&self.session_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                pending.sessions.remove(&self.session_id);
+            }
+        }
+    }
+}
+
+struct GlobalAutonomyStopClaim;
+
+impl Drop for GlobalAutonomyStopClaim {
+    fn drop(&mut self) {
+        let mut pending = pending_autonomy_stops()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        pending.global = pending.global.saturating_sub(1);
+    }
+}
+
+fn autonomy_transition_lock() -> Arc<tokio::sync::Mutex<()>> {
+    Arc::clone(AUTONOMY_TRANSITION_LOCK.get_or_init(|| Arc::new(tokio::sync::Mutex::new(()))))
+}
+
+fn pending_autonomy_stops() -> &'static Mutex<PendingAutonomyStops> {
+    PENDING_AUTONOMY_STOPS.get_or_init(|| Mutex::new(PendingAutonomyStops::default()))
+}
+
+fn begin_session_autonomy_stop(session_id: &str) -> SessionAutonomyStopClaim {
+    let mut pending = pending_autonomy_stops()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *pending.sessions.entry(session_id.to_string()).or_default() += 1;
+    SessionAutonomyStopClaim {
+        session_id: session_id.to_string(),
+    }
+}
+
+fn begin_global_autonomy_stop() -> GlobalAutonomyStopClaim {
+    let mut pending = pending_autonomy_stops()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    pending.global += 1;
+    GlobalAutonomyStopClaim
+}
+
+fn autonomy_stop_pending(session_id: &str) -> bool {
+    let pending = pending_autonomy_stops()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    pending.global > 0 || pending.sessions.get(session_id).copied().unwrap_or(0) > 0
+}
+
 #[derive(Debug, Default)]
 pub struct StopSessionOutcome {
     pub stopped: bool,
@@ -26,6 +100,229 @@ pub struct StopSessionOutcome {
     pub cancelled_questions: usize,
     pub runtime_cancellations: Vec<CancelRuntimeTaskResult>,
     pub runtime_cancellation_error: Option<String>,
+    pub autonomy_pause: Option<crate::session::SessionAutonomyPause>,
+    pub autonomy_pause_error: Option<String>,
+}
+
+fn prepare_and_pause_session_autonomy_blocking(
+    db: &SessionDB,
+    session_id: &str,
+) -> anyhow::Result<crate::session::SessionAutonomyPause> {
+    // The receipt lands first and is the durable restart fence. Controller
+    // transitions then make the live process converge promptly.
+    let pause = db.prepare_session_autonomy_pause(session_id)?;
+    if let Some(goal_id) = pause.goal_id.as_deref() {
+        if let Some(goal) = db.get_goal(goal_id)? {
+            if goal.state != crate::goal::GoalState::Paused && !goal.state.is_terminal() {
+                db.pause_goal(goal_id)?;
+            }
+        }
+    }
+    for run_id in &pause.workflow_run_ids {
+        if let Some(run) = db.get_workflow_run(run_id)? {
+            if run.state != crate::workflow::WorkflowRunState::Paused && !run.state.is_terminal() {
+                db.pause_workflow_run(run_id)?;
+            }
+        }
+        crate::workflow::request_workflow_runtime_pause(run_id);
+    }
+    for owned_session_id in db.list_session_autonomy_tree_ids(&pause.session_id)? {
+        crate::wakeup::suspend_for_session(&owned_session_id);
+        crate::subagent::request_pause_parent_injection(&owned_session_id);
+    }
+    Ok(pause)
+}
+
+async fn prepare_and_pause_session_autonomy(
+    db: Arc<SessionDB>,
+    session_id: String,
+    cleanup_gate: Arc<super::active_turn::StopCleanupGuard>,
+    stop_claim: Arc<SessionAutonomyStopClaim>,
+) -> anyhow::Result<Option<crate::session::SessionAutonomyPause>> {
+    // Detach the transition task from the bounded transport wait. If timeout
+    // drops this JoinHandle while it is waiting for another Continue/Stop, the
+    // task still owns the admission gate and must eventually publish this
+    // newer Stop generation.
+    tokio::spawn(async move {
+        let transition_guard = autonomy_transition_lock().lock_owned().await;
+        db.run(move |db| {
+            // `SessionDB::run` uses spawn_blocking, which cannot be cancelled
+            // by dropping an async waiter. Keep both guards in the blocking
+            // closure so a late completion cannot pause a replacement turn.
+            let _cleanup_gate = cleanup_gate;
+            let _stop_claim = stop_claim;
+            let _transition_guard = transition_guard;
+            prepare_and_pause_session_autonomy_blocking(db, &session_id).map(Some)
+        })
+        .await
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("session autonomy pause task failed: {error}"))?
+}
+
+async fn recover_not_found_durable_turn(
+    db: Arc<SessionDB>,
+    session_id: &str,
+    expected_turn_id: Option<&str>,
+) -> Option<(String, crate::chat_engine::ChatSource)> {
+    let turn_id = expected_turn_id?.to_string();
+    let lookup_turn_id = turn_id.clone();
+    let turn = match tokio::time::timeout(
+        STOP_DB_MARK_TIMEOUT,
+        db.run(move |db| db.get_chat_turn(&lookup_turn_id)),
+    )
+    .await
+    {
+        Ok(Ok(Some(turn))) => turn,
+        Ok(Ok(None)) => return None,
+        Ok(Err(error)) => {
+            crate::app_warn!(
+                "chat",
+                "stop_session",
+                "Failed to resolve vanished active turn {} for session {}: {}",
+                turn_id,
+                session_id,
+                error
+            );
+            return None;
+        }
+        Err(_) => {
+            crate::app_warn!(
+                "chat",
+                "stop_session",
+                "Timed out resolving vanished active turn {} for session {}",
+                turn_id,
+                session_id
+            );
+            return None;
+        }
+    };
+    if turn.session_id != session_id || turn.status.is_terminal() {
+        return None;
+    }
+    Some((
+        turn_id,
+        crate::chat_engine::ChatSource::from_db_string(&turn.source),
+    ))
+}
+
+/// Resume only the controllers captured by the supplied durable session Stop.
+/// Manually paused Goal / Workflow work is absent from the receipt, and an old
+/// pause id cannot consume the user's newer Stop decision.
+pub async fn continue_session(
+    db: Arc<SessionDB>,
+    session_id: &str,
+    pause_id: &str,
+) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
+    continue_session_inner(db, session_id, pause_id).await
+}
+
+/// Model-facing Continue binds the decision to the exact receipt included in
+/// that round's trusted system reminder. A stale tool call must not consume a
+/// different Stop generation.
+pub(crate) async fn continue_session_from_pause(
+    db: Arc<SessionDB>,
+    session_id: &str,
+    pause_id: &str,
+) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
+    continue_session_inner(db, session_id, pause_id).await
+}
+
+async fn continue_session_inner(
+    db: Arc<SessionDB>,
+    session_id: &str,
+    expected_pause_id: &str,
+) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
+    let transition_guard = autonomy_transition_lock().lock_owned().await;
+    if autonomy_stop_pending(session_id) || super::active_turn::stop_cleanup_active(session_id) {
+        anyhow::bail!("Continue was superseded by a newer Stop; the pause fence remains active");
+    }
+    let sid = session_id.to_string();
+    let expected_pause_id = expected_pause_id.to_string();
+    let (outcome, replay_session_ids) = db
+        .clone()
+        .run(move |db| {
+            let Some(pause) = db.active_session_autonomy_pause(&sid)? else {
+                return Ok((
+                    crate::session::SessionAutonomyResumeOutcome::default(),
+                    Vec::new(),
+                ));
+            };
+            if expected_pause_id != pause.id {
+                anyhow::bail!("session pause receipt changed before Continue could consume it");
+            }
+            let replay_session_ids = db.list_session_autonomy_tree_ids(&pause.session_id)?;
+
+            if let Some(goal_id) = pause.goal_id.as_deref() {
+                if let Some(goal) = db.get_goal(goal_id)? {
+                    if goal.state == crate::goal::GoalState::Paused {
+                        db.resume_goal(goal_id)?;
+                    }
+                }
+            }
+
+            let mut workflow_run_ids = Vec::new();
+            for run_id in &pause.workflow_run_ids {
+                let Some(run) = db.get_workflow_run(run_id)? else {
+                    continue;
+                };
+                if run.state == crate::workflow::WorkflowRunState::Paused {
+                    db.resume_workflow_run(run_id)?;
+                    workflow_run_ids.push(run_id.clone());
+                } else if matches!(
+                    run.state,
+                    crate::workflow::WorkflowRunState::Draft
+                        | crate::workflow::WorkflowRunState::Running
+                        | crate::workflow::WorkflowRunState::Recovering
+                ) {
+                    // Crash window: the durable receipt landed before the
+                    // controller transition. Once the fence is consumed this
+                    // exact run still needs a runtime launch.
+                    workflow_run_ids.push(run_id.clone());
+                }
+            }
+
+            if !db.finish_session_autonomy_resume(&pause.id)? {
+                anyhow::bail!("session pause receipt was consumed concurrently");
+            }
+            Ok((
+                crate::session::SessionAutonomyResumeOutcome {
+                    resumed: true,
+                    pause_id: Some(pause.id),
+                    goal_id: pause.goal_id,
+                    workflow_run_ids,
+                    subagent_run_ids: pause.subagent_run_ids,
+                },
+                replay_session_ids,
+            ))
+        })
+        .await?;
+
+    // Stop installs its admission gate before waiting for the transition lock.
+    // If it arrived while this Continue was converging controller state, do not
+    // launch any replay work; the newer Stop will publish the next generation.
+    if autonomy_stop_pending(session_id) || super::active_turn::stop_cleanup_active(session_id) {
+        anyhow::bail!("Continue was superseded by a newer Stop; the pause fence remains active");
+    }
+    drop(transition_guard);
+
+    if outcome.resumed {
+        for replay_session_id in replay_session_ids {
+            crate::wakeup::replay_pending_for_session(&replay_session_id).await;
+            let replay_db = db.clone();
+            crate::blocking::run_blocking(move || {
+                crate::subagent::replay_pending_parent_deliveries_for_session(
+                    &replay_db,
+                    &replay_session_id,
+                )
+            })
+            .await;
+        }
+        for run_id in &outcome.workflow_run_ids {
+            crate::workflow::schedule_workflow_resume_after_pause(db.clone(), run_id.clone());
+        }
+    }
+    Ok(outcome)
 }
 
 #[derive(Debug, Default)]
@@ -36,6 +333,83 @@ pub struct StopAllOutcome {
     pub cancelled_questions: usize,
     pub runtime_cancellations: Vec<CancelRuntimeTaskResult>,
     pub runtime_cancellation_error: Option<String>,
+}
+
+async fn prepare_global_session_pauses(
+    db: Arc<SessionDB>,
+    session_ids: Vec<String>,
+    excluded_root_session_ids: HashSet<String>,
+    cleanup_gate: Arc<super::active_turn::GlobalStopCleanupGuard>,
+    stop_claim: Arc<GlobalAutonomyStopClaim>,
+) -> Vec<String> {
+    if session_ids.is_empty() {
+        return Vec::new();
+    }
+    let task = tokio::spawn(async move {
+        let transition_guard = autonomy_transition_lock().lock_owned().await;
+        db.run(move |db| {
+            // See the session-scoped path above: these guards must live in
+            // the blocking closure after an async timeout detaches its work.
+            let _cleanup_gate = cleanup_gate;
+            let _stop_claim = stop_claim;
+            let _transition_guard = transition_guard;
+            let mut paused = Vec::new();
+            let mut errors = Vec::new();
+            let mut root_session_ids = HashSet::new();
+            for session_id in session_ids {
+                match db.resolve_session_root_id(&session_id) {
+                    Ok(root_session_id) => {
+                        root_session_ids.insert(root_session_id);
+                    }
+                    Err(error) => errors.push((session_id, error.to_string())),
+                }
+            }
+            root_session_ids.retain(|session_id| !excluded_root_session_ids.contains(session_id));
+            let mut root_session_ids = root_session_ids.into_iter().collect::<Vec<_>>();
+            root_session_ids.sort();
+            for session_id in root_session_ids {
+                match prepare_and_pause_session_autonomy_blocking(db, &session_id) {
+                    Ok(_) => paused.push(session_id),
+                    Err(error) => errors.push((session_id, error.to_string())),
+                }
+            }
+            (paused, errors)
+        })
+        .await
+    });
+    let result = tokio::time::timeout(STOP_DB_MARK_TIMEOUT, task).await;
+    match result {
+        Ok(Ok((paused, errors))) => {
+            for (session_id, error) in errors {
+                crate::app_warn!(
+                    "chat",
+                    "stop_all_sessions",
+                    "Failed to persist global Stop pause for session {}: {}",
+                    session_id,
+                    crate::logging::redact_sensitive(&error)
+                );
+            }
+            paused
+        }
+        Ok(Err(error)) => {
+            crate::app_warn!(
+                "chat",
+                "stop_all_sessions",
+                "Global Stop pause task failed: {}",
+                error
+            );
+            Vec::new()
+        }
+        Err(_) => {
+            crate::app_warn!(
+                "chat",
+                "stop_all_sessions",
+                "Timed out after {}ms persisting global Stop pauses",
+                STOP_DB_MARK_TIMEOUT.as_millis()
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// Persistence won its atomic claim, but Stop arrived while the blocking DB
@@ -257,12 +631,13 @@ pub async fn stop_session(
 ) -> StopSessionOutcome {
     // Keep replacement turns out until the runtime snapshot below has captured
     // only work belonging to the stopped generation.
-    let mut stop_cleanup_guard = Some(super::active_turn::begin_stop_cleanup(session_id));
+    let mut stop_cleanup_guard = Some(Arc::new(super::active_turn::begin_stop_cleanup(session_id)));
     let mut outcome = StopSessionOutcome {
         stopped: already_signalled,
         ..Default::default()
     };
     let mut matched_active = false;
+    let mut active_not_found = false;
     let mut durable_turn_id = None;
 
     match super::active_turn::cancel_current(session_id, expected_turn_id) {
@@ -294,13 +669,33 @@ pub async fn stop_session(
         super::active_turn::ActiveTurnCancelOutcome::TurnMismatch => {
             outcome.turn_mismatch = true;
         }
-        super::active_turn::ActiveTurnCancelOutcome::NotFound => {}
+        super::active_turn::ActiveTurnCancelOutcome::NotFound => {
+            active_not_found = true;
+        }
     }
+
+    let recovered_not_found_turn = if active_not_found && expected_turn_id.is_some() {
+        recover_not_found_durable_turn(db.clone(), session_id, expected_turn_id).await
+    } else {
+        None
+    };
 
     // A session-only Stop is authoritative even if the active entry vanished
     // between UI observation and this call. An exact stale turn must not tear
     // down Channel preflight, waits, or runtime that may belong to a newer turn.
-    let settle_session = expected_turn_id.is_none() || matched_active;
+    // Once this function acquired the Stop cleanup gate, `NotFound` proves no
+    // replacement turn is active: a replacement admitted just before the gate
+    // would have produced `TurnMismatch`, while one after it cannot acquire.
+    // For an exact NotFound, additionally require that the expected durable
+    // turn still belongs to this session and is non-terminal. This fixes a stale
+    // spinner without letting a very late Stop for an old completed turn pause
+    // autonomous work created by a newer generation.
+    let settle_session = expected_turn_id.is_none()
+        || matched_active
+        || already_signalled
+        || recovered_not_found_turn.is_some();
+    let autonomy_stop_claim =
+        settle_session.then(|| Arc::new(begin_session_autonomy_stop(session_id)));
     if !settle_session {
         stop_cleanup_guard.take();
     }
@@ -309,6 +704,83 @@ pub async fn stop_session(
             .map(|registry| registry.cancel(session_id))
             .unwrap_or(false);
         outcome.stopped |= channel_signalled;
+    }
+
+    if let Some((turn_id, source)) = recovered_not_found_turn {
+        outcome.stopped = true;
+        if source.broadcasts_to_user_ui() {
+            super::stream_broadcast::broadcast_turn_status(
+                session_id,
+                &turn_id,
+                ChatTurnStatus::Cancelling,
+                Some(ChatTurnInterruptReason::UserStop),
+            );
+            super::spawn_user_stop_watchdog(
+                db.clone(),
+                session_id.to_string(),
+                turn_id.clone(),
+                source,
+            );
+        }
+        durable_turn_id = Some(turn_id);
+    }
+
+    // Publish the durable pause fence before taking the runtime snapshot. A
+    // Workflow recovery or Goal wakeup racing this Stop must observe the fence
+    // even if controller-specific convergence later times out.
+    if settle_session {
+        match tokio::time::timeout(
+            STOP_DB_MARK_TIMEOUT,
+            prepare_and_pause_session_autonomy(
+                db.clone(),
+                session_id.to_string(),
+                Arc::clone(
+                    stop_cleanup_guard
+                        .as_ref()
+                        .expect("settled Stop retains its cleanup gate"),
+                ),
+                Arc::clone(
+                    autonomy_stop_claim
+                        .as_ref()
+                        .expect("settled Stop retains its autonomy claim"),
+                ),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(pause)) => {
+                if pause.is_some() {
+                    outcome.stopped = true;
+                    crate::wakeup::suspend_for_session(session_id);
+                }
+                outcome.autonomy_pause = pause;
+            }
+            Ok(Err(error)) => {
+                let message = crate::logging::redact_sensitive(&error.to_string());
+                crate::app_warn!(
+                    "chat",
+                    "stop_session",
+                    "Failed to persist session autonomy pause for {}: {}",
+                    session_id,
+                    message
+                );
+                outcome.autonomy_pause_error = Some(message);
+            }
+            Err(_) => {
+                let message = format!(
+                    "session autonomy pause timed out after {}ms",
+                    STOP_DB_MARK_TIMEOUT.as_millis()
+                );
+                crate::app_warn!("chat", "stop_session", "{}: {}", message, session_id);
+                outcome.autonomy_pause_error = Some(message);
+            }
+        }
+
+        // Parent result injections are not part of the generic runtime task
+        // registry and use turn_id=None. Signal their dedicated cancel token
+        // only after the durable pause generation exists, so their normal
+        // requeue path cannot race ahead of Stop and issue another API round.
+        outcome.stopped |= crate::subagent::request_pause_parent_injection(session_id);
     }
 
     // Durable marking, interaction resolution and runtime reaping are
@@ -382,7 +854,7 @@ pub async fn stop_session(
         }
         timeout_runtime_cleanup(async move {
             let snapshot =
-                crate::runtime_tasks::snapshot_runtime_tasks_for_session(Some(&runtime_session_id))
+                crate::runtime_tasks::snapshot_runtime_tasks_for_session_stop(&runtime_session_id)
                     .await?;
             crate::runtime_tasks::cancel_runtime_task_snapshot(snapshot).await
         })
@@ -458,6 +930,7 @@ pub async fn stop_session(
                 .any(|result| result.accepted);
     }
 
+    drop(autonomy_stop_claim);
     drop(stop_cleanup_guard);
 
     crate::app_info!(
@@ -489,7 +962,8 @@ pub async fn stop_all_sessions(
     pre_signalled_sessions: impl IntoIterator<Item = String>,
     already_signalled: bool,
 ) -> StopAllOutcome {
-    let global_stop_cleanup_guard = super::active_turn::begin_global_stop_cleanup();
+    let global_stop_cleanup_guard = Arc::new(super::active_turn::begin_global_stop_cleanup());
+    let global_autonomy_stop_claim = Arc::new(begin_global_autonomy_stop());
     let mut stopped_sessions: HashSet<String> = pre_signalled_sessions.into_iter().collect();
     let mut durable_turn_ids = Vec::new();
 
@@ -513,6 +987,49 @@ pub async fn stop_all_sessions(
     }
     if let Some(registry) = crate::globals::get_channel_cancels() {
         stopped_sessions.extend(registry.cancel_all());
+    }
+    stopped_sessions.extend(crate::subagent::active_parent_injection_session_ids());
+    stopped_sessions.extend(crate::wakeup::pending_session_ids_for_global_stop().await);
+    let autonomy_sessions = match tokio::time::timeout(
+        STOP_DB_MARK_TIMEOUT,
+        db.clone()
+            .run(|db| db.list_session_ids_with_active_autonomy()),
+    )
+    .await
+    {
+        Ok(Ok(session_ids)) => session_ids,
+        Ok(Err(error)) => {
+            crate::app_warn!(
+                "chat",
+                "stop_all_sessions",
+                "Failed to enumerate autonomous sessions for global Stop: {}",
+                error
+            );
+            Vec::new()
+        }
+        Err(_) => {
+            crate::app_warn!(
+                "chat",
+                "stop_all_sessions",
+                "Timed out enumerating autonomous sessions for global Stop"
+            );
+            Vec::new()
+        }
+    };
+    stopped_sessions.extend(autonomy_sessions);
+    let paused_sessions = prepare_global_session_pauses(
+        db.clone(),
+        stopped_sessions.iter().cloned().collect(),
+        HashSet::new(),
+        Arc::clone(&global_stop_cleanup_guard),
+        Arc::clone(&global_autonomy_stop_claim),
+    )
+    .await;
+    // Parent injections live outside the generic runtime registry. Signal only
+    // after their session receipts are durable so ordinary delivery requeue
+    // cannot cross this global Stop generation.
+    for session_id in &stopped_sessions {
+        crate::subagent::request_pause_parent_injection(session_id);
     }
     let mark_db = db.clone();
     let mark_turns = async move {
@@ -558,7 +1075,7 @@ pub async fn stop_all_sessions(
         crate::ask_user::cancel_all_pending_ask_user_questions("user_stop"),
     );
     let cancel_runtime = timeout_runtime_cleanup(async {
-        let snapshot = crate::runtime_tasks::snapshot_runtime_tasks_for_session(None).await?;
+        let snapshot = crate::runtime_tasks::snapshot_runtime_tasks_for_global_stop().await?;
         crate::runtime_tasks::cancel_runtime_task_snapshot(snapshot).await
     });
     let queue_db = db.clone();
@@ -599,6 +1116,14 @@ pub async fn stop_all_sessions(
         hold_channel_queues
     );
     stopped_sessions.extend(held_channel_sessions.iter().cloned());
+    let _ = prepare_global_session_pauses(
+        db.clone(),
+        held_channel_sessions.clone(),
+        paused_sessions.into_iter().collect(),
+        Arc::clone(&global_stop_cleanup_guard),
+        Arc::clone(&global_autonomy_stop_claim),
+    )
+    .await;
     let mut outcome = StopAllOutcome {
         stopped: already_signalled || !stopped_sessions.is_empty(),
         stopped_session_count: stopped_sessions.len(),
@@ -625,6 +1150,7 @@ pub async fn stop_all_sessions(
             .runtime_cancellations
             .iter()
             .any(|result| result.accepted);
+    drop(global_autonomy_stop_claim);
     drop(global_stop_cleanup_guard);
     crate::app_info!(
         "chat",
@@ -697,6 +1223,146 @@ mod tests {
         assert!(!outcome.stopped);
         assert!(outcome.turn_mismatch);
         assert!(!cancel.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn exact_stop_converges_a_durable_turn_after_live_entry_vanished() {
+        let (_dir, db, session_id, turn_id) = fixture();
+
+        let outcome = stop_session(db.clone(), &session_id, Some(&turn_id), false).await;
+
+        assert!(outcome.stopped);
+        assert!(!outcome.turn_mismatch);
+        assert!(outcome.autonomy_pause.is_some());
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            ChatTurnStatus::Cancelling
+        );
+        assert!(db.is_session_autonomy_paused(&session_id).unwrap());
+    }
+
+    #[tokio::test]
+    async fn exact_stop_for_a_terminal_old_turn_does_not_pause_the_session() {
+        let (_dir, db, session_id, turn_id) = fixture();
+        db.finish_chat_turn_once(&turn_id, ChatTurnStatus::Completed, None, None, None)
+            .expect("finish old turn");
+
+        let outcome = stop_session(db.clone(), &session_id, Some(&turn_id), false).await;
+
+        assert!(!outcome.stopped);
+        assert!(!outcome.turn_mismatch);
+        assert!(outcome.autonomy_pause.is_none());
+        assert!(!db.is_session_autonomy_paused(&session_id).unwrap());
+    }
+
+    #[tokio::test]
+    async fn global_stop_publishes_resumable_receipts_for_autonomous_sessions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let goal = db
+            .create_goal(crate::goal::CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Keep autonomous work resumable".to_string(),
+                completion_criteria: "Continue restores the controller".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("goal");
+
+        let outcome = stop_all_sessions(db.clone(), Vec::<String>::new(), false).await;
+
+        assert!(outcome.stopped);
+        assert_eq!(outcome.stopped_session_count, 1);
+        assert!(db.is_session_autonomy_paused(&session.id).unwrap());
+        assert_eq!(
+            db.get_goal(&goal.goal.id).unwrap().unwrap().state,
+            crate::goal::GoalState::Paused
+        );
+
+        let pause_id = db
+            .active_session_autonomy_pause(&session.id)
+            .expect("load pause")
+            .expect("active pause")
+            .id;
+        let resumed = continue_session(db.clone(), &session.id, &pause_id)
+            .await
+            .expect("continue session");
+        assert!(resumed.resumed);
+        assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
+        assert_eq!(
+            db.get_goal(&goal.goal.id).unwrap().unwrap().state,
+            crate::goal::GoalState::Active
+        );
+    }
+
+    #[tokio::test]
+    async fn repeated_stop_supersedes_a_delayed_exact_continue() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("stop-generations.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+
+        let first = stop_session(db.clone(), &session.id, None, false)
+            .await
+            .autonomy_pause
+            .expect("first Stop receipt");
+        let second = stop_session(db.clone(), &session.id, None, false)
+            .await
+            .autonomy_pause
+            .expect("second Stop receipt");
+
+        assert_ne!(first.id, second.id);
+        assert!(continue_session(db.clone(), &session.id, &first.id)
+            .await
+            .is_err());
+        assert_eq!(
+            db.active_session_autonomy_pause(&session.id)
+                .unwrap()
+                .expect("new generation remains active")
+                .id,
+            second.id
+        );
+        assert!(
+            continue_session(db.clone(), &session.id, &second.id)
+                .await
+                .expect("exact latest Continue")
+                .resumed
+        );
+    }
+
+    #[tokio::test]
+    async fn global_stop_normalizes_hidden_child_targets_to_the_visible_root() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop-root.db"))
+                .expect("session db"),
+        );
+        let root = db.create_session("ha-main").expect("root session");
+        let child = db
+            .create_session_with_parent("helper", Some(&root.id))
+            .expect("hidden child session");
+
+        let outcome = stop_all_sessions(db.clone(), vec![child.id.clone()], false).await;
+
+        assert!(outcome.stopped);
+        assert!(db.is_session_autonomy_paused(&root.id).unwrap());
+        assert!(!db.is_session_autonomy_paused(&child.id).unwrap());
+        let inherited = db
+            .active_session_or_ancestor_autonomy_pause(&child.id)
+            .unwrap()
+            .expect("child inherits root receipt");
+        assert_eq!(inherited.session_id, root.id);
     }
 
     #[tokio::test]

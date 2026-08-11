@@ -9,13 +9,24 @@ use crate::session::SessionDB;
 /// In-memory registry for active sub-agent cancel flags.
 /// Uses AtomicBool (same pattern as chat_cancel in the codebase).
 pub struct SubagentCancelRegistry {
-    flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    entries: Mutex<HashMap<String, CancelEntry>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubagentCancelReason {
+    UserKilled,
+    SessionPaused,
+}
+
+struct CancelEntry {
+    flag: Arc<AtomicBool>,
+    reason: Option<SubagentCancelReason>,
 }
 
 impl SubagentCancelRegistry {
     pub fn new() -> Self {
         Self {
-            flags: Mutex::new(HashMap::new()),
+            entries: Mutex::new(HashMap::new()),
         }
     }
 
@@ -26,10 +37,14 @@ impl SubagentCancelRegistry {
     /// cancel signalled while the run was parked stays visible to the launched
     /// engine. A fresh, untripped flag is created only when none exists.
     pub fn register(&self, run_id: &str) -> Arc<AtomicBool> {
-        if let Ok(mut map) = self.flags.lock() {
+        if let Ok(mut map) = self.entries.lock() {
             return map
                 .entry(run_id.to_string())
-                .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+                .or_insert_with(|| CancelEntry {
+                    flag: Arc::new(AtomicBool::new(false)),
+                    reason: None,
+                })
+                .flag
                 .clone();
         }
         Arc::new(AtomicBool::new(false))
@@ -37,13 +52,36 @@ impl SubagentCancelRegistry {
 
     /// Signal cancellation for a specific run.
     pub fn cancel(&self, run_id: &str) -> bool {
-        if let Ok(map) = self.flags.lock() {
-            if let Some(flag) = map.get(run_id) {
-                flag.store(true, Ordering::SeqCst);
+        self.request(run_id, SubagentCancelReason::UserKilled)
+    }
+
+    pub fn pause(&self, run_id: &str) -> bool {
+        self.request(run_id, SubagentCancelReason::SessionPaused)
+    }
+
+    fn request(&self, run_id: &str, reason: SubagentCancelReason) -> bool {
+        if let Ok(mut map) = self.entries.lock() {
+            if let Some(entry) = map.get_mut(run_id) {
+                // Explicit user cancellation is terminal intent and must never
+                // be downgraded by a concurrent session Stop. A later explicit
+                // kill may still upgrade an earlier pause request.
+                entry.reason = Some(match (entry.reason, reason) {
+                    (Some(SubagentCancelReason::UserKilled), _)
+                    | (_, SubagentCancelReason::UserKilled) => SubagentCancelReason::UserKilled,
+                    _ => SubagentCancelReason::SessionPaused,
+                });
+                entry.flag.store(true, Ordering::SeqCst);
                 return true;
             }
         }
         false
+    }
+
+    pub fn reason(&self, run_id: &str) -> Option<SubagentCancelReason> {
+        self.entries
+            .lock()
+            .ok()
+            .and_then(|map| map.get(run_id).and_then(|entry| entry.reason))
     }
 
     /// Cancel all active runs for a given parent session.
@@ -56,10 +94,11 @@ impl SubagentCancelRegistry {
             .collect();
 
         let mut count = 0u32;
-        if let Ok(map) = self.flags.lock() {
+        if let Ok(mut map) = self.entries.lock() {
             for rid in &run_ids {
-                if let Some(flag) = map.get(rid) {
-                    flag.store(true, Ordering::SeqCst);
+                if let Some(entry) = map.get_mut(rid) {
+                    entry.reason = Some(SubagentCancelReason::UserKilled);
+                    entry.flag.store(true, Ordering::SeqCst);
                     count += 1;
                 }
             }
@@ -69,7 +108,7 @@ impl SubagentCancelRegistry {
 
     /// Remove a completed/terminated run from the registry.
     pub fn remove(&self, run_id: &str) {
-        if let Ok(mut map) = self.flags.lock() {
+        if let Ok(mut map) = self.entries.lock() {
             map.remove(run_id);
         }
     }
@@ -108,5 +147,33 @@ mod tests {
         let other = reg.register("run-y");
         assert!(!other.load(Ordering::SeqCst));
         assert!(!Arc::ptr_eq(&flag1, &other));
+    }
+
+    #[test]
+    fn pause_reason_survives_until_runner_classifies_the_attempt() {
+        let reg = SubagentCancelRegistry::new();
+        let flag = reg.register("run-paused");
+
+        assert!(reg.pause("run-paused"));
+        assert!(flag.load(Ordering::SeqCst));
+        assert_eq!(
+            reg.reason("run-paused"),
+            Some(SubagentCancelReason::SessionPaused)
+        );
+
+        // A later explicit kill is stronger and must win classification.
+        assert!(reg.cancel("run-paused"));
+        assert_eq!(
+            reg.reason("run-paused"),
+            Some(SubagentCancelReason::UserKilled)
+        );
+
+        // A concurrent/later Stop cannot downgrade an explicit kill back to a
+        // resumable pause.
+        assert!(reg.pause("run-paused"));
+        assert_eq!(
+            reg.reason("run-paused"),
+            Some(SubagentCancelReason::UserKilled)
+        );
     }
 }

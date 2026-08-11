@@ -66,9 +66,27 @@ fn cleanup_orphan_runs_inner(session_db: &Arc<SessionDB>) {
 /// `injecting`/`injecting_no_replay` owner and is therefore safe to call after
 /// every account start.
 pub(crate) fn replay_pending_parent_deliveries(session_db: &Arc<SessionDB>) {
+    replay_pending_parent_deliveries_matching(session_db, None);
+}
+
+/// Session-scoped replay used by explicit Continue. It must not wake unrelated
+/// parent sessions merely because they also have a pending durable receipt.
+pub(crate) fn replay_pending_parent_deliveries_for_session(
+    session_db: &Arc<SessionDB>,
+    parent_session_id: &str,
+) {
+    replay_pending_parent_deliveries_matching(session_db, Some(parent_session_id));
+}
+
+fn replay_pending_parent_deliveries_matching(
+    session_db: &Arc<SessionDB>,
+    parent_session_id: Option<&str>,
+) {
     match session_db.list_pending_subagent_deliveries() {
         Ok(runs) => {
-            for run in runs {
+            for run in runs.into_iter().filter(|run| {
+                parent_session_id.is_none_or(|session_id| run.parent_session_id == session_id)
+            }) {
                 super::spawn::dispatch_parent_result_delivery(&run.run_id, session_db.clone());
             }
         }

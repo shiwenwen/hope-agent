@@ -57,6 +57,7 @@ pub enum RuntimeCancelDisposition {
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeTaskSnapshot {
     tasks: Vec<(RuntimeTaskKind, String)>,
+    pause_subagents: bool,
 }
 
 fn extend_snapshot_source(
@@ -176,16 +177,45 @@ pub async fn cancel_runtime_tasks_for_session(
 pub async fn snapshot_runtime_tasks_for_session(
     session_id: Option<&str>,
 ) -> anyhow::Result<RuntimeTaskSnapshot> {
+    snapshot_runtime_tasks_for_session_inner(session_id, false).await
+}
+
+/// Stop-specific snapshot: non-subagent resources retain their existing hard
+/// cancellation behavior, while child attempts settle as resumable
+/// `interrupted/session_paused` continuations.
+pub async fn snapshot_runtime_tasks_for_session_stop(
+    session_id: &str,
+) -> anyhow::Result<RuntimeTaskSnapshot> {
+    snapshot_runtime_tasks_for_session_inner(Some(session_id), true).await
+}
+
+/// Global Stop variant. It retains the all-session snapshot semantics while
+/// classifying every discovered child attempt as resumably session-paused.
+pub async fn snapshot_runtime_tasks_for_global_stop() -> anyhow::Result<RuntimeTaskSnapshot> {
+    snapshot_runtime_tasks_for_session_inner(None, true).await
+}
+
+async fn snapshot_runtime_tasks_for_session_inner(
+    session_id: Option<&str>,
+    pause_subagents: bool,
+) -> anyhow::Result<RuntimeTaskSnapshot> {
     let owned_session_id = session_id.map(str::to_string);
     let async_job_session_id = owned_session_id.clone();
     let async_jobs = crate::blocking::run_blocking(move || {
+        let owned_session_ids = async_job_session_id.as_deref().map(|root| {
+            crate::get_session_db()
+                .and_then(|db| db.list_session_autonomy_tree_ids(root).ok())
+                .unwrap_or_else(|| vec![root.to_string()])
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+        });
         if let Some(db) = crate::async_jobs::get_async_jobs_db() {
             db.list_running().map(|jobs| {
                 jobs.into_iter()
                     .filter(|job| {
-                        async_job_session_id
-                            .as_deref()
-                            .map(|sid| job.session_id.as_deref() == Some(sid))
+                        owned_session_ids
+                            .as_ref()
+                            .map(|ids| job.session_id.as_ref().is_some_and(|sid| ids.contains(sid)))
                             .unwrap_or(true)
                     })
                     .map(|job| (RuntimeTaskKind::AsyncJob, job.job_id))
@@ -215,11 +245,30 @@ pub async fn snapshot_runtime_tasks_for_session(
 
     let process_session_id = owned_session_id.clone();
     let processes = async move {
+        let owned_session_ids = if let Some(root) = process_session_id.clone() {
+            let fallback = root.clone();
+            crate::blocking::run_blocking(move || {
+                crate::get_session_db()
+                    .and_then(|db| db.list_session_autonomy_tree_ids(&root).ok())
+                    .unwrap_or_else(|| vec![fallback])
+            })
+            .await
+        } else {
+            Vec::new()
+        };
         let registry = crate::process_registry::get_registry().lock().await;
+        let ids = if owned_session_ids.is_empty() {
+            registry.list_running_ids_for_parent_session(process_session_id.as_deref())
+        } else {
+            owned_session_ids
+                .iter()
+                .flat_map(|session_id| {
+                    registry.list_running_ids_for_parent_session(Some(session_id))
+                })
+                .collect()
+        };
         anyhow::Ok(
-            registry
-                .list_running_ids_for_parent_session(process_session_id.as_deref())
-                .into_iter()
+            ids.into_iter()
                 .map(|id| (RuntimeTaskKind::Process, id))
                 .collect(),
         )
@@ -232,21 +281,31 @@ pub async fn snapshot_runtime_tasks_for_session(
         timeout_snapshot_source(
             "async_jobs",
             owned_session_id.clone(),
+            pause_subagents,
             tokio::spawn(async_jobs)
         ),
         timeout_snapshot_source(
             "subagents",
             owned_session_id.clone(),
+            pause_subagents,
             tokio::spawn(subagents)
         ),
-        timeout_snapshot_source("processes", owned_session_id, tokio::spawn(processes)),
+        timeout_snapshot_source(
+            "processes",
+            owned_session_id,
+            pause_subagents,
+            tokio::spawn(processes)
+        ),
     );
     let mut tasks = Vec::new();
     for discovered in [async_jobs, subagents, processes] {
         tasks.extend(discovered);
     }
 
-    Ok(RuntimeTaskSnapshot { tasks })
+    Ok(RuntimeTaskSnapshot {
+        tasks,
+        pause_subagents,
+    })
 }
 
 enum DeferredSnapshotGate {
@@ -277,14 +336,23 @@ impl Drop for DeferredSnapshotGate {
 async fn timeout_snapshot_source(
     source: &'static str,
     session_id: Option<String>,
+    pause_subagents: bool,
     handle: tokio::task::JoinHandle<anyhow::Result<Vec<(RuntimeTaskKind, String)>>>,
 ) -> Vec<(RuntimeTaskKind, String)> {
-    timeout_snapshot_source_with(source, session_id, handle, RUNTIME_SNAPSHOT_SOURCE_TIMEOUT).await
+    timeout_snapshot_source_with(
+        source,
+        session_id,
+        pause_subagents,
+        handle,
+        RUNTIME_SNAPSHOT_SOURCE_TIMEOUT,
+    )
+    .await
 }
 
 async fn timeout_snapshot_source_with(
     source: &'static str,
     session_id: Option<String>,
+    pause_subagents: bool,
     mut handle: tokio::task::JoinHandle<anyhow::Result<Vec<(RuntimeTaskKind, String)>>>,
     timeout: std::time::Duration,
 ) -> Vec<(RuntimeTaskKind, String)> {
@@ -306,7 +374,10 @@ async fn timeout_snapshot_source_with(
             tokio::spawn(async move {
                 let discovered = snapshot_source_join_result(source, handle.await);
                 if !discovered.is_empty() {
-                    let snapshot = RuntimeTaskSnapshot { tasks: discovered };
+                    let snapshot = RuntimeTaskSnapshot {
+                        tasks: discovered,
+                        pause_subagents,
+                    };
                     if tokio::time::timeout(
                         DEFERRED_SNAPSHOT_CANCEL_TIMEOUT,
                         cancel_runtime_task_snapshot(snapshot),
@@ -357,12 +428,62 @@ fn snapshot_source_join_result(
 pub async fn cancel_runtime_task_snapshot(
     snapshot: RuntimeTaskSnapshot,
 ) -> anyhow::Result<Vec<CancelRuntimeTaskResult>> {
+    let pause_subagents = snapshot.pause_subagents;
     Ok(
-        cancel_runtime_task_snapshot_with(snapshot, |kind, id| async move {
-            cancel_runtime_task(kind, &id).await
+        cancel_runtime_task_snapshot_with(snapshot, move |kind, id| async move {
+            if pause_subagents && kind == RuntimeTaskKind::Subagent {
+                let id_for_pause = id.clone();
+                crate::blocking::run_blocking(move || pause_subagent(&id_for_pause)).await
+            } else {
+                cancel_runtime_task(kind, &id).await
+            }
         })
         .await,
     )
+}
+
+fn pause_subagent(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
+    let kind = RuntimeTaskKind::Subagent;
+    let Some(db) = crate::get_session_db() else {
+        return Ok(CancelRuntimeTaskResult::refused(
+            kind,
+            id,
+            "unavailable",
+            "Session database is unavailable",
+        ));
+    };
+    let Some(run) = db.get_subagent_run(id)? else {
+        return Ok(CancelRuntimeTaskResult::already_terminal(
+            kind,
+            id,
+            "missing",
+            "Sub-agent run no longer exists",
+        ));
+    };
+    if run.status.is_terminal() {
+        return Ok(CancelRuntimeTaskResult::already_terminal(
+            kind,
+            id,
+            run.status.as_str(),
+            "Sub-agent run is already terminal",
+        ));
+    }
+    if crate::subagent::request_pause_run(id) {
+        Ok(CancelRuntimeTaskResult::requested(
+            kind,
+            id,
+            "interrupted",
+            false,
+            "Sub-agent pause requested; thread remains resumable",
+        ))
+    } else {
+        Ok(CancelRuntimeTaskResult::refused(
+            kind,
+            id,
+            "not_active",
+            "Sub-agent run could not be paused",
+        ))
+    }
 }
 
 async fn cancel_runtime_task_snapshot_with<F, Fut>(
@@ -779,6 +900,7 @@ mod tests {
                 (RuntimeTaskKind::AsyncJob, "fails".to_string()),
                 (RuntimeTaskKind::Process, "continues".to_string()),
             ],
+            pause_subagents: false,
         };
         let calls = Arc::new(Mutex::new(Vec::new()));
         let calls_for_cancel = calls.clone();
@@ -818,6 +940,7 @@ mod tests {
                 (RuntimeTaskKind::AsyncJob, "slow".to_string()),
                 (RuntimeTaskKind::Process, "later".to_string()),
             ],
+            pause_subagents: false,
         };
         let slow_release = Arc::new(tokio::sync::Notify::new());
         let later_started = Arc::new(tokio::sync::Notify::new());
@@ -871,6 +994,7 @@ mod tests {
         let immediate = timeout_snapshot_source_with(
             "test_source",
             Some(session_id.clone()),
+            false,
             handle,
             std::time::Duration::from_millis(10),
         )

@@ -532,6 +532,8 @@ export type SandboxMode = "off" | "standard" | "isolated" | "workspace" | "trust
 
 export interface SessionMeta {
   id: string
+  /** A durable Stop receipt fences autonomous work until explicit Continue. */
+  autonomyPaused?: boolean
   title?: string | null
   titleSource?: "first_message" | "llm" | "manual"
   agentId: string
@@ -726,6 +728,7 @@ export interface SubagentEvent {
     | "killed"
     | "timeout"
     | "interrupted"
+    | "retrying"
     | "steered"
   runId: string
   parentSessionId: string
@@ -810,6 +813,8 @@ export interface SubagentConfig {
   maxBatchSize?: number
   archiveAfterMinutes?: number
   announceTimeoutSecs?: number
+  providerRetryAttempts?: number
+  providerRetryBackoffSecs?: number
 }
 
 export function modelSupportsThinking(

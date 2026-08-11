@@ -219,6 +219,17 @@ async fn cleanup_session(
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
+    // R10: cancel + delete scheduled wakeups for the root and every captured
+    // descendant before releasing ParentInjection receipts. A queued wakeup
+    // owns its delivery claim through that receipt; releasing it first could
+    // briefly re-arm an overdue timer from a racing Continue. Removing the
+    // descriptor first makes the receipt callback a no-op and also fulfils the
+    // close-and-burn contract for hidden child sessions.
+    crate::wakeup::purge_for_session(session_id);
+    for child_sid in &descendant_session_ids {
+        crate::wakeup::purge_for_session(child_sid);
+    }
+
     // ParentInjection retries retain DB/source receipts and optional UI leases
     // in memory. Remove both Ready and Channel-gated entries for the deleted
     // session (plus cascade-deleted descendants) before any later idle/surface
@@ -236,11 +247,6 @@ async fn cleanup_session(
             session_id
         );
     }
-
-    // R10: cancel + delete the session's scheduled wakeups (both delete and
-    // burn) — a gone session must not be woken back to life, and the live timer
-    // shouldn't linger. Incognito wakeups are in-memory only; this aborts them.
-    crate::wakeup::purge_for_session(session_id);
 
     // Panel action timeline: drop the in-memory step history (delete and burn
     // alike — the buffer is memory-only, so purge here fulfils incognito's
