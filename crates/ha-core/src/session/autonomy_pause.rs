@@ -638,7 +638,7 @@ impl SessionDB {
     /// report success only after the Primary handoff is durable.
     pub fn finish_session_autonomy_resume(&self, pause_id: &str) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let subagent_ids = tx
             .query_row(
                 "SELECT subagent_run_ids_json

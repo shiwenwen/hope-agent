@@ -679,30 +679,75 @@ async fn prepare_global_session_pauses(
     }
 }
 
+struct GlobalStopGenerationOutcome {
+    epoch: u64,
+    session_ids: Vec<String>,
+    paused_session_ids: Vec<String>,
+}
+
+enum GlobalStopGenerationDispatch {
+    Settled(GlobalStopGenerationOutcome),
+    Detached,
+}
+
 async fn begin_global_stop_generation(
     db: Arc<SessionDB>,
     cleanup_gate: Arc<super::active_turn::GlobalStopCleanupGuard>,
     stop_claim: Arc<GlobalAutonomyStopClaim>,
-) -> anyhow::Result<(u64, Vec<String>)> {
+) -> anyhow::Result<GlobalStopGenerationDispatch> {
     let task = tokio::spawn(async move {
         let transition_guard = autonomy_transition_lock().lock_owned().await;
         db.run(move |db| {
             let _cleanup_gate = cleanup_gate;
             let _stop_claim = stop_claim;
             let _transition_guard = transition_guard;
-            db.begin_global_stop_enumeration()
+            let (epoch, session_ids) = db.begin_global_stop_enumeration()?;
+            crate::app_info!(
+                "chat",
+                "stop_all_sessions",
+                "Published cross-process global Stop generation {}",
+                epoch
+            );
+            // This task owns the enumeration result even after the transport
+            // timeout detaches its JoinHandle. Publish every enumerated root's
+            // receipt here so remote controllers never depend on a result the
+            // caller may no longer receive.
+            let mut paused_session_ids = Vec::new();
+            for session_id in &session_ids {
+                match prepare_and_pause_session_autonomy_blocking(db, session_id, Some(epoch)) {
+                    Ok(_) => paused_session_ids.push(session_id.clone()),
+                    Err(error) => crate::app_warn!(
+                        "chat",
+                        "stop_all_sessions",
+                        "Failed to persist enumerated global Stop pause for session {}: {}",
+                        session_id,
+                        crate::logging::redact_sensitive(&error.to_string())
+                    ),
+                }
+            }
+            Ok::<_, anyhow::Error>(GlobalStopGenerationOutcome {
+                epoch,
+                session_ids,
+                paused_session_ids,
+            })
         })
         .await
     });
     match tokio::time::timeout(STOP_DB_MARK_TIMEOUT, task).await {
-        Ok(Ok(result)) => result,
+        Ok(Ok(Ok(outcome))) => Ok(GlobalStopGenerationDispatch::Settled(outcome)),
+        Ok(Ok(Err(error))) => Err(error),
         Ok(Err(error)) => Err(anyhow::anyhow!(
             "global Stop generation task failed: {error}"
         )),
-        Err(_) => Err(anyhow::anyhow!(
-            "global Stop generation timed out after {}ms",
-            STOP_DB_MARK_TIMEOUT.as_millis()
-        )),
+        Err(_) => {
+            crate::app_warn!(
+                "chat",
+                "stop_all_sessions",
+                "Global Stop generation exceeded {}ms; detached owner will finish enumeration and receipts",
+                STOP_DB_MARK_TIMEOUT.as_millis()
+            );
+            Ok(GlobalStopGenerationDispatch::Detached)
+        }
     }
 }
 
@@ -1284,42 +1329,46 @@ pub async fn stop_all_sessions(
     }
     stopped_sessions.extend(crate::subagent::active_parent_injection_session_ids());
     stopped_sessions.extend(crate::wakeup::pending_session_ids_for_global_stop().await);
-    let (global_stop_epoch, autonomy_sessions) = match begin_global_stop_generation(
-        db.clone(),
-        Arc::clone(&global_stop_cleanup_guard),
-        Arc::clone(&global_autonomy_stop_claim),
-    )
-    .await
-    {
-        Ok((epoch, session_ids)) => {
-            crate::app_info!(
-                "chat",
-                "stop_all_sessions",
-                "Published cross-process global Stop generation {}",
-                epoch
-            );
-            (Some(epoch), session_ids)
-        }
-        Err(error) => {
-            crate::app_warn!(
-                "chat",
-                "stop_all_sessions",
-                "Failed to publish/enumerate cross-process global Stop: {}",
-                error
-            );
-            (None, Vec::new())
-        }
-    };
+    let (global_stop_epoch, autonomy_sessions, enumerated_paused_sessions, global_stop_dispatched) =
+        match begin_global_stop_generation(
+            db.clone(),
+            Arc::clone(&global_stop_cleanup_guard),
+            Arc::clone(&global_autonomy_stop_claim),
+        )
+        .await
+        {
+            Ok(GlobalStopGenerationDispatch::Settled(outcome)) => (
+                Some(outcome.epoch),
+                outcome.session_ids,
+                outcome.paused_session_ids,
+                true,
+            ),
+            Ok(GlobalStopGenerationDispatch::Detached) => (None, Vec::new(), Vec::new(), true),
+            Err(error) => {
+                crate::app_warn!(
+                    "chat",
+                    "stop_all_sessions",
+                    "Failed to publish/enumerate cross-process global Stop: {}",
+                    error
+                );
+                (None, Vec::new(), Vec::new(), false)
+            }
+        };
     stopped_sessions.extend(autonomy_sessions);
-    let paused_sessions = prepare_global_session_pauses(
-        db.clone(),
-        stopped_sessions.iter().cloned().collect(),
-        HashSet::new(),
-        global_stop_epoch,
-        Arc::clone(&global_stop_cleanup_guard),
-        Arc::clone(&global_autonomy_stop_claim),
-    )
-    .await;
+    let mut paused_sessions = enumerated_paused_sessions
+        .into_iter()
+        .collect::<HashSet<_>>();
+    paused_sessions.extend(
+        prepare_global_session_pauses(
+            db.clone(),
+            stopped_sessions.iter().cloned().collect(),
+            paused_sessions.clone(),
+            global_stop_epoch,
+            Arc::clone(&global_stop_cleanup_guard),
+            Arc::clone(&global_autonomy_stop_claim),
+        )
+        .await,
+    );
     // Cancel same-process ACP/incognito coordinators immediately; other
     // processes observe the session-free global epoch on their next watcher
     // tick without ever persisting incognito session identity.
@@ -1418,14 +1467,14 @@ pub async fn stop_all_sessions(
     let _ = prepare_global_session_pauses(
         db.clone(),
         held_channel_sessions.clone(),
-        paused_sessions.into_iter().collect(),
+        paused_sessions,
         global_stop_epoch,
         Arc::clone(&global_stop_cleanup_guard),
         Arc::clone(&global_autonomy_stop_claim),
     )
     .await;
     let mut outcome = StopAllOutcome {
-        stopped: already_signalled || global_stop_epoch.is_some() || !stopped_sessions.is_empty(),
+        stopped: already_signalled || global_stop_dispatched || !stopped_sessions.is_empty(),
         stopped_session_count: stopped_sessions.len(),
         denied_approvals,
         cancelled_questions,
@@ -1607,6 +1656,58 @@ mod tests {
             db.get_goal(&goal.goal.id).unwrap().unwrap().state,
             crate::goal::GoalState::Active
         );
+    }
+
+    #[tokio::test]
+    async fn detached_global_generation_keeps_enumeration_connected_to_receipts() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("detached-global-stop.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let goal = db
+            .create_goal(crate::goal::CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Keep detached Stop enumeration durable".to_string(),
+                completion_criteria: "The enumerated session receives a receipt".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("goal");
+        let transition_guard = autonomy_transition_lock().lock_owned().await;
+
+        let dispatch = begin_global_stop_generation(
+            db.clone(),
+            Arc::new(crate::chat_engine::active_turn::begin_global_stop_cleanup()),
+            Arc::new(begin_global_autonomy_stop()),
+        )
+        .await
+        .expect("global Stop dispatch");
+        assert!(matches!(dispatch, GlobalStopGenerationDispatch::Detached));
+        drop(transition_guard);
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let receipt_active = db.is_session_autonomy_paused(&session.id).unwrap();
+                let goal_paused = db
+                    .get_goal(&goal.goal.id)
+                    .unwrap()
+                    .is_some_and(|goal| goal.state == crate::goal::GoalState::Paused);
+                if receipt_active && goal_paused && !autonomy_stop_pending(&session.id) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("detached owner finishes receipt and controller pause");
     }
 
     #[tokio::test]
