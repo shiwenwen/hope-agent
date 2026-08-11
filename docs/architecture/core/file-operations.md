@@ -222,8 +222,11 @@ Tauri `project_fs_capabilities` 与 HTTP `GET /api/fs/capabilities` 返回统一
 interface WorkspaceAccess {
   readable: boolean;
   writeState: "enabled" | "remote_writes_disabled" | "scope_read_only" | "project_archived";
+  rootPath: string;
 }
 ```
+
+`rootPath` 是 [`WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs) 按 session override → project explicit root → project default workspace 裁定并 canonicalize 后的权威根目录。Composer、文件选择器和文件操作必须消费该值，不能在前端重建 `projects/<id>/workspace`，从而保持 Tauri/HTTP 与执行层同源。
 
 后端 [`WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs) 是唯一判定点，写状态的推导规则是：
 

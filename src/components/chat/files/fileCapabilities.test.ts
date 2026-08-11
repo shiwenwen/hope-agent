@@ -21,10 +21,14 @@ const WEB: FileRuntime = {
 }
 
 const ACCESS: Record<WorkspaceAccess["writeState"], WorkspaceAccess> = {
-  enabled: { readable: true, writeState: "enabled" },
-  remote_writes_disabled: { readable: true, writeState: "remote_writes_disabled" },
-  scope_read_only: { readable: true, writeState: "scope_read_only" },
-  project_archived: { readable: true, writeState: "project_archived" },
+  enabled: { readable: true, writeState: "enabled", rootPath: "/repo" },
+  remote_writes_disabled: {
+    readable: true,
+    writeState: "remote_writes_disabled",
+    rootPath: "/repo",
+  },
+  scope_read_only: { readable: true, writeState: "scope_read_only", rootPath: "/repo" },
+  project_archived: { readable: true, writeState: "project_archived", rootPath: "/repo" },
 }
 
 function targets(): FileTarget[] {
