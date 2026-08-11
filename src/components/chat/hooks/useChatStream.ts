@@ -54,7 +54,10 @@ import {
 } from "./useStreamEventHandler"
 import { useApprovals } from "./useApprovals"
 import { generateClientId } from "@/components/chat/chatScrollKeys"
-import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
+import {
+  expandMentionsToAttachments,
+  resolveMentionWorkingDir,
+} from "@/components/chat/file-mention/expandMentions"
 import { expandPlanMentionsToAttachments } from "@/components/chat/plan-mention/expandPlanMentions"
 import {
   buildIncomingTurnWire,
@@ -357,6 +360,12 @@ export interface UseChatStreamOptions {
    */
   draftWorkingDir?: string | null
   /**
+   * Workspace root shown to the active composer's file mention picker. This
+   * includes a Project-inherited directory even when the persisted Session
+   * row has no explicit `workingDir` override.
+   */
+  mentionWorkingDir?: string | null
+  /**
    * Project bound to a not-yet-materialized chat (lazy project session). Like
    * draftWorkingDir, it rides on the `chat` command payload (`projectId`) as a
    * send-time snapshot and the backend binds the auto-created session to it —
@@ -501,6 +510,7 @@ export function useChatStream({
   reasoningEffort,
   incognitoEnabled = false,
   draftWorkingDir = null,
+  mentionWorkingDir = null,
   draftProjectId = null,
   draftProjectBootstrap = null,
   onProjectBootstrapFailure,
@@ -1411,7 +1421,16 @@ export function useChatStream({
       if (signal?.aborted) throw new ChatPreparationCancelledError()
 
       const sessionWorkingDir = sessions.find((s) => s.id === targetSessionId)?.workingDir ?? null
-      const resolvedWorkingDir = targetSessionId ? sessionWorkingDir : draftWorkingDir
+      const resolvedWorkingDir = resolveMentionWorkingDir({
+        targetSessionId,
+        // Pair the workspace root with the same render-time session snapshot.
+        // The mutable ref may already point at a newly selected session while
+        // this send is still preparing attachments for the previous one.
+        activeSessionId: currentSessionId,
+        sessionWorkingDir,
+        draftWorkingDir,
+        mentionWorkingDir,
+      })
       const mentionAttachments = expandMentionsToAttachments(
         text,
         resolvedWorkingDir ?? null,
@@ -1525,7 +1544,15 @@ export function useChatStream({
       await ensureAttachmentCount(attachments, transport, signal)
       return attachments
     },
-    [draftWorkingDir, ensureAttachmentCount, quoteLineLabel, sessions, t],
+    [
+      currentSessionId,
+      draftWorkingDir,
+      ensureAttachmentCount,
+      mentionWorkingDir,
+      quoteLineLabel,
+      sessions,
+      t,
+    ],
   )
 
   /**

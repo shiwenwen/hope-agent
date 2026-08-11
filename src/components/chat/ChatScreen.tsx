@@ -2060,6 +2060,7 @@ export default function ChatScreen({
     reasoningEffort,
     incognitoEnabled,
     draftWorkingDir,
+    mentionWorkingDir: workspaceEffectiveWorkingDir,
     draftProjectId,
     draftProjectBootstrap,
     onProjectBootstrapFailure: (message) => {

@@ -14,6 +14,7 @@ import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import { getPastedTextFileMeta } from "./pastedTextAttachment"
 import { createDraftAttachment, type DraftAttachment } from "@/components/chat/files/types"
 import { emitEnterToSendPreference } from "../enterToSendPreference"
+import { installFocusVisibilityTracker } from "@/lib/focus-visibility"
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -1665,6 +1666,7 @@ describe("ChatInput", () => {
   })
 
   test("lets file mention menu consume Shift+Tab before permission cycling", async () => {
+    const uninstallFocusTracker = installFocusVisibilityTracker()
     const onInputChange = vi.fn()
     const onPermissionModeChange = vi.fn()
     // In the composer a bare `@` shows the note section; a query (`@notes`) drives
@@ -1677,21 +1679,50 @@ describe("ChatInput", () => {
       truncated: false,
     })
 
+    try {
+      renderChatInput({
+        input: "@notes",
+        onInputChange,
+        onPermissionModeChange,
+        workingDir: "/tmp",
+      })
+
+      // Nudge the mention popper open (mirrors a caret move after typing `@notes`).
+      const textbox = screen.getByRole("textbox")
+      fireEvent.select(textbox)
+
+      await waitFor(() => expect(screen.getByText("notes.md")).toBeTruthy())
+      fireEvent.pointerDown(textbox)
+      fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })
+
+      expect(onPermissionModeChange).not.toHaveBeenCalled()
+      expect(onInputChange).toHaveBeenCalledWith("@notes.md ")
+      expect(document.documentElement.dataset.inputModality).toBe("pointer")
+    } finally {
+      uninstallFocusTracker()
+      delete document.documentElement.dataset.inputModality
+      delete document.documentElement.dataset.focusIndicators
+    }
+  })
+
+  test("lists the current agent as a valid self-fork target in the @ menu", async () => {
     renderChatInput({
-      input: "@notes",
-      onInputChange,
-      onPermissionModeChange,
-      workingDir: "/tmp",
+      input: "@",
+      enableAgentMention: true,
+      currentAgentId: "ha-main",
+      agents: [
+        {
+          id: "ha-main",
+          name: "Hope",
+          description: "通用 AI 助手",
+        },
+      ],
     })
 
-    // Nudge the mention popper open (mirrors a caret move after typing `@notes`).
     fireEvent.select(screen.getByRole("textbox"))
 
-    await waitFor(() => expect(screen.getByText("notes.md")).toBeTruthy())
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
-
-    expect(onPermissionModeChange).not.toHaveBeenCalled()
-    expect(onInputChange).toHaveBeenCalledWith("@notes.md ")
+    await waitFor(() => expect(screen.getByText("Hope")).toBeTruthy())
+    expect(screen.getByText("@agent")).toBeTruthy()
   })
 
   test("cycles recent user input history only from an empty draft", () => {

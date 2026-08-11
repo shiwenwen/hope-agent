@@ -51,10 +51,14 @@ import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { AgentMentionChip } from "@/components/chat/agent-mention/AgentMentionChip"
 import { CapabilityMentionChip } from "@/components/chat/capability-mention/CapabilityMentionChip"
+import { FileMentionChip } from "@/components/chat/file-mention/FileMentionChip"
+import { NoteMentionChip } from "@/components/chat/note-mention/NoteMentionChip"
+import { PlanMentionChip } from "@/components/chat/plan-mention/PlanMentionChip"
 import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
 import { isSkillMentionName } from "@/components/chat/skill-mention/skillTokens"
 import { observeMarkdownFaviconVisibility } from "./markdownFaviconVisibility"
 import {
+  newMentionId,
   prepareTypedMentionLinks,
   type ComposerMentionBinding,
   type TypedMentionRenderLink,
@@ -429,6 +433,21 @@ export function MarkdownLink({
   const isIncomplete = href === "streamdown:incomplete-link"
   const typedMentionLinks = useContext(TypedMentionRenderContext)
   const typedMention = !isIncomplete && href ? typedMentionLinks?.get(href) : undefined
+  if (typedMention?.kind === "file") {
+    return (
+      <FileMentionChip targetId={typedMention.targetId} displayLabel={typedMention.displayLabel} />
+    )
+  }
+  if (typedMention?.kind === "note") {
+    return (
+      <NoteMentionChip targetId={typedMention.targetId} displayLabel={typedMention.displayLabel} />
+    )
+  }
+  if (typedMention?.kind === "plan") {
+    return (
+      <PlanMentionChip targetId={typedMention.targetId} displayLabel={typedMention.displayLabel} />
+    )
+  }
   if (typedMention?.kind === "skill" && isSkillMentionName(typedMention.targetId)) {
     return <SkillMentionChip name={typedMention.targetId} />
   }
@@ -619,8 +638,8 @@ function autolinkRehypePlugin() {
 interface MarkdownRendererProps {
   content: string
   isStreaming?: boolean
-  /** Exact first-party/receipt-backed spans allowed to render as capability
-   * chips. Omitted means every lookalike token remains an ordinary link. */
+  /** Exact first-party/receipt-backed spans allowed to render as mention
+   * treatments. Omitted means every lookalike token remains ordinary text. */
   typedMentions?: ComposerMentionBinding[]
 }
 
@@ -643,9 +662,10 @@ function StreamdownMarkdownRenderer({
   isStreaming = false,
   typedMentions = [],
 }: MarkdownRendererProps) {
+  const [typedMentionMarkerNamespace] = useState(() => newMentionId())
   const preparedContent = useMemo(
-    () => prepareTypedMentionLinks(content, typedMentions),
-    [content, typedMentions],
+    () => prepareTypedMentionLinks(content, typedMentions, typedMentionMarkerNamespace),
+    [content, typedMentionMarkerNamespace, typedMentions],
   )
   const renderedContent = preparedContent.text
   const plugins = useHeavyPlugins(renderedContent)
@@ -737,7 +757,11 @@ function MarkdownRenderer({
   isStreaming = false,
   typedMentions = [],
 }: MarkdownRendererProps) {
-  if (shouldRenderAsBareJson(content)) {
+  const hasExactTypedNote = typedMentions.some(
+    (mention) =>
+      mention.kind === "note" && content.slice(mention.start, mention.end) === mention.raw,
+  )
+  if (shouldRenderAsBareJson(content) && !hasExactTypedNote) {
     return <BareJsonRenderer content={content} isStreaming={isStreaming} />
   }
   return (

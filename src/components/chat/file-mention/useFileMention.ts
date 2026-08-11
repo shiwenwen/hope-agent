@@ -459,10 +459,9 @@ export function useFileMention(
     if (agentMentionAgents.length === 0 || tokenIsSkillQuery || tokenIsCapabilityQuery) return []
     const q = agentQueryFromToken(active?.token ?? "")
     return agentMentionAgents
-      .filter((agent) => agent.id !== currentAgentId)
       .filter((agent) => agentMatchesQuery(agent, q))
       .slice(0, MAX_AGENT_ROWS)
-  }, [active, agentMentionAgents, currentAgentId, tokenIsCapabilityQuery, tokenIsSkillQuery])
+  }, [active, agentMentionAgents, tokenIsCapabilityQuery, tokenIsSkillQuery])
 
   const skillEntries = useMemo(() => {
     if (!skillEnabled || tokenIsAgentQuery || tokenIsCapabilityQuery) return []

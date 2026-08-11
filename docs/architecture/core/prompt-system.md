@@ -138,6 +138,8 @@ anchor 覆盖的原文 token 还必须与 `kind + targetId` 确定性匹配；`s
 
 投影只包含最终状态为 `resolved` 的 inline binding；`raw` 由后端按已验证 canonical message 的 UTF-8 span 精确提取，前端若使用 UTF-16 selection 必须显式换算，不能回退正则/parser。`sourceJournalSeq` 必须为正数，它把缓存投影绑定到已耐久的 Initial Context；journal 才是恢复真相源，message metadata 不参与执行、授权或重放。merge 事务必须重新读取目标 user-message 的 `content`，用同一 installation-keyed 算法重算 canonical fingerprint，并逐项复核 UTF-8 span/`raw` 后才可写 metadata；这样 Hook rewrite、`display_text` 或消息替换不会继承另一份输入快照的 provenance。legacy/空 binding、`unavailable`/`rejected`、span/fingerprint 不一致、durability flush 失败、缺少 turn→user-message 映射时均不写；Incognito 保持同形内存 receipt，但不新增 message metadata。Provider failover 重复投影同一 receipt 时该 key 覆盖自身、保留 plan/goal/user attachment 等其他 metadata。
 
+Markdown 消息不会把可见 token 或静态 href 当作 provenance。每个 renderer 实例生成一个不可预测且在组件生命周期内稳定的 marker namespace，把已验证 span 映射到实例内 lookup table；历史 hydration 即使替换 binding 数组对象也复用同一 marker，避免 Markdown block memo 留下旧 href 后退化为普通锚点。消息卸载后 namespace 与 lookup table 一起销毁，手输同形 marker 不会获得 chip 语义。
+
 `unavailable` / `rejected` 不能只存在 journal/UI receipt 中：在 Provider I/O 前，后端还会按已验证 source anchor 排序，把每个失败 binding 的 `mentionId`、`kind`、`displayLabel`、`status` 放进当前 user-level Turn Envelope。该状态块不含 target id、远程错误、目标正文或安全判定原因，不从可见 token 反推对象，也不获得 system/developer authority；它只让模型明确知道选中的 Note、Agent 或 Capability 当前不可用，避免把缺失数据静默当成已读取。显式 Skill 是更严格的例外：整组 Skill 的 live resolution、正文 materialization 与 `allowed-tools` ceiling 必须原子成功，否则整个 turn 在 Provider I/O 前 fail-closed，不靠状态块继续成 unrestricted prompt。
 
 ### Layer 1 — 静态基础段

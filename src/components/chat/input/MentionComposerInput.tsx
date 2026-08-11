@@ -22,11 +22,30 @@ import {
   useState,
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { Cable, FileText, Folder, Puzzle } from "lucide-react"
+import { Cable, ClipboardList, FileText, Folder, Puzzle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { AgentAvatarBadge } from "@/components/common/AgentSelectDisplay"
-import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
+import {
+  AgentMentionIcon,
+  AGENT_MENTION_ICON_CLASS,
+  AGENT_MENTION_INLINE_CLASS,
+} from "@/components/chat/agent-mention/AgentMentionChip"
+import {
+  CAPABILITY_MENTION_ICON_CLASS,
+  CAPABILITY_MENTION_INLINE_CLASS,
+} from "@/components/chat/capability-mention/CapabilityMentionChip"
+import {
+  FILE_MENTION_ICON_CLASS,
+  FILE_MENTION_INLINE_CLASS,
+} from "@/components/chat/file-mention/FileMentionChip"
+import {
+  NOTE_MENTION_ICON_CLASS,
+  NOTE_MENTION_INLINE_CLASS,
+} from "@/components/chat/note-mention/NoteMentionChip"
+import {
+  PLAN_MENTION_ICON_CLASS,
+  PLAN_MENTION_INLINE_CLASS,
+} from "@/components/chat/plan-mention/PlanMentionChip"
 import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import { basename } from "@/lib/path"
@@ -103,19 +122,14 @@ interface MentionConfig {
   agentById: (id: string) => AgentSummaryForSidebar | undefined
 }
 
-const FILE_CHIP_CLASS =
-  "cm-mention-chip cm-mention-file mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-blue-500/20 bg-blue-500/10 px-1.5 text-sm font-medium text-blue-600 shadow-sm outline-none dark:border-blue-300/20 dark:bg-blue-300/15 dark:text-blue-200"
-const NOTE_CHIP_CLASS =
-  "cm-mention-chip cm-mention-note mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 text-sm font-medium text-violet-600 shadow-sm dark:border-violet-300/20 dark:bg-violet-300/15 dark:text-violet-200"
+const FILE_CHIP_CLASS = `cm-mention-chip cm-mention-file ${FILE_MENTION_INLINE_CLASS} text-sm outline-none`
+const NOTE_CHIP_CLASS = `cm-mention-chip cm-mention-note ${NOTE_MENTION_INLINE_CLASS} text-sm`
 const SKILL_CHIP_CLASS =
   "cm-mention-chip cm-mention-skill mx-0.5 inline-flex max-w-[16rem] items-baseline gap-1 whitespace-nowrap align-baseline text-sm font-normal"
-const AGENT_CHIP_CLASS =
-  "cm-mention-chip cm-mention-agent mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-teal-500/20 bg-teal-500/10 px-1.5 text-sm font-medium text-teal-700 shadow-sm dark:border-teal-300/20 dark:bg-teal-300/15 dark:text-teal-200"
-const CAPABILITY_CHIP_CLASS =
-  "cm-mention-chip cm-mention-capability mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-1.5 text-sm font-medium text-cyan-700 shadow-sm dark:border-cyan-300/20 dark:bg-cyan-300/15 dark:text-cyan-200"
-const PLAN_CHIP_CLASS =
-  "cm-mention-chip cm-mention-plan mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 text-sm font-medium text-amber-700 shadow-sm dark:border-amber-300/20 dark:bg-amber-300/15 dark:text-amber-200"
-const CHIP_ICON_CLASS = "h-4 w-4 shrink-0"
+const AGENT_CHIP_CLASS = `cm-mention-chip cm-mention-agent ${AGENT_MENTION_INLINE_CLASS} text-sm`
+const CAPABILITY_CHIP_CLASS = `cm-mention-chip cm-mention-capability ${CAPABILITY_MENTION_INLINE_CLASS} text-sm`
+const PLAN_CHIP_CLASS = `cm-mention-chip cm-mention-plan ${PLAN_MENTION_INLINE_CLASS} text-sm`
+const SKILL_ICON_CLASS = "h-[1em] w-[1em] shrink-0 self-center"
 const CHIP_LABEL_CLASS = "truncate"
 const widgetIconRoots = new WeakMap<HTMLElement, Root>()
 
@@ -293,7 +307,11 @@ class MentionWidget extends WidgetType {
       const title = this.span.raw.slice(2, -2)
       root.className = NOTE_CHIP_CLASS
       root.title = this.span.raw
-      appendIcon(root, createElement(FileText, { className: CHIP_ICON_CLASS }))
+      appendIcon(
+        root,
+        createElement(FileText, { className: NOTE_MENTION_ICON_CLASS }),
+        "self-center",
+      )
       appendText(root, CHIP_LABEL_CLASS, title)
       return root
     }
@@ -301,7 +319,11 @@ class MentionWidget extends WidgetType {
     if (this.span.kind === "plan") {
       root.className = PLAN_CHIP_CLASS
       root.setAttribute("aria-label", this.span.raw)
-      appendIcon(root, createElement(FileText, { className: CHIP_ICON_CLASS }))
+      appendIcon(
+        root,
+        createElement(ClipboardList, { className: PLAN_MENTION_ICON_CLASS }),
+        "self-center",
+      )
       appendText(root, CHIP_LABEL_CLASS, this.span.label || this.span.raw)
       return root
     }
@@ -316,7 +338,7 @@ class MentionWidget extends WidgetType {
       if (meta) {
         appendIcon(
           root,
-          createElement(SkillMentionIcon, { kind: meta.iconKind, className: CHIP_ICON_CLASS }),
+          createElement(SkillMentionIcon, { kind: meta.iconKind, className: SKILL_ICON_CLASS }),
           "self-center",
         )
       }
@@ -331,10 +353,11 @@ class MentionWidget extends WidgetType {
       root.title = label
       appendIcon(
         root,
-        createElement(AgentAvatarBadge, {
-          agent: agent ?? { id: this.span.agentId, name: label },
-          size: "xs",
+        createElement(AgentMentionIcon, {
+          agent,
+          className: AGENT_MENTION_ICON_CLASS,
         }),
+        "self-center",
       )
       appendText(root, CHIP_LABEL_CLASS, label)
       return root
@@ -346,8 +369,9 @@ class MentionWidget extends WidgetType {
       appendIcon(
         root,
         createElement(this.span.capabilityKind === "connector" ? Cable : Puzzle, {
-          className: CHIP_ICON_CLASS,
+          className: CAPABILITY_MENTION_ICON_CLASS,
         }),
+        "self-center",
       )
       appendText(root, CHIP_LABEL_CLASS, this.span.label)
       return root
@@ -367,8 +391,9 @@ class MentionWidget extends WidgetType {
     appendIcon(
       root,
       isDir
-        ? createElement(Folder, { className: `${CHIP_ICON_CLASS} text-blue-500` })
-        : createElement(FileTypeIcon, { name, className: CHIP_ICON_CLASS }),
+        ? createElement(Folder, { className: FILE_MENTION_ICON_CLASS })
+        : createElement(FileText, { className: FILE_MENTION_ICON_CLASS }),
+      "self-center",
     )
     appendText(root, CHIP_LABEL_CLASS, name)
     return root
@@ -586,9 +611,6 @@ const baseTheme = EditorView.theme({
   ".cm-mention-chip": {
     verticalAlign: "baseline",
     whiteSpace: "nowrap",
-  },
-  ".cm-mention-file:hover": {
-    backgroundColor: "color-mix(in srgb, var(--primary, #3b82f6) 15%, transparent)",
   },
 })
 

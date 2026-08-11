@@ -63,35 +63,35 @@ flowchart TD
 
 ### 表单控件（静止态）
 
-| 语义 | 唯一入口 | 说明 |
-| --- | --- | --- |
-| 搜索 | `SearchInput` | 扁平无边框搜索表面；列表、面板和设置页搜索统一使用 |
-| 普通下拉 | `Select` + `SelectTrigger` | Radix Select；选项使用 `SelectContent` / `SelectItem` |
-| 分组模型选择 | `ModelSelector` | Provider → Model 二级菜单；触发器复用扁平表面 |
-| 模型降级链 | `ModelChainEditor` | 主模型和 fallback 的唯一编辑入口；内部复用 `ModelSelector` |
-| 即时数字输入 | `NumberInput` | 保留原生 number 语义和步进按钮，但统一外观 |
-| 延迟提交数字输入 | `DeferredNumberInput` | 编辑草稿，失焦或 Enter 后提交，并做 min/max 钳制 |
-| 普通文本/密码 | `Input` | 普通编辑字段；不要因为视觉相似误用 `SearchInput` |
-| 多行文本 | `Textarea` | 普通多行编辑字段 |
-| 强互斥分类标签 | `RadioPills variant="strong"` | 单选；支持图标、固定网格或自动换行；选中反白 |
-| 多选标签 | `TogglePills` | 多选；选中使用深色反白，未选中保留中性实色底，不使用边框、阴影或额外勾选 |
+| 语义             | 唯一入口                      | 说明                                                                     |
+| ---------------- | ----------------------------- | ------------------------------------------------------------------------ |
+| 搜索             | `SearchInput`                 | 扁平无边框搜索表面；列表、面板和设置页搜索统一使用                       |
+| 普通下拉         | `Select` + `SelectTrigger`    | Radix Select；选项使用 `SelectContent` / `SelectItem`                    |
+| 分组模型选择     | `ModelSelector`               | Provider → Model 二级菜单；触发器复用扁平表面                            |
+| 模型降级链       | `ModelChainEditor`            | 主模型和 fallback 的唯一编辑入口；内部复用 `ModelSelector`               |
+| 即时数字输入     | `NumberInput`                 | 保留原生 number 语义和步进按钮，但统一外观                               |
+| 延迟提交数字输入 | `DeferredNumberInput`         | 编辑草稿，失焦或 Enter 后提交，并做 min/max 钳制                         |
+| 普通文本/密码    | `Input`                       | 普通编辑字段；不要因为视觉相似误用 `SearchInput`                         |
+| 多行文本         | `Textarea`                    | 普通多行编辑字段                                                         |
+| 强互斥分类标签   | `RadioPills variant="strong"` | 单选；支持图标、固定网格或自动换行；选中反白                             |
+| 多选标签         | `TogglePills`                 | 多选；选中使用深色反白，未选中保留中性实色底，不使用边框、阴影或额外勾选 |
 
 业务组件不得直接使用裸 `<select>`、裸 `<input type="number">`、`Input type="number"`
 或重新引入 `NativeSelect`。公共入口表达不了新语义时，应先扩展公共组件。
 
 ### 浮层与提示
 
-| 场景 | 统一入口 | 说明 |
-| --- | --- | --- |
-| 本地锚点菜单 | `FloatingMenu` | 工具栏菜单、状态详情、提及菜单、知识选择等 |
-| Radix Dropdown | `DropdownMenuContent variant="floating"` | Portal、碰撞检测和键盘导航 |
-| Radix Context Menu | `ContextMenuContent variant="floating"` | 右键菜单及其子菜单 |
-| 表单 Select | `SelectContent` | 继承公共浮层表面与 Radix 动效 |
-| 分组模型选择 | `ModelSelector` | 触发器遵守表单标准；Provider/Model 子菜单遵守浮层标准 |
-| 图标提示 | `IconTip` | 单个图标按钮的唯一提示入口 |
-| 通用 Tooltip | `TooltipContent` | 截断说明或富提示；使用紧凑动效时长 |
-| 模态框/抽屉 | `Dialog` / `AlertDialog` / `Sheet` | 独立模态协议，不套菜单布局 |
-| 通知 | Sonner 或专用状态条 | 不伪装成菜单或 Tooltip |
+| 场景               | 统一入口                                 | 说明                                                  |
+| ------------------ | ---------------------------------------- | ----------------------------------------------------- |
+| 本地锚点菜单       | `FloatingMenu`                           | 工具栏菜单、状态详情、提及菜单、知识选择等            |
+| Radix Dropdown     | `DropdownMenuContent variant="floating"` | Portal、碰撞检测和键盘导航                            |
+| Radix Context Menu | `ContextMenuContent variant="floating"`  | 右键菜单及其子菜单                                    |
+| 表单 Select        | `SelectContent`                          | 继承公共浮层表面与 Radix 动效                         |
+| 分组模型选择       | `ModelSelector`                          | 触发器遵守表单标准；Provider/Model 子菜单遵守浮层标准 |
+| 图标提示           | `IconTip`                                | 单个图标按钮的唯一提示入口                            |
+| 通用 Tooltip       | `TooltipContent`                         | 截断说明或富提示；使用紧凑动效时长                    |
+| 模态框/抽屉        | `Dialog` / `AlertDialog` / `Sheet`       | 独立模态协议，不套菜单布局                            |
+| 通知               | Sonner 或专用状态条                      | 不伪装成菜单或 Tooltip                                |
 
 ## 控件表面
 
@@ -379,9 +379,11 @@ stateDiagram-v2
 
 这里有个刻意设计的细节：**鼠标聚焦文本框后，在框内输入文字、移动光标或使用编辑快捷键（包括打开
 搜索）不会切到 keyboard**——光标已经表达了焦点，此时突然画出焦点框反而是干扰。判定逻辑是
-`shouldEnterKeyboardModality`：`Tab` 永远算键盘导航；纯修饰键不切换；命中可编辑目标（文本类
-input / textarea / contenteditable / `role=textbox`）的其它按键不切换；其余按键切到 keyboard。键盘
-用户通过 Tab 进入文本框时本就已是 keyboard，所以编辑期间会持续保留焦点提示。
+`shouldEnterKeyboardModality`：普通 `Tab` 算键盘导航；纯修饰键不切换；命中可编辑目标（文本类 input /
+textarea / contenteditable / `role=textbox`）的其它按键不切换；其余按键切到 keyboard。候选菜单把 `Tab`
+用作原地确认且不移动焦点时是唯一例外：菜单消费按键后显式恢复捕获阶段记录的输入方式，因此鼠标聚焦
+后确认 File / Note / Skill 等候选不会凭空出现焦点框，而原本已用键盘导航的用户仍保持 keyboard。键盘
+用户通过普通 Tab 进入文本框时本就已是 keyboard，所以编辑期间会持续保留焦点提示。
 
 **第二条轴 `data-focus-indicators`（用户偏好）**——`auto` 或 `enhanced`。默认 `auto`，用户手动打开
 增强后变 `enhanced`，此时所有输入方式都画增强轮廓。
@@ -392,9 +394,9 @@ input / textarea / contenteditable / `role=textbox`）的其它按键不切换�
 最终画不画轮廓、画多重，就是这三者的组合：
 
 | 输入方式 | 偏好 `auto` | 偏好 `enhanced` | 系统高对比 / forced-colors |
-| --- | --- | --- | --- |
-| pointer | 不画 | 增强轮廓 | 系统轮廓 |
-| keyboard | 轻量轮廓 | 增强轮廓 | 系统轮廓 |
+| -------- | ----------- | --------------- | -------------------------- |
+| pointer  | 不画        | 增强轮廓        | 系统轮廓                   |
+| keyboard | 轻量轮廓    | 增强轮廓        | 系统轮廓                   |
 
 运行时只在 [`main.tsx`](../../../src/main.tsx) 安装一次，因此主窗口、Quick Chat 和分离窗口行为一致。
 首屏偏好读取有 2 秒上限；后端无响应时回退 `auto`，不阻塞窗口挂载。
@@ -422,6 +424,16 @@ input / textarea / contenteditable / `role=textbox`）的其它按键不切换�
 ## 登记的例外
 
 以下控件确有不同语义，允许偏离通用规则，但边界写在这里，不能扩散：
+
+**聊天 Typed Mention**——第一方 picker 产生的 File、Note、Skill、Agent、Plan、Plugin 和 Connector
+mention 在输入框、乐观消息与历史消息中复用同一行内视觉：只显示对应语义色的图标与文字，图标继承
+文字颜色；禁止背景、边框、圆角胶囊或阴影，并以正文 baseline 对齐。该视觉只由已验证 typed provenance
+触发，手输或粘贴的同形正文保持普通文本，不能靠 token 外形自行获得 mention 样式或能力。Agent 的
+图标位遵循配置头像 → emoji → 固定 Bot 图标的降级顺序；头像与 emoji 同样不额外包背景或边框。
+
+**聊天输入框焦点边界**——输入区与 Send / Stop 工具栏上下紧邻，外扩 halo 会压到按钮。因此
+`data-chat-composer` 保留全局 input-modality 判定，但把普通 / enhanced 焦点视觉统一画成输入区内部的
+1px inset 线，不再叠加外扩 halo；系统高对比与 forced-colors 仍由系统规则优先。
 
 **工具栏 ghost action**——聊天输入区的 `chat/input/ModelPicker`、权限入口，以及设计空间首页生成器
 prompt dock 内的 `ModelSelector` 是工具栏 ghost 按钮，不是表单字段：它们保持无边框、紧凑按钮样式；

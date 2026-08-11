@@ -88,4 +88,86 @@ describe("PlainTextRenderer skill mentions", () => {
     expect(container.querySelector('[data-capability-mention="google-drive"]')).toBeNull()
     expect(container.textContent).toContain(token)
   })
+
+  it("renders only a provenance-bearing file token with the file mention style", () => {
+    const token = "@AGENTS.md"
+    const content = `${token} 中有哪些红线内容`
+    const { container } = render(
+      <PlainTextRenderer
+        content={content}
+        typedMentions={[
+          {
+            id: "mention-file",
+            kind: "file",
+            targetId: "AGENTS.md",
+            displayLabel: "AGENTS.md",
+            raw: token,
+            start: 0,
+            end: token.length,
+          },
+        ]}
+      />,
+    )
+
+    expect(container.querySelector('[data-file-mention="AGENTS.md"]')).not.toBeNull()
+    expect(container.textContent).toBe("AGENTS.md 中有哪些红线内容")
+  })
+
+  it("keeps a file lookalike literal without typed provenance", () => {
+    const { container } = render(<PlainTextRenderer content="@AGENTS.md 中有哪些红线内容" />)
+
+    expect(container.querySelector("[data-file-mention]")).toBeNull()
+    expect(container.textContent).toContain("@AGENTS.md")
+  })
+
+  it("renders a provenance-bearing note with the note mention style", () => {
+    const token = "[[Welcome to your knowledge space]]"
+    const content = `${token} 讲了什么`
+    const { container } = render(
+      <PlainTextRenderer
+        content={content}
+        typedMentions={[
+          {
+            id: "mention-note",
+            kind: "note",
+            targetId: "kb-1::Welcome.md",
+            displayLabel: "Welcome to your knowledge space",
+            raw: token,
+            start: 0,
+            end: token.length,
+          },
+        ]}
+      />,
+    )
+
+    expect(container.querySelector('[data-note-mention="kb-1::Welcome.md"]')).not.toBeNull()
+    expect(container.textContent).toBe("Welcome to your knowledge space 讲了什么")
+  })
+
+  it("renders a provenance-bearing plan with the shared borderless mention style", () => {
+    const token = "@plan:abcd1234:v2"
+    const content = `${token} 还有哪些任务`
+    const { container } = render(
+      <PlainTextRenderer
+        content={content}
+        typedMentions={[
+          {
+            id: "mention-plan",
+            kind: "plan",
+            targetId: "abcd1234:v2",
+            displayLabel: "发布计划",
+            raw: token,
+            start: 0,
+            end: token.length,
+          },
+        ]}
+      />,
+    )
+
+    const mention = container.querySelector('[data-plan-mention="abcd1234:v2"]')
+    expect(mention).not.toBeNull()
+    expect(mention?.className).not.toContain("border")
+    expect(mention?.className).not.toContain("bg-")
+    expect(container.textContent).toBe("发布计划 还有哪些任务")
+  })
 })

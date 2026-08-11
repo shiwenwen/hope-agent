@@ -12,6 +12,7 @@ const TEXT_ENTRY_INPUT_TYPES = new Set([
 ])
 
 let uninstallCurrentTracker: (() => void) | null = null
+const modalityBeforeTabKeydown = new WeakMap<KeyboardEvent, FocusInputModality>()
 
 function editableTarget(target: EventTarget | null): Element | null {
   if (!(target instanceof Element)) return null
@@ -42,6 +43,19 @@ export function setFocusInputModality(modality: FocusInputModality): void {
   document.documentElement.dataset.inputModality = modality
 }
 
+/**
+ * A composer picker may use Tab as an accept key without moving focus. Restore
+ * the modality captured before the global keydown listener treated that Tab as
+ * navigation, so pointer-focused editors do not gain a keyboard focus ring.
+ */
+export function restoreFocusInputModalityAfterConsumedTab(event: KeyboardEvent): void {
+  if (event.key !== "Tab") return
+  const previousModality = modalityBeforeTabKeydown.get(event)
+  if (!previousModality) return
+  modalityBeforeTabKeydown.delete(event)
+  setFocusInputModality(previousModality)
+}
+
 /** Install once per WebView; all Hope Agent window variants share this entrypoint. */
 export function installFocusVisibilityTracker(): () => void {
   const root = document.documentElement
@@ -52,6 +66,12 @@ export function installFocusVisibilityTracker(): () => void {
 
   const onPointerDown = () => setFocusInputModality("pointer")
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Tab") {
+      modalityBeforeTabKeydown.set(
+        event,
+        root.dataset.inputModality === "keyboard" ? "keyboard" : "pointer",
+      )
+    }
     if (shouldEnterKeyboardModality(event)) setFocusInputModality("keyboard")
   }
 

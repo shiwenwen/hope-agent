@@ -23,6 +23,34 @@ export interface MentionAttachment extends ChatAttachment {
   file_path: string
 }
 
+export interface MentionWorkingDirContext {
+  targetSessionId: string | null
+  activeSessionId: string | null
+  sessionWorkingDir: string | null
+  draftWorkingDir: string | null
+  /** Exact workspace root exposed to the active composer's file picker. */
+  mentionWorkingDir: string | null
+}
+
+/**
+ * Resolve file mentions against the same effective workspace root exposed to
+ * the active picker at send time. Project sessions may inherit their working
+ * directory while `SessionMeta.workingDir` remains null. The inherited root is
+ * only valid for the active composer; a send routed to another session must use
+ * that target session's own persisted working directory.
+ */
+export function resolveMentionWorkingDir({
+  targetSessionId,
+  activeSessionId,
+  sessionWorkingDir,
+  draftWorkingDir,
+  mentionWorkingDir,
+}: MentionWorkingDirContext): string | null {
+  if (!targetSessionId) return mentionWorkingDir ?? draftWorkingDir
+  if (sessionWorkingDir) return sessionWorkingDir
+  return targetSessionId === activeSessionId ? mentionWorkingDir : null
+}
+
 /**
  * Naive extension → mime-type table. The server side already does its own
  * sniffing so this is mostly a hint for the chat history UI; misclassifying

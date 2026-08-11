@@ -893,6 +893,22 @@ fn validate_engine_typed_resource_boundary(
     .map_err(|error| format!("Invalid typed resource attachment binding: {error}"))
 }
 
+fn prepare_typed_resource_mentions_for_session(
+    session: &crate::session::SessionMeta,
+    file_targets: &[String],
+    plan_targets: &[String],
+    attachments: &[crate::agent::Attachment],
+) -> anyhow::Result<crate::attachments::PreparedTypedResourceMentions> {
+    let working_dir = crate::session::effective_working_dir_for_meta(session);
+    crate::attachments::prepare_typed_resource_mentions(
+        working_dir.as_deref(),
+        file_targets,
+        plan_targets,
+        session.incognito,
+        attachments,
+    )
+}
+
 /// Run the shared chat execution engine.
 ///
 /// Handles: model chain traversal → agent building → config → history restoration
@@ -1023,11 +1039,10 @@ pub(crate) async fn run_chat_engine_classified(
                     let session = snapshot_db
                         .get_session(&snapshot_session_id)?
                         .with_context(|| "typed resource mention session no longer exists")?;
-                    let prepared = crate::attachments::prepare_typed_resource_mentions(
-                        session.working_dir.as_deref(),
+                    let prepared = prepare_typed_resource_mentions_for_session(
+                        &session,
                         &file_targets,
                         &plan_targets,
-                        session.incognito,
                         &snapshot_attachments,
                     )?;
                     anyhow::Ok((snapshot_attachments, session.incognito, prepared))
@@ -3624,6 +3639,47 @@ mod stream_lifecycle_tests {
         let error = validate_engine_typed_resource_boundary("plain", None, &[attachment])
             .expect_err("engine must not trust a client-controlled attachment source marker");
         assert!(error.contains("exactly match"));
+    }
+
+    #[test]
+    fn typed_resource_freeze_uses_project_working_dir_when_session_override_is_null() {
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
+            let project_id = format!("typed-resource-{}", uuid::Uuid::new_v4());
+            let project_workspace = crate::paths::project_workspace_dir(&project_id)
+                .expect("resolve default project workspace");
+            std::fs::create_dir_all(&project_workspace).expect("create project workspace");
+            let dockerfile = project_workspace.join("Dockerfile");
+            std::fs::write(&dockerfile, b"FROM scratch\n").expect("write Dockerfile");
+
+            let db = SessionDB::open(&data_root.path().join("engine-project-session.db"))
+                .expect("open session db");
+            let session = db
+                .create_session_with_project("ha-main", Some(&project_id), None)
+                .expect("create project session");
+            assert_eq!(
+                session.working_dir, None,
+                "fixture must inherit from its project"
+            );
+
+            let attachment = crate::agent::Attachment {
+                name: "Dockerfile".into(),
+                mime_type: "text/plain".into(),
+                source: Some("mention".into()),
+                data: None,
+                file_path: Some(dockerfile.to_string_lossy().into_owned()),
+                upload_id: None,
+                quote_lines: None,
+                quote_role: None,
+            };
+            prepare_typed_resource_mentions_for_session(
+                &session,
+                &["Dockerfile".into()],
+                &[],
+                &[attachment],
+            )
+            .expect("project-inherited working dir should authorize the selected root file");
+        });
     }
 
     struct RecordingImMirror {

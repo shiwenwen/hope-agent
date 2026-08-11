@@ -1,9 +1,44 @@
 import { useEffect, useState } from "react"
+import { Bot } from "lucide-react"
 
-import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import { loadAgents } from "../subagentShared"
+
+export const AGENT_MENTION_INLINE_CLASS =
+  "mx-0.5 inline-flex max-w-[16rem] items-baseline gap-1 whitespace-nowrap align-baseline font-normal leading-[inherit] text-teal-700 dark:text-teal-300"
+export const AGENT_MENTION_ICON_CLASS = "h-[1em] w-[1em] shrink-0 self-center"
+
+/** Keep an Agent's configured identity visible without restoring the old
+ * framed avatar badge: avatar first, then emoji, then the fixed Bot fallback. */
+export function AgentMentionIcon({
+  agent,
+  className,
+}: {
+  agent?: AgentSummaryForSidebar | null
+  className?: string
+}) {
+  const avatarUrl = agent?.avatar
+    ? (getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar)
+    : null
+  const iconClass = cn(AGENT_MENTION_ICON_CLASS, className)
+
+  if (avatarUrl) {
+    return <img src={avatarUrl} className={cn(iconClass, "rounded-full object-cover")} alt="" />
+  }
+  if (agent?.emoji) {
+    return (
+      <span
+        aria-hidden
+        className={cn(iconClass, "inline-flex items-center justify-center leading-none")}
+      >
+        {agent.emoji}
+      </span>
+    )
+  }
+  return <Bot className={iconClass} />
+}
 
 export function AgentMentionChip({
   agentId,
@@ -34,19 +69,10 @@ export function AgentMentionChip({
     <span
       data-agent-mention={agentId}
       data-ha-title-tip={label}
-      className={cn(
-        "mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 align-baseline",
-        "text-[0.95em] font-medium leading-snug",
-        "border-teal-500/20 bg-teal-500/10 text-teal-700",
-        "dark:border-teal-300/20 dark:bg-teal-300/15 dark:text-teal-200",
-      )}
+      className={AGENT_MENTION_INLINE_CLASS}
     >
-      <AgentSelectDisplay
-        agent={agent ?? { id: agentId, name: label }}
-        fallbackName={label}
-        size="xs"
-        className="gap-1"
-      />
+      <AgentMentionIcon agent={agent} />
+      <span className="min-w-0 truncate">{label}</span>
     </span>
   )
 }
