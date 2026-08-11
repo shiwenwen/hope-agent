@@ -1799,6 +1799,7 @@ describe("ChatInput", () => {
     fireEvent.select(screen.getByRole("textbox"))
 
     await waitFor(() => expect(screen.getByText("chat.quickPrompts.noMatches")).toBeTruthy())
+    act(() => emitEnterToSendPreference(true))
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
 
     expect(onSend).toHaveBeenCalledTimes(1)
