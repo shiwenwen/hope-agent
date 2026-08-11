@@ -51,10 +51,10 @@ impl RoutingKeyState {
 
 static ROUTING_STATE: OnceLock<RoutingKeyState> = OnceLock::new();
 
-fn routing_state_with<'a>(
-    state: &'a OnceLock<RoutingKeyState>,
+fn routing_state_with(
+    state: &OnceLock<RoutingKeyState>,
     load: impl FnOnce() -> Result<[u8; 32]>,
-) -> &'a RoutingKeyState {
+) -> &RoutingKeyState {
     state.get_or_init(|| RoutingKeyState::initialize(load))
 }
 
