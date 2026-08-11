@@ -1401,7 +1401,6 @@ impl AcpAgent {
         })?;
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
-        agent.set_turn_provenance(ha_core::tool_defs::ToolTurnProvenance::ForegroundUser);
         agent.set_compact_config(store.compact.clone());
 
         if let Some(model_ref) = store.compact.effective_summarization_model_ref() {
@@ -1648,6 +1647,7 @@ impl AcpAgent {
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
                 agent.set_turn_provenance(ha_core::tool_defs::ToolTurnProvenance::ForegroundUser);
+                agent.set_turn_admitted_stop_epoch(durability.admitted_stop_epoch());
                 agent.set_session_db(db_clone.clone());
                 agent.set_turn_durability(durability.clone());
                 agent.set_compact_config(store.compact.clone());

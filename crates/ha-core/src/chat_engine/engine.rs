@@ -622,6 +622,7 @@ pub async fn compact_session_now(
         source,
         kb_access_source(source),
         None,
+        None,
     );
     let original_context_json = session_db
         .load_context(&session_id)
@@ -1392,6 +1393,7 @@ pub(crate) async fn run_chat_engine_classified(
                             follow_global_reasoning_effort,
                             source,
                             kb_origin,
+                            Some(durability_owned.admitted_stop_epoch()),
                             channel_kb_context_owned,
                         );
                         agent.set_turn_durability(durability_owned.clone());
@@ -2166,6 +2168,7 @@ pub(crate) async fn run_chat_engine_classified(
                         follow_global_reasoning_effort,
                         source,
                         kb_origin,
+                        Some(durability.admitted_stop_epoch()),
                         channel_kb_context.clone(),
                     );
                     restore_agent_context(&db, &session_id, &compact_agent);
@@ -2745,14 +2748,10 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
 
 fn tool_turn_provenance(source: stream_seq::ChatSource) -> crate::tool_defs::ToolTurnProvenance {
     use crate::tool_defs::ToolTurnProvenance;
-    use stream_seq::ChatSource;
-    match source {
-        ChatSource::Desktop | ChatSource::Http | ChatSource::Channel | ChatSource::Acp => {
-            ToolTurnProvenance::ForegroundUser
-        }
-        ChatSource::Subagent | ChatSource::ParentInjection | ChatSource::Cron => {
-            ToolTurnProvenance::Autonomous
-        }
+    if source.carries_foreground_user_intent() {
+        ToolTurnProvenance::ForegroundUser
+    } else {
+        ToolTurnProvenance::Autonomous
     }
 }
 
@@ -2800,6 +2799,7 @@ fn configure_agent(
     follow_global_reasoning_effort: bool,
     source: stream_seq::ChatSource,
     kb_origin: crate::knowledge::KbAccessSource,
+    turn_admitted_stop_epoch: Option<u64>,
     channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) {
     agent.set_agent_id(agent_id);
@@ -2808,6 +2808,9 @@ fn configure_agent(
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);
     agent.set_turn_provenance(tool_turn_provenance(source));
+    if let Some(epoch) = turn_admitted_stop_epoch {
+        agent.set_turn_admitted_stop_epoch(epoch);
+    }
     agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);
     if let Some(ctx) = extra_system_context {

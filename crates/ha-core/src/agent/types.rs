@@ -220,6 +220,9 @@ pub struct AssistantAgent {
     /// from KB scoping because ACP and parent injection share the KB `Other`
     /// bucket but have opposite authorization semantics.
     pub(super) turn_provenance: crate::tool_defs::ToolTurnProvenance,
+    /// Stop generation captured atomically with this turn's durability
+    /// admission. `None` keeps non-chat callers fail-closed for Continue.
+    pub(super) turn_admitted_stop_epoch: Option<u64>,
     /// IM identity of the lineage origin for the WS8 KB-access opt-in gate. Set
     /// per-turn by `configure_agent`; flows into `ToolExecContext.channel_kb_context`.
     /// `Some` only for IM-origin lineages (top-level IM turn or IM-origin subagent).

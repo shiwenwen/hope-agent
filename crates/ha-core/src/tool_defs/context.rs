@@ -279,6 +279,10 @@ pub struct ToolExecContext {
     /// Defaults to [`ToolTurnProvenance::Unknown`] so unthreaded callers cannot
     /// acquire such capabilities accidentally.
     pub turn_provenance: ToolTurnProvenance,
+    /// Durable Stop generation observed when this model turn was admitted.
+    /// `session_continue` compares it with the live lineage generation so an
+    /// older foreground turn cannot undo a newer user Stop.
+    pub turn_admitted_stop_epoch: Option<u64>,
     /// IM identity of the lineage origin, for the WS8 KB-access opt-in gate.
     /// `Some` only when the lineage contains an IM hop (top-level IM turn or an
     /// IM-origin subagent, which carries the origin's identity). `None` for

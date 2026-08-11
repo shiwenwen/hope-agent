@@ -499,12 +499,14 @@ pub fn spawn_session_autonomy_resume_replay_loop() {
 }
 
 async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
+    let foreground_generations = super::durability::active_foreground_stop_generations();
     let injection_generations = crate::subagent::active_parent_injection_generations();
     let subagent_run_ids = crate::get_subagent_cancels()
         .map(|registry| registry.active_run_ids())
         .unwrap_or_default();
     let workflow_generations = crate::workflow::active_workflow_runtime_generations();
-    if injection_generations.is_empty()
+    if foreground_generations.is_empty()
+        && injection_generations.is_empty()
         && subagent_run_ids.is_empty()
         && workflow_generations.is_empty()
     {
@@ -514,28 +516,34 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
     let fences = db
         .run(move |db| {
             db.resolve_local_autonomy_stop_fences(
+                &foreground_generations,
                 &injection_generations,
                 &subagent_run_ids,
                 &workflow_generations,
             )
         })
         .await;
-    let (stale_injections, captured_subagents, captured_workflows) = match fences {
-        Ok(fences) => {
-            AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.store(false, Ordering::SeqCst);
-            fences
-        }
-        Err(error) => {
-            if !AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.swap(true, Ordering::SeqCst) {
-                crate::app_warn!(
-                    "chat",
-                    "stop_handoff",
-                    "Failed to resolve durable Stop handoffs for local runtimes: {error:#}"
-                );
+    let (stale_injections, captured_subagents, captured_workflows, stale_foreground_runs) =
+        match fences {
+            Ok(fences) => {
+                AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.store(false, Ordering::SeqCst);
+                fences
             }
-            return;
-        }
-    };
+            Err(error) => {
+                if !AUTONOMY_STOP_FENCE_WATCH_ERROR_LOGGED.swap(true, Ordering::SeqCst) {
+                    crate::app_warn!(
+                        "chat",
+                        "stop_handoff",
+                        "Failed to resolve durable Stop handoffs for local runtimes: {error:#}"
+                    );
+                }
+                return;
+            }
+        };
+
+    for run_id in stale_foreground_runs {
+        super::durability::request_foreground_stop_for_run(&run_id);
+    }
 
     for session_id in stale_injections {
         crate::subagent::request_pause_parent_injection(&session_id);
@@ -548,9 +556,9 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
     }
 }
 
-/// Every process owns its own injection/sub-agent/workflow cancel flags, while
+/// Every process owns its own foreground/injection/sub-agent/workflow cancel flags, while
 /// Stop receipts live in the shared SQLite database. Poll only while a local
-/// autonomous runtime exists, and compare immutable generations/run ids so a
+/// stoppable runtime exists, and compare immutable generations/run ids so a
 /// quick Continue cannot hide the Stop before the owning process observes it.
 pub fn spawn_session_autonomy_stop_fence_watcher() {
     if AUTONOMY_STOP_FENCE_WATCHER_STARTED.swap(true, Ordering::SeqCst) {
@@ -1421,6 +1429,12 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    struct NullEventSink;
+
+    impl super::super::EventSink for NullEventSink {
+        fn send(&self, _event: &str) {}
+    }
+
     fn fixture() -> (tempfile::TempDir, Arc<SessionDB>, String, String) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
@@ -1669,6 +1683,39 @@ mod tests {
             .lock()
             .expect("injection registry")
             .remove(&session.id);
+    }
+
+    #[tokio::test]
+    async fn cross_process_stop_epoch_cancels_an_old_foreground_stream() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("foreground-stop-handoff.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let coordinator = super::super::durability::StreamCoordinator::create(
+            db.clone(),
+            session.id.clone(),
+            crate::chat_engine::ChatSource::Acp,
+            None,
+            None,
+            Arc::new(NullEventSink),
+            cancel.clone(),
+        )
+        .await
+        .expect("foreground stream admission");
+        assert_eq!(coordinator.admitted_stop_epoch(), 0);
+        let pause = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("durable Stop receipt");
+        assert!(db.finish_session_autonomy_resume(&pause.id).unwrap());
+
+        converge_local_session_autonomy_stop_fences(db).await;
+
+        assert!(cancel.load(Ordering::SeqCst));
+        coordinator.mark_interrupted("interrupted");
     }
 
     #[tokio::test]

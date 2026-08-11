@@ -394,6 +394,7 @@ impl AssistantAgent {
             chat_source: None,
             origin_chat_source: None,
             turn_provenance: crate::tool_defs::ToolTurnProvenance::Unknown,
+            turn_admitted_stop_epoch: None,
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -467,6 +468,7 @@ impl AssistantAgent {
             chat_source: None,
             origin_chat_source: None,
             turn_provenance: crate::tool_defs::ToolTurnProvenance::Unknown,
+            turn_admitted_stop_epoch: None,
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -666,6 +668,7 @@ impl AssistantAgent {
             chat_source: None,
             origin_chat_source: None,
             turn_provenance: crate::tool_defs::ToolTurnProvenance::Unknown,
+            turn_admitted_stop_epoch: None,
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -3167,6 +3170,11 @@ impl AssistantAgent {
         self.turn_provenance = provenance;
     }
 
+    /// Bind the durable Stop generation captured at turn admission.
+    pub fn set_turn_admitted_stop_epoch(&mut self, epoch: u64) {
+        self.turn_admitted_stop_epoch = Some(epoch);
+    }
+
     /// Set the IM origin identity for the WS8 KB-access opt-in gate. `None` for
     /// non-IM lineages; an IM-origin subagent carries the origin's identity so
     /// the opt-in is judged against the account/chat that started the chain.
@@ -4243,6 +4251,7 @@ impl AssistantAgent {
             chat_source: self.chat_source,
             origin_chat_source: self.origin_chat_source,
             turn_provenance: self.turn_provenance,
+            turn_admitted_stop_epoch: self.turn_admitted_stop_epoch,
             channel_kb_context: self.channel_kb_context.clone(),
             agent_tool_filter,
             denied_tools,

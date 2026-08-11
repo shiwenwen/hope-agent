@@ -20,6 +20,9 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
         .as_deref()
         .ok_or_else(|| anyhow!("session_continue requires a current session"))?;
     ensure_current_turn_can_continue(ctx, session_id)?;
+    let admitted_stop_epoch = ctx.turn_admitted_stop_epoch.ok_or_else(|| {
+        anyhow!("session_continue requires a foreground turn admission generation")
+    })?;
     let db = ctx
         .session_db
         .as_ref()
@@ -28,10 +31,20 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
         .ok_or_else(|| anyhow!("session_continue: session database is unavailable"))?;
 
     let lookup_session_id = session_id.to_string();
-    let pause = db
+    let (pause, current_stop_epoch) = db
         .clone()
-        .run(move |db| db.active_session_or_ancestor_autonomy_pause(&lookup_session_id))
+        .run(move |db| -> Result<_> {
+            Ok((
+                db.active_session_or_ancestor_autonomy_pause(&lookup_session_id)?,
+                db.session_autonomy_lineage_pause_epoch(&lookup_session_id)?,
+            ))
+        })
         .await?;
+    if current_stop_epoch > admitted_stop_epoch {
+        anyhow::bail!(
+            "session_continue belongs to a turn admitted before the latest Stop; the pause fence remains active"
+        );
+    }
     let Some(pause) = pause else {
         return Ok(serde_json::to_string(&serde_json::json!({
             "resumed": false,
@@ -91,10 +104,14 @@ mod tests {
         db: Arc<crate::session::SessionDB>,
         session_id: String,
     ) -> ToolExecContext {
+        let admitted_stop_epoch = db
+            .session_autonomy_lineage_pause_epoch(&session_id)
+            .expect("admitted Stop epoch");
         ToolExecContext {
             session_id: Some(session_id),
             session_db: Some(SessionDbHandle(db)),
             turn_provenance: ToolTurnProvenance::ForegroundUser,
+            turn_admitted_stop_epoch: Some(admitted_stop_epoch),
             ..Default::default()
         }
     }
@@ -227,6 +244,10 @@ mod tests {
                 session_id: Some(session.id.clone()),
                 session_db: Some(SessionDbHandle(db.clone())),
                 turn_provenance: ToolTurnProvenance::ForegroundUser,
+                turn_admitted_stop_epoch: Some(
+                    db.session_autonomy_lineage_pause_epoch(&session.id)
+                        .expect("admitted Stop epoch"),
+                ),
                 cancellation_token: Some(cancellation_token),
                 ..Default::default()
             },
@@ -236,6 +257,48 @@ mod tests {
 
         assert!(error.to_string().contains("superseded by a newer Stop"));
         assert!(db.is_session_autonomy_paused(&session.id).unwrap());
+    }
+
+    #[tokio::test]
+    async fn foreground_turn_admitted_before_stop_cannot_consume_its_receipt() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &dir.path().join("session-continue-old-foreground.db"),
+            )
+            .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let admitted_stop_epoch = db
+            .session_autonomy_lineage_pause_epoch(&session.id)
+            .expect("initial epoch");
+        let pause = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("pause receipt");
+
+        let error = tool_session_continue(
+            &serde_json::json!({ "pause_id": pause.id }),
+            &ToolExecContext {
+                session_id: Some(session.id.clone()),
+                session_db: Some(SessionDbHandle(db.clone())),
+                turn_provenance: ToolTurnProvenance::ForegroundUser,
+                turn_admitted_stop_epoch: Some(admitted_stop_epoch),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("an old foreground turn must not clear a newer Stop");
+
+        assert!(error
+            .to_string()
+            .contains("admitted before the latest Stop"));
+        assert_eq!(
+            db.active_session_autonomy_pause(&session.id)
+                .unwrap()
+                .expect("receipt remains")
+                .id,
+            pause.id
+        );
     }
 
     #[tokio::test]
