@@ -877,7 +877,6 @@ async fn fire(id: String, descriptor: WakeupDescriptor) {
                         if persisted {
                             claim_no_replay_with_retry(&id_for_arm)?;
                         }
-                        finish_delivering(&id_for_arm, false);
                         Ok(())
                     },
                     move || {
@@ -890,7 +889,8 @@ async fn fire(id: String, descriptor: WakeupDescriptor) {
                 )
                 .with_process_dispatch_release(move || {
                     finish_delivering(&id_for_process_release, true);
-                });
+                })
+                .retain_process_dispatch_until_settle();
                 // A durable wakeup may be replayed by Primary while its old
                 // Secondary owner is still settling. Claim the shared row at
                 // the common pre-engine boundary even without an IM mirror;

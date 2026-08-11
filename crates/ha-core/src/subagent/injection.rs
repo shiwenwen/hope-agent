@@ -40,6 +40,7 @@ pub struct OnInjected {
     release_process_dispatch: Option<Arc<dyn Fn() + Send + Sync>>,
     durable_handoff: bool,
     pre_engine_claim: bool,
+    retain_process_dispatch_until_settle: bool,
     no_replay_armed: Arc<AtomicBool>,
     arm_lock: Arc<std::sync::Mutex<()>>,
     unarmed_released: Arc<AtomicBool>,
@@ -61,6 +62,7 @@ impl OnInjected {
             release_process_dispatch: None,
             durable_handoff: false,
             pre_engine_claim: false,
+            retain_process_dispatch_until_settle: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
             arm_lock: Arc::new(std::sync::Mutex::new(())),
             unarmed_released: Arc::new(AtomicBool::new(false)),
@@ -107,6 +109,15 @@ impl OnInjected {
         self
     }
 
+    /// Keep the process-local source visible after its no-replay CAS succeeds,
+    /// releasing it only when the parent attempt settles or abandons before
+    /// arming. This lets owner-side Stop watchers fence an already-claimed
+    /// source that another process can no longer enumerate from pending rows.
+    pub(crate) fn retain_process_dispatch_until_settle(mut self) -> Self {
+        self.retain_process_dispatch_until_settle = true;
+        self
+    }
+
     /// Use one idempotent process-local step for both phases. This does not
     /// advertise a durable cross-process replay source; a
     /// Secondary must preserve the callback by running GUI-only locally rather
@@ -122,6 +133,7 @@ impl OnInjected {
             release_process_dispatch: None,
             durable_handoff: false,
             pre_engine_claim: false,
+            retain_process_dispatch_until_settle: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
             arm_lock: Arc::new(std::sync::Mutex::new(())),
             unarmed_released: Arc::new(AtomicBool::new(false)),
@@ -145,7 +157,9 @@ impl OnInjected {
         }
         (self.arm_no_replay)()?;
         self.no_replay_armed.store(true, Ordering::Release);
-        self.release_process_dispatch();
+        if !self.retain_process_dispatch_until_settle {
+            self.release_process_dispatch();
+        }
         Ok(())
     }
 
@@ -159,6 +173,12 @@ impl OnInjected {
 
     fn requires_pre_engine_claim(&self) -> bool {
         self.pre_engine_claim
+    }
+
+    fn release_retained_process_dispatch_after_preparation_failure(&self) {
+        if self.retain_process_dispatch_until_settle && self.is_no_replay_armed() {
+            self.release_process_dispatch();
+        }
     }
 
     fn supports_unarmed_retry(&self) -> bool {
@@ -2264,6 +2284,9 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                             .into(),
                     ),
                 });
+                if let Some(receipt) = on_injected.as_ref() {
+                    receipt.release_retained_process_dispatch_after_preparation_failure();
+                }
                 // Never settle here. If arm succeeded, its durable no-replay
                 // fence is the terminal safety decision; reviving the source
                 // could duplicate a provider-side reply after a crash. Without
@@ -3250,6 +3273,22 @@ mod tests {
             });
         armed.arm_no_replay().unwrap();
         assert_eq!(armed_releases.load(Ordering::SeqCst), 1);
+
+        let retained_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let retained_counter = retained_releases.clone();
+        let retained = OnInjected::new(|| Ok(()), || Ok(()))
+            .with_process_dispatch_release(move || {
+                retained_counter.fetch_add(1, Ordering::SeqCst);
+            })
+            .retain_process_dispatch_until_settle();
+        retained.arm_no_replay().unwrap();
+        assert_eq!(
+            retained_releases.load(Ordering::SeqCst),
+            0,
+            "retained claim must stay owner-visible while the engine runs"
+        );
+        retained.settle().unwrap();
+        assert_eq!(retained_releases.load(Ordering::SeqCst), 1);
 
         let abandoned_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let abandoned_counter = abandoned_releases.clone();
