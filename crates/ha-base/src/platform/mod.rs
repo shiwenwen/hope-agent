@@ -708,10 +708,7 @@ mod tests {
 
         let outcome =
             imp::write_secure_file_outcome_with_parent_sync(&target, b"published", |_| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "injected parent sync failure",
-                ))
+                Err(std::io::Error::other("injected parent sync failure"))
             });
 
         match outcome {
