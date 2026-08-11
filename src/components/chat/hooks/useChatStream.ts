@@ -61,6 +61,7 @@ import {
 import { expandPlanMentionsToAttachments } from "@/components/chat/plan-mention/expandPlanMentions"
 import {
   buildIncomingTurnWire,
+  filterTypedMentionsForWorkspace,
   mergeTypedMentionDrafts,
   reconcileTypedMentions,
   reconcileTypedMentionsForChange,
@@ -84,10 +85,12 @@ import {
 import {
   awaitUnlessAborted,
   beginChatBackendHandoff,
+  composerInputDraftKey,
   deferActiveTurnRelease,
   ChatPreparationCancelledError,
   discardChatAttachmentUploads,
   isChatPreparationCancelled,
+  isUnmaterializedComposerDraftKey,
   loadingStateAfterPreparationRelease,
   shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
@@ -302,10 +305,6 @@ interface InputDraft {
   attachedFiles: DraftAttachment[]
   pendingQuotes: PendingFileQuote[]
   pendingMessageQuotes: PendingMessageQuote[]
-}
-
-function inputDraftKey(sessionId: string | null): string {
-  return sessionId ? `session:${sessionId}` : "draft"
 }
 
 export interface UseChatStreamOptions {
@@ -545,7 +544,7 @@ export function useChatStream({
   const pendingQuotesRef = useRef(pendingQuotes)
   const pendingMessageQuotesRef = useRef(pendingMessageQuotes)
   const inputDraftsRef = useRef<Map<string, InputDraft>>(new Map())
-  const activeInputDraftKeyRef = useRef(inputDraftKey(currentSessionId))
+  const activeInputDraftKeyRef = useRef(composerInputDraftKey(currentSessionId, draftProjectId))
 
   const saveInputDraft = useCallback((key: string, draft: InputDraft) => {
     if (
@@ -735,7 +734,7 @@ export function useChatStream({
   )
 
   useLayoutEffect(() => {
-    const nextKey = inputDraftKey(currentSessionId)
+    const nextKey = composerInputDraftKey(currentSessionId, draftProjectId)
     const previousKey = activeInputDraftKeyRef.current
     if (previousKey === nextKey) return
 
@@ -748,15 +747,17 @@ export function useChatStream({
     })
 
     activeInputDraftKeyRef.current = nextKey
+    const materializingDraft =
+      isUnmaterializedComposerDraftKey(previousKey) && nextKey.startsWith("session:")
     const nextDraft = inputDraftsRef.current.get(nextKey) ??
-      (previousKey === "draft" ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
+      (materializingDraft ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
         input: "",
         typedMentions: [],
         attachedFiles: [],
         pendingQuotes: [],
         pendingMessageQuotes: [],
       }
-    if (previousKey === "draft" && !inputDraftsRef.current.has(nextKey)) {
+    if (materializingDraft && !inputDraftsRef.current.has(nextKey)) {
       saveInputDraft(nextKey, nextDraft)
       inputDraftsRef.current.delete(previousKey)
     }
@@ -769,7 +770,7 @@ export function useChatStream({
     setAttachedFilesState(nextDraft.attachedFiles)
     setPendingQuotesState(nextDraft.pendingQuotes)
     setPendingMessageQuotesState(nextDraft.pendingMessageQuotes)
-  }, [currentSessionId, saveInputDraft])
+  }, [currentSessionId, draftProjectId, saveInputDraft])
 
   // Pending sends queued while a response is streaming. Stores the LLM-bound
   // `text` plus the original `options` (displayText / planMode / isPlanTrigger)
@@ -1562,11 +1563,28 @@ export function useChatStream({
   async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
     const usesComposerDraft = directText === undefined && !options?.draftOverride
-    const typedMentionsForSend = options?.structuredMentions
+    const sendSessionId = options?.sessionIdOverride ?? currentSessionId
+    const mentionTargetSessionId = loading
+      ? (options?.sessionIdOverride ?? currentSessionIdRef.current ?? currentSessionId)
+      : sendSessionId
+    const mentionSessionWorkingDir =
+      sessions.find((session) => session.id === mentionTargetSessionId)?.workingDir ?? null
+    const sendMentionWorkingDir = resolveMentionWorkingDir({
+      targetSessionId: mentionTargetSessionId,
+      activeSessionId: currentSessionId,
+      sessionWorkingDir: mentionSessionWorkingDir,
+      draftWorkingDir,
+      mentionWorkingDir,
+    })
+    const selectedTypedMentions = options?.structuredMentions
       ? [...options.structuredMentions]
       : usesComposerDraft
         ? [...typedMentionsRef.current]
         : []
+    const typedMentionsForSend = filterTypedMentionsForWorkspace(
+      selectedTypedMentions,
+      sendMentionWorkingDir,
+    )
     const canonical = trimTextWithTypedMentions(rawText, typedMentionsForSend)
     const canonicalText = canonical.text
     const canonicalTypedMentions = canonical.mentions
@@ -1600,8 +1618,7 @@ export function useChatStream({
         )
         return
       }
-      const queueSessionId =
-        options?.sessionIdOverride ?? currentSessionIdRef.current ?? currentSessionId
+      const queueSessionId = mentionTargetSessionId
       if (!queueSessionId) {
         logger.warn(
           "chat",
@@ -1702,7 +1719,7 @@ export function useChatStream({
             // Session switches are allowed while the queue write is pending.
             // Restore the failed message into that session's draft cache so it
             // is waiting in the composer when the user returns.
-            const key = inputDraftKey(queueSessionId)
+            const key = composerInputDraftKey(queueSessionId, null)
             const existing = inputDraftsRef.current.get(key) ?? {
               input: "",
               typedMentions: [],
@@ -1736,7 +1753,7 @@ export function useChatStream({
     const quotesToSend = [...draftQuotes]
     const messageQuotesToSend = [...draftMessageQuotes]
     const displayed = options?.displayText?.trim() || text
-    const sendSessionId = options?.sessionIdOverride ?? currentSessionId
+    const sendDraftProjectId = sendSessionId ? null : draftProjectIdRef.current
     const chatRequestOwnerId = generateClientId()
     const preparationAbort = new AbortController()
     preparationAbortByRequestRef.current.set(chatRequestOwnerId, preparationAbort)
@@ -1926,7 +1943,7 @@ export function useChatStream({
           pendingMessageQuotes: [...messageQuotesToSend, ...current.pendingMessageQuotes],
         }
       }
-      const draftKey = inputDraftKey(sendSessionId)
+      const draftKey = composerInputDraftKey(sendSessionId, sendDraftProjectId)
       if (activeInputDraftKeyRef.current !== draftKey) {
         saveInputDraft(
           draftKey,
@@ -2214,7 +2231,7 @@ export function useChatStream({
           planComment: options?.planComment,
           workingDir: sendSessionId ? undefined : (draftWorkingDir ?? undefined),
           // Lazy project binding — send-time snapshot, only on the auto-create send.
-          projectId: sendSessionId ? undefined : (draftProjectIdRef.current ?? undefined),
+          projectId: sendSessionId ? undefined : (sendDraftProjectId ?? undefined),
           projectBootstrap: sendSessionId ? undefined : (draftProjectBootstrap ?? undefined),
           // Send-time snapshot: only on the auto-create send, never incognito.
           kbAttachments:

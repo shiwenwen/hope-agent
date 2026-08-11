@@ -1,5 +1,20 @@
 import type { ChatAttachment, Transport } from "@/lib/transport"
 
+/** Composer drafts are isolated by materialized session or lazy project.
+ * Project A's typed filesystem bindings must never become Project B's active
+ * draft merely because neither session has been created yet. */
+export function composerInputDraftKey(
+  sessionId: string | null,
+  draftProjectId: string | null,
+): string {
+  if (sessionId) return `session:${sessionId}`
+  return draftProjectId ? `draft:project:${draftProjectId}` : "draft:plain"
+}
+
+export function isUnmaterializedComposerDraftKey(key: string): boolean {
+  return key.startsWith("draft:")
+}
+
 export class ChatPreparationCancelledError extends Error {
   constructor() {
     super("Chat preparation cancelled by user")

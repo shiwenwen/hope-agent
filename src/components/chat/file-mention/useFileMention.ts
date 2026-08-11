@@ -542,6 +542,7 @@ export function useFileMention(
             kind: "file",
             targetId: entry.relPath,
             displayLabel: entry.name,
+            workspaceRoot: workingDirRef.current ?? undefined,
             raw,
             start: before.length,
             end: before.length + raw.length,

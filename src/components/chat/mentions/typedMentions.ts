@@ -12,6 +12,10 @@ export interface ComposerMentionBinding {
   kind: ComposerMentionKind
   targetId: string
   displayLabel: string
+  /** UI-local authority binding for first-party file selections. It is never
+   * serialized into IncomingTurnWire; send preparation requires the current
+   * workspace root to match so a project switch cannot retarget the file. */
+  workspaceRoot?: string
   raw: string
   /** JavaScript UTF-16 offsets. Converted to UTF-8 only after final text freezes. */
   start: number
@@ -21,6 +25,19 @@ export interface ComposerMentionBinding {
     | "explicit_api_binding"
     | "slash_command_ast"
     | "transport_structured_binding"
+}
+
+/** Keep file provenance only while the composer is still bound to the exact
+ * workspace in which the picker created it. Other mention kinds are resolved
+ * by their own backend registries and do not carry filesystem authority. */
+export function filterTypedMentionsForWorkspace(
+  mentions: ComposerMentionBinding[],
+  workspaceRoot: string | null,
+): ComposerMentionBinding[] {
+  return mentions.filter(
+    (mention) =>
+      mention.kind !== "file" || (!!workspaceRoot && mention.workspaceRoot === workspaceRoot),
+  )
 }
 
 /** Exact single-range composer edit supplied by a first-party picker or other

@@ -117,6 +117,9 @@ export function expandMentionsToAttachments(
   const out: MentionAttachment[] = []
   for (const binding of bindings) {
     if (binding.kind !== "file") continue
+    // Filesystem authority stays bound to the workspace visible when the
+    // picker created this mention; a later switch must not retarget it.
+    if (binding.workspaceRoot !== workingDir) continue
     if (input.slice(binding.start, binding.end) !== binding.raw) continue
     const relPath = binding.targetId
     if (isDirectoryRef(relPath)) continue

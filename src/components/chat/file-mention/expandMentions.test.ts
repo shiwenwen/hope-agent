@@ -15,6 +15,7 @@ describe("expandMentionsToAttachments", () => {
       kind: "file",
       targetId: "src/main.rs",
       displayLabel: "src/main.rs",
+      workspaceRoot: "/workspace",
       raw,
       start: 7,
       end: 7 + raw.length,
@@ -45,6 +46,7 @@ describe("expandMentionsToAttachments", () => {
       kind: "file",
       targetId: "Dockerfile",
       displayLabel: "Dockerfile",
+      workspaceRoot: "/workspace/hope-agent-website",
       raw,
       start: 0,
       end: raw.length,
@@ -59,6 +61,23 @@ describe("expandMentionsToAttachments", () => {
         file_path: "/workspace/hope-agent-website/Dockerfile",
       },
     ])
+  })
+
+  it("does not retarget a selected file after the composer workspace changes", () => {
+    const raw = "@README.md"
+    const binding: ComposerMentionBinding = {
+      id: "file-readme",
+      kind: "file",
+      targetId: "README.md",
+      displayLabel: "README.md",
+      workspaceRoot: "/workspace/project-a",
+      raw,
+      start: 0,
+      end: raw.length,
+      origin: "first_party_composer_gesture",
+    }
+
+    expect(expandMentionsToAttachments(raw, "/workspace/project-b", [binding])).toEqual([])
   })
 
   it("does not borrow the active project workspace for a cross-session send", () => {

@@ -3,6 +3,7 @@ import {
   buildIncomingTurnWire,
   buildCollapsedTextPreviewWithTypedMentions,
   collapseWhitespaceWithTypedMentions,
+  filterTypedMentionsForWorkspace,
   mergeTypedMentionDrafts,
   prepareTypedMentionLinks,
   reconcileTypedMentions,
@@ -26,6 +27,26 @@ function binding(overrides: Partial<ComposerMentionBinding> = {}): ComposerMenti
 }
 
 describe("typed mention provenance", () => {
+  it("drops file provenance when the active workspace differs from the picker workspace", () => {
+    const fileMention = binding({
+      kind: "file",
+      targetId: "README.md",
+      displayLabel: "README.md",
+      workspaceRoot: "/workspace/project-a",
+      raw: "@README.md",
+      start: 0,
+      end: 10,
+    })
+    const agentMention = binding({ start: 11, end: 34 })
+
+    expect(
+      filterTypedMentionsForWorkspace([fileMention, agentMention], "/workspace/project-b"),
+    ).toEqual([agentMention])
+    expect(filterTypedMentionsForWorkspace([fileMention], "/workspace/project-a")).toEqual([
+      fileMention,
+    ])
+  })
+
   it("converts final JavaScript offsets to canonical UTF-8 byte offsets", async () => {
     const raw = "[@评审](#agent:reviewer)"
     const text = `前${raw}后`
