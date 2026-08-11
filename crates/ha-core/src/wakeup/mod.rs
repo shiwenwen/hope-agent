@@ -105,6 +105,7 @@ struct SuspendedTimer {
     agent_id: String,
     note: Option<String>,
     fire_at: i64,
+    persisted: bool,
     fenced_global_stop_epoch: u64,
 }
 
@@ -227,17 +228,16 @@ pub(crate) async fn pending_session_ids_for_global_stop() -> Vec<String> {
     session_ids
 }
 
-/// Process-local wakeups that have no durable WakeupDB row. The session-free
-/// global epoch lets their owner process observe a Stop without publishing
-/// incognito timer identity. `paused=true` carries the epoch of the Stop that
-/// parked the timer so a Continue handled by another process can re-arm it.
-pub(crate) fn volatile_global_stop_states() -> Vec<(String, u64, bool)> {
+/// Process-local wakeups observed by the owner process. The session-free global
+/// epoch is a fail-closed backstop for both volatile timers and durable timers
+/// when another process cannot enumerate WakeupDB. `paused=true` carries the
+/// epoch of the Stop that parked the timer for cross-process Continue.
+pub(crate) fn local_wakeup_global_stop_states() -> Vec<(String, u64, bool)> {
     let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
     let mut states = armed
         .values()
-        .filter(|timer| !timer.persisted)
         .map(|timer| {
             (
                 timer.session_id.clone(),
@@ -253,29 +253,24 @@ pub(crate) fn volatile_global_stop_states() -> Vec<(String, u64, bool)> {
             true,
         )
     }));
-    states.extend(
-        delivering
-            .values()
-            .filter(|delivery| !delivery.descriptor.persisted)
-            .map(|delivery| {
-                (
-                    delivery.descriptor.session_id.clone(),
-                    delivery
-                        .fenced_global_stop_epoch
-                        .unwrap_or(delivery.descriptor.admitted_global_stop_epoch),
-                    delivery.paused,
-                )
-            }),
-    );
+    states.extend(delivering.values().map(|delivery| {
+        (
+            delivery.descriptor.session_id.clone(),
+            delivery
+                .fenced_global_stop_epoch
+                .unwrap_or(delivery.descriptor.admitted_global_stop_epoch),
+            delivery.paused,
+        )
+    }));
     states
 }
 
-/// Resume only process-local volatile wakeups after their durable session
-/// receipt has been consumed, regardless of whether this process is Primary.
+/// Resume process-local wakeups after their durable session receipt has been
+/// consumed, regardless of whether this process is Primary.
 /// Re-admit each source at the epoch that actually fenced it, never at a live
 /// epoch read after Continue: a concurrent newer global Stop must remain able
 /// to identify and park the older source.
-pub(crate) fn resume_volatile_for_session(session_id: &str) -> usize {
+pub(crate) fn resume_local_for_session(session_id: &str) -> usize {
     let mut armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let mut suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
     let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
@@ -293,18 +288,17 @@ pub(crate) fn resume_volatile_for_session(session_id: &str) -> usize {
                 timer.agent_id,
                 timer.note,
                 timer.fire_at,
-                false,
+                timer.persisted,
                 timer.fenced_global_stop_epoch,
                 true,
             );
         }
     }
     let mut resumed = ids.len();
-    for delivery in delivering.values_mut().filter(|delivery| {
-        delivery.descriptor.session_id == session_id
-            && !delivery.descriptor.persisted
-            && delivery.paused
-    }) {
+    for delivery in delivering
+        .values_mut()
+        .filter(|delivery| delivery.descriptor.session_id == session_id && delivery.paused)
+    {
         let admitted_global_stop_epoch = delivery
             .fenced_global_stop_epoch
             .unwrap_or(delivery.descriptor.admitted_global_stop_epoch);
@@ -695,10 +689,11 @@ fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
             false,
         );
         DeliveringFinish::Rearmed
-    } else if !descriptor.persisted {
-        // An incognito source has no database row for a Continue that consumes
-        // the receipt just after this Abandoned outcome. Park the descriptor so
-        // that replay_pending_for_session can still claim it.
+    } else {
+        // Keep the exact owner-local generation for both volatile and durable
+        // sources. Durable state is also retained in WakeupDB, but this parked
+        // descriptor is what lets another process's Stop/Continue coordinate
+        // without depending on a successful cross-process enumeration read.
         suspended.insert(
             id.to_string(),
             SuspendedTimer {
@@ -706,15 +701,13 @@ fn finish_delivering(id: &str, abandoned: bool) -> DeliveringFinish {
                 agent_id: descriptor.agent_id,
                 note: descriptor.note,
                 fire_at: descriptor.fire_at,
+                persisted: descriptor.persisted,
                 fenced_global_stop_epoch: delivery
                     .fenced_global_stop_epoch
                     .unwrap_or(descriptor.admitted_global_stop_epoch),
             },
         );
         DeliveringFinish::Parked
-    } else {
-        // Durable source remains in WakeupDB for Continue or restart replay.
-        DeliveringFinish::Released
     }
 }
 
@@ -738,29 +731,25 @@ async fn fire(id: String, descriptor: WakeupDescriptor) {
         }
     };
 
-    // Durable wakeups are fenced by their shared row/session receipt. A
-    // volatile wakeup has no cross-process identity, so compare only the
-    // session-free global generation captured when it was admitted. If Stop
-    // advanced first, park it under the old epoch; the owner watcher will
-    // publish the matching session receipt before updating the parked fence.
-    if !persisted {
-        let global_stop_epoch = session_db
-            .clone()
-            .run(|db| db.global_stop_epoch())
-            .await
-            .unwrap_or(u64::MAX);
-        if global_stop_epoch > admitted_global_stop_epoch {
-            app_info!(
-                "wakeup",
-                "fire",
-                "Deferring volatile wakeup {} after global Stop generation {}",
-                id,
-                global_stop_epoch
-            );
-            suspend_for_session_at_global_epoch(&session_id, None);
-            finish_delivering(&id, true);
-            return;
-        }
+    // The shared sessions DB epoch is the cross-process fallback even when a
+    // durable WakeupDB enumeration is temporarily unavailable. Park under the
+    // source's old epoch; the owner watcher publishes the matching receipt.
+    let global_stop_epoch = session_db
+        .clone()
+        .run(|db| db.global_stop_epoch())
+        .await
+        .unwrap_or(u64::MAX);
+    if global_stop_epoch > admitted_global_stop_epoch {
+        app_info!(
+            "wakeup",
+            "fire",
+            "Deferring wakeup {} after global Stop generation {}",
+            id,
+            global_stop_epoch
+        );
+        suspend_for_session_at_global_epoch(&session_id, None);
+        finish_delivering(&id, true);
+        return;
     }
 
     // A session Stop is a durable pause, not a deletion. Leave the wakeup row
@@ -1068,6 +1057,21 @@ pub fn replay_pending() {
     // are ordered fire_at ASC, so the soonest survive; over-cap rows are dropped
     // (the configured cap is the policy).
     let cap = max_pending_per_session();
+    let admitted_global_stop_epoch = match crate::get_session_db() {
+        Some(session_db) => match session_db.global_stop_epoch() {
+            Ok(epoch) => epoch,
+            Err(error) => {
+                app_error!(
+                    "wakeup",
+                    "replay",
+                    "Failed to read global Stop epoch before wakeup replay: {}",
+                    error
+                );
+                return;
+            }
+        },
+        None => return,
+    };
     let mut per_session: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     let mut armed = 0usize;
@@ -1090,7 +1094,15 @@ pub fn replay_pending() {
             continue;
         }
         *c += 1;
-        arm_timer(w.id, w.session_id, w.agent_id, w.note, w.fire_at, true, 0);
+        arm_timer(
+            w.id,
+            w.session_id,
+            w.agent_id,
+            w.note,
+            w.fire_at,
+            true,
+            admitted_global_stop_epoch,
+        );
         armed += 1;
     }
     if armed > 0 || dropped > 0 {
@@ -1125,19 +1137,18 @@ pub(crate) fn suspend_for_session_at_global_epoch(
         .collect::<Vec<_>>();
     for id in &ids {
         if let Some(timer) = map.remove(id) {
-            if !timer.persisted {
-                suspended.insert(
-                    id.clone(),
-                    SuspendedTimer {
-                        session_id: timer.session_id,
-                        agent_id: timer.agent_id,
-                        note: timer.note,
-                        fire_at: timer.fire_at,
-                        fenced_global_stop_epoch: global_stop_epoch
-                            .unwrap_or(timer.admitted_global_stop_epoch),
-                    },
-                );
-            }
+            suspended.insert(
+                id.clone(),
+                SuspendedTimer {
+                    session_id: timer.session_id,
+                    agent_id: timer.agent_id,
+                    note: timer.note,
+                    fire_at: timer.fire_at,
+                    persisted: timer.persisted,
+                    fenced_global_stop_epoch: global_stop_epoch
+                        .unwrap_or(timer.admitted_global_stop_epoch),
+                },
+            );
             timer.abort.abort();
         }
     }
@@ -1170,15 +1181,24 @@ pub(crate) fn suspend_for_session_at_global_epoch(
 /// Re-arm wakeups for one explicitly continued session. **Primary-only**:
 /// Secondary adapters may consume the shared pause receipt, but must not arm a
 /// second process-local timer for a durable row already owned by the Primary.
-pub async fn replay_pending_for_session(session_id: &str) -> anyhow::Result<()> {
-    replay_pending_for_session_for_tier(session_id, crate::runtime_lock::is_primary()).await
+pub async fn replay_pending_for_session(
+    session_id: &str,
+    admitted_global_stop_epoch: u64,
+) -> anyhow::Result<()> {
+    replay_pending_for_session_for_tier(
+        session_id,
+        crate::runtime_lock::is_primary(),
+        admitted_global_stop_epoch,
+    )
+    .await
 }
 
 async fn replay_pending_for_session_for_tier(
     session_id: &str,
     primary: bool,
+    admitted_global_stop_epoch: u64,
 ) -> anyhow::Result<()> {
-    resume_volatile_for_session(session_id);
+    resume_local_for_session(session_id);
     if !primary {
         app_debug!(
             "wakeup",
@@ -1189,24 +1209,32 @@ async fn replay_pending_for_session_for_tier(
         return Ok(());
     }
 
-    // Mark in-flight sources before looking at parked/durable state. If an old
-    // generation settles concurrently, the fixed lock order makes it either
-    // observe this flag and re-arm itself, or move to SUSPENDED/DB before the
-    // snapshots below.
-    let delivering_ids = {
-        let mut delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
-        delivering
-            .iter_mut()
-            .filter_map(|(id, delivery)| {
-                (delivery.descriptor.session_id == session_id && delivery.descriptor.persisted)
-                    .then(|| {
-                        delivery.paused = false;
-                        delivery.fenced_global_stop_epoch = None;
-                        delivery.resume_requested = true;
-                        id.clone()
-                    })
-            })
-            .collect::<std::collections::HashSet<_>>()
+    // Owner-local parked/delivering descriptors already carry the exact fence
+    // epoch and were resumed above. Do not duplicate their durable DB rows with
+    // a second timer; rows that have no local owner (restart/other process) are
+    // admitted at the epoch captured atomically by Continue.
+    let local_ids = {
+        let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let delivering = DELIVERING.lock().unwrap_or_else(|p| p.into_inner());
+        let mut ids = armed
+            .iter()
+            .filter(|(_, timer)| timer.session_id == session_id)
+            .map(|(id, _)| id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        ids.extend(
+            suspended
+                .iter()
+                .filter(|(_, timer)| timer.session_id == session_id)
+                .map(|(id, _)| id.clone()),
+        );
+        ids.extend(
+            delivering
+                .iter()
+                .filter(|(_, delivery)| delivery.descriptor.session_id == session_id)
+                .map(|(id, _)| id.clone()),
+        );
+        ids
     };
     let Some(db) = get_wakeup_db().cloned() else {
         return Ok(());
@@ -1226,7 +1254,7 @@ async fn replay_pending_for_session_for_tier(
     };
     for wakeup in pending
         .into_iter()
-        .filter(|wakeup| wakeup.session_id == session_id && !delivering_ids.contains(&wakeup.id))
+        .filter(|wakeup| wakeup.session_id == session_id && !local_ids.contains(&wakeup.id))
     {
         arm_timer_after_continue(
             wakeup.id,
@@ -1235,7 +1263,7 @@ async fn replay_pending_for_session_for_tier(
             wakeup.note,
             wakeup.fire_at,
             true,
-            0,
+            admitted_global_stop_epoch,
         );
     }
     Ok(())
@@ -1376,11 +1404,12 @@ mod tests {
                     agent_id: "ha-main".into(),
                     note: Some("Primary owns replay".into()),
                     fire_at: now_secs() + 60,
+                    persisted: false,
                     fenced_global_stop_epoch: 0,
                 },
             );
 
-        replay_pending_for_session_for_tier(sid, false)
+        replay_pending_for_session_for_tier(sid, false, 0)
             .await
             .expect("Secondary resumes its process-local wakeup");
 
@@ -1424,7 +1453,7 @@ mod tests {
         assert_eq!(suspended_note.as_deref(), Some("resume the original check"));
         assert_eq!(count_pending_for_session(sid), 1);
 
-        replay_pending_for_session_for_tier(sid, true)
+        replay_pending_for_session_for_tier(sid, true, 0)
             .await
             .expect("replay incognito wakeup");
         assert!(ARMED_TIMERS
@@ -1447,21 +1476,56 @@ mod tests {
         let scheduled =
             schedule(sid, "ha-main", 60, None, true, 7).expect("schedule volatile wakeup");
 
-        assert!(volatile_global_stop_states()
+        assert!(local_wakeup_global_stop_states()
             .iter()
             .any(|state| state == &(sid.to_string(), 7, false)));
 
         assert_eq!(suspend_for_session_at_global_epoch(sid, Some(8)), 1);
-        assert!(volatile_global_stop_states()
+        assert!(local_wakeup_global_stop_states()
             .iter()
             .any(|state| state == &(sid.to_string(), 8, true)));
 
-        assert_eq!(resume_volatile_for_session(sid), 1);
+        assert_eq!(resume_local_for_session(sid), 1);
         let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
         let timer = armed.get(&scheduled.id).expect("continued wakeup is armed");
         assert_eq!(timer.admitted_global_stop_epoch, 8);
         drop(armed);
 
+        purge_for_session(sid);
+    }
+
+    #[tokio::test]
+    async fn durable_wakeup_has_owner_local_global_stop_fallback() {
+        let sid = "test-wakeup-durable-global-generation-session";
+        let id = "test-wakeup-durable-global-generation-id";
+        purge_for_session(sid);
+        arm_timer(
+            id.into(),
+            sid.into(),
+            "ha-main".into(),
+            Some("durable enumeration fallback".into()),
+            now_secs() + 60,
+            true,
+            7,
+        );
+
+        assert!(local_wakeup_global_stop_states()
+            .iter()
+            .any(|state| state == &(sid.to_string(), 7, false)));
+        assert_eq!(suspend_for_session_at_global_epoch(sid, Some(8)), 1);
+        {
+            let suspended = SUSPENDED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+            let timer = suspended.get(id).expect("durable timer parked locally");
+            assert!(timer.persisted);
+            assert_eq!(timer.fenced_global_stop_epoch, 8);
+        }
+
+        assert_eq!(resume_local_for_session(sid), 1);
+        let armed = ARMED_TIMERS.lock().unwrap_or_else(|p| p.into_inner());
+        let timer = armed.get(id).expect("durable timer re-armed by owner");
+        assert!(timer.persisted);
+        assert_eq!(timer.admitted_global_stop_epoch, 8);
+        drop(armed);
         purge_for_session(sid);
     }
 
@@ -1487,7 +1551,7 @@ mod tests {
             },
         );
 
-        replay_pending_for_session_for_tier(sid, true)
+        replay_pending_for_session_for_tier(sid, true, 0)
             .await
             .expect("resume in-flight wakeup");
         {
@@ -1593,7 +1657,7 @@ mod tests {
             },
         );
 
-        replay_pending_for_session_for_tier(sid, true)
+        replay_pending_for_session_for_tier(sid, true, 0)
             .await
             .expect("resume in-flight wakeup");
         assert_eq!(suspend_for_session(sid), 1);

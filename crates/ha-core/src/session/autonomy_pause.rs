@@ -144,7 +144,7 @@ fn list_session_ids_with_active_autonomy_with_conn(
               WHERE status IN ('queued', 'spawning', 'running')
              UNION
              SELECT parent_session_id FROM subagent_result_deliveries
-              WHERE state IN ('pending', 'injecting')
+              WHERE state IN ('pending', 'injecting', 'injecting_no_replay')
              UNION
              SELECT session_id FROM chat_stream_runs
               WHERE status = 'running'
@@ -374,7 +374,7 @@ impl SessionDB {
                         status IN ('queued', 'spawning', 'running')
                         OR run_id IN (
                             SELECT run_id FROM subagent_result_deliveries
-                             WHERE state IN ('pending', 'injecting')
+                             WHERE state IN ('pending', 'injecting', 'injecting_no_replay')
                         )
                     )
                   ORDER BY started_at ASC",
@@ -736,7 +736,7 @@ impl SessionDB {
                         delivered_at = CASE WHEN state = 'pending' THEN ?1 ELSE delivered_at END,
                         last_error = CASE WHEN state = 'pending' THEN NULL ELSE last_error END
                   WHERE run_id = ?2
-                    AND state IN ('pending', 'injecting')",
+                    AND state IN ('pending', 'injecting', 'injecting_no_replay')",
                 params![now, run_id],
             )?;
         }
@@ -744,6 +744,9 @@ impl SessionDB {
             "UPDATE session_autonomy_pauses
                 SET resumed_at = ?1,
                     resume_requested_at = ?1,
+                    resume_global_stop_epoch = (
+                        SELECT epoch FROM runtime_control_epochs WHERE key = 'global_stop'
+                    ),
                     resume_replayed_at = NULL,
                     resume_replay_error = NULL
               WHERE id = ?2 AND resumed_at IS NULL",
@@ -751,6 +754,19 @@ impl SessionDB {
         )?;
         tx.commit()?;
         Ok(changed > 0)
+    }
+
+    pub(crate) fn session_autonomy_resume_global_stop_epoch(&self, pause_id: &str) -> Result<u64> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        conn.query_row(
+            "SELECT COALESCE(resume_global_stop_epoch, 0)
+               FROM session_autonomy_pauses
+              WHERE id = ?1 AND resume_requested_at IS NOT NULL",
+            params![pause_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value.max(0) as u64)
+        .map_err(Into::into)
     }
 
     /// Pending Primary-owned replay requests published by Continue. There is
@@ -930,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_parent_delivery_keeps_root_in_global_stop_enumeration() {
+    fn no_replay_parent_delivery_keeps_root_in_global_stop_enumeration() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = SessionDB::open_ephemeral_for_test(&dir.path().join("delivery-pause.db"))
             .expect("session db");
@@ -982,11 +998,8 @@ mod tests {
         assert!(db
             .claim_subagent_result_delivery(&run.run_id)
             .expect("claim delivery"));
-        db.release_subagent_result_delivery_claim(&run.run_id, "provider unavailable")
-            .expect("release delivery claim");
-        assert!(db
-            .defer_subagent_result_delivery_retry(&run.run_id, "provider unavailable", 3, 30)
-            .expect("defer delivery retry"));
+        db.arm_subagent_result_delivery_no_replay(&run.run_id)
+            .expect("arm no-replay delivery");
 
         assert_eq!(
             db.list_session_ids_with_active_autonomy().unwrap(),
@@ -1018,7 +1031,7 @@ mod tests {
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .expect("delivery row");
-        assert_eq!(delivery.0, "suppressed");
+        assert_eq!(delivery.0, "injecting_no_replay");
         assert_eq!(
             delivery.1.as_deref(),
             Some("session_continue_uses_runtime_recovery")
@@ -1142,5 +1155,11 @@ mod tests {
 
         assert_eq!(repeated.id, first.id);
         assert_eq!(db.session_autonomy_pause_epoch(&session.id).unwrap(), 1);
+        assert!(db.finish_session_autonomy_resume(&first.id).unwrap());
+        assert_eq!(
+            db.session_autonomy_resume_global_stop_epoch(&first.id)
+                .unwrap(),
+            global_stop_epoch
+        );
     }
 }

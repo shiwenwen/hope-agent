@@ -372,13 +372,17 @@ async fn replay_pending_session_autonomy_resumes_for_tier(db: Arc<SessionDB>, pr
         // sources. A newer Stop also marks this request superseded in its DB
         // transaction; this check covers a replay snapshot racing that write.
         let sid = pause.session_id.clone();
-        let replay_session_ids = match db
+        let replay_pause_id = pause.id.clone();
+        let (replay_session_ids, resume_global_stop_epoch) = match db
             .clone()
             .run(move |db| {
                 if db.is_session_autonomy_paused(&sid)? {
-                    return Ok(None);
+                    return Ok::<_, anyhow::Error>(None);
                 }
-                db.list_session_autonomy_tree_ids(&sid).map(Some)
+                let session_ids = db.list_session_autonomy_tree_ids(&sid)?;
+                let global_stop_epoch =
+                    db.session_autonomy_resume_global_stop_epoch(&replay_pause_id)?;
+                Ok(Some((session_ids, global_stop_epoch)))
             })
             .await
         {
@@ -407,7 +411,11 @@ async fn replay_pending_session_autonomy_resumes_for_tier(db: Arc<SessionDB>, pr
 
         let mut replay_error = None;
         for replay_session_id in replay_session_ids {
-            if let Err(error) = crate::wakeup::replay_pending_for_session(&replay_session_id).await
+            if let Err(error) = crate::wakeup::replay_pending_for_session(
+                &replay_session_id,
+                resume_global_stop_epoch,
+            )
+            .await
             {
                 replay_error = Some(format!(
                     "replay wakeups for session {}: {error:#}",
@@ -509,12 +517,12 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
         .map(|registry| registry.active_run_ids())
         .unwrap_or_default();
     let workflow_generations = crate::workflow::active_workflow_runtime_generations();
-    let volatile_wakeup_states = crate::wakeup::volatile_global_stop_states();
+    let local_wakeup_states = crate::wakeup::local_wakeup_global_stop_states();
     if foreground_generations.is_empty()
         && injection_generations.is_empty()
         && subagent_run_ids.is_empty()
         && workflow_generations.is_empty()
-        && volatile_wakeup_states.is_empty()
+        && local_wakeup_states.is_empty()
     {
         return;
     }
@@ -561,16 +569,16 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
         crate::workflow::request_workflow_runtime_pause(&run_id);
     }
 
-    if volatile_wakeup_states.is_empty() {
+    if local_wakeup_states.is_empty() {
         return;
     }
 
-    // Volatile wakeups deliberately have no shared WakeupDB identity. Collapse
-    // their owner-local snapshots by session, then use only the session-free
-    // global epoch plus the normal durable pause receipt for coordination.
-    let mut volatile_sessions = std::collections::HashMap::<String, (u64, bool)>::new();
-    for (session_id, observed_epoch, paused) in volatile_wakeup_states {
-        let entry = volatile_sessions
+    // Collapse owner-local wakeup snapshots by session. The session-free epoch
+    // backs up volatile timers and durable timers alike when another process's
+    // WakeupDB enumeration is unavailable.
+    let mut local_wakeup_sessions = std::collections::HashMap::<String, (u64, bool)>::new();
+    for (session_id, observed_epoch, paused) in local_wakeup_states {
+        let entry = local_wakeup_sessions
             .entry(session_id)
             .or_insert((observed_epoch, paused));
         entry.0 = entry.0.min(observed_epoch);
@@ -584,7 +592,7 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
             let mut fence = Vec::new();
             let mut resume = Vec::new();
             let mut purge = Vec::new();
-            for (session_id, (observed_epoch, paused)) in volatile_sessions {
+            for (session_id, (observed_epoch, paused)) in local_wakeup_sessions {
                 if db.get_session(&session_id)?.is_none() {
                     purge.push(session_id);
                     continue;
@@ -604,6 +612,11 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
                     } else {
                         publish.push(session_id);
                     }
+                } else if !paused && any_active {
+                    // A receipt may land after the timer was admitted at the
+                    // same global epoch (for example a targeted Stop, or the
+                    // durable-enumeration owner finishing late).
+                    fence.push(session_id);
                 } else if paused && !any_active {
                     // A parked owner-local timer can also belong to a targeted
                     // Stop handled by another process. Once its durable
@@ -622,7 +635,7 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
                 crate::app_warn!(
                     "chat",
                     "stop_handoff",
-                    "Failed to resolve volatile wakeup Stop handoffs: {error:#}"
+                    "Failed to resolve owner-local wakeup Stop handoffs: {error:#}"
                 );
             }
             return;
@@ -636,7 +649,7 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
         crate::wakeup::suspend_for_session_at_global_epoch(&session_id, Some(global_stop_epoch));
     }
     for session_id in resume {
-        crate::wakeup::resume_volatile_for_session(&session_id);
+        crate::wakeup::resume_local_for_session(&session_id);
     }
 
     if !publish.is_empty() {
@@ -660,7 +673,7 @@ async fn converge_local_session_autonomy_stop_fences(db: Arc<SessionDB>) {
                 crate::app_warn!(
                     "chat",
                     "stop_handoff",
-                    "Failed to publish volatile wakeup Stop receipts: {error:#}"
+                    "Failed to publish owner-local wakeup Stop receipts: {error:#}"
                 );
             }
         } else {

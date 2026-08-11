@@ -582,6 +582,7 @@ impl SessionDB {
                 created_at TEXT NOT NULL,
                 resumed_at TEXT,
                 resume_requested_at TEXT,
+                resume_global_stop_epoch INTEGER,
                 resume_replayed_at TEXT,
                 resume_replay_error TEXT,
                 global_stop_epoch INTEGER
@@ -803,6 +804,10 @@ impl SessionDB {
             (
                 "resume_requested_at",
                 "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_requested_at TEXT;",
+            ),
+            (
+                "resume_global_stop_epoch",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_global_stop_epoch INTEGER;",
             ),
             (
                 "resume_replayed_at",
