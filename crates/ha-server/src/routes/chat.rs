@@ -632,6 +632,13 @@ pub struct StopChatRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContinueChatRequest {
+    pub session_id: String,
+    pub pause_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecoveryControlRequest {
     pub session_id: String,
     pub recovery_id: String,
@@ -2233,6 +2240,9 @@ pub async fn stop_chat(
             "reason": if outcome.stopped { Value::Null } else { json!("no matching active chat for target") },
             "runtimeCancellations": outcome.runtime_cancellations,
             "runtimeCancellationError": outcome.runtime_cancellation_error,
+            "autonomyPaused": outcome.autonomy_pause.is_some(),
+            "autonomyPause": outcome.autonomy_pause,
+            "autonomyPauseError": outcome.autonomy_pause_error,
         })));
     }
 
@@ -2269,6 +2279,29 @@ pub async fn stop_chat(
         "runtimeCancellations": outcome.runtime_cancellations,
         "runtimeCancellationError": outcome.runtime_cancellation_error,
     })))
+}
+
+/// `POST /api/chat/continue` — resume the exact controllers captured by the
+/// supplied durable Stop receipt. This never revives independently paused work
+/// and a delayed request cannot consume a newer Stop generation.
+pub async fn continue_chat(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<ContinueChatRequest>,
+) -> Result<Json<ha_core::session::SessionAutonomyResumeOutcome>, AppError> {
+    if body.session_id.trim().is_empty() {
+        return Err(AppError::bad_request("sessionId is required"));
+    }
+    if body.pause_id.trim().is_empty() {
+        return Err(AppError::bad_request("pauseId is required"));
+    }
+    Ok(Json(
+        ha_core::chat_engine::stop::continue_session(
+            ctx.session_db.clone(),
+            &body.session_id,
+            &body.pause_id,
+        )
+        .await?,
+    ))
 }
 
 /// `POST /api/chat/recovery/control` — control the exact visible recovery

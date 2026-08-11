@@ -1543,7 +1543,7 @@ pub async fn stop_chat(
     turn_id: Option<String>,
     client_request_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(), CmdError> {
+) -> Result<Option<ha_core::session::SessionAutonomyPause>, CmdError> {
     // `turn_id` is not known until the backend announces turn_started. During
     // that pre-registration window, use the request id even for an existing
     // session; otherwise Stop can race ahead of active-turn acquisition and be
@@ -1573,7 +1573,7 @@ pub async fn stop_chat(
             client_request_id,
             session_id
         );
-        return Ok(());
+        return Ok(None);
     }
     if matches!(
         request_cancel.as_ref(),
@@ -1590,7 +1590,7 @@ pub async fn stop_chat(
             session_id,
             bootstrap_signalled
         );
-        return Ok(());
+        return Ok(None);
     }
     let request_target = request_cancel.as_ref().and_then(|outcome| match outcome {
         crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(active) => {
@@ -1634,12 +1634,12 @@ pub async fn stop_chat(
             outcome.cancelled_questions,
             outcome.runtime_cancellations.len()
         );
-        return Ok(());
+        return Ok(outcome.autonomy_pause);
     }
     if !global_stop {
         // A request-scoped Stop that arrived before lazy session creation is
         // latched in active_turn and will be consumed by registration.
-        return Ok(());
+        return Ok(None);
     }
     // Legacy/emergency callers without a target still flip the shell-level
     // flag synchronously. Core owns every other Stop semantic so this path
@@ -1661,7 +1661,27 @@ pub async fn stop_chat(
         outcome.cancelled_questions,
         outcome.runtime_cancellations.len()
     );
-    Ok(())
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn continue_chat(
+    session_id: String,
+    pause_id: String,
+    state: State<'_, AppState>,
+) -> Result<ha_core::session::SessionAutonomyResumeOutcome, CmdError> {
+    if session_id.trim().is_empty() {
+        return Err(CmdError::from(anyhow::anyhow!("session_id required")));
+    }
+    if pause_id.trim().is_empty() {
+        return Err(CmdError::from(anyhow::anyhow!("pause_id required")));
+    }
+    Ok(ha_core::chat_engine::stop::continue_session(
+        state.session_db.clone(),
+        &session_id,
+        &pause_id,
+    )
+    .await?)
 }
 
 /// Persist the per-session permission mode (`default` / `smart` / `yolo`)

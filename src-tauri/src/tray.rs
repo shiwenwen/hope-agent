@@ -851,6 +851,7 @@ mod tests {
             incognito: false,
             working_dir: None,
             kind: Default::default(),
+            autonomy_paused: false,
         }
     }
 

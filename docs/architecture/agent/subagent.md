@@ -158,15 +158,16 @@ flowchart LR
 
 ### Durable 控制与交付表
 
-除 `subagent_runs` 外，还有三张 durable 表分别管控制域与交付，均定义在 `session/db.rs`：
+除 `subagent_runs` 外，还有四张 durable 表分别管控制域、交付与 provider 恢复，均定义在 `session/db.rs`：
 
 | 表 | 作用 |
 | --- | --- |
 | `subagent_threads` | 稳定 thread、owner、lifecycle、`current_run_id`、`lease_epoch` |
 | `subagent_dispatches` | steer / resume 指令的 accepted / delivered / refused 审计与排队恢复 provenance |
 | `subagent_result_deliveries` | 普通父会话结果的 `pending / injecting / injecting_no_replay / delivered / suppressed` CAS；启动只恢复可证明安全的普通 claim |
+| `subagent_provider_recovery` | 当前 attempt 的外层 provider 恢复次数、下次重试时间与脱敏错误；run 本身在退避期仍是 `running`，成功或终态时删除 |
 
-**精确一次投递的关键**：run 终态与普通 parent delivery 在同一事务写入。显式 `check / result / wait` 对 `pending` 立即 suppress；若 claim 已 active，只写 durable consume request，由 claim owner 收尾为 `suppressed`。续跑事务只准抢占仍为 `pending` 的 predecessor；遇 `injecting` / `injecting_no_replay` 必须 fail closed，等当前 injector 到终态后重试。
+**精确一次投递的关键**：run 终态与普通 parent delivery 在同一事务写入；唯一例外是 `Interrupted(session_paused)`，它是 Continue 控制回执，不另建 parent delivery，避免迟到终态与 Continue turn 并发回注。其它被同一 Stop 捕获、但在暂停/崩溃窗口才落终态的 delivery，也在消费 pause receipt 时改为 `session_continue_uses_runtime_recovery`，由 Continue 的精确 run-id 列表读取，不另起父回合。显式 `check / result / wait` 对 `pending` 立即 suppress；若 claim 已 active，只写 durable consume request，由 claim owner 收尾为 `suppressed`。续跑事务只准抢占仍为 `pending` 的 predecessor；遇 `injecting` / `injecting_no_replay` 必须 fail closed，等当前 injector 到终态后重试。
 
 Primary 启动把带 consume request 的普通 `injecting` 收敛为 `suppressed`，其余普通 claim 重置 `pending`；`injecting_no_replay` 可能已经跨过 IM provider mutation 边界，且新 Primary 无法证明旧 Secondary owner 已退出，因此既不 replay 也不自动 terminalize。已消费或可能外显的结果不会因重启重复回注。
 
@@ -182,6 +183,7 @@ Primary 启动把带 consume request 的普通 `injecting` 收敛为 `suppressed
 | `tool_error` | Error | 是 | 否 | 先检查部分副作用，再决定续跑 |
 | `deadline_exceeded` | Timeout | 是 | 是 | 超时后可显式续跑 |
 | `process_interrupted` | Interrupted | 是 | 是 | 进程 / runner 丢失，启动恢复的标准分类 |
+| `session_paused` | Interrupted | 是 | 是 | session Stop 中断本 attempt；Continue 在同一 thread 创建新 attempt |
 | `runner_panic` | Error | 是 | 否 | 不自动重试，交上层判断 |
 | `invalid_typed_output` | Error | 是 | 否 | 先走已有的有界 schema repair |
 | `approval_denied` | Error | 否 | 否 | 不得借续跑绕过拒绝 |
@@ -191,7 +193,7 @@ Primary 启动把带 consume request 的普通 `injecting` 收敛为 `suppressed
 | `queue_payload_unavailable` | Interrupted / Error | 是 | 否 | 兼容 / 诊断枚举；当前启动 sweep 统一写 `process_interrupted` |
 | `unknown` | Error | 是 | 否 | 历史或不可判定错误；允许人工决策，不建议自动恢复 |
 
-判定实现：`resume_allowed()` 只对 `approval_denied` / `user_killed` / `parent_cancelled` / `workflow_cancelled` 返 `false`，其余全 `true`；`resume_recommended()` 只对 `provider_exhausted` / `deadline_exceeded` / `process_interrupted` 返 `true`。
+判定实现：`resume_allowed()` 只对 `approval_denied` / `user_killed` / `parent_cancelled` / `workflow_cancelled` 返 `false`，其余全 `true`；`resume_recommended()` 只对 `provider_exhausted` / `deadline_exceeded` / `process_interrupted` / `session_paused` 返 `true`。
 
 ### SpawnParams（调用参数）
 
@@ -291,7 +293,7 @@ flowchart TD
 2. 构建执行上下文注入子会话：任务描述、当前 / 最大嵌套深度、「你是子 Agent、无父对话历史、这是隔离会话」声明；有 worktree 时叠加隔离路径声明。
 3. 组合工具限制：读子 Agent 配置的 `subagents.denied_tools`；若**父会话**此刻处于 Plan 的 Planning / Review 状态，追加 `PLAN_MODE_DENIED_TOOLS`，防止子 Agent 绕过 Plan 安全边界。
 4. Plan helper（`lock_plan_agent_mode`）把显式 `plan_agent_mode` + `allow_paths` 翻译成 `PlanResolvedContext` override，绕过 child session 的后端 probe（否则新建子会话的 `plan_mode = Off` 会覆盖显式 PlanAgent 模式）。
-5. 委托 `crate::chat_engine::run_chat_engine_classified` 执行——**failover 与重试由 chat engine 内部承担**，`execute_subagent` 自身不跑模型轮换循环。引擎返回的分类失败 `ChatEngineFailureKind` 映射到终止原因：`ProviderExhausted → provider_exhausted`、`Cancelled → parent_cancelled`、`Infrastructure → model_error`；建链失败（无可用模型 / 配置错误）归 `model_error`。
+5. 委托 `crate::chat_engine::run_chat_engine_classified` 执行。每一轮内部仍由 chat engine 完成同模型重试、profile 轮换和 fallback 链；只有整条链返回 `ProviderExhausted` 时，subagent 才按父 Agent 的 `provider_retry_attempts`（默认 3，0 关闭）与 `provider_retry_backoff_secs`（默认 5 秒）做有界外层恢复。外层 attempt 复用同一 child session 的 durable history、附件只发送一次，并用可取消的指数退避；恢复提示要求先核对已落库 tool result，禁止盲目重复副作用。最终分类映射：`ProviderExhausted → provider_exhausted`、`Cancelled → parent_cancelled`、`Infrastructure → model_error`；建链失败（无可用模型 / 配置错误）归 `model_error`。
 6. cancel flag（`Arc<AtomicBool>`）传入引擎，`abort_on_cancel: true` 让引擎在 tool loop 迭代与 API 调用前检查、支持即时取消。
 7. 整个执行由 `catch_unwind` 包裹，保证 panic 也能落终态、发终态事件（映射为 `runner_panic`）。
 
@@ -342,8 +344,11 @@ sequenceDiagram
         Inj->>FE: done · 若 attach IM 则 await mirror.finalize · cron 会话 fan-out
     else 被用户取消（cancel flag=true）
         Inj->>Queue: 重排队 PENDING_INJECTIONS · emit error(will retry)
-    else 所有模型失败
-        Inj->>FE: emit error(All models failed) · 落终态事件行
+    else 所有模型失败且普通 durable source 尚未 no-replay arm
+        Inj->>DB: injecting→pending · 指数延后 requested_at
+        Inj->>FE: emit error(will retry)
+    else 已跨 IM no-replay / 无 durable source
+        Inj->>FE: emit error(All models failed) · 落终态事件行并 settle
     end
     Note over Inj: CleanupGuard 仅释放精确 (session, run) owner<br/>→ flush_pending_injections（串行取下一个）
 ```
@@ -355,6 +360,8 @@ sequenceDiagram
 - **用户永远优先**：`ChatSessionGuard::new()` 一建立就设置该会话在 `INJECTION_CANCELS` 里的 cancel flag，取消正在进行的注入——用户一发消息，在途注入立即让路。
 - **空闲等待三态**：`wait_for_session_idle(session_id, max_wait, should_abort)` 返回 `Idle`（父空闲，可注入）/ `Aborted`（结果已被 fetch，放弃注入）/ `TimedOut`（父忙到超时）三态，便于单测覆盖。
 - **空闲门超时不丢弃**：父会话忙到 `announce_timeout` 仍未空闲时，携 receipt 重排队；Group 等无 durable replay 的来源也不会永久丢失。会话 delete/purge 同时清掉 Ready 与 Channel-gated 项，避免稍后 idle/surface 事件复活 ghost turn。
+- **Stop generation 围栏**：parent injection 在 idle wait 前后读取 session 的单调 pause generation。Stop 前 admitted 的旧注入即使跨过一次快速 Continue，也必须在写 push row / 发起 provider 前退回 durable source；active pause 同样 fail closed。Continue 仅重放目标 session 的 pending delivery，不顺带唤醒其他会话。
+- **父回注 provider 恢复**：普通 durable subagent delivery 在 parent 模型链耗尽且尚未 arm IM no-replay 时释放 claim，并用 `attempt_count` 按 `provider_retry_backoff_secs`（1–60 秒）做最高 300 秒的指数延后；额外次数同样受父 Agent `provider_retry_attempts`（0–10）约束，错误正文先脱敏再持久化。预算耗尽后 delivery 进入带 `provider_retries_exhausted` 原因的 `suppressed`，下一轮父 prompt 的 `<runtime-recovery>` 会要求读取已完成结果或决定续跑；显式读取改写为 `explicitly_consumed`，提醒不再重复。`injecting_no_replay` 或 process-only source 仍 settle，绝不拿可见外部 mutation 冒险重放。
 - **IM at-most-once fence**：mirror attach 成功后、engine 首个 delta 前先 arm source 为 no-replay；arm 失败不启动 engine。`Confirmed` 取消可携同一 receipt 在当前进程重试，崩溃不恢复；`Unsafe` 保留 fence。armed delivery 会阻止 continuation，只有 claim owner 的确定性终态可释放。
 - **IM owner 与 handoff**：仅 desktop/server Primary 是 `LocalOwner`，可等待 account、安装 listener 并做 startup/5s durable sweep。Secondary 在查 attach 前返回 `DeferredToPrimary`，但只有显式 `.with_primary_handoff()` 且被周期 sweep 覆盖的普通 subagent/async job 才委托；workflow/wakeup/group/process-local 来源必须 GUI-only 本地注入，不能丢掉唯一副本。ACP/test/MCP/eval 不 claim replay。
 - **可重连审批租约**：来自 Bundled HTTP UI 的后台 child 在排队与执行期间持有自己的 `ReattachableUiSessionGuard`；终态回投时无缝换成 parent lease，注入被取消 / 忙等则随 `PendingInjection` 一起移动。父 turn、页面、WebSocket 谁先结束都不会让后续审批误判为无人值守；cron / 公共 API 不产生该租约。
@@ -506,7 +513,7 @@ sequenceDiagram
 
 `kill_all` 先从 `subagent_runs` 枚举当前 session 中 `owner_kind=parent_session && owner_id=current_session` 的全部非终态 run（含 `Queued`），再逐项调用 canonical `request_cancel_run`。该入口会按 run id 同步清理排队项、取消 token 与 durable 状态，因此共享父会话的 Workflow / Team / internal 队列项不会被普通 `kill_all` 波及，排队项也不会在关闭活跃 run 腾出槽位后被意外提升。不要重新增加只清内存队列的旁路 purge。
 
-普通 Subagent 没有 `pause`。活跃 attempt 的 `send/steer` 是 durable 方向调整；允许续跑的终态由 `send(mode=resume_only)` 或兼容 `resume` 创建**新的 immutable attempt**，不是恢复旧执行栈。`kill` 的工具调用成功可能只代表取消信号已接受，前端活动在 `subagent_runs` 尚未进入终态前只能显示“正在关闭”；已完成、错误或超时的目标收到关闭请求属于 already-terminal no-op，不能冒充本次关闭成功。
+普通 Subagent 工具面没有独立 `pause`。session Stop 是唯一控制面例外：它把当刻捕获的活跃 attempt 收敛为 `Interrupted(session_paused)`，保持 thread `open`，并由显式 Continue 触发后续 immutable attempt；Stop 与正常完成同时到达时 Stop 仍赢终态，但已生成的 result / usage 会保留，Continue 必须先检查它再判断是否真要续跑。活跃 attempt 的 `send/steer` 仍是 durable 方向调整；其它允许续跑的终态由 `send(mode=resume_only)` 或兼容 `resume` 创建**新的 immutable attempt**，不是恢复旧执行栈。`kill` 的工具调用成功可能只代表取消信号已接受，前端活动在 `subagent_runs` 尚未进入终态前只能显示“正在关闭”；已完成、错误或超时的目标收到关闭请求属于 already-terminal no-op，不能冒充本次关闭成功。
 
 模型通过通用 `runtime_cancel(kind=subagent)` 控制时还要经过同样的 owner lineage：普通会话只能控制 `owner_kind=parent_session && owner_id=current_session` 的 run；Workflow 上下文只能控制同一 `workflow_run_id` 的 run；Team/internal 等不能仅凭 run id 越权取消。不存在、跨会话和 owner 不匹配统一返回不泄露 owner 的结构化拒绝。
 

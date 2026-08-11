@@ -45,6 +45,164 @@ const WORKFLOW_OUTPUT_SCHEMA_MAX_BYTES: usize = 16 * 1024;
 const WORKFLOW_OUTPUT_SCHEMA_MAX_DEPTH: usize = 16;
 const WORKFLOW_TYPED_RESULT_MAX_ERRORS: usize = 20;
 
+#[derive(Default)]
+struct WorkflowRuntimeRegistry {
+    active: std::collections::HashMap<String, ActiveWorkflowRuntime>,
+    resume_after_pause: std::collections::HashMap<String, Arc<SessionDB>>,
+}
+
+struct ActiveWorkflowRuntime {
+    flag: Arc<std::sync::atomic::AtomicBool>,
+    session_id: String,
+    admitted_pause_epoch: u64,
+}
+
+static WORKFLOW_RUNTIME_REGISTRY: std::sync::LazyLock<std::sync::Mutex<WorkflowRuntimeRegistry>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(WorkflowRuntimeRegistry::default()));
+
+struct WorkflowRuntimeCancelGuard {
+    run_id: String,
+    flag: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl WorkflowRuntimeCancelGuard {
+    fn register(run_id: &str, session_id: &str, admitted_pause_epoch: u64) -> Self {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        WORKFLOW_RUNTIME_REGISTRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active
+            .insert(
+                run_id.to_string(),
+                ActiveWorkflowRuntime {
+                    flag: flag.clone(),
+                    session_id: session_id.to_string(),
+                    admitted_pause_epoch,
+                },
+            );
+        Self {
+            run_id: run_id.to_string(),
+            flag,
+        }
+    }
+}
+
+impl Drop for WorkflowRuntimeCancelGuard {
+    fn drop(&mut self) {
+        let resume_db = {
+            let mut registry = WORKFLOW_RUNTIME_REGISTRY
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let removed = if registry
+                .active
+                .get(&self.run_id)
+                .is_some_and(|current| Arc::ptr_eq(&current.flag, &self.flag))
+            {
+                registry.active.remove(&self.run_id);
+                true
+            } else {
+                false
+            };
+            removed
+                .then(|| registry.resume_after_pause.remove(&self.run_id))
+                .flatten()
+        };
+        if let Some(db) = resume_db {
+            if TokioHandle::try_current().is_ok() {
+                spawn_workflow_run_if_primary(db, self.run_id.clone(), "session_continue_handoff");
+            } else {
+                crate::app_warn!(
+                    "workflow",
+                    "resume_handoff",
+                    "Workflow runtime {} stopped outside a Tokio context; durable Running state remains recoverable",
+                    self.run_id
+                );
+            }
+        }
+    }
+}
+
+/// Interrupt the live QuickJS worker for a durable session pause. The DB state
+/// remains the restart truth; this flag only shortens convergence for a worker
+/// that was already executing when Stop landed.
+pub(crate) fn request_workflow_runtime_pause(run_id: &str) -> bool {
+    let flag = WORKFLOW_RUNTIME_REGISTRY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .active
+        .get(run_id)
+        .map(|runtime| runtime.flag.clone());
+    if let Some(flag) = flag {
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        true
+    } else {
+        false
+    }
+}
+
+pub(crate) fn active_workflow_runtime_generations() -> Vec<(String, String, u64)> {
+    WORKFLOW_RUNTIME_REGISTRY
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .active
+        .iter()
+        .map(|(run_id, runtime)| {
+            (
+                run_id.clone(),
+                runtime.session_id.clone(),
+                runtime.admitted_pause_epoch,
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod autonomy_generation_tests {
+    use super::*;
+
+    #[test]
+    fn active_runtime_exposes_its_admitted_stop_generation() {
+        let run_id = format!("workflow-stop-generation-{}", uuid::Uuid::new_v4());
+        let session_id = format!("session-stop-generation-{}", uuid::Uuid::new_v4());
+        let guard = WorkflowRuntimeCancelGuard::register(&run_id, &session_id, 7);
+
+        assert!(active_workflow_runtime_generations().contains(&(
+            run_id.clone(),
+            session_id.clone(),
+            7,
+        )));
+        assert!(request_workflow_runtime_pause(&run_id));
+        assert!(guard.flag.load(std::sync::atomic::Ordering::SeqCst));
+
+        drop(guard);
+        assert!(!active_workflow_runtime_generations()
+            .into_iter()
+            .any(|(active_run_id, _, _)| active_run_id == run_id));
+    }
+}
+
+/// Launch a continued run only after its pre-Stop QuickJS worker has dropped
+/// the active generation. The registry check and pending handoff share one
+/// mutex, closing the drop-vs-Continue race without polling.
+pub(crate) fn schedule_workflow_resume_after_pause(db: Arc<SessionDB>, run_id: String) {
+    let deferred = {
+        let mut registry = WORKFLOW_RUNTIME_REGISTRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if registry.active.contains_key(&run_id) {
+            registry
+                .resume_after_pause
+                .insert(run_id.clone(), db.clone());
+            true
+        } else {
+            false
+        }
+    };
+    if !deferred {
+        spawn_workflow_run_if_primary(db, run_id, "session_continue");
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowRuntimeResult {
@@ -288,10 +446,38 @@ pub fn spawn_workflow_run_if_primary(
     tokio::spawn(async move {
         let loaded = {
             let run_id = run_id.clone();
-            db.run(move |db| db.get_workflow_run(&run_id)).await
+            db.run(move |db| {
+                let run = db.get_workflow_run(&run_id)?;
+                run.map(|run| {
+                    let paused = db.is_session_or_ancestor_autonomy_paused(&run.session_id)?;
+                    Ok::<_, anyhow::Error>((run.state, paused))
+                })
+                .transpose()
+            })
+            .await
         };
         let state = match loaded {
-            Ok(Some(run)) => run.state,
+            Ok(Some((_, true))) => {
+                append_runtime_result_event_off_worker(
+                    &db,
+                    &run_id,
+                    &owner,
+                    json!({
+                        "status": "skipped",
+                        "accepted": true,
+                        "reason": "session_paused",
+                    }),
+                )
+                .await;
+                crate::app_info!(
+                    "workflow",
+                    "spawn_run",
+                    "skip workflow run {} launch while its session is paused",
+                    run_id
+                );
+                return;
+            }
+            Ok(Some((state, false))) => state,
             Ok(None) => {
                 crate::app_warn!(
                     "workflow",
@@ -1352,17 +1538,73 @@ pub async fn run_workflow_script_async(
     };
 
     let tokio_handle = TokioHandle::current();
+    let admitted_pause_epoch = {
+        let session_id = run.session_id.clone();
+        db.clone()
+            .run(move |db| db.session_autonomy_lineage_pause_epoch(&session_id))
+            .await?
+    };
+    let runtime_cancel =
+        WorkflowRuntimeCancelGuard::register(run_id, &run.session_id, admitted_pause_epoch);
+    let run_id_for_pause_check = run_id.to_string();
+    let state_after_registration = db
+        .clone()
+        .run(move |db| {
+            db.get_workflow_run(&run_id_for_pause_check)?
+                .map(|run| {
+                    let epoch = db.session_autonomy_lineage_pause_epoch(&run.session_id)?;
+                    Ok::<_, anyhow::Error>((run.state, epoch))
+                })
+                .transpose()
+        })
+        .await?;
+    if !matches!(
+        state_after_registration,
+        Some((WorkflowRunState::Running, epoch)) if epoch == admitted_pause_epoch
+    ) || runtime_cancel
+        .flag
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        runtime_cancel
+            .flag
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        return Err(anyhow!(
+            "workflow run {} changed state before runtime start",
+            run_id
+        ));
+    }
     let db_for_script = db.clone();
     let run_for_script = run.clone();
+    let runtime_cancel_flag = runtime_cancel.flag.clone();
     let output = match tokio::task::spawn_blocking(move || {
-        execute_script(db_for_script, run_for_script, session_context, tokio_handle)
+        execute_script(
+            db_for_script,
+            run_for_script,
+            session_context,
+            tokio_handle,
+            runtime_cancel_flag,
+        )
     })
     .await
     .context("workflow runtime worker panicked or was cancelled")?
     {
         Ok(output) => output,
         Err(err) => {
+            if runtime_cancel
+                .flag
+                .load(std::sync::atomic::Ordering::SeqCst)
             {
+                let run_id = run_id.to_string();
+                let _ = db
+                    .run(move |db| {
+                        db.append_workflow_event(
+                            &run_id,
+                            "workflow_runtime_paused",
+                            json!({ "reason": "session_stop" }),
+                        )
+                    })
+                    .await;
+            } else {
                 let run_id = run_id.to_string();
                 let _ = db
                     .run(move |db| {
@@ -1395,6 +1637,7 @@ fn execute_script(
     run: super::types::WorkflowRun,
     session_context: WorkflowSessionContext,
     tokio_handle: TokioHandle,
+    runtime_cancel: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<Value> {
     let runtime = Runtime::new().context("create QuickJS runtime")?;
     runtime.set_memory_limit(SCRIPT_MEMORY_LIMIT_BYTES);
@@ -1402,7 +1645,9 @@ fn execute_script(
 
     let timeout = script_timeout(&run);
     let started_at = Instant::now();
-    runtime.set_interrupt_handler(Some(Box::new(move || started_at.elapsed() >= timeout)));
+    runtime.set_interrupt_handler(Some(Box::new(move || {
+        runtime_cancel.load(std::sync::atomic::Ordering::SeqCst) || started_at.elapsed() >= timeout
+    })));
 
     let ctx = Context::full(&runtime).context("create QuickJS context")?;
     ctx.with(|ctx| -> Result<Value> {

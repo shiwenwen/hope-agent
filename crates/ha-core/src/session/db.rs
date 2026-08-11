@@ -424,7 +424,11 @@ fn session_meta_select() -> String {
            s.execution_mode, s.workflow_mode,
            s.forked_from_session_id, s.forked_from_message_id,
            (SELECT p.title FROM sessions p WHERE p.id = s.forked_from_session_id) as forked_from_session_title,
-           s.archived_at
+           s.archived_at,
+           EXISTS(
+             SELECT 1 FROM session_autonomy_pauses sap
+              WHERE sap.session_id = s.id AND sap.resumed_at IS NULL
+           ) as autonomy_paused
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id"
     )
@@ -566,6 +570,39 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
 
+            -- Stop is a durable, explicitly resumable pause of session-owned
+            -- autonomous controllers. Captured ids ensure Continue cannot
+            -- revive work the user paused independently before Stop.
+            CREATE TABLE IF NOT EXISTS session_autonomy_pauses (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                goal_id TEXT,
+                workflow_run_ids_json TEXT NOT NULL DEFAULT '[]',
+                subagent_run_ids_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                resumed_at TEXT,
+                resume_requested_at TEXT,
+                resume_global_stop_epoch INTEGER,
+                resume_replayed_at TEXT,
+                resume_replay_error TEXT,
+                global_stop_epoch INTEGER
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_session_autonomy_pause_active
+                ON session_autonomy_pauses(session_id) WHERE resumed_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_session_autonomy_pause_session
+                ON session_autonomy_pauses(session_id);
+
+            -- Cross-process emergency Stop visibility. This single counter
+            -- intentionally carries no session identity, so incognito turns
+            -- remain absent from durable stream/journal tables.
+            CREATE TABLE IF NOT EXISTS runtime_control_epochs (
+                key TEXT PRIMARY KEY,
+                epoch INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+            INSERT OR IGNORE INTO runtime_control_epochs (key, epoch, updated_at)
+            VALUES ('global_stop', 0, '1970-01-01T00:00:00Z');
+
             -- Sub-agent runs
             CREATE TABLE IF NOT EXISTS subagent_runs (
                 run_id TEXT PRIMARY KEY,
@@ -600,6 +637,18 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_subagent_parent ON subagent_runs(parent_session_id, started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
             CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);
+
+            -- Live outer provider-recovery state. The immutable run remains
+            -- `running`; this side table makes bounded retry/backoff visible to
+            -- the parent without rewriting attempt history.
+            CREATE TABLE IF NOT EXISTS subagent_provider_recovery (
+                run_id TEXT PRIMARY KEY REFERENCES subagent_runs(run_id) ON DELETE CASCADE,
+                attempt INTEGER NOT NULL,
+                max_attempts INTEGER NOT NULL,
+                next_attempt_at TEXT NOT NULL,
+                last_error TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
 
             -- Stable child-conversation identity and control-plane ownership.
             -- `subagent_runs` remains the attempt truth source; this table only
@@ -747,6 +796,38 @@ impl SessionDB {
                     WHERE new.role IN ('user', 'assistant') AND length(new.content) > 0;
             END;"
         )?;
+
+        // Stop/Continue shipped from development builds before the durable
+        // Secondary->Primary resume handoff was added. Keep these probes so a
+        // database opened by one of those builds remains recoverable.
+        let autonomy_pause_columns = [
+            (
+                "resume_requested_at",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_requested_at TEXT;",
+            ),
+            (
+                "resume_global_stop_epoch",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_global_stop_epoch INTEGER;",
+            ),
+            (
+                "resume_replayed_at",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_replayed_at TEXT;",
+            ),
+            (
+                "resume_replay_error",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN resume_replay_error TEXT;",
+            ),
+            (
+                "global_stop_epoch",
+                "ALTER TABLE session_autonomy_pauses ADD COLUMN global_stop_epoch INTEGER;",
+            ),
+        ];
+        for (column, migration) in autonomy_pause_columns {
+            let probe = format!("SELECT {column} FROM session_autonomy_pauses LIMIT 1");
+            if conn.prepare(&probe).is_err() {
+                conn.execute_batch(migration)?;
+            }
+        }
 
         // Sub-agent Thread/Attempt migration. Keep every addition probe-based:
         // users can open databases produced by any earlier minor without a
@@ -2288,6 +2369,7 @@ impl SessionDB {
             incognito,
             working_dir: None,
             kind: SessionKind::Regular,
+            autonomy_paused: false,
         })
     }
 
@@ -3976,6 +4058,7 @@ impl SessionDB {
                 .get::<_, String>(26)
                 .map(|s| SessionKind::from_db_string(&s))
                 .unwrap_or_default(),
+            autonomy_paused: row.get::<_, i64>(37).unwrap_or(0) != 0,
         })
     }
 

@@ -103,6 +103,7 @@ pub const TOOL_APP_UPDATE: &str = "app_update";
 pub const TOOL_JOB_STATUS: &str = "job_status";
 pub const TOOL_SCHEDULE_WAKEUP: &str = "schedule_wakeup";
 pub const TOOL_RUNTIME_CANCEL: &str = "runtime_cancel";
+pub const TOOL_SESSION_CONTINUE: &str = "session_continue";
 pub const TOOL_TEAM: &str = "team";
 pub const TOOL_PEEK_SESSIONS: &str = "peek_sessions";
 pub const TOOL_GET_SETTINGS: &str = "get_settings";

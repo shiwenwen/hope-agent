@@ -121,6 +121,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 - **后台 subagent / Group 投影单向**：`subagent_runs` 为真相源，投影不持正文、不反写，排除 plan/team/hook 内部 spawn 与 incognito（durable 表，守关闭即焚）；同步只走 `SessionDB::update_subagent_status`，取消走 `subagent::request_cancel_run`（刻意不跑工具 job 的 hook/注入，勿并入统一取消）。`batch_spawn` 建 group 前预校验全部 task（否则漏交付），取消先标 group 终态再取消子 run
 - **Subagent continuation 不抢在途回投**：续跑事务只准 suppress 尚未 claim 的 `pending` parent delivery；遇 `injecting` / `injecting_no_replay` 必须 fail closed，禁靠进程内 cancel 与跨进程 injector 竞速。显式消费 active delivery 只持久记录 consume request，由 claim owner 收尾为 `suppressed`；Primary 启动仅重置未消费的普通 `injecting`，no-replay arm 在无 owner 终止证明时保持 fail-closed、绝不自动 terminalize
+- **Subagent Provider / 回投恢复不可失活**：Provider 整链失败的外层重试留在同一 child session，须可被 Stop 取消并向 parent 注入恢复状态；`subagent_result_deliveries.requested_at` 是 durable 回投退避真相，Primary 的 5s replay sweep 是运行期活性保证，禁止退化成只在启动 / Continue 时扫一次
 - `TeamTemplateMember.description` 注入子 session 身份段
 - **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
 - **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
@@ -151,6 +152,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **Bundled HTTP UI 只作观察者**：非 incognito 主对话由服务端持有执行；页面、WebSocket 或反向代理断开不得取消 turn，前端须以 durable `turnId` 重连终态；会话删除导致 turn 404 时须终止本地等待并释放轮询 / 订阅
 - **API-Round 分组**：新 Provider adapter 须经 `push_and_stamp` 标 `_oc_round`（否则压缩切割拆散 tool_use / tool_result 配对），请求体构建前统一 `prepare_messages_for_api()` 剥离元数据
 - **前台 idle guard 单一入口**：`run_chat_engine` 按 `ChatSource::holds_foreground_idle_guard()` 统一建 `ChatSessionGuard`（ACP 自建），新增对话入口不得手搓 per-shell guard
+- **Stop / Continue 是持久世代围栏**：Stop receipt 事务须 `Immediate`，先落 `session_autonomy_pauses` 再收敛 foreground stream / Goal / Workflow / Subagent / Wakeup；每次 Stop 新建 generation，Continue 必须 exact `pause_id`。用户输入“继续”由模型经 eager `session_continue` 解锁，owner Tauri / HTTP 也不得绕过精确回执；model-facing Continue 还须证明 foreground provenance 且 turn admission epoch 不早于当前 Stop，旧前台 turn 禁替用户解锁。Global Stop 必须从共享 `chat_stream_runs` 枚举别进程 Desktop / HTTP / IM / ACP；incognito 绝不为此落 stream/session 身份，只比较 session-free `runtime_control_epochs.global_stop`。Global receipt 必须标记发布它的 epoch，admission 后迟落的同代 receipt 不得误杀新的 foreground turn，targeted/下一代 Stop 仍须胜出。每个进程只取消自己持有的 foreground / injection / subagent / workflow runtime，须按 immutable run id / lineage/global epoch 轮询共享 Stop generation，禁 Secondary 直接 terminalize 别进程 runner，且快速 Continue 不得藏掉旧 Stop；Secondary Continue 只在同一 CAS 发布 durable replay request，wakeup / workflow runtime 必须由 Primary 定时认领，禁在 Secondary 本地假恢复或消费后无 handoff；新增自主执行边界须接入暂停、重放与重启 fence
 
 ### 桌面宠物（Pet）
 

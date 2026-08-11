@@ -6,6 +6,7 @@ pub mod privacy;
 // ACP run 行类型（表随 kernel、类型随表）：供 ha-acp 特征 crate 原路径再导出
 pub use acp_db::{AcpRun, AcpRunStatus};
 mod artifacts;
+mod autonomy_pause;
 pub(crate) mod cleanup_watcher;
 pub(crate) mod db;
 mod environment;
@@ -24,6 +25,7 @@ mod turns;
 mod types;
 
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
+pub use autonomy_pause::{SessionAutonomyPause, SessionAutonomyResumeOutcome};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, PinnedSessionFilter,

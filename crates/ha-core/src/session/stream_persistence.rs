@@ -29,6 +29,12 @@ pub struct StreamRunRegistration {
     pub context_revision: i64,
     pub initial_context_json: Option<String>,
     pub persistent: bool,
+    /// Lineage Stop generation captured atomically with stream admission.
+    pub admitted_stop_epoch: u64,
+    /// Session-free emergency Stop generation captured by the same admission.
+    pub admitted_global_stop_epoch: u64,
+    /// Receipts attributed to that or an earlier global generation.
+    pub admitted_global_stop_receipt_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,11 +294,16 @@ impl SessionDB {
     /// Register one durability run. Incognito sessions return an in-memory
     /// registration and deliberately leave no row in any journal table.
     pub fn create_stream_run(&self, input: &CreateStreamRun) -> Result<StreamRunRegistration> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        let session = conn
+        // Serialize admission with Stop receipt writes. If Stop wins first,
+        // the turn captures the new generation; if admission wins first, the
+        // later Stop observes the running stream and advances beyond this
+        // immutable epoch.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let session = tx
             .query_row(
                 "SELECT incognito, context_revision, context_json
                  FROM sessions WHERE id = ?1",
@@ -312,16 +323,32 @@ impl SessionDB {
                 input.session_id
             );
         };
+        let admitted_stop_epoch =
+            super::autonomy_pause::session_autonomy_lineage_pause_epoch_with_conn(
+                &tx,
+                &input.session_id,
+            )?;
+        let admitted_global_stop_epoch = super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
+        let admitted_global_stop_receipt_count =
+            super::autonomy_pause::lineage_attributed_global_stop_receipt_count_with_conn(
+                &tx,
+                &input.session_id,
+                admitted_global_stop_epoch,
+            )?;
         if incognito {
+            tx.commit()?;
             return Ok(StreamRunRegistration {
                 run_id: input.run_id.clone(),
                 context_revision,
                 initial_context_json,
                 persistent: false,
+                admitted_stop_epoch,
+                admitted_global_stop_epoch,
+                admitted_global_stop_receipt_count,
             });
         }
         let now = chrono::Utc::now().to_rfc3339();
-        conn.execute(
+        tx.execute(
             "INSERT INTO chat_stream_runs (
                 run_id, session_id, source, stream_id, turn_id, status,
                 accepted_seq, durable_seq, checkpoint_seq, committed_seq, provider_shape,
@@ -338,11 +365,15 @@ impl SessionDB {
                 now,
             ],
         )?;
+        tx.commit()?;
         Ok(StreamRunRegistration {
             run_id: input.run_id.clone(),
             context_revision,
             initial_context_json,
             persistent: true,
+            admitted_stop_epoch,
+            admitted_global_stop_epoch,
+            admitted_global_stop_receipt_count,
         })
     }
 

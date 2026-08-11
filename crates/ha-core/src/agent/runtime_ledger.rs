@@ -66,6 +66,101 @@ pub(crate) fn build_runtime_ledger_snapshot(session_id: &str) -> RuntimeLedgerSn
     snapshot
 }
 
+/// Bounded dynamic suffix for terminal child threads that can be continued.
+/// It contains only control-plane identities and statuses; provider error text
+/// stays out of the system channel and can be inspected through the subagent
+/// status tool if needed.
+pub(crate) fn subagent_recovery_reminder(session_id: &str) -> Option<String> {
+    let db = crate::globals::get_session_db()?;
+    let runs = db
+        .list_current_recoverable_subagent_runs(session_id, 8)
+        .ok()?;
+    let recoveries = db
+        .list_current_subagent_provider_recoveries(session_id, 8)
+        .unwrap_or_default();
+    if runs.is_empty() && recoveries.is_empty() {
+        return None;
+    }
+    let mut lines = vec![
+        "<runtime-recovery>".to_string(),
+        "The following current sub-agent attempts need a recovery decision, or their automatic parent-result delivery exhausted its retries. Inspect each thread first. Continue only resumable unfinished work; for a completed thread, fetch its result and respond without rerunning it. Never repeat completed side effects blindly. Workflow-owned threads must be resumed through their Workflow controller.".to_string(),
+    ];
+    for recovery in recoveries {
+        lines.push(format!(
+            "- run_id={} thread_id={} owner={}:{} status=retrying_provider attempt={}/{} next_attempt_at={}",
+            recovery.run_id,
+            recovery.thread_id,
+            recovery.owner_kind.as_str(),
+            recovery.owner_id,
+            recovery.attempt,
+            recovery.max_attempts,
+            recovery.next_attempt_at,
+        ));
+    }
+    for run in runs {
+        if run.status == crate::subagent::SubagentStatus::Completed {
+            lines.push(format!(
+                "- run_id={} thread_id={} owner={}:{} status=result_delivery_exhausted action=inspect_completed_result",
+                run.run_id,
+                run.thread_id,
+                run.owner_kind.as_str(),
+                run.owner_id,
+            ));
+        } else {
+            lines.push(format!(
+                "- run_id={} thread_id={} owner={}:{} status={} reason={}",
+                run.run_id,
+                run.thread_id,
+                run.owner_kind.as_str(),
+                run.owner_id,
+                run.status.as_str(),
+                run.terminal_reason
+                    .map(|reason| reason.as_str())
+                    .unwrap_or("unknown")
+            ));
+        }
+    }
+    lines.push("</runtime-recovery>".to_string());
+    Some(lines.join("\n"))
+}
+
+/// Dynamic system reminder for a foreground turn admitted while its durable
+/// Stop receipt is still active. Natural-language intent stays with the model:
+/// explicit resume requests call `session_continue`; status/replanning turns do
+/// not silently clear the user's Stop.
+pub(crate) async fn session_pause_reminder(session_id: &str) -> Option<String> {
+    let db = crate::globals::get_session_db()?.clone();
+    let lookup_session_id = session_id.to_string();
+    let pause = db
+        .run(move |db| db.active_session_or_ancestor_autonomy_pause(&lookup_session_id))
+        .await
+        .ok()??;
+    render_session_pause_reminder(&pause)
+}
+
+fn render_session_pause_reminder(pause: &crate::session::SessionAutonomyPause) -> Option<String> {
+    let workflow_ids = pause
+        .workflow_run_ids
+        .iter()
+        .take(16)
+        .cloned()
+        .collect::<Vec<_>>();
+    let subagent_ids = pause
+        .subagent_run_ids
+        .iter()
+        .take(16)
+        .cloned()
+        .collect::<Vec<_>>();
+    Some(format!(
+        "<session-paused>\nThe user previously stopped this conversation and its durable autonomy fence is still active. If the latest foreground user message explicitly asks to continue, resume, proceed, or keep going (for example: '继续', '接着做', 'continue', or 'resume'), call `session_continue` before trying to restart Goal, Workflow, wakeup, or sub-agent work. If the user only asks for status, explanation, inspection, or a changed recovery plan, do not call it and keep the fence active. Never infer continuation from an autonomous/internal message.\n- pause_id={}\n- root_session_id={}\n- goal_id={}\n- workflow_run_ids={}\n- subagent_run_ids={}\n</session-paused>",
+        pause.id,
+        pause.session_id,
+        pause.goal_id.as_deref().unwrap_or("none"),
+        serde_json::to_string(&workflow_ids).ok()?,
+        serde_json::to_string(&subagent_ids).ok()?,
+    ))
+}
+
 /// Build the runtime ledger for emergency (Tier 4) compaction, honoring
 /// incognito. An incognito session gets `None` so job / subagent ids are never
 /// built or injected into the history that Tier 4 both sends to the model and
@@ -102,5 +197,31 @@ mod tests {
         // Non-incognito → a snapshot is produced (empty/with warnings when the
         // job/session globals are unset in tests, but always `Some`).
         assert!(emergency_runtime_ledger("normal-session", false).is_some());
+    }
+
+    #[test]
+    fn pause_reminder_keeps_resume_decision_with_the_model() {
+        let pause = crate::session::SessionAutonomyPause {
+            id: "pause_current".to_string(),
+            session_id: "session_root".to_string(),
+            goal_id: Some("goal_active".to_string()),
+            workflow_run_ids: (0..18).map(|index| format!("workflow_{index}")).collect(),
+            subagent_run_ids: vec!["subagent_current".to_string()],
+            created_at: "2026-08-10T00:00:00Z".to_string(),
+            resumed_at: None,
+        };
+
+        let reminder = render_session_pause_reminder(&pause).expect("pause reminder");
+        for contract in [
+            "call `session_continue`",
+            "do not call it",
+            "pause_id=pause_current",
+            "root_session_id=session_root",
+            "workflow_15",
+            "subagent_current",
+        ] {
+            assert!(reminder.contains(contract), "missing contract: {contract}");
+        }
+        assert!(!reminder.contains("workflow_16"));
     }
 }

@@ -23,7 +23,7 @@ use super::events::{
     emit_tool_result, emit_usage, extract_media_items,
 };
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
-use super::types::{AssistantAgent, ChatUsage};
+use super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tool_defs::ToolExecContext;
 use crate::tools;
 
@@ -80,6 +80,21 @@ fn terminal_assistant_text_for_history<'a>(
         pending_terminal_text
     } else {
         final_assistant_text
+    }
+}
+
+/// Preserve one-shot hook context when a provider rejects image input and the
+/// same model round is retried through the vision bridge. Context drained while
+/// the failed request was in flight is appended after the retained context on
+/// the next attempt.
+fn merge_retry_hook_context(
+    retained: Option<String>,
+    newly_drained: Option<String>,
+) -> Option<String> {
+    match (retained, newly_drained) {
+        (Some(retained), Some(newly_drained)) => Some(format!("{retained}\n\n{newly_drained}")),
+        (Some(retained), None) => Some(retained),
+        (None, newly_drained) => newly_drained,
     }
 }
 
@@ -1191,17 +1206,18 @@ impl AssistantAgent {
         // dispatch overhead in the hot SSE path).
         let on_delta_dyn: &(dyn Fn(&str) + Send + Sync) = on_delta;
 
-        // Vision bridge (issue #434): when the main model can't see images and a
-        // vision model is configured, prepare it once for the turn. Per round
-        // (below, at api_messages build) we transcribe any not-yet-cached images
-        // and rewrite the ephemeral api_messages copy so a text-only model gets
-        // text descriptions instead of raw images. `None` when the main model is
-        // vision-capable or no bridge is configured → existing behavior.
-        let vision_bridge = if self
+        // Vision bridge (issue #434): prepare it once when the catalog already
+        // declares the main model text-only, or when an OpenAI-compatible
+        // endpoint may reveal that capability only after rejecting `image_url`
+        // at runtime. Preparation is config-only and lazy; no vision agent or
+        // model call is created unless the bridge actually engages below.
+        let main_model_catalog_supports_vision = self
             .provider_config
             .as_deref()
-            .map(|pc| !pc.model_supports_vision(model))
-            .unwrap_or(false)
+            .map(|pc| pc.model_supports_vision(model))
+            .unwrap_or(true);
+        let vision_bridge = if !main_model_catalog_supports_vision
+            || adapter.provider_format() == ProviderFormat::OpenAIChat
         {
             super::vision_bridge::prepare(self.session_id.as_deref(), self.session_is_incognito())
         } else {
@@ -1228,7 +1244,8 @@ impl AssistantAgent {
         // post-loop empty-content guard treats it as a clean stop, not an
         // API error).
         let mut post_batch_stopped = false;
-        while round < effective_max_rounds {
+        let mut retry_hook_context: Option<String> = None;
+        'tool_loop: while round < effective_max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
             }
@@ -1356,25 +1373,27 @@ impl AssistantAgent {
             // rewrite this round's ephemeral api_messages in place. Round 0
             // covers user images; round N covers tool images appended by the
             // previous round. `conversation_history` is untouched (reversible).
-            if let Some(ref bridge) = vision_bridge {
-                let report = bridge
-                    .apply(&mut api_messages, adapter.provider_format(), cancel)
-                    .await;
-                if !vision_notice_sent && report != super::vision_bridge::ApplyReport::Idle {
-                    let status = if report == super::vision_bridge::ApplyReport::Engaged {
-                        "engaged"
-                    } else {
-                        "unavailable"
-                    };
-                    on_delta(
-                        &json!({
-                            "type": "vision_bridge",
-                            "status": status,
-                            "model_id": bridge.vision_model_id(),
-                        })
-                        .to_string(),
-                    );
-                    vision_notice_sent = true;
+            if !main_model_catalog_supports_vision || adapter.vision_runtime_disabled() {
+                if let Some(ref bridge) = vision_bridge {
+                    let report = bridge
+                        .apply(&mut api_messages, adapter.provider_format(), cancel)
+                        .await;
+                    if !vision_notice_sent && report != super::vision_bridge::ApplyReport::Idle {
+                        let status = if report == super::vision_bridge::ApplyReport::Engaged {
+                            "engaged"
+                        } else {
+                            "unavailable"
+                        };
+                        on_delta(
+                            &json!({
+                                "type": "vision_bridge",
+                                "status": status,
+                                "model_id": bridge.vision_model_id(),
+                            })
+                            .to_string(),
+                        );
+                        vision_notice_sent = true;
+                    }
                 }
             }
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
@@ -1395,13 +1414,32 @@ impl AssistantAgent {
                 let tasks = db.list_tasks(sid).ok()?;
                 tools::task_reminder_text(&tasks)
             });
+            let recovery_reminder = self
+                .session_id
+                .as_deref()
+                .and_then(crate::agent::runtime_ledger::subagent_recovery_reminder);
+            let pause_reminder = match self.session_id.as_deref() {
+                Some(session_id) => {
+                    crate::agent::runtime_ledger::session_pause_reminder(session_id).await
+                }
+                None => None,
+            };
+            let task_reminder = [task_reminder, recovery_reminder, pause_reminder]
+                .into_iter()
+                .flatten()
+                .reduce(|left, right| format!("{left}\n\n{right}"));
             // Fold any pending hook context (PostCompact / SessionStart(compact)
             // / Notification additionalContext, queued outside a round) into
             // this round's reminder suffix so it reaches the LLM as a system
-            // reminder block. Drained once — subsequent rounds see it cleared.
-            let task_reminder = match (task_reminder, self.drain_pending_hook_context()) {
+            // reminder block. A vision-bridge retry retains the context for the
+            // replacement request; otherwise it is consumed by this round.
+            let hook_context = merge_retry_hook_context(
+                retry_hook_context.take(),
+                self.drain_pending_hook_context(),
+            );
+            let task_reminder = match (task_reminder, hook_context.as_deref()) {
                 (Some(t), Some(h)) => Some(format!("{t}\n\n{h}")),
-                (None, Some(h)) => Some(h),
+                (None, Some(h)) => Some(h.to_owned()),
                 (other, None) => other,
             };
             // Hybrid LSP diagnostics over files touched during THIS turn only
@@ -1472,6 +1510,7 @@ impl AssistantAgent {
                 activated_tool_count: activated_tool_names.len(),
                 prompt_cache_key: Some(round_prompt_cache_key.as_str()),
                 history_for_api: &api_messages,
+                vision_bridge_available: vision_bridge.is_some(),
                 reasoning_effort: effort_live.as_deref(),
                 temperature: self.temperature,
                 max_tokens: eval_max_tokens,
@@ -1522,6 +1561,21 @@ impl AssistantAgent {
                         model_attempt_started.elapsed().as_millis() as u64,
                         Some(&error),
                     );
+                    if error
+                        .downcast_ref::<super::streaming_adapter::VisionInputRejected>()
+                        .is_some()
+                        && vision_bridge.is_some()
+                    {
+                        crate::app_info!(
+                            "agent",
+                            "vision_bridge",
+                            "runtime image rejection detected for model '{}'; retrying round {} through configured vision bridge",
+                            model,
+                            round
+                        );
+                        retry_hook_context = hook_context;
+                        continue 'tool_loop;
+                    }
                     return Err(error);
                 }
             };
@@ -2132,8 +2186,9 @@ mod tests {
     use super::{
         can_bootstrap_mcp_catalog, collect_tool_schema_updates, ensure_model_round_after_insertion,
         extract_started_job_id, has_checkpointed_subagent_dispatch, local_tool_search_survived,
-        queued_message_for_provider, requires_local_mcp_tool_search, resolve_empty_round_outcome,
-        stamp_checkpointed_subagent_dispatch, terminal_assistant_text_for_history,
+        merge_retry_hook_context, queued_message_for_provider, requires_local_mcp_tool_search,
+        resolve_empty_round_outcome, stamp_checkpointed_subagent_dispatch,
+        terminal_assistant_text_for_history,
     };
     use crate::agent::streaming_adapter::ToolDispatchSideOutput;
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
@@ -2297,6 +2352,22 @@ mod tests {
         assert_eq!(
             terminal_assistant_text_for_history(false, "", "partial"),
             ""
+        );
+    }
+
+    #[test]
+    fn hook_context_survives_vision_retry_in_original_order() {
+        assert_eq!(
+            merge_retry_hook_context(
+                Some("context sent to rejected request".into()),
+                Some("context queued during retry".into()),
+            )
+            .as_deref(),
+            Some("context sent to rejected request\n\ncontext queued during retry")
+        );
+        assert_eq!(
+            merge_retry_hook_context(Some("retained".into()), None).as_deref(),
+            Some("retained")
         );
     }
 

@@ -1303,6 +1303,7 @@ pub async fn start_background_tasks() {
     // R8 follow-up: mirror background-subagent inner approvals onto their
     // projection label (running ⇄ awaiting_approval). Idempotent per process.
     crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
+    crate::chat_engine::stop::spawn_session_autonomy_stop_fence_watcher();
 
     if primary {
         // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
@@ -1486,6 +1487,7 @@ pub async fn start_background_tasks() {
         // `recover_startup_session_state` completed in `init_runtime` before
         // this function can run, so replay sees coherent `context_json`.
         crate::workflow::spawn_startup_recovery_if_primary();
+        crate::chat_engine::stop::spawn_session_autonomy_resume_replay_loop();
         crate::local_model_jobs::replay_interrupted_jobs();
 
         // Re-arm agent self-scheduled wakeups (R10). Primary-only — the rows
@@ -1677,6 +1679,7 @@ pub async fn start_minimal_background_tasks() {
     // R8 follow-up: mirror background-subagent inner approvals onto their
     // projection label (running ⇄ awaiting_approval). Idempotent per process.
     crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
+    crate::chat_engine::stop::spawn_session_autonomy_stop_fence_watcher();
 
     if primary {
         // Manual mirror for the `ha-manual` skill — same as the full-tier
@@ -1724,6 +1727,7 @@ pub async fn start_minimal_background_tasks() {
             crate::blocking::run_blocking(crate::async_jobs::JobManager::recover_interrupted).await;
         });
         crate::workflow::spawn_startup_recovery_if_primary();
+        crate::chat_engine::stop::spawn_session_autonomy_resume_replay_loop();
         crate::local_model_jobs::replay_interrupted_jobs();
         crate::loop_control::spawn_loop_event_trigger_watcher();
         // ACP processes are intentionally short-lived: run one retention

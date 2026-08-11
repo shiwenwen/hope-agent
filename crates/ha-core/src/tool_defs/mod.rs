@@ -40,7 +40,7 @@ pub use context::EffectiveArgsSink;
 pub use context::{
     audit_model_runtime_timeout_override, emit_model_runtime_timeout_metadata,
     should_ignore_model_runtime_timeout_when_user_unlimited, ApprovalOrigin, PidSink,
-    SessionDbHandle, ToolExecContext,
+    SessionDbHandle, ToolExecContext, ToolTurnProvenance,
 };
 pub use extra_tools::{
     get_artifact_tool, get_canvas_tool, get_notification_tool, get_web_search_tool,

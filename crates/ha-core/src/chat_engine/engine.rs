@@ -255,6 +255,10 @@ impl ChatEngineFailure {
             message: message.into(),
         }
     }
+
+    pub(crate) fn cancelled(message: impl Into<String>) -> Self {
+        Self::new(ChatEngineFailureKind::Cancelled, message)
+    }
 }
 
 impl From<String> for ChatEngineFailure {
@@ -617,6 +621,7 @@ pub async fn compact_session_now(
         true,
         source,
         kb_access_source(source),
+        None,
         None,
     );
     let original_context_json = session_db
@@ -1388,6 +1393,7 @@ pub(crate) async fn run_chat_engine_classified(
                             follow_global_reasoning_effort,
                             source,
                             kb_origin,
+                            Some(durability_owned.stop_admission()),
                             channel_kb_context_owned,
                         );
                         agent.set_turn_durability(durability_owned.clone());
@@ -2162,6 +2168,7 @@ pub(crate) async fn run_chat_engine_classified(
                         follow_global_reasoning_effort,
                         source,
                         kb_origin,
+                        Some(durability.stop_admission()),
                         channel_kb_context.clone(),
                     );
                     restore_agent_context(&db, &session_id, &compact_agent);
@@ -2739,6 +2746,15 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
     }
 }
 
+fn tool_turn_provenance(source: stream_seq::ChatSource) -> crate::tool_defs::ToolTurnProvenance {
+    use crate::tool_defs::ToolTurnProvenance;
+    if source.carries_foreground_user_intent() {
+        ToolTurnProvenance::ForegroundUser
+    } else {
+        ToolTurnProvenance::Autonomous
+    }
+}
+
 /// Schedule turn-end browser cleanup, skipping `ParentInjection` turns.
 ///
 /// Background-job / wakeup completions inject into the PARENT session and run a
@@ -2783,6 +2799,7 @@ fn configure_agent(
     follow_global_reasoning_effort: bool,
     source: stream_seq::ChatSource,
     kb_origin: crate::knowledge::KbAccessSource,
+    turn_stop_admission: Option<(u64, u64, u64)>,
     channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) {
     agent.set_agent_id(agent_id);
@@ -2790,6 +2807,11 @@ fn configure_agent(
     agent.set_session_id(session_id);
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);
+    agent.set_turn_provenance(tool_turn_provenance(source));
+    if let Some((lineage_epoch, global_stop_epoch, global_stop_receipt_count)) = turn_stop_admission
+    {
+        agent.set_turn_stop_admission(lineage_epoch, global_stop_epoch, global_stop_receipt_count);
+    }
     agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);
     if let Some(ctx) = extra_system_context {
@@ -3073,11 +3095,12 @@ mod stream_lifecycle_tests {
         assert!(!has_resolvable_fallback(&chain, &[], 2));
     }
 
-    fn temp_db() -> (TempDir, Arc<SessionDB>) {
+    fn temp_db() -> (std::sync::MutexGuard<'static, ()>, TempDir, Arc<SessionDB>) {
+        let lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
         let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).unwrap());
-        (dir, db)
+        (lock, dir, db)
     }
 
     fn model_config(id: &str) -> ModelConfig {
@@ -3257,8 +3280,7 @@ mod stream_lifecycle_tests {
 
     #[test]
     fn stream_events_stop_after_cancel_or_terminal_turn() {
-        let _lock = crate::chat_engine::active_turn::test_lock();
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3319,7 +3341,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn user_stop_before_first_model_event_finalizes_without_empty_assistant() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3361,7 +3383,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn user_stop_after_text_delta_preserves_partial_and_marker() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3417,8 +3439,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn user_stop_preserves_the_batch_durable_before_cancel_was_observed() {
-        let _lock = crate::chat_engine::active_turn::test_lock();
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3475,7 +3496,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn final_failure_preserves_partial_assistant_before_error_event() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3567,7 +3588,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn final_failure_context_includes_completed_tool_args_and_result() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3659,7 +3680,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn final_failure_preserves_thinking_only_without_text_bubble() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3734,7 +3755,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn abort_on_cancel_preserves_durable_partial_without_changing_error_semantics() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3777,7 +3798,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn abort_on_cancel_after_tool_call_preserves_side_effect_barrier_record() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3841,7 +3862,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn fallback_success_discards_failed_model_partial() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3903,7 +3924,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn failure_before_first_context_checkpoint_keeps_user_prompt() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -3942,7 +3963,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn fallback_success_discards_failed_model_tool_round() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();
@@ -4027,7 +4048,7 @@ mod stream_lifecycle_tests {
 
     #[tokio::test]
     async fn final_failure_preserves_previous_partial_when_last_attempt_is_empty() {
-        let (_dir, db) = temp_db();
+        let (_lock, _dir, db) = temp_db();
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();

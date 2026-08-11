@@ -1,11 +1,12 @@
 //! Vision bridge (issue #434).
 //!
-//! When the session's **main** model can't see images (`input_types` excludes
-//! `image`, e.g. DeepSeek) and the user has configured a separate vision model
-//! (`function_models.vision`), this module transcribes each image to text via
-//! that vision model so the text-only main model gets a description instead of
-//! the raw image (which it would otherwise 400 on, or which the existing
-//! degrade path would silently drop with an `[image omitted]` placeholder).
+//! When the session's **main** model can't see images (declared by `input_types`
+//! or discovered after an OpenAI-compatible endpoint rejects `image_url`) and
+//! the user has configured a separate vision model (`function_models.vision`),
+//! this module transcribes each image to text via that vision model so the
+//! text-only main model gets a description instead of the raw image (which it
+//! would otherwise 400 on, or which the legacy degrade path would silently
+//! drop with an `[image omitted]` placeholder).
 //!
 //! ## Where it runs
 //! From the round head of `streaming_loop::run_streaming_chat`, on the
@@ -348,8 +349,10 @@ pub(super) enum ApplyReport {
 /// Prepare the bridge for a turn. Returns `None` when the bridge is off — no
 /// `function_models.vision` configured, or the configured model can't be
 /// resolved / isn't vision-capable — so the caller keeps the existing
-/// drop-image + placeholder behavior. Only call when the main model is
-/// text-only (the caller gates on `model_supports_vision`).
+/// drop-image + placeholder behavior. The caller prepares this for statically
+/// text-only models and for OpenAI-compatible models whose endpoint may reveal
+/// the limitation only after a runtime `image_url` rejection; the agent remains
+/// lazy until the bridge actually applies to a round carrying images.
 ///
 /// Cheap: resolves + validates config only, **never builds the agent here** —
 /// that is deferred to [`ResolvedVisionBridge::agent`] on the first real image.

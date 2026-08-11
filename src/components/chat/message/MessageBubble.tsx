@@ -239,6 +239,7 @@ export interface MessageBubbleProps {
   editHasFileMutations?: boolean
   onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
+  onConfigureVisionBridge?: () => void
   onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
@@ -1447,6 +1448,7 @@ function MessageBubbleInner({
   editHasFileMutations = false,
   onEditAndResend,
   onOpenMemorySettings,
+  onConfigureVisionBridge,
   onOpenKnowledge,
   displayMode = "bubble",
   footerFiles,
@@ -1767,11 +1769,23 @@ function MessageBubbleInner({
     }
     if (eventPayload?.type === "vision_auto_disabled") {
       return (
-        <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center">
-          {t("chat.visionAutoDisabled", {
-            provider: String(eventPayload.provider_name || t("chat.unknownProvider")),
-            model: String(eventPayload.model_id || ""),
-          })}
+        <div className="flex max-w-[80%] items-center gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground">
+          <span>
+            {t("chat.visionAutoDisabled", {
+              provider: String(eventPayload.provider_name || t("chat.unknownProvider")),
+              model: String(eventPayload.model_id || ""),
+            })}
+          </span>
+          {onConfigureVisionBridge && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 shrink-0 px-2 text-xs text-primary hover:bg-muted"
+              onClick={onConfigureVisionBridge}
+            >
+              {t("chat.visionBridgeConfigureAction")}
+            </Button>
+          )}
         </div>
       )
     }

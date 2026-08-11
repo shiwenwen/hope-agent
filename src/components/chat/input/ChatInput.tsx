@@ -292,6 +292,8 @@ interface ChatInputProps {
   onForceInsertPending?: (id: string) => void
   onCancelForceInsertPending?: (id: string) => void
   onStop?: () => void
+  autonomyPaused?: boolean
+  onContinue?: () => void
   // Slash command support
   currentSessionId?: string | null
   currentAgentId?: string
@@ -522,6 +524,8 @@ export default function ChatInput({
   onForceInsertPending,
   onCancelForceInsertPending,
   onStop,
+  autonomyPaused = false,
+  onContinue,
   currentSessionId,
   currentAgentId = DEFAULT_AGENT_ID,
   onEnsureSession,
@@ -3255,6 +3259,21 @@ export default function ChatInput({
                         aria-label={t("chat.stopReply")}
                       >
                         <Square className="h-4 w-4 fill-white stroke-white" />
+                      </Button>
+                    </IconTip>
+                  </div>
+                )}
+                {!loading && autonomyPaused && onContinue && (
+                  <div className="animate-in fade-in-0 zoom-in-90 duration-150">
+                    <IconTip label={t("chat.continuePausedWork")}>
+                      <Button
+                        size="icon"
+                        variant="secondary"
+                        className="h-8 w-8 shrink-0 rounded-full"
+                        onClick={onContinue}
+                        aria-label={t("chat.continuePausedWork")}
+                      >
+                        <PlayCircle className="h-4 w-4" />
                       </Button>
                     </IconTip>
                   </div>

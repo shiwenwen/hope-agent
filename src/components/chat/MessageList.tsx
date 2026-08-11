@@ -130,6 +130,7 @@ interface MessageListProps {
   onForkFromMessage?: (message: Message) => void
   onEditAndResend?: (message: Message, content: string) => Promise<void>
   onOpenMemorySettings?: () => void
+  onConfigureVisionBridge?: () => void
   onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   onAddQuickPrompt?: (content: string) => void
   onAddMessageQuote?: (quote: PendingMessageQuote) => void
@@ -744,6 +745,7 @@ export default function MessageList({
   onForkFromMessage,
   onEditAndResend,
   onOpenMemorySettings,
+  onConfigureVisionBridge,
   onOpenKnowledge,
   onAddQuickPrompt,
   onAddMessageQuote,
@@ -1774,6 +1776,7 @@ export default function MessageList({
           }
           onEditAndResend={onEditAndResend}
           onOpenMemorySettings={onOpenMemorySettings}
+          onConfigureVisionBridge={onConfigureVisionBridge}
           onOpenKnowledge={onOpenKnowledge}
           displayMode={displayMode}
           footerFiles={item.footerFiles}

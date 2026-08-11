@@ -152,7 +152,7 @@ fn format_thinking_auto_disabled() -> String {
 }
 
 fn format_vision_auto_disabled() -> String {
-    "🖼️ _This model can't read images — continuing with the image(s) ignored._".to_string()
+    "🖼️ _This model can't read images — continuing with the image(s) ignored. Configure a Vision Bridge in Settings → Models to preserve image context._".to_string()
 }
 
 /// Vision bridge (issue #434): the main model can't see images, so a separate
@@ -296,6 +296,13 @@ mod tests {
         let unavailable = json!({"type":"vision_bridge","status":"unavailable"});
         let out = format_im_system_event(&unavailable).expect("should render");
         assert!(out.contains("Couldn't read"));
+    }
+
+    #[test]
+    fn ignored_images_include_vision_bridge_guidance() {
+        let event = json!({"type":"vision_auto_disabled"});
+        let out = format_im_system_event(&event).expect("should render");
+        assert!(out.contains("Settings → Models"));
     }
 
     #[test]

@@ -15,7 +15,10 @@ pub use preview::{
     WorkflowPermissionPreview, WorkflowPermissionPreviewCall, WorkflowPermissionPreviewSummary,
     WorkflowScriptPreview,
 };
-pub(crate) use runtime::on_workflow_child_status_changed;
+pub(crate) use runtime::{
+    active_workflow_runtime_generations, on_workflow_child_status_changed,
+    request_workflow_runtime_pause, schedule_workflow_resume_after_pause,
+};
 pub use runtime::{
     cancel_workflow_run_with_children, ensure_workflow_launcher_primary,
     recover_pending_workflow_runs, run_workflow_script, run_workflow_script_async,
