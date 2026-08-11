@@ -1471,12 +1471,6 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    struct NullEventSink;
-
-    impl super::super::EventSink for NullEventSink {
-        fn send(&self, _event: &str) {}
-    }
-
     fn fixture() -> (tempfile::TempDir, Arc<SessionDB>, String, String) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = Arc::new(
@@ -1727,63 +1721,64 @@ mod tests {
             .remove(&session.id);
     }
 
-    #[tokio::test]
-    async fn cross_process_stop_epoch_cancels_an_old_foreground_stream() {
-        let _lock = crate::chat_engine::active_turn::test_lock();
+    #[test]
+    fn cross_process_stop_epoch_resolves_an_old_foreground_stream() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Arc::new(
-            SessionDB::open_ephemeral_for_test(&dir.path().join("foreground-stop-handoff.db"))
-                .expect("session db"),
-        );
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("foreground-stop-handoff.db"))
+            .expect("session db");
         let session = db.create_session("ha-main").expect("session");
-        let cancel = Arc::new(AtomicBool::new(false));
-        let coordinator = super::super::durability::StreamCoordinator::create(
-            db.clone(),
-            session.id.clone(),
-            crate::chat_engine::ChatSource::Acp,
-            None,
-            None,
-            Arc::new(NullEventSink),
-            cancel.clone(),
-        )
-        .await
-        .expect("foreground stream admission");
-        assert_eq!(coordinator.admitted_stop_epoch(), 0);
+        let registration = db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "remote-foreground-stop-run".to_string(),
+                session_id: session.id.clone(),
+                source: "acp".to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect("foreground stream admission");
+        assert_eq!(registration.admitted_stop_epoch, 0);
         let pause = db
             .prepare_session_autonomy_pause(&session.id)
             .expect("durable Stop receipt");
         assert!(db.finish_session_autonomy_resume(&pause.id).unwrap());
 
-        converge_local_session_autonomy_stop_fences(db).await;
-
-        assert!(cancel.load(Ordering::SeqCst));
-        coordinator.mark_interrupted("interrupted");
+        let (_, _, _, stale_foreground_runs) = db
+            .resolve_local_autonomy_stop_fences(
+                &[(
+                    registration.run_id.clone(),
+                    session.id,
+                    registration.admitted_stop_epoch,
+                    registration.admitted_global_stop_epoch,
+                    registration.admitted_global_stop_receipt_count,
+                )],
+                &[],
+                &[],
+                &[],
+            )
+            .expect("resolve foreground Stop generation after fast Continue");
+        assert_eq!(stale_foreground_runs, vec![registration.run_id]);
     }
 
-    #[tokio::test]
-    async fn global_stop_epoch_cancels_incognito_without_persisting_stream_identity() {
-        let _lock = crate::chat_engine::active_turn::test_lock();
+    #[test]
+    fn global_stop_epoch_cancels_incognito_without_persisting_stream_identity() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = Arc::new(
-            SessionDB::open_ephemeral_for_test(&dir.path().join("incognito-global-stop.db"))
-                .expect("session db"),
-        );
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("incognito-global-stop.db"))
+            .expect("session db");
         let session = db
             .create_session_with_project("ha-main", None, Some(true))
             .expect("incognito session");
-        let cancel = Arc::new(AtomicBool::new(false));
-        let coordinator = super::super::durability::StreamCoordinator::create(
-            db.clone(),
-            session.id.clone(),
-            crate::chat_engine::ChatSource::Http,
-            None,
-            None,
-            Arc::new(NullEventSink),
-            cancel.clone(),
-        )
-        .await
-        .expect("incognito foreground admission");
-        assert!(!coordinator.is_persistent());
+        let registration = db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "incognito-global-stop-run".to_string(),
+                session_id: session.id.clone(),
+                source: "http".to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect("incognito foreground admission");
+        assert!(!registration.persistent);
         assert!(db.recoverable_stream_runs().unwrap().is_empty());
 
         let (epoch, durable_sessions) = db
@@ -1791,10 +1786,21 @@ mod tests {
             .expect("publish global Stop epoch");
         assert_eq!(epoch, 1);
         assert!(durable_sessions.is_empty());
-        converge_local_session_autonomy_stop_fences(db).await;
-
-        assert!(cancel.load(Ordering::SeqCst));
-        coordinator.mark_interrupted("interrupted");
+        let (_, _, _, stale_foreground_runs) = db
+            .resolve_local_autonomy_stop_fences(
+                &[(
+                    registration.run_id.clone(),
+                    session.id.clone(),
+                    registration.admitted_stop_epoch,
+                    registration.admitted_global_stop_epoch,
+                    registration.admitted_global_stop_receipt_count,
+                )],
+                &[],
+                &[],
+                &[],
+            )
+            .expect("resolve incognito global Stop fence");
+        assert_eq!(stale_foreground_runs, vec![registration.run_id]);
     }
 
     #[tokio::test]
