@@ -250,14 +250,14 @@ mod tests {
     }
 
     #[test]
-    fn im_no_replay_claim_survives_restart_scan_until_settlement() {
+    fn durable_delivery_claim_survives_restart_scan_until_settlement() {
         let db = temp_db();
         db.insert(&mk("w-im", "s1", 200)).unwrap();
 
         assert!(db.claim_no_replay("w-im").unwrap());
         assert!(
             !db.claim_no_replay("w-im").unwrap(),
-            "the durable CAS must admit only one IM injector"
+            "the durable CAS must admit only one injector"
         );
         assert!(db.list_pending().unwrap().is_empty());
         assert!(db.get_pending("w-im").unwrap().is_none());

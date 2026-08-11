@@ -875,7 +875,17 @@ async fn fire(id: String, descriptor: WakeupDescriptor) {
                 let on_injected = crate::subagent::injection::OnInjected::new(
                     move || {
                         if persisted {
-                            claim_no_replay_with_retry(&id_for_arm)?;
+                            if !claim_no_replay_with_retry(&id_for_arm)? {
+                                // Another process already owns the durable row.
+                                // This descriptor is a duplicate, not a
+                                // retryable local source; drop it before the
+                                // Abandoned fallback can park a phantom timer.
+                                finish_delivering(&id_for_arm, false);
+                                anyhow::bail!(
+                                    "wakeup {} is already owned by another injection",
+                                    id_for_arm
+                                );
+                            }
                         }
                         Ok(())
                     },
@@ -1016,7 +1026,7 @@ fn delete_delivered_with_retry(id: &str) -> anyhow::Result<()> {
 /// Persist the at-most-once delivery fence before the parent engine can emit a
 /// provider-visible delta or tool side effect. A false CAS means another
 /// process already owns the wakeup and this attempt must abort locally.
-fn claim_no_replay_with_retry(id: &str) -> anyhow::Result<()> {
+fn claim_no_replay_with_retry(id: &str) -> anyhow::Result<bool> {
     const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
     let Some(db) = get_wakeup_db() else {
         anyhow::bail!("wakeup DB is not initialized");
@@ -1027,10 +1037,8 @@ fn claim_no_replay_with_retry(id: &str) -> anyhow::Result<()> {
             std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
         }
         match db.claim_no_replay(id) {
-            Ok(true) => return Ok(()),
-            Ok(false) => {
-                anyhow::bail!("wakeup {id} is already fenced by another IM injection owner")
-            }
+            Ok(true) => return Ok(true),
+            Ok(false) => return Ok(false),
             Err(error) => {
                 last_err = Some(error.to_string());
                 app_warn!(

@@ -465,6 +465,8 @@ Stop 编排自身也有独立预算：先同步翻转所有已知 foreground can
 
 Wakeup Continue 的重放权按持久性分开：volatile timer 没有共享身份，只能由原 owner 从本地 descriptor 恢复；durable row 则严格由 Primary 重放，Secondary 消费 Continue 后只丢弃本地 parked shadow，并保持旧 in-flight delivery fenced 到结算。所有 durable wakeup（不只 IM mirror）在 parent engine 前都须以 `fired=1` 抢共享 CAS，确保 Primary 新 timer 与 Secondary 旧 injection 即使短暂重叠也只有一个能进入模型/工具执行；CAS winner 的 owner-local dispatch descriptor 必须持有到 engine settlement，不能在 claim 时提前释放，否则 `fired=1` 已从 pending 枚举消失、跨进程 Global Stop 又看不到执行中 owner。terminal-ambiguous / post-claim preparation failure 只保留 durable no-replay tombstone，必须幂等释放本地 descriptor，避免已停止的来源继续占配额或制造假活跃。
 
+Durable wakeup claim 的 `CAS=false` 是确定性 owner loss，不是可重试存储错误：loser 必须立即释放本地 descriptor，不能走普通 Abandoned park；只有真实 DB 错误才保留来源等待恢复。
+
 Global Stop generation task 是枚举结果的唯一 owner：它在同一个 detached task 内完成 epoch publish、durable session 枚举及这些 session 的 receipt/controller pause；2 秒 transport budget 只能停止等待，不能丢 JoinHandle 后让枚举结果无人消费。Continue 的最终 exact-`pause_id` CAS 同样必须用 `Immediate` 事务先取得 writer，再读取 captured subagent deliveries 并提交 suppression/replay request，避免 WAL deferred snapshot 升级失败。
 
 一些容易踩坑的、不读代码看不出来的约束：
