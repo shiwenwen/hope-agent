@@ -59,8 +59,20 @@ pub async fn tool_schedule_wakeup(args: &Value, ctx: &ToolExecContext) -> Result
         .get("note")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let admitted_global_stop_epoch = ctx.turn_admitted_global_stop_epoch.ok_or_else(|| {
+        anyhow!(
+            "schedule_wakeup requires a foreground turn Stop-admission snapshot; retry from the active conversation"
+        )
+    })?;
 
-    match wakeup::schedule(session_id, agent_id, delay_secs, note, ctx.incognito) {
+    match wakeup::schedule(
+        session_id,
+        agent_id,
+        delay_secs,
+        note,
+        ctx.incognito,
+        admitted_global_stop_epoch,
+    ) {
         Ok(outcome) => Ok(json!({
             "scheduled": true,
             "wakeup_id": outcome.id,

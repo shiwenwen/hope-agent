@@ -339,6 +339,10 @@ pub struct SessionMeta {
     /// sidebar / picker).
     #[serde(default)]
     pub kind: SessionKind,
+    /// Whether a durable Stop receipt currently fences this session's
+    /// autonomous controllers. Cleared only by an explicit Continue.
+    #[serde(default)]
+    pub autonomy_paused: bool,
 }
 
 /// Result returned by the user-facing fork APIs. The session fields stay
@@ -832,6 +836,7 @@ mod tests {
             incognito: false,
             working_dir: None,
             kind: SessionKind::Regular,
+            autonomy_paused: false,
         }
     }
 

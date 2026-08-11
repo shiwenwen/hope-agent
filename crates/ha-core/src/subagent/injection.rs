@@ -17,11 +17,14 @@ type InjectionReceiptStep = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>;
 ///
 /// An attached IM mirror can perform a persistent provider mutation before the
 /// parent turn settles. It therefore calls `arm_no_replay` before starting the
-/// engine. That write must make startup recovery skip this source; a confirmed
-/// cancellation may still retry from [`PENDING_INJECTIONS`] in this process,
-/// but a crash deliberately loses that automatic retry rather than duplicate an
-/// IM reply. `settle` records an ordinary terminal landing and must be
-/// idempotent because fetched/cancel races can converge on the same source.
+/// engine. Sources that require a cross-process delivery claim even without an
+/// IM mirror (currently persisted wakeups) opt into the same boundary through
+/// `pre_engine_claim`. That write must make startup recovery skip this source;
+/// a confirmed cancellation may still retry from [`PENDING_INJECTIONS`] in
+/// this process, but a crash deliberately loses that automatic retry rather
+/// than duplicate provider/tool side effects. `settle` records an ordinary
+/// terminal landing and must be idempotent because fetched/cancel races can
+/// converge on the same source.
 #[derive(Clone)]
 pub struct OnInjected {
     arm_no_replay: InjectionReceiptStep,
@@ -36,6 +39,8 @@ pub struct OnInjected {
     /// immediately duplicate a turn that already reached the GUI.
     release_process_dispatch: Option<Arc<dyn Fn() + Send + Sync>>,
     durable_handoff: bool,
+    pre_engine_claim: bool,
+    retain_process_dispatch_until_settle: bool,
     no_replay_armed: Arc<AtomicBool>,
     arm_lock: Arc<std::sync::Mutex<()>>,
     unarmed_released: Arc<AtomicBool>,
@@ -56,6 +61,8 @@ impl OnInjected {
             release_unarmed: None,
             release_process_dispatch: None,
             durable_handoff: false,
+            pre_engine_claim: false,
+            retain_process_dispatch_until_settle: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
             arm_lock: Arc::new(std::sync::Mutex::new(())),
             unarmed_released: Arc::new(AtomicBool::new(false)),
@@ -94,6 +101,23 @@ impl OnInjected {
         self
     }
 
+    /// Require this source's durable CAS before every parent engine attempt,
+    /// even when no IM mirror is attached. This is for source identities that
+    /// may be replayed by another process while the old owner is settling.
+    pub(crate) fn with_pre_engine_claim(mut self) -> Self {
+        self.pre_engine_claim = true;
+        self
+    }
+
+    /// Keep the process-local source visible after its no-replay CAS succeeds,
+    /// releasing it only when the parent attempt settles or abandons before
+    /// arming. This lets owner-side Stop watchers fence an already-claimed
+    /// source that another process can no longer enumerate from pending rows.
+    pub(crate) fn retain_process_dispatch_until_settle(mut self) -> Self {
+        self.retain_process_dispatch_until_settle = true;
+        self
+    }
+
     /// Use one idempotent process-local step for both phases. This does not
     /// advertise a durable cross-process replay source; a
     /// Secondary must preserve the callback by running GUI-only locally rather
@@ -108,6 +132,8 @@ impl OnInjected {
             release_unarmed: None,
             release_process_dispatch: None,
             durable_handoff: false,
+            pre_engine_claim: false,
+            retain_process_dispatch_until_settle: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
             arm_lock: Arc::new(std::sync::Mutex::new(())),
             unarmed_released: Arc::new(AtomicBool::new(false)),
@@ -131,7 +157,9 @@ impl OnInjected {
         }
         (self.arm_no_replay)()?;
         self.no_replay_armed.store(true, Ordering::Release);
-        self.release_process_dispatch();
+        if !self.retain_process_dispatch_until_settle {
+            self.release_process_dispatch();
+        }
         Ok(())
     }
 
@@ -141,6 +169,14 @@ impl OnInjected {
 
     fn supports_durable_handoff(&self) -> bool {
         self.durable_handoff
+    }
+
+    fn requires_pre_engine_claim(&self) -> bool {
+        self.pre_engine_claim
+    }
+
+    fn supports_unarmed_retry(&self) -> bool {
+        self.release_unarmed.is_some()
     }
 
     fn settle(&self) -> anyhow::Result<()> {
@@ -1026,7 +1062,7 @@ fn arm_source_persist_then<T>(
     start_engine: impl FnOnce(bool) -> T,
 ) -> anyhow::Result<T> {
     let mut no_replay_armed = receipt.is_some_and(OnInjected::is_no_replay_armed);
-    if mirror_attached {
+    if mirror_attached || receipt.is_some_and(OnInjected::requires_pre_engine_claim) {
         if let Some(receipt) = receipt {
             receipt.arm_no_replay()?;
             no_replay_armed = true;
@@ -1511,6 +1547,16 @@ fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> b
     !matches!(db.get_session(session_id), Ok(None))
 }
 
+fn session_autonomy_fence(
+    db: &crate::session::SessionDB,
+    session_id: &str,
+) -> anyhow::Result<(u64, bool)> {
+    Ok((
+        db.session_autonomy_lineage_pause_epoch(session_id)?,
+        db.is_session_or_ancestor_autonomy_paused(session_id)?,
+    ))
+}
+
 /// `child_agent_id` label used by `crate::wakeup` when reusing this injection
 /// pipeline for a self-scheduled wakeup (R10). `inject_and_run_parent` branches
 /// on it to write a `wakeup_trigger` marker instead of `subagent_result`.
@@ -1656,6 +1702,38 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         return InjectionOutcome::Injected;
     }
 
+    // Capture a monotonic Stop generation before the potentially long idle
+    // wait. An active flag alone is insufficient: Stop followed quickly by
+    // Continue could clear it while this pre-Stop injector is still parked.
+    // The generation never decreases, so such an injector must abandon and let
+    // the durable source be reclaimed after Continue.
+    let admitted_pause_epoch = match session_autonomy_fence(&session_db, &parent_session_id) {
+        Ok((epoch, false)) => epoch,
+        Ok((_, true)) => {
+            app_info!(
+                "subagent",
+                "inject",
+                "Deferring parent injection {} while session {} is paused",
+                run_id,
+                parent_session_id
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+        Err(error) => {
+            app_warn!(
+                "subagent",
+                "inject",
+                "Cannot read Stop fence for parent injection {} in session {}: {}",
+                run_id,
+                parent_session_id,
+                error
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+    };
+
     // Admit against both active ownership and the existing FIFO under one lock
     // critical section. A new B must never claim the session while an older A
     // is queued (including a Channel-gated A).
@@ -1800,6 +1878,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             ActiveInjection {
                 run_id: run_id.clone(),
                 cancel: cancel.clone(),
+                admitted_pause_epoch,
                 im_mirror: im_mirror_coordinator.clone(),
             },
         );
@@ -1890,6 +1969,36 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         );
         settle_injection_source(on_injected.as_ref(), &run_id);
         return InjectionOutcome::Injected;
+    }
+
+    match session_autonomy_fence(&session_db, &parent_session_id) {
+        Ok((epoch, false)) if epoch == admitted_pause_epoch => {}
+        Ok((epoch, paused)) => {
+            app_info!(
+                "subagent",
+                "inject",
+                "Abandoning stale parent injection {} for session {} after Stop fence changed (admitted_epoch={} current_epoch={} paused={})",
+                run_id,
+                parent_session_id,
+                admitted_pause_epoch,
+                epoch,
+                paused
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+        Err(error) => {
+            app_warn!(
+                "subagent",
+                "inject",
+                "Cannot revalidate Stop fence for parent injection {} in session {}: {}",
+                run_id,
+                parent_session_id,
+                error
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
     }
 
     // Acquire after the potentially long idle wait but before writing the push
@@ -2272,9 +2381,15 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         }
     }
 
-    // All models failed (not cancelled): surface a terminal event row so
-    // the log doesn't show a silent user push without a response.
-    if engine_failed_without_cancel {
+    let retry_provider_failure = engine_failed_without_cancel
+        && im_terminal_safe_for_retry
+        && on_injected.as_ref().is_some_and(|receipt| {
+            receipt.supports_unarmed_retry() && !receipt.is_no_replay_armed()
+        });
+
+    // A no-replay/ephemeral source cannot be retried safely. Persist its error;
+    // ordinary durable sources return to the replay pool below instead.
+    if engine_failed_without_cancel && !retry_provider_failure {
         let _ = session_db.append_message(
             &parent_session_id,
             &crate::session::NewMessage::error_event(&format!("[injection failed] {}", last_error))
@@ -2377,9 +2492,52 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             error: None,
         });
         InjectionOutcome::Injected
+    } else if retry_provider_failure {
+        release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+        let retry_config = crate::agent_loader::load_agent(&parent_agent_id)
+            .map(|definition| definition.config.subagents)
+            .unwrap_or_default();
+        let max_retries = retry_config.provider_retry_attempts.min(10);
+        let base_delay_secs = retry_config.provider_retry_backoff_secs.clamp(1, 60);
+        // `app_init::spawn_delivery_surface_replay_listener` runs the durable
+        // due-delivery sweep every five seconds (and after restart recovery),
+        // so persisting `requested_at` is sufficient to schedule this retry.
+        // Keep this DB-owned instead of adding a competing per-run timer.
+        let deferred = match session_db.defer_subagent_result_delivery_retry(
+            &run_id,
+            &last_error,
+            max_retries,
+            base_delay_secs,
+        ) {
+            Ok(deferred) => deferred,
+            Err(error) => {
+                app_warn!(
+                    "subagent",
+                    "inject",
+                    "Failed to defer parent delivery retry for run {}: {}",
+                    run_id,
+                    error
+                );
+                false
+            }
+        };
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "error".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: Some(if deferred {
+                "All parent models failed; durable result delivery will retry".into()
+            } else {
+                "All parent models failed; automatic result delivery retries are exhausted".into()
+            }),
+        });
+        InjectionOutcome::Abandoned
     } else {
-        // All models failed: a terminal error row was persisted above. Mark
-        // injected so the failure isn't re-injected on every restart.
+        // A provider mutation may have crossed the no-replay boundary, or this
+        // source has no durable replay receipt. Settle rather than risk a
+        // duplicate external reply.
         settle_injection_source(on_injected.as_ref(), &run_id);
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),
@@ -3000,6 +3158,43 @@ mod tests {
     }
 
     #[test]
+    fn pre_engine_claim_fences_cross_process_source_without_mirror() {
+        let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let arm_steps = steps.clone();
+        let receipt = OnInjected::new(
+            move || {
+                arm_steps.lock().unwrap().push("arm");
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .with_pre_engine_claim();
+        let persist_steps = steps.clone();
+        let engine_steps = steps.clone();
+
+        let armed = arm_source_persist_then(
+            false,
+            Some(&receipt),
+            move || {
+                persist_steps.lock().unwrap().push("persist-parent-row");
+                Ok(())
+            },
+            move |armed| {
+                engine_steps.lock().unwrap().push("start-engine");
+                armed
+            },
+        )
+        .unwrap();
+
+        assert!(armed);
+        assert_eq!(
+            *steps.lock().unwrap(),
+            ["arm", "persist-parent-row", "start-engine"]
+        );
+        assert!(receipt.is_no_replay_armed());
+    }
+
+    #[test]
     fn queued_retry_abandon_releases_only_an_unarmed_claim() {
         let releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let release_counter = releases.clone();
@@ -3070,6 +3265,22 @@ mod tests {
             });
         armed.arm_no_replay().unwrap();
         assert_eq!(armed_releases.load(Ordering::SeqCst), 1);
+
+        let retained_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let retained_counter = retained_releases.clone();
+        let retained = OnInjected::new(|| Ok(()), || Ok(()))
+            .with_process_dispatch_release(move || {
+                retained_counter.fetch_add(1, Ordering::SeqCst);
+            })
+            .retain_process_dispatch_until_settle();
+        retained.arm_no_replay().unwrap();
+        assert_eq!(
+            retained_releases.load(Ordering::SeqCst),
+            0,
+            "retained claim must stay owner-visible while the engine runs"
+        );
+        retained.settle().unwrap();
+        assert_eq!(retained_releases.load(Ordering::SeqCst), 1);
 
         let abandoned_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let abandoned_counter = abandoned_releases.clone();

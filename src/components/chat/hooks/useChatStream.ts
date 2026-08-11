@@ -459,6 +459,7 @@ export interface UseChatStreamReturn {
   setSandboxModeByUser: React.Dispatch<React.SetStateAction<SandboxMode>>
   handleSend: (directText?: string, options?: SendOptions) => Promise<void>
   handleStop: () => Promise<void>
+  handleContinue: () => Promise<void>
   handleApprovalResponse: (
     requestId: string,
     response: "allow_once" | "allow_always" | "deny",
@@ -1286,6 +1287,7 @@ export function useChatStream({
             turnId: null,
             clientRequestId: pendingRequestOwner,
           })
+          await reloadSessions()
         } catch (e) {
           logger.error("ui", "ChatScreen::stopPending", "Failed to stop pending chat", e)
         }
@@ -1308,6 +1310,7 @@ export function useChatStream({
           turnId: activeTurnId,
           clientRequestId: requestOwner,
         })
+        await reloadSessions()
       } catch (e) {
         logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
       }
@@ -1329,9 +1332,19 @@ export function useChatStream({
         turnId: activeTurnId,
         clientRequestId: requestOwner,
       })
+      await reloadSessions()
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
+  }
+
+  async function handleContinue() {
+    const sid = currentSessionIdRef.current ?? currentSessionId ?? null
+    if (!sid) return
+    await handleSend(
+      "Continue the work that was previously stopped. Follow the active <session-paused> reminder and call session_continue with its exact pause_id before resuming autonomous work. Inspect durable history and the existing Goal, Workflow, and sub-agent states; resume existing work without duplicating completed side effects.",
+      { displayText: t("chat.continuePausedWork") },
+    )
   }
 
   const handleTurnStarted = useCallback((sessionId: string, turnId: string) => {
@@ -2595,6 +2608,7 @@ export function useChatStream({
     setSandboxModeByUser,
     handleSend,
     handleStop,
+    handleContinue,
     handleApprovalResponse,
     handleTurnStarted,
     handleTurnEnded,

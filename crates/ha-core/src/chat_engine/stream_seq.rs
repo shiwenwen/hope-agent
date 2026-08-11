@@ -47,6 +47,12 @@ pub enum ChatSource {
 }
 
 impl ChatSource {
+    /// Whether this turn was initiated by a live user and may exercise tools
+    /// that require fresh user intent (notably `session_continue`).
+    pub fn carries_foreground_user_intent(&self) -> bool {
+        matches!(self, Self::Desktop | Self::Http | Self::Channel | Self::Acp)
+    }
+
     /// Sources whose deltas reach a user-facing GUI via the global stream
     /// broadcast bus (`chat:stream_delta` + `chat:stream_end`).
     ///

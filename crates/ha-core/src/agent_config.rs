@@ -753,6 +753,17 @@ pub struct SubagentConfig {
     /// Max seconds to wait for parent session to become idle before injection (default 120)
     #[serde(default)]
     pub announce_timeout_secs: Option<u64>,
+
+    /// Additional whole-turn retries after the chat engine exhausts its
+    /// provider/profile fallback chain. Each retry continues in the same child
+    /// session; 0 disables this outer recovery layer.
+    #[serde(default = "default_subagent_provider_retry_attempts")]
+    pub provider_retry_attempts: u32,
+
+    /// Base delay for provider recovery. Attempts use capped exponential
+    /// backoff and remain cancellable by session Stop.
+    #[serde(default = "default_subagent_provider_retry_backoff_secs")]
+    pub provider_retry_backoff_secs: u64,
 }
 
 fn default_max_concurrent() -> u32 {
@@ -761,6 +772,14 @@ fn default_max_concurrent() -> u32 {
 
 fn default_subagent_timeout() -> u64 {
     0
+}
+
+fn default_subagent_provider_retry_attempts() -> u32 {
+    3
+}
+
+fn default_subagent_provider_retry_backoff_secs() -> u64 {
+    5
 }
 
 impl Default for SubagentConfig {
@@ -776,6 +795,8 @@ impl Default for SubagentConfig {
             max_batch_size: None,
             archive_after_minutes: None,
             announce_timeout_secs: None,
+            provider_retry_attempts: default_subagent_provider_retry_attempts(),
+            provider_retry_backoff_secs: default_subagent_provider_retry_backoff_secs(),
         }
     }
 }

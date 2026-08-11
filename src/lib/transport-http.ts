@@ -476,6 +476,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cancel_queued_turn_user_message: { method: "POST", path: "/api/chat/turn-message/cancel" },
   control_model_recovery: { method: "POST", path: "/api/chat/recovery/control" },
   stop_chat: { method: "POST", path: "/api/chat/stop" },
+  continue_chat: { method: "POST", path: "/api/chat/continue" },
   cancel_runtime_task: { method: "POST", path: "/api/runtime-tasks/cancel" },
 
   // -- Session-scoped tasks (TaskProgressPanel user controls) --

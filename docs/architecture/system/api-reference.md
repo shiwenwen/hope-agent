@@ -816,6 +816,7 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 | `cancel_queued_turn_user_message` | `POST /api/chat/turn-message/cancel` | ✅ 仅 waiting_tool_boundary 可撤销 |
 | `control_model_recovery` | `POST /api/chat/recovery/control` | ✅ 精确匹配 `sessionId + recoveryId`；`action=skip_wait\|switch_model` |
 | `stop_chat` | `POST /api/chat/stop` | ✅ |
+| `continue_chat` | `POST /api/chat/continue` | ✅ 精确匹配 `sessionId + pauseId`，迟到请求不得消费更新一代 Stop receipt |
 | `set_permission_mode` | `POST /api/chat/permission-mode` | ✅ 替代旧 `set_tool_permission_mode` |
 | `respond_to_approval` | `POST /api/chat/approval` | ✅ |
 | `save_attachment` | `POST /api/chat/attachment` | ✅ (multipart) |

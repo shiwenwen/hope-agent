@@ -90,7 +90,12 @@ impl GoalState {
                 Self::Active | Self::Evaluating | Self::Cancelled
             ) | (
                 Self::Evaluating,
-                Self::Active | Self::Completed | Self::Failed | Self::Cancelled | Self::Blocked,
+                Self::Active
+                    | Self::Paused
+                    | Self::Completed
+                    | Self::Failed
+                    | Self::Cancelled
+                    | Self::Blocked,
             ) | (
                 Self::Blocked,
                 Self::Active | Self::Evaluating | Self::Failed | Self::Cancelled
@@ -1848,7 +1853,7 @@ impl SessionDB {
         audit["semanticGradeSatisfied"] = json!(semantic_satisfied);
         let evidence_json = stable_json(&audit)?;
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        conn.execute(
+        let changed = conn.execute(
             "UPDATE goals
                 SET state = ?1,
                     updated_at = ?2,
@@ -1857,7 +1862,24 @@ impl SessionDB {
                     final_evidence_json = ?4,
                     blocked_reason = ?5,
                     last_evaluator_result_json = ?4
-             WHERE id = ?6",
+             WHERE id = ?6
+               AND state = 'evaluating'
+               AND NOT EXISTS (
+                   WITH RECURSIVE session_lineage(id, parent_session_id) AS (
+                       SELECT id, parent_session_id
+                         FROM sessions
+                        WHERE id = goals.session_id
+                       UNION
+                       SELECT parent.id, parent.parent_session_id
+                         FROM sessions parent
+                         JOIN session_lineage child
+                           ON parent.id = child.parent_session_id
+                   )
+                   SELECT 1
+                     FROM session_autonomy_pauses pause
+                     JOIN session_lineage lineage ON lineage.id = pause.session_id
+                    WHERE pause.resumed_at IS NULL
+               )",
             params![
                 next.as_str(),
                 now,
@@ -1868,6 +1890,21 @@ impl SessionDB {
             ],
         )?;
         drop(conn);
+        if changed == 0 {
+            let current = self
+                .goal_snapshot(goal_id, 200)?
+                .ok_or_else(|| anyhow!("goal {} not found after evaluation", goal_id))?;
+            if current.goal.state == GoalState::Paused
+                || self.is_session_or_ancestor_autonomy_paused(&current.goal.session_id)?
+            {
+                return Ok(current);
+            }
+            anyhow::bail!(
+                "goal {} changed state to '{}' while evaluation was in flight",
+                goal_id,
+                current.goal.state.as_str()
+            );
+        }
         let _ = self.append_goal_event(goal_id, "goal_evaluated", audit)?;
         let next_snapshot = self
             .goal_snapshot(goal_id, 200)?
@@ -3267,6 +3304,12 @@ pub fn maybe_schedule_goal_continuation(
     if matches!(source, crate::chat_engine::ChatSource::Subagent) {
         return Ok(None);
     }
+    // Stop owns a durable session-level admission fence. Even if a parent turn
+    // is concurrently settling, it must not schedule the next autonomous Goal
+    // turn until explicit Continue clears that receipt.
+    if db.is_session_or_ancestor_autonomy_paused(session_id)? {
+        return Ok(None);
+    }
     let Some(mut snapshot) = db.active_goal_for_session(session_id)? else {
         return Ok(None);
     };
@@ -3338,12 +3381,14 @@ pub fn maybe_schedule_goal_continuation(
          </goal-continuation>",
         snapshot.goal.id, snapshot.goal.revision, semantic_instruction
     );
+    let admitted_global_stop_epoch = db.global_stop_epoch()?;
     let outcome = crate::wakeup::schedule(
         session_id,
         agent_id,
         GOAL_AUTO_CONTINUE_DELAY_SECS,
         Some(note),
         false,
+        admitted_global_stop_epoch,
     )
     .map_err(|e| anyhow!("failed to schedule goal continuation: {e:?}"))?;
     let _ = db.append_goal_event(
@@ -5354,6 +5399,59 @@ mod tests {
         assert!(paused.is_none());
 
         crate::wakeup::purge_for_session(&session.id);
+    }
+
+    #[test]
+    fn goal_runner_does_not_schedule_across_session_stop_fence() {
+        let (_dir, db) = temp_db();
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = create_goal_for_session(&db, &session.id);
+        db.prepare_session_autonomy_pause(&session.id)
+            .expect("publish Stop receipt");
+
+        let scheduled = maybe_schedule_goal_continuation(
+            &db,
+            &session.id,
+            "ha-main",
+            crate::chat_engine::ChatSource::Desktop,
+            Some("turn-settled-after-stop"),
+            Some(44),
+        )
+        .expect("pause fence check");
+
+        assert!(scheduled.is_none());
+        let events = db.list_goal_events(&goal.goal.id, 100).expect("events");
+        assert!(!events.iter().any(|event| {
+            event.kind == "goal_auto_continue_scheduled" || event.kind == "goal_runner_evaluated"
+        }));
+    }
+
+    #[test]
+    fn goal_evaluation_cannot_commit_after_stop_receipt() {
+        let (_dir, db) = temp_db();
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = create_goal_for_session(&db, &session.id);
+        db.transition_goal(&goal.goal.id, GoalState::Evaluating, Some("test"))
+            .expect("begin evaluation");
+        db.prepare_session_autonomy_pause(&session.id)
+            .expect("publish Stop receipt before state convergence");
+
+        let evaluated = db
+            .evaluate_goal(&goal.goal.id)
+            .expect("paused evaluation returns its current snapshot");
+        assert_eq!(evaluated.goal.state, GoalState::Evaluating);
+        assert!(!evaluated
+            .events
+            .iter()
+            .any(|event| event.kind == "goal_evaluated"));
+
+        assert_eq!(
+            db.pause_goal(&goal.goal.id)
+                .expect("Stop can finish state convergence")
+                .goal
+                .state,
+            GoalState::Paused
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

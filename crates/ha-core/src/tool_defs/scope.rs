@@ -38,9 +38,9 @@ pub fn is_kb_scoped_tool(name: &str) -> bool {
 /// knowledge-space sidebar chat injects. Keeps note read/write, cross-store
 /// recall, memory, and the framework basics the dispatcher / deferred-tool flow
 /// need (`skill` / `tool_search` / `ask_user_question` / `runtime_cancel` /
-/// `job_status`); everything else (exec / browser / image / subagent / cron /
-/// channel / web / raw fs …) is dropped so a document-writing chat can't wander
-/// into unrelated capabilities.
+/// `session_continue` / `job_status`); everything else (exec / browser / image /
+/// subagent / cron / channel / web / raw fs …) is dropped so a document-writing
+/// chat can't wander into unrelated capabilities.
 ///
 /// Purely schema/visibility narrowing — it never WIDENS anything. KB access is
 /// still decided solely by `effective_kb_access`.
@@ -58,6 +58,7 @@ pub fn is_knowledge_scope_tool(name: &str) -> bool {
                 | TOOL_TOOL_SEARCH
                 | TOOL_ASK_USER_QUESTION
                 | TOOL_RUNTIME_CANCEL
+                | TOOL_SESSION_CONTINUE
                 | TOOL_JOB_STATUS
                 | TOOL_READ_CONTEXT_RESOURCE
         )
@@ -88,6 +89,7 @@ pub fn is_design_scope_tool(name: &str) -> bool {
             | TOOL_TOOL_SEARCH
             | TOOL_ASK_USER_QUESTION
             | TOOL_RUNTIME_CANCEL
+            | TOOL_SESSION_CONTINUE
             | TOOL_JOB_STATUS
             | TOOL_READ_CONTEXT_RESOURCE
     )
@@ -135,6 +137,9 @@ pub fn tool_visible_with_filters(
     skill_allowed_tools: &[String],
     plan_mode_allowed_tools: &[String],
 ) -> bool {
+    if name == TOOL_SESSION_CONTINUE {
+        return true;
+    }
     let turn_local_context_read = name == TOOL_READ_CONTEXT_RESOURCE;
     !denied_tools.iter().any(|t| t == name)
         && (turn_local_context_read
@@ -168,6 +173,7 @@ mod tests {
             super::TOOL_TOOL_SEARCH,
             super::TOOL_ASK_USER_QUESTION,
             super::TOOL_RUNTIME_CANCEL,
+            super::TOOL_SESSION_CONTINUE,
             super::TOOL_JOB_STATUS,
         ] {
             assert!(
@@ -248,6 +254,13 @@ mod tests {
             &filter,
             &[],
             &[],
+            &["write".to_string()]
+        ));
+        assert!(tool_visible_with_filters(
+            super::TOOL_SESSION_CONTINUE,
+            &filter,
+            &[super::TOOL_SESSION_CONTINUE.to_string()],
+            &["read".to_string()],
             &["write".to_string()]
         ));
     }

@@ -277,6 +277,7 @@ fn is_recommended_eager(name: &str) -> bool {
         name,
         TOOL_ASK_USER_QUESTION
             | TOOL_RUNTIME_CANCEL
+            | TOOL_SESSION_CONTINUE
             | TOOL_SKILL
             | TOOL_READ
             | TOOL_READ_CONTEXT_RESOURCE
@@ -317,6 +318,7 @@ fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
                     crate::tools::TOOL_TOOL_SEARCH
                         | crate::tools::TOOL_ASK_USER_QUESTION
                         | crate::tools::TOOL_RUNTIME_CANCEL
+                        | crate::tools::TOOL_SESSION_CONTINUE
                         | crate::tools::TOOL_SKILL
                 )
         }
@@ -343,10 +345,11 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             // site — not by this dispatcher. The dispatcher hides them
             // unconditionally; `apply_plan_tools` puts them back in.
             CoreSubclass::PlanMode => ToolFate::Hidden,
-            // Meta tools include framework primitives (skill, runtime_cancel)
-            // plus opt-in feature gates (tool_search, job_status). The latter
-            // two are eligible only when their corresponding global switch is
-            // on; the Agent may promote job_status for a live session job.
+            // Meta tools include framework primitives (skill, runtime_cancel,
+            // session_continue) plus opt-in feature gates (tool_search,
+            // job_status). The latter two are eligible only when their
+            // corresponding global switch is on; the Agent may promote
+            // job_status for a live session job.
             CoreSubclass::Meta => match def.name.as_str() {
                 crate::tools::TOOL_TOOL_SEARCH => {
                     if has_deferred_builtin_tools(app_config)
@@ -998,6 +1001,28 @@ mod tests {
             schema_tokens.estimated,
             schema_tokens.upper_bound
         );
+    }
+
+    #[test]
+    fn session_continue_stays_eager_in_every_deferred_mode() {
+        let mut f = Fixture::new();
+        let def = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_SESSION_CONTINUE)
+            .expect("session_continue definition");
+
+        for mode in [
+            crate::config::DeferredToolsMode::Recommended,
+            crate::config::DeferredToolsMode::Custom,
+        ] {
+            f.app.deferred_tools.mode = Some(mode);
+            f.app.deferred_tools.tool_names = vec![crate::tools::TOOL_SESSION_CONTINUE.to_string()];
+            assert_eq!(
+                resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+                ToolFate::InjectEager,
+                "mode={mode:?}"
+            );
+        }
     }
 
     #[test]

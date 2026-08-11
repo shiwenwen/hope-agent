@@ -251,6 +251,7 @@ pub fn run() {
             commands::chat::chat,
             commands::chat::control_model_recovery,
             commands::chat::stop_chat,
+            commands::chat::continue_chat,
             commands::runtime_tasks::cancel_runtime_task,
             // Interactive terminal
             commands::terminal::terminal_create,

@@ -54,6 +54,7 @@ pub mod registry;
 mod runtime_cancel;
 mod schedule_wakeup;
 mod send_attachment;
+mod session_continue;
 mod sessions;
 mod settings;
 pub(crate) mod subagent;

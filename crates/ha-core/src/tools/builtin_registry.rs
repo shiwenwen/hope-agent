@@ -71,6 +71,7 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_JOB_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| super::job_status::tool_job_status(args, ctx.session_id.as_deref()).await) },
         BuiltinToolEntry { name: super::TOOL_SCHEDULE_WAKEUP, aliases: &[], handler: tool_handler!(|args, ctx| super::schedule_wakeup::tool_schedule_wakeup(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_RUNTIME_CANCEL, aliases: &[], handler: tool_handler!(|args, ctx| super::runtime_cancel::tool_runtime_cancel(args, ctx).await) },
+        BuiltinToolEntry { name: super::TOOL_SESSION_CONTINUE, aliases: &[], handler: tool_handler!(|args, ctx| super::session_continue::tool_session_continue(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_TOOL_SEARCH, aliases: &[], handler: tool_handler!(|args, ctx| super::tool_search::tool_search(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_PEEK_SESSIONS, aliases: &[], handler: tool_handler!(|args, ctx| crate::awareness::run_peek_sessions(args, ctx.session_id.as_deref()) .map_err(|e| anyhow::anyhow!(e))) },
         BuiltinToolEntry { name: super::TOOL_GET_SETTINGS, aliases: &[], handler: tool_handler!(|args, ctx| super::settings::tool_get_settings(args).await) },

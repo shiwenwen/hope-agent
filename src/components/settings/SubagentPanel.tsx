@@ -6,7 +6,11 @@ import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import { Check, Bot } from "lucide-react"
 import type { AgentConfig, AgentSummary } from "./types"
-import { DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS } from "./agent-panel/agentTabDefaults"
+import {
+  DEFAULT_SUBAGENT_ANNOUNCE_TIMEOUT_SECS,
+  DEFAULT_SUBAGENT_PROVIDER_RETRY_ATTEMPTS,
+  DEFAULT_SUBAGENT_PROVIDER_RETRY_BACKOFF_SECS,
+} from "./agent-panel/agentTabDefaults"
 
 interface SubagentPanelProps {
   config: AgentConfig["subagents"]
@@ -249,6 +253,56 @@ export default function SubagentPanel({
                   className="w-24 text-sm"
                   min={10}
                   max={600}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {t("settings.subagentTimeoutUnit")}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentProviderRetryAttempts")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentProviderRetryAttemptsDesc")}
+                </p>
+              </div>
+              <DeferredNumberInput
+                value={
+                  config.providerRetryAttempts ?? DEFAULT_SUBAGENT_PROVIDER_RETRY_ATTEMPTS
+                }
+                onValueCommit={(value) =>
+                  onChange({ ...config, providerRetryAttempts: value })
+                }
+                className="w-20 shrink-0 text-sm"
+                min={0}
+                max={10}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentProviderRetryBackoff")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentProviderRetryBackoffDesc")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <DeferredNumberInput
+                  value={
+                    config.providerRetryBackoffSecs ??
+                    DEFAULT_SUBAGENT_PROVIDER_RETRY_BACKOFF_SECS
+                  }
+                  onValueCommit={(value) =>
+                    onChange({ ...config, providerRetryBackoffSecs: value })
+                  }
+                  className="w-20 text-sm"
+                  min={1}
+                  max={60}
                 />
                 <span className="text-xs text-muted-foreground">
                   {t("settings.subagentTimeoutUnit")}

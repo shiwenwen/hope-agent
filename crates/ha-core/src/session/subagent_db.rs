@@ -64,6 +64,23 @@ fn insert_run_row(
     Ok(())
 }
 
+fn ensure_parent_session_accepts_subagent(
+    tx: &rusqlite::Transaction<'_>,
+    parent_session_id: &str,
+) -> Result<()> {
+    let paused = tx.query_row(
+        super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
+        params![parent_session_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0;
+    if paused {
+        return Err(anyhow::anyhow!(
+            "Parent session is paused by Stop; use Continue before spawning or resuming sub-agents"
+        ));
+    }
+    Ok(())
+}
+
 impl SessionDB {
     // ── Sub-Agent Run CRUD ──────────────────────────────────────
 
@@ -89,6 +106,11 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let tx = conn.transaction()?;
+        // This check shares the insertion transaction with the new run. It is
+        // the admission fence for a spawn already in flight when Stop captures
+        // its controller ids: either the run commits first and Stop captures
+        // it, or the pause receipt commits first and this insert is refused.
+        ensure_parent_session_accepts_subagent(&tx, &run.parent_session_id)?;
         let lease_epoch = run.lease_epoch.max(1);
         let thread_id = run.child_session_id.as_str();
         let owner_id = if run.owner_id.is_empty() {
@@ -192,6 +214,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let tx = conn.transaction()?;
+        ensure_parent_session_accepts_subagent(&tx, &run.parent_session_id)?;
 
         let source: Option<(String, String, String, String, u32, String, String, String)> = tx
             .query_row(
@@ -542,6 +565,12 @@ impl SessionDB {
                 ],
             )?;
             if changed > 0 {
+                if status.is_terminal() {
+                    tx.execute(
+                        "DELETE FROM subagent_provider_recovery WHERE run_id = ?1",
+                        params![run_id],
+                    )?;
+                }
                 tx.execute(
                     "UPDATE subagent_threads
                         SET updated_at = ?1
@@ -550,7 +579,15 @@ impl SessionDB {
                 )?;
                 if status.is_terminal()
                     && !matches!(&status, crate::subagent::SubagentStatus::Killed)
+                    && !matches!(
+                        terminal_reason,
+                        Some(crate::subagent::SubagentTerminalReason::SessionPaused)
+                    )
                 {
+                    // SessionPaused is a control-plane receipt consumed by the
+                    // explicit Continue turn. Giving it an independent parent
+                    // delivery would race that turn when the runner settles a
+                    // few milliseconds after Continue consumed the pause row.
                     tx.execute(
                         "INSERT OR IGNORE INTO subagent_result_deliveries (
                             run_id, parent_session_id, state, attempt_count, requested_at
@@ -925,17 +962,18 @@ impl SessionDB {
                 )
              ON CONFLICT(run_id) DO UPDATE SET
                 state = CASE
-                    WHEN subagent_result_deliveries.state = 'pending' THEN 'suppressed'
+                    WHEN subagent_result_deliveries.state IN ('pending', 'suppressed')
+                    THEN 'suppressed'
                     ELSE subagent_result_deliveries.state
                 END,
                 suppress_reason = excluded.suppress_reason,
                 delivered_at = CASE
-                    WHEN subagent_result_deliveries.state = 'pending'
-                    THEN excluded.delivered_at
+                    WHEN subagent_result_deliveries.state IN ('pending', 'suppressed')
+                    THEN COALESCE(subagent_result_deliveries.delivered_at, excluded.delivered_at)
                     ELSE subagent_result_deliveries.delivered_at
                 END
               WHERE subagent_result_deliveries.state IN (
-                    'pending', 'injecting', 'injecting_no_replay'
+                    'pending', 'injecting', 'injecting_no_replay', 'suppressed'
               )",
             params![reason, now, run_id],
         )?;
@@ -1080,8 +1118,8 @@ impl SessionDB {
                FROM subagent_runs
               WHERE run_id IN (
                     SELECT run_id
-                      FROM subagent_result_deliveries
-                     WHERE state = 'pending'
+                     FROM subagent_result_deliveries
+                     WHERE state = 'pending' AND requested_at <= ?1
               )
               ORDER BY (
                     SELECT requested_at
@@ -1090,7 +1128,10 @@ impl SessionDB {
               )"
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map([], Self::row_to_subagent_run)?;
+        let rows = stmt.query_map(
+            params![chrono::Utc::now().to_rfc3339()],
+            Self::row_to_subagent_run,
+        )?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -1128,6 +1169,63 @@ impl SessionDB {
             params![now, reason, run_id],
         )?;
         Ok(())
+    }
+
+    /// Delay a provider-failed parent injection after its ordinary claim was
+    /// released. `attempt_count` is incremented by the claim CAS, so repeated
+    /// outages back off without a hot five-second retry loop.
+    pub fn defer_subagent_result_delivery_retry(
+        &self,
+        run_id: &str,
+        error: &str,
+        max_retries: u32,
+        base_delay_secs: u64,
+    ) -> Result<bool> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        let attempts = tx
+            .query_row(
+                "SELECT attempt_count FROM subagent_result_deliveries
+                  WHERE run_id = ?1 AND state = 'pending'",
+                params![run_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(attempts) = attempts else {
+            tx.commit()?;
+            return Ok(false);
+        };
+        let sanitized = crate::logging::redact_sensitive(error);
+        let sanitized = crate::truncate_utf8(&sanitized, 1_000);
+        if attempts.max(0) as u32 > max_retries.min(10) {
+            tx.execute(
+                "UPDATE subagent_result_deliveries
+                    SET state = 'suppressed',
+                        suppress_reason = 'provider_retries_exhausted',
+                        delivered_at = ?1,
+                        last_error = ?2
+                  WHERE run_id = ?3 AND state = 'pending'",
+                params![chrono::Utc::now().to_rfc3339(), sanitized, run_id],
+            )?;
+            tx.commit()?;
+            return Ok(false);
+        }
+        let exponent = attempts.saturating_sub(1).clamp(0, 6) as u32;
+        let delay_secs = (base_delay_secs.clamp(1, 60) as i64)
+            .saturating_mul(1i64 << exponent)
+            .min(300);
+        let retry_at = (chrono::Utc::now() + chrono::Duration::seconds(delay_secs)).to_rfc3339();
+        tx.execute(
+            "UPDATE subagent_result_deliveries
+                SET requested_at = ?1, last_error = ?2
+              WHERE run_id = ?3 AND state = 'pending'",
+            params![retry_at, sanitized, run_id],
+        )?;
+        tx.commit()?;
+        Ok(true)
     }
 
     /// Batch variant of [`get_subagent_run`]. Returns a `HashMap` keyed by
@@ -1185,6 +1283,141 @@ impl SessionDB {
         Ok(runs)
     }
 
+    /// Current thread attempts that need an explicit recovery decision from the
+    /// parent. Joining `current_run_id` prevents superseded failures from being
+    /// repeated in every later prompt.
+    pub fn list_current_recoverable_subagent_runs(
+        &self,
+        parent_session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::subagent::SubagentRun>> {
+        let limit = limit.clamp(1, 20) as i64;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let sql = format!(
+            "SELECT {SUBAGENT_RUN_COLUMNS}
+               FROM subagent_runs
+              WHERE parent_session_id = ?1
+                AND run_id IN (
+                    SELECT current_run_id FROM subagent_threads
+                     WHERE parent_session_id = ?1
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM subagent_result_deliveries handled
+                     WHERE handled.run_id = subagent_runs.run_id
+                       AND (
+                           handled.state = 'delivered'
+                           OR handled.suppress_reason = 'explicitly_consumed'
+                       )
+                )
+                AND (
+                    terminal_reason IN (
+                        'session_paused', 'provider_exhausted',
+                        'deadline_exceeded', 'process_interrupted'
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM subagent_result_deliveries delivery
+                         WHERE delivery.run_id = subagent_runs.run_id
+                           AND delivery.state = 'suppressed'
+                           AND delivery.suppress_reason IN (
+                               'provider_retries_exhausted',
+                               'session_continue_uses_runtime_recovery'
+                           )
+                    )
+                )
+              ORDER BY started_at DESC
+              LIMIT ?2"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![parent_session_id, limit], Self::row_to_subagent_run)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn record_subagent_provider_recovery(
+        &self,
+        run_id: &str,
+        attempt: u32,
+        max_attempts: u32,
+        next_attempt_at: &str,
+        last_error: &str,
+    ) -> Result<()> {
+        let sanitized = crate::logging::redact_sensitive(last_error);
+        let sanitized = crate::truncate_utf8(&sanitized, 1_000);
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT INTO subagent_provider_recovery (
+                run_id, attempt, max_attempts, next_attempt_at, last_error, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(run_id) DO UPDATE SET
+                attempt = excluded.attempt,
+                max_attempts = excluded.max_attempts,
+                next_attempt_at = excluded.next_attempt_at,
+                last_error = excluded.last_error,
+                updated_at = excluded.updated_at",
+            params![
+                run_id,
+                attempt as i64,
+                max_attempts as i64,
+                next_attempt_at,
+                sanitized,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_subagent_provider_recovery(&self, run_id: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "DELETE FROM subagent_provider_recovery WHERE run_id = ?1",
+            params![run_id],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn list_current_subagent_provider_recoveries(
+        &self,
+        parent_session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::subagent::SubagentProviderRecovery>> {
+        let limit = limit.clamp(1, 20) as i64;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT sr.run_id, sr.child_session_id, sr.owner_kind, sr.owner_id,
+                    recovery.attempt, recovery.max_attempts, recovery.next_attempt_at
+               FROM subagent_provider_recovery recovery
+               JOIN subagent_runs sr ON sr.run_id = recovery.run_id
+               JOIN subagent_threads st ON st.current_run_id = sr.run_id
+              WHERE sr.parent_session_id = ?1 AND sr.status = 'running'
+              ORDER BY recovery.updated_at DESC
+              LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![parent_session_id, limit], |row| {
+            Ok(crate::subagent::SubagentProviderRecovery {
+                run_id: row.get(0)?,
+                thread_id: row.get(1)?,
+                owner_kind: crate::subagent::SubagentOwnerKind::from_str(&row.get::<_, String>(2)?),
+                owner_id: row.get(3)?,
+                attempt: row.get::<_, i64>(4)?.max(0) as u32,
+                max_attempts: row.get::<_, i64>(5)?.max(0) as u32,
+                next_attempt_at: row.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// List active (non-terminal) sub-agent runs for a parent session.
     pub fn list_active_subagent_runs(
         &self,
@@ -1209,9 +1442,10 @@ impl SessionDB {
         Ok(runs)
     }
 
-    /// List every non-terminal sub-agent run owned by a parent session.
+    /// List every non-terminal sub-agent run owned by a parent session tree.
     /// Unlike the active-run query, this includes parked `queued` runs so a
-    /// parent Stop can cancel them before the scheduler promotes them.
+    /// parent Stop can pause both direct and nested children before the
+    /// scheduler promotes them.
     pub fn list_nonterminal_subagent_runs(
         &self,
         parent_session_id: &str,
@@ -1221,9 +1455,17 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let sql = format!(
-            "SELECT {SUBAGENT_RUN_COLUMNS}
+            "WITH RECURSIVE session_tree(id) AS (
+                 SELECT ?1
+                 UNION
+                 SELECT child.id
+                   FROM sessions child
+                   JOIN session_tree parent ON child.parent_session_id = parent.id
+             )
+             SELECT {SUBAGENT_RUN_COLUMNS}
                FROM subagent_runs
-              WHERE parent_session_id = ?1 AND status IN ('queued', 'spawning', 'running')
+              WHERE parent_session_id IN (SELECT id FROM session_tree)
+                AND status IN ('queued', 'spawning', 'running')
               ORDER BY started_at DESC"
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -1427,6 +1669,10 @@ impl SessionDB {
                                AND s.incognito = 0
                         )",
                     params![now, run_id],
+                )?;
+                tx.execute(
+                    "DELETE FROM subagent_provider_recovery WHERE run_id = ?1",
+                    params![run_id],
                 )?;
             }
             tx.commit()?;
@@ -1662,6 +1908,101 @@ mod tests {
     }
 
     #[test]
+    fn paused_parent_rejects_new_and_resumed_subagent_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let parent = db.create_session("ha-main").unwrap();
+        let source_child = db
+            .create_session_with_parent("helper", Some(&parent.id))
+            .unwrap();
+        let mut source = run(
+            "run-source-before-stop",
+            &source_child.id,
+            SubagentStatus::Completed,
+        );
+        source.parent_session_id = parent.id.clone();
+        source.owner_id = parent.id.clone();
+        db.insert_subagent_run(&source).unwrap();
+
+        let nested_parent = db
+            .create_session_with_parent("helper", Some(&parent.id))
+            .unwrap();
+        let nested_child = db
+            .create_session_with_parent("helper", Some(&nested_parent.id))
+            .unwrap();
+        let mut nested = run(
+            "run-nested-before-stop",
+            &nested_child.id,
+            SubagentStatus::Running,
+        );
+        nested.parent_session_id = nested_parent.id.clone();
+        nested.owner_id = nested_parent.id.clone();
+        db.insert_subagent_run(&nested).unwrap();
+        assert!(db
+            .list_nonterminal_subagent_runs(&parent.id)
+            .unwrap()
+            .iter()
+            .any(|run| run.run_id == nested.run_id));
+        assert_eq!(
+            db.list_session_ids_with_active_autonomy().unwrap(),
+            vec![parent.id.clone()],
+            "global Stop must normalize nested autonomy to the visible root session"
+        );
+
+        let pause = db
+            .prepare_session_autonomy_pause(&parent.id)
+            .expect("publish parent pause fence");
+        assert!(pause.subagent_run_ids.contains(&nested.run_id));
+        assert!(db
+            .is_session_or_ancestor_autonomy_paused(&nested_parent.id)
+            .unwrap());
+        assert_eq!(
+            db.session_autonomy_lineage_pause_epoch(&nested_parent.id)
+                .unwrap(),
+            1
+        );
+
+        let fresh_child = db
+            .create_session_with_parent("helper", Some(&parent.id))
+            .unwrap();
+        let mut fresh = run("run-after-stop", &fresh_child.id, SubagentStatus::Spawning);
+        fresh.parent_session_id = parent.id.clone();
+        fresh.owner_id = parent.id.clone();
+        let error = db
+            .insert_subagent_run(&fresh)
+            .expect_err("Stop must reject a newly admitted child run");
+        assert!(error.to_string().contains("use Continue"));
+
+        let late_nested_child = db
+            .create_session_with_parent("helper", Some(&source_child.id))
+            .unwrap();
+        let mut late_nested = run(
+            "run-nested-after-stop",
+            &late_nested_child.id,
+            SubagentStatus::Spawning,
+        );
+        late_nested.parent_session_id = source_child.id.clone();
+        late_nested.owner_id = source_child.id.clone();
+        let error = db
+            .insert_subagent_run(&late_nested)
+            .expect_err("ancestor Stop must reject a late nested child run");
+        assert!(error.to_string().contains("use Continue"));
+
+        let mut resumed = run(
+            "run-resumed-after-stop",
+            &source_child.id,
+            SubagentStatus::Spawning,
+        );
+        resumed.parent_session_id = parent.id.clone();
+        resumed.owner_id = parent.id;
+        resumed.continuation_of_run_id = Some(source.run_id.clone());
+        let error = db
+            .insert_resumed_subagent_run(&source.run_id, &resumed, None, None)
+            .expect_err("Stop must reject continuation admission");
+        assert!(error.to_string().contains("use Continue"));
+    }
+
+    #[test]
     fn continuation_epoch_fences_late_writes_from_the_previous_attempt() {
         let tmp = tempfile::tempdir().unwrap();
         let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
@@ -1703,6 +2044,64 @@ mod tests {
                 .run_id,
             "run-next"
         );
+    }
+
+    #[test]
+    fn exhausted_parent_delivery_is_visible_until_result_is_consumed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let parent = db.create_session("ha-main").unwrap();
+        let child = db
+            .create_session_with_parent("helper", Some(&parent.id))
+            .unwrap();
+        let mut delivery = run("run-provider-exhausted", &child.id, SubagentStatus::Running);
+        delivery.parent_session_id = parent.id.clone();
+        delivery.owner_id = parent.id.clone();
+        db.insert_subagent_run(&delivery).unwrap();
+        db.update_subagent_status_with_reason(
+            &delivery.run_id,
+            SubagentStatus::Completed,
+            Some(crate::subagent::SubagentTerminalReason::Success),
+            Some("durable child result"),
+            None,
+            None,
+            Some(1),
+        )
+        .unwrap();
+
+        assert!(db.claim_subagent_result_delivery(&delivery.run_id).unwrap());
+        db.release_subagent_result_delivery_claim(&delivery.run_id, "provider unavailable")
+            .unwrap();
+        assert!(!db
+            .defer_subagent_result_delivery_retry(&delivery.run_id, "provider unavailable", 0, 5)
+            .unwrap());
+        assert_eq!(
+            delivery_state(&db, &delivery.run_id),
+            (
+                "suppressed".to_string(),
+                Some("provider_retries_exhausted".to_string())
+            )
+        );
+        assert_eq!(
+            db.list_current_recoverable_subagent_runs(&parent.id, 8)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        db.suppress_subagent_result_delivery(&delivery.run_id, "explicitly_consumed")
+            .unwrap();
+        assert_eq!(
+            delivery_state(&db, &delivery.run_id),
+            (
+                "suppressed".to_string(),
+                Some("explicitly_consumed".to_string())
+            )
+        );
+        assert!(db
+            .list_current_recoverable_subagent_runs(&parent.id, 8)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

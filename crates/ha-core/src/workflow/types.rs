@@ -70,7 +70,11 @@ impl WorkflowRunState {
             (self, next),
             (
                 Self::Draft,
-                Self::AwaitingApproval | Self::Running | Self::Cancelled | Self::Blocked,
+                Self::AwaitingApproval
+                    | Self::Running
+                    | Self::Paused
+                    | Self::Cancelled
+                    | Self::Blocked,
             ) | (
                 Self::AwaitingApproval,
                 Self::Running | Self::Cancelled | Self::Blocked
@@ -91,7 +95,12 @@ impl WorkflowRunState {
                 Self::Running | Self::Cancelled | Self::Blocked
             ) | (
                 Self::Recovering,
-                Self::Running | Self::Completed | Self::Failed | Self::Cancelled | Self::Blocked,
+                Self::Running
+                    | Self::Paused
+                    | Self::Completed
+                    | Self::Failed
+                    | Self::Cancelled
+                    | Self::Blocked,
             )
         )
     }

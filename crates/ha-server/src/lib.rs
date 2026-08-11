@@ -956,6 +956,7 @@ fn build_router_with_cors(
             post(routes::chat::cancel_queued_turn_user_message),
         )
         .route("/chat/stop", post(routes::chat::stop_chat))
+        .route("/chat/continue", post(routes::chat::continue_chat))
         .route(
             "/chat/recovery/control",
             post(routes::chat::control_model_recovery),

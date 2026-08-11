@@ -170,6 +170,9 @@ pub enum SubagentTerminalReason {
     UserKilled,
     ParentCancelled,
     WorkflowCancelled,
+    /// A session-level Stop interrupted this immutable attempt without closing
+    /// its child thread. Explicit Continue may create a fresh continuation.
+    SessionPaused,
     QueuePayloadUnavailable,
     Unknown,
 }
@@ -189,6 +192,7 @@ impl SubagentTerminalReason {
             Self::UserKilled => "user_killed",
             Self::ParentCancelled => "parent_cancelled",
             Self::WorkflowCancelled => "workflow_cancelled",
+            Self::SessionPaused => "session_paused",
             Self::QueuePayloadUnavailable => "queue_payload_unavailable",
             Self::Unknown => "unknown",
         }
@@ -208,6 +212,7 @@ impl SubagentTerminalReason {
             "user_killed" => Self::UserKilled,
             "parent_cancelled" => Self::ParentCancelled,
             "workflow_cancelled" => Self::WorkflowCancelled,
+            "session_paused" => Self::SessionPaused,
             "queue_payload_unavailable" => Self::QueuePayloadUnavailable,
             _ => Self::Unknown,
         }
@@ -218,7 +223,10 @@ impl SubagentTerminalReason {
     pub fn resume_recommended(self) -> bool {
         matches!(
             self,
-            Self::ProviderExhausted | Self::DeadlineExceeded | Self::ProcessInterrupted
+            Self::ProviderExhausted
+                | Self::DeadlineExceeded
+                | Self::ProcessInterrupted
+                | Self::SessionPaused
         )
     }
 
@@ -294,6 +302,17 @@ pub struct SubagentRun {
     pub launch_spec_json: Option<String>,
     pub owner_kind: SubagentOwnerKind,
     pub owner_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SubagentProviderRecovery {
+    pub run_id: String,
+    pub thread_id: String,
+    pub owner_kind: SubagentOwnerKind,
+    pub owner_id: String,
+    pub attempt: u32,
+    pub max_attempts: u32,
+    pub next_attempt_at: String,
 }
 
 impl Default for SubagentRun {

@@ -1559,6 +1559,22 @@ impl SessionDB {
                     created_at, updated_at, completed_at
              FROM workflow_runs
              WHERE state IN ('draft', 'running', 'recovering')
+               AND NOT EXISTS (
+                    WITH RECURSIVE session_lineage(id, parent_session_id) AS (
+                        SELECT id, parent_session_id
+                          FROM sessions
+                         WHERE id = workflow_runs.session_id
+                        UNION
+                        SELECT parent.id, parent.parent_session_id
+                          FROM sessions parent
+                          JOIN session_lineage child
+                            ON parent.id = child.parent_session_id
+                    )
+                    SELECT 1
+                      FROM session_autonomy_pauses sap
+                      JOIN session_lineage lineage ON lineage.id = sap.session_id
+                     WHERE sap.resumed_at IS NULL
+               )
              ORDER BY updated_at ASC",
         )?;
         let rows = stmt.query_map([], row_to_run)?;
@@ -3006,4 +3022,55 @@ fn normalize_saved_template_name(value: &str) -> Result<String> {
 fn normalize_saved_template_description(value: Option<&str>) -> Option<String> {
     normalize_optional(value)
         .map(|value| clamp_chars(value, SAVED_WORKFLOW_TEMPLATE_DESCRIPTION_MAX_CHARS))
+}
+
+#[cfg(test)]
+mod recovery_pause_tests {
+    use super::*;
+
+    #[test]
+    fn recoverable_runs_inherit_active_ancestor_pause() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db");
+        let root = db.create_session("ha-main").expect("create root session");
+        let child = db
+            .create_session_with_parent("ha-main", Some(&root.id))
+            .expect("create hidden child session");
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: child.id,
+                kind: "coding.feature".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: "export default async function main(workflow) {}".to_string(),
+                budget: json!({ "max_runtime_secs": 300, "max_ops": 12 }),
+                parent_run_id: None,
+                origin: None,
+                goal_id: None,
+                goal_criterion_id: None,
+                worktree_id: None,
+            })
+            .expect("create child workflow");
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
+            .expect("mark workflow running");
+
+        let pause = db
+            .prepare_session_autonomy_pause(&root.id)
+            .expect("publish root Stop receipt");
+        assert!(pause.workflow_run_ids.contains(&run.id));
+        assert!(!db
+            .list_recoverable_workflow_runs()
+            .expect("list paused recoverable runs")
+            .iter()
+            .any(|candidate| candidate.id == run.id));
+
+        assert!(db
+            .finish_session_autonomy_resume(&pause.id)
+            .expect("consume root Stop receipt"));
+        assert!(db
+            .list_recoverable_workflow_runs()
+            .expect("list resumed recoverable runs")
+            .iter()
+            .any(|candidate| candidate.id == run.id));
+    }
 }

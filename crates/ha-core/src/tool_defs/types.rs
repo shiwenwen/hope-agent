@@ -59,7 +59,7 @@ pub enum CoreSubclass {
     Interaction,
     /// 跨会话（sessions_* / peek_sessions / agents_list）
     SessionAware,
-    /// 框架元工具（tool_search / job_status / runtime_cancel / skill）
+    /// 框架元工具（tool_search / job_status / runtime_cancel / session_continue / skill）
     Meta,
     /// Plan Mode 工具（enter_plan_mode / submit_plan）—— 由 PlanAgentMode 控制
     PlanMode,
@@ -359,6 +359,7 @@ impl ToolDefinition {
                         crate::tool_defs::TOOL_TOOL_SEARCH
                             | crate::tool_defs::TOOL_ASK_USER_QUESTION
                             | crate::tool_defs::TOOL_RUNTIME_CANCEL
+                            | crate::tool_defs::TOOL_SESSION_CONTINUE
                             | crate::tool_defs::TOOL_SKILL
                     )
             }

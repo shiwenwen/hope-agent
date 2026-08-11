@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -84,7 +84,11 @@ function SortableFallbackItem({
   )
 }
 
-export default function GlobalModelPanel() {
+export default function GlobalModelPanel({
+  focusVisionBridge = false,
+}: {
+  focusVisionBridge?: boolean
+}) {
   const { t } = useTranslation()
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModelRef | null>(null)
@@ -95,6 +99,7 @@ export default function GlobalModelPanel() {
   const [addingFallback, setAddingFallback] = useState(false)
   const [globalTemperature, setGlobalTemperature] = useState<number | null>(null)
   const [globalReasoningEffort, setGlobalReasoningEffort] = useState("medium")
+  const visionBridgeRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -123,6 +128,14 @@ export default function GlobalModelPanel() {
     }
     load()
   }, [])
+
+  useEffect(() => {
+    if (loading || !focusVisionBridge) return
+    const frame = requestAnimationFrame(() => {
+      visionBridgeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusVisionBridge, loading])
 
   const modelDisplayName = (ref: ActiveModelRef) => {
     const m = availableModels.find(
@@ -341,12 +354,7 @@ export default function GlobalModelPanel() {
             getTransport()
               .call("set_global_reasoning_effort", { effort })
               .catch((error) =>
-                logger.error(
-                  "settings",
-                  "GlobalModelPanel::setReasoningEffort",
-                  "Failed",
-                  error,
-                ),
+                logger.error("settings", "GlobalModelPanel::setReasoningEffort", "Failed", error),
               )
           }}
         />
@@ -355,7 +363,7 @@ export default function GlobalModelPanel() {
       <div className="border-t border-border/50 mb-6 mt-6" />
 
       {/* Vision Bridge Model */}
-      <div>
+      <div ref={visionBridgeRef}>
         <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
           {t("settings.visionBridgeModel")}
         </div>
@@ -429,9 +437,11 @@ export default function GlobalModelPanel() {
             }}
             onValueCommit={([v]) => {
               const temp = v / 100
-              getTransport().call("set_global_temperature", { temperature: temp }).catch((e) =>
-                logger.error("settings", "GlobalModelPanel::setTemperature", "Failed", e),
-              )
+              getTransport()
+                .call("set_global_temperature", { temperature: temp })
+                .catch((e) =>
+                  logger.error("settings", "GlobalModelPanel::setTemperature", "Failed", e),
+                )
             }}
             className="flex-1"
           />
@@ -445,9 +455,11 @@ export default function GlobalModelPanel() {
               className="h-7 w-7 text-muted-foreground/50 hover:text-foreground"
               onClick={() => {
                 setGlobalTemperature(null)
-                getTransport().call("set_global_temperature", { temperature: null }).catch((e) =>
-                  logger.error("settings", "GlobalModelPanel::resetTemperature", "Failed", e),
-                )
+                getTransport()
+                  .call("set_global_temperature", { temperature: null })
+                  .catch((e) =>
+                    logger.error("settings", "GlobalModelPanel::resetTemperature", "Failed", e),
+                  )
               }}
             >
               <RotateCcw className="h-3.5 w-3.5" />
