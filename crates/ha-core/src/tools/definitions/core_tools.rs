@@ -106,7 +106,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Request terminal cancellation of a current-session async job, owned sub-agent, or legacy process. `requested` acknowledges the request, not termination; rely on `finalStatus` or a later status check. Unknown, unauthorized, or unsignalable targets return `refused`. This is cancellation, not pause, and has no generic resume. Use `manage_cron` for schedules.".into(),
+            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -130,7 +130,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_SESSION_CONTINUE.into(),
-            description: "Resume the current conversation's durable Stop receipt after the user explicitly asks to continue, resume, or keep going in a new foreground message (for example: '继续', '接着做', 'continue', or 'resume'). Copy `pause_id` exactly from the trusted `<session-paused>` system reminder; a stale id is rejected so an older Continue cannot override a newer Stop. This clears only the controllers captured by that Stop, restores their Goal/Workflow/wakeup delivery paths, and returns the exact recovery targets. It does not revive independently paused work. Call this before attempting to resume captured sub-agent threads. If the user is only asking for status, explanation, or changes to the recovery plan, do not call it.".into(),
+            description: "Resume the current conversation only when the user explicitly asks. Use the exact `pause_id` from `<session-paused>`; stale ids fail; do not call for status or replanning.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -139,8 +139,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "type": "object",
                 "properties": {
                     "pause_id": {
-                        "type": "string",
-                        "description": "Exact pause_id from the current <session-paused> system reminder."
+                        "type": "string"
                     }
                 },
                 "required": ["pause_id"],
