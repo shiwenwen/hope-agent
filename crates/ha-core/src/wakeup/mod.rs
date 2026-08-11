@@ -21,12 +21,13 @@
 //! - **Restart recovery** (`replay_pending`) is **Primary-only** (mirrors
 //!   `async_jobs::replay_pending_jobs`): it re-arms unfired rows; past-due ones
 //!   fire immediately. Secondary processes don't re-arm shared rows.
-//! - **Delivery** normally deletes the row only when the injection lands. When
-//!   an IM mirror attaches, a durable `fired=1` write-ahead claim happens before
-//!   engine deltas can mutate the provider; restart recovery deliberately skips
-//!   that tombstone even if the process crashes before ordinary settlement.
-//!   Confirmed cancellation can still retry from the process-local injection
-//!   queue, but crash recovery favors at-most-once IM delivery over duplication.
+//! - **Delivery** claims a durable row with `fired=1` at the shared pre-engine
+//!   boundary and deletes it only when the injection lands. The claim prevents
+//!   a Primary replay from racing an older Secondary owner, and also fences an
+//!   attached IM mirror before engine deltas can mutate the provider. Confirmed
+//!   cancellation can still retry from the process-local injection queue, but
+//!   crash recovery favors at-most-once delivery over duplicated turns or tool
+//!   side effects.
 //! - **Incognito** wakeups are in-memory only (no row) — close-and-burn.
 
 pub(crate) mod db;
@@ -890,6 +891,15 @@ async fn fire(id: String, descriptor: WakeupDescriptor) {
                 .with_process_dispatch_release(move || {
                     finish_delivering(&id_for_process_release, true);
                 });
+                // A durable wakeup may be replayed by Primary while its old
+                // Secondary owner is still settling. Claim the shared row at
+                // the common pre-engine boundary even without an IM mirror;
+                // competing attempts then have exactly one CAS winner.
+                let on_injected = if persisted {
+                    on_injected.with_pre_engine_claim()
+                } else {
+                    on_injected
+                };
                 let release_receipt = on_injected.clone();
                 let receipt_run_id = id_for_mark.clone();
                 let outcome = rt.block_on(async move {
@@ -992,9 +1002,9 @@ fn delete_delivered_with_retry(id: &str) -> anyhow::Result<()> {
     anyhow::bail!("delete delivered wakeup failed after retries: {error}")
 }
 
-/// Persist the IM at-most-once fence before the parent engine can emit a
-/// provider-visible delta. A false CAS means another process already owns the
-/// wakeup and this attempt must abort locally.
+/// Persist the at-most-once delivery fence before the parent engine can emit a
+/// provider-visible delta or tool side effect. A false CAS means another
+/// process already owns the wakeup and this attempt must abort locally.
 fn claim_no_replay_with_retry(id: &str) -> anyhow::Result<()> {
     const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
     let Some(db) = get_wakeup_db() else {

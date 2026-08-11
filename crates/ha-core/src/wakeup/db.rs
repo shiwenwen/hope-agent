@@ -120,10 +120,10 @@ impl WakeupDB {
         }))
     }
 
-    /// Cross-process write-ahead claim for a wakeup whose attached IM mirror
-    /// is about to enter the parent engine. The fired row is deliberately kept
-    /// as a tombstone until ordinary settlement deletes it; a crash after this
-    /// claim must not let restart recovery replay an ambiguous provider write.
+    /// Cross-process write-ahead claim for a wakeup about to enter the parent
+    /// engine. The fired row is deliberately kept as a tombstone until ordinary
+    /// settlement deletes it; a crash after this claim must not let restart
+    /// recovery replay ambiguous provider or tool side effects.
     pub fn claim_no_replay(&self, id: &str) -> Result<bool> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let changed = conn.execute(

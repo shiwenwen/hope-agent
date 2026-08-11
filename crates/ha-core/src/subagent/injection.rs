@@ -17,11 +17,14 @@ type InjectionReceiptStep = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>;
 ///
 /// An attached IM mirror can perform a persistent provider mutation before the
 /// parent turn settles. It therefore calls `arm_no_replay` before starting the
-/// engine. That write must make startup recovery skip this source; a confirmed
-/// cancellation may still retry from [`PENDING_INJECTIONS`] in this process,
-/// but a crash deliberately loses that automatic retry rather than duplicate an
-/// IM reply. `settle` records an ordinary terminal landing and must be
-/// idempotent because fetched/cancel races can converge on the same source.
+/// engine. Sources that require a cross-process delivery claim even without an
+/// IM mirror (currently persisted wakeups) opt into the same boundary through
+/// `pre_engine_claim`. That write must make startup recovery skip this source;
+/// a confirmed cancellation may still retry from [`PENDING_INJECTIONS`] in
+/// this process, but a crash deliberately loses that automatic retry rather
+/// than duplicate provider/tool side effects. `settle` records an ordinary
+/// terminal landing and must be idempotent because fetched/cancel races can
+/// converge on the same source.
 #[derive(Clone)]
 pub struct OnInjected {
     arm_no_replay: InjectionReceiptStep,
@@ -36,6 +39,7 @@ pub struct OnInjected {
     /// immediately duplicate a turn that already reached the GUI.
     release_process_dispatch: Option<Arc<dyn Fn() + Send + Sync>>,
     durable_handoff: bool,
+    pre_engine_claim: bool,
     no_replay_armed: Arc<AtomicBool>,
     arm_lock: Arc<std::sync::Mutex<()>>,
     unarmed_released: Arc<AtomicBool>,
@@ -56,6 +60,7 @@ impl OnInjected {
             release_unarmed: None,
             release_process_dispatch: None,
             durable_handoff: false,
+            pre_engine_claim: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
             arm_lock: Arc::new(std::sync::Mutex::new(())),
             unarmed_released: Arc::new(AtomicBool::new(false)),
@@ -94,6 +99,14 @@ impl OnInjected {
         self
     }
 
+    /// Require this source's durable CAS before every parent engine attempt,
+    /// even when no IM mirror is attached. This is for source identities that
+    /// may be replayed by another process while the old owner is settling.
+    pub(crate) fn with_pre_engine_claim(mut self) -> Self {
+        self.pre_engine_claim = true;
+        self
+    }
+
     /// Use one idempotent process-local step for both phases. This does not
     /// advertise a durable cross-process replay source; a
     /// Secondary must preserve the callback by running GUI-only locally rather
@@ -108,6 +121,7 @@ impl OnInjected {
             release_unarmed: None,
             release_process_dispatch: None,
             durable_handoff: false,
+            pre_engine_claim: false,
             no_replay_armed: Arc::new(AtomicBool::new(false)),
             arm_lock: Arc::new(std::sync::Mutex::new(())),
             unarmed_released: Arc::new(AtomicBool::new(false)),
@@ -141,6 +155,10 @@ impl OnInjected {
 
     fn supports_durable_handoff(&self) -> bool {
         self.durable_handoff
+    }
+
+    fn requires_pre_engine_claim(&self) -> bool {
+        self.pre_engine_claim
     }
 
     fn supports_unarmed_retry(&self) -> bool {
@@ -1030,7 +1048,7 @@ fn arm_source_persist_then<T>(
     start_engine: impl FnOnce(bool) -> T,
 ) -> anyhow::Result<T> {
     let mut no_replay_armed = receipt.is_some_and(OnInjected::is_no_replay_armed);
-    if mirror_attached {
+    if mirror_attached || receipt.is_some_and(OnInjected::requires_pre_engine_claim) {
         if let Some(receipt) = receipt {
             receipt.arm_no_replay()?;
             no_replay_armed = true;
@@ -3122,6 +3140,43 @@ mod tests {
             ["persist-parent-row", "start-engine"]
         );
         assert!(!receipt.is_no_replay_armed());
+    }
+
+    #[test]
+    fn pre_engine_claim_fences_cross_process_source_without_mirror() {
+        let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let arm_steps = steps.clone();
+        let receipt = OnInjected::new(
+            move || {
+                arm_steps.lock().unwrap().push("arm");
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .with_pre_engine_claim();
+        let persist_steps = steps.clone();
+        let engine_steps = steps.clone();
+
+        let armed = arm_source_persist_then(
+            false,
+            Some(&receipt),
+            move || {
+                persist_steps.lock().unwrap().push("persist-parent-row");
+                Ok(())
+            },
+            move |armed| {
+                engine_steps.lock().unwrap().push("start-engine");
+                armed
+            },
+        )
+        .unwrap();
+
+        assert!(armed);
+        assert_eq!(
+            *steps.lock().unwrap(),
+            ["arm", "persist-parent-row", "start-engine"]
+        );
+        assert!(receipt.is_no_replay_armed());
     }
 
     #[test]
