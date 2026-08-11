@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **复杂自主任务现在可以可靠停止并继续**：Stop 会持久暂停 Goal、Workflow、子 Agent 与定时唤醒，重启应用也不会自行复活；用户可直接发送“继续”让模型精确恢复未完成工作，子 Agent 网关故障会按配置重试并向主会话暴露恢复状态，图片能力不足时也会给出视觉模型配置引导。 (#647)
+
 ## [0.31.0] - 2026-08-08
 
 ### Added

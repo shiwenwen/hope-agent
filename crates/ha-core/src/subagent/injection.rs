@@ -2465,6 +2465,10 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             .unwrap_or_default();
         let max_retries = retry_config.provider_retry_attempts.min(10);
         let base_delay_secs = retry_config.provider_retry_backoff_secs.clamp(1, 60);
+        // `app_init::spawn_delivery_surface_replay_listener` runs the durable
+        // due-delivery sweep every five seconds (and after restart recovery),
+        // so persisting `requested_at` is sufficient to schedule this retry.
+        // Keep this DB-owned instead of adding a competing per-run timer.
         let deferred = match session_db.defer_subagent_result_delivery_retry(
             &run_id,
             &last_error,
