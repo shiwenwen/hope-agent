@@ -125,6 +125,9 @@ impl SessionDB {
                  UNION
                  SELECT parent_session_id FROM subagent_runs
                   WHERE status IN ('queued', 'spawning', 'running')
+                 UNION
+                 SELECT parent_session_id FROM subagent_result_deliveries
+                  WHERE state IN ('pending', 'injecting')
              ), session_lineage(active_id, id, parent_session_id) AS (
                  SELECT active.id, session.id, session.parent_session_id
                    FROM active_sessions active
@@ -227,7 +230,13 @@ impl SessionDB {
                  )
                  SELECT run_id FROM subagent_runs
                   WHERE parent_session_id IN (SELECT id FROM session_tree)
-                    AND status IN ('queued', 'spawning', 'running')
+                    AND (
+                        status IN ('queued', 'spawning', 'running')
+                        OR run_id IN (
+                            SELECT run_id FROM subagent_result_deliveries
+                             WHERE state IN ('pending', 'injecting')
+                        )
+                    )
                   ORDER BY started_at ASC",
             )?;
             let rows = stmt
@@ -531,5 +540,91 @@ mod tests {
             .expect("second receipt");
         assert_ne!(second.id, duplicate.id);
         assert_eq!(db.session_autonomy_pause_epoch(&session.id).unwrap(), 3);
+    }
+
+    #[test]
+    fn pending_parent_delivery_keeps_root_in_global_stop_enumeration() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("delivery-pause.db"))
+            .expect("session db");
+        let root = db.create_session("ha-main").expect("root session");
+        let child = db
+            .create_session_with_parent("helper", Some(&root.id))
+            .expect("child session");
+        let run = crate::subagent::SubagentRun {
+            run_id: "run-pending-delivery".into(),
+            thread_id: child.id.clone(),
+            parent_session_id: root.id.clone(),
+            parent_agent_id: "ha-main".into(),
+            child_agent_id: "helper".into(),
+            child_session_id: child.id,
+            task: "return a durable result".into(),
+            status: crate::subagent::SubagentStatus::Running,
+            result: None,
+            error: None,
+            depth: 1,
+            model_used: None,
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: None,
+            duration_ms: None,
+            label: None,
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+            continuation_of_run_id: None,
+            trigger_kind: "spawn".into(),
+            terminal_reason: None,
+            runner_owner: None,
+            lease_epoch: 1,
+            last_heartbeat_at: None,
+            delivery_kind: crate::subagent::SubagentDeliveryKind::Parent,
+            launch_spec_json: None,
+            owner_kind: crate::subagent::SubagentOwnerKind::ParentSession,
+            owner_id: root.id.clone(),
+        };
+        db.insert_subagent_run(&run).expect("insert subagent run");
+        db.update_subagent_status(
+            &run.run_id,
+            crate::subagent::SubagentStatus::Completed,
+            Some("durable child result"),
+            None,
+            None,
+            Some(1),
+        )
+        .expect("complete subagent run");
+        assert!(db
+            .claim_subagent_result_delivery(&run.run_id)
+            .expect("claim delivery"));
+        db.release_subagent_result_delivery_claim(&run.run_id, "provider unavailable")
+            .expect("release delivery claim");
+        assert!(db
+            .defer_subagent_result_delivery_retry(&run.run_id, "provider unavailable", 3, 30)
+            .expect("defer delivery retry"));
+
+        assert_eq!(
+            db.list_session_ids_with_active_autonomy().unwrap(),
+            vec![root.id.clone()]
+        );
+        let pause = db
+            .prepare_session_autonomy_pause(&root.id)
+            .expect("pause receipt");
+        assert_eq!(pause.subagent_run_ids, vec![run.run_id.clone()]);
+        assert!(db.finish_session_autonomy_resume(&pause.id).unwrap());
+
+        let conn = db.conn.lock().expect("session db lock");
+        let delivery = conn
+            .query_row(
+                "SELECT state, suppress_reason
+                   FROM subagent_result_deliveries
+                  WHERE run_id = ?1",
+                params![run.run_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .expect("delivery row");
+        assert_eq!(delivery.0, "suppressed");
+        assert_eq!(
+            delivery.1.as_deref(),
+            Some("session_continue_uses_runtime_recovery")
+        );
     }
 }
