@@ -175,7 +175,7 @@ flowchart LR
 | 15 | 工具轮次预算提醒 | 条件 | `capabilities.max_tool_rounds` 有界（非 0） |
 | 16 | `# Human-in-the-loop` | 恒定 | 编译常量，agent.md 不可覆盖 |
 | 17 | Skills 目录 | 恒定 | 按 allow/deny 与会话 `paths:` 激活过滤；显式 Skill 正文不在此层 |
-| 18 | `# Current Project` | 条件 | 非 OpenClaw 且会话属于项目 |
+| 18 | `# Current Project` | 条件 | 会话属于项目（含 OpenClaw；其更早的 `# Project Context` 只描述四文件 Agent pack） |
 | 19 | `# Working Directory`（含 `## Working Directory Instructions`） | 条件 | 会话 `working_dir` 非空；目录内容清单不在此层 |
 | 20 | `# Core Memory`（V2 三作用域） | 条件 | `v2_core_enabled` 且渲染结果非空 |
 | 21 | legacy Memory 段（Core 文件 / Pinned / Profile / SQLite + Guidelines） | 条件 | `memory_enabled`；子段再受 `legacy_core_enabled` / `legacy_static_enabled` 门控 |
@@ -733,7 +733,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 **缓存路由 key**。`prompt_cache_key` 由 installation-local 持久密钥对 provider、model、Provider instance（配置 id + base URL）、当前认证主体的 keyed partition、prompt contract v3、稳定 system，以及本轮最终 eager + deferred tool schema 做 keyed digest；非 Incognito 另以 Agent id、Incognito 以 session id 生成隔离 scope。API Key、account id 和裸 auth hash 不进入请求或日志。用户文本、History、Run frame、typed mention 的正文、Skill/Note/Hook/IM data 本身不进入 key；但 mention/Skill/Plan/KB/MCP 状态若改变了最终 tool schema，schema bytes 会使 key 有意变化。切换 auth profile/account、兼容 backend、Agent 或 Incognito session 会强制换 partition/scope。OpenAI Chat 对兼容端点做 capability 记忆；Anthropic 不使用 request-level key；Codex 明确不发送该字段。
 
-**持久 key 的发布与降级**。`init_runtime()` 从 credentials 目录读取 `prompt-cache-routing-v1.key`。首次安装由竞争进程对 `prompt-cache-routing-v1.lock` 取 OS 独占锁，持锁后再次读取，仍不存在才用 `write_secure_file` 原子发布 32-byte 随机 key；其他进程指数退避重读，最多等待 2 秒，因此并行启动不会各自覆盖安装 key。文件损坏、目录/锁/安全写失败或发布超时不会阻断聊天：进程记录不含密钥的 warning，改用仅驻留当前进程的随机 key。该降级仍保持 keyed digest 的隐私隔离，只牺牲跨进程/重启的 cache affinity；它不会回退到正文裸 hash，也不会在请求或日志中暴露安装 key。
+**持久 key 的发布与降级**。进程内以单一 `OnceLock<RoutingKeyState>` 串行化首次初始化；无论最先进入的是 `init_runtime()` 还是更早的 `keyed_digest` / 诊断 fingerprint，都会先从 credentials 目录读取或创建 `prompt-cache-routing-v1.key`，后续调用只复用同一份 key 与初始化状态，不会由另一路径用临时随机 key 抢占。首次安装由竞争进程对 `prompt-cache-routing-v1.lock` 取 OS 独占锁，持锁后再次读取，仍不存在才用 `write_secure_file` 原子发布 32-byte 随机 key；其他进程指数退避重读，最多等待 2 秒，因此并行启动不会各自覆盖安装 key。Unix 安全写可能在 rename 已完成后才因父目录 `fsync` 报错；此时必须先重读目标，若可见内容是完整 32-byte key 就采用它，避免其他进程使用已发布 key 而当前进程错误降级。只有初始 key 已损坏、目录/锁失败、安全写报错且重读仍无有效 key，或发布超时，才记录不含密钥的 warning 并冻结一份仅驻留当前进程的随机 key。该降级仍保持 keyed digest 的隐私隔离，只牺牲跨进程/重启的 cache affinity；它不会回退到正文裸 hash，也不会在请求或日志中暴露安装 key。
 
 **OpenAI Responses 的显式缓存**。仅 `api.openai.com` 上的 GPT-5.6+ 走显式缓存：稳定系统提示放在首个 `developer` `input_text` block，并设 `prompt_cache_breakpoint: {mode: explicit}` 与 `prompt_cache_options: {mode: explicit, ttl: 30m}`。5.4/5.5 保持自动缓存；Codex 和未知兼容端不假设支持这些字段。
 

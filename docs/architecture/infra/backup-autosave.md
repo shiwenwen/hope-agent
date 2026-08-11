@@ -14,7 +14,7 @@ Backup / Autosave 是一张**配置安全网**。它不持有任何业务数据�
 - **一次手滑改坏配置**——比如把某项设置改错，事后想撤销；
 - **崩溃循环导致配置损坏**——比如 `config.json` 写到一半进程崩溃、下次启动读不出来。
 
-关键想法是用**两套预算独立、粒度不同的备份**分别覆盖这两类事故，而不是共用一套。**配置 autosave** 走细粒度：每次配置写盘前完整读取旧文件，再原子发布单文件快照（`config.json` 或 `user.json`），保留最近 50 份，专供撤销某一次设置编辑。**全量备份** 走粗粒度：在崩溃诊断命中阈值、删除 Agent 前或用户手动时，把整套配置目录连同 Core Memory 一起快照，保留最近 5 份，用于崩溃自愈与整体回滚。逐项对照见下节《两套备份的分工》。
+关键想法是用**两套预算独立、粒度不同的备份**分别覆盖这两类事故，而不是共用一套。**配置 autosave** 走细粒度：每次配置写盘前把旧文件流式完整复制到同目录临时文件，`fsync` 后再原子发布单文件快照（`config.json` 或 `user.json`），保留最近 50 份，专供撤销某一次设置编辑；复制过程保持常量内存，不为无界 JSON 再分配一份完整缓冲。**全量备份** 走粗粒度：在崩溃诊断命中阈值、删除 Agent 前或用户手动时，把整套配置目录连同 Core Memory 一起快照，保留最近 5 份，用于崩溃自愈与整体回滚。逐项对照见下节《两套备份的分工》。
 
 两套都落在 `~/.hope-agent/backups/` 下，都以**「失败永不阻塞合法写」**为铁律实现：备份只是安全网，绝不能因为安全网破损而拦住用户的正常配置写。核心逻辑集中在 `ha-core`（零 Tauri 依赖），桌面 / server 只做薄壳转发。
 
@@ -109,7 +109,7 @@ flowchart TB
 `snapshot_before_write(src, kind)` 是配置 autosave 的**唯一入口**（`kind ∈ "config" | "user"`）：
 
 1. 若 `src` 文件**不存在**（首次保存，无旧文件可拷）→ 早退，但**仍消费掉 reason 标签**（防止标签泄漏给下一次无关写）。
-2. `src` 存在 → 经 `take_save_reason` 取出并清空 reason 标签，完整读取 `src` 后以 `write_secure_file` 原子发布进 `autosave_dir`（不会暴露半写入的最终 `.json`），文件名编码 `{timestamp}__{kind}__{category}__{source}.json`，末尾 `rotate_autosaves` 轮转。
+2. `src` 存在 → 经 `take_save_reason` 取出并清空 reason 标签，调用 `copy_secure_file_atomic` 把 `src` 流式复制到 credential-grade sibling temp，完成 `fsync` 后再原子发布进 `autosave_dir`（不会暴露半写入的最终 `.json`，也不会整体缓冲无界配置），文件名编码 `{timestamp}__{kind}__{category}__{source}.json`，末尾 `rotate_autosaves` 轮转。
 3. **过程中任何错误只 `app_warn`，绝不向上传播**——合法写永远优先于快照成功。
 
 ### reason 标签机制（thread-local）
@@ -253,7 +253,7 @@ autosave 文件名带毫秒（`%3f`），避免同一秒内多次写盘碰撞；
 | [`crates/ha-core/src/backup.rs`](../../../crates/ha-core/src/backup.rs) | `create_backup` / `restore_backup` / `list_backups` / `list_autosaves` / `restore_autosave` / `scrub_legacy_server_tokens` / 全量轮转 / 目录复制与原子替换 + `BackupInfo` / `AutosaveEntry` / `MAX_BACKUPS` |
 | [`crates/ha-core/src/config/autosave.rs`](../../../crates/ha-core/src/config/autosave.rs) | `snapshot_before_write` / `scope_save_reason` / `take_save_reason` / `sanitize_slug` / autosave 轮转 + `SaveReason` / `SaveReasonGuard` / `MAX_AUTOSAVES` |
 | [`crates/ha-core/src/config/persistence.rs`](../../../crates/ha-core/src/config/persistence.rs) | `mutate_config` —— autosave 标签主来源、`AppConfig` 写唯一入口；`clear_legacy_server_token_without_backup` 无备份清 token |
-| [`crates/ha-core/src/user_config.rs`](../../../crates/ha-core/src/user_config.rs) | `save_user_config_to_disk` —— `user.json` 写前快照 |
+| [`crates/ha-core/src/user_config.rs`](../../../crates/ha-core/src/user_config.rs) | `save_user_config_to_disk` —— `user.json` 写前快照；主文件随后以 credential-grade 原子写发布，并按三态结果决定是否广播 |
 | [`crates/ha-core/src/guardian.rs`](../../../crates/ha-core/src/guardian.rs) | `set_enabled_in_config` raw-JSON 旁路守 rollback 契约 + `run_recovery` 崩溃备份集成 |
 | [`crates/ha-core/src/agent_lifecycle.rs`](../../../crates/ha-core/src/agent_lifecycle.rs) | `delete_agent` 删前强制备份 + 校验备份完整 |
 | [`crates/ha-core/src/self_diagnosis.rs`](../../../crates/ha-core/src/self_diagnosis.rs) | `try_restore_config_from_backup` 损坏 config 自愈 |

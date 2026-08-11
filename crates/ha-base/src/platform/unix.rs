@@ -475,31 +475,51 @@ pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::F
 
 /// Shared atomic-replace core: write `bytes` to a sibling temp (same dir, so the
 /// rename stays on one filesystem), fsync, chmod to `mode`, then rename over the
-/// target. The temp is removed on a rename failure so we never litter the dir.
-fn write_replace(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+/// target. Errors before the rename are distinguishable from a failure to fsync
+/// the parent directory after the new target is already visible.
+fn write_replace_with_parent_sync<F>(
+    path: &Path,
+    bytes: &[u8],
+    mode: u32,
+    sync_parent: F,
+) -> super::SecureWriteOutcome
+where
+    F: FnOnce(&Path) -> io::Result<()>,
+{
     let tmp = path.with_extension(format!(
         "tmp.{}.{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
     ));
-    {
+    let mut temp_created = false;
+    let prepared = (|| -> io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         use std::io::Write;
         let mut f = fs::OpenOptions::new()
             .create_new(true)
             .write(true)
             .mode(mode)
             .open(&tmp)?;
+        temp_created = true;
         f.write_all(bytes)?;
         f.sync_all()?;
+        // Defensive: in case the OS umask altered the initial mode.
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
+        Ok(())
+    })();
+    if let Err(error) = prepared {
+        // `create_new` may fail because another same-process writer owns the
+        // candidate name. Never delete a temp we did not create.
+        if temp_created {
+            let _ = fs::remove_file(&tmp);
+        }
+        return super::SecureWriteOutcome::NotPublished(error);
     }
-    // Defensive: in case the OS umask altered the initial mode.
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
     if let Err(e) = fs::rename(&tmp, path) {
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return super::SecureWriteOutcome::NotPublished(e);
     }
     // Persist the directory entry as well as the file contents. Without this,
     // power loss can discard a rename that was already reported as successful.
@@ -507,13 +527,33 @@ fn write_replace(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
-        fs::File::open(parent)?.sync_all()?;
+        if let Err(error) = sync_parent(parent) {
+            return super::SecureWriteOutcome::PublishedButNotDurable(error);
+        }
     }
-    Ok(())
+    super::SecureWriteOutcome::Durable
 }
 
-pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+fn write_replace(path: &Path, bytes: &[u8], mode: u32) -> super::SecureWriteOutcome {
+    write_replace_with_parent_sync(path, bytes, mode, |parent| {
+        fs::File::open(parent)?.sync_all()
+    })
+}
+
+pub(super) fn write_secure_file_outcome(path: &Path, bytes: &[u8]) -> super::SecureWriteOutcome {
     write_replace(path, bytes, 0o600)
+}
+
+#[cfg(test)]
+pub(super) fn write_secure_file_outcome_with_parent_sync<F>(
+    path: &Path,
+    bytes: &[u8],
+    sync_parent: F,
+) -> super::SecureWriteOutcome
+where
+    F: FnOnce(&Path) -> io::Result<()>,
+{
+    write_replace_with_parent_sync(path, bytes, 0o600, sync_parent)
 }
 
 /// Atomic write for user documents (knowledge-base notes): preserves the
@@ -523,7 +563,11 @@ pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mode = fs::metadata(path)
         .map(|m| m.permissions().mode() & 0o777)
         .unwrap_or(0o644);
-    write_replace(path, bytes, mode)
+    match write_replace(path, bytes, mode) {
+        super::SecureWriteOutcome::Durable => Ok(()),
+        super::SecureWriteOutcome::PublishedButNotDurable(error)
+        | super::SecureWriteOutcome::NotPublished(error) => Err(error),
+    }
 }
 
 pub(super) fn publish_dir_atomic(source: &Path, target: &Path) -> io::Result<()> {

@@ -722,7 +722,17 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
                 // convention). Plain Enter is deliberately left unbound so it
                 // bubbles to ChatInput, which either sends or inserts a newline
                 // after open composer menus have had first chance to consume it.
-                keymap.of([{ key: "Shift-Enter", run: insertNewline }, ...historyKeymap]),
+                keymap.of([
+                  {
+                    key: "Shift-Enter",
+                    run: insertNewline,
+                    // The outer ChatInput owns slash/mention menu shortcuts.
+                    // Do not let a handled soft newline bubble there and also
+                    // commit the currently highlighted menu row.
+                    stopPropagation: true,
+                  },
+                  ...historyKeymap,
+                ]),
                 EditorView.lineWrapping,
                 // WebKit (Tauri) doesn't paint the native caret in an empty
                 // contenteditable; CM6 draws its own reliable, blinking cursor.

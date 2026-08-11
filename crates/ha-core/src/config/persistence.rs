@@ -703,6 +703,48 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
     save_config_with_change(config, "app", None)
 }
 
+fn complete_config_write<Publish, PostSave, ConfigChanged>(
+    config: &AppConfig,
+    change_category: &str,
+    change_source: Option<&str>,
+    outcome: crate::platform::SecureWriteOutcome,
+    publish: Publish,
+    post_save: PostSave,
+    config_changed: ConfigChanged,
+) -> Result<()>
+where
+    Publish: FnOnce(&AppConfig),
+    PostSave: FnOnce(&AppConfig, &str, Option<&str>),
+    ConfigChanged: FnOnce(&str, &str),
+{
+    let durability_warning = match outcome {
+        crate::platform::SecureWriteOutcome::Durable => None,
+        crate::platform::SecureWriteOutcome::PublishedButNotDurable(error) => Some(error),
+        crate::platform::SecureWriteOutcome::NotPublished(error) => return Err(error.into()),
+    };
+
+    // Publication, rather than the final durability barrier, is the logical
+    // commit point. Both published outcomes must refresh the one process-wide
+    // snapshot and security-sensitive observers before best-effort diagnostics.
+    publish(config);
+    post_save(config, change_category, change_source);
+    if let Some(source) = change_source {
+        config_changed(change_category, source);
+    }
+    if let Some(error) = durability_warning {
+        app_warn!(
+            "config",
+            "save_config",
+            "Config change {}/{} was published, but its final durability barrier failed; \
+             runtime state remains aligned with the published file: {}",
+            change_category,
+            change_source.unwrap_or("unspecified"),
+            error
+        );
+    }
+    Ok(())
+}
+
 fn save_config_with_change(
     config: &AppConfig,
     change_category: &str,
@@ -753,19 +795,30 @@ fn save_config_with_change(
     // Serialize completely before touching the destination, then fsync and
     // atomically replace it. A crash can expose the old or the new UTF-8 JSON,
     // never a half-written multibyte character or truncated document.
-    crate::platform::write_secure_file(&path, data.as_bytes())?;
-
-    // Atomically publish the new snapshot so subsequent cached_config() calls
-    // see the refreshed state without touching disk.
-    cache().store(Arc::new(config.clone()));
-    clear_config_load_failure();
-
-    // 保存后联动（terminal 远程写开关 + `config:changed` 广播）经注入的
-    // side effects 执行——best-effort，未注册即跳过（测试 / CLI-only 模式）。
-    if let Some(e) = SIDE_EFFECTS.get() {
-        (e.post_save)(config, change_category, change_source);
-    }
-    Ok(())
+    let outcome = crate::platform::write_secure_file_outcome(&path, data.as_bytes());
+    let effects = SIDE_EFFECTS.get();
+    complete_config_write(
+        config,
+        change_category,
+        change_source,
+        outcome,
+        |config| {
+            cache().store(Arc::new(config.clone()));
+            clear_config_load_failure();
+        },
+        |config, category, source| {
+            // 保存后联动（terminal 远程写开关 + `config:changed` 广播）经注入的
+            // side effects 执行——best-effort，未注册即跳过（测试 / CLI-only 模式）。
+            if let Some(e) = effects {
+                (e.post_save)(config, category, source);
+            }
+        },
+        |category, source| {
+            if let Some(e) = effects {
+                (e.config_changed)(category, source);
+            }
+        },
+    )
 }
 
 /// Serialize all "read-modify-write" config edits process-wide. Reads stay
@@ -805,10 +858,6 @@ where
     let mut snapshot = load_config()?;
     let result = f(&mut snapshot)?;
     save_config_with_change(&snapshot, reason.0, Some(reason.1))?;
-    // ConfigChange hook (observation): fire with the real category + source.
-    if let Some(e) = SIDE_EFFECTS.get() {
-        (e.config_changed)(reason.0, reason.1);
-    }
     Ok(result)
 }
 
@@ -830,17 +879,27 @@ pub(crate) fn clear_legacy_server_token_without_backup() -> Result<()> {
     let path = config_path()?;
     ensure_no_initial_load_failure_for_write()?;
     let data = serde_json::to_string_pretty(&snapshot)?;
-    crate::platform::write_secure_file(&path, data.as_bytes())?;
-    cache().store(Arc::new(snapshot));
-    clear_config_load_failure();
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "config:changed",
-            serde_json::json!({ "category": "server.auth.migrate", "source": "system" }),
-        );
-    }
-    crate::hooks::fire_config_change("server.auth.migrate", "system");
-    Ok(())
+    let outcome = crate::platform::write_secure_file_outcome(&path, data.as_bytes());
+    complete_config_write(
+        &snapshot,
+        "server.auth.migrate",
+        Some("system"),
+        outcome,
+        |config| {
+            cache().store(Arc::new(config.clone()));
+            clear_config_load_failure();
+        },
+        |_config, category, source| {
+            if let Some(bus) = crate::globals::get_event_bus() {
+                let mut payload = serde_json::json!({ "category": category });
+                if let Some(source) = source {
+                    payload["source"] = serde_json::json!(source);
+                }
+                bus.emit("config:changed", payload);
+            }
+        },
+        crate::hooks::fire_config_change,
+    )
 }
 
 /// Async wrapper for [`mutate_config`]: runs the whole clone → mutate →
@@ -879,6 +938,85 @@ pub fn reload_cache_from_disk() -> Result<()> {
         (e.post_reload)(&fresh);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod write_outcome_tests {
+    use std::cell::{Cell, RefCell};
+
+    use super::{complete_config_write, AppConfig};
+
+    #[test]
+    fn unpublished_config_does_not_publish_or_fire_side_effects() {
+        let published = Cell::new(0);
+        let post_save = Cell::new(0);
+        let changed = Cell::new(0);
+        let config = AppConfig {
+            theme: "not-published".into(),
+            ..AppConfig::default()
+        };
+
+        let error = complete_config_write(
+            &config,
+            "appearance",
+            Some("test"),
+            crate::platform::SecureWriteOutcome::NotPublished(std::io::Error::other(
+                "injected pre-publication failure",
+            )),
+            |_| published.set(published.get() + 1),
+            |_, _, _| post_save.set(post_save.get() + 1),
+            |_, _| changed.set(changed.get() + 1),
+        )
+        .expect_err("unpublished config must fail");
+
+        assert!(error.to_string().contains("pre-publication"));
+        assert_eq!(published.get(), 0);
+        assert_eq!(post_save.get(), 0);
+        assert_eq!(changed.get(), 0);
+    }
+
+    #[test]
+    fn published_warning_updates_snapshot_and_subsequent_mutation_once() {
+        let snapshot = RefCell::new(AppConfig::default());
+        let post_save = Cell::new(0);
+        let changed = Cell::new(0);
+        let first = AppConfig {
+            theme: "first-published".into(),
+            ..AppConfig::default()
+        };
+
+        complete_config_write(
+            &first,
+            "appearance",
+            Some("test"),
+            crate::platform::SecureWriteOutcome::PublishedButNotDurable(std::io::Error::other(
+                "injected parent sync failure",
+            )),
+            |config| *snapshot.borrow_mut() = config.clone(),
+            |_, _, _| post_save.set(post_save.get() + 1),
+            |_, _| changed.set(changed.get() + 1),
+        )
+        .expect("published config is a logical commit");
+
+        let mut second = snapshot.borrow().clone();
+        second.enhanced_focus_indicators = true;
+        complete_config_write(
+            &second,
+            "accessibility",
+            Some("test"),
+            crate::platform::SecureWriteOutcome::Durable,
+            |config| *snapshot.borrow_mut() = config.clone(),
+            |_, _, _| post_save.set(post_save.get() + 1),
+            |_, _| changed.set(changed.get() + 1),
+        )
+        .expect("second config commit");
+
+        let final_snapshot = snapshot.borrow();
+        assert_eq!(final_snapshot.theme, "first-published");
+        assert!(final_snapshot.enhanced_focus_indicators);
+        assert_eq!(post_save.get(), 2);
+        assert_eq!(changed.get(), 2);
+    }
 }
 
 #[cfg(test)]

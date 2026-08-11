@@ -290,7 +290,7 @@ ACP minimal 的"少做"落在长跑循环上：cron / dreaming idle / channel au
 
 四层之外的一条横切约定，专治"同步阻塞把 async runtime 拖垮"。
 
-**问题的抽象形态**：全 app 每个 SQLite 库（`sessions` / `cron` / `channel` / `logs`）都是同步 rusqlite 藏在 `Mutex<Connection>` 后面；config 持久化在全局写锁内做同步文件 IO（写前校验读 + autosave 拷贝 + `fs::write`）。若直接从 `async fn` 里 inline 调用，就会把一个 tokio worker 钉住整个"锁等待 + IO"时长。而桌面默认 runtime 的 worker 只有 `num_cpus` 个（Windows 笔记本常 2–4）；一旦底层文件 IO 卡住（杀软实时扫描、云同步的 home 目录、慢盘），worker 被逐个吃光直到整个 runtime 饿死——表现为"进程还活着，但发消息永久转圈、设置页全部加载中"。
+**问题的抽象形态**：全 app 每个 SQLite 库（`sessions` / `cron` / `channel` / `logs`）都是同步 rusqlite 藏在 `Mutex<Connection>` 后面；config 持久化在全局写锁内做同步文件 IO（写前校验读 + autosave 拷贝 + sibling temp fsync + 原子替换及 durability barrier）。若直接从 `async fn` 里 inline 调用，就会把一个 tokio worker 钉住整个"锁等待 + IO"时长。而桌面默认 runtime 的 worker 只有 `num_cpus` 个（Windows 笔记本常 2–4）；一旦底层文件 IO 卡住（杀软实时扫描、云同步的 home 目录、慢盘），worker 被逐个吃光直到整个 runtime 饿死——表现为"进程还活着，但发消息永久转圈、设置页全部加载中"。
 
 **单一入口**：[`run_blocking(f)`](../../../crates/ha-base/src/blocking.rs)（定义在 ha-base，经 `ha_core` 再导出）——把同步闭包丢到 tokio 的 blocking 池（数百条可挥霍的线程）并 `await`，卡住的库 / config 写只降级该功能，不再冻结全 app。慢于 5s 的 op 会 `app_warn!("blocking", ...)` 带闭包定义点落进 `logs.db`，把下次现场的卡死 IO 从 heisenbug 变成可 grep 的证据。
 
