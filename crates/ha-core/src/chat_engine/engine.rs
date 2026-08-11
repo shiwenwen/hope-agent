@@ -3977,8 +3977,7 @@ mod stream_lifecycle_tests {
         };
 
         let error = require_explicit_mention_skill_activation(&requested, Some(rejection))
-            .err()
-            .expect("a rejected typed @skill must stop before provider dispatch");
+            .expect_err("a rejected typed @skill must stop before provider dispatch");
 
         assert!(error.contains("activation denied"));
     }
@@ -3987,8 +3986,7 @@ mod stream_lifecycle_tests {
     fn explicit_at_skill_unwired_resolver_fails_closed() {
         let requested = vec!["restricted-review".to_string()];
         let error = require_explicit_mention_skill_activation(&requested, None)
-            .err()
-            .expect("missing skill machinery must stop the typed turn");
+            .expect_err("missing skill machinery must stop the typed turn");
 
         assert!(error.contains("resolver is unavailable"));
     }

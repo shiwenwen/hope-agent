@@ -2388,14 +2388,20 @@ mod tests {
         let attachment = mention_attachment(path);
         let message = "@selected.txt";
         let wire = file_binding_wire(message, &[(0, message.len())]);
-        validate_typed_resource_attachment_bindings(message, Some(&wire), &[attachment.clone()])
-            .expect("one unique target has one typed attachment");
+        validate_typed_resource_attachment_bindings(
+            message,
+            Some(&wire),
+            std::slice::from_ref(&attachment),
+        )
+        .expect("one unique target has one typed attachment");
 
         assert!(validate_typed_resource_attachment_bindings(message, Some(&wire), &[]).is_err());
-        assert!(
-            validate_typed_resource_attachment_bindings("plain", None, &[attachment.clone()])
-                .is_err()
-        );
+        assert!(validate_typed_resource_attachment_bindings(
+            "plain",
+            None,
+            std::slice::from_ref(&attachment),
+        )
+        .is_err());
 
         let repeated = "@selected.txt and @selected.txt";
         let first = repeated.find("@selected.txt").unwrap();

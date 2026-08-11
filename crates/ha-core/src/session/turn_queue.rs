@@ -157,19 +157,17 @@ impl QueuedTurnMessageRecord {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedSidecarDecodeError {
-    InvalidOptionsJson,
-    InvalidIncomingTurn,
-    InvalidSkillAllowedTools,
+    OptionsJson,
+    IncomingTurn,
+    SkillAllowedTools,
 }
 
 impl QueuedSidecarDecodeError {
     fn message(self) -> &'static str {
         match self {
-            Self::InvalidOptionsJson => "options_json is not a JSON object",
-            Self::InvalidIncomingTurn => "incomingTurn is not a supported typed turn",
-            Self::InvalidSkillAllowedTools => {
-                "skillAllowedTools must be an array containing only strings"
-            }
+            Self::OptionsJson => "options_json is not a JSON object",
+            Self::IncomingTurn => "incomingTurn is not a supported typed turn",
+            Self::SkillAllowedTools => "skillAllowedTools must be an array containing only strings",
         }
     }
 }
@@ -324,11 +322,11 @@ fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRe
             Some(_) => (Vec::new(), true, true),
         };
     let sidecar_decode_error = if options_parse_failed || options_shape_invalid {
-        Some(QueuedSidecarDecodeError::InvalidOptionsJson)
+        Some(QueuedSidecarDecodeError::OptionsJson)
     } else if incoming_turn_decode_failed {
-        Some(QueuedSidecarDecodeError::InvalidIncomingTurn)
+        Some(QueuedSidecarDecodeError::IncomingTurn)
     } else if skill_ceiling_decode_failed {
-        Some(QueuedSidecarDecodeError::InvalidSkillAllowedTools)
+        Some(QueuedSidecarDecodeError::SkillAllowedTools)
     } else {
         None
     };

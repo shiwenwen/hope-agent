@@ -55,7 +55,7 @@ export interface ParsedCapabilityMention {
  * exact trusted `ComposerMentionBinding` before treating a result as typed. */
 export function parseCapabilityMentions(input: string): ParsedCapabilityMention[] {
   const rows: ParsedCapabilityMention[] = []
-  const pattern = /\[@([^\]]+)\]\(#(plugin|connector):([^\)]+)\)/g
+  const pattern = /\[@([^\]]+)\]\(#(plugin|connector):([^)]+)\)/g
   for (const match of input.matchAll(pattern)) {
     const start = match.index ?? 0
     const raw = match[0]
