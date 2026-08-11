@@ -289,7 +289,7 @@ stateDiagram-v2
 
 `/context` 计算当前会话的上下文窗口占用，按类别拆出 token 数与占比，供用户判断是否需要 `/compact`。桌面端返回结构化 `ShowContextBreakdown { breakdown }`，由 [`ContextBreakdownCard`](../../../src/components/chat/context-view/ContextBreakdownCard.tsx) 渲染为分段条形图 + 分类明细 + 一键 Compact / System Prompt 按钮；IM 渠道降级为 `content` 字段的 Unicode 条形图 + 分类列表。
 
-**数据来源优先级**：当会话已完成过一次真实 API 请求时，各分类 token 直接取自 Provider 感知的 `RoundTokenManifest`（adapter 逐轮 emit），Provider 回报 usage 时 `context_input_tokens` 为权威值；尚无完成轮次时才回落到 `char / 4` 的启发式估算（`CHARS_PER_TOKEN = 4`），此时与实际计费可能相差 10–20%。
+**数据来源优先级**：各分类 token 来自 Provider request builder 同步生成的 `RoundTokenManifest`；已知模型使用版本化本地 tokenizer，未知模型使用 Unicode/JSON/modality 感知 fallback。Provider 回报 usage 后 `context_input_tokens` 是总量权威值，分类 breakdown 仍保留本地预测，不按比例伪造。完整优先级与上下界契约见 [Token Accounting](../core/token-accounting.md)。
 
 **分类维度**：
 

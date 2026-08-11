@@ -1,25 +1,28 @@
 // ── Token Estimation ──
 
-use super::{CHARS_PER_TOKEN, IMAGE_CHAR_ESTIMATE};
+use super::IMAGE_CHAR_ESTIMATE;
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Estimate token count for a JSON value using char/4 heuristic.
+/// Model-neutral compatibility estimate. New model-aware callers should use
+/// `token_accounting::TokenAccountingService` directly; this wrapper remains
+/// for pure helpers that have no active Provider/model snapshot.
 pub fn estimate_tokens(value: &Value) -> u32 {
-    match value {
-        Value::String(s) => (s.len() / CHARS_PER_TOKEN) as u32,
-        Value::Array(arr) => arr.iter().map(estimate_tokens).sum(),
-        Value::Object(obj) => {
-            obj.values().map(estimate_tokens).sum::<u32>()
-                + obj
-                    .keys()
-                    .map(|k| (k.len() / CHARS_PER_TOKEN) as u32)
-                    .sum::<u32>()
-        }
-        Value::Number(_) => 1,
-        Value::Bool(_) => 1,
-        Value::Null => 1,
-    }
+    let values = std::slice::from_ref(value);
+    let request = crate::token_accounting::TokenCountRequest {
+        provider: crate::token_accounting::ProviderFamily::Unknown,
+        model: "model-neutral",
+        request_shape: crate::token_accounting::RequestShape::Json,
+        stable_prompt: "",
+        dynamic_prompt: "",
+        history: values,
+        eager_tool_schemas: &[],
+        activated_tool_schemas: &[],
+    };
+    crate::token_accounting::service()
+        .count_local(&request)
+        .upper_bound
+        .min(u64::from(u32::MAX)) as u32
 }
 
 /// Estimate char count for a message, using IMAGE_CHAR_ESTIMATE for images.
@@ -67,9 +70,21 @@ pub fn estimate_request_tokens(
     messages: &[Value],
     max_output_tokens: u32,
 ) -> u32 {
-    let system_tokens = (system_prompt.len() / CHARS_PER_TOKEN) as u32;
-    let message_tokens: u32 = messages.iter().map(|m| estimate_tokens(m)).sum();
-    system_tokens + message_tokens + max_output_tokens
+    let request = crate::token_accounting::TokenCountRequest {
+        provider: crate::token_accounting::ProviderFamily::Unknown,
+        model: "model-neutral",
+        request_shape: crate::token_accounting::RequestShape::Json,
+        stable_prompt: system_prompt,
+        dynamic_prompt: "",
+        history: messages,
+        eager_tool_schemas: &[],
+        activated_tool_schemas: &[],
+    };
+    crate::token_accounting::service()
+        .count_local(&request)
+        .upper_bound
+        .saturating_add(u64::from(max_output_tokens))
+        .min(u64::from(u32::MAX)) as u32
 }
 
 /// Provider-shape request estimate including callable tool schemas. The old
@@ -81,8 +96,21 @@ pub fn estimate_request_tokens_with_tools(
     tool_schemas: &[Value],
     max_output_tokens: u32,
 ) -> u32 {
-    estimate_request_tokens(system_prompt, messages, max_output_tokens)
-        .saturating_add(tool_schemas.iter().map(estimate_tokens).sum::<u32>())
+    let request = crate::token_accounting::TokenCountRequest {
+        provider: crate::token_accounting::ProviderFamily::Unknown,
+        model: "model-neutral",
+        request_shape: crate::token_accounting::RequestShape::Json,
+        stable_prompt: system_prompt,
+        dynamic_prompt: "",
+        history: messages,
+        eager_tool_schemas: tool_schemas,
+        activated_tool_schemas: &[],
+    };
+    crate::token_accounting::service()
+        .count_local(&request)
+        .upper_bound
+        .saturating_add(u64::from(max_output_tokens))
+        .min(u64::from(u32::MAX)) as u32
 }
 
 // ── Tool Result Detection (format-agnostic) ──

@@ -459,19 +459,28 @@ pub(super) fn emit_usage(
 ) {
     let mut event = json!({
         "type": "usage",
-        "input_tokens": usage.input_tokens,
-        "output_tokens": usage.output_tokens,
-        "cache_creation_input_tokens": usage.cache_creation_input_tokens,
-        "cache_read_input_tokens": usage.cache_read_input_tokens,
-        "context_input_tokens": usage.context_input_tokens,
-        "fresh_input_tokens": usage.fresh_input_tokens,
-        "last_input_tokens": usage.last_input_tokens,
-        "last_context_input_tokens": usage.last_context_input_tokens,
-        "last_fresh_input_tokens": usage.last_fresh_input_tokens,
-        "last_cache_creation_input_tokens": usage.last_cache_creation_input_tokens,
-        "last_cache_read_input_tokens": usage.last_cache_read_input_tokens,
+        "input_coverage": usage.input_coverage,
+        "output_coverage": usage.output_coverage,
         "model": model,
     });
+    if usage.input_coverage.is_present() {
+        event["input_tokens"] = json!(usage.input_tokens);
+        event["cache_creation_input_tokens"] = json!(usage.cache_creation_input_tokens);
+        event["cache_read_input_tokens"] = json!(usage.cache_read_input_tokens);
+        event["context_input_tokens"] = json!(usage.context_input_tokens);
+        event["fresh_input_tokens"] = json!(usage.fresh_input_tokens);
+        event["last_input_tokens"] = json!(usage.last_input_tokens);
+        event["last_context_input_tokens"] = json!(usage.last_context_input_tokens);
+        event["last_fresh_input_tokens"] = json!(usage.last_fresh_input_tokens);
+        event["last_cache_creation_input_tokens"] = json!(usage.last_cache_creation_input_tokens);
+        event["last_cache_read_input_tokens"] = json!(usage.last_cache_read_input_tokens);
+    }
+    if usage.output_coverage.is_present() {
+        event["output_tokens"] = json!(usage.output_tokens);
+    }
+    if !usage.token_accounting_observations.is_empty() {
+        event["token_accounting_observations"] = json!(usage.token_accounting_observations);
+    }
     if let Some(ttft) = ttft_ms {
         event["ttft_ms"] = json!(ttft);
     }
@@ -489,20 +498,24 @@ pub(super) fn emit_usage(
             "agent",
             "agent::usage",
             &format!(
-                "LLM usage: model={}, in={}, out={}",
-                model, usage.input_tokens, usage.output_tokens
+                "LLM usage: model={}, input={}, output={}",
+                model,
+                if usage.input_coverage.is_present() { "present" } else { "missing" },
+                if usage.output_coverage.is_present() { "present" } else { "missing" },
             ),
             Some(
                 serde_json::json!({
                     "model": model,
-                    "input_tokens": usage.input_tokens,
-                    "context_input_tokens": usage.context_input_tokens,
-                    "fresh_input_tokens": usage.fresh_input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "cache_creation": usage.cache_creation_input_tokens,
-                    "cache_read": usage.cache_read_input_tokens,
-                    "last_cache_creation": usage.last_cache_creation_input_tokens,
-                    "last_cache_read": usage.last_cache_read_input_tokens,
+                    "input_coverage": usage.input_coverage,
+                    "output_coverage": usage.output_coverage,
+                    "input_tokens": usage.input_coverage.is_present().then_some(usage.input_tokens),
+                    "context_input_tokens": usage.input_coverage.is_present().then_some(usage.context_input_tokens),
+                    "fresh_input_tokens": usage.input_coverage.is_present().then_some(usage.fresh_input_tokens),
+                    "output_tokens": usage.output_coverage.is_present().then_some(usage.output_tokens),
+                    "cache_creation": usage.input_coverage.is_present().then_some(usage.cache_creation_input_tokens),
+                    "cache_read": usage.input_coverage.is_present().then_some(usage.cache_read_input_tokens),
+                    "last_cache_creation": usage.input_coverage.is_present().then_some(usage.last_cache_creation_input_tokens),
+                    "last_cache_read": usage.input_coverage.is_present().then_some(usage.last_cache_read_input_tokens),
                 })
                 .to_string(),
             ),

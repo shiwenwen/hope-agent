@@ -769,6 +769,8 @@ pub(super) fn extract_responses_text(result: &Value) -> String {
 /// Extract usage from Anthropic Messages API response.
 pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
     let usage = result.get("usage");
+    let input_present = usage.and_then(|u| u.get("input_tokens")).is_some();
+    let output_present = usage.and_then(|u| u.get("output_tokens")).is_some();
     let input_tokens = usage
         .and_then(|u| u.get("input_tokens"))
         .and_then(|v| v.as_u64())
@@ -802,12 +804,28 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
         last_fresh_input_tokens: input_tokens.saturating_add(cache_creation),
         last_cache_creation_input_tokens: cache_creation,
         last_cache_read_input_tokens: cache_read,
+        input_coverage: if input_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        output_coverage: if output_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        rounds_observed: 1,
+        token_accounting_observations: Vec::new(),
     }
 }
 
 /// Extract usage from OpenAI Chat/Responses API response.
 pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
     let usage = result.get("usage");
+    let input_present =
+        usage.is_some_and(|u| u.get("input_tokens").is_some() || u.get("prompt_tokens").is_some());
+    let output_present = usage
+        .is_some_and(|u| u.get("output_tokens").is_some() || u.get("completion_tokens").is_some());
     let cached = usage
         .and_then(|u| u.get("prompt_tokens_details"))
         .and_then(|d| d.get("cached_tokens"))
@@ -836,6 +854,18 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
         last_fresh_input_tokens: input_tokens.saturating_sub(cached),
         last_cache_creation_input_tokens: 0,
         last_cache_read_input_tokens: cached,
+        input_coverage: if input_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        output_coverage: if output_present {
+            crate::token_accounting::UsageCoverage::Complete
+        } else {
+            crate::token_accounting::UsageCoverage::Missing
+        },
+        rounds_observed: 1,
+        token_accounting_observations: Vec::new(),
     }
 }
 
@@ -1317,5 +1347,34 @@ mod tests {
         assert_eq!(usage2.input_tokens, 200);
         assert_eq!(usage2.output_tokens, 150);
         assert_eq!(usage2.cache_read_input_tokens, 180);
+    }
+
+    #[test]
+    fn extract_usage_distinguishes_explicit_zero_from_missing() {
+        use crate::token_accounting::UsageCoverage;
+
+        for usage in [
+            extract_anthropic_usage(&json!({
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            })),
+            extract_openai_usage(&json!({
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            })),
+        ] {
+            assert_eq!(usage.input_tokens, 0);
+            assert_eq!(usage.output_tokens, 0);
+            assert_eq!(usage.input_coverage, UsageCoverage::Complete);
+            assert_eq!(usage.output_coverage, UsageCoverage::Complete);
+        }
+
+        for usage in [
+            extract_anthropic_usage(&json!({})),
+            extract_openai_usage(&json!({})),
+        ] {
+            assert_eq!(usage.input_tokens, 0);
+            assert_eq!(usage.output_tokens, 0);
+            assert_eq!(usage.input_coverage, UsageCoverage::Missing);
+            assert_eq!(usage.output_coverage, UsageCoverage::Missing);
+        }
     }
 }

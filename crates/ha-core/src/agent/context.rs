@@ -43,7 +43,7 @@ pub(super) struct CompactionRunOptions {
     pub allow_summarization: bool,
     pub force_summary: bool,
     pub cancel: Option<Arc<AtomicBool>>,
-    pub tool_schema_tokens: u32,
+    pub tool_schemas: Vec<serde_json::Value>,
 }
 
 impl CompactionRunOptions {
@@ -56,7 +56,7 @@ impl CompactionRunOptions {
             allow_summarization: true,
             force_summary: false,
             cancel,
-            tool_schema_tokens: 0,
+            tool_schemas: Vec::new(),
         }
     }
 
@@ -69,15 +69,12 @@ impl CompactionRunOptions {
             allow_summarization: true,
             force_summary: true,
             cancel: None,
-            tool_schema_tokens: 0,
+            tool_schemas: Vec::new(),
         }
     }
 
     fn with_tool_schemas(mut self, tool_schemas: &[serde_json::Value]) -> Self {
-        self.tool_schema_tokens = tool_schemas
-            .iter()
-            .map(crate::context_compact::estimate_tokens)
-            .sum();
+        self.tool_schemas = tool_schemas.to_vec();
         self
     }
 }
@@ -407,6 +404,43 @@ impl AssistantAgent {
     ) -> CompactionRunOutcome {
         use crate::context_compact;
 
+        let provider_format = super::types::ProviderFormat::from(&self.provider);
+        let provider_family = match provider_format {
+            super::types::ProviderFormat::Anthropic => {
+                crate::token_accounting::ProviderFamily::Anthropic
+            }
+            super::types::ProviderFormat::OpenAIChat => {
+                crate::token_accounting::ProviderFamily::OpenAiChat
+            }
+            super::types::ProviderFormat::OpenAIResponses => {
+                crate::token_accounting::ProviderFamily::OpenAiResponses
+            }
+            super::types::ProviderFormat::Codex => crate::token_accounting::ProviderFamily::Codex,
+        };
+        let request_shape = match provider_format {
+            super::types::ProviderFormat::Anthropic => {
+                crate::token_accounting::RequestShape::AnthropicMessages
+            }
+            super::types::ProviderFormat::OpenAIChat => {
+                crate::token_accounting::RequestShape::OpenAiChat
+            }
+            super::types::ProviderFormat::OpenAIResponses => {
+                crate::token_accounting::RequestShape::OpenAiResponses
+            }
+            super::types::ProviderFormat::Codex => {
+                crate::token_accounting::RequestShape::CodexResponses
+            }
+        };
+        let token_counter = crate::token_accounting::CompactionTokenCounter::new(
+            provider_family,
+            model,
+            request_shape,
+            &options.tool_schemas,
+        );
+        let estimate_request = |messages: &[serde_json::Value]| {
+            token_counter.count_request_upper(system_prompt, messages, max_tokens)
+        };
+
         /// Usage ratio that overrides cache-TTL throttle to prevent ContextOverflow → Tier 4.
         const CACHE_TTL_EMERGENCY_RATIO: f64 = 0.95;
 
@@ -438,9 +472,7 @@ impl AssistantAgent {
                 matches!(*guard, Some(ts) if ts.elapsed().as_secs() < compact_config.cache_ttl_secs)
             };
             if within_ttl {
-                let tokens_now =
-                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
-                        .saturating_add(options.tool_schema_tokens);
+                let tokens_now = estimate_request(messages);
                 let usage_now = tokens_now as f64 / self.context_window as f64;
                 let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
                 if emergency {
@@ -476,9 +508,7 @@ impl AssistantAgent {
             crate::hooks::HookEvent::PreCompact,
             precompact_wd.as_deref().map(std::path::Path::new),
         ) {
-            let tokens_now =
-                context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
-                    .saturating_add(options.tool_schema_tokens);
+            let tokens_now = estimate_request(messages);
             let usage_now = tokens_now as f64 / self.context_window.max(1) as f64;
             // `run_compaction` runs every turn but is a no-op far below the
             // reactive trigger — only consult the PreCompact hook when a
@@ -557,6 +587,7 @@ impl AssistantAgent {
             config: compact_config,
             cache_ttl_throttled,
             cache_ttl_emergency,
+            token_counter: Some(&token_counter),
         };
         let mut compact_result = self.context_engine.compact_sync(messages, &ctx);
         if let Some(manifest) = compact_result.manifest.as_mut() {
@@ -805,12 +836,7 @@ impl AssistantAgent {
                         biased;
                         result = summary_future => result,
                         _ = super::providers::cancel::wait_for_cancel(&cancel) => {
-                            let tokens_after = context_compact::estimate_request_tokens(
-                                system_prompt,
-                                messages,
-                                max_tokens,
-                            )
-                            .saturating_add(options.tool_schema_tokens);
+                            let tokens_after = estimate_request(messages);
                             if let Some(manifest) = compact_result.manifest.as_mut() {
                                 manifest.warnings.push("tier3_summary_cancelled".to_string());
                             }
@@ -899,12 +925,7 @@ impl AssistantAgent {
                         }
 
                         // Post-compaction file recovery: re-inject recently-edited file contents
-                        let tokens_after_summary = context_compact::estimate_request_tokens(
-                            system_prompt,
-                            messages,
-                            max_tokens,
-                        )
-                        .saturating_add(options.tool_schema_tokens);
+                        let tokens_after_summary = estimate_request(messages);
                         let tokens_freed = compact_result
                             .tokens_before
                             .saturating_sub(tokens_after_summary);
@@ -1108,9 +1129,7 @@ impl AssistantAgent {
             run_outcome.tier_applied = sync_tier;
             run_outcome.changed_history = sync_tier > 0 && compact_result.messages_affected > 0;
             if sync_tier == 0 {
-                run_outcome.tokens_after =
-                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
-                        .saturating_add(options.tool_schema_tokens);
+                run_outcome.tokens_after = estimate_request(messages);
                 compact_result.tokens_after = run_outcome.tokens_after;
                 run_outcome.compact_result = Some(compact_result);
                 return run_outcome;
@@ -1118,9 +1137,7 @@ impl AssistantAgent {
         }
 
         // Emit compaction event to frontend
-        let tokens_after =
-            context_compact::estimate_request_tokens(system_prompt, messages, max_tokens)
-                .saturating_add(options.tool_schema_tokens);
+        let tokens_after = estimate_request(messages);
         if let Some(manifest) = compact_result.manifest.as_mut() {
             manifest.tokens_after = tokens_after;
         }
@@ -1322,10 +1339,7 @@ impl AssistantAgent {
                     allow_summarization,
                     force_summary: false,
                     cancel: Some(cancel),
-                    tool_schema_tokens: tool_schemas
-                        .iter()
-                        .map(crate::context_compact::estimate_tokens)
-                        .sum(),
+                    tool_schemas: tool_schemas.to_vec(),
                 },
             )
             .await;
@@ -1990,10 +2004,14 @@ pub(crate) async fn summarize_direct(
     };
 
     if let Some(mut event) = usage_event {
-        event.input_tokens = Some(result.usage.input_tokens);
-        event.output_tokens = Some(result.usage.output_tokens);
-        event.cache_creation_input_tokens = Some(result.usage.cache_creation_input_tokens);
-        event.cache_read_input_tokens = Some(result.usage.cache_read_input_tokens);
+        if result.usage.input_coverage.is_present() {
+            event.input_tokens = Some(result.usage.input_tokens);
+            event.cache_creation_input_tokens = Some(result.usage.cache_creation_input_tokens);
+            event.cache_read_input_tokens = Some(result.usage.cache_read_input_tokens);
+        }
+        if result.usage.output_coverage.is_present() {
+            event.output_tokens = Some(result.usage.output_tokens);
+        }
         event.duration_ms = Some(started.elapsed().as_millis() as u64);
         event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
         crate::model_usage::record_model_usage_best_effort(event);

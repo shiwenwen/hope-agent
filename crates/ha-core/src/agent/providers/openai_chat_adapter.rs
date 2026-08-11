@@ -167,6 +167,10 @@ fn log_openai_chat_request(
         model,
         "chat_completions",
         req,
+        body.get("tools")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
         body_size,
         false,
     );
@@ -491,6 +495,22 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
 
     fn normalize_history(&self, history: &mut Vec<Value>) {
         *history = AssistantAgent::normalize_history_for_chat(history);
+    }
+
+    fn token_count_tool_schemas_for(
+        &self,
+        tool_schemas: &[Value],
+        _deferred_tool_schemas: &[Value],
+        _eager_tool_count: usize,
+        is_final_round: bool,
+    ) -> Vec<Value> {
+        if is_final_round {
+            return Vec::new();
+        }
+        tool_schemas
+            .iter()
+            .map(|tool| json!({ "type": "function", "function": tool }))
+            .collect()
     }
 
     async fn chat_round(
@@ -918,9 +938,12 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
                     if let Some(u) = chunk.get("usage") {
                         if let Some(pt) = u.get("prompt_tokens").and_then(|v| v.as_u64()) {
                             usage.input_tokens = pt;
+                            usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
                         }
                         if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
                             usage.output_tokens = ct;
+                            usage.output_coverage =
+                                crate::token_accounting::UsageCoverage::Complete;
                         }
                         // Anthropic-style at top level (some gateways forward).
                         if let Some(cr) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64())
@@ -1092,10 +1115,11 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
 mod tests {
     use super::{
         build_chat_body, is_unsupported_image_url_error, is_unsupported_prompt_cache_key_error,
-        mark_prompt_cache_key_unsupported,
+        mark_prompt_cache_key_unsupported, OpenAIChatStreamingAdapter,
     };
-    use crate::agent::streaming_adapter::RoundRequest;
+    use crate::agent::streaming_adapter::{RoundRequest, StreamingChatAdapter};
     use crate::provider::ThinkingStyle;
+    use std::sync::{atomic::AtomicBool, Arc};
 
     #[test]
     fn openai_chat_request_golden_appends_dynamic_blocks_after_stable_system() {
@@ -1106,7 +1130,7 @@ mod tests {
         })];
         let deferred = vec![serde_json::json!({ "name": "browser" })];
         let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
-        let req = RoundRequest {
+        let mut req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
             run_instruction_suffix: Some("run"),
@@ -1136,10 +1160,11 @@ mod tests {
             is_final_round: false,
             round: 0,
         };
+        let thinking_style = ThinkingStyle::None;
         let (body, messages, request_tools) = build_chat_body(
             "https://api.openai.com",
             "gpt-5.4",
-            &ThinkingStyle::None,
+            &thinking_style,
             false,
             &req,
         );
@@ -1161,6 +1186,18 @@ mod tests {
         assert_eq!(request_tools.len(), 1);
         assert_eq!(body["tools"][0]["function"]["name"], "read");
         assert!(body.to_string().find("browser").is_none());
+        let adapter = OpenAIChatStreamingAdapter {
+            api_key: "",
+            base_url: "https://api.openai.com",
+            model: "gpt-5.4",
+            thinking_style: &thinking_style,
+            provider_config: None,
+            vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
+            vision_notice_emitted: Arc::new(AtomicBool::new(false)),
+        };
+        assert_eq!(adapter.token_count_tool_schemas(&req), request_tools);
+        req.is_final_round = true;
+        assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }
 
     #[test]

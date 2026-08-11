@@ -419,9 +419,6 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
-            token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrators::default(),
-            ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             agent_binding_refs: Vec::new(),
@@ -499,9 +496,6 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
-            token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrators::default(),
-            ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             agent_binding_refs: Vec::new(),
@@ -705,9 +699,6 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
-            token_calibrator: std::sync::Mutex::new(
-                crate::context_compact::TokenEstimateCalibrators::default(),
-            ),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             agent_binding_refs: Vec::new(),

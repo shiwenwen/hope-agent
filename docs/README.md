@@ -30,6 +30,7 @@
 | ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
 | [Chat Engine](architecture/core/chat-engine.md)     | 对话编排入口、流式事件协议、Failover 集成、记忆提取门控                    | `chat_engine/`                                 |
 | [Provider 系统](architecture/core/provider-system.md) | 4 种 API 类型、Provider 模板、Failover 策略、Thinking 系统、Provider Write Contract、Local Backend Catalog | `provider/`, `failover/`, `agent/providers/` |
+| [Token Accounting](architecture/core/token-accounting.md) | 统一 tokenizer、Provider 临界计数、usage coverage、预测区间、逐轮校正与隐私边界 | `token_accounting/`, `agent/token_manifest.rs` |
 | [模型 vs Agent 统一配置](architecture/core/automation-model.md) | 后台一次性 LLM 调用的统一执行原语（纯文本与带图两种入口）、全局默认模型链、跨模型降级与按用途的用量标签，以及所有接入这套原语的后台消费者 | `automation/`, ha-dash 的 `recap/`, `memory/{dreaming,recall_summary}.rs`, `knowledge/{compile,source,service,types}.rs`, `knowledge/maintenance/`, ha-skills 的 `skills/auto_review/`, `hooks/runner/prompt.rs`, `sprite/`, `tools/note.rs`, `agent/mod.rs`（awareness 提取） |
 | [主 LLM OAuth](architecture/core/llm-oauth.md) | Codex 主对话 OAuth 登录（PKCE + 本地回调）、token 刷新与并发去抖、凭据落 `auth.json`、登出清理、与 MCP OAuth 隔离 | `oauth.rs` |
 | [本地模型加载](architecture/core/local-model-loading.md) | Ollama 本地模型搜索/下载/加载/删除、后台任务、Provider 注册、Embedding 配置与记忆向量重建 | ha-local-llm 的 `local_llm/`·`local_embedding.rs`, ha-core 的 `local_model_jobs.rs`·`memory/embedding/` |

@@ -22,6 +22,22 @@ use super::api_types::FunctionCallItem;
 use super::types::{ChatUsage, ProviderFormat};
 use crate::tool_defs::ToolProvider;
 
+const MAX_TOKEN_COUNT_RESPONSE_BYTES: usize = 64 * 1024;
+
+pub(crate) async fn read_token_count_json_limited(
+    mut response: reqwest::Response,
+) -> Result<Value> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len().saturating_add(chunk.len()) > MAX_TOKEN_COUNT_RESPONSE_BYTES {
+            anyhow::bail!("token count response exceeded 64 KiB");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body)
+        .map_err(|error| anyhow::anyhow!("invalid token count response: {error}"))
+}
+
 /// Provider-agnostic request payload for one tool-loop round.
 ///
 /// All provider-specific concerns (cache_control, system block ordering,
@@ -312,6 +328,45 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     /// Encapsulates the `normalize_history_for_*` helpers so the orchestrator
     /// stays unaware of cross-provider format quirks.
     fn normalize_history(&self, history: &mut Vec<Value>);
+
+    /// Tool definitions exactly as they are serialized into this round's
+    /// provider request. Final rounds omit tools; provider-native deferred
+    /// search may add deferred schemas or provider meta-tools.
+    fn token_count_tool_schemas_for(
+        &self,
+        tool_schemas: &[Value],
+        _deferred_tool_schemas: &[Value],
+        _eager_tool_count: usize,
+        is_final_round: bool,
+    ) -> Vec<Value> {
+        if is_final_round {
+            Vec::new()
+        } else {
+            tool_schemas.to_vec()
+        }
+    }
+
+    fn token_count_tool_schemas(&self, req: &RoundRequest<'_>) -> Vec<Value> {
+        self.token_count_tool_schemas_for(
+            req.tool_schemas,
+            req.deferred_tool_schemas,
+            req.eager_tool_count,
+            req.is_final_round,
+        )
+    }
+
+    /// Provider-side input-token count for the exact round shape. The default
+    /// is unsupported. Callers only invoke this in an ambiguous threshold
+    /// band; failure must fall back to the local count and never block the
+    /// sampling request.
+    async fn count_input_tokens(
+        &self,
+        _client: &reqwest::Client,
+        _req: &RoundRequest<'_>,
+        _cancel: &Arc<AtomicBool>,
+    ) -> Result<Option<u64>> {
+        Ok(None)
+    }
 
     /// One API round: construct body → POST → decode SSE → return structured
     /// result. All cancel polling and `on_delta` token forwarding happens

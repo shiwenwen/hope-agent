@@ -68,20 +68,21 @@ fn supports_explicit_prompt_cache(base_url: &str, model: &str) -> bool {
     major > 5 || (major == 5 && minor >= 6)
 }
 
-fn native_tool_search_tools(req: &RoundRequest<'_>) -> Vec<Value> {
-    let loaded_names: std::collections::HashSet<&str> = req
-        .tool_schemas
+fn native_tool_search_tools_from(
+    tool_schemas: &[Value],
+    deferred_tool_schemas: &[Value],
+) -> Vec<Value> {
+    let loaded_names: std::collections::HashSet<&str> = tool_schemas
         .iter()
         .filter_map(|tool| tool.get("name").and_then(|v| v.as_str()))
         .collect();
-    let mut tools: Vec<Value> = req
-        .tool_schemas
+    let mut tools: Vec<Value> = tool_schemas
         .iter()
         // Replace Hope's client meta-tool with the provider-native tool.
         .filter(|tool| tool.get("name").and_then(|v| v.as_str()) != Some("tool_search"))
         .cloned()
         .collect();
-    for schema in req.deferred_tool_schemas {
+    for schema in deferred_tool_schemas {
         let name = schema.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if name.is_empty() || loaded_names.contains(name) {
             continue;
@@ -92,6 +93,10 @@ fn native_tool_search_tools(req: &RoundRequest<'_>) -> Vec<Value> {
     }
     tools.push(json!({ "type": "tool_search" }));
     tools
+}
+
+fn native_tool_search_tools(req: &RoundRequest<'_>) -> Vec<Value> {
+    native_tool_search_tools_from(req.tool_schemas, req.deferred_tool_schemas)
 }
 
 fn sse_request_id(resp: &reqwest::Response) -> String {
@@ -509,9 +514,13 @@ fn handle_openai_sse_event_block(
                         if let Some(u) = &resp_obj.usage {
                             if let Some(it) = u.input_tokens {
                                 usage.input_tokens = it;
+                                usage.input_coverage =
+                                    crate::token_accounting::UsageCoverage::Complete;
                             }
                             if let Some(ot) = u.output_tokens {
                                 usage.output_tokens = ot;
+                                usage.output_coverage =
+                                    crate::token_accounting::UsageCoverage::Complete;
                             }
                             if let Some(cr) = u.cache_read_input_tokens {
                                 usage.cache_read_input_tokens = cr;
@@ -647,6 +656,26 @@ fn build_responses_request(
     (request, api_input, explicit_prompt_cache, native_deferred)
 }
 
+fn build_responses_count_body(
+    base_url: &str,
+    model: &str,
+    reasoning: Option<super::super::api_types::ReasoningConfig>,
+    req: &RoundRequest<'_>,
+) -> Value {
+    let (request, _, _, _) = build_responses_request(base_url, model, reasoning, req);
+    let mut body = json!({
+        "model": request.model,
+        "instructions": request.instructions,
+        "input": request.input,
+        "reasoning": request.reasoning,
+        "tools": request.tools,
+    });
+    if let Some(object) = body.as_object_mut() {
+        object.retain(|_, value| !value.is_null());
+    }
+    body
+}
+
 pub(crate) struct OpenAIResponsesStreamingAdapter<'a> {
     pub api_key: &'a str,
     pub base_url: &'a str,
@@ -675,6 +704,93 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         *history = AssistantAgent::normalize_history_for_responses(history);
     }
 
+    fn token_count_tool_schemas_for(
+        &self,
+        tool_schemas: &[Value],
+        deferred_tool_schemas: &[Value],
+        _eager_tool_count: usize,
+        is_final_round: bool,
+    ) -> Vec<Value> {
+        if is_final_round {
+            return Vec::new();
+        }
+        if !deferred_tool_schemas.is_empty()
+            && supports_native_tool_search(self.base_url, self.model)
+        {
+            native_tool_search_tools_from(tool_schemas, deferred_tool_schemas)
+        } else {
+            tool_schemas.to_vec()
+        }
+    }
+
+    async fn count_input_tokens(
+        &self,
+        client: &reqwest::Client,
+        req: &RoundRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<Option<u64>> {
+        let capability_key = format!(
+            "openai_responses_input_tokens:{}",
+            self.base_url.trim_end_matches('/')
+        );
+        let accounting = crate::token_accounting::service();
+        let profile_key =
+            crate::token_accounting::profile_suppression_key(&capability_key, self.api_key);
+        if !accounting.provider_count_profile_allowed(&profile_key) {
+            return Ok(None);
+        }
+        let Some(_attempt) = accounting.begin_provider_count(&capability_key) else {
+            return Ok(None);
+        };
+
+        let body =
+            build_responses_count_body(self.base_url, self.model, self.reasoning.clone(), req);
+        let api_url = build_api_url(self.base_url, "/v1/responses/input_tokens");
+        let app_config = crate::config::cached_config();
+        let ssrf = &app_config.ssrf;
+        crate::security::ssrf::check_url(&api_url, ssrf.default_policy, &ssrf.trusted_hosts)
+            .await?;
+        let mut http_request = client
+            .post(&api_url)
+            .header("Content-Type", "application/json");
+        if !self.api_key.is_empty() {
+            http_request = http_request.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+        let response = match super::cancel::send_with_cancel(http_request.json(&body), cancel).await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                accounting.suppress_provider_count_profile(
+                    profile_key,
+                    std::time::Duration::from_secs(5),
+                );
+                return Err(error.into());
+            }
+        };
+        let Some(response) = response else {
+            return Ok(None);
+        };
+        let status = response.status();
+        if !status.is_success() {
+            if matches!(status.as_u16(), 404 | 405 | 501) {
+                accounting.record_provider_count_unsupported(capability_key);
+            } else if matches!(status.as_u16(), 401 | 403) {
+                accounting.suppress_provider_count_profile(
+                    profile_key,
+                    std::time::Duration::from_secs(60),
+                );
+            }
+            return Ok(None);
+        }
+        let value =
+            super::super::streaming_adapter::read_token_count_json_limited(response).await?;
+        let count = value.get("input_tokens").and_then(Value::as_u64);
+        if count.is_some() {
+            accounting.record_provider_count_supported(capability_key);
+        }
+        Ok(count)
+    }
+
     async fn chat_round(
         &self,
         client: &reqwest::Client,
@@ -699,6 +815,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             self.model,
             "responses",
             &req,
+            request.tools.as_deref().unwrap_or(&[]),
             body_size,
             native_deferred,
         );
@@ -1150,11 +1267,11 @@ pub(in crate::agent) async fn parse_openai_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_responses_request, extract_request_id_from_message, finalize_pending_tool_calls,
-        handle_openai_sse_event_block, has_complete_stream_output, sse_event_error_code,
-        sse_event_error_message, sse_event_error_type, supports_explicit_prompt_cache,
-        supports_native_tool_search, take_next_sse_event_block, FunctionCallItem,
-        OpenAIResponsesStreamingAdapter, SseEvent,
+        build_responses_count_body, build_responses_request, extract_request_id_from_message,
+        finalize_pending_tool_calls, handle_openai_sse_event_block, has_complete_stream_output,
+        sse_event_error_code, sse_event_error_message, sse_event_error_type,
+        supports_explicit_prompt_cache, supports_native_tool_search, take_next_sse_event_block,
+        FunctionCallItem, OpenAIResponsesStreamingAdapter, SseEvent,
     };
     use crate::agent::streaming_adapter::{
         ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
@@ -1194,7 +1311,7 @@ mod tests {
         ];
         let deferred = vec![serde_json::json!({ "type": "function", "name": "browser" })];
         let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
-        let req = RoundRequest {
+        let mut req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
             run_instruction_suffix: Some("run"),
@@ -1229,6 +1346,13 @@ mod tests {
         assert!(explicit);
         assert!(native_deferred);
         let body = serde_json::to_value(request).unwrap();
+        let count_body =
+            build_responses_count_body("https://api.openai.com", "gpt-5.6", None, &req);
+        for field in ["model", "instructions", "input", "reasoning", "tools"] {
+            assert_eq!(count_body.get(field), body.get(field));
+        }
+        assert!(count_body.get("stream").is_none());
+        assert!(count_body.get("prompt_cache_key").is_none());
         assert!(body.get("instructions").is_none());
         assert_eq!(body["prompt_cache_key"], "stable-key");
         assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
@@ -1248,6 +1372,18 @@ mod tests {
         assert_eq!(request_tools[1]["name"], "browser");
         assert_eq!(request_tools[1]["defer_loading"], true);
         assert_eq!(request_tools[2]["type"], "tool_search");
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "https://api.openai.com",
+            model: "gpt-5.6",
+            reasoning: None,
+        };
+        assert_eq!(
+            adapter.token_count_tool_schemas(&req),
+            request_tools.clone()
+        );
+        req.is_final_round = true;
+        assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }
 
     #[test]

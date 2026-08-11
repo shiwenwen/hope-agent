@@ -77,17 +77,14 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
             }
         }
         "usage" => {
-            let input_tokens = event
-                .get("input_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let output_tokens = event
-                .get("output_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let input_tokens = event.get("input_tokens").and_then(|v| v.as_u64());
+            let output_tokens = event.get("output_tokens").and_then(|v| v.as_u64());
+            if input_tokens.is_none() && output_tokens.is_none() {
+                return None;
+            }
 
             SessionUpdate::UsageUpdate {
-                used: input_tokens + output_tokens,
+                used: input_tokens.unwrap_or(0) + output_tokens.unwrap_or(0),
                 size: 0, // context window size not known here; set by caller
             }
         }

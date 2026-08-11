@@ -2482,20 +2482,33 @@ pub(crate) async fn run_chat_engine_classified(
                     }
                     let usage = durability.usage();
                     let mut ledger_event =
-                        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT)
-                            .with_usage(
-                                usage.input_tokens.unwrap_or(0) as u64,
-                                usage.output_tokens.unwrap_or(0) as u64,
-                                usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                                usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                            )
-                            .with_context_usage(
-                                usage
-                                    .context_input_tokens
-                                    .or(usage.input_tokens)
-                                    .unwrap_or(0) as u64,
-                                usage.fresh_input_tokens.or(usage.input_tokens).unwrap_or(0) as u64,
-                            );
+                        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT);
+                    if let Some(input_tokens) = usage.input_tokens {
+                        ledger_event.input_tokens = Some(input_tokens.max(0) as u64);
+                        ledger_event.cache_creation_input_tokens = usage
+                            .cache_creation_input_tokens
+                            .map(|value| value.max(0) as u64);
+                        ledger_event.cache_read_input_tokens = usage
+                            .cache_read_input_tokens
+                            .map(|value| value.max(0) as u64);
+                        ledger_event.context_input_tokens = usage
+                            .context_input_tokens
+                            .or(usage.input_tokens)
+                            .map(|value| value.max(0) as u64);
+                        ledger_event.fresh_input_tokens = usage
+                            .fresh_input_tokens
+                            .or(usage.input_tokens)
+                            .map(|value| value.max(0) as u64);
+                    }
+                    ledger_event.output_tokens =
+                        usage.output_tokens.map(|value| value.max(0) as u64);
+                    ledger_event.metadata = Some(serde_json::json!({
+                        "tokenAccounting": {
+                            "inputCoverage": usage.input_coverage,
+                            "outputCoverage": usage.output_coverage,
+                            "observations": usage.token_accounting_observations,
+                        }
+                    }));
                     ledger_event.timestamp = Some(chrono::Utc::now().to_rfc3339());
                     ledger_event.operation = Some("chat".to_string());
                     ledger_event.source = Some(source.as_str().to_string());
@@ -2655,11 +2668,10 @@ pub(crate) async fn run_chat_engine_classified(
                         );
                         {
                             let usage_snapshot = durability.usage();
-                            let round_tokens = {
-                                let input = usage_snapshot.input_tokens.unwrap_or(0);
-                                let output = usage_snapshot.output_tokens.unwrap_or(0);
-                                (input + output) as u32
-                            };
+                            let round_tokens = usage_snapshot
+                                .best_effort_total_tokens()
+                                .min(u64::from(u32::MAX))
+                                as u32;
                             let round_messages = agent
                                 .get_conversation_history()
                                 .len()
@@ -2685,9 +2697,7 @@ pub(crate) async fn run_chat_engine_classified(
                         {
                             let round_tokens = {
                                 let u = durability.usage();
-                                let input = u.input_tokens.unwrap_or(0);
-                                let output = u.output_tokens.unwrap_or(0);
-                                (input + output) as usize
+                                u.best_effort_total_tokens().min(usize::MAX as u64) as usize
                             };
                             let (round_messages, tool_use_count) =
                                 agent.history_tail_stats(history_len_before);

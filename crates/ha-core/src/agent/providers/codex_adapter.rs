@@ -129,6 +129,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
             self.model,
             "codex_responses",
             &req,
+            request.tools.as_deref().unwrap_or(&[]),
             body_size,
             false,
         );

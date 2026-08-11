@@ -19,6 +19,8 @@ use crate::session::SessionDB;
 /// same capture shape instead of hand-rolling positional tuples.
 #[derive(Default, Clone)]
 pub struct CapturedUsage {
+    pub input_coverage: crate::token_accounting::UsageCoverage,
+    pub output_coverage: crate::token_accounting::UsageCoverage,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub last_input_tokens: Option<i64>,
@@ -37,13 +39,82 @@ pub struct CapturedUsage {
     pub last_cache_creation_input_tokens: Option<i64>,
     /// Cache-read input tokens for the most recent API round.
     pub last_cache_read_input_tokens: Option<i64>,
+    pub token_accounting_observations: Vec<crate::token_accounting::TokenAccountingObservation>,
 }
 
 impl CapturedUsage {
+    pub fn best_effort_total_tokens(&self) -> u64 {
+        let reported_input = self
+            .input_tokens
+            .map(|value| value.max(0) as u64)
+            .unwrap_or(0);
+        let missing_input = self
+            .token_accounting_observations
+            .iter()
+            .filter(|observation| {
+                observation.input_coverage != crate::token_accounting::UsageCoverage::Complete
+            })
+            .fold(0u64, |total, observation| {
+                total.saturating_add(observation.upper_bound)
+            });
+        let input = match self.input_coverage {
+            crate::token_accounting::UsageCoverage::Complete => reported_input,
+            crate::token_accounting::UsageCoverage::Partial => {
+                reported_input.saturating_add(missing_input)
+            }
+            crate::token_accounting::UsageCoverage::Missing
+                if self.token_accounting_observations.is_empty() =>
+            {
+                // Backward compatibility for legacy usage events that carried
+                // numeric fields before coverage was introduced.
+                reported_input
+            }
+            crate::token_accounting::UsageCoverage::Missing => missing_input,
+        };
+
+        let reported_output = self
+            .output_tokens
+            .map(|value| value.max(0) as u64)
+            .unwrap_or(0);
+        let missing_output = self
+            .token_accounting_observations
+            .iter()
+            .filter(|observation| {
+                observation.output_coverage != crate::token_accounting::UsageCoverage::Complete
+            })
+            .fold(0u64, |total, observation| {
+                total.saturating_add(observation.reserved_output_tokens)
+            });
+        let output = match self.output_coverage {
+            crate::token_accounting::UsageCoverage::Complete => reported_output,
+            crate::token_accounting::UsageCoverage::Partial => {
+                reported_output.saturating_add(missing_output)
+            }
+            crate::token_accounting::UsageCoverage::Missing
+                if self.token_accounting_observations.is_empty() =>
+            {
+                reported_output
+            }
+            crate::token_accounting::UsageCoverage::Missing => missing_output,
+        };
+
+        input.saturating_add(output)
+    }
+
     /// Fold a `{"type":"usage", ...}` stream event into this struct. Only
     /// fields actually present in the event overwrite prior values.
     /// Mirror of the dispatch inside `StreamPersister::build_callback`.
     pub fn absorb_event(&mut self, event: &serde_json::Value) {
+        if let Some(value) = event.get("input_coverage") {
+            if let Ok(coverage) = serde_json::from_value(value.clone()) {
+                self.input_coverage = coverage;
+            }
+        }
+        if let Some(value) = event.get("output_coverage") {
+            if let Ok(coverage) = serde_json::from_value(value.clone()) {
+                self.output_coverage = coverage;
+            }
+        }
         if let Some(v) = event.get("input_tokens").and_then(|v| v.as_i64()) {
             self.input_tokens = Some(v);
         }
@@ -100,6 +171,11 @@ impl CapturedUsage {
             .and_then(|v| v.as_i64())
         {
             self.last_cache_read_input_tokens = Some(v);
+        }
+        if let Some(observations) = event.get("token_accounting_observations") {
+            if let Ok(observations) = serde_json::from_value(observations.clone()) {
+                self.token_accounting_observations = observations;
+            }
         }
     }
 }
@@ -631,6 +707,9 @@ pub struct CompactSessionResult {
 mod tests {
     use super::*;
     use crate::attachments::{MediaItem, MediaKind};
+    use crate::token_accounting::{
+        ProviderFamily, RequestShape, TokenAccountingObservation, TokenCountSource, UsageCoverage,
+    };
     use serde_json::json;
 
     #[test]
@@ -648,6 +727,49 @@ mod tests {
         assert_eq!(usage.cache_read_input_tokens, Some(34));
         assert_eq!(usage.last_cache_creation_input_tokens, Some(5));
         assert_eq!(usage.last_cache_read_input_tokens, Some(8));
+    }
+
+    fn accounting_observation(
+        upper_bound: u64,
+        input_coverage: UsageCoverage,
+        output_coverage: UsageCoverage,
+        reserved_output_tokens: u64,
+    ) -> TokenAccountingObservation {
+        TokenAccountingObservation {
+            operation_key: "test".to_string(),
+            provider: ProviderFamily::Unknown,
+            model: "test".to_string(),
+            request_shape: RequestShape::Json,
+            tokenizer_id: None,
+            tokenizer_registry_version: 1,
+            source: TokenCountSource::Heuristic,
+            raw_estimated: upper_bound,
+            lower_bound: upper_bound,
+            estimated: upper_bound,
+            upper_bound,
+            actual_input_tokens: None,
+            input_coverage,
+            output_coverage,
+            reserved_output_tokens,
+            has_media: false,
+        }
+    }
+
+    #[test]
+    fn best_effort_usage_fills_only_missing_partial_rounds() {
+        let usage = CapturedUsage {
+            input_coverage: UsageCoverage::Partial,
+            output_coverage: UsageCoverage::Partial,
+            input_tokens: Some(100),
+            output_tokens: Some(10),
+            token_accounting_observations: vec![
+                accounting_observation(120, UsageCoverage::Complete, UsageCoverage::Complete, 20),
+                accounting_observation(200, UsageCoverage::Missing, UsageCoverage::Missing, 50),
+            ],
+            ..CapturedUsage::default()
+        };
+
+        assert_eq!(usage.best_effort_total_tokens(), 360);
     }
 
     fn mk_media_item() -> MediaItem {

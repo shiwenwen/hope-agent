@@ -60,11 +60,16 @@ fn supports_native_tool_search(base_url: &str, model: &str) -> bool {
     major >= 5 || (major == 4 && minor >= 5)
 }
 
-fn build_tools_with_cache(req: &RoundRequest<'_>, native_deferred: bool) -> Vec<Value> {
-    let eager_end = req.eager_tool_count.min(req.tool_schemas.len());
-    let mut tools = Vec::with_capacity(req.tool_schemas.len());
+fn build_tools_with_cache_parts(
+    tool_schemas: &[Value],
+    deferred_tool_schemas: &[Value],
+    eager_tool_count: usize,
+    native_deferred: bool,
+) -> Vec<Value> {
+    let eager_end = eager_tool_count.min(tool_schemas.len());
+    let mut tools = Vec::with_capacity(tool_schemas.len());
     let mut last_eager_position = None;
-    for (index, tool) in req.tool_schemas.iter().enumerate() {
+    for (index, tool) in tool_schemas.iter().enumerate() {
         if native_deferred && tool.get("name").and_then(|v| v.as_str()) == Some("tool_search") {
             continue;
         }
@@ -87,7 +92,7 @@ fn build_tools_with_cache(req: &RoundRequest<'_>, native_deferred: bool) -> Vec<
                     .map(str::to_string)
             })
             .collect();
-        for schema in req.deferred_tool_schemas {
+        for schema in deferred_tool_schemas {
             let name = schema.get("name").and_then(|v| v.as_str()).unwrap_or("");
             if name.is_empty() || loaded.contains(name) {
                 continue;
@@ -102,6 +107,15 @@ fn build_tools_with_cache(req: &RoundRequest<'_>, native_deferred: bool) -> Vec<
         }));
     }
     tools
+}
+
+fn build_tools_with_cache(req: &RoundRequest<'_>, native_deferred: bool) -> Vec<Value> {
+    build_tools_with_cache_parts(
+        req.tool_schemas,
+        req.deferred_tool_schemas,
+        req.eager_tool_count,
+        native_deferred,
+    )
 }
 
 fn build_anthropic_body(
@@ -151,6 +165,16 @@ fn build_anthropic_body(
     (body, tools_with_cache, native_deferred)
 }
 
+fn build_anthropic_count_body(base_url: &str, model: &str, req: &RoundRequest<'_>) -> Value {
+    let (mut body, _, _) = build_anthropic_body(base_url, model, req);
+    if let Some(body) = body.as_object_mut() {
+        for field in ["stream", "max_tokens", "temperature", "cache_control"] {
+            body.remove(field);
+        }
+    }
+    body
+}
+
 fn append_anthropic_user_context(messages: &mut Vec<Value>, content: String) {
     let block = json!({ "type": "text", "text": content });
     if let Some(last) = messages
@@ -197,6 +221,92 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         *history = AssistantAgent::normalize_history_for_anthropic(history);
     }
 
+    fn token_count_tool_schemas_for(
+        &self,
+        tool_schemas: &[Value],
+        deferred_tool_schemas: &[Value],
+        eager_tool_count: usize,
+        is_final_round: bool,
+    ) -> Vec<Value> {
+        if is_final_round {
+            return Vec::new();
+        }
+        let native_deferred = !deferred_tool_schemas.is_empty()
+            && supports_native_tool_search(self.base_url, self.model);
+        build_tools_with_cache_parts(
+            tool_schemas,
+            deferred_tool_schemas,
+            eager_tool_count,
+            native_deferred,
+        )
+    }
+
+    async fn count_input_tokens(
+        &self,
+        client: &reqwest::Client,
+        req: &RoundRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<Option<u64>> {
+        let capability_key = format!(
+            "anthropic_messages_count:{}",
+            self.base_url.trim_end_matches('/')
+        );
+        let accounting = crate::token_accounting::service();
+        let profile_key =
+            crate::token_accounting::profile_suppression_key(&capability_key, self.api_key);
+        if !accounting.provider_count_profile_allowed(&profile_key) {
+            return Ok(None);
+        }
+        let Some(_attempt) = accounting.begin_provider_count(&capability_key) else {
+            return Ok(None);
+        };
+
+        let body = build_anthropic_count_body(self.base_url, self.model, req);
+        let api_url = build_api_url(self.base_url, "/v1/messages/count_tokens");
+        let app_config = crate::config::cached_config();
+        let ssrf = &app_config.ssrf;
+        crate::security::ssrf::check_url(&api_url, ssrf.default_policy, &ssrf.trusted_hosts)
+            .await?;
+        let request = client
+            .post(&api_url)
+            .header("x-api-key", self.api_key)
+            .header("anthropic-version", ANTHROPIC_API_VERSION)
+            .header("content-type", "application/json")
+            .json(&body);
+        let response = match super::cancel::send_with_cancel(request, cancel).await {
+            Ok(response) => response,
+            Err(error) => {
+                accounting.suppress_provider_count_profile(
+                    profile_key,
+                    std::time::Duration::from_secs(5),
+                );
+                return Err(error.into());
+            }
+        };
+        let Some(response) = response else {
+            return Ok(None);
+        };
+        let status = response.status();
+        if !status.is_success() {
+            if matches!(status.as_u16(), 404 | 405 | 501) {
+                accounting.record_provider_count_unsupported(capability_key);
+            } else if matches!(status.as_u16(), 401 | 403) {
+                accounting.suppress_provider_count_profile(
+                    profile_key,
+                    std::time::Duration::from_secs(60),
+                );
+            }
+            return Ok(None);
+        }
+        let value =
+            super::super::streaming_adapter::read_token_count_json_limited(response).await?;
+        let count = value.get("input_tokens").and_then(Value::as_u64);
+        if count.is_some() {
+            accounting.record_provider_count_supported(capability_key);
+        }
+        Ok(count)
+    }
+
     async fn chat_round(
         &self,
         client: &reqwest::Client,
@@ -220,6 +330,10 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             self.model,
             "messages",
             &req,
+            body.get("tools")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
             body_size,
             native_deferred,
         );
@@ -692,6 +806,8 @@ pub(in crate::agent) async fn parse_anthropic_sse(
                             if let Some(u) = &msg.usage {
                                 if let Some(it) = u.input_tokens {
                                     usage.input_tokens = it;
+                                    usage.input_coverage =
+                                        crate::token_accounting::UsageCoverage::Complete;
                                 }
                                 if let Some(ct) = u.cache_creation_input_tokens {
                                     usage.cache_creation_input_tokens = ct;
@@ -711,6 +827,8 @@ pub(in crate::agent) async fn parse_anthropic_sse(
                         if let Some(u) = &event.usage {
                             if let Some(ot) = u.output_tokens {
                                 usage.output_tokens = ot;
+                                usage.output_coverage =
+                                    crate::token_accounting::UsageCoverage::Complete;
                             }
                         }
                     }
@@ -784,8 +902,8 @@ pub(in crate::agent) async fn parse_anthropic_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_anthropic_body, build_tools_with_cache, supports_native_tool_search,
-        AnthropicStreamingAdapter,
+        build_anthropic_body, build_anthropic_count_body, build_tools_with_cache,
+        supports_native_tool_search, AnthropicStreamingAdapter,
     };
     use crate::agent::streaming_adapter::{RoundOutcome, RoundRequest, StreamingChatAdapter};
 
@@ -882,7 +1000,7 @@ mod tests {
             "input_schema": { "type": "object" }
         })];
         let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
-        let req = RoundRequest {
+        let mut req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
             run_instruction_suffix: Some("run"),
@@ -914,6 +1032,13 @@ mod tests {
         };
         let (body, tools, native_deferred) =
             build_anthropic_body("https://api.anthropic.com", "claude-sonnet-4-5", &req);
+        let count_body =
+            build_anthropic_count_body("https://api.anthropic.com", "claude-sonnet-4-5", &req);
+        for field in ["model", "system", "messages", "tools", "thinking"] {
+            assert_eq!(count_body.get(field), body.get(field));
+        }
+        assert!(count_body.get("stream").is_none());
+        assert!(count_body.get("max_tokens").is_none());
         assert!(native_deferred);
         assert_eq!(
             body["system"],
@@ -937,6 +1062,14 @@ mod tests {
         assert_eq!(tools[1]["defer_loading"], true);
         assert!(tools[1].get("cache_control").is_none());
         assert_eq!(tools[2]["type"], "tool_search_tool_bm25_20251119");
+        let adapter = AnthropicStreamingAdapter {
+            api_key: "",
+            base_url: "https://api.anthropic.com",
+            model: "claude-sonnet-4-5",
+        };
+        assert_eq!(adapter.token_count_tool_schemas(&req), tools);
+        req.is_final_round = true;
+        assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }
 
     #[test]

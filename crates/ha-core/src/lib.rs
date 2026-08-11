@@ -146,6 +146,7 @@ pub mod stt;
 pub mod subagent;
 pub mod system_prompt;
 pub mod team;
+pub mod token_accounting;
 pub mod tool_actions;
 pub mod tool_defs;
 pub mod tools;

@@ -1060,12 +1060,16 @@ impl AssistantAgent {
         event.duration_ms = Some(duration_ms);
         event.ttft_ms = ttft_ms;
         if let Some(usage) = usage {
-            event.input_tokens = Some(usage.input_tokens);
-            event.output_tokens = Some(usage.output_tokens);
-            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
-            event.context_input_tokens = Some(usage.context_input_tokens);
-            event.fresh_input_tokens = Some(usage.fresh_input_tokens);
+            if usage.input_coverage.is_present() {
+                event.input_tokens = Some(usage.input_tokens);
+                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+                event.context_input_tokens = Some(usage.context_input_tokens);
+                event.fresh_input_tokens = Some(usage.fresh_input_tokens);
+            }
+            if usage.output_coverage.is_present() {
+                event.output_tokens = Some(usage.output_tokens);
+            }
         }
         if let Some(error) = error {
             event.success = false;
@@ -1201,6 +1205,17 @@ impl AssistantAgent {
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        if !self.session_is_incognito() {
+            if let Some(db) = self
+                .session_db
+                .clone()
+                .or_else(|| crate::get_session_db().cloned())
+            {
+                crate::token_accounting::service()
+                    .preload_recent_calibrations(db)
+                    .await;
+            }
+        }
 
         let mut activated_tool_names = self.load_activated_tool_names();
         // Track the exact atomic MCP catalog generation represented by the
@@ -1226,6 +1241,13 @@ impl AssistantAgent {
         let mut deferred_tool_count = tool_inventory.deferred_count;
         let mut deferred_tool_schemas = tool_inventory.deferred_schemas;
         let mut tool_schemas = tool_inventory.schemas;
+        let max_rounds_cfg = super::config::get_max_tool_rounds(&self.agent_id);
+        let max_rounds = if max_rounds_cfg == 0 {
+            u32::MAX
+        } else {
+            max_rounds_cfg
+        };
+        let round_limit_enabled = max_rounds_cfg != 0;
 
         // Static system prompt prefix (cache-friendly). Dynamic suffixes are
         // sent as independent provider-level blocks when supported.
@@ -1263,11 +1285,23 @@ impl AssistantAgent {
             ],
         );
 
+        let initial_provider_deferred_tool_schemas =
+            if local_tool_search_survived(keep_local_tool_search_for_turn, &tool_schemas) {
+                &[][..]
+            } else {
+                deferred_tool_schemas.as_slice()
+            };
+        let initial_request_tool_schemas = adapter.token_count_tool_schemas_for(
+            &tool_schemas,
+            initial_provider_deferred_tool_schemas,
+            eager_tool_count,
+            round_limit_enabled && max_rounds == 1,
+        );
         let compaction = self
             .run_compaction(
                 &mut messages,
                 &system_prompt_for_budget,
-                &tool_schemas,
+                &initial_request_tool_schemas,
                 model,
                 MAX_OUTPUT_TOKENS,
                 Some(cancel.clone()),
@@ -1299,13 +1333,6 @@ impl AssistantAgent {
             model,
         );
 
-        let max_rounds_cfg = super::config::get_max_tool_rounds(&self.agent_id);
-        let max_rounds = if max_rounds_cfg == 0 {
-            u32::MAX
-        } else {
-            max_rounds_cfg
-        };
-        let round_limit_enabled = max_rounds_cfg != 0;
         let mut round_count: u32 = 0;
         let mut natural_exit = false;
         let mut collected_text = String::new();
@@ -1676,6 +1703,92 @@ impl AssistantAgent {
                 &system_prompt,
             );
 
+            let request_tool_schemas = adapter.token_count_tool_schemas(&req);
+            let token_request = crate::token_accounting::TokenCountRequest {
+                provider: adapter.provider_format().token_provider_family(),
+                model,
+                request_shape: adapter.provider_format().token_request_shape(),
+                // `system_prompt_for_budget` contains the stable prefix plus
+                // every dynamic lane in this exact round. Provider wrappers
+                // are represented by request-shape overhead in the service.
+                stable_prompt: &system_prompt_for_budget,
+                dynamic_prompt: "",
+                history: &api_messages,
+                eager_tool_schemas: &request_tool_schemas,
+                activated_tool_schemas: &[],
+            };
+            let round_token_prediction =
+                crate::token_accounting::service().count_local(&token_request);
+            crate::app_debug!(
+                "agent",
+                "token_accounting",
+                "round {} token prediction: source={:?}, estimated={}, upper={}, tokenizer={:?}, unknowns={}",
+                round,
+                round_token_prediction.source,
+                round_token_prediction.estimated,
+                round_token_prediction.upper_bound,
+                round_token_prediction.tokenizer_id,
+                round_token_prediction.unknowns.len()
+            );
+
+            let max_input_tokens =
+                u64::from(self.context_window.saturating_sub(eval_max_tokens).max(1));
+            if round_token_prediction.lower_bound > max_input_tokens {
+                return Err(crate::token_accounting::PreflightOverflow {
+                    input_tokens: round_token_prediction.upper_bound,
+                    max_input_tokens,
+                    source: round_token_prediction.source,
+                }
+                .into());
+            }
+            let mut effective_token_count = round_token_prediction.clone();
+            if crate::token_accounting::service()
+                .should_refine(&round_token_prediction, &[max_input_tokens])
+            {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(800),
+                    adapter.count_input_tokens(&client, &req, cancel),
+                )
+                .await
+                {
+                    Ok(Ok(Some(provider_total))) => {
+                        effective_token_count = round_token_prediction
+                            .clone()
+                            .with_provider_total(provider_total);
+                        crate::app_debug!(
+                            "agent",
+                            "token_accounting",
+                            "round {} provider preflight count: total={}, upper={}",
+                            round,
+                            provider_total,
+                            effective_token_count.upper_bound
+                        );
+                    }
+                    Ok(Ok(None)) => {}
+                    Ok(Err(error)) => crate::app_debug!(
+                        "agent",
+                        "token_accounting",
+                        "round {} provider preflight unavailable: {}",
+                        round,
+                        error
+                    ),
+                    Err(_) => crate::app_debug!(
+                        "agent",
+                        "token_accounting",
+                        "round {} provider preflight timed out",
+                        round
+                    ),
+                }
+            }
+            if effective_token_count.upper_bound > max_input_tokens {
+                return Err(crate::token_accounting::PreflightOverflow {
+                    input_tokens: effective_token_count.upper_bound,
+                    max_input_tokens,
+                    source: effective_token_count.source,
+                }
+                .into());
+            }
+
             let model_attempt_started = std::time::Instant::now();
             if let Some(fault) =
                 crate::eval_context::provider_fault_action(self.session_id.as_deref())
@@ -1746,23 +1859,44 @@ impl AssistantAgent {
                 tool_call.name = canonical;
             }
 
-            let raw_round_estimate = crate::context_compact::estimate_request_tokens_with_tools(
-                &system_prompt_for_budget,
-                &api_messages,
-                &tool_schemas,
-                0,
-            );
-            let calibrator_key = format!("{}:{model}", adapter.provider_format().label());
-            if outcome.usage.context_input_tokens > 0 {
-                self.token_calibrator
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .update(
-                        &calibrator_key,
-                        raw_round_estimate,
-                        outcome.usage.context_input_tokens.min(u64::from(u32::MAX)) as u32,
-                    );
+            if !self.session_is_incognito()
+                && outcome.usage.input_coverage == crate::token_accounting::UsageCoverage::Complete
+            {
+                crate::token_accounting::service().observe(
+                    &token_request,
+                    &round_token_prediction,
+                    outcome.usage.context_input_tokens,
+                );
             }
+            outcome.usage.token_accounting_observations.push(
+                crate::token_accounting::TokenAccountingObservation {
+                    operation_key: format!("chat_round:{round}"),
+                    provider: token_request.provider,
+                    model: model.to_string(),
+                    request_shape: token_request.request_shape,
+                    tokenizer_id: effective_token_count.tokenizer_id,
+                    tokenizer_registry_version: effective_token_count.tokenizer_registry_version,
+                    source: effective_token_count.source,
+                    raw_estimated: round_token_prediction.breakdown.total(),
+                    lower_bound: effective_token_count.lower_bound,
+                    estimated: effective_token_count.estimated,
+                    upper_bound: effective_token_count.upper_bound,
+                    actual_input_tokens: outcome
+                        .usage
+                        .input_coverage
+                        .is_present()
+                        .then_some(outcome.usage.context_input_tokens),
+                    input_coverage: outcome.usage.input_coverage,
+                    output_coverage: outcome.usage.output_coverage,
+                    reserved_output_tokens: u64::from(eval_max_tokens),
+                    has_media: effective_token_count.unknowns.iter().any(|unknown| {
+                        !matches!(
+                            unknown,
+                            crate::token_accounting::TokenCountUnknown::TokenizerUnavailable
+                        )
+                    }),
+                },
+            );
 
             if first_ttft_ms.is_none() {
                 first_ttft_ms = outcome.ttft_ms;
@@ -1803,21 +1937,10 @@ impl AssistantAgent {
             emit_usage(on_delta, &total_usage, model, None, false);
 
             // Estimate current token usage for adaptive tool output sizing.
-            let raw_estimated_prompt = crate::context_compact::estimate_request_tokens_with_tools(
-                &system_prompt,
-                &messages,
-                &tool_schemas,
-                0,
-            );
-            let estimated_used = self
-                .token_calibrator
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .calibrated_estimate(&calibrator_key, raw_estimated_prompt)
-                // Compaction/tool-output sizing must fail safe when the
-                // heuristic is slightly optimistic.
-                .saturating_add(raw_estimated_prompt / 10)
-                .saturating_add(MAX_OUTPUT_TOKENS);
+            let estimated_used = effective_token_count
+                .upper_bound
+                .saturating_add(u64::from(MAX_OUTPUT_TOKENS))
+                .min(u64::from(u32::MAX)) as u32;
 
             // Partition tool calls by concurrent-safety:
             //   Phase 1: parallel concurrent-safe tools (read-only)
@@ -2191,11 +2314,24 @@ impl AssistantAgent {
 
             self.check_manual_memory_save(&outcome.tool_calls);
 
+            let next_provider_deferred_tool_schemas =
+                if local_tool_search_survived(keep_local_tool_search_for_turn, &tool_schemas) {
+                    &[][..]
+                } else {
+                    deferred_tool_schemas.as_slice()
+                };
+            let next_request_tool_schemas = adapter.token_count_tool_schemas_for(
+                &tool_schemas,
+                next_provider_deferred_tool_schemas,
+                eager_tool_count,
+                round_limit_enabled && round.saturating_add(2) == effective_max_rounds,
+            );
+
             self.maybe_compact_between_tool_rounds(
                 &mut messages,
                 &system_prompt_for_budget,
                 &system_prompt,
-                &tool_schemas,
+                &next_request_tool_schemas,
                 model,
                 MAX_OUTPUT_TOKENS,
                 cancel.clone(),

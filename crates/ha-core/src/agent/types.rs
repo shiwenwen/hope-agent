@@ -219,8 +219,6 @@ pub struct AssistantAgent {
     /// When Some, tried first for summarization; falls back to side_query on failure.
     pub(super) compaction_provider:
         Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
-    /// Token estimate calibrator (updated with actual API usage)
-    pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrators>,
     /// Session-scoped deferred tools already discovered by `tool_search`.
     /// Persisted for regular sessions and kept memory-only for incognito.
     pub(super) activated_tool_names: std::sync::Mutex<Vec<String>>,
@@ -534,6 +532,24 @@ impl ProviderFormat {
             Self::Codex => "Codex",
         }
     }
+
+    pub(super) const fn token_provider_family(self) -> crate::token_accounting::ProviderFamily {
+        match self {
+            Self::Anthropic => crate::token_accounting::ProviderFamily::Anthropic,
+            Self::OpenAIChat => crate::token_accounting::ProviderFamily::OpenAiChat,
+            Self::OpenAIResponses => crate::token_accounting::ProviderFamily::OpenAiResponses,
+            Self::Codex => crate::token_accounting::ProviderFamily::Codex,
+        }
+    }
+
+    pub(super) const fn token_request_shape(self) -> crate::token_accounting::RequestShape {
+        match self {
+            Self::Anthropic => crate::token_accounting::RequestShape::AnthropicMessages,
+            Self::OpenAIChat => crate::token_accounting::RequestShape::OpenAiChat,
+            Self::OpenAIResponses => crate::token_accounting::RequestShape::OpenAiResponses,
+            Self::Codex => crate::token_accounting::RequestShape::CodexResponses,
+        }
+    }
 }
 
 /// Result of a side query call.
@@ -641,6 +657,17 @@ pub struct ChatUsage {
     pub last_fresh_input_tokens: u64,
     pub last_cache_creation_input_tokens: u64,
     pub last_cache_read_input_tokens: u64,
+    /// Whether every provider round returned an input counter. Numeric zero is
+    /// meaningful only when coverage is present; missing usage must remain
+    /// distinguishable from an actual zero-token response.
+    pub input_coverage: crate::token_accounting::UsageCoverage,
+    pub output_coverage: crate::token_accounting::UsageCoverage,
+    /// Number of round observations folded into this turn accumulator.
+    pub rounds_observed: u32,
+    /// Bounded, content-free per-round prediction/actual pairs. Persisted as
+    /// metadata on the single final usage row to avoid double-counting model
+    /// calls in the dashboard ledger.
+    pub token_accounting_observations: Vec<crate::token_accounting::TokenAccountingObservation>,
 }
 
 impl ChatUsage {
@@ -692,12 +719,23 @@ impl ChatUsage {
         self.last_fresh_input_tokens = round_fresh;
         self.last_cache_creation_input_tokens = round.cache_creation_input_tokens;
         self.last_cache_read_input_tokens = round.cache_read_input_tokens;
+        if self.rounds_observed == 0 {
+            self.input_coverage = round.input_coverage;
+            self.output_coverage = round.output_coverage;
+        } else {
+            self.input_coverage = self.input_coverage.accumulate(round.input_coverage);
+            self.output_coverage = self.output_coverage.accumulate(round.output_coverage);
+        }
+        self.rounds_observed = self.rounds_observed.saturating_add(1);
+        self.token_accounting_observations
+            .extend(round.token_accounting_observations.iter().cloned());
     }
 }
 
 #[cfg(test)]
 mod chat_usage_tests {
     use super::{ChatUsage, LlmProvider};
+    use crate::token_accounting::UsageCoverage;
 
     #[test]
     fn anthropic_round_counts_disjoint_cache_counters_in_context() {
@@ -754,6 +792,40 @@ mod chat_usage_tests {
         assert_eq!(usage.last_input_tokens, 30);
         assert_eq!(usage.last_cache_creation_input_tokens, 0);
         assert_eq!(usage.last_cache_read_input_tokens, 7);
+    }
+
+    #[test]
+    fn actual_zero_usage_remains_complete() {
+        let mut usage = ChatUsage::default();
+        usage.accumulate_round(&ChatUsage {
+            input_coverage: UsageCoverage::Complete,
+            output_coverage: UsageCoverage::Complete,
+            ..Default::default()
+        });
+
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+        assert_eq!(usage.input_coverage, UsageCoverage::Complete);
+        assert_eq!(usage.output_coverage, UsageCoverage::Complete);
+    }
+
+    #[test]
+    fn mixed_round_coverage_is_partial_in_either_order() {
+        for rounds in [
+            [UsageCoverage::Complete, UsageCoverage::Missing],
+            [UsageCoverage::Missing, UsageCoverage::Complete],
+        ] {
+            let mut usage = ChatUsage::default();
+            for input_coverage in rounds {
+                usage.accumulate_round(&ChatUsage {
+                    input_coverage,
+                    output_coverage: input_coverage,
+                    ..Default::default()
+                });
+            }
+            assert_eq!(usage.input_coverage, UsageCoverage::Partial);
+            assert_eq!(usage.output_coverage, UsageCoverage::Partial);
+        }
     }
 
     #[test]

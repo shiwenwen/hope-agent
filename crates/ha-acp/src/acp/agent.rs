@@ -1754,12 +1754,31 @@ impl AcpAgent {
                         let mut usage_event = ha_core::model_usage::ModelUsageEvent::new(
                             ha_core::model_usage::KIND_CHAT,
                         );
-                        usage_event = usage_event.with_usage(
-                            usage.input_tokens.unwrap_or(0) as u64,
-                            usage.output_tokens.unwrap_or(0) as u64,
-                            usage.cache_creation_input_tokens.unwrap_or(0) as u64,
-                            usage.cache_read_input_tokens.unwrap_or(0) as u64,
-                        );
+                        usage_event.input_tokens =
+                            usage.input_tokens.map(|value| value.max(0) as u64);
+                        usage_event.output_tokens =
+                            usage.output_tokens.map(|value| value.max(0) as u64);
+                        usage_event.cache_creation_input_tokens = usage
+                            .cache_creation_input_tokens
+                            .map(|value| value.max(0) as u64);
+                        usage_event.cache_read_input_tokens = usage
+                            .cache_read_input_tokens
+                            .map(|value| value.max(0) as u64);
+                        usage_event.context_input_tokens = usage
+                            .context_input_tokens
+                            .or(usage.input_tokens)
+                            .map(|value| value.max(0) as u64);
+                        usage_event.fresh_input_tokens = usage
+                            .fresh_input_tokens
+                            .or(usage.input_tokens)
+                            .map(|value| value.max(0) as u64);
+                        usage_event.metadata = Some(serde_json::json!({
+                            "tokenAccounting": {
+                                "inputCoverage": usage.input_coverage,
+                                "outputCoverage": usage.output_coverage,
+                                "observations": usage.token_accounting_observations,
+                            }
+                        }));
                         usage_event.model_id = Some(
                             usage
                                 .model
