@@ -21,6 +21,22 @@ fn live_source_is_incognito(
     Ok(source.incognito)
 }
 
+fn cross_session_causal_depth(ctx: &super::execution::ToolExecContext) -> Result<u32> {
+    let agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+    let max_depth = crate::subagent::max_depth_for_agent(agent_id);
+    if ctx.subagent_depth >= max_depth {
+        anyhow::bail!(
+            "Cross-session delegation is unavailable at maximum subagent depth ({}/{})",
+            ctx.subagent_depth,
+            max_depth
+        );
+    }
+    Ok(ctx.subagent_depth)
+}
+
 /// Tool: sessions_create — create a regular, user-visible chat session.
 pub(crate) async fn tool_sessions_create(
     args: &Value,
@@ -60,6 +76,9 @@ pub(crate) async fn tool_sessions_create(
         .to_string();
     let attachments = parse_inline_attachments(args)?;
     let has_initial_turn = !message.is_empty() || !attachments.is_empty();
+    let causal_subagent_depth = has_initial_turn
+        .then(|| cross_session_causal_depth(ctx))
+        .transpose()?;
     let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(false);
     if wait && !has_initial_turn {
         anyhow::bail!("'wait' requires an initial message or attachment");
@@ -163,6 +182,7 @@ pub(crate) async fn tool_sessions_create(
             attachments,
             ctx,
             foreground_admission,
+            causal_subagent_depth.expect("initial turn has causal depth"),
             true,
         )
         .await;
@@ -616,6 +636,7 @@ pub(crate) async fn tool_sessions_send(
     }
 
     let wait = args.get("wait").and_then(|v| v.as_bool()).unwrap_or(false);
+    let causal_subagent_depth = cross_session_causal_depth(ctx)?;
 
     let timeout_secs = parse_wait_timeout(args);
 
@@ -679,6 +700,7 @@ pub(crate) async fn tool_sessions_send(
         attachments,
         ctx,
         foreground_admission,
+        causal_subagent_depth,
         false,
     )
     .await?;
@@ -827,6 +849,7 @@ async fn start_proactive_turn(
     mut attachments: Vec<crate::agent::Attachment>,
     ctx: &super::execution::ToolExecContext,
     foreground_admission: crate::chat_engine::active_turn::ForegroundRequestAdmission,
+    causal_subagent_depth: u32,
     publish_created_session: bool,
 ) -> Result<ProactiveTurnStart> {
     let db_for_live_check = db.clone();
@@ -864,6 +887,22 @@ async fn start_proactive_turn(
         None,
         cancel.clone(),
     )?;
+    let eval_child_guard = match ctx.session_id.as_deref() {
+        Some(source_session_id) => {
+            match crate::eval_context::context_for_session(source_session_id) {
+                Some(context) => Some(crate::eval_context::register_child_session_from_parent(
+                    source_session_id,
+                    &session.id,
+                    context,
+                )?),
+                None => None,
+            }
+        }
+        None => None,
+    };
+    let reattachable_ui_guard = ctx.session_id.as_deref().and_then(|source_session_id| {
+        crate::permission::register_reattachable_ui_child_session(source_session_id, &session.id)
+    });
 
     let preflight = crate::agent::preflight::user_prompt_preflight_cancellable(
         crate::agent::preflight::PreflightArgs {
@@ -1013,6 +1052,8 @@ async fn start_proactive_turn(
     tokio::spawn(async move {
         let _active_turn_guard = active_turn_guard;
         let _agent_admission = agent_admission;
+        let _eval_child_guard = eval_child_guard;
+        let _reattachable_ui_guard = reattachable_ui_guard;
         let execution = run_agent_for_session(
             db.clone(),
             session_for_run,
@@ -1022,6 +1063,7 @@ async fn start_proactive_turn(
             cancel,
             origin_source,
             channel_kb_context,
+            causal_subagent_depth,
         )
         .await;
         if let Err(error) = execution.as_ref() {
@@ -1109,6 +1151,7 @@ async fn run_agent_for_session(
     cancel: Arc<AtomicBool>,
     origin_source: Option<crate::knowledge::KbAccessSource>,
     channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
+    causal_subagent_depth: u32,
 ) -> Result<String> {
     use crate::provider;
 
@@ -1172,7 +1215,7 @@ async fn run_agent_for_session(
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
             tool_scope: None,
-            subagent_depth: 0,
+            subagent_depth: causal_subagent_depth,
             steer_run_id: None,
             auto_approve_tools: false,
             follow_global_reasoning_effort: false,
@@ -1473,5 +1516,28 @@ mod tests {
             }]
         }));
         assert!(invalid.is_err());
+    }
+
+    #[test]
+    fn cross_session_depth_is_preserved_and_rejected_at_the_limit() {
+        let agent_id = "nonexistent-cross-session-depth-test-agent";
+        let max_depth = crate::subagent::max_depth_for_agent(agent_id);
+        let allowed = super::super::execution::ToolExecContext {
+            agent_id: Some(agent_id.to_string()),
+            subagent_depth: max_depth - 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            cross_session_causal_depth(&allowed).expect("depth below limit is allowed"),
+            max_depth - 1
+        );
+
+        let rejected = super::super::execution::ToolExecContext {
+            agent_id: Some(agent_id.to_string()),
+            subagent_depth: max_depth,
+            ..Default::default()
+        };
+        let error = cross_session_causal_depth(&rejected).expect_err("max depth must reject");
+        assert!(error.to_string().contains("maximum subagent depth"));
     }
 }

@@ -148,7 +148,7 @@ fn list_session_ids_with_active_autonomy_with_conn(
              UNION
              SELECT session_id FROM chat_stream_runs
               WHERE status = 'running'
-                AND source IN ('desktop', 'http', 'channel', 'acp')
+                AND source IN ('desktop', 'http', 'channel', 'session_tool', 'acp')
              UNION
              SELECT session_id FROM queued_turn_user_messages
               WHERE source = 'channel'
@@ -1083,6 +1083,28 @@ mod tests {
             )
             .expect("resolve foreground Stop generation");
         assert_eq!(stale_foreground_runs, vec![run_id]);
+    }
+
+    #[test]
+    fn running_session_tool_stream_is_in_global_stop_enumeration() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("session-tool-stop.db"))
+            .expect("session db");
+        let session = db.create_session("ha-main").expect("regular session");
+        db.create_stream_run(&crate::session::CreateStreamRun {
+            run_id: "remote-session-tool-stream".to_string(),
+            session_id: session.id.clone(),
+            source: "session_tool".to_string(),
+            stream_id: None,
+            turn_id: None,
+            provider_shape: None,
+        })
+        .expect("session tool stream admission");
+
+        assert_eq!(
+            db.list_session_ids_with_active_autonomy().unwrap(),
+            vec![session.id]
+        );
     }
 
     #[test]
