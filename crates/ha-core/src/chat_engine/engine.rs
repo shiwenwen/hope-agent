@@ -3497,6 +3497,7 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
         ChatSource::Channel => KbAccessSource::Im,
         ChatSource::Subagent => KbAccessSource::Subagent,
         ChatSource::ParentInjection => KbAccessSource::Other,
+        ChatSource::SessionTool => KbAccessSource::Other,
         ChatSource::Cron => KbAccessSource::Cron,
         ChatSource::Acp => KbAccessSource::Other,
     }

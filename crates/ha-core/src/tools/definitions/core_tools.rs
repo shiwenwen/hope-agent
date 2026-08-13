@@ -12,9 +12,10 @@ use super::super::{
     TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_READ_CONTEXT_RESOURCE, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_CONTINUE, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_SESSIONS_CREATE, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE,
+    TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
+    TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -1416,6 +1417,67 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── Sessions Create ─────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_SESSIONS_CREATE.into(),
+            description: "Create a new regular chat session, optionally bind it to a Project, attach inline files, and submit its first durable agent turn. If a message or attachment is supplied the target agent always runs; wait only controls whether this call waits for the reply. Permission and sandbox modes come from the target Agent/Project defaults and cannot be overridden here.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
+            internal: false,
+            concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Configured agent ID. When omitted, a resolved Project uses its default-agent chain; otherwise the current agent is used."
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100,
+                        "description": "Optional title for the new session."
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Project to associate with the session. Defaults to the current Project when available."
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Optional first message. Supplying this or attachments immediately starts a durable target-agent turn."
+                    },
+                    "attachments": {
+                        "type": "array",
+                        "maxItems": 64,
+                        "description": "Inline files for the first message. Use utf8 for text or base64 for binary data; file paths are intentionally not accepted.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string", "minLength": 1 },
+                                "content": { "type": "string" },
+                                "mime_type": { "type": "string" },
+                                "encoding": { "type": "string", "enum": ["utf8", "base64"] }
+                            },
+                            "required": ["name", "content"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "wait": {
+                        "type": "boolean",
+                        "description": "Wait for the first turn's reply (default false). The target agent runs either way."
+                    },
+                    "timeout_secs": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Maximum seconds to wait (default 60). A timeout does not stop the target turn."
+                    }
+                },
+                "required": [],
+                "additionalProperties": false
+            }),
+        },
         // ── Sessions List ───────────────────────────────────────
         ToolDefinition {
             name: TOOL_SESSIONS_LIST.into(),
@@ -1544,9 +1606,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Sessions Send ───────────────────────────────────────
         ToolDefinition {
             name: TOOL_SESSIONS_SEND.into(),
-            description: "Send a message to another session for cross-session communication. The message is delivered as a user message. With wait=true, blocks until the target agent responds (up to timeout_secs).".into(),
+            description: "Submit a durable agent turn to another regular session, optionally with inline file attachments. The target agent always runs in the background; wait only controls whether this call waits for its reply. Returns the durable turn ID. Incognito and non-regular targets are refused.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
-            internal: true,
+            internal: false,
             concurrent_safe: false,
             background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({
@@ -1558,18 +1620,36 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "message": {
                         "type": "string",
-                        "description": "Message content to send"
+                        "description": "Message content. Optional when at least one attachment is supplied."
+                    },
+                    "attachments": {
+                        "type": "array",
+                        "maxItems": 64,
+                        "description": "Inline files for this turn. Use utf8 for text or base64 for binary data; file paths are intentionally not accepted.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string", "minLength": 1 },
+                                "content": { "type": "string" },
+                                "mime_type": { "type": "string" },
+                                "encoding": { "type": "string", "enum": ["utf8", "base64"] }
+                            },
+                            "required": ["name", "content"],
+                            "additionalProperties": false
+                        }
                     },
                     "wait": {
                         "type": "boolean",
-                        "description": "Wait for agent reply (default false)"
+                        "description": "Wait for agent reply (default false). The target agent runs either way."
                     },
                     "timeout_secs": {
                         "type": "integer",
-                        "description": "Max seconds to wait for reply (default 60, max 300). Only applies when wait=true."
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Max seconds to wait for reply (default 60). A timeout does not stop the target turn."
                     }
                 },
-                "required": ["session_id", "message"],
+                "required": ["session_id"],
                 "additionalProperties": false
             }),
         },
@@ -2435,6 +2515,34 @@ fn note_tools() -> Vec<ToolDefinition> {
 #[cfg(test)]
 mod tests {
     use super::get_available_tools;
+
+    #[test]
+    fn sessions_create_schema_is_a_serial_session_mutation() {
+        let tools = get_available_tools();
+        let create = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_SESSIONS_CREATE)
+            .expect("sessions_create schema");
+
+        assert!(!create.is_internal());
+        assert!(!create.concurrent_safe);
+        assert_eq!(create.parameters["required"], serde_json::json!([]));
+        assert_eq!(create.parameters["properties"]["title"]["maxLength"], 100);
+        assert_eq!(
+            create.parameters["properties"]["attachments"]["maxItems"],
+            64
+        );
+
+        let send = tools
+            .iter()
+            .find(|tool| tool.name == crate::tools::TOOL_SESSIONS_SEND)
+            .expect("sessions_send schema");
+        assert!(!send.is_internal());
+        assert_eq!(
+            send.parameters["required"],
+            serde_json::json!(["session_id"])
+        );
+    }
 
     #[test]
     fn runtime_control_schemas_are_scoped_and_do_not_advertise_cron() {

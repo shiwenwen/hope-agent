@@ -435,7 +435,7 @@ seq 由 coordinator 在 accept 时分配，只有 `seq <= durable_seq` 才能进
 
 `chat:stream_end` 增量字段为 `finalSeq / durableSeq / assistantMessageId / persistenceStatus`。只有 `persistenceStatus=committed` 才允许 `status=completed`；pending/degraded end 可以解除 loading，但不能清掉当前已展示的耐久内容。
 
-来源之间的输出语义由 `ChatSource` 区分（`broadcasts_to_user_ui` / `tracks_seq` / `fires_user_lifecycle_hooks` / `holds_foreground_idle_guard` 等谓词）：所有来源共用同一耐久协议，但 IM 渠道刻意走独立的 `channel:stream_delta` 事件名，避免与主 chat 流混淆（两条路径没有共享 `_oc_seq` 可去重）。`sessions_send(wait=true)` 也必须走 Chat Engine；其调用超时会先设置 cancel，并给统一中断事务一个有界收敛窗口，禁止再直接 drop 私有 `AssistantAgent::chat` future。
+来源之间的输出语义由 `ChatSource` 区分（`broadcasts_to_user_ui` / `tracks_seq` / `fires_user_lifecycle_hooks` / `holds_foreground_idle_guard` 等谓词）：所有来源共用同一耐久协议，但 IM 渠道刻意走独立的 `channel:stream_delta` 事件名，避免与主 chat 流混淆（两条路径没有共享 `_oc_seq` 可去重）。`sessions_create(message/attachments)` 与 `sessions_send` 统一以 `ChatSource::SessionTool` 先落 user message + `chat_turns`，再进入 Chat Engine；`wait` 只决定调用者是否等结果，false 或等待超时都不能取消已启动的目标 turn。该来源参与 seq / Stop / idle guard / GUI 广播，但 `carries_foreground_user_intent=false`，不能把模型发起动作伪装成用户前台授权。
 
 **启动恢复严格在 async jobs / subagent injection 重放前运行**：先兼容旧 streaming/orphaned 行，再导入 spool、扫描非终态 run、校验 checksum 与 seq 连续性，按 run/attempt 幂等物化最大合法前缀并写 Crash/Shutdown marker。缺口之后的 journal 不会被拼接，损坏原文保留到 GC。
 

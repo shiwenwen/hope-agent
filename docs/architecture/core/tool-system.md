@@ -66,7 +66,7 @@ flowchart TD
 |------|------|----------|
 | `Core::FileSystem` | 文件 / shell / 语义代码智能 | `exec`, `process`, `read`, `write`, `edit`, `ls`, `grep`, `find`, `lsp`, `apply_patch` |
 | `Core::Interaction` | 交互与控制面 | `ask_user_question`, `send_attachment`, `task_create/update/list`, `loop_status/reschedule/stop/record_progress` |
-| `Core::SessionAware` | 跨会话感知（用户判定不可配） | `sessions_list`, `session_status`, `sessions_search`, `sessions_history`, `sessions_send`, `peek_sessions`, `agents_list` |
+| `Core::SessionAware` | 跨会话感知与协调 | `sessions_create`, `sessions_list`, `session_status`, `sessions_search`, `sessions_history`, `sessions_send`, `peek_sessions`, `agents_list` |
 | `Core::Meta` | 框架元工具 | `tool_search`, `job_status`, `schedule_wakeup`, `runtime_cancel`, `skill` |
 | `Core::PlanMode` | Plan Mode 触发 | `enter_plan_mode`, `submit_plan` |
 
@@ -196,7 +196,7 @@ impl ToolDefinition {
 | `read` `ls` `grep` `find` `lsp` | `exec` `write` `edit` `apply_patch` `process` |
 | `recall_memory` `memory_get` | `save_memory` `update_memory` `delete_memory` |
 | `web_search` `web_fetch` | `browser` `subagent` `canvas` `image_generate` |
-| `sessions_list` `session_status` `peek_sessions` | `sessions_send` `manage_cron` `send_notification` |
+| `sessions_list` `session_status` `peek_sessions` | `sessions_create` `sessions_send` `manage_cron` `send_notification` |
 | `ask_user_question` `task_list` `loop_status` | `task_create` `task_update` `submit_plan` |
 
 ---
@@ -314,16 +314,17 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 
 ### 8. 会话与跨会话通信
 
-均为 internal、只读、concurrent_safe（除 `sessions_send`）。
+查询工具为 internal，`sessions_create` / `sessions_send` 是可选审批的跨会话变更工具；查询工具只读且 concurrent_safe，两种写工具串行执行。跨会话写入从 `sessions.db` 读取来源的 live incognito 状态并 fail closed；目标资格统一走 `SessionMeta::is_regular_chat`，创建入口只生成普通会话，不能借此创建 Cron / IM / Subagent / Knowledge / Design 专属会话。两种写工具均先原子落 user message + `chat_turns` 再启动 `ChatSource::SessionTool`，`wait` 仅控制工具调用方是否等待，绝不改变目标 Agent 是否执行。
 
 | 工具 | 说明 |
 |------|------|
 | `agents_list` | 列出全部可用 Agent 及描述/能力，用于选 target agent。 |
+| `sessions_create`（非 concurrent_safe） | 创建普通、持久、用户可见的会话。`project_id` 默认当前 Project；省略 `agent_id` 时，有 Project 就走统一的 Project 默认 Agent 解析链，否则继承当前 Agent。支持 `title`、首条 `message` 与内联 `attachments`。带消息/附件时先通过 preflight 并原子落 user message + turn，之后才发布新会话并启动 Agent；hook block 会保留可见会话、首条标题与 UI-only 拒绝事件。不带消息/附件时才创建空会话。权限/沙箱只继承目标 Agent / Project 默认，schema 不提供覆盖口。 |
 | `sessions_list` | 列出会话（title / agent / model / 消息数）。可按 `agent_id` 过滤，`include_cron=true` 含 cron 会话。默认 limit 20、上限 100。 |
 | `session_status` | 查单个会话的 agent / model / 消息数 / 时间戳。 |
 | `sessions_search` | FTS 检索会话消息并返回命中附近上下文窗口。默认当前会话；`scope=all` 只搜全局可见的普通非无痕会话；`limit` 默认 8(上限 20)。压缩后回查具体信息优先用它。 |
 | `sessions_history` | 分页读某会话历史消息。`limit` 默认 50(上限 200)，`before_id` 游标，`include_tools=false` 默认剔除 tool 细节降噪。 |
-| `sessions_send`（非 concurrent_safe） | 向其他会话发 user 消息。`wait=true` 阻塞到目标回复（`timeout_secs` 默认 60、上限 300）。 |
+| `sessions_send`（非 concurrent_safe） | 向其他普通会话提交带可选内联附件的持久 user turn；来源/目标任一 incognito 或目标非普通会话即拒绝。目标 Agent 恒启动并返回 `turn_id`；`wait=false` 立即返回，`wait=true` 等回复（默认 60 秒、上限 300），等待超时后 turn 仍后台运行。附件只接收 utf8/base64 内联内容，不接收路径，防止绕过文件读取权限。 |
 | `peek_sessions` | 跨会话感知窥探，返回其它会话的紧凑 markdown 列表（title / agent / kind / 相对时间 / goal/summary）。只读。 |
 
 ### 9. Agent 调用
@@ -900,7 +901,7 @@ pub enum SessionMode {
 
 ### 特殊豁免
 
-- **Internal 工具永不审批**：`ToolDefinition.internal = true`（`is_internal_tool()` 检查）。含 Plan Mode 工具、记忆 / Cron 工具、跨会话通信工具、任务追踪、`send_attachment`、`team` / `canvas` / `send_notification`、`skill`、元工具（`tool_search` / `job_status` / `runtime_cancel` / `get_settings` / `update_settings` / 备份工具）、多模态分析（`image` / `pdf` / `get_weather`）。
+- **Internal 工具永不审批**：`ToolDefinition.internal = true`（`is_internal_tool()` 检查）。含 Plan Mode 工具、记忆 / Cron 工具、跨会话读取、任务追踪、`send_attachment`、`team` / `canvas` / `send_notification`、`skill`、元工具（`tool_search` / `job_status` / `runtime_cancel` / `get_settings` / `update_settings` / 备份工具）、多模态分析（`image` / `pdf` / `get_weather`）；`sessions_create` / `sessions_send` 刻意为非 internal，使 Agent 自定义审批开关真实生效。
   - 反过来，**不在 internal 列表**、因此会经审批门的：文件操作（`read` / `write` / `edit` / `apply_patch` / `ls` / `grep` / `find` / `lsp`）、`exec`（命令级独立审批）/ `process`、`web_fetch` / `web_search` / `browser`、`image_generate` / `subagent` / `acp_spawn`、MCP 元工具 `mcp_resource` / `mcp_prompt`（被 `Tier::Mcp` 整体管控，但仍走审批）。
 - **SKILL.md 读取预授权**：`is_skill_read()` 检查——`read` 工具路径以 `/SKILL.md` 结尾时，所有模式下都跳过审批。
 

@@ -64,6 +64,7 @@ pub const TOOL_NOTE_DISTILL: &str = "note_distill";
 pub const TOOL_NOTE_MOC: &str = "note_moc";
 pub const TOOL_KNOWLEDGE_RECALL: &str = "knowledge_recall";
 pub const TOOL_SESSION_TO_NOTE: &str = "session_to_note";
+pub const TOOL_SESSIONS_CREATE: &str = "sessions_create";
 pub const TOOL_SESSIONS_LIST: &str = "sessions_list";
 pub const TOOL_SESSION_STATUS: &str = "session_status";
 pub const TOOL_SESSIONS_SEARCH: &str = "sessions_search";

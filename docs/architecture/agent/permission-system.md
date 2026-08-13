@@ -582,14 +582,14 @@ flowchart TD
 
 **硬编码必审**（不可关闭，YOLO 可 override）：`write`/`edit`/`apply_patch`、`exec` 命中编辑命令、`browser.control.evaluate/raw_cdp/download_cancel`、`browser` 真实 Chrome 状态访问（`tabs.open_user_tabs/claim/select`、`observe.downloads`）、`mac_control` 普通/隐私/高危动作。额外，连 YOLO 都覆盖不了的只有 Plan Mode：保护路径 + 危险命令 + 高危 mac + raw CDP + 外部连接器写动作在非 YOLO 下强制弹。
 
-**自定义勾选可加**（`ApprovalTab` 内 `enable_custom_tool_approval` 开启后展示，共 **17 个内置项**）：
+**自定义勾选可加**（`ApprovalTab` 内 `enable_custom_tool_approval` 开启后展示，共 **18 个内置项**）：
 
 | 类别 | 工具 |
 |------|------|
 | 后台进程 | `process` |
 | 浏览器控制 | `browser` |
 | 配置变更 | `update_settings` `restore_settings_backup` |
-| 外发 | `send_attachment` `sessions_send` |
+| 外发 | `send_attachment` `sessions_create` `sessions_send` |
 | 付费 API | `image_generate` |
 | 启动外部进程 | `acp_spawn` |
 | 网络访问 | `web_fetch` `web_search` |

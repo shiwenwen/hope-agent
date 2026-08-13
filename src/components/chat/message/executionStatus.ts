@@ -55,6 +55,7 @@ const KNOWN_TOOL_STATUS_NAMES = new Set([
   "subagent",
   "memory_get",
   "agents_list",
+  "sessions_create",
   "sessions_list",
   "session_status",
   "sessions_history",
