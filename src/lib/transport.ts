@@ -38,6 +38,12 @@ export interface ChatAttachment {
   upload_id?: string;
   /** For `source: "quote"`: 1-based line range of the quoted snippet ("12-20"). */
   quote_lines?: string;
+  /** For `source: "quote"`: exact linked-project root identity used to
+   * restore the same browser scope after edit/fork/resend. */
+  quote_project_root?: { index: number; path: string };
+  /** For `source: "quote"`: absolute Git worktree root selected beneath the
+   * primary or linked repository. */
+  quote_worktree_root?: string;
   /** For `source: "message_quote"`: role of the selected conversation message. */
   quote_role?: "user" | "assistant";
 }

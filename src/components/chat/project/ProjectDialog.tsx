@@ -56,7 +56,11 @@ import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import ProjectInstructionsField from "./ProjectInstructionsField"
 import ProjectKnowledgeSection from "./ProjectKnowledgeSection"
 import { shouldSubmitProjectInstructions } from "./projectInstructionsDraft"
-import { promoteProjectSourceFolder } from "./projectSourceFolders"
+import {
+  projectRootFromInstructionsPath,
+  promoteProjectSourceFolder,
+  resolveProjectFormPrimaryDir,
+} from "./projectSourceFolders"
 import { useProjectWorkingDir } from "./hooks/useProjectWorkingDir"
 
 import type {
@@ -150,6 +154,9 @@ export default function ProjectDialog({
   const [defaultAgentId, setDefaultAgentId] = useState<string>("")
   const [workingDir, setWorkingDir] = useState<string>("")
   const [linkedDirs, setLinkedDirs] = useState<string[]>([])
+  const [clearedPrimaryDefaultDir, setClearedPrimaryDefaultDir] = useState<
+    string | null | undefined
+  >(undefined)
   const [instructions, setInstructions] = useState("")
   const [loadedInstructions, setLoadedInstructions] = useState("")
   const [instructionsHash, setInstructionsHash] = useState("")
@@ -167,10 +174,15 @@ export default function ProjectDialog({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [error, setError] = useState("")
   const selectedDefaultAgent = agents.find((agent) => agent.id === defaultAgentId)
-  const effectivePrimaryDir = useProjectWorkingDir(
+  const persistedEffectivePrimaryDir = useProjectWorkingDir(
     transport,
     mode === "edit" ? (initialProject?.id ?? null) : null,
     workingDir || null,
+  )
+  const effectivePrimaryDir = resolveProjectFormPrimaryDir(
+    workingDir,
+    persistedEffectivePrimaryDir,
+    clearedPrimaryDefaultDir,
   )
 
   const resetInstructionsForNewWorkspace = useCallback(() => {
@@ -191,6 +203,7 @@ export default function ProjectDialog({
       command: "get_project_instructions_cmd" | "inspect_project_instructions_cmd",
       args: Record<string, unknown>,
       pendingPath: string,
+      captureDefaultWorkspace = false,
     ) => {
       const seq = ++instructionsRequestSeq.current
       setInstructionsLoading(true)
@@ -211,6 +224,9 @@ export default function ProjectDialog({
         setInstructionsPath(file.path)
         setInstructionsExists(file.exists)
         setInstructionsReady(true)
+        if (captureDefaultWorkspace) {
+          setClearedPrimaryDefaultDir(projectRootFromInstructionsPath(file.path))
+        }
       } catch (loadError) {
         if (seq !== instructionsRequestSeq.current) return
         setInstructionsError(loadError instanceof Error ? loadError.message : String(loadError))
@@ -234,6 +250,7 @@ export default function ProjectDialog({
       setDefaultAgentId(initialProject.defaultAgentId ?? "")
       setWorkingDir(initialProject.workingDir ?? "")
       setLinkedDirs(initialProject.linkedDirs ?? [])
+      setClearedPrimaryDefaultDir(undefined)
     } else {
       setName("")
       setDescription("")
@@ -242,6 +259,7 @@ export default function ProjectDialog({
       setDefaultAgentId("")
       setWorkingDir("")
       setLinkedDirs([])
+      setClearedPrimaryDefaultDir(undefined)
     }
   }, [open, mode, initialProject])
 
@@ -290,6 +308,7 @@ export default function ProjectDialog({
       const promoted = promoteProjectSourceFolder(path, previousPrimary, linkedDirs)
       setWorkingDir(promoted.workingDir)
       setLinkedDirs(promoted.linkedDirs)
+      setClearedPrimaryDefaultDir(undefined)
       void loadInstructions(
         "inspect_project_instructions_cmd",
         { workingDir: path, projectId: null },
@@ -347,12 +366,15 @@ export default function ProjectDialog({
   function clearWorkingDir() {
     setWorkingDir("")
     if (mode === "edit" && initialProject?.id) {
+      setClearedPrimaryDefaultDir(null)
       void loadInstructions(
         "inspect_project_instructions_cmd",
         { workingDir: null, projectId: initialProject.id },
         "AGENTS.md",
+        true,
       )
     } else {
+      setClearedPrimaryDefaultDir(undefined)
       resetInstructionsForNewWorkspace()
     }
   }
@@ -366,6 +388,7 @@ export default function ProjectDialog({
     if (nextPrimary) {
       setWorkingDir(nextPrimary)
       setLinkedDirs(remainingLinked)
+      setClearedPrimaryDefaultDir(undefined)
       void loadInstructions(
         "inspect_project_instructions_cmd",
         { workingDir: nextPrimary, projectId: null },

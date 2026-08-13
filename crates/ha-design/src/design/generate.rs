@@ -225,6 +225,8 @@ fn reference_attachments(refs: &[(&str, &str)]) -> Vec<ha_core::agent::Attachmen
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         })
         .collect()
 }

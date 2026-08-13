@@ -1917,6 +1917,8 @@ mod typed_resource_boundary_tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(validate_desktop_chat_attachment_boundary("plain", None, &[forged]).is_err());
 
@@ -1929,6 +1931,8 @@ mod typed_resource_boundary_tests {
             upload_id: Some("lease".into()),
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(validate_desktop_chat_attachment_boundary("plain", None, &[ordinary]).is_ok());
     }

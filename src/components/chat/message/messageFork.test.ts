@@ -9,6 +9,7 @@ import {
   forkComposerTextForMessage,
   forkSessionRequestForMessage,
   isForkableConversationMessage,
+  resendComposerDraftForMessage,
 } from "./messageFork"
 
 afterEach(() => {
@@ -105,6 +106,8 @@ describe("message fork semantics", () => {
           path: "brief.md",
           lines: "3-5",
           content: "quoted lines",
+          project_root: { index: 1, path: "/repos/shared" },
+          worktree_root: "/repos/shared-feature",
         },
         {
           kind: "message_quote",
@@ -128,10 +131,43 @@ describe("message fork semantics", () => {
         startLine: 3,
         endLine: 5,
         content: "quoted lines",
+        projectRoot: { index: 1, path: "/repos/shared" },
+        worktreeRoot: "/repos/shared-feature",
       },
     ])
-    expect(draft?.pendingMessageQuotes).toEqual([
-      { role: "assistant", content: "quoted answer" },
+    expect(draft?.pendingMessageQuotes).toEqual([{ role: "assistant", content: "quoted answer" }])
+  })
+
+  test("restores linked-worktree quote provenance when resending a prompt", async () => {
+    const draft = await resendComposerDraftForMessage({
+      role: "user",
+      content: "revise this",
+      dbId: 48,
+      attachments: [
+        {
+          name: "brief.md",
+          mimeType: "text/plain",
+          sizeBytes: 0,
+          kind: "quote",
+          quotePath: "/repos/shared-feature/brief.md",
+          quoteLines: "3-5",
+          quoteContent: "quoted lines",
+          quoteProjectRoot: { index: 1, path: "/repos/shared" },
+          quoteWorktreeRoot: "/repos/shared-feature",
+        },
+      ],
+    })
+
+    expect(draft.pendingQuotes).toEqual([
+      {
+        path: "brief.md",
+        name: "brief.md",
+        startLine: 3,
+        endLine: 5,
+        content: "quoted lines",
+        projectRoot: { index: 1, path: "/repos/shared" },
+        worktreeRoot: "/repos/shared-feature",
+      },
     ])
   })
 
@@ -182,9 +218,7 @@ describe("message fork semantics", () => {
   })
 
   test("rejects in-progress replies and internal user-shaped messages", () => {
-    expect(
-      isForkableConversationMessage({ role: "assistant", content: "streaming" }),
-    ).toBe(false)
+    expect(isForkableConversationMessage({ role: "assistant", content: "streaming" })).toBe(false)
     expect(
       isForkableConversationMessage({
         role: "user",

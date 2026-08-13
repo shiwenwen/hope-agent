@@ -117,6 +117,9 @@ export interface MessageAttachment {
   quotePath?: string
   quoteLines?: string
   quoteContent?: string
+  /** Persisted browser provenance for restoring a linked-root quote draft. */
+  quoteProjectRoot?: PendingFileQuote["projectRoot"]
+  quoteWorktreeRoot?: string
   /** For `kind === "message_quote"`: role of the message the user selected. */
   messageQuoteRole?: "user" | "assistant"
 }

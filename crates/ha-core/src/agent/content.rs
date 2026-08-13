@@ -759,6 +759,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(matches!(
             attachment.get_base64_data().expect("base64"),
@@ -780,6 +782,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         let (text, images, _) = process_file_attachments(&attachments, 200_000, &[]);
@@ -803,6 +807,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: Some("assistant".to_string()),
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         let (text, images, _) = process_file_attachments(&attachments, 200_000, &[]);
@@ -825,6 +831,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         let resources = context_resources(&attachments);
@@ -850,6 +858,8 @@ mod tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             })
             .collect::<Vec<_>>();
 
@@ -891,6 +901,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
 
         let resources = context_resources(std::slice::from_ref(&attachment));
@@ -929,6 +941,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let resources = context_resources(std::slice::from_ref(&attachment));
 
@@ -1003,6 +1017,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let (text, images, allowed) =
             process_file_attachments(std::slice::from_ref(&text_attachment), 8_000, &[]);
@@ -1067,6 +1083,8 @@ mod tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
             Attachment {
                 name: "ordinary.pptx".into(),
@@ -1079,6 +1097,8 @@ mod tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
         ];
 
@@ -1100,6 +1120,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let resources = context_resources(std::slice::from_ref(&attachment));
         let (text, images, allowed) =

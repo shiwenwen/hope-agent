@@ -3,6 +3,28 @@ export interface PromotedProjectSourceFolders {
   linkedDirs: string[]
 }
 
+export function projectRootFromInstructionsPath(path: string): string | null {
+  const trimmed = path.trim().replace(/[\\/]+$/, "")
+  const separator = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"))
+  if (separator < 0 || trimmed.slice(separator + 1) !== "AGENTS.md") return null
+  return trimmed.slice(0, separator) || (trimmed.startsWith("/") ? "/" : null)
+}
+
+/** Resolve the primary represented by the current form state. `clearedDefaultDir`
+ * is deliberately tri-state: undefined means the persisted effective root is
+ * still valid, null means an explicitly-cleared root is resolving its managed
+ * default, and a string is that resolved default. */
+export function resolveProjectFormPrimaryDir(
+  workingDir: string,
+  persistedEffectiveDir: string | null,
+  clearedDefaultDir?: string | null,
+): string | null {
+  const explicit = workingDir.trim()
+  if (explicit) return explicit
+  const fallback = clearedDefaultDir === undefined ? persistedEffectiveDir : clearedDefaultDir
+  return fallback?.trim() || null
+}
+
 /**
  * Promote a linked source folder while preserving the effective former
  * primary. `previousPrimary` may be the backend-owned default workspace when

@@ -52,6 +52,12 @@ impl Default for AgentCapsCache {
 }
 
 /// File/image attachment sent alongside a chat message
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuoteProjectRoot {
+    pub index: usize,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
     pub name: String,
@@ -77,6 +83,14 @@ pub struct Attachment {
     /// block to the model. Not persisted as a file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote_lines: Option<String>,
+    /// Exact linked-project root identity captured with a file-browser quote.
+    /// This is durable UI provenance only; filesystem authorization continues
+    /// to resolve the live project row when a restored quote is opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_project_root: Option<QuoteProjectRoot>,
+    /// Absolute Git worktree root captured with a file-browser quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_worktree_root: Option<String>,
     /// For `source = "message_quote"`: role of the selected conversation
     /// message. The inline body remains in `data`; no file is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

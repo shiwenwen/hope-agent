@@ -2718,6 +2718,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(
             validate_http_chat_attachments("missing-session", "plain", None, &[forged]).is_err()
@@ -2732,6 +2734,8 @@ mod tests {
             upload_id: Some("opaque-lease".to_string()),
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(
             validate_http_chat_attachments("missing-session", "plain", None, &[ordinary]).is_ok()
@@ -2749,6 +2753,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -2767,6 +2773,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -2785,6 +2793,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -2803,6 +2813,8 @@ mod tests {
             upload_id: Some(uuid::Uuid::new_v4().to_string()),
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -2821,6 +2833,8 @@ mod tests {
             upload_id: Some(uuid::Uuid::new_v4().to_string()),
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -2870,6 +2884,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let resolver = |short_id: &str, version: u32| {
             (short_id == "abcdef12" && version == 3).then(|| registered.clone())

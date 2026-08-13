@@ -1530,6 +1530,8 @@ export function useChatStream({
           data: q.content,
           file_path: quoteReferencePath(q),
           quote_lines: quoteLineLabel(q),
+          ...(q.projectRoot ? { quote_project_root: q.projectRoot } : {}),
+          ...(q.worktreeRoot ? { quote_worktree_root: q.worktreeRoot } : {}),
         })
       }
 
@@ -1898,6 +1900,8 @@ export function useChatStream({
       quotePath: quoteReferencePath(q),
       quoteLines: quoteLineLabel(q),
       quoteContent: q.content,
+      ...(q.projectRoot ? { quoteProjectRoot: q.projectRoot } : {}),
+      ...(q.worktreeRoot ? { quoteWorktreeRoot: q.worktreeRoot } : {}),
     }))
     const optimisticMessageQuoteAttachments: MessageAttachment[] = messageQuotesToSend.map((q) => ({
       name: "message-quote",

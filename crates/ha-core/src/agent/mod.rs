@@ -38,7 +38,9 @@ pub use config::{
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub use context::build_compaction_provider;
 pub use plan_context::{resolve_plan_context_for_session, PlanResolvedContext};
-pub use types::{AssistantAgent, Attachment, ChatUsage, CodexModel, LlmProvider, PlanAgentMode};
+pub use types::{
+    AssistantAgent, Attachment, ChatUsage, CodexModel, LlmProvider, PlanAgentMode, QuoteProjectRoot,
+};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

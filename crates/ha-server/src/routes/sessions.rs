@@ -1822,6 +1822,8 @@ mod tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
             let meta = ha_core::attachments::persist_chat_user_attachments_meta(
                 session_id,
