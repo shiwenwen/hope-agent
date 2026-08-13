@@ -34,6 +34,29 @@ use crate::tools;
 const MAX_OUTPUT_TOKENS: u32 = 16384;
 const TOOL_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 const ROUND_ENVIRONMENT_BUILD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+static ROUND_ENVIRONMENT_SCAN_GATE: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(1)));
+
+/// Serialize round-environment filesystem scans process-wide. The owned permit
+/// deliberately lives inside the blocking closure: dropping or timing out the
+/// async waiter cannot release the slot while `spawn_blocking` is still stuck
+/// on a disconnected mount, so later turns wait cancelably instead of spawning
+/// an unbounded queue of detached blocking tasks.
+async fn run_serialized_round_environment_scan<T, F>(scan: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let scan_permit = Arc::clone(&ROUND_ENVIRONMENT_SCAN_GATE)
+        .acquire_owned()
+        .await
+        .expect("round environment scan gate is never closed");
+    crate::blocking::run_blocking(move || {
+        let _scan_permit = scan_permit;
+        scan()
+    })
+    .await
+}
 
 /// Max concurrent-safe (read-only) tools allowed to run at once within one
 /// assistant turn. Bounds fd / outbound-request fan-out when a single message
@@ -1213,7 +1236,7 @@ impl AssistantAgent {
         let environment_context_suffix = {
             let session_db = self.session_db.clone();
             let session_id = self.session_id.clone();
-            let build_environment = crate::blocking::run_blocking(move || {
+            let build_environment = run_serialized_round_environment_scan(move || {
                 let session_meta =
                     Self::lookup_session_meta_with(session_db.as_ref(), session_id.as_deref());
                 let working_dir = session_meta
@@ -2561,8 +2584,8 @@ mod tests {
         can_bootstrap_mcp_catalog, collect_tool_schema_updates, ensure_model_round_after_insertion,
         extract_started_job_id, has_checkpointed_subagent_dispatch, local_tool_search_survived,
         merge_retry_hook_context, queued_message_for_provider, requires_local_mcp_tool_search,
-        resolve_empty_round_outcome, stamp_checkpointed_subagent_dispatch,
-        terminal_assistant_text_for_history,
+        resolve_empty_round_outcome, run_serialized_round_environment_scan,
+        stamp_checkpointed_subagent_dispatch, terminal_assistant_text_for_history,
     };
     use crate::agent::streaming_adapter::ToolDispatchSideOutput;
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
@@ -2727,6 +2750,44 @@ mod tests {
             terminal_assistant_text_for_history(false, "", "partial"),
             ""
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn detached_environment_scan_retains_the_single_process_slot() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{mpsc, Arc};
+
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first = tokio::spawn(run_serialized_round_environment_scan(move || {
+            let _ = started_tx.send(());
+            let _ = release_rx.recv();
+        }));
+        tokio::time::timeout(std::time::Duration::from_secs(1), started_rx)
+            .await
+            .expect("first scan started before timeout")
+            .expect("first scan start signal");
+
+        first.abort();
+        let _ = first.await;
+
+        let second_started = Arc::new(AtomicBool::new(false));
+        let second_started_in_scan = second_started.clone();
+        let second = tokio::spawn(run_serialized_round_environment_scan(move || {
+            second_started_in_scan.store(true, Ordering::SeqCst);
+        }));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !second_started.load(Ordering::SeqCst),
+            "detaching the first waiter must not release its blocking scan slot"
+        );
+
+        release_tx.send(()).expect("release first scan");
+        tokio::time::timeout(std::time::Duration::from_secs(1), second)
+            .await
+            .expect("second scan acquires the released slot")
+            .expect("second scan task completes");
+        assert!(second_started.load(Ordering::SeqCst));
     }
 
     #[test]
