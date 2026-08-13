@@ -416,6 +416,18 @@ impl SessionDB {
                 input.session_id
             );
         };
+        if input.source == crate::chat_engine::ChatSource::SessionTool.as_str()
+            && tx.query_row(
+                super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
+                params![input.session_id],
+                |row| row.get::<_, i64>(0),
+            )? != 0
+        {
+            anyhow::bail!(
+                "Target session '{}' is paused; use Continue before starting its delegated stream",
+                input.session_id
+            );
+        }
         let admitted_stop_epoch =
             super::autonomy_pause::session_autonomy_lineage_pause_epoch_with_conn(
                 &tx,
@@ -2524,6 +2536,30 @@ mod tests {
             context_revision: registration.context_revision,
             final_seq: 5,
         }
+    }
+
+    #[test]
+    fn session_tool_stream_cannot_start_behind_an_active_stop_fence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open(&dir.path().join("paused-session-tool.db")).expect("open db");
+        let session = db.create_session("ha-main").expect("session");
+        db.prepare_session_autonomy_pause(&session.id)
+            .expect("pause session");
+
+        let error = db
+            .create_stream_run(&CreateStreamRun {
+                run_id: "paused-session-tool-run".to_string(),
+                session_id: session.id,
+                source: crate::chat_engine::ChatSource::SessionTool
+                    .as_str()
+                    .to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect_err("paused delegated stream must fail closed");
+
+        assert!(error.to_string().contains("use Continue"));
     }
 
     fn success_commit(fixture: &RunFixture, placeholder_id: Option<i64>) -> CommitAssistantTurn {

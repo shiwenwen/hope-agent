@@ -80,7 +80,11 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
           sessionId,
           pageSize: PAGE_SIZE,
           sessionCacheRef,
-          setMessages,
+          setMessages: (messages) => {
+            if (currentSessionIdRef.current === sessionId) {
+              setMessages(messages)
+            }
+          },
         })
       } else {
         sessionCacheRef.current.delete(sessionId)
@@ -151,7 +155,11 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
             sessionId: parentSessionId,
             pageSize: PAGE_SIZE,
             sessionCacheRef,
-            setMessages,
+            setMessages: (messages) => {
+              if (currentSessionIdRef.current === parentSessionId) {
+                setMessages(messages)
+              }
+            },
           })
         } else {
           // Not current session — clear cache so next visit loads fresh from DB

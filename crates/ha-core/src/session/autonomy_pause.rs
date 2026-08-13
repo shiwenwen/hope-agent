@@ -150,6 +150,10 @@ fn list_session_ids_with_active_autonomy_with_conn(
               WHERE status = 'running'
                 AND source IN ('desktop', 'http', 'channel', 'session_tool', 'acp')
              UNION
+             SELECT session_id FROM chat_turns
+              WHERE status IN ('running', 'cancelling')
+                AND source = 'session_tool'
+             UNION
              SELECT session_id FROM queued_turn_user_messages
               WHERE source = 'channel'
                 AND status IN ('queued', 'fallback_after_reply', 'waiting_tool_boundary',
@@ -1100,6 +1104,27 @@ mod tests {
             provider_shape: None,
         })
         .expect("session tool stream admission");
+
+        assert_eq!(
+            db.list_session_ids_with_active_autonomy().unwrap(),
+            vec![session.id]
+        );
+    }
+
+    #[test]
+    fn persisted_session_tool_turn_is_enumerated_before_its_stream_starts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("session-tool-turn.db"))
+            .expect("session db");
+        let session = db.create_session("ha-main").expect("regular session");
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.append_message_and_create_session_tool_turn_with_id(
+            "session-tool-turn",
+            &session.id,
+            &crate::session::NewMessage::user("hello"),
+            expected_global_stop_epoch,
+        )
+        .expect("persist delegated turn");
 
         assert_eq!(
             db.list_session_ids_with_active_autonomy().unwrap(),

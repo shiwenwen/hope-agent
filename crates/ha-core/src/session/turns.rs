@@ -387,6 +387,56 @@ impl SessionDB {
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
     ) -> Result<(i64, ChatTurn)> {
+        self.append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+            id,
+            session_id,
+            source,
+            stream_id,
+            message,
+            ui_surface,
+            client_request_id,
+            request_fingerprint,
+            None,
+        )
+    }
+
+    /// Session-tool turns carry no fresh user intent, so their persisted Stop
+    /// admission must be checked in the same write transaction as the message
+    /// and turn. If this transaction wins, a later Stop enumerates the durable
+    /// running turn; if Stop wins, the generation/pause checks fail closed.
+    pub(crate) fn append_message_and_create_session_tool_turn_with_id(
+        &self,
+        id: &str,
+        session_id: &str,
+        message: &NewMessage,
+        expected_global_stop_epoch: u64,
+    ) -> Result<(i64, ChatTurn)> {
+        self.append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+            id,
+            session_id,
+            crate::chat_engine::ChatSource::SessionTool.as_str(),
+            None,
+            message,
+            None,
+            None,
+            None,
+            Some(expected_global_stop_epoch),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+        &self,
+        id: &str,
+        session_id: &str,
+        source: &str,
+        stream_id: Option<&str>,
+        message: &NewMessage,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+        expected_global_stop_epoch: Option<u64>,
+    ) -> Result<(i64, ChatTurn)> {
         if client_request_id.is_some() != request_fingerprint.is_some() {
             anyhow::bail!(
                 "UI chat dispatch identity requires both client_request_id and request_fingerprint"
@@ -396,7 +446,29 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = if expected_global_stop_epoch.is_some() {
+            conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?
+        } else {
+            conn.transaction()?
+        };
+        if let Some(expected_global_stop_epoch) = expected_global_stop_epoch {
+            let current_global_stop_epoch =
+                super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
+            if current_global_stop_epoch != expected_global_stop_epoch {
+                anyhow::bail!("Global Stop began before the cross-session turn was persisted");
+            }
+            let paused = tx.query_row(
+                super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
+                params![session_id],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if paused {
+                anyhow::bail!(
+                    "Target session '{}' is paused; use Continue before delegating another turn",
+                    session_id
+                );
+            }
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if message.timestamp.is_empty() {
             now.as_str()
@@ -907,6 +979,51 @@ mod tests {
             Some(ChatTurnInterruptReason::UserStop)
         );
         assert!(persisted.error.is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_rejects_a_global_stop_that_won_admission() {
+        let db = temp_db();
+        let session = db.create_session("ha-main").unwrap();
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.begin_global_stop_enumeration().unwrap();
+
+        let error = db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-after-stop",
+                &session.id,
+                &NewMessage::user("hello"),
+                expected_global_stop_epoch,
+            )
+            .expect_err("stale admission must fail closed");
+
+        assert!(error.to_string().contains("Global Stop"));
+        assert!(db.load_session_messages(&session.id).unwrap().is_empty());
+        assert!(db.get_chat_turn("delegated-after-stop").unwrap().is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_rejects_an_active_pause_in_its_write_transaction() {
+        let db = temp_db();
+        let session = db.create_session("ha-main").unwrap();
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.prepare_session_autonomy_pause(&session.id).unwrap();
+
+        let error = db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-while-paused",
+                &session.id,
+                &NewMessage::user("hello"),
+                expected_global_stop_epoch,
+            )
+            .expect_err("active pause must fail closed");
+
+        assert!(error.to_string().contains("use Continue"));
+        assert!(db.load_session_messages(&session.id).unwrap().is_empty());
+        assert!(db
+            .get_chat_turn("delegated-while-paused")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

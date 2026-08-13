@@ -865,6 +865,9 @@ async fn start_proactive_turn(
     causal_subagent_depth: u32,
     publish_created_session: bool,
 ) -> Result<ProactiveTurnStart> {
+    let expected_global_stop_epoch = ctx.turn_admitted_global_stop_epoch.ok_or_else(|| {
+        anyhow::anyhow!("Cross-session turns require a durable Global Stop admission")
+    })?;
     let db_for_live_check = db.clone();
     let target_session_id = session.id.clone();
     let source_session_id = ctx.session_id.clone();
@@ -961,15 +964,11 @@ async fn start_proactive_turn(
                 );
                 title_meta = user_message.attachments_meta.clone();
                 db_for_persist
-                    .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                    .append_message_and_create_session_tool_turn_with_id(
                         &turn_id_for_persist,
                         &session_id_for_persist,
-                        crate::chat_engine::ChatSource::SessionTool.as_str(),
-                        None,
                         &user_message,
-                        None,
-                        None,
-                        None,
+                        expected_global_stop_epoch,
                     )
                     .map(|_| ())
             },
@@ -1487,6 +1486,7 @@ mod tests {
         let ctx = super::super::execution::ToolExecContext {
             session_id: Some(source.id),
             session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            turn_admitted_global_stop_epoch: Some(db.global_stop_epoch().unwrap()),
             ..Default::default()
         };
 
@@ -1513,6 +1513,7 @@ mod tests {
         let ctx = super::super::execution::ToolExecContext {
             session_id: Some(source.id),
             session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            turn_admitted_global_stop_epoch: Some(db.global_stop_epoch().unwrap()),
             ..Default::default()
         };
 
@@ -1523,6 +1524,35 @@ mod tests {
         .await
         .expect_err("paused target must reject delegated turns");
         assert!(error.to_string().contains("use Continue"));
+        assert!(db
+            .load_session_messages(&target.id)
+            .expect("target messages")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn send_uses_the_source_turns_durable_global_stop_admission() {
+        let (_dir, db) = test_db("stale-global-admission");
+        let source = db.create_session("ha-main").expect("source");
+        let target = db.create_session("ha-main").expect("target");
+        let admitted_global_stop_epoch = db.global_stop_epoch().unwrap();
+        let ctx = super::super::execution::ToolExecContext {
+            session_id: Some(source.id),
+            session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            turn_admitted_global_stop_epoch: Some(admitted_global_stop_epoch),
+            ..Default::default()
+        };
+        db.begin_global_stop_enumeration()
+            .expect("concurrent global Stop wins");
+
+        let error = tool_sessions_send(
+            &serde_json::json!({"session_id": target.id, "message": "hello"}),
+            &ctx,
+        )
+        .await
+        .expect_err("stale source admission must fail closed");
+
+        assert!(error.to_string().contains("Global Stop"));
         assert!(db
             .load_session_messages(&target.id)
             .expect("target messages")
