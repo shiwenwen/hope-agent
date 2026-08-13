@@ -37,6 +37,19 @@ fn cross_session_causal_depth(ctx: &super::execution::ToolExecContext) -> Result
     Ok(ctx.subagent_depth + 1)
 }
 
+fn ensure_cross_session_target_is_resumable(
+    db: &crate::session::SessionDB,
+    session_id: &str,
+) -> Result<()> {
+    if db.is_session_or_ancestor_autonomy_paused(session_id)? {
+        anyhow::bail!(
+            "Target session '{}' is paused; use Continue before delegating another turn",
+            session_id
+        );
+    }
+    Ok(())
+}
+
 /// Tool: sessions_create — create a regular, user-visible chat session.
 pub(crate) async fn tool_sessions_create(
     args: &Value,
@@ -870,6 +883,7 @@ async fn start_proactive_turn(
                 target_session_id
             );
         }
+        ensure_cross_session_target_is_resumable(&db_for_live_check, &target_session_id)?;
         anyhow::Ok(live)
     })
     .await?;
@@ -1483,6 +1497,32 @@ mod tests {
         .await
         .expect("hidden target refusal");
         assert!(send.contains("non-regular"));
+        assert!(db
+            .load_session_messages(&target.id)
+            .expect("target messages")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn send_rejects_a_target_behind_an_active_stop_fence_before_persistence() {
+        let (_dir, db) = test_db("paused-target");
+        let source = db.create_session("ha-main").expect("source");
+        let target = db.create_session("ha-main").expect("target");
+        db.prepare_session_autonomy_pause(&target.id)
+            .expect("pause target");
+        let ctx = super::super::execution::ToolExecContext {
+            session_id: Some(source.id),
+            session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            ..Default::default()
+        };
+
+        let error = tool_sessions_send(
+            &serde_json::json!({"session_id": target.id, "message": "hello"}),
+            &ctx,
+        )
+        .await
+        .expect_err("paused target must reject delegated turns");
+        assert!(error.to_string().contains("use Continue"));
         assert!(db
             .load_session_messages(&target.id)
             .expect("target messages")
