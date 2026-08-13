@@ -5,6 +5,28 @@ use serde::{Deserialize, Serialize};
 use super::db::SessionDB;
 use super::types::NewMessage;
 
+fn ensure_no_active_chat_turn(conn: &rusqlite::Connection, session_id: &str) -> Result<()> {
+    let active_turn: Option<(String, String)> = conn
+        .query_row(
+            "SELECT id, source FROM chat_turns
+              WHERE session_id = ?1 AND status IN ('running', 'cancelling')
+              ORDER BY started_at ASC, id ASC
+              LIMIT 1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((active_turn_id, active_source)) = active_turn {
+        anyhow::bail!(
+            "Session '{}' already has an active {} turn ({})",
+            session_id,
+            active_source,
+            active_turn_id
+        );
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatTurnStatus {
@@ -310,16 +332,18 @@ impl SessionDB {
                 "UI chat dispatch identity requires both client_request_id and request_fingerprint"
             );
         }
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        ensure_no_active_chat_turn(&tx, session_id)?;
         let now = chrono::Utc::now().to_rfc3339();
         // A non-UI turn can replace a currently projected UI turn in the same
         // session. Invalidate only for that transition (or for a new UI turn)
         // so background-only sessions do not create a pet refresh storm.
         let pet_relevant = ui_surface.is_some()
-            || conn
+            || tx
                 .query_row(
                     "SELECT ui_surface IS NOT NULL
                        FROM chat_turns
@@ -331,7 +355,7 @@ impl SessionDB {
                 )
                 .optional()?
                 .unwrap_or(false);
-        conn.execute(
+        tx.execute(
             "INSERT INTO chat_turns (
                 id, session_id, source, status, interrupt_reason, stream_id,
                 user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
@@ -364,6 +388,7 @@ impl SessionDB {
             updated_at: now,
             ui_surface,
         };
+        tx.commit()?;
         drop(conn);
         if pet_relevant {
             crate::pet::emit_activity_changed();
@@ -447,11 +472,11 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        let tx = if session_tool_admission.is_some() {
-            conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?
-        } else {
-            conn.transaction()?
-        };
+        // Every foreground admission takes the SQLite write lock before it
+        // checks and inserts the durable running turn. This serializes regular
+        // Desktop/HTTP turns with SessionTool turns across processes instead
+        // of relying only on the process-local active-turn registry.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if let Some((expected_global_stop_epoch, source_session_id)) = session_tool_admission {
             let current_global_stop_epoch =
                 super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
@@ -497,25 +522,8 @@ impl SessionDB {
                     session_id
                 );
             }
-            let active_turn: Option<(String, String)> = tx
-                .query_row(
-                    "SELECT id, source FROM chat_turns
-                      WHERE session_id = ?1 AND status IN ('running', 'cancelling')
-                      ORDER BY started_at ASC, id ASC
-                      LIMIT 1",
-                    params![session_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            if let Some((active_turn_id, active_source)) = active_turn {
-                anyhow::bail!(
-                    "Target session '{}' already has an active {} turn ({})",
-                    session_id,
-                    active_source,
-                    active_turn_id
-                );
-            }
         }
+        ensure_no_active_chat_turn(&tx, session_id)?;
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if message.timestamp.is_empty() {
             now.as_str()
@@ -1123,6 +1131,47 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn regular_turn_rejects_an_active_session_tool_turn_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let delegated_db = SessionDB::open(&path).unwrap();
+        let session = delegated_db.create_session("ha-main").unwrap();
+        let regular_db = SessionDB::open(&path).unwrap();
+        let expected_global_stop_epoch = delegated_db.global_stop_epoch().unwrap();
+
+        delegated_db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-active",
+                &session.id,
+                None,
+                &NewMessage::user("delegated"),
+                expected_global_stop_epoch,
+            )
+            .unwrap();
+        let error = regular_db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                "regular-rejected",
+                &session.id,
+                crate::chat_engine::ChatSource::Http.as_str(),
+                None,
+                &NewMessage::user("regular"),
+                None,
+                None,
+                None,
+            )
+            .expect_err("a regular turn must not overlap a delegated turn");
+
+        assert!(error.to_string().contains("already has an active"));
+        let messages = delegated_db.load_session_messages(&session.id).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "delegated");
+        assert!(delegated_db
+            .get_chat_turn("regular-rejected")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

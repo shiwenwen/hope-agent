@@ -472,6 +472,15 @@ impl ToolMetadata {
                 push_unique(&mut effects, ToolEffect::SessionWrite);
                 render.result_kind = ToolResultKind::Status;
             }
+            crate::tool_defs::TOOL_SESSIONS_CREATE | crate::tool_defs::TOOL_SESSIONS_SEND => {
+                push_all(
+                    &mut aliases,
+                    &["session", "conversation", "delegate", "agent"],
+                );
+                push_unique(&mut effects, ToolEffect::SessionWrite);
+                push_unique(&mut effects, ToolEffect::AgentDelegation);
+                render.result_kind = ToolResultKind::SessionList;
+            }
             crate::tool_defs::TOOL_TOOL_SEARCH | crate::tool_defs::TOOL_SKILL => {
                 push_all(&mut aliases, &["discover tools", "load tool", "capability"]);
                 push_unique(&mut effects, ToolEffect::RuntimeControl);
@@ -1163,6 +1172,31 @@ mod tests {
             .effects
             .contains(&ToolEffect::RuntimeControl));
         assert!(session_continue.effects.contains(&ToolEffect::SessionWrite));
+    }
+
+    #[test]
+    fn cross_session_turn_tools_report_write_and_delegation_effects() {
+        for name in [
+            crate::tool_defs::TOOL_SESSIONS_CREATE,
+            crate::tool_defs::TOOL_SESSIONS_SEND,
+        ] {
+            let metadata = ToolMetadata::for_definition(&def(name));
+            assert!(!metadata.read_only, "{name}");
+            assert_eq!(metadata.risk, ToolRisk::Medium, "{name}");
+            assert_eq!(
+                metadata.interrupt_behavior,
+                ToolInterruptBehavior::LongRunning,
+                "{name}"
+            );
+            assert!(
+                metadata.effects.contains(&ToolEffect::SessionWrite),
+                "{name}"
+            );
+            assert!(
+                metadata.effects.contains(&ToolEffect::AgentDelegation),
+                "{name}"
+            );
+        }
     }
 
     #[test]

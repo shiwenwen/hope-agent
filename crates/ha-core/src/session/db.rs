@@ -2533,7 +2533,9 @@ impl SessionDB {
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-            let tx = conn.transaction()?;
+            // Serialize the active-turn check with every other foreground
+            // admission across database handles/processes.
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
             let (target_role, target_content, target_queue_request_id): (
                 String,

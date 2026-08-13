@@ -3165,6 +3165,16 @@ mod tests {
     #[test]
     fn turn_scoped_snapshot_never_selects_a_newer_session_run() {
         let fixture = fixture("turn-scoped-run");
+        fixture
+            .db
+            .finish_chat_turn_once(
+                &fixture.turn_id,
+                ChatTurnStatus::Completed,
+                None,
+                None,
+                None,
+            )
+            .expect("finish older turn");
         let newer_turn = fixture
             .db
             .create_chat_turn(&fixture.session_id, "desktop", Some("stream-new"), None)
