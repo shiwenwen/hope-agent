@@ -5,14 +5,19 @@ use serde::{Deserialize, Serialize};
 use super::db::SessionDB;
 use super::types::NewMessage;
 
-fn ensure_no_active_chat_turn(conn: &rusqlite::Connection, session_id: &str) -> Result<()> {
+pub(super) fn ensure_no_competing_durable_chat_work(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    admitted_turn_id: Option<&str>,
+) -> Result<()> {
     let active_turn: Option<(String, String)> = conn
         .query_row(
             "SELECT id, source FROM chat_turns
               WHERE session_id = ?1 AND status IN ('running', 'cancelling')
+                AND (?2 IS NULL OR id <> ?2)
               ORDER BY started_at ASC, id ASC
               LIMIT 1",
-            params![session_id],
+            params![session_id, admitted_turn_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
@@ -22,6 +27,24 @@ fn ensure_no_active_chat_turn(conn: &rusqlite::Connection, session_id: &str) -> 
             session_id,
             active_source,
             active_turn_id
+        );
+    }
+    let active_stream: Option<(String, String)> = conn
+        .query_row(
+            "SELECT run_id, source FROM chat_stream_runs
+              WHERE session_id = ?1 AND status = 'running'
+              ORDER BY started_at ASC, run_id ASC
+              LIMIT 1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((active_run_id, active_source)) = active_stream {
+        anyhow::bail!(
+            "Session '{}' already has an active {} stream ({})",
+            session_id,
+            active_source,
+            active_run_id
         );
     }
     Ok(())
@@ -337,7 +360,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        ensure_no_active_chat_turn(&tx, session_id)?;
+        ensure_no_competing_durable_chat_work(&tx, session_id, None)?;
         let now = chrono::Utc::now().to_rfc3339();
         // A non-UI turn can replace a currently projected UI turn in the same
         // session. Invalidate only for that transition (or for a new UI turn)
@@ -523,7 +546,7 @@ impl SessionDB {
                 );
             }
         }
-        ensure_no_active_chat_turn(&tx, session_id)?;
+        ensure_no_competing_durable_chat_work(&tx, session_id, None)?;
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if message.timestamp.is_empty() {
             now.as_str()
@@ -1172,6 +1195,77 @@ mod tests {
             .get_chat_turn("regular-rejected")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_rejects_an_active_acp_stream_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let acp_db = SessionDB::open(&path).unwrap();
+        let session = acp_db.create_session("ha-main").unwrap();
+        let delegated_db = SessionDB::open(&path).unwrap();
+        acp_db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "active-acp-run".to_string(),
+                session_id: session.id.clone(),
+                source: crate::chat_engine::ChatSource::Acp.as_str().to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .unwrap();
+
+        let error = delegated_db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-rejected-by-acp",
+                &session.id,
+                None,
+                &NewMessage::user("delegated"),
+                delegated_db.global_stop_epoch().unwrap(),
+            )
+            .expect_err("a delegated turn must not overlap an ACP stream");
+
+        assert!(error.to_string().contains("active acp stream"));
+        assert!(delegated_db
+            .load_session_messages(&session.id)
+            .unwrap()
+            .is_empty());
+        assert!(delegated_db
+            .get_chat_turn("delegated-rejected-by-acp")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn acp_stream_rejects_an_active_session_tool_turn_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let delegated_db = SessionDB::open(&path).unwrap();
+        let session = delegated_db.create_session("ha-main").unwrap();
+        delegated_db
+            .append_message_and_create_session_tool_turn_with_id(
+                "active-delegated-turn",
+                &session.id,
+                None,
+                &NewMessage::user("delegated"),
+                delegated_db.global_stop_epoch().unwrap(),
+            )
+            .unwrap();
+        let acp_db = SessionDB::open(&path).unwrap();
+
+        let error = acp_db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "rejected-acp-run".to_string(),
+                session_id: session.id.clone(),
+                source: crate::chat_engine::ChatSource::Acp.as_str().to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect_err("an ACP stream must not overlap a delegated turn");
+
+        assert!(error.to_string().contains("active session_tool turn"));
+        assert_eq!(acp_db.stream_run_status("rejected-acp-run").unwrap(), None);
     }
 
     #[test]

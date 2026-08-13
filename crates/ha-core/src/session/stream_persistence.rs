@@ -416,6 +416,15 @@ impl SessionDB {
                 input.session_id
             );
         };
+        // `chat_turns` covers Desktop/HTTP/SessionTool while sources such as
+        // ACP own only this durable stream row. Check both tables under the
+        // same IMMEDIATE transaction so either admission order is serialized
+        // across processes. A regular run may see its own pre-created turn.
+        super::turns::ensure_no_competing_durable_chat_work(
+            &tx,
+            &input.session_id,
+            input.turn_id.as_deref(),
+        )?;
         if input.source == crate::chat_engine::ChatSource::SessionTool.as_str()
             && tx.query_row(
                 super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
@@ -3167,14 +3176,14 @@ mod tests {
         let fixture = fixture("turn-scoped-run");
         fixture
             .db
-            .finish_chat_turn_once(
-                &fixture.turn_id,
-                ChatTurnStatus::Completed,
-                None,
-                None,
+            .interrupt_stream_run(
+                &fixture.run_id,
+                1,
+                ChatTurnStatus::Interrupted,
+                Some(ChatTurnInterruptReason::RuntimeCancel.as_str()),
                 None,
             )
-            .expect("finish older turn");
+            .expect("finish older run");
         let newer_turn = fixture
             .db
             .create_chat_turn(&fixture.session_id, "desktop", Some("stream-new"), None)
