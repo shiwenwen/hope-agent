@@ -34,7 +34,7 @@ fn cross_session_causal_depth(ctx: &super::execution::ToolExecContext) -> Result
             max_depth
         );
     }
-    Ok(ctx.subagent_depth)
+    Ok(ctx.subagent_depth + 1)
 }
 
 /// Tool: sessions_create — create a regular, user-visible chat session.
@@ -1519,9 +1519,19 @@ mod tests {
     }
 
     #[test]
-    fn cross_session_depth_is_preserved_and_rejected_at_the_limit() {
+    fn cross_session_depth_advances_and_rejects_at_the_limit() {
         let agent_id = "nonexistent-cross-session-depth-test-agent";
         let max_depth = crate::subagent::max_depth_for_agent(agent_id);
+        let root = super::super::execution::ToolExecContext {
+            agent_id: Some(agent_id.to_string()),
+            subagent_depth: 0,
+            ..Default::default()
+        };
+        assert_eq!(
+            cross_session_causal_depth(&root).expect("root delegation is allowed"),
+            1
+        );
+
         let allowed = super::super::execution::ToolExecContext {
             agent_id: Some(agent_id.to_string()),
             subagent_depth: max_depth - 1,
@@ -1529,7 +1539,7 @@ mod tests {
         };
         assert_eq!(
             cross_session_causal_depth(&allowed).expect("depth below limit is allowed"),
-            max_depth - 1
+            max_depth
         );
 
         let rejected = super::super::execution::ToolExecContext {
