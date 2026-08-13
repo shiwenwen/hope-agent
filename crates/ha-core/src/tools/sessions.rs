@@ -201,10 +201,9 @@ pub(crate) async fn tool_sessions_create(
                 return format_started_turn(
                     "Created session",
                     &session,
-                    &started.turn_id,
+                    started,
                     wait,
                     timeout_secs,
-                    started.receiver,
                 )
                 .await;
             }
@@ -724,10 +723,9 @@ pub(crate) async fn tool_sessions_send(
     format_started_turn(
         "Started turn in session",
         &session,
-        &started.turn_id,
+        started,
         wait,
         timeout_secs,
-        started.receiver,
     )
     .await
 }
@@ -738,6 +736,7 @@ type ProactiveTurnReceiver = tokio::sync::oneshot::Receiver<std::result::Result<
 
 struct StartedProactiveTurn {
     turn_id: String,
+    reported_title: Option<String>,
     receiver: ProactiveTurnReceiver,
 }
 
@@ -1005,7 +1004,7 @@ async fn start_proactive_turn(
     let turn_id_for_persist = turn_id.clone();
     let prompt_for_persist = effective_prompt.clone();
     let source_session_id_for_persist = ctx.session_id.clone();
-    let (persisted, attachments) = crate::blocking::run_blocking(move || {
+    let (persisted, attachments, generated_title) = crate::blocking::run_blocking(move || {
         let mut title_meta = None;
         let outcome = crate::chat_engine::active_turn::with_persistence_target(
             &session_id_for_persist,
@@ -1040,29 +1039,35 @@ async fn start_proactive_turn(
             remove_uncommitted_inline_attachments(&session_id_for_persist, &attachments);
         }
         let outcome = outcome?;
-        if matches!(
+        let generated_title = if matches!(
             outcome,
             crate::chat_engine::active_turn::PersistenceTargetOutcome::Committed(_)
                 | crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
                     _
                 )
         ) {
-            if let Err(error) = crate::session::ensure_first_message_title(
+            match crate::session::ensure_first_message_title(
                 &db_for_persist,
                 &session_id_for_persist,
                 &prompt_for_persist,
                 title_meta.as_deref(),
             ) {
-                crate::app_warn!(
-                    "session",
-                    "title_generate",
-                    "Failed to set first-message title for session {}: {}",
-                    session_id_for_persist,
-                    error
-                );
+                Ok(title) => title,
+                Err(error) => {
+                    crate::app_warn!(
+                        "session",
+                        "title_generate",
+                        "Failed to set first-message title for session {}: {}",
+                        session_id_for_persist,
+                        error
+                    );
+                    None
+                }
             }
-        }
-        anyhow::Ok((outcome, attachments))
+        } else {
+            None
+        };
+        anyhow::Ok((outcome, attachments, generated_title))
     })
     .await?;
     match persisted {
@@ -1187,6 +1192,7 @@ async fn start_proactive_turn(
 
     Ok(ProactiveTurnStart::Started(StartedProactiveTurn {
         turn_id,
+        reported_title: generated_title.or_else(|| session.title.clone()),
         receiver,
     }))
 }
@@ -1194,16 +1200,23 @@ async fn start_proactive_turn(
 async fn format_started_turn(
     action: &str,
     session: &crate::session::SessionMeta,
-    turn_id: &str,
+    started: StartedProactiveTurn,
     wait: bool,
     timeout_secs: u64,
-    receiver: ProactiveTurnReceiver,
 ) -> Result<String> {
+    let StartedProactiveTurn {
+        turn_id,
+        reported_title,
+        receiver,
+    } = started;
     let prefix = format!(
         "{} [{}] (\"{}\") and started durable turn [{}]",
         action,
         session.id,
-        session.title.as_deref().unwrap_or("untitled"),
+        reported_title
+            .as_deref()
+            .or(session.title.as_deref())
+            .unwrap_or("untitled"),
         turn_id
     );
     if !wait {
@@ -1536,6 +1549,41 @@ mod tests {
         finished_rx
             .recv_timeout(std::time::Duration::from_secs(2))
             .expect("delegated runner should finish after caller runtime drops");
+    }
+
+    #[tokio::test]
+    async fn started_create_reports_the_generated_first_message_title() {
+        let (_dir, db) = test_db("reported-generated-title");
+        let session = db.create_session("ha-main").expect("create session");
+        let generated_title = crate::session::ensure_first_message_title(
+            &db,
+            &session.id,
+            "Summarize the launch plan",
+            None,
+        )
+        .expect("generate first-message title");
+        assert!(
+            session.title.is_none(),
+            "fixture must retain the stale snapshot"
+        );
+
+        let (_sender, receiver) = tokio::sync::oneshot::channel();
+        let output = format_started_turn(
+            "Created session",
+            &session,
+            StartedProactiveTurn {
+                turn_id: "turn-generated-title".to_string(),
+                reported_title: generated_title,
+                receiver,
+            },
+            false,
+            60,
+        )
+        .await
+        .expect("format started turn");
+
+        assert!(output.contains("\"Summarize the launch plan\""));
+        assert!(!output.contains("\"untitled\""));
     }
 
     #[tokio::test]
