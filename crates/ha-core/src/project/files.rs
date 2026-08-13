@@ -93,6 +93,74 @@ pub(crate) fn workspace_root(
     })
 }
 
+/// `WorkspaceScope::for_project_folder` resolver. The encoded id is
+/// `"{base_scope}:{base_id}:{linked_index}:{expected_path}"`; `splitn(4)` keeps
+/// Windows drive-letter colons and any later colons inside the expected path.
+/// The index plus exact path forms a stale-selection guard: a project edit can
+/// never make an already-open browser silently target a different folder.
+pub(crate) fn workspace_linked_root(
+    encoded_id: &str,
+) -> std::result::Result<crate::filesystem::ResolvedRoot, crate::filesystem::FilesystemError> {
+    use crate::filesystem::{FilesystemError, ResolvedRoot};
+
+    let (base_scope, base_id, linked_index, expected_path) =
+        parse_project_folder_scope(encoded_id)?;
+
+    let project_id = match base_scope {
+        "project" => base_id.to_string(),
+        "session" => {
+            let session_db = crate::require_session_db()
+                .map_err(|e| FilesystemError::internal(e.to_string()))?;
+            session_db
+                .get_session(base_id)
+                .map_err(|e| FilesystemError::internal(e.to_string()))?
+                .and_then(|session| session.project_id)
+                .ok_or_else(|| FilesystemError::bad_input("session is not attached to a project"))?
+        }
+        _ => {
+            return Err(FilesystemError::bad_input(
+                "invalid base scope for project folder",
+            ))
+        }
+    };
+
+    let project_db = crate::get_project_db()
+        .ok_or_else(|| FilesystemError::internal("project db not initialized"))?;
+    let project = project_db
+        .get(&project_id)
+        .map_err(|e| FilesystemError::internal(e.to_string()))?
+        .ok_or_else(|| FilesystemError::bad_input("project not found"))?;
+    let linked_path = project
+        .linked_dirs
+        .get(linked_index)
+        .filter(|path| path.as_str() == expected_path)
+        .ok_or_else(|| FilesystemError::bad_input("project folder is no longer attached"))?;
+
+    Ok(ResolvedRoot {
+        dir: PathBuf::from(linked_path),
+        read_only: project.archived,
+    })
+}
+
+fn parse_project_folder_scope(
+    encoded_id: &str,
+) -> std::result::Result<(&str, &str, usize, &str), crate::filesystem::FilesystemError> {
+    use crate::filesystem::FilesystemError;
+
+    let mut parts = encoded_id.splitn(4, ':');
+    let base_scope = parts.next().unwrap_or("");
+    let base_id = parts.next().unwrap_or("");
+    let linked_index = parts
+        .next()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .ok_or_else(|| FilesystemError::bad_input("invalid project folder scope"))?;
+    let expected_path = parts.next().unwrap_or("");
+    if base_id.is_empty() || expected_path.is_empty() {
+        return Err(FilesystemError::bad_input("invalid project folder scope"));
+    }
+    Ok((base_scope, base_id, linked_index, expected_path))
+}
+
 /// Resolve the on-disk directory that backs a project: its explicitly-selected
 /// `working_dir` when set, otherwise the default workspace (created on demand).
 ///
@@ -178,6 +246,7 @@ pub fn update_project_with_instructions_file(
             default_agent_id: Some(previous.default_agent_id.unwrap_or_default()),
             default_model_id: Some(previous.default_model_id.unwrap_or_default()),
             working_dir: Some(previous.working_dir.unwrap_or_default()),
+            linked_dirs: Some(previous.linked_dirs),
             archived: Some(previous.archived),
         };
         if let Err(rollback_error) = db.update(project_id, rollback) {
@@ -604,7 +673,27 @@ mod tests {
             default_agent_id: None,
             default_model_id: None,
             working_dir: Some(root.to_string_lossy().to_string()),
+            linked_dirs: Vec::new(),
         }
+    }
+
+    #[test]
+    fn project_folder_scope_parser_preserves_colons_in_windows_paths() {
+        let parsed = parse_project_folder_scope(
+            "session:550e8400-e29b-41d4-a716-446655440000:2:C:\\work\\api",
+        )
+        .unwrap();
+        assert_eq!(parsed.0, "session");
+        assert_eq!(parsed.1, "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(parsed.2, 2);
+        assert_eq!(parsed.3, "C:\\work\\api");
+    }
+
+    #[test]
+    fn project_folder_scope_parser_rejects_missing_identity_or_path() {
+        assert!(parse_project_folder_scope("project::0:/repo").is_err());
+        assert!(parse_project_folder_scope("project:id:0:").is_err());
+        assert!(parse_project_folder_scope("project:id:not-a-number:/repo").is_err());
     }
 
     #[test]

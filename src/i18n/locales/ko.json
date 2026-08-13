@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "파일",
+    "primaryFolder": "기본 폴더",
+    "defaultProjectFolder": "기본 프로젝트 폴더",
     "jumpToFile": "파일 브라우저에서 표시",
     "copied": "복사됨",
     "copyFailed": "복사 실패",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "아카이브 해제",
     "unassigned": "미할당",
     "uploadLogo": "로고 업로드",
+    "linkedDirs": {
+      "add": "폴더 추가",
+      "defaultPrimary": "기본 프로젝트 폴더(자동 생성)",
+      "empty": "연결된 추가 폴더가 없습니다",
+      "folderActions": "폴더 작업",
+      "hint": "프로젝트에 필요한 폴더를 연결합니다. 새 채팅, 상대 경로, Git 및 프로젝트 지침은 기본 폴더를 사용합니다.",
+      "invalid": "잘못된 연결 폴더",
+      "label": "소스 폴더",
+      "makePrimary": "기본 폴더로 설정",
+      "primary": "기본 폴더",
+      "remove": "{{path}} 제거",
+      "removeFolder": "폴더 제거"
+    },
     "workingDir": {
       "clear": "지우기",
       "hint": "이 프로젝트의 세션은 기본적으로 이 디렉터리를 사용합니다. 세션 수준 설정이 이를 재정의합니다.",

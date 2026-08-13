@@ -46,11 +46,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatBytes } from "@/lib/format"
 import { logger } from "@/lib/logger"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import type { Project, ProjectMeta, ProjectOverviewSummary } from "@/types/project"
 import type { SessionMeta } from "@/types/chat"
 
 import { FileBrowserView } from "./file-browser/FileBrowserView"
+import { useProjectWorkingDir } from "./hooks/useProjectWorkingDir"
 import ProjectIcon from "./ProjectIcon"
 import { ProjectMemorySection } from "./ProjectMemorySection"
 import ProjectInstructionsEditor from "./ProjectInstructionsEditor"
@@ -84,6 +85,7 @@ export default function ProjectOverviewDialog({
   onOpenStructuredMemory,
 }: ProjectOverviewDialogProps) {
   const { t, i18n } = useTranslation()
+  const transport = useTransport()
   const [tab, setTab] = useState("overview")
   const [viewportWidth, setViewportWidth] = useState(getViewportWidth)
   const [sheetWidth, setSheetWidth] = useState(readStoredSheetWidth)
@@ -100,6 +102,11 @@ export default function ProjectOverviewDialog({
   const renderedSheetWidth =
     viewportWidth < 640 ? viewportWidth : clampSheetWidth(sheetWidth, viewportWidth)
   const wideOverview = renderedSheetWidth >= 760
+  const projectRootPath = useProjectWorkingDir(
+    transport,
+    project?.id ?? null,
+    project?.workingDir ?? null,
+  )
 
   const loadOverview = useCallback(async () => {
     if (!open || !project) return
@@ -456,7 +463,8 @@ export default function ProjectOverviewDialog({
             <FileBrowserView
               scope="project"
               scopeId={project.id}
-              rootPath={project.workingDir ?? project.id}
+              rootPath={projectRootPath}
+              linkedRootPaths={project.linkedDirs ?? []}
               editable={!project.archived}
               layout="split"
               className="h-full"

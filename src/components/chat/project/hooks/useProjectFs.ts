@@ -7,7 +7,7 @@
  * agent-produced files stay in sync.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -62,7 +62,7 @@ function joinRel(dir: string, name: string): string {
 }
 
 export function useProjectFs(
-  scope: "session" | "project" | "path",
+  scope: "session" | "project" | "project_folder" | "path",
   scopeId: string | null,
 ): ProjectFsApi {
   const transport = useTransport()
@@ -73,11 +73,14 @@ export function useProjectFs(
   // Reset the cached directories when the scope target changes, using the
   // setState-during-render pattern (React-recommended over an effect).
   const scopeKey = `${scope}:${scopeId ?? ""}`
+  const activeScopeKeyRef = useRef(scopeKey)
+  activeScopeKeyRef.current = scopeKey
   const [trackedKey, setTrackedKey] = useState(scopeKey)
   if (scopeKey !== trackedKey) {
     setTrackedKey(scopeKey)
     setDirs({})
     setAccess(null)
+    setAccessLoading(false)
   }
 
   const scopeArg = useMemo<ProjectFsScope>(
@@ -86,20 +89,25 @@ export function useProjectFs(
   )
 
   const refreshAccess = useCallback(async () => {
+    const requestScopeKey = scopeKey
     if (!scopeId) {
       setAccess(null)
       return
     }
+    if (activeScopeKeyRef.current !== requestScopeKey) return
     setAccessLoading(true)
     try {
-      setAccess(await transport.getWorkspaceAccess(scopeArg))
+      const next = await transport.getWorkspaceAccess(scopeArg)
+      if (activeScopeKeyRef.current !== requestScopeKey) return
+      setAccess(next)
     } catch (e) {
+      if (activeScopeKeyRef.current !== requestScopeKey) return
       logger.warn("chat", "useProjectFs", "capabilities failed", e)
       setAccess(null)
     } finally {
-      setAccessLoading(false)
+      if (activeScopeKeyRef.current === requestScopeKey) setAccessLoading(false)
     }
-  }, [scopeArg, scopeId, transport])
+  }, [scopeArg, scopeId, scopeKey, transport])
 
   useEffect(() => {
     void refreshAccess()
@@ -115,7 +123,9 @@ export function useProjectFs(
 
   const loadDir = useCallback(
     async (dir: string) => {
+      const requestScopeKey = scopeKey
       if (!scopeId) return
+      if (activeScopeKeyRef.current !== requestScopeKey) return
       setDirs((prev) => ({
         ...prev,
         [dir]: { entries: prev[dir]?.entries ?? [], loading: true, error: null },
@@ -126,11 +136,13 @@ export function useProjectFs(
           scopeId,
           path: dir,
         })
+        if (activeScopeKeyRef.current !== requestScopeKey) return
         setDirs((prev) => ({
           ...prev,
           [dir]: { entries: res.entries, loading: false, error: null },
         }))
       } catch (e) {
+        if (activeScopeKeyRef.current !== requestScopeKey) return
         const msg = e instanceof Error ? e.message : String(e)
         logger.warn("chat", "useProjectFs", "loadDir failed", msg)
         setDirs((prev) => ({
@@ -139,7 +151,7 @@ export function useProjectFs(
         }))
       }
     },
-    [scope, scopeId, transport],
+    [scope, scopeId, scopeKey, transport],
   )
 
   const refreshDir = useCallback(

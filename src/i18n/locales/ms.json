@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "Fail",
+    "primaryFolder": "Utama",
+    "defaultProjectFolder": "Folder projek lalai",
     "jumpToFile": "Tunjuk dalam pelayar fail",
     "copied": "Disalin",
     "copyFailed": "Gagal menyalin",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "Batal arkib",
     "unassigned": "Tidak ditugaskan",
     "uploadLogo": "Muat naik logo",
+    "linkedDirs": {
+      "add": "Tambah folder",
+      "defaultPrimary": "Folder projek lalai (dicipta secara automatik)",
+      "empty": "Tiada folder tambahan dipautkan",
+      "folderActions": "Tindakan folder",
+      "hint": "Lampirkan folder yang diperlukan projek. Sembang baharu, laluan relatif, Git dan arahan projek menggunakan folder utama.",
+      "invalid": "Folder pautan tidak sah",
+      "label": "Folder sumber",
+      "makePrimary": "Jadikan utama",
+      "primary": "Utama",
+      "remove": "Alih keluar {{path}}",
+      "removeFolder": "Alih keluar folder"
+    },
     "workingDir": {
       "clear": "Kosongkan",
       "hint": "Sesi dalam projek ini menggunakan direktori ini secara lalai; tetapan peringkat sesi akan menimpanya.",

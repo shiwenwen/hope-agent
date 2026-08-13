@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "Arquivos",
+    "primaryFolder": "Principal",
+    "defaultProjectFolder": "Pasta padrão do projeto",
     "jumpToFile": "Mostrar no navegador de arquivos",
     "copied": "Copiado",
     "copyFailed": "Falha ao copiar",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "Desarquivar",
     "unassigned": "Não atribuído",
     "uploadLogo": "Enviar logo",
+    "linkedDirs": {
+      "add": "Adicionar pasta",
+      "defaultPrimary": "Pasta padrão do projeto (criada automaticamente)",
+      "empty": "Nenhuma pasta adicional vinculada",
+      "folderActions": "Ações da pasta",
+      "hint": "Anexe as pastas necessárias ao projeto. Novos chats, caminhos relativos, Git e instruções usam a pasta principal.",
+      "invalid": "Pasta vinculada inválida",
+      "label": "Pastas de origem",
+      "makePrimary": "Definir como principal",
+      "primary": "Principal",
+      "remove": "Remover {{path}}",
+      "removeFolder": "Remover pasta"
+    },
     "workingDir": {
       "clear": "Limpar",
       "hint": "As sessões deste projeto usam este diretório por padrão; a configuração de sessão substitui.",

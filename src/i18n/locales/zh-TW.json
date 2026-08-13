@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "檔案",
+    "primaryFolder": "主要資料夾",
+    "defaultProjectFolder": "預設專案資料夾",
     "jumpToFile": "在檔案瀏覽器中顯示",
     "copied": "已複製",
     "copyFailed": "複製失敗",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "取消封存",
     "unassigned": "未指派",
     "uploadLogo": "上傳 Logo",
+    "linkedDirs": {
+      "add": "新增資料夾",
+      "defaultPrimary": "預設專案資料夾（自動建立）",
+      "empty": "尚未關聯其他資料夾",
+      "folderActions": "資料夾操作",
+      "hint": "新增專案需要使用的資料夾。新對話、相對路徑、Git 與專案指令預設使用主要資料夾。",
+      "invalid": "無效的關聯資料夾",
+      "label": "來源資料夾",
+      "makePrimary": "設為主要資料夾",
+      "primary": "主要資料夾",
+      "remove": "移除 {{path}}",
+      "removeFolder": "移除資料夾"
+    },
     "workingDir": {
       "clear": "清除",
       "hint": "可選擇現有目錄，也可建立新目錄。留空則自動建立預設專案目錄。",

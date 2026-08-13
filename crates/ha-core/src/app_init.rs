@@ -195,7 +195,7 @@ pub fn init_runtime(role: &'static str) {
     //   · ha-base 反向依赖钩子（base 不能 `use AppConfig`）：plans 目录来源、
     //     Dangerous Mode 配置源、process_registry 通知回调
     //   · ha-core 内部切边钩子（防止 config / filesystem 焊进大环）：config
-    //     写路径副作用（保存后广播 / ConfigChange hook）、WorkspaceScope 三个
+    //     写路径副作用（保存后广播 / ConfigChange hook）、WorkspaceScope 四个
     //     上下文根解析器、slash 命令分发三槽（channel 不得反向 use 装配层）。
     //     注意 autosave 快照**不走钩子**——它必须无条件执行
     //     （server setup 等入口在 init_runtime 之前/之外写 config），persistence
@@ -244,6 +244,7 @@ pub fn init_runtime(role: &'static str) {
             crate::knowledge::workspace_root,
             crate::session::workspace_root,
             crate::project::workspace_root,
+            crate::project::workspace_linked_root,
         ) {
             warn_dup("workspace_root_resolvers", e);
         }

@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "Archivos",
+    "primaryFolder": "Principal",
+    "defaultProjectFolder": "Carpeta predeterminada del proyecto",
     "jumpToFile": "Mostrar en el explorador de archivos",
     "copied": "Copiado",
     "copyFailed": "Error al copiar",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "Desarchivar",
     "unassigned": "Sin asignar",
     "uploadLogo": "Subir logo",
+    "linkedDirs": {
+      "add": "Añadir carpeta",
+      "defaultPrimary": "Carpeta predeterminada del proyecto (se crea automáticamente)",
+      "empty": "No hay carpetas adicionales vinculadas",
+      "folderActions": "Acciones de carpeta",
+      "hint": "Adjunta las carpetas que necesita el proyecto. Los chats nuevos, las rutas relativas, Git y las instrucciones usan la carpeta principal.",
+      "invalid": "Carpeta vinculada no válida",
+      "label": "Carpetas de origen",
+      "makePrimary": "Establecer como principal",
+      "primary": "Principal",
+      "remove": "Quitar {{path}}",
+      "removeFolder": "Quitar carpeta"
+    },
     "workingDir": {
       "clear": "Limpiar",
       "hint": "Las sesiones de este proyecto usan este directorio por defecto; la configuración de sesión lo anula.",

@@ -6,7 +6,7 @@
 
 mod db;
 mod files;
-pub(crate) use files::workspace_root;
+pub(crate) use files::{workspace_linked_root, workspace_root};
 pub mod memory;
 mod overview;
 pub mod reconcile;

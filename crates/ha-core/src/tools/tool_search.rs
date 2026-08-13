@@ -732,6 +732,7 @@ mod tests {
                 default_agent_id: None,
                 default_model_id: None,
                 working_dir: None,
+                linked_dirs: Vec::new(),
             })
             .unwrap();
         let ctx = ToolExecContext {

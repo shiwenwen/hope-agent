@@ -4618,6 +4618,7 @@ export default function ChatScreen({
                   : session.currentSessionId
               }
               rootPath={effectiveWorkingDir}
+              linkedRootPaths={currentProject?.linkedDirs ?? []}
               sessionId={session.currentSessionId}
               visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
               collapsed={rightPanelCollapsed}

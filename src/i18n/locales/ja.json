@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "ファイル",
+    "primaryFolder": "主フォルダー",
+    "defaultProjectFolder": "既定のプロジェクトフォルダー",
     "jumpToFile": "ファイルブラウザーで表示",
     "copied": "コピーしました",
     "copyFailed": "コピーに失敗しました",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "アーカイブ解除",
     "unassigned": "未割当",
     "uploadLogo": "ロゴをアップロード",
+    "linkedDirs": {
+      "add": "フォルダーを追加",
+      "defaultPrimary": "既定のプロジェクトフォルダー（自動作成）",
+      "empty": "追加のフォルダーは関連付けられていません",
+      "folderActions": "フォルダー操作",
+      "hint": "プロジェクトで使用するフォルダーを追加します。新しいチャット、相対パス、Git、プロジェクト指示では主フォルダーが使用されます。",
+      "invalid": "関連フォルダーが無効です",
+      "label": "ソースフォルダー",
+      "makePrimary": "主フォルダーに設定",
+      "primary": "主フォルダー",
+      "remove": "{{path}} を削除",
+      "removeFolder": "フォルダーを削除"
+    },
     "workingDir": {
       "clear": "クリア",
       "hint": "このプロジェクトのセッションは既定でこのディレクトリを使用します。セッション側で設定した場合はそちらが優先されます。",

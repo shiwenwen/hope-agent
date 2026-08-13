@@ -383,7 +383,7 @@ Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns
 
 项目指令以项目工作目录根 `AGENTS.md` 为唯一真相源，`Project` / `CreateProjectInput` / `UpdateProjectInput` 均不再携带 `instructions`。新增 / 编辑表单通过独立 `instructions: { content, expectedFileHash, expectedExists }` 请求字段把文件草稿与项目元数据一起提交；创建接口另接受默认 `true` 的 `createInstructionsIfMissing`，添加已有目录时可显式保留缺失状态。文件步骤失败会回滚项目创建 / 元数据更新，内容仍不进 SQLite。切换目录前与 GET 都只读检查目标文件，缺失时返回空内容、空文件 hash 与 `exists: false`，不提前建文件；用户显式保存指令时才以 create-new 语义建立文件。GET 返回 `{ path, content, contentHash, exists, created }`，PUT body 为 `{ content, expectedFileHash, expectedExists }` 并原样保留 Markdown 空白。保存前同时校验磁盘存在状态与 raw BLAKE3，任一不一致都返回冲突，防止覆盖 Agent / 外部编辑器的并发创建、删除或修改；旧客户端缺少 `expectedExists` 时按 `true` fail closed。
 
-**项目文件浏览器（workspace-scoped filesystem）**——上传/读写改走作用域文件管理 API（旧的 `list_project_files_cmd` / `upload_project_file_cmd` / `delete_project_file_cmd` / `rename_project_file_cmd` / `read_project_file_content_cmd` 五条命令与对应 `/api/projects/{id}/files*` 路由已删除）。命令以 `{ scope: "session"|"project", scopeId, ... }` 寻址，后端 `WorkspaceScope` 解析工作目录并做越界校验：
+**项目文件浏览器（workspace-scoped filesystem）**——上传/读写改走作用域文件管理 API（旧的 `list_project_files_cmd` / `upload_project_file_cmd` / `delete_project_file_cmd` / `rename_project_file_cmd` / `read_project_file_content_cmd` 五条命令与对应 `/api/projects/{id}/files*` 路由已删除）。命令以 `{ scope: "session"|"project"|"project_folder"|"path", scopeId, ... }` 寻址，后端 `WorkspaceScope` 解析工作目录并做越界校验。`project_folder` 绑定基础 project/session scope、`linkedDirs` 索引和期望路径，并在每次请求时按 live Project 重新授权；目录移除、换序或项目失效后旧 scope fail closed，不构成任意绝对路径入口：
 
 | Tauri 命令 | HTTP 路由 | 对齐 |
 |---|---|---|
@@ -507,7 +507,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 
 写端点（write/delete/rename/mkdir/upload）在 HTTP handler 层读 `filesystem.allow_remote_writes`（默认 false）闸门，为 false 返 403；桌面 Tauri 不受限。`FilesystemConfig` 包含聊天附件、Workspace 上传、文本预览、文本编辑、文档预览五项 MiB 限制；`maxChatAttachmentMb` 同时约束用户聊天附件与 Agent `send_attachment`。配置读写：`get_filesystem_config` / `save_filesystem_config` / `patch_filesystem_config` ↔ `GET/PUT/PATCH /api/config/filesystem`；设置面使用 PATCH，避免不同风险面的字段互相覆盖。完整默认值与范围见 [file-operations.md](../core/file-operations.md#大小配置与硬上限)。
 
-`Project` 支持 `workingDir: string | null` 字段，作为该项目下会话的默认工作目录。运行时合并优先级 `session.working_dir > project 显式 working_dir > 默认 workspace`，lazy ensure 创建——编辑项目工作目录后未单独设置的已有会话立即跟随。详见 [`AGENTS.md`](../../../AGENTS.md) 「项目（Project）容器」段与 [project.md](../core/project.md)。
+`Project` 支持 `workingDir: string | null` 与 `linkedDirs: string[]`。设置 UI 将它们统一呈现为“源文件夹”：`workingDir` 是主文件夹，决定 cwd、相对路径与根 `AGENTS.md`；`linkedDirs` 是最多 32 个 canonical 辅助根，可供 Agent 和文件浏览器搜索、读取与编辑。将辅助目录设为主目录时，客户端一次 PATCH 同时交换两字段。运行时主目录合并优先级 `session.working_dir > project 显式 working_dir > 默认 workspace`，lazy ensure 创建——编辑项目工作目录后未单独设置的已有会话立即跟随。详见 [`AGENTS.md`](../../../AGENTS.md) 「项目（Project）容器」段与 [project.md](../core/project.md)。
 
 **Project ↔ IM Channel 反向认领已废弃**。`Project.boundChannel` / `BoundChannel` 类型 + `projects.bound_channel_id` / `bound_channel_account_id` DB 列 + `idx_projects_bound_channel` 索引 + `find_by_bound_channel` API 全部删除；`UpdateProjectInput` 不再有 `boundChannel` 字段。IM 入站消息不再自动归属项目，新会话以 `project_id = NULL` 创建。要把会话归项目，从 IM chat 内 `/project <id>` 显式触发：handler 检测 `session.channel_info` 后发 `AssignProject` action，channel worker 调 `SessionDB::set_session_project` 直接 UPDATE 现有 `sessions.project_id`，**不创建新 session**。详见 [im-channel.md](../integration/im-channel.md) 「Session 路由」章节。
 

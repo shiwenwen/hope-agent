@@ -33,6 +33,7 @@ interface FileBrowserPanelProps {
   scope: "session" | "project"
   scopeId: string | null
   rootPath: string | null
+  linkedRootPaths?: string[]
   /** Used to disambiguate / title the detached window. */
   sessionId?: string | null
   /** Whether this panel is the active right-side panel. Hidden (but kept
@@ -61,6 +62,7 @@ export function FileBrowserPanel({
   scope,
   scopeId,
   rootPath,
+  linkedRootPaths = [],
   sessionId,
   visible,
   collapsed = false,
@@ -124,6 +126,9 @@ export function FileBrowserPanel({
       }
       const params = new URLSearchParams({ window: "files", scope, scopeId })
       if (rootPath) params.set("rootPath", rootPath)
+      if (linkedRootPaths.length > 0) {
+        params.set("linkedRootPaths", JSON.stringify(linkedRootPaths))
+      }
       if (sessionId) params.set("sessionId", sessionId)
       const webview = new WebviewWindow("files-window", {
         url: `index.html?${params.toString()}`,
@@ -155,7 +160,7 @@ export function FileBrowserPanel({
     } catch {
       /* ignore window creation errors */
     }
-  }, [desktopMode, resetFullscreen, rootPath, scope, scopeId, sessionId, t])
+  }, [desktopMode, linkedRootPaths, resetFullscreen, rootPath, scope, scopeId, sessionId, t])
 
   const handleReattach = useCallback(() => {
     if (detachedWindowRef.current) {
@@ -254,6 +259,7 @@ export function FileBrowserPanel({
         scope={scope}
         scopeId={scopeId}
         rootPath={rootPath}
+        linkedRootPaths={linkedRootPaths}
         editable
         layout="split"
         onQuote={onQuote}

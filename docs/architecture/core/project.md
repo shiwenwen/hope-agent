@@ -39,7 +39,8 @@ Project 要解决的问题是：**一组相关会话需要共享同一份工作�
 | **项目范围长期记忆** | `memory.db`（`MemoryScope::Project { id }`） | 可检索、可召回的结构化事实，项目内可见、跨项目隔离 |
 | **项目自动记忆** | `projects/{id}/memory/MEMORY.md` + 主题 `*.md` | 有界索引稳定注入、主题按需读取的本机项目经验 |
 | **项目指令** | 项目根目录 `AGENTS.md` | 文件即唯一真相源，直接编辑，装配进每个项目内会话的稳定 system 合同 |
-| **统一工作目录** | 用户显式选的目录，或默认 `projects/{id}/workspace/` | 上传、agent 产出、文件浏览都围绕它 |
+| **主文件夹** | 用户显式选的目录，或默认 `projects/{id}/workspace/` | 新会话 cwd、相对路径、Git 与项目指令的默认根 |
+| **其他源文件夹** | `projects.linked_dirs_json` | 可由 Agent 与文件浏览器搜索、读取、编辑的额外绝对路径根 |
 
 贯穿整个子系统的一条哲学是 **「项目文件就是工作目录里的真实文件」**（对齐 [文件操作统一](file-operations.md)）：上传的文件直接落工作目录，模型靠每轮 environment user-data 中的顶层文件清单发现候选，再用 `read` / `read_context_resource` 按需读取。系统中**没有** `project_files` 表、独立的 `files/` / `extracted/` 目录、文本预提取注入，也**没有** `project_read_file` 工具——文件读写一律走文件浏览器 API 的 `WorkspaceScope` 作用域闭合。
 
@@ -48,6 +49,7 @@ Project 要解决的问题是：**一组相关会话需要共享同一份工作�
 - **项目表寄居在 `sessions.db`**：`projects` 表与 `sessions` 表同一个 SQLite 连接（`ProjectDB` 持 `Arc<SessionDB>`），因此「项目 ↔ 会话」的关系查询能在单库单事务内完成，删除项目时会话解绑与项目行删除是原子的。
 - **记忆跨库**：项目记忆落在独立的 `memory.db`，无法与 `sessions.db` 共享事务。删除项目时分两库执行，靠启动期 reconciler 兜底孤儿清理。
 - **工作目录单一真相源**：会话最终工作目录由 [`session::effective_session_working_dir`](../../../crates/ha-core/src/session/helpers.rs) 唯一解析（默认 workspace 首次解析时 lazy 创建）；文件读写经 [`filesystem::WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs)（canonicalize + `starts_with`，失败闭合）。
+- **一个主文件夹 + 多个辅助文件夹**：设置 UI 统一呈现为“源文件夹”列表；将辅助文件夹设为主文件夹时，原主文件夹原子降为辅助文件夹。辅助文件夹不改变 cwd / 相对路径 / 根 `AGENTS.md` 语义，但文件浏览器可切根执行同一套搜索、预览与 CRUD。
 - **指令单一真相源**：元数据与 SQLite 都不保存指令；根 `AGENTS.md` 是唯一入口，设置页直接读写它。旧 `projects.instructions` 列在迁移中直接 drop，不迁移历史内容。
 - **无反向认领**：项目不认领 (channel, account)；IM 会话归属项目靠 chat 内 `/project <id>` 显式触发（详见 [Agent 解析链](#agent-解析链7-级) 与 [im-channel.md](../integration/im-channel.md)）。
 
@@ -125,6 +127,7 @@ flowchart LR
 | `default_agent_id` | `Option<String>` | 新建会话的默认 Agent（解析链第 2 级） |
 | `default_model_id` | `Option<String>` | **已废弃兼容列**：只随 DB 与回滚流转，不参与任何解析、不在 UI 暴露。项目会话统一走默认 Agent，运行默认值在会话创建时固定 |
 | `working_dir` | `Option<String>` | 项目级默认工作目录（绝对路径）；session 未单独设置时回落到此；`NULL` = 用默认 workspace |
+| `linked_dirs` | `Vec<String>` | 其他源文件夹（canonical 绝对路径，最多 32 个）；不参与 cwd 与 `AGENTS.md` 解析 |
 | `created_at` / `updated_at` | `i64` | Unix 毫秒时间戳 |
 | `sort_order` | `i64` | 侧边栏排序键，越小越靠前；由 `reorder` 写入，默认按更新时间铺开 |
 | `archived` | `bool` | 归档标志（不删除，默认列表过滤） |
@@ -148,9 +151,11 @@ flowchart LR
 
 ### 输入 DTO
 
-- `CreateProjectInput`：`name` 必填，其余可选（含 `logo` / `working_dir` 等所有可写字段）。
-- `UpdateProjectInput`：PATCH 语义，字段 `Option<_>`（`None` = 不变，`Some("")` = 清空为 `NULL`），并含 `archived`。
+- `CreateProjectInput`：`name` 必填，其余可选（含 `logo` / `working_dir` / `linked_dirs` 等所有可写字段）。
+- `UpdateProjectInput`：PATCH 语义，字段 `Option<_>`（`None` = 不变，`Some("")` = 清空为 `NULL`），`linked_dirs: Some(vec)` 替换完整辅助目录列表，并含 `archived`。
 - `working_dir` 的写入统一走 [`util::canonicalize_working_dir`](../../../crates/ha-base/src/util.rs)：空串当清空，否则 canonicalize + `is_dir` 校验，不通过 `Err`。
+- `linked_dirs` 逐项走同一 canonicalize 校验，精确去重并移除与主目录相同的路径；后端限制最多 32 项，避免无界 prompt / 权限表面。
+- UI 的“设为主文件夹”一次 PATCH 同时写 `working_dir` 与完整 `linked_dirs`，因此不需要新增角色字段或额外迁移；原主目录加入 `linked_dirs`，目标目录从中移除。
 
 > 系统中不存在 `ProjectFile` / `BoundChannel` 类型——文件即工作目录真实文件，IM 反向认领已不存在。
 
@@ -171,6 +176,7 @@ CREATE TABLE IF NOT EXISTS projects (
     archived          INTEGER NOT NULL DEFAULT 0,
     logo              TEXT,
     working_dir       TEXT,
+    linked_dirs_json  TEXT NOT NULL DEFAULT '[]',
     sort_order        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_projects_archived
@@ -181,7 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived_sort
 
 `migrate()` 还对老库做**增量列补齐**与**遗留清理**（破坏性直接 drop，无数据迁移）：
 
-- 补齐 `logo` / `working_dir` / `sort_order` 列（`sort_order` 首次加入时按 `updated_at` 铺开初始值）。
+- 补齐 `logo` / `working_dir` / `linked_dirs_json` / `sort_order` 列（`linked_dirs_json` 对旧项目默认 `[]`；`sort_order` 首次加入时按 `updated_at` 铺开初始值）。
 - `DROP COLUMN emoji`（早期图标列）。
 - `DROP TABLE project_files` + 其索引（文件改为工作目录真实文件）。
 - `DROP COLUMN bound_channel_id / bound_channel_account_id` + `idx_projects_bound_channel`（IM 反向认领已不存在，需 SQLite 3.35+）。
@@ -325,7 +331,9 @@ flowchart TD
 
 - **`# Current Project`**（[`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs)）：注入在 Memory 段**之前**。包含项目名称、稳定的 `Project ID` 与可选 `Description`，并在长期记忆开启时尾随一句提示——本会话 `save_memory` 默认落 project scope（想逃出项目边界要显式传 `scope='global'` 或 `'agent'`）。OpenClaw 模式同样注入此段；其更早的 `# Project Context` 只描述四文件 Agent pack，不能替代当前 HA 项目身份。它不再承载任何数据库指令。
 - **`# Working Directory`**（详见 [prompt-system.md](prompt-system.md)）：路径声明 + `## Working Directory Instructions` 子节，紧跟在 Project 段之后、Memory 段之前。项目工作目录始终有根 `AGENTS.md`，由既有 working-dir instruction loader 读取并按 20,000 字符上限注入——这也是项目指令的唯一入口。通用非项目工作目录仍保留 `AGENTS.md` 优先、`CLAUDE.md` fallback 的发现规则。
+- **`# Linked Project Directories`**：紧跟主工作目录，稳定列出所有辅助源文件夹的绝对路径并明确主目录仍拥有 cwd、相对路径和指令 authority。辅助根的 `AGENTS.md` 不自动注入；sandboxed `exec` 一次只把选定 `cwd` 挂载到 `/workspace`，要在辅助根执行必须显式把 `cwd` 设为该根，不能假设多个宿主根同时可见。
 - **`# Files in Working Directory`**（清单由 [`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) 的 `build_working_dir_files_section` 构建，再由 `system_prompt::build_round_environment_data` 装配）：进入 `<hope_round_data source="environment">` 的 **user-data lane**，不再进入 system prompt。清单非递归、只列名、名称排序、跳过隐藏项与 `.git` / `node_modules` / `target` / `__pycache__` / `.venv` 等目录、上限 100 条、每轮刷新；同一目录状态仍产出 byte-identical 文本。模型靠普通 `read` / `read_context_resource` 工具按需读具体内容。
+- **`# Files in Linked Project Directories`**：同属每轮 environment user-data；最多预览前 8 个辅助根、每根 25 个顶层条目，其余根仍可通过稳定绝对路径按需读取，避免目录数放大 prompt。
 
 > 系统里不存在「目录清单 / 小文件内联 / `project_read_file`」的多层 system 注入——它由上面的 environment user-data 清单加按需读取工具取代。目录内容、召回正文和其他外部观察始终是非可信 data，不能借项目上下文升权。
 
@@ -366,9 +374,10 @@ Global / Agent / Project 三层现在共用 [`CoreMemoryRepository`](../../../cr
 
 ## 文件浏览器与 preview-by-path
 
-项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs)。三个入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败即闭合：
+项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs)。四个入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败即闭合：
 
 - `for_session` / `for_project` → 可写根（归档项目固定只读）；
+- `for_project_folder` → 项目辅助源文件夹。`scopeId` 绑定基础 scope/id、`linked_dirs` 索引与期望绝对路径；每次解析都回读 live Project 并要求索引和路径仍精确匹配，目录删除、换序或换项目后旧 scope 自动失效；
 - `for_path` → 只读 worktree 跳转，写操作一律拒；
 - mutation 统一走 `resolve_effective_writable`，HTTP 再叠 `filesystem.allow_remote_writes`（默认 false）远程写闸门。
 
@@ -376,7 +385,7 @@ Global / Agent / Project 三层现在共用 [`CoreMemoryRepository`](../../../cr
 
 **preview-by-path**（按绝对路径读取 / 提取）：Tauri `preview_read_text` / `preview_extract` + 客户端 `convertFileSrc`；HTTP `GET /api/sessions/{id}/files/{read,extract,by-path}` 共用 `authorized_canonical_file_path`——被会话 tool 消息引用 ∪ 落在会话工作目录内。二者皆非的主机任意路径一律 403（远端严禁放行任意主机路径）；桌面信任本机。详见 [file-operations.md](file-operations.md)。
 
-前端组件在 [`src/components/chat/project/file-browser/`](../../../src/components/chat/project/file-browser/)，挂载于项目设置 Files 标签（`stacked`）与主聊天区右侧面板（`split`），CRUD 后发 `project:fs_changed` 事件跨视图同步。
+前端组件在 [`src/components/chat/project/file-browser/`](../../../src/components/chat/project/file-browser/)，挂载于项目设置 Files 标签（`stacked`）与主聊天区右侧面板（`split`）。项目存在辅助源文件夹时，顶部根选择器可在主目录和各辅助目录之间切换；切根会清空搜索、Git/worktree 与编辑器状态，存在未保存编辑时先走确认。CRUD 后发 `project:fs_changed` 事件跨视图同步。
 
 ## 级联删除与孤儿清理
 
@@ -523,7 +532,7 @@ IM 会话与 desktop 会话的差异源于 UX 预期：桌面进项目预期开�
 
 ### ProjectDialog（[`ProjectDialog.tsx`](../../../src/components/chat/project/ProjectDialog.tsx)）
 
-`mode="create" | "edit"` 复用同一组件，字段：name / description / logo（data URL 上传）/ color / defaultAgentId / workingDir，并通过 [`ProjectInstructionsField`](../../../src/components/chat/project/ProjectInstructionsField.tsx) 直接加载目标根 `AGENTS.md`，支持 Markdown 编辑 / 预览、行数与 UTF-8 大小。切换工作目录会先只读检查新目录下的文件；保存时草稿与元数据同请求提交，但仍只写文件、不进入项目表。`defaultModelId` 仅为旧数据兼容，不在 UI 暴露且不参与会话解析。保存按钮三态（idle → saving → saved/failed）。编辑态内嵌 [`ProjectKnowledgeSection`](../../../src/components/chat/project/ProjectKnowledgeSection.tsx)（项目级知识空间绑定，详见 [knowledge-base.md](knowledge-base.md)）。
+`mode="create" | "edit"` 复用同一组件，字段：name / description / logo（data URL 上传）/ color / defaultAgentId，以及统一的“源文件夹”列表。列表第一项为主文件夹，辅助项菜单支持“设为主文件夹”与移除；创建时第一个选择自动成为主文件夹。组件通过 [`ProjectInstructionsField`](../../../src/components/chat/project/ProjectInstructionsField.tsx) 直接加载主目录根 `AGENTS.md`，支持 Markdown 编辑 / 预览、行数与 UTF-8 大小。切换主目录会先只读检查新目录下的文件；保存时草稿与元数据同请求提交，但仍只写文件、不进入项目表。`defaultModelId` 仅为旧数据兼容，不在 UI 暴露且不参与会话解析。保存按钮三态（idle → saving → saved/failed）。编辑态内嵌 [`ProjectKnowledgeSection`](../../../src/components/chat/project/ProjectKnowledgeSection.tsx)（项目级知识空间绑定，详见 [knowledge-base.md](knowledge-base.md)）。
 
 ### ProjectOverviewDialog（右侧 Sheet，[`ProjectOverviewDialog.tsx`](../../../src/components/chat/project/ProjectOverviewDialog.tsx)）
 
@@ -580,7 +589,7 @@ flowchart TD
 - **工作目录写入校验**：所有写路径走 `util::canonicalize_working_dir`，`canonicalize` + `is_dir` 不通过 `Err`。
 - **项目指令文件闭合**：文件名固定为根 `AGENTS.md`；拒绝 symlink / 非普通文件，读取要求 UTF-8 且不超过 `filesystem.maxTextEditMb`，保存用 `platform::write_atomic`（新建 `write_atomic_create_new`），并比较读取时 raw BLAKE3 与保存时磁盘 hash，冲突拒绝覆盖；HTTP 专用端点属 API key 保护的 owner 设置面，不受通用文件浏览器写闸门影响。
 - **未变更即不补建**：未实际变更工作目录的元数据更新不得补建 `AGENTS.md`；启动迁移与只读检查同样不补建。
-- **文件浏览器作用域闭合**：`WorkspaceScope` canonicalize + `starts_with`，失败即拒；`for_path` 只读跳转写操作一律拒；HTTP 写端点叠加 `filesystem.allow_remote_writes`（默认 false）闸门。
+- **文件浏览器作用域闭合**：`WorkspaceScope` canonicalize + `starts_with`，失败即拒；`for_project_folder` 每次按 live Project 的 `linked_dirs` 身份重新授权，旧索引 / 旧路径 fail closed；`for_path` 只读跳转写操作一律拒；HTTP 写端点叠加 `filesystem.allow_remote_writes`（默认 false）闸门。
 - **preview-by-path 鉴权**：HTTP 三端点共用 `authorized_canonical_file_path`（会话引用 ∪ 工作目录内），主机任意路径 403；桌面信任本机。
 - **删除前防逃逸**：`purge_project_dir` canonicalize 比对 `projects_root`，拒绝对其外目录 `remove_dir_all`。
 - **上传上限**：新版租约用 `filesystem.maxWorkspaceUploadMb`（默认 20 MiB，范围 1–512）并在 start / complete / claim 三处复检；旧 multipart / whole-body 入口固定 20 MiB 兼容上限。
@@ -607,7 +616,7 @@ flowchart TD
 | [`crates/ha-core/src/project/mod.rs`](../../../crates/ha-core/src/project/mod.rs) | 模块声明 + re-export |
 | [`crates/ha-core/src/project/types.rs`](../../../crates/ha-core/src/project/types.rs) | `Project` / `ProjectMeta` / `ProjectOverviewSummary` / `ProjectInstructionsStats` + 两个 Input DTO |
 | [`crates/ha-core/src/project/db.rs`](../../../crates/ha-core/src/project/db.rs) | `ProjectDB`（复用 `SessionDB` 连接）+ migrate + `reorder` + `validate_logo` |
-| [`crates/ha-core/src/project/files.rs`](../../../crates/ha-core/src/project/files.rs) | `AGENTS.md` 生命周期与原子读写 / `resolve_project_dir` / `delete_project_cascade` / `purge_project_dir` 防逃逸 |
+| [`crates/ha-core/src/project/files.rs`](../../../crates/ha-core/src/project/files.rs) | `AGENTS.md` 生命周期与原子读写 / `resolve_project_dir` / 辅助根 live resolver / `delete_project_cascade` / `purge_project_dir` 防逃逸 |
 | [`crates/ha-core/src/project/overview.rs`](../../../crates/ha-core/src/project/overview.rs) | `build_project_overview` 概览聚合（会话 / 记忆 / claim / AGENTS.md 状态） |
 | [`crates/ha-core/src/memory/core_repository.rs`](../../../crates/ha-core/src/memory/core_repository.rs) | 三层 Core Memory 的目录、frontmatter、索引、CRUD / 搜索、snapshot 与并发真相源 |
 | [`crates/ha-core/src/project/memory.rs`](../../../crates/ha-core/src/project/memory.rs) | Project Core Memory 兼容薄适配与旧 API 映射 |
@@ -615,7 +624,7 @@ flowchart TD
 | [`crates/ha-base/src/paths.rs`](../../../crates/ha-base/src/paths.rs) | `projects_dir` / `project_dir` / `project_workspace_dir` |
 | [`crates/ha-core/src/session/db.rs`](../../../crates/ha-core/src/session/db.rs) | `sessions.project_id` 迁移 + `ProjectFilter` + 绑定 API + 未读谓词 |
 | [`crates/ha-core/src/session/helpers.rs`](../../../crates/ha-core/src/session/helpers.rs) | `effective_session_working_dir` 合并入口 |
-| [`crates/ha-core/src/filesystem/workspace.rs`](../../../crates/ha-core/src/filesystem/workspace.rs) | `WorkspaceScope` 作用域闭合（`for_session` / `for_project` / `for_path`） |
+| [`crates/ha-core/src/filesystem/workspace.rs`](../../../crates/ha-core/src/filesystem/workspace.rs) | `WorkspaceScope` 作用域闭合（`for_session` / `for_project` / `for_project_folder` / `for_path`） |
 | [`crates/ha-core/src/filesystem/ops.rs`](../../../crates/ha-core/src/filesystem/ops.rs) | 文件浏览器读写 ops |
 | [`crates/ha-core/src/agent/resolver.rs`](../../../crates/ha-core/src/agent/resolver.rs) | 7 级 agent 解析链 + `_with_source` 调试入口 |
 | [`crates/ha-base/src/util.rs`](../../../crates/ha-base/src/util.rs) | `canonicalize_working_dir`（session / project 共用写入校验） |

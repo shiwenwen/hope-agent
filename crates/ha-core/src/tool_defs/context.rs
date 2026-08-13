@@ -167,6 +167,10 @@ pub struct ToolExecContext {
     /// Path-aware tools prefer this over the agent home when no explicit
     /// absolute path/cwd is provided.
     pub session_working_dir: Option<String>,
+    /// Supplementary absolute roots inherited from the current project. They
+    /// never affect relative-path or cwd resolution, but path-aware tools may
+    /// accept explicit absolute paths beneath them.
+    pub project_linked_dirs: Vec<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
     /// Durable chat-turn identity for turn-scoped opaque references.
@@ -428,6 +432,15 @@ impl ToolExecContext {
             .as_deref()
             .or(self.home_dir.as_deref())
             .unwrap_or(".")
+    }
+
+    /// Canonical project roots available to file tools for this turn. The
+    /// primary working directory is first when present; linked roots follow.
+    pub fn project_file_roots(&self) -> impl Iterator<Item = &str> {
+        self.session_working_dir
+            .as_deref()
+            .into_iter()
+            .chain(self.project_linked_dirs.iter().map(String::as_str))
     }
 
     pub fn allowlist_grant_context(&self) -> crate::permission::allowlist::GrantContext<'_> {

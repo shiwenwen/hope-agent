@@ -17,7 +17,10 @@ import {
   FolderPlus,
   ImagePlus,
   Loader2,
+  MoreHorizontal,
   Palette,
+  Star,
+  Trash2,
   X,
 } from "lucide-react"
 
@@ -34,6 +37,12 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   AgentSelectDisplay,
   INHERIT_AGENT_SENTINEL,
@@ -137,6 +146,7 @@ export default function ProjectDialog({
   const [color, setColor] = useState<string>("")
   const [defaultAgentId, setDefaultAgentId] = useState<string>("")
   const [workingDir, setWorkingDir] = useState<string>("")
+  const [linkedDirs, setLinkedDirs] = useState<string[]>([])
   const [instructions, setInstructions] = useState("")
   const [loadedInstructions, setLoadedInstructions] = useState("")
   const [instructionsHash, setInstructionsHash] = useState("")
@@ -215,6 +225,7 @@ export default function ProjectDialog({
       setColor(initialProject.color ?? "")
       setDefaultAgentId(initialProject.defaultAgentId ?? "")
       setWorkingDir(initialProject.workingDir ?? "")
+      setLinkedDirs(initialProject.linkedDirs ?? [])
     } else {
       setName("")
       setDescription("")
@@ -222,6 +233,7 @@ export default function ProjectDialog({
       setColor("")
       setDefaultAgentId("")
       setWorkingDir("")
+      setLinkedDirs([])
     }
   }, [open, mode, initialProject])
 
@@ -263,9 +275,18 @@ export default function ProjectDialog({
     setLogoError("")
   }
 
-  const handleWorkingDirPicked = useCallback(
+  const makePrimaryDir = useCallback(
     (path: string) => {
+      const previousPrimary = workingDir.trim()
+      if (previousPrimary === path) return
       setWorkingDir(path)
+      setLinkedDirs((current) => {
+        const next = current.filter((linked) => linked !== path)
+        if (previousPrimary && previousPrimary !== path && !next.includes(previousPrimary)) {
+          next.unshift(previousPrimary)
+        }
+        return next
+      })
       void loadInstructions(
         "inspect_project_instructions_cmd",
         { workingDir: path, projectId: null },
@@ -278,28 +299,46 @@ export default function ProjectDialog({
 
       setName((currentName) => (currentName.trim() ? currentName : inferredName))
     },
-    [loadInstructions, mode],
+    [loadInstructions, mode, workingDir],
+  )
+
+  const handleSourceDirPicked = useCallback(
+    (path: string) => {
+      const trimmedPath = path.trim()
+      if (!trimmedPath || trimmedPath === workingDir || linkedDirs.includes(trimmedPath)) return
+
+      // A newly-created project follows Codex's first-folder behavior: the
+      // first attached folder becomes primary. Existing projects with an
+      // implicit default workspace keep it primary until the user explicitly
+      // promotes a newly attached folder.
+      if (mode === "create" && !workingDir.trim() && linkedDirs.length === 0) {
+        makePrimaryDir(trimmedPath)
+        return
+      }
+      setLinkedDirs((current) => [...current, trimmedPath])
+    },
+    [linkedDirs, makePrimaryDir, mode, workingDir],
   )
 
   const {
-    pick: pickWorkingDir,
-    browserOpen: dirBrowserOpen,
-    setBrowserOpen: setDirBrowserOpen,
-    handleBrowserSelect: handleWorkingDirSelect,
+    pick: pickSourceDir,
+    browserOpen: sourceDirBrowserOpen,
+    setBrowserOpen: setSourceDirBrowserOpen,
+    handleBrowserSelect: handleSourceDirSelect,
   } = useDirectoryPicker({
-    onPicked: handleWorkingDirPicked,
-    errorTitle: t("project.workingDir.invalid"),
-    loggerSource: "ProjectDialog::pickWorkingDir",
+    onPicked: handleSourceDirPicked,
+    errorTitle: t("project.linkedDirs.invalid"),
+    loggerSource: "ProjectDialog::pickSourceDir",
   })
 
-  function handlePickWorkingDir() {
+  function handleAddSourceDir() {
     if (saving) return
-    void pickWorkingDir()
+    void pickSourceDir()
   }
 
-  function handleCreateWorkingDir() {
+  function handleCreateSourceDir() {
     if (saving) return
-    setDirBrowserOpen(true)
+    setSourceDirBrowserOpen(true)
   }
 
   function clearWorkingDir() {
@@ -313,6 +352,25 @@ export default function ProjectDialog({
     } else {
       resetInstructionsForNewWorkspace()
     }
+  }
+
+  function removeLinkedDir(path: string) {
+    setLinkedDirs((current) => current.filter((linked) => linked !== path))
+  }
+
+  function removePrimaryDir() {
+    const [nextPrimary, ...remainingLinked] = linkedDirs
+    if (nextPrimary) {
+      setWorkingDir(nextPrimary)
+      setLinkedDirs(remainingLinked)
+      void loadInstructions(
+        "inspect_project_instructions_cmd",
+        { workingDir: nextPrimary, projectId: null },
+        agentsFilePath(nextPrimary),
+      )
+      return
+    }
+    clearWorkingDir()
   }
 
   async function handleSave() {
@@ -333,6 +391,7 @@ export default function ProjectDialog({
             color: color || null,
             defaultAgentId: defaultAgentId || null,
             workingDir: workingDir.trim() || null,
+            linkedDirs,
           },
           shouldCreateInstructions
             ? {
@@ -371,6 +430,7 @@ export default function ProjectDialog({
             color: color,
             defaultAgentId: defaultAgentId,
             workingDir: workingDir.trim(),
+            linkedDirs,
           },
           instructionsDraft,
         )
@@ -420,55 +480,112 @@ export default function ProjectDialog({
                 <FolderOpen className="h-4 w-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <Label className="text-sm font-semibold">{t("project.workingDir.label")}</Label>
+                <Label className="text-sm font-semibold">{t("project.linkedDirs.label")}</Label>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t("project.workingDir.hint")}
+                  {t("project.linkedDirs.hint")}
                 </p>
               </div>
             </div>
-            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-              <Input
-                id="project-working-dir"
-                value={workingDir}
-                readOnly
-                placeholder={t("project.workingDir.placeholder")}
-                className="h-10 font-mono text-xs"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handlePickWorkingDir}
-                  disabled={saving}
-                  className="h-10 shadow-none"
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddSourceDir}
+                disabled={saving}
+                className="shadow-none"
+              >
+                <FolderPlus className="mr-1.5 h-4 w-4" />
+                {t("project.linkedDirs.add")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCreateSourceDir}
+                disabled={saving}
+                className="shadow-none"
+              >
+                <FolderPlus className="mr-1.5 h-4 w-4" />
+                {t("fileBrowser.newFolder", { defaultValue: "New folder" })}
+              </Button>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/10">
+              <div className="flex min-h-11 items-center gap-2 border-b border-border/60 px-3">
+                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-xs",
+                    workingDir ? "font-mono" : "text-muted-foreground",
+                  )}
                 >
-                  <FolderOpen className="mr-1.5 h-4 w-4" />
-                  {t("project.workingDir.pick")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleCreateWorkingDir}
-                  disabled={saving}
-                  className="h-10 shadow-none"
-                >
-                  <FolderPlus className="mr-1.5 h-4 w-4" />
-                  {t("fileBrowser.newFolder", { defaultValue: "New folder" })}
-                </Button>
-                {workingDir && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={clearWorkingDir}
-                    disabled={saving}
-                    aria-label={t("project.workingDir.clear")}
-                    className="h-9 w-9"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
+                  {workingDir || t("project.linkedDirs.defaultPrimary")}
+                </span>
+                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  {t("project.linkedDirs.primary")}
+                </span>
+                {workingDir ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={saving}
+                        aria-label={t("project.linkedDirs.folderActions")}
+                        className="h-8 w-8 shrink-0"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={removePrimaryDir}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("project.linkedDirs.removeFolder")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
               </div>
+              {linkedDirs.map((path) => (
+                <div
+                  key={path}
+                  className="flex min-h-11 items-center gap-2 border-b border-border/60 px-3 last:border-b-0"
+                >
+                  <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={saving}
+                        aria-label={t("project.linkedDirs.folderActions")}
+                        className="h-8 w-8 shrink-0"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => makePrimaryDir(path)}>
+                        <Star className="mr-2 h-4 w-4" />
+                        {t("project.linkedDirs.makePrimary")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => removeLinkedDir(path)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("project.linkedDirs.removeFolder")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -679,10 +796,10 @@ export default function ProjectDialog({
         </div>
 
         <ServerDirectoryBrowser
-          open={dirBrowserOpen}
+          open={sourceDirBrowserOpen}
           initialPath={workingDir || null}
-          onOpenChange={setDirBrowserOpen}
-          onSelect={handleWorkingDirSelect}
+          onOpenChange={setSourceDirBrowserOpen}
+          onSelect={handleSourceDirSelect}
           allowCreate
         />
 

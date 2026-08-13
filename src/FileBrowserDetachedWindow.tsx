@@ -8,7 +8,7 @@
  * panel via the shared FileBrowserView.
  */
 
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { FolderOpen, X } from "lucide-react"
@@ -25,6 +25,11 @@ export default function FileBrowserDetachedWindow() {
   const scope: "session" | "project" = scopeParam === "project" ? "project" : "session"
   const scopeId = params.get("scopeId") ?? ""
   const rootPath = params.get("rootPath") || null
+  const linkedRootPathsParam = params.get("linkedRootPaths")
+  const linkedRootPaths = useMemo(
+    () => parseLinkedRootPaths(linkedRootPathsParam),
+    [linkedRootPathsParam],
+  )
 
   useEffect(() => {
     initLanguageFromConfig()
@@ -62,6 +67,7 @@ export default function FileBrowserDetachedWindow() {
             scope={scope}
             scopeId={scopeId}
             rootPath={rootPath}
+            linkedRootPaths={linkedRootPaths}
             editable
             layout="split"
             className="h-full"
@@ -70,4 +76,16 @@ export default function FileBrowserDetachedWindow() {
       </div>
     </TooltipProvider>
   )
+}
+
+function parseLinkedRootPaths(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string" && value.length > 0)
+      : []
+  } catch {
+    return []
+  }
 }

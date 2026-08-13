@@ -3,7 +3,8 @@
 //! Thin wrappers over [`ha_core::filesystem`] — all containment / validation
 //! lives in `WorkspaceScope`. Every op runs on `spawn_blocking` (sync `std::fs`)
 //! and is keyed by a `(scope, scopeId)` pair: `"session"` resolves the session's
-//! effective working dir, `"project"` resolves the project workspace.
+//! effective working dir, `"project"` resolves the primary project workspace,
+//! and `"project_folder"` resolves a live-authorized secondary source folder.
 //!
 //! Desktop (Tauri IPC) is always allowed to write; the HTTP transport gates
 //! writes behind `filesystem.allow_remote_writes` (see the ha-server routes).

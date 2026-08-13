@@ -4500,6 +4500,12 @@ impl AssistantAgent {
             .map(|m| m.sandbox_mode)
             .unwrap_or(caps.sandbox_mode);
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
+        let mut project_linked_dirs = project_id
+            .as_deref()
+            .and_then(|project_id| crate::get_project_db()?.get(project_id).ok().flatten())
+            .map(|project| project.linked_dirs)
+            .unwrap_or_default();
+        project_linked_dirs.retain(|path| session_working_dir.as_deref() != Some(path.as_str()));
         let denied_tools = crate::mcp::canonicalize_tool_filter_names(&self.denied_tools);
         let skill_allowed_tools = crate::mcp::canonicalize_tool_filter_names(
             &self
@@ -4523,6 +4529,7 @@ impl AssistantAgent {
             used_tokens,
             home_dir: self.agent_home(),
             session_working_dir,
+            project_linked_dirs,
             session_id: self.session_id.clone(),
             turn_id: self.turn_id.clone(),
             agent_binding_refs: self.agent_binding_refs.clone(),
