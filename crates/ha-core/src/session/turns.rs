@@ -468,6 +468,24 @@ impl SessionDB {
                     session_id
                 );
             }
+            let active_turn: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT id, source FROM chat_turns
+                      WHERE session_id = ?1 AND status IN ('running', 'cancelling')
+                      ORDER BY started_at ASC, id ASC
+                      LIMIT 1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if let Some((active_turn_id, active_source)) = active_turn {
+                anyhow::bail!(
+                    "Target session '{}' already has an active {} turn ({})",
+                    session_id,
+                    active_source,
+                    active_turn_id
+                );
+            }
         }
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if message.timestamp.is_empty() {
@@ -1024,6 +1042,55 @@ mod tests {
             .get_chat_turn("delegated-while-paused")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_serializes_admission_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let first = std::sync::Arc::new(SessionDB::open(&path).unwrap());
+        let session = first.create_session("ha-main").unwrap();
+        let second = std::sync::Arc::new(SessionDB::open(&path).unwrap());
+        let expected_global_stop_epoch = first.global_stop_epoch().unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+        let run = |db: std::sync::Arc<SessionDB>, turn_id: &'static str| {
+            let session_id = session.id.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                db.append_message_and_create_session_tool_turn_with_id(
+                    turn_id,
+                    &session_id,
+                    &NewMessage::user(turn_id),
+                    expected_global_stop_epoch,
+                )
+            })
+        };
+        let first_attempt = run(first.clone(), "delegated-a");
+        let second_attempt = run(second, "delegated-b");
+        barrier.wait();
+
+        let results = [
+            first_attempt.join().unwrap(),
+            second_attempt.join().unwrap(),
+        ];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        let error = results
+            .iter()
+            .find_map(|result| result.as_ref().err())
+            .expect("one cross-process admission must lose");
+        assert!(error.to_string().contains("already has an active"));
+        assert_eq!(first.load_session_messages(&session.id).unwrap().len(), 1);
+        assert_eq!(
+            first
+                .find_stale_chat_turns_for_finalize()
+                .unwrap()
+                .into_iter()
+                .filter(|turn| turn.session_id == session.id)
+                .count(),
+            1
+        );
     }
 
     #[test]
