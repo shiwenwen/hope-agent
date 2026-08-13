@@ -33,6 +33,7 @@ use crate::tools;
 /// request body — only in the budget calculator.
 const MAX_OUTPUT_TOKENS: u32 = 16384;
 const TOOL_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+const ROUND_ENVIRONMENT_BUILD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Max concurrent-safe (read-only) tools allowed to run at once within one
 /// assistant turn. Bounds fd / outbound-request fan-out when a single message
@@ -1210,22 +1211,49 @@ impl AssistantAgent {
         let (session_policy_instruction, session_policy_data) = session_policy_context;
         let capability_catalog_suffix = self.current_capability_catalog_suffix();
         let environment_context_suffix = {
-            let session_meta = self.lookup_session_meta();
-            let working_dir = session_meta
-                .as_ref()
-                .and_then(crate::session::effective_working_dir_for_meta);
-            let linked_dirs = session_meta
-                .as_ref()
-                .and_then(|meta| meta.project_id.as_deref())
-                .and_then(|project_id| crate::get_project_db()?.get(project_id).ok().flatten())
-                .map(|project| {
-                    crate::project::project_additional_dirs_for_session(
-                        &project,
-                        working_dir.as_deref(),
-                    )
-                })
-                .unwrap_or_default();
-            crate::system_prompt::build_round_environment_data(working_dir.as_deref(), &linked_dirs)
+            let session_db = self.session_db.clone();
+            let session_id = self.session_id.clone();
+            let build_environment = crate::blocking::run_blocking(move || {
+                let session_meta =
+                    Self::lookup_session_meta_with(session_db.as_ref(), session_id.as_deref());
+                let working_dir = session_meta
+                    .as_ref()
+                    .and_then(crate::session::effective_working_dir_for_meta);
+                let linked_dirs = session_meta
+                    .as_ref()
+                    .and_then(|meta| meta.project_id.as_deref())
+                    .and_then(|project_id| crate::get_project_db()?.get(project_id).ok().flatten())
+                    .map(|project| {
+                        crate::project::project_additional_dirs_for_session(
+                            &project,
+                            working_dir.as_deref(),
+                        )
+                    })
+                    .unwrap_or_default();
+                crate::system_prompt::build_round_environment_data(
+                    working_dir.as_deref(),
+                    &linked_dirs,
+                )
+            });
+            tokio::select! {
+                biased;
+                _ = wait_for_cancel(cancel) => return Ok((String::new(), None)),
+                result = tokio::time::timeout(
+                    ROUND_ENVIRONMENT_BUILD_TIMEOUT,
+                    build_environment,
+                ) => match result {
+                    Ok(environment) => environment,
+                    Err(_) => {
+                        crate::app_warn!(
+                            "agent",
+                            "round_environment_timeout",
+                            "Round environment file scan exceeded {} ms; omitting it for this turn",
+                            ROUND_ENVIRONMENT_BUILD_TIMEOUT.as_millis(),
+                        );
+                        None
+                    }
+                },
+            }
         };
 
         let client =

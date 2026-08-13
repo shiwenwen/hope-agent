@@ -820,12 +820,14 @@ pub(super) fn build_linked_dir_files_sections(paths: &[String]) -> Option<String
 /// Build a compact, non-recursive listing of the working directory's top-level
 /// entries for the round environment data block.
 ///
-/// Names only (no size / mtime) and sorted, so the same directory state renders
-/// byte-identical text and maximizes prefix-cache reuse. Hidden entries and a
-/// handful of noisy directories (`.git`, `node_modules`, …) are skipped, and the
-/// list is capped by the caller. Returns `None` for an empty or unreadable
-/// directory so the caller omits the heading entirely.
+/// Names only (no size / mtime) and sorted, so the same sampled directory state
+/// renders byte-identical text. Hidden entries and a handful of noisy
+/// directories (`.git`, `node_modules`, …) are skipped. Both the rendered list
+/// and the number of directory entries inspected are capped so a huge directory
+/// cannot turn a compact prompt preview into unbounded filesystem work. Returns
+/// `None` for an empty or unreadable directory so the caller omits the heading.
 fn build_working_dir_file_listing(path: &str, max_entries: usize) -> Option<String> {
+    const MAX_SCAN_MULTIPLIER: usize = 4;
     const SKIP_DIRS: &[&str] = &[
         ".git",
         "node_modules",
@@ -839,7 +841,18 @@ fn build_working_dir_file_listing(path: &str, max_entries: usize) -> Option<Stri
     let read = std::fs::read_dir(path).ok()?;
     let mut dirs: Vec<String> = Vec::new();
     let mut files: Vec<String> = Vec::new();
-    for entry in read.flatten() {
+    let max_scanned_entries = max_entries
+        .saturating_mul(MAX_SCAN_MULTIPLIER)
+        .max(max_entries.saturating_add(1));
+    let mut scan_cap_reached = false;
+    for (index, entry) in read.take(max_scanned_entries.saturating_add(1)).enumerate() {
+        if index == max_scanned_entries {
+            scan_cap_reached = true;
+            break;
+        }
+        let Ok(entry) = entry else {
+            continue;
+        };
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
             continue;
@@ -856,19 +869,43 @@ fn build_working_dir_file_listing(path: &str, max_entries: usize) -> Option<Stri
     }
     dirs.sort();
     files.sort();
-    let total = dirs.len() + files.len();
     let mut lines: Vec<String> = dirs.into_iter().chain(files).collect();
-    let truncated = lines.len() > max_entries;
+    let known_omitted = lines.len().saturating_sub(max_entries);
     lines.truncate(max_entries);
     let mut out = lines
         .into_iter()
         .map(|n| format!("- {}", n))
         .collect::<Vec<_>>()
         .join("\n");
-    if truncated {
-        out.push_str(&format!("\n- … ({} more)", total - max_entries));
+    if scan_cap_reached {
+        out.push_str("\n- … (more entries omitted)");
+    } else if known_omitted > 0 {
+        out.push_str(&format!("\n- … ({} more)", known_omitted));
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod round_environment_file_listing_tests {
+    use std::fs::File;
+
+    #[test]
+    fn directory_preview_bounds_scan_work_and_marks_unknown_remainder() {
+        let dir = tempfile::tempdir().expect("temporary preview directory");
+        for index in 0..10 {
+            File::create(dir.path().join(format!("entry-{index:02}")))
+                .expect("create preview fixture");
+        }
+
+        let listing = super::build_working_dir_file_listing(
+            dir.path().to_str().expect("utf-8 temporary path"),
+            2,
+        )
+        .expect("bounded listing");
+
+        assert_eq!(listing.lines().count(), 3);
+        assert!(listing.ends_with("- … (more entries omitted)"));
+    }
 }
 
 #[cfg(test)]
