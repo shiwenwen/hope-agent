@@ -79,6 +79,7 @@ import ChatInput from "@/components/chat/ChatInput"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { ProjectFileQuoteReveal } from "@/components/chat/project/fileQuoteTarget"
+import { projectSourceFoldersForSession } from "@/components/chat/project/projectSourceFolders"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
@@ -1568,6 +1569,15 @@ export default function ChatScreen({
     currentProject?.workingDir ?? null,
   )
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
+  const projectFileBrowserRoots = useMemo(
+    () =>
+      projectSourceFoldersForSession(
+        currentProject?.linkedDirs ?? [],
+        sessionWorkingDir,
+        projectWorkingDir,
+      ),
+    [currentProject?.linkedDirs, projectWorkingDir, sessionWorkingDir],
+  )
   const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
     ? "session"
     : projectWorkingDir
@@ -4614,7 +4624,7 @@ export default function ChatScreen({
                   : session.currentSessionId
               }
               rootPath={effectiveWorkingDir}
-              linkedRootPaths={currentProject?.linkedDirs ?? []}
+              linkedRootPaths={projectFileBrowserRoots}
               sessionId={session.currentSessionId}
               visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
               collapsed={rightPanelCollapsed}

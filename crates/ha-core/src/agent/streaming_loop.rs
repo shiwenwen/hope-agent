@@ -1214,13 +1214,17 @@ impl AssistantAgent {
             let working_dir = session_meta
                 .as_ref()
                 .and_then(crate::session::effective_working_dir_for_meta);
-            let mut linked_dirs = session_meta
+            let linked_dirs = session_meta
                 .as_ref()
                 .and_then(|meta| meta.project_id.as_deref())
                 .and_then(|project_id| crate::get_project_db()?.get(project_id).ok().flatten())
-                .map(|project| project.linked_dirs)
+                .map(|project| {
+                    crate::project::project_additional_dirs_for_session(
+                        &project,
+                        working_dir.as_deref(),
+                    )
+                })
                 .unwrap_or_default();
-            linked_dirs.retain(|path| working_dir.as_deref() != Some(path.as_str()));
             crate::system_prompt::build_round_environment_data(working_dir.as_deref(), &linked_dirs)
         };
 

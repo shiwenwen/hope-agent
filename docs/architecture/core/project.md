@@ -49,7 +49,7 @@ Project 要解决的问题是：**一组相关会话需要共享同一份工作�
 - **项目表寄居在 `sessions.db`**：`projects` 表与 `sessions` 表同一个 SQLite 连接（`ProjectDB` 持 `Arc<SessionDB>`），因此「项目 ↔ 会话」的关系查询能在单库单事务内完成，删除项目时会话解绑与项目行删除是原子的。
 - **记忆跨库**：项目记忆落在独立的 `memory.db`，无法与 `sessions.db` 共享事务。删除项目时分两库执行，靠启动期 reconciler 兜底孤儿清理。
 - **工作目录单一真相源**：会话最终工作目录由 [`session::effective_session_working_dir`](../../../crates/ha-core/src/session/helpers.rs) 唯一解析（默认 workspace 首次解析时 lazy 创建）；文件读写经 [`filesystem::WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs)（canonicalize + `starts_with`，失败闭合）。
-- **一个主文件夹 + 多个辅助文件夹**：设置 UI 统一呈现为“源文件夹”列表；将辅助文件夹设为主文件夹时，原主文件夹原子降为辅助文件夹。辅助文件夹不改变 cwd / 相对路径 / 根 `AGENTS.md` 语义，但文件浏览器可切根执行同一套搜索、预览与 CRUD。
+- **一个主文件夹 + 多个辅助文件夹**：设置 UI 统一呈现为“源文件夹”列表；将辅助文件夹设为主文件夹时，原主文件夹原子降为辅助文件夹。辅助文件夹不改变 cwd / 相对路径 / 根 `AGENTS.md` 语义，但文件浏览器可切根执行同一套搜索、预览与 CRUD。会话单独覆盖 cwd 时，项目主文件夹不会消失，而是作为该会话末尾的虚拟辅助根继续可见、可读写。
 - **指令单一真相源**：元数据与 SQLite 都不保存指令；根 `AGENTS.md` 是唯一入口，设置页直接读写它。旧 `projects.instructions` 列在迁移中直接 drop，不迁移历史内容。
 - **无反向认领**：项目不认领 (channel, account)；IM 会话归属项目靠 chat 内 `/project <id>` 显式触发（详见 [Agent 解析链](#agent-解析链7-级) 与 [im-channel.md](../integration/im-channel.md)）。
 
@@ -331,7 +331,7 @@ flowchart TD
 
 - **`# Current Project`**（[`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs)）：注入在 Memory 段**之前**。包含项目名称、稳定的 `Project ID` 与可选 `Description`，并在长期记忆开启时尾随一句提示——本会话 `save_memory` 默认落 project scope（想逃出项目边界要显式传 `scope='global'` 或 `'agent'`）。OpenClaw 模式同样注入此段；其更早的 `# Project Context` 只描述四文件 Agent pack，不能替代当前 HA 项目身份。它不再承载任何数据库指令。
 - **`# Working Directory`**（详见 [prompt-system.md](prompt-system.md)）：路径声明 + `## Working Directory Instructions` 子节，紧跟在 Project 段之后、Memory 段之前。项目工作目录始终有根 `AGENTS.md`，由既有 working-dir instruction loader 读取并按 20,000 字符上限注入——这也是项目指令的唯一入口。通用非项目工作目录仍保留 `AGENTS.md` 优先、`CLAUDE.md` fallback 的发现规则。
-- **`# Linked Project Directories`**：紧跟主工作目录，稳定列出所有辅助源文件夹的绝对路径并明确主目录仍拥有 cwd、相对路径和指令 authority。辅助根的 `AGENTS.md` 不自动注入；sandboxed `exec` 一次只把选定 `cwd` 挂载到 `/workspace`，要在辅助根执行必须显式把 `cwd` 设为该根，不能假设多个宿主根同时可见。
+- **`# Linked Project Directories`**：紧跟当前工作目录，稳定列出所有额外源文件夹的绝对路径；会话覆盖 cwd 时也包含项目主文件夹。项目主目录仍是项目指令 authority，其他辅助根的 `AGENTS.md` 不自动注入；sandboxed `exec` 一次只把选定 `cwd` 挂载到 `/workspace`，要在额外根执行必须显式把 `cwd` 设为该根，不能假设多个宿主根同时可见。
 - **`# Files in Working Directory`**（清单由 [`system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) 的 `build_working_dir_files_section` 构建，再由 `system_prompt::build_round_environment_data` 装配）：进入 `<hope_round_data source="environment">` 的 **user-data lane**，不再进入 system prompt。清单非递归、只列名、名称排序、跳过隐藏项与 `.git` / `node_modules` / `target` / `__pycache__` / `.venv` 等目录、上限 100 条、每轮刷新；同一目录状态仍产出 byte-identical 文本。模型靠普通 `read` / `read_context_resource` 工具按需读具体内容。
 - **`# Files in Linked Project Directories`**：同属每轮 environment user-data；最多预览前 8 个辅助根、每根 25 个顶层条目，其余根仍可通过稳定绝对路径按需读取，避免目录数放大 prompt。
 
@@ -377,7 +377,7 @@ Global / Agent / Project 三层现在共用 [`CoreMemoryRepository`](../../../cr
 项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../../crates/ha-core/src/filesystem/workspace.rs)。四个入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败即闭合：
 
 - `for_session` / `for_project` → 可写根（归档项目固定只读）；
-- `for_project_folder` → 项目辅助源文件夹。`scopeId` 绑定基础 scope/id、`linked_dirs` 索引与期望绝对路径；每次解析都回读 live Project 并要求索引和路径仍精确匹配，目录删除、换序或换项目后旧 scope 自动失效；
+- `for_project_folder` → 项目辅助源文件夹。`scopeId` 绑定基础 scope/id、`linked_dirs` 索引与期望绝对路径；每次解析都回读 live Project 并要求索引和路径仍精确匹配，目录删除、换序或换项目后旧 scope 自动失效。session cwd 与项目主目录不同时，索引 `linked_dirs.len()` 表示只对该 session 有效的虚拟项目主根，同样实时核对路径；
 - `for_path` → 只读 worktree 跳转，写操作一律拒；
 - mutation 统一走 `resolve_effective_writable`，HTTP 再叠 `filesystem.allow_remote_writes`（默认 false）远程写闸门。
 
@@ -589,7 +589,7 @@ flowchart TD
 - **工作目录写入校验**：所有写路径走 `util::canonicalize_working_dir`，`canonicalize` + `is_dir` 不通过 `Err`。
 - **项目指令文件闭合**：文件名固定为根 `AGENTS.md`；拒绝 symlink / 非普通文件，读取要求 UTF-8 且不超过 `filesystem.maxTextEditMb`，保存用 `platform::write_atomic`（新建 `write_atomic_create_new`），并比较读取时 raw BLAKE3 与保存时磁盘 hash，冲突拒绝覆盖；HTTP 专用端点属 API key 保护的 owner 设置面，不受通用文件浏览器写闸门影响。
 - **未变更即不补建**：未实际变更工作目录的元数据更新不得补建 `AGENTS.md`；启动迁移与只读检查同样不补建。
-- **文件浏览器作用域闭合**：`WorkspaceScope` canonicalize + `starts_with`，失败即拒；`for_project_folder` 每次按 live Project 的 `linked_dirs` 身份重新授权，旧索引 / 旧路径 fail closed；`for_path` 只读跳转写操作一律拒；HTTP 写端点叠加 `filesystem.allow_remote_writes`（默认 false）闸门。
+- **文件浏览器作用域闭合**：`WorkspaceScope` canonicalize + `starts_with`，失败即拒；`for_project_folder` 每次按 live Project 的 `linked_dirs` 身份重新授权，session 覆盖 cwd 时追加的项目主根固定使用末尾索引并复核 live 主目录，旧索引 / 旧路径 fail closed；`for_path` 只读跳转写操作一律拒；HTTP 写端点叠加 `filesystem.allow_remote_writes`（默认 false）闸门。
 - **preview-by-path 鉴权**：HTTP 三端点共用 `authorized_canonical_file_path`（会话引用 ∪ 工作目录内），主机任意路径 403；桌面信任本机。
 - **删除前防逃逸**：`purge_project_dir` canonicalize 比对 `projects_root`，拒绝对其外目录 `remove_dir_all`。
 - **上传上限**：新版租约用 `filesystem.maxWorkspaceUploadMb`（默认 20 MiB，范围 1–512）并在 start / complete / claim 三处复检；旧 multipart / whole-body 入口固定 20 MiB 兼容上限。

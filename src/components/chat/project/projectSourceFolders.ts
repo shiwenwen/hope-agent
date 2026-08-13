@@ -23,3 +23,24 @@ export function promoteProjectSourceFolder(
   }
   return { workingDir: nextPrimary, linkedDirs: nextLinkedDirs }
 }
+
+/**
+ * Roots shown beside a session's active cwd. Stored linked-root indices stay
+ * unchanged; an overridden Project primary is appended as the virtual trailing
+ * root understood by the session-scoped project-folder resolver.
+ */
+export function projectSourceFoldersForSession(
+  linkedDirs: string[],
+  sessionWorkingDir: string | null,
+  projectWorkingDir: string | null,
+): string[] {
+  if (
+    !sessionWorkingDir ||
+    !projectWorkingDir ||
+    sessionWorkingDir === projectWorkingDir ||
+    linkedDirs.includes(projectWorkingDir)
+  ) {
+    return linkedDirs
+  }
+  return [...linkedDirs, projectWorkingDir]
+}

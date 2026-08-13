@@ -4500,13 +4500,19 @@ impl AssistantAgent {
             .map(|m| m.sandbox_mode)
             .unwrap_or(caps.sandbox_mode);
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
-        // Keep the Project row's original order even when the active session
-        // root is one of the linked dirs: project_folder scope IDs persist the
-        // database index and the browser uses that same identity.
-        let project_linked_dirs = project_id
+        // Keep the Project row's original linked-dir order: project_folder
+        // scope IDs persist the database index. A session-level cwd override
+        // must not hide the Project's own effective primary root.
+        let (project_primary_dir, project_linked_dirs) = project_id
             .as_deref()
             .and_then(|project_id| crate::get_project_db()?.get(project_id).ok().flatten())
-            .map(|project| project.linked_dirs)
+            .map(|project| {
+                let primary = crate::project::resolve_project_record_dir(&project)
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .filter(|path| session_working_dir.as_deref() != Some(path.as_str()));
+                (primary, project.linked_dirs)
+            })
             .unwrap_or_default();
         let denied_tools = crate::mcp::canonicalize_tool_filter_names(&self.denied_tools);
         let skill_allowed_tools = crate::mcp::canonicalize_tool_filter_names(
@@ -4531,6 +4537,7 @@ impl AssistantAgent {
             used_tokens,
             home_dir: self.agent_home(),
             session_working_dir,
+            project_primary_dir,
             project_linked_dirs,
             session_id: self.session_id.clone(),
             turn_id: self.turn_id.clone(),

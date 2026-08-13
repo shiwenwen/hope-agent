@@ -167,6 +167,10 @@ pub struct ToolExecContext {
     /// Path-aware tools prefer this over the agent home when no explicit
     /// absolute path/cwd is provided.
     pub session_working_dir: Option<String>,
+    /// The parent Project's effective primary root when a session-level
+    /// working directory overrides it. Relative paths still resolve from the
+    /// session root, but absolute file operations may target this root.
+    pub project_primary_dir: Option<String>,
     /// Supplementary absolute roots inherited from the current project. They
     /// never affect relative-path or cwd resolution, but path-aware tools may
     /// accept explicit absolute paths beneath them.
@@ -435,11 +439,13 @@ impl ToolExecContext {
     }
 
     /// Canonical project roots available to file tools for this turn. The
-    /// primary working directory is first when present; linked roots follow.
+    /// session working directory is first, an overridden Project primary is
+    /// next when present, and persisted linked roots follow.
     pub fn project_file_roots(&self) -> impl Iterator<Item = &str> {
         self.session_working_dir
             .as_deref()
             .into_iter()
+            .chain(self.project_primary_dir.as_deref())
             .chain(self.project_linked_dirs.iter().map(String::as_str))
     }
 
@@ -598,11 +604,40 @@ impl ToolExecContext {
                         &dir,
                     ));
                 }
+                if self.project_primary_dir.is_none() {
+                    if let Some(project_id) = self.project_id.as_deref() {
+                        events.push(workspace_changed_payload(
+                            "project",
+                            project_id.to_string(),
+                            Some(project_id),
+                            &dir,
+                        ));
+                    }
+                }
+            }
+        }
+
+        if let Some(project_primary) = self.project_primary_dir.as_deref() {
+            if let Some(dir) = relative_changed_dir(&parent, project_primary) {
                 if let Some(project_id) = self.project_id.as_deref() {
                     events.push(workspace_changed_payload(
                         "project",
                         project_id.to_string(),
                         Some(project_id),
+                        &dir,
+                    ));
+                }
+                let virtual_index = self.project_linked_dirs.len();
+                if let Some(session_id) = self.session_id.as_deref() {
+                    events.push(workspace_changed_payload(
+                        "project_folder",
+                        project_folder_scope_id(
+                            "session",
+                            session_id,
+                            virtual_index,
+                            project_primary,
+                        ),
+                        self.project_id.as_deref(),
                         &dir,
                     ));
                 }
@@ -773,6 +808,72 @@ mod workspace_file_change_tests {
                     "dir": "docs",
                 }),
             ]
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn overridden_session_keeps_project_primary_available_and_scopes_events_correctly() {
+        let base = std::path::Path::new("/tmp").join(format!(
+            "ha-workspace-change-primary-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        let session_root = base.join("session-root");
+        let project_primary = base.join("project-primary");
+        let linked = base.join("linked");
+        std::fs::create_dir_all(session_root.join("src")).expect("create session root");
+        std::fs::create_dir_all(project_primary.join("docs")).expect("create project primary");
+        std::fs::create_dir_all(&linked).expect("create linked root");
+
+        let ctx = ToolExecContext {
+            session_id: Some("session-1".into()),
+            project_id: Some("project-1".into()),
+            session_working_dir: Some(session_root.to_string_lossy().into_owned()),
+            project_primary_dir: Some(project_primary.to_string_lossy().into_owned()),
+            project_linked_dirs: vec![linked.to_string_lossy().into_owned()],
+            ..ToolExecContext::default()
+        };
+
+        assert_eq!(
+            ctx.project_file_roots().collect::<Vec<_>>(),
+            vec![
+                session_root.to_str().unwrap(),
+                project_primary.to_str().unwrap(),
+                linked.to_str().unwrap(),
+            ]
+        );
+        assert_eq!(
+            ctx.workspace_file_change_events(
+                &project_primary.join("docs/note.md").to_string_lossy()
+            ),
+            vec![
+                json!({
+                    "scope": "project",
+                    "scopeId": "project-1",
+                    "projectId": "project-1",
+                    "dir": "docs",
+                }),
+                json!({
+                    "scope": "project_folder",
+                    "scopeId": format!("session:session-1:1:{}", project_primary.display()),
+                    "projectId": "project-1",
+                    "dir": "docs",
+                }),
+            ]
+        );
+        assert_eq!(
+            ctx.workspace_file_change_events(&session_root.join("src/lib.rs").to_string_lossy()),
+            vec![json!({
+                "scope": "session",
+                "scopeId": "session-1",
+                "projectId": "project-1",
+                "dir": "src",
+            })]
         );
 
         let _ = std::fs::remove_dir_all(base);

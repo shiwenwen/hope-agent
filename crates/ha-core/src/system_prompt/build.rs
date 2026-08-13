@@ -313,13 +313,9 @@ pub(crate) fn build_with_resolved_session(
         let instructions = collect_working_dir_instructions(wd);
         sections.push(build_session_working_dir_section(wd, &instructions));
     }
-    if let Some(project) = project.filter(|project| !project.linked_dirs.is_empty()) {
-        let linked_dirs = project
-            .linked_dirs
-            .iter()
-            .filter(|path| session_working_dir != Some(path.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
+    if let Some(project) = project {
+        let linked_dirs =
+            crate::project::project_additional_dirs_for_session(project, session_working_dir);
         if !linked_dirs.is_empty() {
             sections.push(build_project_linked_dirs_section(&linked_dirs));
         }
