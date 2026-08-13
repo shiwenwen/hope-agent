@@ -46,6 +46,8 @@ pub(super) fn convert_inbound_media_to_attachments(
                         upload_id: None,
                         quote_lines: None,
                         quote_role: None,
+                        quote_project_root: None,
+                        quote_worktree_root: None,
                     });
                 }
                 Err(err) => {
@@ -69,6 +71,8 @@ pub(super) fn convert_inbound_media_to_attachments(
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             });
         }
     }
@@ -410,6 +414,8 @@ mod tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
             ha_core::agent::Attachment {
                 name: "doc".into(),
@@ -420,6 +426,8 @@ mod tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
         ];
         let prefix = transcribe_inbound_voice_attachments(&attachments, "en").await;

@@ -93,6 +93,116 @@ pub(crate) fn workspace_root(
     })
 }
 
+/// `WorkspaceScope::for_project_folder` resolver. The encoded id is
+/// `"{base_scope}:{base_id}:{linked_index}:{expected_path}"`; `splitn(4)` keeps
+/// Windows drive-letter colons and any later colons inside the expected path.
+/// The index plus exact path forms a stale-selection guard: a project edit can
+/// never make an already-open browser silently target a different folder.
+pub(crate) fn workspace_linked_root(
+    encoded_id: &str,
+) -> std::result::Result<crate::filesystem::ResolvedRoot, crate::filesystem::FilesystemError> {
+    use crate::filesystem::{FilesystemError, ResolvedRoot};
+
+    let (base_scope, base_id, linked_index, expected_path) =
+        parse_project_folder_scope(encoded_id)?;
+
+    let (project_id, session_working_dir) = match base_scope {
+        "project" => (base_id.to_string(), None),
+        "session" => {
+            let session_db = crate::require_session_db()
+                .map_err(|e| FilesystemError::internal(e.to_string()))?;
+            let session = session_db
+                .get_session(base_id)
+                .map_err(|e| FilesystemError::internal(e.to_string()))?
+                .ok_or_else(|| FilesystemError::bad_input("session not found"))?;
+            let project_id = session.project_id.clone().ok_or_else(|| {
+                FilesystemError::bad_input("session is not attached to a project")
+            })?;
+            let working_dir = crate::session::effective_working_dir_for_meta(&session);
+            (project_id, working_dir)
+        }
+        _ => {
+            return Err(FilesystemError::bad_input(
+                "invalid base scope for project folder",
+            ))
+        }
+    };
+
+    let project_db = crate::get_project_db()
+        .ok_or_else(|| FilesystemError::internal("project db not initialized"))?;
+    let project = project_db
+        .get(&project_id)
+        .map_err(|e| FilesystemError::internal(e.to_string()))?
+        .ok_or_else(|| FilesystemError::bad_input("project not found"))?;
+    let dir = resolve_attached_project_folder(
+        &project,
+        base_scope,
+        linked_index,
+        expected_path,
+        session_working_dir.as_deref(),
+    )?;
+
+    Ok(ResolvedRoot {
+        dir,
+        read_only: project.archived,
+    })
+}
+
+fn resolve_attached_project_folder(
+    project: &Project,
+    base_scope: &str,
+    linked_index: usize,
+    expected_path: &str,
+    session_working_dir: Option<&str>,
+) -> std::result::Result<PathBuf, crate::filesystem::FilesystemError> {
+    use crate::filesystem::FilesystemError;
+
+    if let Some(linked_path) = project
+        .linked_dirs
+        .get(linked_index)
+        .filter(|path| path.as_str() == expected_path)
+    {
+        return Ok(PathBuf::from(linked_path));
+    } else if base_scope == "session" && linked_index == project.linked_dirs.len() {
+        // A session-level cwd may differ from its Project's primary root. The
+        // browser exposes that primary as one virtual trailing source folder;
+        // keep the same index+path stale guard used by persisted linked roots.
+        let primary = resolve_project_record_dir(&project)
+            .map_err(|e| FilesystemError::bad_input(e.to_string()))?;
+        let primary_path = primary.to_string_lossy();
+        if primary_path.as_ref() != expected_path
+            || session_working_dir == Some(primary_path.as_ref())
+        {
+            return Err(FilesystemError::bad_input(
+                "project folder is no longer attached",
+            ));
+        }
+        return Ok(primary);
+    }
+    Err(FilesystemError::bad_input(
+        "project folder is no longer attached",
+    ))
+}
+
+fn parse_project_folder_scope(
+    encoded_id: &str,
+) -> std::result::Result<(&str, &str, usize, &str), crate::filesystem::FilesystemError> {
+    use crate::filesystem::FilesystemError;
+
+    let mut parts = encoded_id.splitn(4, ':');
+    let base_scope = parts.next().unwrap_or("");
+    let base_id = parts.next().unwrap_or("");
+    let linked_index = parts
+        .next()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .ok_or_else(|| FilesystemError::bad_input("invalid project folder scope"))?;
+    let expected_path = parts.next().unwrap_or("");
+    if base_id.is_empty() || expected_path.is_empty() {
+        return Err(FilesystemError::bad_input("invalid project folder scope"));
+    }
+    Ok((base_scope, base_id, linked_index, expected_path))
+}
+
 /// Resolve the on-disk directory that backs a project: its explicitly-selected
 /// `working_dir` when set, otherwise the default workspace (created on demand).
 ///
@@ -104,11 +214,47 @@ pub fn resolve_project_dir(project_id: &str, db: &ProjectDB) -> Result<PathBuf> 
     let project = db
         .get(project_id)?
         .ok_or_else(|| anyhow::anyhow!("project not found: {}", project_id))?;
-    if let Some(wd) = project.working_dir.filter(|s| !s.trim().is_empty()) {
+    resolve_project_record_dir(&project)
+}
+
+/// Resolve the effective primary directory from an already-loaded Project.
+/// This is used when a session-level cwd overrides (but must not hide) that
+/// primary root.
+pub fn resolve_project_record_dir(project: &Project) -> Result<PathBuf> {
+    if let Some(wd) = project
+        .working_dir
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         return Ok(PathBuf::from(wd));
     }
-    let ws = crate::paths::project_workspace_dir(project_id)?;
+    let ws = crate::paths::project_workspace_dir(&project.id)?;
     Ok(PathBuf::from(crate::util::ensure_dir_canonical(&ws)?))
+}
+
+/// Supplementary roots advertised to the model for a Project session. Stored
+/// linked roots retain their order; when the session cwd overrides the Project
+/// primary, that primary is appended as a virtual source root.
+pub fn project_additional_dirs_for_session(
+    project: &Project,
+    session_working_dir: Option<&str>,
+) -> Vec<String> {
+    let mut dirs = project
+        .linked_dirs
+        .iter()
+        .filter(|path| session_working_dir != Some(path.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let Some(session_working_dir) = session_working_dir else {
+        return dirs;
+    };
+    if let Ok(primary) = resolve_project_record_dir(project) {
+        let primary = primary.to_string_lossy().into_owned();
+        if session_working_dir != primary && !dirs.contains(&primary) {
+            dirs.push(primary);
+        }
+    }
+    dirs
 }
 
 /// Create a project, optionally ensure its root `AGENTS.md` exists, and replace
@@ -178,6 +324,7 @@ pub fn update_project_with_instructions_file(
             default_agent_id: Some(previous.default_agent_id.unwrap_or_default()),
             default_model_id: Some(previous.default_model_id.unwrap_or_default()),
             working_dir: Some(previous.working_dir.unwrap_or_default()),
+            linked_dirs: Some(previous.linked_dirs),
             archived: Some(previous.archived),
         };
         if let Err(rollback_error) = db.update(project_id, rollback) {
@@ -604,7 +751,91 @@ mod tests {
             default_agent_id: None,
             default_model_id: None,
             working_dir: Some(root.to_string_lossy().to_string()),
+            linked_dirs: Vec::new(),
         }
+    }
+
+    #[test]
+    fn project_folder_scope_parser_preserves_colons_in_windows_paths() {
+        let parsed = parse_project_folder_scope(
+            "session:550e8400-e29b-41d4-a716-446655440000:2:C:\\work\\api",
+        )
+        .unwrap();
+        assert_eq!(parsed.0, "session");
+        assert_eq!(parsed.1, "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(parsed.2, 2);
+        assert_eq!(parsed.3, "C:\\work\\api");
+    }
+
+    #[test]
+    fn project_folder_scope_parser_rejects_missing_identity_or_path() {
+        assert!(parse_project_folder_scope("project::0:/repo").is_err());
+        assert!(parse_project_folder_scope("project:id:0:").is_err());
+        assert!(parse_project_folder_scope("project:id:not-a-number:/repo").is_err());
+    }
+
+    #[test]
+    fn session_override_appends_project_primary_after_stored_linked_roots() {
+        let db_dir = tempdir().unwrap();
+        let primary = tempdir().unwrap();
+        let linked = tempdir().unwrap();
+        let session_override = tempdir().unwrap();
+        let db = project_db(db_dir.path());
+        let mut create = input("Multi-root", primary.path());
+        create.linked_dirs = vec![linked.path().to_string_lossy().into_owned()];
+        let project = db.create(create).expect("create project");
+
+        assert_eq!(
+            project_additional_dirs_for_session(
+                &project,
+                Some(session_override.path().to_str().unwrap())
+            ),
+            vec![
+                linked.path().canonicalize().unwrap().to_string_lossy(),
+                primary.path().canonicalize().unwrap().to_string_lossy(),
+            ]
+        );
+        assert_eq!(
+            project_additional_dirs_for_session(
+                &project,
+                Some(primary.path().canonicalize().unwrap().to_str().unwrap())
+            ),
+            vec![linked.path().canonicalize().unwrap().to_string_lossy()]
+        );
+        assert_eq!(
+            project_additional_dirs_for_session(&project, None),
+            vec![linked.path().canonicalize().unwrap().to_string_lossy()]
+        );
+
+        let primary_path = primary.path().canonicalize().unwrap();
+        let primary_text = primary_path.to_string_lossy();
+        assert_eq!(
+            resolve_attached_project_folder(
+                &project,
+                "session",
+                project.linked_dirs.len(),
+                &primary_text,
+                session_override.path().to_str(),
+            )
+            .unwrap(),
+            primary_path
+        );
+        assert!(resolve_attached_project_folder(
+            &project,
+            "project",
+            project.linked_dirs.len(),
+            &primary_text,
+            session_override.path().to_str(),
+        )
+        .is_err());
+        assert!(resolve_attached_project_folder(
+            &project,
+            "session",
+            project.linked_dirs.len(),
+            &primary_text,
+            Some(&primary_text),
+        )
+        .is_err());
     }
 
     #[test]

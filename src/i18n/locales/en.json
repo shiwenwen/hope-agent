@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "Files",
+    "primaryFolder": "Primary",
+    "defaultProjectFolder": "Default project folder",
     "jumpToFile": "Show in file browser",
     "copied": "Copied",
     "copyFailed": "Copy failed",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "Unarchive",
     "unassigned": "Unassigned",
     "uploadLogo": "Upload logo",
+    "linkedDirs": {
+      "add": "Add folder",
+      "defaultPrimary": "Default project folder (created automatically)",
+      "empty": "No additional folders linked",
+      "folderActions": "Folder actions",
+      "hint": "Attach the folders this project needs. New chats, relative paths, Git, and project instructions use the primary folder.",
+      "invalid": "Invalid linked folder",
+      "label": "Source folders",
+      "makePrimary": "Make primary",
+      "primary": "Primary",
+      "remove": "Remove {{path}}",
+      "removeFolder": "Remove folder"
+    },
     "workingDir": {
       "clear": "Clear",
       "hint": "Choose an existing directory or create a new one. Leave empty to auto-create the default project directory.",

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
@@ -8,6 +8,7 @@ import ProjectOverviewDialog from "./ProjectOverviewDialog"
 
 const transportMock = vi.hoisted(() => ({
   call: vi.fn(),
+  getWorkspaceAccess: vi.fn(),
   listen: vi.fn((event: string, handler: (payload: unknown) => void) => {
     void event
     void handler
@@ -17,6 +18,7 @@ const transportMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
+  useTransport: () => transportMock,
 }))
 
 vi.mock("./ProjectIcon", () => ({ default: () => <div data-testid="project-icon" /> }))
@@ -31,8 +33,10 @@ vi.mock("./ProjectMemorySection", () => ({
   ),
 }))
 vi.mock("./file-browser/FileBrowserView", () => ({
-  FileBrowserView: ({ editable }: { editable?: boolean }) => (
-    <div>{editable ? "file-browser-editable" : "file-browser-read-only"}</div>
+  FileBrowserView: ({ editable, rootPath }: { editable?: boolean; rootPath?: string | null }) => (
+    <div data-testid="file-browser" data-root-path={rootPath ?? ""}>
+      {editable ? "file-browser-editable" : "file-browser-read-only"}
+    </div>
   ),
 }))
 
@@ -123,9 +127,18 @@ function renderOverview(overrides: Record<string, unknown> = {}) {
   return props
 }
 
+beforeEach(() => {
+  transportMock.getWorkspaceAccess.mockResolvedValue({
+    readable: true,
+    writeState: "enabled",
+    rootPath: "/data/projects/project-1/workspace",
+  })
+})
+
 afterEach(() => {
   cleanup()
   transportMock.call.mockReset()
+  transportMock.getWorkspaceAccess.mockReset()
   transportMock.listen.mockClear()
 })
 
@@ -173,6 +186,18 @@ describe("ProjectOverviewDialog", () => {
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "自动记忆" }), { button: 0 })
     expect(await screen.findByText("auto-memory-read-only")).toBeTruthy()
+  })
+
+  it("passes the resolved default workspace to the file browser", async () => {
+    transportMock.call.mockResolvedValue(overview)
+    renderOverview()
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "文件" }), { button: 0 })
+    await waitFor(() =>
+      expect(screen.getByTestId("file-browser").getAttribute("data-root-path")).toBe(
+        "/data/projects/project-1/workspace",
+      ),
+    )
   })
 
   it("does not show unavailable states while the overview is loading", () => {

@@ -37,6 +37,7 @@ import type {
   ChatTurnStatus,
   ChatTurnInterruptReason,
 } from "@/types/chat"
+import { quoteReferencePath } from "@/components/chat/project/fileQuoteTarget"
 import { parseSessionMessages } from "../chatUtils"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
@@ -1527,8 +1528,10 @@ export function useChatStream({
           mime_type: "text/plain",
           source: "quote",
           data: q.content,
-          file_path: q.path,
+          file_path: quoteReferencePath(q),
           quote_lines: quoteLineLabel(q),
+          ...(q.projectRoot ? { quote_project_root: q.projectRoot } : {}),
+          ...(q.worktreeRoot ? { quote_worktree_root: q.worktreeRoot } : {}),
         })
       }
 
@@ -1894,9 +1897,11 @@ export function useChatStream({
       mimeType: "text/plain",
       sizeBytes: 0,
       kind: "quote",
-      quotePath: q.path,
+      quotePath: quoteReferencePath(q),
       quoteLines: quoteLineLabel(q),
       quoteContent: q.content,
+      ...(q.projectRoot ? { quoteProjectRoot: q.projectRoot } : {}),
+      ...(q.worktreeRoot ? { quoteWorktreeRoot: q.worktreeRoot } : {}),
     }))
     const optimisticMessageQuoteAttachments: MessageAttachment[] = messageQuotesToSend.map((q) => ({
       name: "message-quote",

@@ -3,7 +3,7 @@
 //! Shares the same SQLite connection pool as [`crate::session::SessionDB`]
 //! (the table lives in `sessions.db`), following the same pattern as
 //! [`crate::channel::ChannelDB`]. Project files are no longer tracked in the
-//! DB — they live directly in the project working directory.
+//! DB — they live directly in the project's primary or linked directories.
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
@@ -47,6 +47,7 @@ impl ProjectDB {
                 archived          INTEGER NOT NULL DEFAULT 0,
                 logo              TEXT,
                 working_dir       TEXT,
+                linked_dirs_json  TEXT NOT NULL DEFAULT '[]',
                 sort_order        INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
@@ -64,6 +65,15 @@ impl ProjectDB {
             .is_ok();
         if !has_working_dir {
             conn.execute_batch("ALTER TABLE projects ADD COLUMN working_dir TEXT;")?;
+        }
+
+        let has_linked_dirs = conn
+            .prepare("SELECT linked_dirs_json FROM projects LIMIT 1")
+            .is_ok();
+        if !has_linked_dirs {
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN linked_dirs_json TEXT NOT NULL DEFAULT '[]';",
+            )?;
         }
 
         let has_sort_order = conn
@@ -149,6 +159,8 @@ impl ProjectDB {
 
         let logo = validate_logo(input.logo.as_deref())?;
         let working_dir = crate::util::canonicalize_working_dir(input.working_dir.as_deref())?;
+        let linked_dirs = validate_linked_dirs(&input.linked_dirs, working_dir.as_deref())?;
+        let linked_dirs_json = serde_json::to_string(&linked_dirs)?;
 
         let conn = self
             .session_db
@@ -160,8 +172,8 @@ impl ProjectDB {
         conn.execute(
             "INSERT INTO projects (id, name, description, color,
                 default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                working_dir, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11)",
+                working_dir, linked_dirs_json, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12)",
             params![
                 id,
                 name,
@@ -173,6 +185,7 @@ impl ProjectDB {
                 now,
                 logo.as_deref(),
                 working_dir.as_deref(),
+                linked_dirs_json,
                 sort_order,
             ],
         )?;
@@ -188,6 +201,7 @@ impl ProjectDB {
             default_model_id: normalize_optional(input.default_model_id.as_deref())
                 .map(str::to_string),
             working_dir,
+            linked_dirs,
             created_at: now,
             updated_at: now,
             sort_order,
@@ -206,7 +220,7 @@ impl ProjectDB {
             .query_row(
                 "SELECT id, name, description, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir, sort_order
+                        working_dir, linked_dirs_json, sort_order
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -224,12 +238,49 @@ impl ProjectDB {
             Some(raw) => Some(crate::util::canonicalize_working_dir(Some(raw))?),
             None => None,
         };
+        // Canonicalize caller-provided linked roots without consulting a
+        // potentially stale primary. The live primary/list pairing is resolved
+        // below while the SQLite writer lock is held.
+        let validated_linked_dirs = patch
+            .linked_dirs
+            .as_ref()
+            .map(|paths| validate_linked_dirs(paths, None))
+            .transpose()?;
 
-        let conn = self
+        let mut conn = self
             .session_db
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        // Read the fields that participate in the multi-root invariant under
+        // the same lock as the UPDATE. A concurrent linkedDirs PATCH therefore
+        // cannot be overwritten by a workingDir-only PATCH using an older
+        // snapshot from before the lock was acquired.
+        let (live_working_dir, live_linked_dirs_json) = tx
+            .query_row(
+                "SELECT working_dir, linked_dirs_json FROM projects WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| anyhow::anyhow!("project not found: {id}"))?;
+        let effective_working_dir = match &validated_working_dir {
+            Some(Some(path)) => Some(path.as_str()),
+            Some(None) => None,
+            None => live_working_dir.as_deref(),
+        };
+        let mut linked_dirs_to_write = match validated_linked_dirs {
+            Some(paths) => Some(paths),
+            None if validated_working_dir.is_some() => Some(
+                serde_json::from_str::<Vec<String>>(&live_linked_dirs_json).unwrap_or_default(),
+            ),
+            None => None,
+        };
+        if let Some(paths) = linked_dirs_to_write.as_mut() {
+            paths.retain(|path| effective_working_dir != Some(path.as_str()));
+        }
 
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -297,6 +348,12 @@ impl ProjectDB {
             params_vec.push(Box::new(validated));
         }
 
+        if let Some(validated) = linked_dirs_to_write {
+            let idx = params_vec.len() + 1;
+            sets.push(format!("linked_dirs_json = ?{}", idx));
+            params_vec.push(Box::new(serde_json::to_string(&validated)?));
+        }
+
         if let Some(archived) = patch.archived {
             let idx = params_vec.len() + 1;
             sets.push(format!("archived = ?{}", idx));
@@ -318,20 +375,21 @@ impl ProjectDB {
         );
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params_vec.iter().map(|p| p.as_ref()).collect();
-        conn.execute(&sql, param_refs.as_slice())?;
+        tx.execute(&sql, param_refs.as_slice())?;
 
         // Re-read to return the authoritative current state.
-        let project = conn
+        let project = tx
             .query_row(
                 "SELECT id, name, description, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir, sort_order
+                        working_dir, linked_dirs_json, sort_order
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
             )
             .optional()?
             .ok_or_else(|| anyhow::anyhow!("project not found after update: {}", id))?;
+        tx.commit()?;
         Ok(project)
     }
 
@@ -475,7 +533,7 @@ impl ProjectDB {
         let sql = format!(
             "SELECT p.id, p.name, p.description, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
-                    p.logo, p.working_dir, p.sort_order,
+                    p.logo, p.working_dir, p.linked_dirs_json, p.sort_order,
                     (SELECT COUNT(*) FROM sessions s
                       WHERE s.project_id = p.id AND s.archived_at IS NULL) AS session_count,
                     (SELECT COUNT(*)
@@ -495,8 +553,8 @@ impl ProjectDB {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
-                session_count: row.get::<_, i64>(12).unwrap_or(0) as u32,
-                unread_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
+                session_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
+                unread_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
             })
         })?;
 
@@ -523,7 +581,13 @@ fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
         archived: row.get::<_, i64>(8).unwrap_or(0) != 0,
         logo: row.get::<_, Option<String>>(9).unwrap_or(None),
         working_dir: row.get::<_, Option<String>>(10).unwrap_or(None),
-        sort_order: row.get::<_, i64>(11).unwrap_or(0),
+        linked_dirs: row
+            .get::<_, Option<String>>(11)
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default(),
+        sort_order: row.get::<_, i64>(12).unwrap_or(0),
     })
 }
 
@@ -576,6 +640,30 @@ fn normalize_optional(value: Option<&str>) -> Option<&str> {
         Some(v) if !v.trim().is_empty() => Some(v),
         _ => None,
     }
+}
+
+/// Keep project multi-root metadata bounded and canonical. Exact duplicates
+/// and the primary working directory are removed after canonicalization so the
+/// prompt and permission surface never advertise the same root twice.
+fn validate_linked_dirs(paths: &[String], working_dir: Option<&str>) -> Result<Vec<String>> {
+    const MAX_LINKED_DIRS: usize = 32;
+    if paths.len() > MAX_LINKED_DIRS {
+        anyhow::bail!("too many linked project directories (max {MAX_LINKED_DIRS})");
+    }
+
+    let primary = working_dir.map(str::to_string);
+    let mut seen = HashSet::new();
+    let mut linked = Vec::with_capacity(paths.len());
+    for raw in paths {
+        let Some(path) = crate::util::canonicalize_working_dir(Some(raw))? else {
+            continue;
+        };
+        if primary.as_deref() == Some(path.as_str()) || !seen.insert(path.clone()) {
+            continue;
+        }
+        linked.push(path);
+    }
+    Ok(linked)
 }
 
 #[cfg(test)]
@@ -644,6 +732,11 @@ mod tests {
                 .is_err(),
             "legacy instructions should be dropped"
         );
+        assert!(
+            conn.prepare("SELECT linked_dirs_json FROM projects LIMIT 1")
+                .is_ok(),
+            "linked directory column should be added with the modern schema"
+        );
         // Index is gone.
         let count: i64 = conn
             .query_row(
@@ -665,6 +758,53 @@ mod tests {
         let project_db = ProjectDB::new(session_db);
         project_db.migrate().expect("first migrate");
         project_db.migrate().expect("second migrate (idempotent)");
+    }
+
+    #[test]
+    fn linked_directories_are_canonical_deduplicated_and_distinct_from_primary() {
+        let dir = tempdir().unwrap();
+        let primary = tempdir().unwrap();
+        let linked = tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+        let project_db = ProjectDB::new(session_db);
+        project_db.migrate().expect("migrate");
+
+        let project = project_db
+            .create(CreateProjectInput {
+                name: "Multi root".into(),
+                description: None,
+                logo: None,
+                color: None,
+                default_agent_id: None,
+                default_model_id: None,
+                working_dir: Some(primary.path().to_string_lossy().into_owned()),
+                linked_dirs: vec![
+                    linked.path().to_string_lossy().into_owned(),
+                    linked.path().join(".").to_string_lossy().into_owned(),
+                    primary.path().to_string_lossy().into_owned(),
+                ],
+            })
+            .expect("create multi-root project");
+
+        assert_eq!(project.linked_dirs.len(), 1);
+        assert_eq!(
+            project.linked_dirs[0],
+            linked.path().canonicalize().unwrap().to_string_lossy()
+        );
+
+        // Promoting a linked root to primary removes it from the supplementary
+        // list even when an older caller omits linkedDirs from the patch.
+        let updated = project_db
+            .update(
+                &project.id,
+                UpdateProjectInput {
+                    working_dir: Some(linked.path().to_string_lossy().into_owned()),
+                    ..UpdateProjectInput::default()
+                },
+            )
+            .expect("promote linked root");
+        assert!(updated.linked_dirs.is_empty());
     }
 
     #[test]
@@ -699,6 +839,7 @@ mod tests {
                     default_agent_id: None,
                     default_model_id: None,
                     working_dir: None,
+                    linked_dirs: Vec::new(),
                 })
                 .expect("create project")
         };
@@ -774,6 +915,7 @@ mod tests {
                 default_agent_id: None,
                 default_model_id: None,
                 working_dir: None,
+                linked_dirs: Vec::new(),
             })
             .expect("create project");
 
@@ -859,6 +1001,7 @@ mod tests {
                 default_agent_id: None,
                 default_model_id: None,
                 working_dir: None,
+                linked_dirs: Vec::new(),
             })
             .expect("create project");
 

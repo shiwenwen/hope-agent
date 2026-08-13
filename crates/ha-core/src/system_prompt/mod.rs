@@ -90,7 +90,10 @@ pub(crate) fn weather_prompt_text() -> Option<String> {
 /// working-directory listing change independently of Agent/system policy, so
 /// keeping them out of the cache-stable system string avoids invalidating the
 /// whole prefix for a forecast refresh or ordinary file creation.
-pub(crate) fn build_round_environment_data(working_dir: Option<&str>) -> Option<String> {
+pub(crate) fn build_round_environment_data(
+    working_dir: Option<&str>,
+    linked_dirs: &[String],
+) -> Option<String> {
     let mut blocks = vec![format!(
         "Current local date: {} (use the `date` command when exact time or timezone detail matters).",
         helpers::current_date()
@@ -102,6 +105,9 @@ pub(crate) fn build_round_environment_data(working_dir: Option<&str>) -> Option<
         if let Some(files) = sections::build_working_dir_files_section(working_dir) {
             blocks.push(files);
         }
+    }
+    if let Some(files) = sections::build_linked_dir_files_sections(linked_dirs) {
+        blocks.push(files);
     }
     Some(blocks.join("\n\n"))
 }

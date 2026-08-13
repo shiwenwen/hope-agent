@@ -1,7 +1,8 @@
 //! Project types.
 //!
 //! A `Project` is an optional container that groups multiple sessions so they
-//! can share memories (`MemoryScope::Project`) and a working directory.
+//! can share memories (`MemoryScope::Project`), a primary working directory,
+//! and supplementary linked directory roots.
 //! Project instructions are not stored in this record: the project root's
 //! `AGENTS.md` is the sole source of truth. Sessions with `project_id = NULL`
 //! keep the pre-project behavior and are unaffected.
@@ -37,6 +38,12 @@ pub struct Project {
     /// no `working_dir` set (session-level overrides project-level).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    /// Additional absolute directory roots associated with this project.
+    /// They supplement (but never replace) `working_dir`: relative paths,
+    /// command cwd, and root AGENTS.md discovery continue to use the primary
+    /// working directory so multi-root projects remain deterministic.
+    #[serde(default)]
+    pub linked_dirs: Vec<String>,
     /// Unix milliseconds.
     pub created_at: i64,
     pub updated_at: i64,
@@ -106,6 +113,9 @@ pub struct CreateProjectInput {
     /// Empty string is normalized to `NULL` by the DB layer.
     #[serde(default)]
     pub working_dir: Option<String>,
+    /// Additional directory roots made available to every project session.
+    #[serde(default)]
+    pub linked_dirs: Vec<String>,
 }
 
 /// Patch DTO. `None` means "do not change this field". Clearing a field is
@@ -132,6 +142,9 @@ pub struct UpdateProjectInput {
     /// Patch the project default working directory. Empty string clears it.
     #[serde(default)]
     pub working_dir: Option<String>,
+    /// Replace all additional directory roots when present.
+    #[serde(default)]
+    pub linked_dirs: Option<Vec<String>>,
     #[serde(default)]
     pub archived: Option<bool>,
 }

@@ -313,6 +313,13 @@ pub(crate) fn build_with_resolved_session(
         let instructions = collect_working_dir_instructions(wd);
         sections.push(build_session_working_dir_section(wd, &instructions));
     }
+    if let Some(project) = project {
+        let linked_dirs =
+            crate::project::project_additional_dirs_for_session(project, session_working_dir);
+        if !linked_dirs.is_empty() {
+            sections.push(build_project_linked_dirs_section(&linked_dirs));
+        }
+    }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
     let app_config = crate::config::cached_config();
@@ -2395,6 +2402,7 @@ mod memory_section_tests {
             default_agent_id: None,
             default_model_id: None,
             working_dir: None,
+            linked_dirs: Vec::new(),
             created_at: 0,
             updated_at: 0,
             sort_order: 0,

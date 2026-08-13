@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "Tệp",
+    "primaryFolder": "Thư mục chính",
+    "defaultProjectFolder": "Thư mục dự án mặc định",
     "jumpToFile": "Hiển thị trong trình duyệt tệp",
     "copied": "Đã sao chép",
     "copyFailed": "Sao chép thất bại",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "Bỏ lưu trữ",
     "unassigned": "Chưa gán",
     "uploadLogo": "Tải logo lên",
+    "linkedDirs": {
+      "add": "Thêm thư mục",
+      "defaultPrimary": "Thư mục dự án mặc định (được tạo tự động)",
+      "empty": "Chưa liên kết thư mục bổ sung",
+      "folderActions": "Thao tác thư mục",
+      "hint": "Gắn các thư mục mà dự án cần. Phiên chat mới, đường dẫn tương đối, Git và chỉ dẫn dự án dùng thư mục chính.",
+      "invalid": "Thư mục liên kết không hợp lệ",
+      "label": "Thư mục nguồn",
+      "makePrimary": "Đặt làm thư mục chính",
+      "primary": "Thư mục chính",
+      "remove": "Xóa {{path}}",
+      "removeFolder": "Xóa thư mục"
+    },
     "workingDir": {
       "clear": "Xóa",
       "hint": "Các phiên trong dự án này mặc định dùng thư mục này; cài đặt cấp phiên sẽ ghi đè.",

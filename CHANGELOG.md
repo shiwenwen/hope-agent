@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **项目可以关联多个源文件夹**：一个主文件夹继续负责默认工作目录、相对路径和项目指令，同时可添加、切换、搜索并编辑多个辅助文件夹；会话单独切换工作目录时仍保留项目主文件夹。 (#652)
+
 ## [0.32.0] - 2026-08-12
 
 ### Added

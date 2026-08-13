@@ -40,7 +40,7 @@ export type FileTarget =
     }
   | {
       kind: "workspace"
-      scope: "session" | "project" | "path"
+      scope: "session" | "project" | "project_folder" | "path"
       scopeId: string
       relPath: string
       name: string

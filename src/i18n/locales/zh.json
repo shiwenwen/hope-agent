@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "文件",
+    "primaryFolder": "主文件夹",
+    "defaultProjectFolder": "默认项目文件夹",
     "jumpToFile": "在文件浏览器中显示",
     "copied": "已复制",
     "copyFailed": "复制失败",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "取消归档",
     "unassigned": "未分配项目",
     "uploadLogo": "上传 Logo",
+    "linkedDirs": {
+      "add": "添加文件夹",
+      "defaultPrimary": "默认项目文件夹（自动创建）",
+      "empty": "尚未关联其他文件夹",
+      "folderActions": "文件夹操作",
+      "hint": "添加项目需要使用的文件夹。新会话、相对路径、Git 和项目指令默认使用主文件夹。",
+      "invalid": "无效的关联文件夹",
+      "label": "源文件夹",
+      "makePrimary": "设为主文件夹",
+      "primary": "主文件夹",
+      "remove": "移除 {{path}}",
+      "removeFolder": "移除文件夹"
+    },
     "workingDir": {
       "clear": "清除",
       "hint": "可选择已有目录，也可新建目录。留空则自动创建默认项目目录。",

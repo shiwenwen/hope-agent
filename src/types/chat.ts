@@ -49,6 +49,17 @@ export interface PendingFileQuote {
   startLine: number
   endLine: number
   content: string
+  /** Exact linked-project root selected when the quote was captured. The
+   *  index + path pair is a stale-selection guard, mirroring project_folder
+   *  filesystem scopes. */
+  projectRoot?: {
+    index: number
+    path: string
+  }
+  /** Absolute Git worktree root selected when the quote was captured. The
+   *  browser restores it through the backend-validated read-only path scope;
+   *  `projectRoot` remains the base-repository identity for linked roots. */
+  worktreeRoot?: string
   /** Knowledge-space quotes carry their KB id so "jump to selection" opens the
    *  right base even if the user has since switched the active KB. Unset for
    *  main-chat file quotes. */
@@ -106,6 +117,9 @@ export interface MessageAttachment {
   quotePath?: string
   quoteLines?: string
   quoteContent?: string
+  /** Persisted browser provenance for restoring a linked-root quote draft. */
+  quoteProjectRoot?: PendingFileQuote["projectRoot"]
+  quoteWorktreeRoot?: string
   /** For `kind === "message_quote"`: role of the message the user selected. */
   messageQuoteRole?: "user" | "assistant"
 }

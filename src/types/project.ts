@@ -19,6 +19,8 @@ export interface Project {
    * fallback when the session itself has no `workingDir` set.
    */
   workingDir?: string | null
+  /** Additional absolute roots associated with every session in this project. */
+  linkedDirs?: string[]
   /** Unix milliseconds. */
   createdAt: number
   updatedAt: number
@@ -77,6 +79,8 @@ export interface CreateProjectInput {
   defaultModelId?: string | null
   /** Optional default working directory for sessions in this project. */
   workingDir?: string | null
+  /** Additional directory roots; relative paths still use workingDir. */
+  linkedDirs?: string[]
 }
 
 /**
@@ -93,6 +97,8 @@ export interface UpdateProjectInput {
   defaultModelId?: string
   /** Empty string clears the project default working directory. */
   workingDir?: string
+  /** Replaces the complete list of additional directory roots. */
+  linkedDirs?: string[]
   archived?: boolean
 }
 

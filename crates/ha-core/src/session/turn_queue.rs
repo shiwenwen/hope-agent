@@ -1534,6 +1534,8 @@ mod tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }
     }
 
@@ -1780,6 +1782,8 @@ mod tests {
             upload_id: Some("ordinary-upload-lease".into()),
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         input.attachments = vec![queued_file_attachment("README.md"), ordinary.clone()];
         db.enqueue_turn_user_message(input).unwrap();

@@ -6,7 +6,7 @@
 
 mod db;
 mod files;
-pub(crate) use files::workspace_root;
+pub(crate) use files::{workspace_linked_root, workspace_root};
 pub mod memory;
 mod overview;
 pub mod reconcile;
@@ -15,8 +15,9 @@ mod types;
 pub use db::ProjectDB;
 pub use files::{
     create_project_with_instructions_file, delete_project_cascade, ensure_project_instructions,
-    inspect_default_project_instructions, inspect_project_instructions, purge_project_dir,
-    read_project_instructions, resolve_project_dir, save_project_instructions,
+    inspect_default_project_instructions, inspect_project_instructions,
+    project_additional_dirs_for_session, purge_project_dir, read_project_instructions,
+    resolve_project_dir, resolve_project_record_dir, save_project_instructions,
     update_project_with_instructions_file, ProjectInstructionsDraft, ProjectInstructionsFile,
     StaleProjectInstructionsError,
 };

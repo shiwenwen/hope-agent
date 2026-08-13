@@ -353,6 +353,8 @@ fn parse_subagent_files(args: &Value) -> Result<Vec<crate::agent::Attachment>> {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
             "utf8" => {
                 let tmp_dir = std::env::temp_dir().join("hope-agent_subagent_files");
@@ -376,6 +378,8 @@ fn parse_subagent_files(args: &Value) -> Result<Vec<crate::agent::Attachment>> {
                     upload_id: None,
                     quote_lines: None,
                     quote_role: None,
+                    quote_project_root: None,
+                    quote_worktree_root: None,
                 }
             }
             other => {

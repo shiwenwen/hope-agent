@@ -2677,6 +2677,8 @@
   },
   "fileBrowser": {
     "panelTitle": "Dosyalar",
+    "primaryFolder": "Ana klasör",
+    "defaultProjectFolder": "Varsayılan proje klasörü",
     "jumpToFile": "Dosya tarayıcısında göster",
     "copied": "Kopyalandı",
     "copyFailed": "Kopyalama başarısız",
@@ -3824,6 +3826,19 @@
     "unarchiveProject": "Arşivden çıkar",
     "unassigned": "Atanmamış",
     "uploadLogo": "Logo yükle",
+    "linkedDirs": {
+      "add": "Klasör ekle",
+      "defaultPrimary": "Varsayılan proje klasörü (otomatik oluşturulur)",
+      "empty": "Bağlı ek klasör yok",
+      "folderActions": "Klasör işlemleri",
+      "hint": "Projenin ihtiyaç duyduğu klasörleri ekleyin. Yeni sohbetler, göreli yollar, Git ve proje talimatları ana klasörü kullanır.",
+      "invalid": "Geçersiz bağlı klasör",
+      "label": "Kaynak klasörler",
+      "makePrimary": "Ana klasör yap",
+      "primary": "Ana klasör",
+      "remove": "{{path}} klasörünü kaldır",
+      "removeFolder": "Klasörü kaldır"
+    },
     "workingDir": {
       "clear": "Temizle",
       "hint": "Bu projedeki oturumlar varsayılan olarak bu dizini kullanır; oturum düzeyindeki ayar onu geçersiz kılar.",

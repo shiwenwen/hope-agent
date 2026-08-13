@@ -1088,6 +1088,8 @@ pub async fn from_image(
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }],
         max_tokens: 4096,
     })

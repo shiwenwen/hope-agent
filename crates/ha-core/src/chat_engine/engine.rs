@@ -3636,6 +3636,8 @@ mod stream_lifecycle_tests {
             upload_id: None,
             quote_lines: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let error = validate_engine_typed_resource_boundary("plain", None, &[attachment])
             .expect_err("engine must not trust a client-controlled attachment source marker");
@@ -3672,6 +3674,8 @@ mod stream_lifecycle_tests {
                 upload_id: None,
                 quote_lines: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             };
             prepare_typed_resource_mentions_for_session(
                 &session,
