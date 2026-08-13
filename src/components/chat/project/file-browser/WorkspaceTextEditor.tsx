@@ -26,7 +26,11 @@ import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTransport } from "@/lib/transport-provider"
 import type { FileTextContent, FileWriteOutcome, WorkspaceEntry } from "@/lib/transport"
-import type { ProjectFsApi } from "../hooks/useProjectFs"
+import {
+  projectFsChangeMatchesScope,
+  type ProjectFsApi,
+  type ProjectFsChangeEvent,
+} from "../hooks/useProjectFs"
 import { MEBIBYTE_BYTES, useFilesystemConfig } from "@/lib/filesystemConfig"
 import {
   clearFileEditorDirty,
@@ -291,13 +295,14 @@ export function WorkspaceTextEditor({
   useEffect(
     () =>
       transport.listen("project:fs_changed", (payload: unknown) => {
-        const changed = payload as {
-          scope?: string
-          scopeId?: string
-          dir?: string
-          path?: string
-        } | null
-        if (!changed || changed.scope !== fs.scope.scope || changed.scopeId !== fs.scope.scopeId)
+        const changed = payload as ProjectFsChangeEvent | null
+        if (
+          !changed ||
+          !projectFsChangeMatchesScope(changed, {
+            scope: fs.scope.scope,
+            scopeId: fs.scope.scopeId,
+          })
+        )
           return
         if (changed.path != null) {
           const changedPath = changed.path.replace(/^\/+/, "")

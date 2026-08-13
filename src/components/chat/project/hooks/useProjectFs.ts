@@ -50,6 +50,53 @@ export interface ProjectFsApi {
   saveAs: (path: string, content: string) => Promise<FileWriteOutcome>
 }
 
+export interface ProjectFsChangeEvent {
+  scope?: string
+  scopeId?: string
+  dir?: string
+  path?: string
+}
+
+interface ProjectFolderChangeIdentity {
+  index: number
+  path: string
+}
+
+function projectFolderChangeIdentity(
+  scope: string | undefined,
+  scopeId: string | undefined,
+): ProjectFolderChangeIdentity | null {
+  if (scope !== "project_folder" || !scopeId) return null
+  const firstSeparator = scopeId.indexOf(":")
+  const secondSeparator = scopeId.indexOf(":", firstSeparator + 1)
+  const thirdSeparator = scopeId.indexOf(":", secondSeparator + 1)
+  if (firstSeparator <= 0 || secondSeparator <= firstSeparator + 1 || thirdSeparator < 0) return null
+  const baseScope = scopeId.slice(0, firstSeparator)
+  const indexText = scopeId.slice(secondSeparator + 1, thirdSeparator)
+  const path = scopeId.slice(thirdSeparator + 1)
+  if ((baseScope !== "session" && baseScope !== "project") || !/^\d+$/.test(indexText) || !path)
+    return null
+  return { index: Number(indexText), path }
+}
+
+/** Match exact workspace events plus the same linked root reached through a
+ * session or project base scope. This identity is refresh-only; backend scope
+ * authorization remains unchanged on every filesystem operation. */
+export function projectFsChangeMatchesScope(
+  event: ProjectFsChangeEvent,
+  target: ProjectFsScope,
+): boolean {
+  if (event.scope === target.scope && event.scopeId === target.scopeId) return true
+  const eventFolder = projectFolderChangeIdentity(event.scope, event.scopeId)
+  const targetFolder = projectFolderChangeIdentity(target.scope, target.scopeId)
+  return (
+    eventFolder !== null &&
+    targetFolder !== null &&
+    eventFolder.index === targetFolder.index &&
+    eventFolder.path === targetFolder.path
+  )
+}
+
 function parentOf(rel: string): string {
   const trimmed = rel.replace(/\/+$/, "")
   const i = trimmed.lastIndexOf("/")
@@ -166,11 +213,11 @@ export function useProjectFs(
   useEffect(() => {
     if (!scopeId) return
     return transport.listen("project:fs_changed", (payload: unknown) => {
-      const p = payload as { scope?: string; scopeId?: string; dir?: string } | null
-      if (!p || p.scope !== scope || p.scopeId !== scopeId) return
+      const p = payload as ProjectFsChangeEvent | null
+      if (!p || !projectFsChangeMatchesScope(p, scopeArg)) return
       void loadDir(p.dir ?? "")
     })
-  }, [scope, scopeId, loadDir, transport])
+  }, [scopeArg, scopeId, loadDir, transport])
 
   const mutate = useCallback(
     async (command: string, extra: Record<string, unknown>): Promise<boolean> => {

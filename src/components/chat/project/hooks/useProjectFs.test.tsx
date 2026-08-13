@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkspaceAccess, WorkspaceListing } from "@/lib/transport"
 
-import { useProjectFs } from "./useProjectFs"
+import { projectFsChangeMatchesScope, useProjectFs } from "./useProjectFs"
 
 const transportMock = vi.hoisted(() => ({
   call: vi.fn(),
@@ -56,6 +56,47 @@ beforeEach(() => {
 })
 
 describe("useProjectFs", () => {
+  it("matches the same linked root across session and project base scopes", () => {
+    const sessionFolder = {
+      scope: "project_folder",
+      scopeId: "session:session-1:2:C:\\repos\\shared",
+    } as const
+    const projectFolderEvent = {
+      scope: "project_folder",
+      scopeId: "project:project-1:2:C:\\repos\\shared",
+      path: "src/index.ts",
+    }
+
+    expect(projectFsChangeMatchesScope(projectFolderEvent, sessionFolder)).toBe(true)
+    expect(
+      projectFsChangeMatchesScope(
+        { ...projectFolderEvent, scopeId: "project:project-1:1:C:\\repos\\shared" },
+        sessionFolder,
+      ),
+    ).toBe(false)
+    expect(
+      projectFsChangeMatchesScope(
+        { ...projectFolderEvent, scopeId: "project:project-1:2:C:\\repos\\other" },
+        sessionFolder,
+      ),
+    ).toBe(false)
+  })
+
+  it("keeps ordinary workspace change matching exact", () => {
+    expect(
+      projectFsChangeMatchesScope(
+        { scope: "session", scopeId: "session-1" },
+        { scope: "session", scopeId: "session-1" },
+      ),
+    ).toBe(true)
+    expect(
+      projectFsChangeMatchesScope(
+        { scope: "project", scopeId: "project-1" },
+        { scope: "session", scopeId: "session-1" },
+      ),
+    ).toBe(false)
+  })
+
   it("ignores directory and capability responses from the previous root", async () => {
     const oldAccess = deferred<WorkspaceAccess>()
     const oldListing = deferred<WorkspaceListing>()
