@@ -2,7 +2,7 @@ use anyhow::Result;
 use base64::Engine as _;
 use serde_json::Value;
 use std::fmt;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{atomic::AtomicBool, Arc, OnceLock};
 
 use crate::session::{
     MessageRole, NewMessage, SessionMessage, SessionSearchResult, SessionTypeFilter,
@@ -747,6 +747,27 @@ enum ProactiveTurnStart {
     Interrupted { message: String },
 }
 
+/// Process-lived executor for delegated chat turns. Tool execution can run on
+/// a short-lived current-thread runtime (notably parent-injection workers), so
+/// an ambient `tokio::spawn` would be cancelled as soon as that caller returns.
+/// Construct this before durable message/turn persistence so runtime setup
+/// failure cannot leave a running turn with no executor.
+fn proactive_turn_runtime() -> Result<&'static tokio::runtime::Runtime> {
+    static RUNTIME: OnceLock<std::result::Result<tokio::runtime::Runtime, String>> =
+        OnceLock::new();
+    match RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .thread_name("session-delegation")
+            .build()
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => anyhow::bail!("Failed to initialize the delegated turn runtime: {error}"),
+    }
+}
+
 #[derive(Debug)]
 struct ProactiveNoProfileError {
     agent_id: String,
@@ -975,6 +996,10 @@ async fn start_proactive_turn(
         }
     };
 
+    // Resolve the process-lived runner before publishing any durable work. The
+    // ambient runtime may belong to a short-lived parent-injection thread.
+    let proactive_runtime = proactive_turn_runtime()?;
+
     let db_for_persist = db.clone();
     let session_id_for_persist = session.id.clone();
     let turn_id_for_persist = turn_id.clone();
@@ -1104,7 +1129,7 @@ async fn start_proactive_turn(
     let turn_for_run = turn_id.clone();
     let prompt_for_finalize = effective_prompt.clone();
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
+    proactive_runtime.spawn(async move {
         let _active_turn_guard = active_turn_guard;
         let _agent_admission = agent_admission;
         let _eval_child_guard = eval_child_guard;
@@ -1476,6 +1501,41 @@ mod tests {
         })
         .expect("create channel conversations fixture table");
         (dir, db)
+    }
+
+    #[test]
+    fn proactive_turn_runner_survives_a_short_lived_caller_runtime() {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let caller_runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build short-lived caller runtime");
+            caller_runtime.block_on(async move {
+                proactive_turn_runtime()
+                    .expect("initialize process-lived delegated turn runtime")
+                    .spawn(async move {
+                        started_tx.send(()).expect("signal runner start");
+                        release_rx.await.expect("release delegated runner");
+                        finished_tx.send(()).expect("signal runner finish");
+                    });
+                started_rx
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .expect("delegated runner should start");
+            });
+        })
+        .join()
+        .expect("short-lived caller runtime thread");
+
+        release_tx
+            .send(())
+            .expect("delegated runner must survive caller runtime drop");
+        finished_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("delegated runner should finish after caller runtime drops");
     }
 
     #[tokio::test]
