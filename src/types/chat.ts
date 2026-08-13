@@ -56,6 +56,10 @@ export interface PendingFileQuote {
     index: number
     path: string
   }
+  /** Absolute Git worktree root selected when the quote was captured. The
+   *  browser restores it through the backend-validated read-only path scope;
+   *  `projectRoot` remains the base-repository identity for linked roots. */
+  worktreeRoot?: string
   /** Knowledge-space quotes carry their KB id so "jump to selection" opens the
    *  right base even if the user has since switched the active KB. Unset for
    *  main-chat file quotes. */

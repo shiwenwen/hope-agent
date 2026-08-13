@@ -308,7 +308,8 @@ export function FileBrowserView({
     (payload: QuotePayload) =>
       onQuote?.({
         ...payload,
-        ...(activeProjectRoot && !activeWorktree ? { projectRoot: activeProjectRoot } : {}),
+        ...(activeProjectRoot ? { projectRoot: activeProjectRoot } : {}),
+        ...(activeWorktree ? { worktreeRoot: activeWorktree } : {}),
       }),
     [activeProjectRoot, activeWorktree, onQuote],
   )
@@ -351,9 +352,9 @@ export function FileBrowserView({
     onResizingChange: setIsResizingTree,
   })
 
-  // Reveal a file requested from a composer quote chip: return to the host scope
-  // (quotes reference host-scope files) and select it. The tree expands the
-  // ancestor chain + scrolls the row into view in response to `selectedPath`
+  // Reveal a file requested from a composer quote chip: restore the exact base
+  // root and optional read-only worktree scope captured by the quote. The tree
+  // expands the ancestor chain + scrolls the row into view in response to `selectedPath`
   // (see FileBrowserTree), so this stays pure render-phase state — no expansion
   // side effects and no writes to the wrong (worktree) expansion scope. The null
   // sentinel makes the FIRST mount fire: the panel mounts fresh on the very
@@ -363,7 +364,7 @@ export function FileBrowserView({
     setTrackedRevealNonce(revealFile.nonce)
     const target = resolveProjectFileQuoteTarget(revealFile, linkedRootPaths)
     setActiveProjectRoot(target.projectRoot)
-    setActiveWorktree(null)
+    setActiveWorktree(target.worktreeRoot)
     setSelected(
       target.valid
         ? {

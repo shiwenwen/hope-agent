@@ -3326,6 +3326,7 @@ export default function ChatScreen({
         startLine: q.startLine,
         endLine: q.endLine,
         projectRoot: q.projectRoot,
+        worktreeRoot: q.worktreeRoot,
         nonce: revealQuoteNonce.current,
       })
     },
