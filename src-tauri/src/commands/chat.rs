@@ -1053,23 +1053,21 @@ pub async fn chat(
                         )?;
                         return Ok(Some(replacement_id));
                     }
-                    let user_message_id = if queue_id_for_consume.is_some() {
-                        Some(db.append_message(&sid, &user_msg)?)
-                    } else {
-                        db.append_message(&sid, &user_msg).ok()
-                    };
-                    db.create_chat_turn_with_id_surface(
-                        &turn_id,
-                        &sid,
-                        ha_core::chat_engine::ChatSource::Desktop.as_str(),
-                        None,
-                        user_message_id,
-                        ui_surface_for_turn,
-                    )?;
+                    let (user_message_id, _turn) = db
+                        .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                            &turn_id,
+                            &sid,
+                            ha_core::chat_engine::ChatSource::Desktop.as_str(),
+                            None,
+                            &user_msg,
+                            ui_surface_for_turn,
+                            None,
+                            None,
+                        )?;
                     if let Some(request_id) = queue_id_for_consume.as_deref() {
                         db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
                     }
-                    Ok(user_message_id)
+                    Ok(Some(user_message_id))
                 },
             )
         })

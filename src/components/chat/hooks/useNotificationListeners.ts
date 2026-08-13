@@ -67,10 +67,37 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
 
   // Backend-generated session metadata updates (for example async LLM titles).
   useEffect(() => {
-    const unlisten = getTransport().listen("session:title_updated", () => {
+    const transport = getTransport()
+    const refresh = () => {
       reloadSessions()
-    })
-    return unlisten
+    }
+    const refreshStartedTurn = (raw: unknown) => {
+      const { sessionId } = raw as { sessionId?: string }
+      if (!sessionId) return
+      reloadSessions()
+      if (currentSessionIdRef.current === sessionId) {
+        reloadAndMergeSessionMessages({
+          sessionId,
+          pageSize: PAGE_SIZE,
+          sessionCacheRef,
+          setMessages: (messages) => {
+            if (currentSessionIdRef.current === sessionId) {
+              setMessages(messages)
+            }
+          },
+        })
+      } else {
+        sessionCacheRef.current.delete(sessionId)
+      }
+    }
+    const unlistenTitle = transport.listen("session:title_updated", refresh)
+    const unlistenCreated = transport.listen("session:created", refresh)
+    const unlistenStartedTurn = transport.listen("session:turn_started", refreshStartedTurn)
+    return () => {
+      unlistenTitle()
+      unlistenCreated()
+      unlistenStartedTurn()
+    }
     // reloadSessions is stable in practice; keep one listener per mounted chat screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -128,7 +155,11 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
             sessionId: parentSessionId,
             pageSize: PAGE_SIZE,
             sessionCacheRef,
-            setMessages,
+            setMessages: (messages) => {
+              if (currentSessionIdRef.current === parentSessionId) {
+                setMessages(messages)
+              }
+            },
           })
         } else {
           // Not current session — clear cache so next visit loads fresh from DB

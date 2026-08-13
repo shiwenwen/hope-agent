@@ -41,6 +41,7 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         // `session_to_note`）随 ha-knowledge 迁出，由 `ha_knowledge::wire()`
         // 注册外部分发条目；schema 仍在 definitions::core_tools。
         BuiltinToolEntry { name: super::TOOL_AGENTS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::agents::tool_agents_list(args).await) },
+        BuiltinToolEntry { name: super::TOOL_SESSIONS_CREATE, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_create(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_list(args).await) },
         BuiltinToolEntry { name: super::TOOL_SESSION_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_session_status(args).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_SEARCH, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_search(args, ctx).await) },

@@ -34,7 +34,7 @@ const APPROVAL_OPTIN_GROUPS: ReadonlyArray<{
   },
   {
     groupKey: "outbound",
-    tools: ["send_attachment", "sessions_send"],
+    tools: ["send_attachment", "sessions_create", "sessions_send"],
   },
   {
     groupKey: "paid",

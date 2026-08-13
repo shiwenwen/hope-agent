@@ -17,7 +17,9 @@ const transportMock = vi.hoisted(() => {
         listeners.delete(eventName)
       }
     }),
-    call: vi.fn(() => Promise.reject(new Error("not mocked"))),
+    call: vi.fn<(...args: unknown[]) => Promise<unknown>>(() =>
+      Promise.reject(new Error("not mocked")),
+    ),
   }
 })
 
@@ -46,9 +48,11 @@ afterEach(() => {
 function Harness({
   onMessages,
   consumeParentStreamDeltas,
+  currentSessionId = "parent-session",
 }: {
   onMessages: (messages: Message[]) => void
   consumeParentStreamDeltas?: boolean
+  currentSessionId?: string
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
@@ -56,6 +60,10 @@ function Harness({
   const currentSessionIdRef = useRef<string | null>("parent-session")
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
+
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId
+  }, [currentSessionId])
 
   useNotificationListeners({
     currentSessionIdRef,
@@ -76,6 +84,46 @@ function Harness({
 }
 
 describe("useNotificationListeners", () => {
+  test("does not apply a completed turn reload after the active session changes", async () => {
+    let resolveLoad: ((value: [unknown[], number, boolean]) => void) | undefined
+    transportMock.call.mockImplementationOnce(
+      () =>
+        new Promise<[unknown[], number, boolean]>((resolve) => {
+          resolveLoad = resolve
+        }),
+    )
+
+    let latest: Message[] = []
+    const onMessages = (messages: Message[]) => {
+      latest = messages
+    }
+    const view = render(<Harness onMessages={onMessages} />)
+    const emit = transportMock.listeners.get("session:turn_started")
+    expect(emit).toBeTruthy()
+
+    await act(async () => {
+      emit?.({ sessionId: "parent-session" })
+    })
+    view.rerender(
+      <Harness currentSessionId="other-session" onMessages={onMessages} />,
+    )
+
+    await act(async () => {
+      resolveLoad?.([
+        [{
+          id: 1,
+          role: "assistant",
+          content: "belongs to the previous session",
+          timestamp: "2026-08-13T00:00:00.000Z",
+        }],
+        1,
+        false,
+      ])
+    })
+
+    expect(latest).toEqual([])
+  })
+
   test("renders parent-agent stream deltas through the shared chat stream handler", async () => {
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0)

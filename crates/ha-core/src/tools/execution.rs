@@ -36,9 +36,11 @@ pub async fn resolve_tool_permission(
     // model called `enter_plan_mode` mid-turn (user accepted) the live state
     // is now Planning/Review while the snapshot still says Off, so the
     // permission engine would happily run write/edit/apply_patch/canvas. Fall
-    // back to a hard deny on those four mutation tools so the user-sovereignty
-    // contract holds within the same turn — full PlanAgent restrictions kick
-    // in automatically on the next user message when the agent rebuilds.
+    // back to the canonical hard-deny list (including cross-session
+    // delegation, which could otherwise execute mutations in another regular
+    // session) so the user-sovereignty contract holds within the same turn.
+    // Full PlanAgent restrictions kick in automatically on the next user
+    // message when the agent rebuilds.
     if !is_internal_tool && ctx.plan_mode_allowed_tools.is_empty() {
         if let Some(sid) = ctx.session_id.as_deref() {
             let live = crate::plan::get_plan_state(sid).await;
@@ -1890,9 +1892,9 @@ mod tests {
         decide_async_path_with_config, exec_process_background_mode, execute_tool_with_context,
         is_bound_context_resource_read, maybe_persist_large_tool_result,
         migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
-        should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
-        tool_timeout, validate_async_background_contract, AsyncDecision, JobOrigin,
-        ToolExecContext,
+        resolve_tool_permission, should_migrate_exec_process_mode_to_async_job_with_config,
+        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
+        AsyncDecision, JobOrigin, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -2752,6 +2754,32 @@ export default async function main(workflow) {
             !ctx.should_run_exec_command_gate(),
             "exec_pre_approved (set post-approval by the reorder) must bypass the inner gate"
         );
+    }
+
+    #[tokio::test]
+    async fn live_plan_mode_blocks_same_round_cross_session_delegation() {
+        let session_id = format!("plan-cross-session-{}", uuid::Uuid::new_v4());
+        crate::plan::set_plan_state(&session_id, crate::plan::PlanModeState::Planning).await;
+        let ctx = ToolExecContext {
+            session_id: Some(session_id.clone()),
+            // An empty snapshot models a turn that entered Plan Mode after its
+            // tool schema had already been built.
+            plan_mode_allowed_tools: Vec::new(),
+            ..ToolExecContext::default()
+        };
+
+        for tool_name in [
+            crate::tool_defs::TOOL_SESSIONS_CREATE,
+            crate::tool_defs::TOOL_SESSIONS_SEND,
+        ] {
+            let decision = resolve_tool_permission(tool_name, &json!({}), &ctx, false).await;
+            assert!(
+                matches!(decision, crate::permission::Decision::Deny { .. }),
+                "{tool_name} must not escape a same-round Plan Mode transition"
+            );
+        }
+
+        crate::plan::set_plan_state(&session_id, crate::plan::PlanModeState::Off).await;
     }
 
     /// `ToolExecContext::emit_effective_args` is the bridge the streaming

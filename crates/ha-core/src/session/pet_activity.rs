@@ -191,6 +191,15 @@ mod tests {
         }
         assert_eq!(db.pet_activity_rows().expect("query main turn").0.len(), 1);
 
+        db.finish_chat_turn_once(
+            "main-turn",
+            crate::session::ChatTurnStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .expect("finish main UI turn");
+
         db.create_chat_turn_with_id_surface("external-turn", &session.id, "http", None, None, None)
             .expect("create non-UI turn");
         {

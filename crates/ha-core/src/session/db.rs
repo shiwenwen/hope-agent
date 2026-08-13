@@ -2255,6 +2255,29 @@ impl SessionDB {
         self.create_session_full(agent_id, None, project_id, incognito)
     }
 
+    /// Create a durable regular session only while the source session is
+    /// still non-incognito. The source check and target INSERT share one
+    /// `IMMEDIATE` transaction, so an incognito transition and cross-session
+    /// creation have a single durable ordering point across processes.
+    /// `None` means the source became incognito and no target row was written.
+    pub(crate) fn create_session_with_project_if_source_not_incognito(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        source_session_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<Option<SessionMeta>> {
+        crate::memory_extract::flush_all_idle_extractions();
+        self.create_session_full_checked(
+            agent_id,
+            None,
+            project_id,
+            false,
+            source_session_id,
+            title,
+        )
+    }
+
     /// Fully-parameterized session creator. Private helper called by the other
     /// `create_session*` variants so the INSERT statement exists in exactly one
     /// place.
@@ -2265,6 +2288,26 @@ impl SessionDB {
         project_id: Option<&str>,
         incognito: bool,
     ) -> Result<SessionMeta> {
+        self.create_session_full_checked(
+            agent_id,
+            parent_session_id,
+            project_id,
+            incognito,
+            None,
+            None,
+        )?
+        .ok_or_else(|| anyhow::anyhow!("session creation unexpectedly rejected without a source"))
+    }
+
+    fn create_session_full_checked(
+        &self,
+        agent_id: &str,
+        parent_session_id: Option<&str>,
+        project_id: Option<&str>,
+        incognito: bool,
+        source_session_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<Option<SessionMeta>> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -2306,15 +2349,32 @@ impl SessionDB {
             .clone()
             .unwrap_or_else(|| app_config.reasoning_effort.clone());
 
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "INSERT INTO sessions (id, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(source_session_id) = source_session_id {
+            let source_incognito = tx
+                .query_row(
+                    "SELECT incognito FROM sessions WHERE id = ?1",
+                    params![source_session_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Source session '{}' no longer exists", source_session_id)
+                })?;
+            if source_incognito {
+                return Ok(None);
+            }
+        }
+        tx.execute(
+            "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 id,
+                title,
                 agent_id,
                 initial_model.as_ref().map(|model| model.provider_id.as_str()),
                 initial_provider_name.as_deref(),
@@ -2330,10 +2390,11 @@ impl SessionDB {
                 incognito
             ],
         )?;
+        tx.commit()?;
 
-        Ok(SessionMeta {
+        Ok(Some(SessionMeta {
             id,
-            title: None,
+            title: title.map(str::to_string),
             title_source: crate::session_title::TITLE_SOURCE_MANUAL.to_string(),
             agent_id: agent_id.to_string(),
             provider_id: initial_model
@@ -2370,7 +2431,7 @@ impl SessionDB {
             working_dir: None,
             kind: SessionKind::Regular,
             autonomy_paused: false,
-        })
+        }))
     }
 
     /// Fork a regular user-facing session into a new first-class session.
@@ -2472,7 +2533,9 @@ impl SessionDB {
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-            let tx = conn.transaction()?;
+            // Serialize the active-turn check with every other foreground
+            // admission across database handles/processes.
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
             let (target_role, target_content, target_queue_request_id): (
                 String,

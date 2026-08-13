@@ -21,6 +21,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const LOCALES_DIR = resolve(__dirname, "../src/i18n/locales")
 const SRC_DIR = resolve(__dirname, "../src")
 const TRANSLATIONS_FILE = resolve(__dirname, "i18n-translations.json")
+const TOOL_NAMES_FILE = resolve(__dirname, "../crates/ha-core/src/tool_defs/names.rs")
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -159,6 +160,29 @@ function findLiteralSourceTranslationKeys() {
   return refs
 }
 
+/**
+ * Tool labels and descriptions are looked up through keys derived at runtime,
+ * so the literal-source scan cannot see them. Derive the same keys from the
+ * canonical Rust tool-name constants to keep newly added tools from silently
+ * falling back to backend English in non-English locales.
+ */
+function builtinToolTranslationKeys() {
+  const source = readFileSync(TOOL_NAMES_FILE, "utf8")
+  const toolNames = new Set(
+    [...source.matchAll(/^\s*pub const TOOL_[A-Z0-9_]+:\s*&str\s*=\s*"([^"]+)";/gm)].map(
+      (match) => match[1],
+    ),
+  )
+  return [...toolNames].flatMap((name) => {
+    const suffix = name
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join("")
+    return [`tools.${name}`, `settings.tool${suffix}Desc`]
+  })
+}
+
 function interpolationKeys(value) {
   if (typeof value !== "string") return []
   return [...value.matchAll(/{{\s*([^},\s]+)[^}]*}}/g)]
@@ -193,6 +217,9 @@ if (!doCheck && !doApply) {
 const en = JSON.parse(readFileSync(resolve(LOCALES_DIR, "en.json"), "utf8"))
 const enKeys = flatKeys(en)
 const enKeySet = new Set(enKeys)
+const missingBuiltinToolKeys = builtinToolTranslationKeys()
+  .filter((key) => !enKeySet.has(key))
+  .sort()
 
 // 读取翻译数据。check 同时校验种子，避免 --apply 将旧译文或点号扁平键写回 locale。
 let translations = {}
@@ -358,6 +385,13 @@ if (doCheck && missingSourceKeys.length > 0) {
   }
 }
 
+if (doCheck && missingBuiltinToolKeys.length > 0) {
+  console.log(
+    `\n⚠️  内置工具缺失 ${missingBuiltinToolKeys.length} 个名称或描述的 en.json 基准 key`,
+  )
+  for (const key of missingBuiltinToolKeys) console.log(`   - ${key}`)
+}
+
 console.log("\n────────────────────────────────")
 if (doCheck) {
   console.log(`总计缺失: ${totalMissing} 条`)
@@ -367,6 +401,7 @@ if (doCheck) {
   console.log(`翻译种子失效 key: ${totalSeedUnknownKeys} 条`)
   console.log(`翻译种子与 locale 不一致: ${totalSeedMismatches} 条`)
   console.log(`key 顺序漂移: ${totalUnordered} 个 locale`)
+  console.log(`内置工具缺失名称或描述: ${missingBuiltinToolKeys.length} 条`)
 }
 if (doApply) console.log(`总计写入: ${totalApplied} 条`)
 
@@ -381,10 +416,11 @@ if (
     totalSeedUnknownKeys > 0 ||
     totalSeedMismatches > 0 ||
     totalUnordered > 0 ||
-    missingSourceKeys.length > 0)
+    missingSourceKeys.length > 0 ||
+    missingBuiltinToolKeys.length > 0)
 ) {
   console.error(
-    `\n❌ 检测到 ${totalMissing} 个 locale 缺失 key、${totalExtra} 个多余 key、${totalPlaceholderMismatches} 个插值不一致、${missingSourceKeys.length} 个源码 key 未进入 en.json 基准，以及 ${totalSeedDottedKeys + totalSeedUnknownKeys + totalSeedMismatches} 个翻译种子问题。请补齐后重新提交。`,
+    `\n❌ 检测到 ${totalMissing} 个 locale 缺失 key、${totalExtra} 个多余 key、${totalPlaceholderMismatches} 个插值不一致、${missingSourceKeys.length} 个源码 key 未进入 en.json 基准、${missingBuiltinToolKeys.length} 个内置工具名称/描述 key 缺失，以及 ${totalSeedDottedKeys + totalSeedUnknownKeys + totalSeedMismatches} 个翻译种子问题。请补齐后重新提交。`,
   )
   process.exit(1)
 }

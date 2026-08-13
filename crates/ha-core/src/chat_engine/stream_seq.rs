@@ -35,6 +35,11 @@ pub enum ChatSource {
     Subagent,
     /// Background parent response to an auto-delivered sub-agent result.
     ParentInjection,
+    /// A top-level regular-session turn initiated by the model through the
+    /// cross-session coordination tools. It is durable and user-visible like
+    /// Desktop/HTTP, but does not claim fresh foreground user intent.
+    #[serde(rename = "session_tool")]
+    SessionTool,
     /// Scheduled task (cron job) run in its own isolated session. Owner-internal
     /// and non-interactive: no live user is waiting, but it is a legitimate
     /// top-level session (unlike `Subagent`) — so it holds the foreground idle
@@ -70,7 +75,10 @@ impl ChatSource {
     /// conversation. Subagent stays off the bus because child sessions have no
     /// UI counterpart waiting to reattach.
     pub fn broadcasts_to_user_ui(&self) -> bool {
-        matches!(self, Self::Desktop | Self::Http | Self::ParentInjection)
+        matches!(
+            self,
+            Self::Desktop | Self::Http | Self::ParentInjection | Self::SessionTool
+        )
     }
 
     /// Sources tracked by the stream_seq registry (so reload-recovery can
@@ -89,6 +97,7 @@ impl ChatSource {
                 | Self::Http
                 | Self::Channel
                 | Self::ParentInjection
+                | Self::SessionTool
                 | Self::Cron
                 | Self::Acp
         )
@@ -106,7 +115,7 @@ impl ChatSource {
     pub fn fires_user_lifecycle_hooks(&self) -> bool {
         matches!(
             self,
-            Self::Desktop | Self::Http | Self::Channel | Self::Cron
+            Self::Desktop | Self::Http | Self::Channel | Self::SessionTool | Self::Cron
         )
     }
 
@@ -129,7 +138,7 @@ impl ChatSource {
     pub fn holds_foreground_idle_guard(&self) -> bool {
         matches!(
             self,
-            Self::Desktop | Self::Http | Self::Channel | Self::Cron
+            Self::Desktop | Self::Http | Self::Channel | Self::SessionTool | Self::Cron
         )
     }
 
@@ -145,6 +154,7 @@ impl ChatSource {
             Self::Channel => "channel",
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
+            Self::SessionTool => "session_tool",
             Self::Cron => "cron",
             Self::Acp => "acp",
         }
@@ -161,6 +171,7 @@ impl ChatSource {
             "channel" => Self::Channel,
             "subagent" => Self::Subagent,
             "parent_injection" => Self::ParentInjection,
+            "session_tool" => Self::SessionTool,
             "cron" => Self::Cron,
             "acp" => Self::Acp,
             _ => Self::Desktop,
@@ -176,6 +187,7 @@ impl fmt::Display for ChatSource {
             Self::Channel => "channel",
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
+            Self::SessionTool => "session_tool",
             Self::Cron => "cron",
             Self::Acp => "acp",
         })
@@ -347,6 +359,7 @@ pub fn active_counts() -> ActiveChatCounts {
             // grows a dedicated cron source).
             ChatSource::Subagent
             | ChatSource::ParentInjection
+            | ChatSource::SessionTool
             | ChatSource::Cron
             | ChatSource::Acp => {}
         }
@@ -385,6 +398,8 @@ mod tests {
         assert!(ChatSource::Channel.fires_user_lifecycle_hooks());
         // Cron is a top-level scheduled session (no subagent cascade) — it fires.
         assert!(ChatSource::Cron.fires_user_lifecycle_hooks());
+        assert!(ChatSource::SessionTool.fires_user_lifecycle_hooks());
+        assert!(!ChatSource::SessionTool.carries_foreground_user_intent());
         assert!(!ChatSource::Subagent.fires_user_lifecycle_hooks());
         assert!(!ChatSource::ParentInjection.fires_user_lifecycle_hooks());
     }
@@ -400,6 +415,7 @@ mod tests {
         assert!(ChatSource::Http.holds_foreground_idle_guard());
         assert!(ChatSource::Channel.holds_foreground_idle_guard());
         assert!(ChatSource::Cron.holds_foreground_idle_guard());
+        assert!(ChatSource::SessionTool.holds_foreground_idle_guard());
         assert!(!ChatSource::Subagent.holds_foreground_idle_guard());
         assert!(!ChatSource::ParentInjection.holds_foreground_idle_guard());
     }
@@ -414,6 +430,24 @@ mod tests {
         assert!(ChatSource::ParentInjection.broadcasts_to_user_ui());
         assert!(!ChatSource::ParentInjection.fires_user_lifecycle_hooks());
         assert!(!ChatSource::ParentInjection.holds_foreground_idle_guard());
+    }
+
+    #[test]
+    fn session_tool_is_visible_and_durable_without_user_intent() {
+        assert!(ChatSource::SessionTool.tracks_seq());
+        assert!(ChatSource::SessionTool.broadcasts_to_user_ui());
+        assert!(ChatSource::SessionTool.fires_user_lifecycle_hooks());
+        assert!(ChatSource::SessionTool.holds_foreground_idle_guard());
+        assert!(!ChatSource::SessionTool.carries_foreground_user_intent());
+        assert_eq!(ChatSource::SessionTool.as_str(), "session_tool");
+        assert_eq!(
+            serde_json::to_value(ChatSource::SessionTool).unwrap(),
+            serde_json::json!("session_tool")
+        );
+        assert_eq!(
+            ChatSource::from_db_string("session_tool"),
+            ChatSource::SessionTool
+        );
     }
 
     #[test]

@@ -1154,6 +1154,14 @@ mod abandoned_stream_tests {
         let stopped = db
             .create_chat_turn(&session.id, "desktop", None, None)
             .expect("stopped turn");
+        db.finish_chat_turn_once(
+            &stopped.id,
+            crate::session::ChatTurnStatus::Interrupted,
+            Some(crate::session::ChatTurnInterruptReason::UserStop),
+            None,
+            None,
+        )
+        .expect("finish stopped turn");
         std::thread::sleep(std::time::Duration::from_millis(2));
         let replacement = db
             .create_chat_turn(&session.id, "desktop", None, None)

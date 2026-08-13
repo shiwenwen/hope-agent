@@ -389,6 +389,7 @@ where
         crate::chat_engine::stream_seq::ChatSource::Desktop
             | crate::chat_engine::stream_seq::ChatSource::Http
             | crate::chat_engine::stream_seq::ChatSource::Channel
+            | crate::chat_engine::stream_seq::ChatSource::SessionTool
     ) {
         return 0;
     }

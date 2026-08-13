@@ -18,6 +18,7 @@ import {
   Network,
   Cpu,
   MessageSquare,
+  MessageSquarePlus,
   List,
   History,
   Activity,
@@ -86,6 +87,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   subagent: Network,
   memory_get: Brain,
   agents_list: Users,
+  sessions_create: MessageSquarePlus,
   sessions_list: List,
   session_status: Activity,
   sessions_history: History,
@@ -172,6 +174,8 @@ function getDisplayArgs(name: string, args: string): string {
         return `id: ${parsed.id}`
       case "agents_list":
         return ""
+      case "sessions_create":
+        return parsed.title || parsed.agent_id || ""
       case "sessions_list":
         return parsed.agent_id ? `agent: ${parsed.agent_id}` : "all"
       case "session_status":
