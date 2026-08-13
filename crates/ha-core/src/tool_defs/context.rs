@@ -564,45 +564,169 @@ impl ToolExecContext {
         Ok(())
     }
 
-    /// Best-effort: tell any open file-browser view that a file under this
-    /// session's working directory just changed (agent `write` / `edit` /
-    /// `apply_patch`), so the tree/preview reconcile without a manual reload —
-    /// the same `project:fs_changed` event the browser's own CRUD emits. No-op
-    /// when there's no session, no working dir, no event bus, or the path falls
-    /// outside the working directory.
+    /// Best-effort: tell every matching session/project file-browser view that
+    /// a file under the primary or a linked project root changed (agent
+    /// `write` / `edit` / `apply_patch`). This uses the same scope identities
+    /// as the browser's own CRUD so trees and previews reconcile without a
+    /// manual reload. No-op when there is no event bus or no matching root.
     pub fn notify_workspace_file_changed(&self, abs_path: &str) {
-        let (Some(sid), Some(wd)) = (
-            self.session_id.as_deref(),
-            self.session_working_dir.as_deref(),
-        ) else {
-            return;
-        };
         let Some(bus) = crate::globals::get_event_bus() else {
             return;
         };
-        let Ok(root) = std::path::Path::new(wd).canonicalize() else {
-            return;
-        };
+        for payload in self.workspace_file_change_events(abs_path) {
+            bus.emit("project:fs_changed", payload);
+        }
+    }
+
+    fn workspace_file_change_events(&self, abs_path: &str) -> Vec<Value> {
         // The file may have just been created, so canonicalize its parent dir.
         let Some(parent) = std::path::Path::new(abs_path).parent() else {
-            return;
+            return Vec::new();
         };
         let Ok(parent) = parent.canonicalize() else {
-            return;
+            return Vec::new();
         };
-        let Ok(rel) = parent.strip_prefix(&root) else {
-            return; // outside the working dir — not a browseable change
+
+        let mut events = Vec::new();
+        if let Some(primary) = self.session_working_dir.as_deref() {
+            if let Some(dir) = relative_changed_dir(&parent, primary) {
+                if let Some(session_id) = self.session_id.as_deref() {
+                    events.push(workspace_changed_payload(
+                        "session",
+                        session_id.to_string(),
+                        self.project_id.as_deref(),
+                        &dir,
+                    ));
+                }
+                if let Some(project_id) = self.project_id.as_deref() {
+                    events.push(workspace_changed_payload(
+                        "project",
+                        project_id.to_string(),
+                        Some(project_id),
+                        &dir,
+                    ));
+                }
+            }
+        }
+
+        for (index, linked_root) in self.project_linked_dirs.iter().enumerate() {
+            let Some(dir) = relative_changed_dir(&parent, linked_root) else {
+                continue;
+            };
+            if let Some(session_id) = self.session_id.as_deref() {
+                events.push(workspace_changed_payload(
+                    "project_folder",
+                    project_folder_scope_id("session", session_id, index, linked_root),
+                    self.project_id.as_deref(),
+                    &dir,
+                ));
+            }
+            if let Some(project_id) = self.project_id.as_deref() {
+                events.push(workspace_changed_payload(
+                    "project_folder",
+                    project_folder_scope_id("project", project_id, index, linked_root),
+                    Some(project_id),
+                    &dir,
+                ));
+            }
+        }
+        events
+    }
+}
+
+fn relative_changed_dir(parent: &std::path::Path, root: &str) -> Option<String> {
+    let root = std::path::Path::new(root).canonicalize().ok()?;
+    let relative = parent.strip_prefix(root).ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn project_folder_scope_id(
+    base_scope: &str,
+    base_id: &str,
+    linked_index: usize,
+    expected_path: &str,
+) -> String {
+    format!("{base_scope}:{base_id}:{linked_index}:{expected_path}")
+}
+
+fn workspace_changed_payload(
+    scope: &str,
+    scope_id: String,
+    project_id: Option<&str>,
+    dir: &str,
+) -> Value {
+    json!({
+        "scope": scope,
+        "scopeId": scope_id,
+        "projectId": project_id,
+        "dir": dir,
+    })
+}
+
+#[cfg(all(test, unix))]
+mod workspace_file_change_tests {
+    use super::ToolExecContext;
+    use serde_json::json;
+
+    #[test]
+    fn linked_root_changes_target_session_and_project_browser_scopes() {
+        let base = std::path::Path::new("/tmp").join(format!(
+            "ha-workspace-change-events-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        let primary = base.join("primary");
+        let linked = base.join("linked");
+        std::fs::create_dir_all(primary.join("src")).expect("create primary root");
+        std::fs::create_dir_all(linked.join("docs")).expect("create linked root");
+
+        let ctx = ToolExecContext {
+            session_id: Some("session-1".into()),
+            project_id: Some("project-1".into()),
+            session_working_dir: Some(primary.to_string_lossy().into_owned()),
+            project_linked_dirs: vec![linked.to_string_lossy().into_owned()],
+            ..ToolExecContext::default()
         };
-        let dir = rel.to_string_lossy().replace('\\', "/");
-        bus.emit(
-            "project:fs_changed",
-            serde_json::json!({
-                "scope": "session",
-                "scopeId": sid,
-                "projectId": self.project_id.as_deref(),
-                "dir": dir,
-            }),
+
+        assert_eq!(
+            ctx.workspace_file_change_events(&linked.join("docs/note.md").to_string_lossy()),
+            vec![
+                json!({
+                    "scope": "project_folder",
+                    "scopeId": format!("session:session-1:0:{}", linked.display()),
+                    "projectId": "project-1",
+                    "dir": "docs",
+                }),
+                json!({
+                    "scope": "project_folder",
+                    "scopeId": format!("project:project-1:0:{}", linked.display()),
+                    "projectId": "project-1",
+                    "dir": "docs",
+                }),
+            ]
         );
+        assert_eq!(
+            ctx.workspace_file_change_events(&primary.join("src/lib.rs").to_string_lossy()),
+            vec![
+                json!({
+                    "scope": "session",
+                    "scopeId": "session-1",
+                    "projectId": "project-1",
+                    "dir": "src",
+                }),
+                json!({
+                    "scope": "project",
+                    "scopeId": "project-1",
+                    "projectId": "project-1",
+                    "dir": "src",
+                }),
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(base);
     }
 }
 

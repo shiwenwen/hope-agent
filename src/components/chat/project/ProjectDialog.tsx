@@ -50,12 +50,14 @@ import {
 } from "@/components/common/AgentSelectDisplay"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import ProjectInstructionsField from "./ProjectInstructionsField"
 import ProjectKnowledgeSection from "./ProjectKnowledgeSection"
 import { shouldSubmitProjectInstructions } from "./projectInstructionsDraft"
+import { promoteProjectSourceFolder } from "./projectSourceFolders"
+import { useProjectWorkingDir } from "./hooks/useProjectWorkingDir"
 
 import type {
   CreateProjectInput,
@@ -139,6 +141,7 @@ export default function ProjectDialog({
   onUpdate,
 }: ProjectDialogProps) {
   const { t } = useTranslation()
+  const transport = useTransport()
 
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -164,6 +167,11 @@ export default function ProjectDialog({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [error, setError] = useState("")
   const selectedDefaultAgent = agents.find((agent) => agent.id === defaultAgentId)
+  const effectivePrimaryDir = useProjectWorkingDir(
+    transport,
+    mode === "edit" ? (initialProject?.id ?? null) : null,
+    workingDir || null,
+  )
 
   const resetInstructionsForNewWorkspace = useCallback(() => {
     instructionsRequestSeq.current += 1
@@ -277,16 +285,11 @@ export default function ProjectDialog({
 
   const makePrimaryDir = useCallback(
     (path: string) => {
-      const previousPrimary = workingDir.trim()
+      const previousPrimary = effectivePrimaryDir?.trim() ?? ""
       if (previousPrimary === path) return
-      setWorkingDir(path)
-      setLinkedDirs((current) => {
-        const next = current.filter((linked) => linked !== path)
-        if (previousPrimary && previousPrimary !== path && !next.includes(previousPrimary)) {
-          next.unshift(previousPrimary)
-        }
-        return next
-      })
+      const promoted = promoteProjectSourceFolder(path, previousPrimary, linkedDirs)
+      setWorkingDir(promoted.workingDir)
+      setLinkedDirs(promoted.linkedDirs)
       void loadInstructions(
         "inspect_project_instructions_cmd",
         { workingDir: path, projectId: null },
@@ -299,7 +302,7 @@ export default function ProjectDialog({
 
       setName((currentName) => (currentName.trim() ? currentName : inferredName))
     },
-    [loadInstructions, mode, workingDir],
+    [effectivePrimaryDir, linkedDirs, loadInstructions, mode],
   )
 
   const handleSourceDirPicked = useCallback(
@@ -571,7 +574,10 @@ export default function ProjectDialog({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => makePrimaryDir(path)}>
+                      <DropdownMenuItem
+                        disabled={mode === "edit" && !effectivePrimaryDir}
+                        onSelect={() => makePrimaryDir(path)}
+                      >
                         <Star className="mr-2 h-4 w-4" />
                         {t("project.linkedDirs.makePrimary")}
                       </DropdownMenuItem>
