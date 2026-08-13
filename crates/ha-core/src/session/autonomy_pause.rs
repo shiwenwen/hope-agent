@@ -1121,6 +1121,7 @@ mod tests {
         db.append_message_and_create_session_tool_turn_with_id(
             "session-tool-turn",
             &session.id,
+            None,
             &crate::session::NewMessage::user("hello"),
             expected_global_stop_epoch,
         )

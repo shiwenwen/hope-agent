@@ -145,37 +145,34 @@ pub(crate) async fn tool_sessions_create(
     let title_for_create = title.clone();
     let project_id_for_create = project_id.clone();
     let source_session_id = ctx.session_id.clone();
-    let created = crate::blocking::run_blocking(
-        move || -> Result<std::result::Result<crate::session::SessionMeta, String>> {
-            if live_source_is_incognito(&db_for_create, source_session_id.as_deref())? {
-                return Ok(Err(
-                    "Refusing to create a persistent session from an incognito session."
-                        .to_string(),
-                ));
-            }
-            let _agent_admission = crate::agent_lifecycle::begin_agent_run(&agent_id_for_create)
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "Agent '{}' is not available: {}",
-                        agent_id_for_create,
-                        error
-                    )
-                })?;
-            let session = db_for_create.create_session_with_project(
-                &agent_id_for_create,
-                project_id_for_create.as_deref(),
-                Some(false),
-            )?;
-            if let Some(title) = title_for_create.as_deref() {
-                db_for_create.update_session_title(&session.id, title)?;
-            }
-            Ok(Ok(session))
-        },
-    )
+    let created = crate::blocking::run_blocking(move || -> Result<_> {
+        let _agent_admission = crate::agent_lifecycle::begin_agent_run(&agent_id_for_create)
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Agent '{}' is not available: {}",
+                    agent_id_for_create,
+                    error
+                )
+            })?;
+        let Some(session) = db_for_create.create_session_with_project_if_source_not_incognito(
+            &agent_id_for_create,
+            project_id_for_create.as_deref(),
+            source_session_id.as_deref(),
+            title_for_create.as_deref(),
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(session))
+    })
     .await?;
     let mut session = match created {
-        Ok(session) => session,
-        Err(refusal) => return Ok(refusal),
+        Some(session) => session,
+        None => {
+            return Ok(
+                "Refusing to create a persistent session from an incognito session.".to_string(),
+            )
+        }
     };
     session.title = title.clone();
 
@@ -855,6 +852,45 @@ fn parse_inline_attachments(args: &Value) -> Result<Vec<crate::agent::Attachment
     Ok(attachments)
 }
 
+/// `sessions_create` / `sessions_send` inline attachments start as in-memory
+/// bytes with no path. If durable turn admission later loses to Stop,
+/// incognito, or another process's active turn, remove only the new files this
+/// call materialized beneath the target session's attachment root.
+fn remove_uncommitted_inline_attachments(
+    session_id: &str,
+    attachments: &[crate::agent::Attachment],
+) {
+    let Ok(root) = crate::paths::attachments_dir(session_id) else {
+        return;
+    };
+    let Ok(canonical_root) = root.canonicalize() else {
+        return;
+    };
+    for attachment in attachments {
+        if attachment.source.as_deref() != Some("upload") || attachment.data.is_none() {
+            continue;
+        }
+        let Some(path) = attachment.file_path.as_deref() else {
+            continue;
+        };
+        let Ok(canonical_path) = std::path::Path::new(path).canonicalize() else {
+            continue;
+        };
+        if !canonical_path.starts_with(&canonical_root) {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(&canonical_path) {
+            crate::app_warn!(
+                "session",
+                "cross_session_attachment_rollback",
+                "Failed to remove an uncommitted inline attachment for session {}: {}",
+                session_id,
+                error
+            );
+        }
+    }
+}
+
 async fn start_proactive_turn(
     db: Arc<crate::session::SessionDB>,
     session: crate::session::SessionMeta,
@@ -943,6 +979,7 @@ async fn start_proactive_turn(
     let session_id_for_persist = session.id.clone();
     let turn_id_for_persist = turn_id.clone();
     let prompt_for_persist = effective_prompt.clone();
+    let source_session_id_for_persist = ctx.session_id.clone();
     let (persisted, attachments) = crate::blocking::run_blocking(move || {
         let mut title_meta = None;
         let outcome = crate::chat_engine::active_turn::with_persistence_target(
@@ -967,12 +1004,17 @@ async fn start_proactive_turn(
                     .append_message_and_create_session_tool_turn_with_id(
                         &turn_id_for_persist,
                         &session_id_for_persist,
+                        source_session_id_for_persist.as_deref(),
                         &user_message,
                         expected_global_stop_epoch,
                     )
                     .map(|_| ())
             },
-        )?;
+        );
+        if outcome.is_err() {
+            remove_uncommitted_inline_attachments(&session_id_for_persist, &attachments);
+        }
+        let outcome = outcome?;
         if matches!(
             outcome,
             crate::chat_engine::active_turn::PersistenceTargetOutcome::Committed(_)
@@ -1474,6 +1516,21 @@ mod tests {
             .await
             .expect("live create refusal");
         assert!(create.contains("Refusing"));
+        let durable_session_count = ctx
+            .session_db
+            .as_ref()
+            .unwrap()
+            .0
+            .with_conn_for_test(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| {
+                    row.get::<_, i64>(0)
+                })?)
+            })
+            .unwrap();
+        assert_eq!(
+            durable_session_count, 1,
+            "incognito source validation must not leave a target session row"
+        );
     }
 
     #[tokio::test]
@@ -1557,6 +1614,56 @@ mod tests {
             .load_session_messages(&target.id)
             .expect("target messages")
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejected_turn_admission_removes_materialized_inline_attachments() {
+        let data_root = tempfile::tempdir().expect("data root");
+        crate::test_support::with_env_vars_async(&[("HA_DATA_DIR", data_root.path())], || async {
+            let (_dir, db) = test_db("attachment-admission-rollback");
+            let source = db.create_session("ha-main").expect("source");
+            let target = db.create_session("ha-main").expect("target");
+            let admitted_global_stop_epoch = db.global_stop_epoch().unwrap();
+            let ctx = super::super::execution::ToolExecContext {
+                session_id: Some(source.id),
+                session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+                turn_admitted_global_stop_epoch: Some(admitted_global_stop_epoch),
+                ..Default::default()
+            };
+            db.begin_global_stop_enumeration()
+                .expect("concurrent global Stop wins");
+
+            let error = tool_sessions_send(
+                &serde_json::json!({
+                    "session_id": target.id,
+                    "message": "inspect the attachment",
+                    "attachments": [{
+                        "name": "brief.txt",
+                        "content": "private draft",
+                        "mime_type": "text/plain",
+                        "encoding": "utf8"
+                    }]
+                }),
+                &ctx,
+            )
+            .await
+            .expect_err("stale admission must reject after attachment preparation");
+
+            assert!(error.to_string().contains("Global Stop"));
+            assert!(db
+                .load_session_messages(&target.id)
+                .expect("target messages")
+                .is_empty());
+            let attachment_dir = crate::paths::attachments_dir(&target.id).unwrap();
+            assert_eq!(
+                std::fs::read_dir(attachment_dir)
+                    .expect("target attachment directory")
+                    .count(),
+                0,
+                "rejected admission must not leave orphaned attachment files"
+            );
+        })
+        .await;
     }
 
     #[test]

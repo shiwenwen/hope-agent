@@ -408,6 +408,7 @@ impl SessionDB {
         &self,
         id: &str,
         session_id: &str,
+        source_session_id: Option<&str>,
         message: &NewMessage,
         expected_global_stop_epoch: u64,
     ) -> Result<(i64, ChatTurn)> {
@@ -420,7 +421,7 @@ impl SessionDB {
             None,
             None,
             None,
-            Some(expected_global_stop_epoch),
+            Some((expected_global_stop_epoch, source_session_id)),
         )
     }
 
@@ -435,7 +436,7 @@ impl SessionDB {
         ui_surface: Option<crate::pet::ChatUiSurface>,
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
-        expected_global_stop_epoch: Option<u64>,
+        session_tool_admission: Option<(u64, Option<&str>)>,
     ) -> Result<(i64, ChatTurn)> {
         if client_request_id.is_some() != request_fingerprint.is_some() {
             anyhow::bail!(
@@ -446,16 +447,44 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        let tx = if expected_global_stop_epoch.is_some() {
+        let tx = if session_tool_admission.is_some() {
             conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?
         } else {
             conn.transaction()?
         };
-        if let Some(expected_global_stop_epoch) = expected_global_stop_epoch {
+        if let Some((expected_global_stop_epoch, source_session_id)) = session_tool_admission {
             let current_global_stop_epoch =
                 super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
             if current_global_stop_epoch != expected_global_stop_epoch {
                 anyhow::bail!("Global Stop began before the cross-session turn was persisted");
+            }
+            if let Some(source_session_id) = source_session_id {
+                let source_incognito = tx
+                    .query_row(
+                        "SELECT incognito FROM sessions WHERE id = ?1",
+                        params![source_session_id],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .optional()?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Source session '{}' no longer exists", source_session_id)
+                    })?;
+                if source_incognito {
+                    anyhow::bail!("Refusing cross-session messaging from an incognito session");
+                }
+            }
+            let target_incognito = tx
+                .query_row(
+                    "SELECT incognito FROM sessions WHERE id = ?1",
+                    params![session_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Target session '{}' no longer exists", session_id)
+                })?;
+            if target_incognito {
+                anyhow::bail!("Refusing to send to incognito session '{}'", session_id);
             }
             let paused = tx.query_row(
                 super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
@@ -1010,6 +1039,7 @@ mod tests {
             .append_message_and_create_session_tool_turn_with_id(
                 "delegated-after-stop",
                 &session.id,
+                None,
                 &NewMessage::user("hello"),
                 expected_global_stop_epoch,
             )
@@ -1031,6 +1061,7 @@ mod tests {
             .append_message_and_create_session_tool_turn_with_id(
                 "delegated-while-paused",
                 &session.id,
+                None,
                 &NewMessage::user("hello"),
                 expected_global_stop_epoch,
             )
@@ -1062,6 +1093,7 @@ mod tests {
                 db.append_message_and_create_session_tool_turn_with_id(
                     turn_id,
                     &session_id,
+                    None,
                     &NewMessage::user(turn_id),
                     expected_global_stop_epoch,
                 )
@@ -1091,6 +1123,39 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn session_tool_turn_rechecks_source_incognito_in_its_write_transaction() {
+        let db = temp_db();
+        let source = db.create_session("ha-main").unwrap();
+        let target = db.create_session("ha-main").unwrap();
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET incognito = 1 WHERE id = ?1",
+                params![source.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let error = db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-after-incognito",
+                &target.id,
+                Some(&source.id),
+                &NewMessage::user("hello"),
+                expected_global_stop_epoch,
+            )
+            .expect_err("live source privacy state must fail closed");
+
+        assert!(error.to_string().contains("incognito"));
+        assert!(db.load_session_messages(&target.id).unwrap().is_empty());
+        assert!(db
+            .get_chat_turn("delegated-after-incognito")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
