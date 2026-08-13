@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { FileBrowserView } from "./project/file-browser/FileBrowserView"
 import type { QuotePayload } from "./project/file-browser/FilePreviewPane"
+import type { ProjectFileQuoteReveal } from "./project/fileQuoteTarget"
 
 interface FileBrowserPanelProps {
   scope: "session" | "project"
@@ -48,13 +49,7 @@ interface FileBrowserPanelProps {
   onQuote?: (payload: QuotePayload) => void
   /** A click on a quote chip in the composer: reveal + select this file and
    *  highlight the quoted line range. */
-  revealFile?: {
-    path: string
-    name: string
-    startLine: number
-    endLine: number
-    nonce: number
-  } | null
+  revealFile?: ProjectFileQuoteReveal | null
   onClose: () => void
 }
 

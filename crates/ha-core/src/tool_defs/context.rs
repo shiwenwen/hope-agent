@@ -728,6 +728,55 @@ mod workspace_file_change_tests {
 
         let _ = std::fs::remove_dir_all(base);
     }
+
+    #[test]
+    fn linked_root_changes_keep_database_indices_when_primary_duplicates_a_linked_root() {
+        let base = std::path::Path::new("/tmp").join(format!(
+            "ha-workspace-change-indices-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        let active_linked = base.join("active-linked");
+        let changed_linked = base.join("changed-linked");
+        std::fs::create_dir_all(&active_linked).expect("create active linked root");
+        std::fs::create_dir_all(changed_linked.join("docs")).expect("create changed linked root");
+
+        let ctx = ToolExecContext {
+            session_id: Some("session-1".into()),
+            project_id: Some("project-1".into()),
+            session_working_dir: Some(active_linked.to_string_lossy().into_owned()),
+            project_linked_dirs: vec![
+                active_linked.to_string_lossy().into_owned(),
+                changed_linked.to_string_lossy().into_owned(),
+            ],
+            ..ToolExecContext::default()
+        };
+
+        assert_eq!(
+            ctx.workspace_file_change_events(
+                &changed_linked.join("docs/note.md").to_string_lossy()
+            ),
+            vec![
+                json!({
+                    "scope": "project_folder",
+                    "scopeId": format!("session:session-1:1:{}", changed_linked.display()),
+                    "projectId": "project-1",
+                    "dir": "docs",
+                }),
+                json!({
+                    "scope": "project_folder",
+                    "scopeId": format!("project:project-1:1:{}", changed_linked.display()),
+                    "projectId": "project-1",
+                    "dir": "docs",
+                }),
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
 }
 
 // ── Runtime Timeout Policy Helpers ───────────────────────────────

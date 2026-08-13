@@ -51,6 +51,10 @@ import { FileBrowserTree, type DraftNode } from "./FileBrowserTree"
 import { FilePreviewPane, type QuotePayload } from "./FilePreviewPane"
 import { WorkspaceTextEditor } from "./WorkspaceTextEditor"
 import { projectFsPreviewSource } from "@/components/chat/files/previewSource"
+import {
+  resolveProjectFileQuoteTarget,
+  type ProjectFileQuoteReveal,
+} from "../fileQuoteTarget"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { useFileResource } from "@/components/chat/files/useFileResource"
@@ -105,13 +109,7 @@ export interface FileBrowserViewProps {
   onQuote?: (payload: QuotePayload) => void
   /** Reveal + select this file and highlight the quoted line range (from a
    *  composer quote-chip click). The nonce re-triggers even for the same path. */
-  revealFile?: {
-    path: string
-    name: string
-    startLine: number
-    endLine: number
-    nonce: number
-  } | null
+  revealFile?: ProjectFileQuoteReveal | null
   className?: string
 }
 
@@ -306,6 +304,14 @@ export function FileBrowserView({
         : null,
     [fs, selected, transportRevision],
   )
+  const handleQuote = useCallback(
+    (payload: QuotePayload) =>
+      onQuote?.({
+        ...payload,
+        ...(activeProjectRoot && !activeWorktree ? { projectRoot: activeProjectRoot } : {}),
+      }),
+    [activeProjectRoot, activeWorktree, onQuote],
+  )
   const selectedTarget = useMemo<PreviewTarget | null>(
     () =>
       selected && !selected.isDir
@@ -355,21 +361,30 @@ export function FileBrowserView({
   const [trackedRevealNonce, setTrackedRevealNonce] = useState<number | null>(null)
   if (revealFile && revealFile.nonce !== trackedRevealNonce) {
     setTrackedRevealNonce(revealFile.nonce)
-    setActiveProjectRoot(null)
+    const target = resolveProjectFileQuoteTarget(revealFile, linkedRootPaths)
+    setActiveProjectRoot(target.projectRoot)
     setActiveWorktree(null)
-    setSelected({
-      name: revealFile.name,
-      relPath: revealFile.path,
-      isDir: false,
-      isSymlink: false,
-      size: null,
-      modifiedMs: null,
-    })
-    setRevealLines({
-      start: revealFile.startLine,
-      end: revealFile.endLine,
-      nonce: revealFile.nonce,
-    })
+    setSelected(
+      target.valid
+        ? {
+            name: revealFile.name,
+            relPath: target.path,
+            isDir: false,
+            isSymlink: false,
+            size: null,
+            modifiedMs: null,
+          }
+        : null,
+    )
+    setRevealLines(
+      target.valid
+        ? {
+            start: revealFile.startLine,
+            end: revealFile.endLine,
+            nonce: revealFile.nonce,
+          }
+        : null,
+    )
   }
   // revealFile cleared (e.g. the quote chip was removed) → drop the highlight.
   if (!revealFile && revealLines) {
@@ -940,7 +955,7 @@ export function FileBrowserView({
             ) : (
               <FilePreviewPane
                 source={previewSource}
-                onQuote={onQuote}
+                onQuote={onQuote ? handleQuote : undefined}
                 onOpen={() => selectedActions.run("open")}
                 onDownload={
                   selectedActions.isLocal ? undefined : () => selectedActions.run("download")
@@ -998,7 +1013,7 @@ export function FileBrowserView({
         ) : (
           <FilePreviewPane
             source={previewSource}
-            onQuote={onQuote}
+            onQuote={onQuote ? handleQuote : undefined}
             onOpen={selected ? () => selectedActions.run("open") : undefined}
             onDownload={
               selected && !selectedActions.isLocal

@@ -78,6 +78,7 @@ import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
+import type { ProjectFileQuoteReveal } from "@/components/chat/project/fileQuoteTarget"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
@@ -774,13 +775,7 @@ export default function ChatScreen({
   // Clicking a staged quote chip reveals that file in the browser. The nonce
   // makes each click a fresh signal, even when re-revealing the same path.
   const revealQuoteNonce = useRef(0)
-  const [revealFile, setRevealFile] = useState<{
-    path: string
-    name: string
-    startLine: number
-    endLine: number
-    nonce: number
-  } | null>(null)
+  const [revealFile, setRevealFile] = useState<ProjectFileQuoteReveal | null>(null)
   const [showMacControlPanel, setShowMacControlPanel] = useState(false)
   const macControlPanelDismissedRef = useRef(false)
 
@@ -3320,6 +3315,7 @@ export default function ChatScreen({
         name: q.name,
         startLine: q.startLine,
         endLine: q.endLine,
+        projectRoot: q.projectRoot,
         nonce: revealQuoteNonce.current,
       })
     },

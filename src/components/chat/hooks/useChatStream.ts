@@ -37,6 +37,7 @@ import type {
   ChatTurnStatus,
   ChatTurnInterruptReason,
 } from "@/types/chat"
+import { quoteReferencePath } from "@/components/chat/project/fileQuoteTarget"
 import { parseSessionMessages } from "../chatUtils"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
@@ -1527,7 +1528,7 @@ export function useChatStream({
           mime_type: "text/plain",
           source: "quote",
           data: q.content,
-          file_path: q.path,
+          file_path: quoteReferencePath(q),
           quote_lines: quoteLineLabel(q),
         })
       }
@@ -1894,7 +1895,7 @@ export function useChatStream({
       mimeType: "text/plain",
       sizeBytes: 0,
       kind: "quote",
-      quotePath: q.path,
+      quotePath: quoteReferencePath(q),
       quoteLines: quoteLineLabel(q),
       quoteContent: q.content,
     }))

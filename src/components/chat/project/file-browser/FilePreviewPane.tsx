@@ -20,17 +20,12 @@ import { fileKindOf, shikiLang } from "@/lib/fileKind"
 import { cn } from "@/lib/utils"
 import type { FileTextContent } from "@/lib/transport"
 import type { PreviewSource } from "@/components/chat/files/previewSource"
+import type { PendingFileQuote } from "@/types/chat"
 import { OfficeRichPreview } from "@/components/chat/files/office/OfficeRichPreview"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
 import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
-export interface QuotePayload {
-  path: string
-  name: string
-  startLine: number
-  endLine: number
-  content: string
-}
+export type QuotePayload = PendingFileQuote
 
 type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
