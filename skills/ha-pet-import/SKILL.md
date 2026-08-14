@@ -20,12 +20,12 @@ Route every source through Hope's validator and atomic installer. Treat the orig
 
 ## Select a safe Hope handoff
 
-Prefer the exact executable exposed by Hope in `HOPE_AGENT_EXECUTABLE`; safely quote it for the active shell. Fall back to a `hope-agent` resolved from `PATH` only when that variable is unavailable or inaccessible.
+Use the exact `hope-agent pet ...` command prefix through Hope's `exec` tool. Hope recognizes only a strictly parsed Pet CLI argv, rejects shell operators and expansions, and routes it to the owning Hope binary on the host after normal exec approval. This sealed control-plane handoff also works when the conversation's shell commands are sandboxed; it never copies the platform binary or Owner Token into the container. Do not prepend a discovered executable path, add custom environment variables, request PTY/background mode, or wrap the command in another shell.
 
 Before inspecting or downloading the source, run:
 
 ```text
-<HOPE_BIN> pet capabilities --json
+hope-agent pet capabilities --json
 ```
 
 Continue only when stdout is JSON with `status: "capabilities"`, `schemaVersion >= 1`, and the capabilities needed below. Enabling requires `activateInstalled: true`. Exit status alone is not proof: an older desktop binary may silently open or delegate to an existing GUI and produce no CLI output. On empty, malformed, or incompatible output, do not retry pet subcommands and do not bypass the mismatch with raw HTTP calls. Explain that the running Hope build lacks the bundled pet protocol and guide the user to upgrade or use Settings → Pets.
@@ -34,11 +34,11 @@ Continue only when stdout is JSON with `status: "capabilities"`, `schemaVersion 
 
 Use this flow when the user names an already installed pet. After a requested import succeeds, skip lookup and use the exact `pet.petRef` returned by commit.
 
-1. Run `<HOPE_BIN> pet list --json` and resolve the target by exact `petRef` first, then exact `manifest.displayName`. Do not choose from a fuzzy or ambiguous name; ask the user when more than one installed pet matches.
+1. Run `hope-agent pet list --json` and resolve the target by exact `petRef` first, then exact `manifest.displayName`. Do not choose from a fuzzy or ambiguous name; ask the user when more than one installed pet matches.
 2. For “enable”, “use”, “activate”, or “wake”, call the dedicated desktop command:
 
 ```text
-<HOPE_BIN> pet activate --pet-ref <PET_REF> --json
+hope-agent pet activate --pet-ref <PET_REF> --json
 ```
 
 Require JSON with `status: "activated"`, the exact requested `petRef`, and `enabled: true`. The CLI securely calls the running desktop's authenticated Pet API; it never exposes the Owner Token to the model.
@@ -68,20 +68,20 @@ For multiple loose files, materialize them under one temporary directory and pas
 
 ## Use the CLI
 
-Use the capability-checked `<HOPE_BIN>` selected above. Do not install a substitute CLI.
+Use the capability-checked sealed `hope-agent pet` handoff above. Do not install a substitute CLI.
 
 ### 1. Preview
 
 Run with a local path or direct artifact URL as a safely quoted argument:
 
 ```text
-<HOPE_BIN> pet preview --source <SOURCE> --json
+hope-agent pet preview --source <SOURCE> --json
 ```
 
 For loose resources discovered on a page, repeat the flag for files in the same temporary directory:
 
 ```text
-<HOPE_BIN> pet preview --source <PET_JSON> --source <SPRITE> --json
+hope-agent pet preview --source <PET_JSON> --source <SPRITE> --json
 ```
 
 Add `--display-name <NAME>` only for a standalone atlas or an explicit user override. Preserve the identical option during commit.
@@ -105,7 +105,7 @@ Ask whether to import this exact reviewed package into Hope. If the user origina
 After confirmation, reuse the same source and optional display name:
 
 ```text
-<HOPE_BIN> pet import --source <SOURCE> --expected-package-hash <PACKAGE_HASH> --json
+hope-agent pet import --source <SOURCE> --expected-package-hash <PACKAGE_HASH> --json
 ```
 
 Reuse the identical ordered `--source` list for loose files.

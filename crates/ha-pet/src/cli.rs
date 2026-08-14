@@ -181,10 +181,17 @@ async fn activate(options: ActivateOptions) -> Result<()> {
 }
 
 fn desktop_pet_activate_url(bind_addr: &str) -> Result<url::Url> {
-    let addr: SocketAddr = bind_addr
-        .trim()
-        .parse()
-        .context("pet_cli_desktop_bind_invalid")?;
+    let bind_addr = bind_addr.trim();
+    if let Some((host, port)) = bind_addr.rsplit_once(':') {
+        if host.eq_ignore_ascii_case("localhost") {
+            let port = port
+                .parse::<u16>()
+                .context("pet_cli_desktop_bind_invalid")?;
+            return url::Url::parse(&format!("http://localhost:{port}/api/pets/activate"))
+                .context("pet_cli_desktop_endpoint_invalid");
+        }
+    }
+    let addr: SocketAddr = bind_addr.parse().context("pet_cli_desktop_bind_invalid")?;
     let ip = match addr.ip() {
         IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
@@ -650,6 +657,10 @@ mod tests {
         assert_eq!(
             desktop_pet_activate_url("[::]:8420").unwrap().as_str(),
             "http://[::1]:8420/api/pets/activate"
+        );
+        assert_eq!(
+            desktop_pet_activate_url("LOCALHOST:8420").unwrap().as_str(),
+            "http://localhost:8420/api/pets/activate"
         );
         assert!(desktop_pet_activate_url("192.0.2.10:8420").is_err());
     }

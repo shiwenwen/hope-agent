@@ -555,6 +555,7 @@ fn run_server(args: &[String]) {
             .expect("init_runtime contract")
             .clone(),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+        pet_activate: None,
     });
     let config = ha_server::ServerConfig {
         bind_addr,

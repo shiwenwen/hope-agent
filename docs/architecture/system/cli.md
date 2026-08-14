@@ -42,7 +42,7 @@ hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 | **HTTP/WS 服务器** | 长驻进程 | `hope-agent server [...]` | `run_server` | axum 守护进程，内嵌 Web GUI；浏览器访问 `http://<bind>` 即得完整 React UI |
 | **Knowledge MCP stdio** | 长驻进程 | `hope-agent knowledge-mcp [...]` | `run_knowledge_mcp` | 把知识空间的模型侧访问 API 暴露为 stdio MCP 工具，供外部 AI host 调用 |
 | **平台 MCP stdio** | 长驻进程 | `hope-agent mcp [...]` | `run_mcp` | 平台级 MCP server（设计空间是首个 provider），把子系统暴露为 stdio MCP 工具；默认只读，`--allow-writes` 才开写。见 [mcp-server](../integration/mcp-server.md) |
-| **Pet 包管理** | 短命令 | `hope-agent pet <capabilities\|list\|preview\|import> [...]` | `run_pet_cli` | 探测导入协议、列出 Hope 宠物库，或用 preview + expected package hash 两阶段导入本机 / HTTPS 宠物包；不启用桌面 overlay |
+| **Pet 包管理** | 短命令 | `hope-agent pet <capabilities\|list\|preview\|import\|activate> [...]` | `run_pet_cli` | 探测导入协议、列出 Hope 宠物库、用 preview + expected package hash 两阶段导入本机 / HTTPS 宠物包，或经运行中桌面的鉴权 API 激活已安装宠物 |
 | **ACP stdio** | 长驻进程 | `hope-agent acp [...]` | `run_acp_server` | NDJSON over stdio，给 IDE / 外部客户端直连核心协议 |
 | **Auth 一次性命令** | 短命令 | `hope-agent auth <provider> [...]` | `cli_auth::run` | 终端环境下完成 OAuth（目前仅 Codex / ChatGPT），登录成功落 token、写 Provider 后退出 |
 
@@ -294,6 +294,8 @@ Pet 是本机一次性资源管理入口，桌面与 headless binary 都接线�
 
 `activate` 不在短进程里直接改 enabled：它从本机 0600 credential store 内部读取托管 Owner Token，按当前 `server.bindAddr` 的端口调用运行中桌面的 loopback `POST /api/pets/activate`，由 desktop runtime 原子校验并写入 `selectedPetRef + enabled=true`、再驱动 PetWindow。客户端禁用代理与重定向，非 loopback / unspecified bind fail closed；Token 不进 argv、stdout 或错误消息。桌面未运行、版本不支持、认证不匹配或 endpoint 属 headless 时命令非零退出，不以离线配置写伪造成功。
 
+Agent 的 bundled Pet skill 固定通过 `exec` 调 `hope-agent pet …`。exec 只在整条命令能解析为无 shell 运算/展开的 Pet CLI argv 时，才以参数数组直调当前运行实例的精确二进制；这条 sealed host-control handoff 仍先过普通 exec 审批，但不受会话 shell sandbox 的容器 PATH / 平台格式限制，也不把桌面二进制或 Owner Token 下放进容器。该旁路只接受前台、非 PTY、无自定义 env；其它命令继续按原 sandbox 语义执行。
+
 CLI 刻意不把 preview token 跨进程持久化。`preview` 输出 manifest、尺寸、校验问题、duplicate、`assetHash`、`packageHash` 与 `canCommit`，随后销毁自己的临时 token；调用方把这些信息展示给用户并等待明确确认。`import` 要求传回那个 `packageHash`，重新读取 / 下载同一来源、重新校验，hash 不一致则报 `pet_cli_source_changed`，绝不提交新字节。`--display-name` 参与 canonical package hash，故两步必须传相同值。
 
 成功提交只写 Hope 的内容寻址宠物库并返回 `petRef` / `imported`；它恒 `enable_after_import=false`，不会选择宠物、唤醒 overlay，也不会调用 `npx codex-pet-installer` 或写 `~/.codex/pets`。若桌面设置页已打开，独立 CLI 进程的 EventBus 不跨进程；下次 `pet list` / 打开或刷新 Pets 设置时会从磁盘权威目录重扫。需要即时进程内通知的客户端应使用 Bearer-auth HTTP preview / commit。
@@ -376,7 +378,6 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 | `HOPE_AGENT_RECOVERED` | 内部（Guardian） | Guardian 在 panic 重启子进程时设为 `"1"`，提示这是恢复启动 |
 | `HOPE_AGENT_CRASH_COUNT` | 内部（Guardian） | Guardian 重启子进程时把累计崩溃次数（数字字符串）传给子进程 |
 | `HOPE_AGENT_BUNDLED_SKILLS_DIR` | 用户/打包者 | 覆盖 bundled skills 目录。优先级 `env > CARGO_MANIFEST_DIR（仅 debug）> 二进制内嵌解压`（内置技能已编译进二进制，正常部署无需设置） |
-| `HOPE_AGENT_EXECUTABLE` | 内部（exec 工具） | Hope 在工具子进程中覆盖注入当前运行实例的精确可执行文件路径；bundled skill 应先用它做子命令 capability 握手，避免 PATH 命中另一版本。值不携密，PTY 与非 PTY 路径一致 |
 
 ## 数据目录速查
 

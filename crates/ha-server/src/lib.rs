@@ -2,6 +2,8 @@
 // Depends on ha-core for business logic, uses axum 0.8 for HTTP.
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
@@ -59,6 +61,11 @@ pub fn wire_features() {
 
 // ── AppContext ───────────────────────────────────────────────────
 
+pub type PetActivateFuture =
+    Pin<Box<dyn Future<Output = anyhow::Result<ha_pet::PetConfig>> + Send + 'static>>;
+pub type PetActivateHandler =
+    Arc<dyn Fn(ha_pet::PetRef) -> PetActivateFuture + Send + Sync + 'static>;
+
 /// Shared application state passed to all handlers via `State<Arc<AppContext>>`.
 pub struct AppContext {
     pub session_db: Arc<SessionDB>,
@@ -67,6 +74,9 @@ pub struct AppContext {
     pub terminal_manager: Arc<ha_core::terminal::TerminalManager>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Desktop-only bridge to the Tauri-owned native PetWindow lifecycle.
+    /// Headless servers leave this unset and the activation route fails closed.
+    pub pet_activate: Option<PetActivateHandler>,
 }
 
 /// Browser provenance required by the product-UI chat endpoint. Product

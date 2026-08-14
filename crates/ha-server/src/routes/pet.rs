@@ -53,15 +53,13 @@ pub struct PetActivateBody {
 }
 
 pub async fn activate(
+    State(ctx): State<Arc<AppContext>>,
     Json(body): Json<PetActivateBody>,
 ) -> Result<Json<ha_pet::PetConfig>, AppError> {
-    if !ha_core::is_desktop() {
+    let Some(activate) = ctx.pet_activate.as_ref() else {
         return Err(overlay_unsupported().await);
-    }
-    ha_pet::update_config(Some(true), Some(body.pet_ref), "http-pet-activate")
-        .await
-        .map(Json)
-        .map_err(bad_request)
+    };
+    activate(body.pet_ref).await.map(Json).map_err(bad_request)
 }
 
 pub async fn list() -> Result<Json<ha_pet::PetLibrarySnapshot>, AppError> {

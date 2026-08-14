@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::process::Stdio;
 #[cfg(unix)]
@@ -26,9 +26,167 @@ pub(crate) const MIN_MAX_OUTPUT_CHARS: usize = 8_000;
 pub(crate) const DEFAULT_YIELD_MS: u64 = 10_000;
 pub(crate) const MAX_YIELD_MS: u64 = 120_000;
 
-/// Exact executable that owns the current Hope runtime. Tool subprocesses use
-/// this instead of guessing from PATH, which may contain an older installation.
-pub(crate) const HOPE_AGENT_EXECUTABLE_ENV: &str = "HOPE_AGENT_EXECUTABLE";
+/// Parse the deliberately small shell subset accepted by the sealed
+/// `hope-agent pet ...` host-control handoff. Shell operators and expansions
+/// are rejected so routing the command outside a session sandbox can never
+/// turn into a general host-shell escape.
+fn parse_sealed_argv(command: &str) -> Option<Vec<String>> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Quote {
+        None,
+        Single,
+        Double,
+    }
+
+    let mut quote = Quote::None;
+    let mut escaped = false;
+    let mut current = String::new();
+    let mut argv = Vec::new();
+    let mut token_started = false;
+
+    for ch in command.chars() {
+        if escaped {
+            current.push(ch);
+            token_started = true;
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Quote::Single => {
+                if ch == '\'' {
+                    quote = Quote::None;
+                } else {
+                    current.push(ch);
+                }
+                token_started = true;
+            }
+            Quote::Double => {
+                if ch == '"' {
+                    quote = Quote::None;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else {
+                    current.push(ch);
+                }
+                token_started = true;
+            }
+            Quote::None => match ch {
+                '\'' => {
+                    quote = Quote::Single;
+                    token_started = true;
+                }
+                '"' => {
+                    quote = Quote::Double;
+                    token_started = true;
+                }
+                '\\' => {
+                    escaped = true;
+                    token_started = true;
+                }
+                '\n' | '\r' => return None,
+                ch if ch.is_whitespace() => {
+                    if token_started {
+                        argv.push(std::mem::take(&mut current));
+                        token_started = false;
+                    }
+                }
+                // All characters with shell evaluation, expansion, globbing,
+                // grouping, redirection, or comment semantics must be quoted.
+                ';' | '&' | '|' | '<' | '>' | '(' | ')' | '$' | '`' | '*' | '?' | '[' | ']'
+                | '{' | '}' | '~' | '#' => return None,
+                _ => {
+                    current.push(ch);
+                    token_started = true;
+                }
+            },
+        }
+    }
+    if escaped || quote != Quote::None {
+        return None;
+    }
+    if token_started {
+        argv.push(current);
+    }
+    Some(argv)
+}
+
+/// Recognize only the current product's Pet CLI. The returned argv starts at
+/// `pet`, ready to pass directly to `current_exe()` without a shell.
+fn sealed_pet_cli_args(command: &str) -> Option<Vec<String>> {
+    let argv = parse_sealed_argv(command)?;
+    let executable = argv.first()?.to_ascii_lowercase();
+    if !matches!(executable.as_str(), "hope-agent" | "hope-agent.exe")
+        || argv.get(1).map(String::as_str) != Some("pet")
+        || !matches!(
+            argv.get(2).map(String::as_str),
+            Some("capabilities" | "list" | "preview" | "import" | "activate")
+        )
+        || argv.len() > 140
+        || argv.iter().any(|arg| arg.len() > 16_384)
+    {
+        return None;
+    }
+    Some(argv.into_iter().skip(1).collect())
+}
+
+async fn execute_sealed_pet_cli(
+    argv: &[String],
+    cwd: &str,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<(String, i32)> {
+    let executable = std::env::current_exe().context("pet_cli_current_executable_unavailable")?;
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args(argv)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let output = command.output();
+    tokio::pin!(output);
+    let timeout = async move {
+        if timeout_secs == 0 {
+            std::future::pending::<()>().await;
+        } else {
+            tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)).await;
+        }
+    };
+    let cancelled = async move {
+        match cancellation_token {
+            Some(token) => token.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::pin!(timeout);
+    tokio::pin!(cancelled);
+    let output = tokio::select! {
+        result = &mut output => result.context("pet_cli_host_handoff_failed")?,
+        _ = &mut timeout => anyhow::bail!("pet_cli_host_handoff_timed_out"),
+        _ = &mut cancelled => anyhow::bail!("pet_cli_host_handoff_cancelled"),
+    };
+
+    let exit_code = output.status.code().unwrap_or(-1);
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if !output.stderr.is_empty() {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str("[stderr] ");
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    if text.is_empty() {
+        text = format!("[hope-agent pet] Command completed with exit code {exit_code}");
+    } else if exit_code != 0 {
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&format!("[exit code: {exit_code}]"));
+    }
+    Ok((text, exit_code))
+}
 
 // ── Shell Environment Resolution ──────────────────────────────────
 
@@ -733,6 +891,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .get("command")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+    let sealed_pet_argv = sealed_pet_cli_args(command);
 
     let cwd = args
         .get("cwd")
@@ -768,7 +927,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     let max_output = compute_max_output_chars(ctx.context_window_tokens);
     let session_cwd = cwd.clone().unwrap_or_else(|| ctx.default_cwd());
 
-    if sandbox {
+    if sandbox && sealed_pet_argv.is_none() {
         crate::sandbox::ensure_sandbox_available_for_mode(sandbox_mode).await?;
     }
 
@@ -800,6 +959,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                 serde_json::json!({
                     "cwd": &session_cwd, "explicitCwd": &cwd, "timeout": timeout_secs,
                     "background": background, "pty": use_pty, "sandbox": sandbox, "sandboxMode": sandbox_mode.as_str(),
+                    "hostControl": sealed_pet_argv.as_ref().map(|_| "pet"),
                 })
                 .to_string(),
             ),
@@ -832,13 +992,6 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                 cmd.env(key, v);
             }
         }
-    }
-
-    // Keep the owning Hope binary authoritative over login-shell and
-    // model-supplied env values. This path is non-secret and lets bundled
-    // skills avoid accidentally invoking an older Homebrew/system install.
-    if let Ok(executable) = std::env::current_exe() {
-        cmd.env(HOPE_AGENT_EXECUTABLE_ENV, executable);
     }
 
     // Create a session for tracking
@@ -891,6 +1044,57 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             let mut registry = get_registry().lock().await;
             registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
             return Err(e);
+        }
+    }
+
+    // Hope's Pet CLI mutates the application's managed pet store and, for
+    // activation, calls the authenticated desktop control plane. A shell
+    // sandbox cannot carry the platform binary (macOS/Windows binaries do not
+    // run in the Linux container) and must never receive the Owner Token.
+    // Route only a strictly parsed, foreground `hope-agent pet ...` argv to the
+    // exact owning binary. The ordinary exec approval above remains mandatory.
+    if let Some(pet_argv) = sealed_pet_argv {
+        if background || use_pty || args.get("env").is_some() {
+            let mut registry = get_registry().lock().await;
+            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+            anyhow::bail!("pet_cli_host_handoff_requires_foreground_without_custom_env");
+        }
+        app_info!(
+            "tool",
+            "exec::pet_host_handoff",
+            "Executing sealed Pet CLI through the owning Hope binary"
+        );
+        let result = execute_sealed_pet_cli(
+            &pet_argv,
+            &session_cwd,
+            timeout_secs,
+            ctx.cancellation_token.clone(),
+        )
+        .await;
+        let mut registry = get_registry().lock().await;
+        match result {
+            Ok((mut output, exit_code)) => {
+                if crate::truncate_string_utf8(&mut output, max_output) {
+                    output.push_str("\n... (output truncated)");
+                }
+                registry.append_output(&session_id, "stdout", &output);
+                registry.mark_exited(
+                    &session_id,
+                    Some(exit_code),
+                    None,
+                    if exit_code == 0 {
+                        ProcessStatus::Completed
+                    } else {
+                        ProcessStatus::Failed
+                    },
+                );
+                return Ok(output);
+            }
+            Err(error) => {
+                registry.append_output(&session_id, "stderr", &error.to_string());
+                registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+                return Err(error);
+            }
         }
     }
 
@@ -1304,10 +1508,6 @@ async fn exec_via_pty(
             cmd.env(key, val);
         }
 
-        if let Ok(executable) = std::env::current_exe() {
-            cmd.env(HOPE_AGENT_EXECUTABLE_ENV, executable);
-        }
-
         // Spawn the child process
         let mut child = pair
             .slave
@@ -1492,6 +1692,47 @@ fn strip_ansi_escapes(s: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sealed_pet_cli_accepts_quoted_data_without_shell_expansion() {
+        assert_eq!(
+            sealed_pet_cli_args(
+                "hope-agent pet preview --source '/tmp/Cat & Seal/pet.zip' --display-name \"Cat $ Seal\" --json"
+            )
+            .unwrap(),
+            vec![
+                "pet",
+                "preview",
+                "--source",
+                "/tmp/Cat & Seal/pet.zip",
+                "--display-name",
+                "Cat $ Seal",
+                "--json",
+            ]
+        );
+        assert_eq!(
+            sealed_pet_cli_args("hope-agent.exe pet activate --pet-ref custom:seal --json")
+                .unwrap(),
+            vec!["pet", "activate", "--pet-ref", "custom:seal", "--json"]
+        );
+    }
+
+    #[test]
+    fn sealed_pet_cli_rejects_shell_syntax_and_other_subcommands() {
+        for command in [
+            "hope-agent pet list --json; touch /tmp/escaped",
+            "hope-agent pet list --json && whoami",
+            "hope-agent pet list --json | tee pets.json",
+            "hope-agent pet preview --source $(whoami)",
+            "hope-agent server token show",
+            "/tmp/hope-agent pet list --json",
+        ] {
+            assert!(
+                sealed_pet_cli_args(command).is_none(),
+                "must not route through host control: {command}"
+            );
+        }
+    }
 
     #[test]
     fn exec_timeout_defaults_to_unlimited_and_clamps_positive_values() {
