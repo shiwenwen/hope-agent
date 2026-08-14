@@ -2029,6 +2029,27 @@ fn build_router_with_cors(
         .route("/cron/timeline", get(routes::cron::run_timeline))
         .route("/cron/unread", get(routes::cron::unread_total))
         .route("/cron/read-all", post(routes::cron::mark_all_read))
+        .route("/cron/workspaces", get(routes::cron::workspace_resources))
+        .route(
+            "/cron/runs/{run_log_id}/workspace",
+            get(routes::cron::workspace_resource_for_run),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/takeover",
+            post(routes::cron::workspace_takeover),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/return",
+            post(routes::cron::workspace_return),
+        )
+        .route(
+            "/cron/runs/{run_log_id}/workspace/discard",
+            post(routes::cron::workspace_discard_run),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/discard",
+            post(routes::cron::workspace_discard_task),
+        )
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))

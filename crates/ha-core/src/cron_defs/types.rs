@@ -56,6 +56,68 @@ pub enum CronPayloadType {
     SessionLoop,
 }
 
+/// Filesystem location used by an independent scheduled turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CronWorkspaceMode {
+    #[default]
+    Project,
+    Fresh,
+    Persistent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CronWorkspacePolicy {
+    #[serde(default)]
+    pub mode: CronWorkspaceMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_ref: Option<String>,
+}
+
+impl CronWorkspacePolicy {
+    pub fn normalized(mut self) -> Self {
+        self.base_ref = self
+            .base_ref
+            .take()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if self.mode == CronWorkspaceMode::Project {
+            self.base_ref = None;
+        }
+        self
+    }
+}
+
+/// Immutable Git facts recorded on one scheduled occurrence.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CronWorkspaceSnapshot {
+    pub mode: CronWorkspaceMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub staged: u32,
+    #[serde(default)]
+    pub unstaged: u32,
+    #[serde(default)]
+    pub untracked: u32,
+    #[serde(default)]
+    pub conflicted: u32,
+    #[serde(default)]
+    pub head_diverged: bool,
+    #[serde(default)]
+    pub retained: bool,
+}
+
 impl From<&CronPayload> for CronPayloadType {
     fn from(payload: &CronPayload) -> Self {
         match payload {
@@ -112,6 +174,8 @@ pub struct CronJob {
     /// Optional Project context to attach each isolated cron run session to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub workspace_policy: CronWorkspacePolicy,
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub status: CronJobStatus,
@@ -219,6 +283,12 @@ pub struct CronRunLog {
     /// `"failed"` (no target received it). Surfaced in the GUI run-log list.
     #[serde(default)]
     pub delivery_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_snapshot: Option<CronWorkspaceSnapshot>,
 }
 
 fn default_cron_revision() -> u64 {
@@ -290,6 +360,12 @@ pub struct CronTimelineRow {
     pub started_at: String,
     pub finished_at: Option<String>,
     pub result_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_snapshot: Option<CronWorkspaceSnapshot>,
     /// Session title from `SessionDB`; defaults to `job_name` when absent.
     #[serde(default)]
     pub title: Option<String>,
@@ -307,6 +383,8 @@ pub struct NewCronJob {
     /// Optional Project context to attach each isolated cron run session to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub workspace_policy: CronWorkspacePolicy,
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub max_failures: Option<u32>,

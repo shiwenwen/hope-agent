@@ -947,6 +947,12 @@ pub fn run() {
             commands::cron::cron_run_timeline,
             commands::cron::cron_unread_total,
             commands::cron::cron_mark_all_read,
+            commands::cron::cron_workspace_resources,
+            commands::cron::cron_workspace_resource_for_run,
+            commands::cron::cron_workspace_takeover,
+            commands::cron::cron_workspace_return,
+            commands::cron::cron_workspace_discard_run,
+            commands::cron::cron_workspace_discard_task,
             // Sub-agent management
             commands::subagent::list_subagent_runs,
             commands::subagent::get_subagent_run,

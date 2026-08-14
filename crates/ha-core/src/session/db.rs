@@ -5732,6 +5732,9 @@ impl SessionDB {
         session_id: &str,
         reason: crate::session::events::SessionDeleteReason,
     ) -> Result<()> {
+        // A Fresh scheduled Worktree is chat-owned. Letting the FK cascade
+        // erase its custody row would strand the Git checkout on disk.
+        self.ensure_session_has_no_scheduled_worktree_custody(session_id)?;
         // Snapshot before deletion — needed for the emit payload, and lets us
         // skip the event entirely when nothing was there to delete.
         let snapshot = self.get_session(session_id)?;

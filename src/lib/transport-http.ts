@@ -1269,6 +1269,27 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cron_run_timeline: { method: "GET", path: "/api/cron/timeline" },
   cron_unread_total: { method: "GET", path: "/api/cron/unread" },
   cron_mark_all_read: { method: "POST", path: "/api/cron/read-all" },
+  cron_workspace_resources: { method: "GET", path: "/api/cron/workspaces" },
+  cron_workspace_resource_for_run: {
+    method: "GET",
+    path: "/api/cron/runs/{runLogId}/workspace",
+  },
+  cron_workspace_takeover: {
+    method: "POST",
+    path: "/api/cron/jobs/{jobId}/workspace/takeover",
+  },
+  cron_workspace_return: {
+    method: "POST",
+    path: "/api/cron/jobs/{jobId}/workspace/return",
+  },
+  cron_workspace_discard_run: {
+    method: "POST",
+    path: "/api/cron/runs/{runLogId}/workspace/discard",
+  },
+  cron_workspace_discard_task: {
+    method: "POST",
+    path: "/api/cron/jobs/{jobId}/workspace/discard",
+  },
 
   // -- Dashboard --
   dashboard_overview: { method: "POST", path: "/api/dashboard/overview" },

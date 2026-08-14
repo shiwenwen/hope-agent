@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumberInput } from "@/components/ui/number-input"
+import { RadioPills } from "@/components/ui/radio-pills"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -13,13 +14,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Plus, Send, FolderOpen, AlertTriangle } from "lucide-react"
+import { X, Plus, Send, FolderOpen, AlertTriangle, GitBranch } from "lucide-react"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type {
   CronDeliveryTarget,
   CronJob,
   CronSchedule,
   CronUpdateResult,
+  CronWorkspaceMode,
 } from "./CronJobForm.types"
 
 import type { CronFrequency } from "./CronJobForm.types"
@@ -194,6 +196,10 @@ export default function CronJobForm({
   const [projectId, setProjectId] = useState(
     job ? (job.projectId ?? NO_PROJECT_VALUE) : (defaultProjectId ?? NO_PROJECT_VALUE),
   )
+  const [workspaceMode, setWorkspaceMode] = useState<CronWorkspaceMode>(
+    job?.workspacePolicy?.mode ?? "project",
+  )
+  const [workspaceBaseRef, setWorkspaceBaseRef] = useState(job?.workspacePolicy?.baseRef ?? "")
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
   const [prefixDeliveryWithName, setPrefixDeliveryWithName] = useState(
@@ -276,6 +282,8 @@ export default function CronJobForm({
     setMessage(latest.payload.prompt)
     setAgentId(latest.payload.agentId ?? AUTO_AGENT_VALUE)
     setProjectId(latest.projectId ?? NO_PROJECT_VALUE)
+    setWorkspaceMode(latest.workspacePolicy?.mode ?? "project")
+    setWorkspaceBaseRef(latest.workspacePolicy?.baseRef ?? "")
     setMaxFailures(String(latest.maxFailures))
     setNotifyOnComplete(latest.notifyOnComplete)
     setPrefixDeliveryWithName(latest.prefixDeliveryWithName ?? false)
@@ -432,6 +440,10 @@ export default function CronJobForm({
           name: name.trim(),
           description: description.trim() || null,
           projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
+          workspacePolicy: {
+            mode: workspaceMode,
+            baseRef: workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
+          },
           schedule,
           payload: {
             type: "agentTurn",
@@ -464,6 +476,10 @@ export default function CronJobForm({
             name: name.trim(),
             description: description.trim() || null,
             projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
+            workspacePolicy: {
+              mode: workspaceMode,
+              baseRef: workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
+            },
             schedule,
             payload: {
               type: "agentTurn",
@@ -683,7 +699,13 @@ export default function CronJobForm({
               <FolderOpen className="h-3 w-3" />
               {t("cron.project")}
             </label>
-            <Select value={projectId} onValueChange={setProjectId}>
+            <Select
+              value={projectId}
+              onValueChange={(value) => {
+                setProjectId(value)
+                if (value === NO_PROJECT_VALUE) setWorkspaceMode("project")
+              }}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -706,6 +728,46 @@ export default function CronJobForm({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Execution workspace */}
+          <div className="space-y-2 rounded-md border border-border/50 p-3">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <GitBranch className="h-3.5 w-3.5" />
+              {t("workspace.environment.worktree")}
+            </label>
+            <RadioPills<CronWorkspaceMode>
+              value={workspaceMode}
+              onChange={setWorkspaceMode}
+              ariaLabel={t("workspace.environment.worktree")}
+              options={(["project", "fresh", "persistent"] as const).map((mode) => ({
+                value: mode,
+                label:
+                  mode === "project"
+                    ? t("cron.project")
+                    : t(
+                        mode === "fresh"
+                          ? "chat.projectRuntime.worktree"
+                          : "cron.workspaceModePersistent",
+                      ),
+                disabled: mode !== "project" && projectId === NO_PROJECT_VALUE,
+              }))}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {t("cron.workspaceModeHint")}
+            </p>
+            {workspaceMode !== "project" && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  {t("workspace.git.prBase")}
+                </label>
+                <Input
+                  value={workspaceBaseRef}
+                  onChange={(event) => setWorkspaceBaseRef(event.target.value)}
+                  placeholder="HEAD"
+                />
+              </div>
+            )}
           </div>
 
           {/* Agent */}

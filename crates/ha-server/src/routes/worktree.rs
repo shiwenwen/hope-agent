@@ -5,6 +5,19 @@ use serde::Deserialize;
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
 
+fn ensure_writes_allowed() -> Result<(), AppError> {
+    if ha_core::config::cached_config()
+        .filesystem
+        .allow_remote_writes
+    {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "remote workspace writes are disabled; enable filesystem.allowRemoteWrites to allow them",
+        ))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateManagedWorktreeBody {
@@ -30,6 +43,7 @@ pub async fn create_managed_worktree(
     Path(session_id): Path<String>,
     Json(body): Json<CreateManagedWorktreeBody>,
 ) -> Result<Json<ha_core::worktree::ManagedWorktree>, AppError> {
+    ensure_writes_allowed()?;
     let db = session_db()?;
     let purpose = body
         .purpose
@@ -91,6 +105,7 @@ pub async fn cancel_project_bootstrap(
 pub async fn archive_managed_worktree(
     Path(id): Path<String>,
 ) -> Result<Json<ha_core::worktree::ManagedWorktree>, AppError> {
+    ensure_writes_allowed()?;
     let db = session_db()?;
     Ok(Json(
         db.run(move |db| db.archive_managed_worktree(&id))
@@ -102,6 +117,7 @@ pub async fn archive_managed_worktree(
 pub async fn restore_managed_worktree(
     Path(id): Path<String>,
 ) -> Result<Json<ha_core::worktree::ManagedWorktree>, AppError> {
+    ensure_writes_allowed()?;
     let db = session_db()?;
     Ok(Json(
         db.run(move |db| db.restore_managed_worktree(&id))
@@ -113,6 +129,7 @@ pub async fn restore_managed_worktree(
 pub async fn handoff_managed_worktree(
     Path(id): Path<String>,
 ) -> Result<Json<ha_core::worktree::ManagedWorktree>, AppError> {
+    ensure_writes_allowed()?;
     let db = session_db()?;
     Ok(Json(
         db.run(move |db| db.handoff_managed_worktree(&id))

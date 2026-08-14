@@ -120,7 +120,7 @@ blocker 禁止确认，warning 允许用户确认。读取失败、目标缺失�
 - “归还”只归还保管权，可选择同时恢复 Task；
 - “安全移交到项目”通过现有 Git handoff 搬运改动，与“归还”是不同动作；
 - “丢弃”要求 Task 已暂停、无 active run、会话 idle，并进行二次确认；
-- handed-off/dirty/conflicted 时 Run Now 和 Resume fail closed；
+- handed-off/conflicted 时 Run Now 和 Resume fail closed；普通 dirty 保留到下一轮继续工作；
 - 删除 Task 后 Worktree 仍可从历史中的“待处理资源”进入和处理。
 
 Worktree 后续操作尽量复用普通 `WorkspacePanel`、`GitControlCard`、Diff、branch、

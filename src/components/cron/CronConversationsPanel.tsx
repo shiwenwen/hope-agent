@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Check,
   CheckCheck,
+  FolderGit2,
   Loader2,
   MessagesSquare,
   Square,
@@ -18,10 +19,15 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { markAllCronRead, markCronSessionRead } from "@/hooks/useCronUnreadStore"
 import { cronDisplayTitle, runLogDotColor, runStatusDisplay } from "./cronHelpers"
-import type { CronRunCancelResult, CronTimelineRow } from "./CronJobForm.types"
+import type {
+  CronRunCancelResult,
+  CronTimelineRow,
+  CronWorkspaceResource,
+} from "./CronJobForm.types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import CronSessionViewer from "./CronSessionViewer"
 import CronLoopBadge from "./CronLoopBadge"
+import { CronWorkspaceResourceCard } from "./CronJobDetail"
 
 const PAGE_SIZE = 50
 
@@ -53,11 +59,15 @@ function useRelativeTime() {
 interface CronConversationsPanelProps {
   isViewVisible?: boolean
   isSurfaceReadable?: boolean
+  pendingWorkspaces?: CronWorkspaceResource[] | null
+  onRefreshPendingWorkspaces?: () => void | Promise<void>
 }
 
 export default function CronConversationsPanel({
   isViewVisible = true,
   isSurfaceReadable = isViewVisible,
+  pendingWorkspaces = [],
+  onRefreshPendingWorkspaces,
 }: CronConversationsPanelProps = {}) {
   const { t } = useTranslation()
   const relativeTime = useRelativeTime()
@@ -69,6 +79,9 @@ export default function CronConversationsPanel({
   const [loadingMore, setLoadingMore] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [selectedRunLogId, setSelectedRunLogId] = useState<number | null>(null)
+  const [workspaceResource, setWorkspaceResource] = useState<CronWorkspaceResource | null | false>(
+    null,
+  )
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [markingRead, setMarkingRead] = useState(false)
   const [markStatus, setMarkStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -89,6 +102,17 @@ export default function CronConversationsPanel({
     return Array.isArray(page) ? page : []
   }, [])
 
+  const fetchWorkspaceResource = useCallback(async (runLogId: number | null) => {
+    if (runLogId == null) return setWorkspaceResource(null)
+    const resource = await getTransport()
+      .call<CronWorkspaceResource | null>("cron_workspace_resource_for_run", { runLogId })
+      .catch(() => false as const)
+    setWorkspaceResource(resource)
+  }, [])
+
+  useEffect(() => {
+    void fetchWorkspaceResource(selectedRunLogId)
+  }, [fetchWorkspaceResource, selectedRunLogId])
   // Initial load (timeline + agents for message bubbles).
   useEffect(() => {
     if (!isViewVisible) return
@@ -398,6 +422,12 @@ export default function CronConversationsPanel({
                           {row.resultPreview}
                         </p>
                       )}
+                      {row.workspaceStatus && (
+                        <span className="mt-1 inline-flex items-center gap-1 pl-4 text-[10px] text-muted-foreground">
+                          <FolderGit2 className="h-3 w-3" />
+                          {row.workspaceStatus}
+                        </span>
+                      )}
                     </button>
                     {!isLoop && (
                       <IconTip label={t("subagent.openSession")}>
@@ -474,6 +504,54 @@ export default function CronConversationsPanel({
 
       {/* Right — read-only conversation */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-muted/[0.14]">
+        {workspaceResource === false && (
+          <p className="shrink-0 p-3 text-xs text-destructive">
+            {t("workspace.environment.unavailable")}
+          </p>
+        )}
+        {(pendingWorkspaces === null || pendingWorkspaces.length > 0) && (
+          <div className="grid shrink-0 gap-2 p-2 pb-0">
+            <div className="flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
+              {t("workspace.goal.detailWorktrees")}
+              {pendingWorkspaces === null && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void onRefreshPendingWorkspaces?.()}
+                >
+                  {t("common.retry")}
+                </Button>
+              )}
+            </div>
+            {pendingWorkspaces === null ? (
+              <p className="px-1 text-xs text-destructive">
+                {t("workspace.environment.unavailable")}
+              </p>
+            ) : (
+              pendingWorkspaces.map((resource) => (
+                <CronWorkspaceResourceCard
+                  key={resource.worktree.id}
+                  resource={resource}
+                  onChanged={() => void onRefreshPendingWorkspaces?.()}
+                />
+              ))
+            )}
+          </div>
+        )}
+        {workspaceResource &&
+          !pendingWorkspaces?.some(
+            (resource) => resource.worktree.id === workspaceResource.worktree.id,
+          ) && (
+            <div className="shrink-0 p-2 pb-0">
+              <CronWorkspaceResourceCard
+                resource={workspaceResource}
+                onChanged={() => {
+                  void fetchWorkspaceResource(selectedRunLogId)
+                  void onRefreshPendingWorkspaces?.()
+                }}
+              />
+            </div>
+          )}
         {selectedSessionId ? (
           <CronSessionViewer
             key={selectedSessionId}

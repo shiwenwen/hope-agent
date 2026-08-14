@@ -11,6 +11,34 @@ use ha_core::cron;
 use crate::error::AppError;
 use crate::routes::helpers::{cron_db as db, session_db};
 
+fn ensure_workspace_writes_allowed() -> Result<(), AppError> {
+    if ha_core::config::cached_config()
+        .filesystem
+        .allow_remote_writes
+    {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "remote workspace writes are disabled; enable filesystem.allowRemoteWrites to allow them",
+        ))
+    }
+}
+
+fn ensure_workspace_policy_allowed(policy: &cron::CronWorkspacePolicy) -> Result<(), AppError> {
+    if policy.mode == cron::CronWorkspaceMode::Project {
+        Ok(())
+    } else {
+        ensure_workspace_writes_allowed()
+    }
+}
+
+fn workspace_conflict(error: anyhow::Error) -> AppError {
+    AppError::conflict_with_code(
+        ha_cron::cron::workspace_error_code(&error),
+        error.to_string(),
+    )
+}
+
 /// `GET /api/cron/jobs`
 pub async fn list_jobs() -> Result<Json<Vec<ha_core::loop_control::CronJobView>>, AppError> {
     let (cdb, sdb) = (db()?, session_db()?);
@@ -43,6 +71,7 @@ pub struct UpdateJobBody {
 
 /// `POST /api/cron/jobs`
 pub async fn create_job(Json(body): Json<CreateJobBody>) -> Result<Json<cron::CronJob>, AppError> {
+    ensure_workspace_policy_allowed(&body.job.workspace_policy)?;
     let db = db()?;
     Ok(Json(run_blocking(move || db.add_job(&body.job)).await?))
 }
@@ -55,6 +84,7 @@ pub async fn update_job(
     if body.job.id != id {
         return Err(AppError::bad_request("path id does not match job id"));
     }
+    ensure_workspace_policy_allowed(&body.job.workspace_policy)?;
     let db = db()?;
     let result = run_blocking(move || db.update_job_cas(&body.job, body.expected_revision)).await?;
     if result.updated {
@@ -92,6 +122,13 @@ pub async fn toggle_job(
     Json(body): Json<ToggleBody>,
 ) -> Result<Json<Value>, AppError> {
     let db = db()?;
+    if body.enabled {
+        let lookup_db = db.clone();
+        let lookup_id = id.clone();
+        if let Some(job) = run_blocking(move || lookup_db.get_job(&lookup_id)).await? {
+            ensure_workspace_policy_allowed(&job.workspace_policy)?;
+        }
+    }
     run_blocking(move || db.toggle_job(&id, body.enabled)).await?;
     Ok(Json(json!({ "toggled": true })))
 }
@@ -115,6 +152,7 @@ pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
         run_blocking(move || db.get_job(&id)).await?
     }
     .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;
+    ensure_workspace_policy_allowed(&job.workspace_policy)?;
     ha_cron::cron::spawn_job_execution(db()?.clone(), session_db()?.clone(), job);
     Ok(Json(json!({ "scheduled": true })))
 }
@@ -213,5 +251,144 @@ pub async fn get_calendar_events(
     let db = db()?;
     Ok(Json(
         run_blocking(move || db.get_calendar_events(&start_dt, &end_dt)).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceResourcesQuery {
+    pub job_id: Option<String>,
+}
+
+pub async fn workspace_resources(
+    Query(query): Query<WorkspaceResourcesQuery>,
+) -> Result<Json<Vec<ha_cron::cron::CronWorkspaceResource>>, AppError> {
+    let (cron_db, sessions) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            ha_cron::cron::workspace_resources(&cron_db, &sessions, query.job_id.as_deref())
+        })
+        .await?,
+    ))
+}
+
+pub async fn workspace_resource_for_run(
+    Path(run_log_id): Path<i64>,
+) -> Result<Json<Option<ha_cron::cron::CronWorkspaceResource>>, AppError> {
+    let (cron_db, sessions) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            ha_cron::cron::workspace_resource_for_run(&cron_db, &sessions, run_log_id)
+        })
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSessionBody {
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceReturnBody {
+    pub session_id: String,
+    #[serde(default)]
+    pub resume: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDiscardRunBody {
+    pub session_id: String,
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceDiscardTaskBody {
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+pub async fn workspace_takeover(
+    Path(job_id): Path<String>,
+    Json(body): Json<WorkspaceSessionBody>,
+) -> Result<Json<ha_cron::cron::CronWorkspaceActionResult>, AppError> {
+    ensure_workspace_writes_allowed()?;
+    let (cron_db, sessions) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            ha_cron::cron::take_over_persistent_worktree(
+                &cron_db,
+                &sessions,
+                &job_id,
+                &body.session_id,
+            )
+        })
+        .await
+        .map_err(workspace_conflict)?,
+    ))
+}
+
+pub async fn workspace_return(
+    Path(job_id): Path<String>,
+    Json(body): Json<WorkspaceReturnBody>,
+) -> Result<Json<ha_cron::cron::CronWorkspaceActionResult>, AppError> {
+    ensure_workspace_writes_allowed()?;
+    let (cron_db, sessions) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            ha_cron::cron::return_persistent_worktree(
+                &cron_db,
+                &sessions,
+                &job_id,
+                &body.session_id,
+                body.resume,
+            )
+        })
+        .await
+        .map_err(workspace_conflict)?,
+    ))
+}
+
+pub async fn workspace_discard_run(
+    Path(run_log_id): Path<i64>,
+    Json(body): Json<WorkspaceDiscardRunBody>,
+) -> Result<Json<ha_cron::cron::CronWorkspaceActionResult>, AppError> {
+    ensure_workspace_writes_allowed()?;
+    if !body.confirm {
+        return Err(AppError::bad_request(
+            "discard requires explicit confirmation",
+        ));
+    }
+    let (cron_db, sessions) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            ha_cron::cron::discard_run_worktree(&cron_db, &sessions, run_log_id, &body.session_id)
+        })
+        .await
+        .map_err(workspace_conflict)?,
+    ))
+}
+
+pub async fn workspace_discard_task(
+    Path(job_id): Path<String>,
+    Json(body): Json<WorkspaceDiscardTaskBody>,
+) -> Result<Json<ha_cron::cron::CronWorkspaceActionResult>, AppError> {
+    ensure_workspace_writes_allowed()?;
+    if !body.confirm {
+        return Err(AppError::bad_request(
+            "discard requires explicit confirmation",
+        ));
+    }
+    let (cron_db, sessions) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            ha_cron::cron::discard_persistent_worktree(&cron_db, &sessions, &job_id)
+        })
+        .await
+        .map_err(workspace_conflict)?,
     ))
 }

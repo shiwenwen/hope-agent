@@ -1,5 +1,27 @@
 // ── Types ─────────────────────────────────────────────────────────
 
+import type { ManagedWorktree } from "@/lib/transport"
+
+export type CronWorkspaceMode = "project" | "fresh" | "persistent"
+export interface CronWorkspacePolicy {
+  mode: CronWorkspaceMode
+  baseRef?: string | null
+}
+export interface CronWorkspaceSnapshot {
+  mode: CronWorkspaceMode
+  worktreeId?: string | null
+  baseRef?: string | null
+  baseSha?: string | null
+  headSha?: string | null
+  branch?: string | null
+  staged: number
+  unstaged: number
+  untracked: number
+  conflicted: number
+  headDiverged: boolean
+  retained: boolean
+}
+
 export interface CronSchedule {
   type: "at" | "every" | "cron"
   timestamp?: string
@@ -51,6 +73,7 @@ export interface CronJob {
   name: string
   description?: string | null
   projectId?: string | null
+  workspacePolicy: CronWorkspacePolicy
   schedule: CronSchedule
   payload: CronPayload
   status: "active" | "paused" | "disabled" | "completed" | "missed"
@@ -88,6 +111,35 @@ export interface CronRunLog {
   error?: string | null
   /** §8: "delivered" | "partial" | "failed" | null (no targets). */
   deliveryStatus?: string | null
+  worktreeId?: string | null
+  workspaceStatus?: string | null
+  workspaceSnapshot?: CronWorkspaceSnapshot | null
+}
+
+export interface CronWorkspaceActionAvailability {
+  allowed: boolean
+  reasonCode?: string | null
+}
+export interface CronWorkspaceActions {
+  takeOver: CronWorkspaceActionAvailability
+  returnToTask: CronWorkspaceActionAvailability
+  returnAndResume: CronWorkspaceActionAvailability
+  discard: CronWorkspaceActionAvailability
+  archive: CronWorkspaceActionAvailability
+  restore: CronWorkspaceActionAvailability
+}
+export interface CronWorkspaceResource {
+  jobId: string
+  runLogId?: number | null
+  sessionId?: string | null
+  mode: CronWorkspaceMode
+  workspaceStatus: string
+  worktree: ManagedWorktree
+  actions: CronWorkspaceActions
+}
+export interface CronWorkspaceActionResult {
+  resource?: CronWorkspaceResource | null
+  resumed: boolean
 }
 
 export interface CronUpdateResult {
@@ -118,6 +170,9 @@ export interface CronTimelineRow {
   startedAt: string
   finishedAt?: string | null
   resultPreview?: string | null
+  worktreeId?: string | null
+  workspaceStatus?: string | null
+  workspaceSnapshot?: CronWorkspaceSnapshot | null
   /** Session title (defaults to jobName when the session row is gone). */
   title?: string | null
   /** Whether this run session has unread assistant output (0 or 1). */

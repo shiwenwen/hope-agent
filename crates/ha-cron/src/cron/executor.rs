@@ -213,6 +213,26 @@ pub(crate) async fn execute_claimed_job(
         job.id
     );
 
+    // Pre-session infrastructure failures never count toward auto-disable.
+    macro_rules! fail_before_session {
+        ($status:expr, $error:expr) => {{
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                $status,
+                $error,
+                "",
+                None,
+                None,
+                false,
+                immediate,
+            );
+            return;
+        }};
+    }
+
     if let CronPayload::SessionLoop {
         loop_id,
         session_id,
@@ -248,7 +268,10 @@ pub(crate) async fn execute_claimed_job(
             unreachable!("SessionLoop handled before AgentTurn path")
         }
     };
-    let context = resolve_execution_context(&job, explicit_agent_id, cron_db);
+    let context = match resolve_execution_context(&job, explicit_agent_id, cron_db) {
+        Ok(context) => context,
+        Err(error) => fail_before_session!("error", error),
+    };
     let agent_id = context.agent_id;
     let project_id = context.project_id;
 
@@ -279,22 +302,7 @@ pub(crate) async fn execute_claimed_job(
     // closes the shell-side create/delete race.
     let _agent_admission = match ha_core::agent_lifecycle::begin_agent_run(&agent_id) {
         Ok(guard) => guard,
-        Err(error) => {
-            record_failure(
-                cron_db,
-                &job,
-                &started_at,
-                start_time,
-                "agent_unavailable",
-                &error.to_string(),
-                "",
-                None,
-                None,
-                false,
-                immediate,
-            );
-            return;
-        }
+        Err(error) => fail_before_session!("agent_unavailable", &error.to_string()),
     };
 
     // Each standalone scheduled run starts an ordinary conversation. The
@@ -326,20 +334,7 @@ pub(crate) async fn execute_claimed_job(
                 job.name,
                 e
             );
-            record_failure(
-                cron_db,
-                &job,
-                &started_at,
-                start_time,
-                "no_session",
-                &e.to_string(),
-                "",
-                None,
-                None,
-                false, // infra failure — the turn never ran; don't auto-disable
-                immediate,
-            );
-            return;
+            fail_before_session!("no_session", &e.to_string());
         }
     };
 
@@ -680,6 +675,56 @@ pub(crate) async fn execute_claimed_job(
         }
     }
 
+    // Resolve Worktree custody only after all fail-closed permission/sandbox
+    // prechecks, but before any model/tool execution. A configured Worktree
+    // failure never falls back to the Project checkout.
+    let prepared_workspace = match crate::cron::workspace::prepare_workspace(
+        cron_db,
+        session_db,
+        &job,
+        run_log_id,
+        &session_id,
+        &turn_id,
+    )
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            let recovery_required = format!("{error:#}").contains("workspace_recovery_required");
+            let err_text = format!(
+                "{}: {error:#}",
+                crate::cron::workspace::workspace_error_code(&error)
+            );
+            persist_failure_message_if_missing(session_db, &session_id, &err_text);
+            let mut release_decision = settle_classified_turn_before_release(
+                session_db,
+                &session_id,
+                &turn_id,
+                CronTerminal::Failure,
+                Some(&err_text),
+            );
+            if recovery_required {
+                release_decision = ActiveTurnReleaseDecision::Handoff;
+            }
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                "error",
+                &err_text,
+                &session_id,
+                None,
+                Some(run_log_id),
+                false,
+                immediate,
+            );
+            drop(intent_guard);
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
+            return;
+        }
+    };
+
     // Per-run timeout. `0` means no cron-level timeout; positive values are
     // clamped to [30, 7200]s. C19: a per-job override takes precedence over the
     // global CronConfig default, so a legitimately long task can declare its own
@@ -797,13 +842,27 @@ pub(crate) async fn execute_claimed_job(
     // a pre-stream error).
     drop(run_fut);
 
-    let release_decision = settle_classified_turn_before_release(
+    let mut release_decision = settle_classified_turn_before_release(
         session_db,
         &session_id,
         &turn_id,
         terminal,
         failure_error.as_deref(),
     );
+    let workspace_result = if release_decision == ActiveTurnReleaseDecision::Release {
+        prepared_workspace.finalize().await
+    } else {
+        prepared_workspace.defer().await
+    };
+    if let Err(error) = workspace_result {
+        app_warn!(
+            "cron",
+            "workspace_finalize",
+            "Run {} retained Worktree custody for recovery: {error:#}",
+            run_log_id
+        );
+        release_decision = ActiveTurnReleaseDecision::Handoff;
+    }
     drop(intent_guard);
     // Recovery (or, on an indeterminate DB failure, process restart) is the
     // only later release owner for a handoff decision. `turn_released` therefore
@@ -1623,7 +1682,7 @@ pub(crate) fn resolve_execution_context(
     job: &CronJob,
     explicit_agent_id: Option<&str>,
     cron_db: &Arc<CronDB>,
-) -> CronExecutionContext {
+) -> std::result::Result<CronExecutionContext, &'static str> {
     let trimmed_explicit = explicit_agent_id.and_then(|id| {
         let trimmed = id.trim();
         if trimmed.is_empty() {
@@ -1634,58 +1693,62 @@ pub(crate) fn resolve_execution_context(
     });
 
     let mut cleared_missing_project = false;
-    let project = job
-        .project_id
-        .as_deref()
-        .and_then(|pid| match ha_core::get_project_db() {
+    let project_required = job.workspace_policy.mode != CronWorkspaceMode::Project;
+    let project = match job.project_id.as_deref() {
+        None if project_required => return Err("workspace_project_required"),
+        None => None,
+        Some(pid) => match ha_core::get_project_db() {
             Some(db) => match db.get(pid) {
                 Ok(Some(project)) => Some(project),
+                Ok(None) if project_required => return Err("workspace_project_missing"),
                 Ok(None) => {
                     match cron_db.clear_job_project(&job.id) {
                         Ok(()) => cleared_missing_project = true,
                         Err(e) => app_warn!(
                             "cron",
                             "executor",
-                            "Failed to clear missing project {} from job {}: {}",
-                            pid,
-                            job.id,
-                            e
+                            "Failed to clear missing project {pid} from job {}: {e}",
+                            job.id
                         ),
                     }
                     None
                 }
                 Err(e) => {
+                    if project_required {
+                        return Err("workspace_project_unavailable");
+                    }
                     app_warn!(
                         "cron",
                         "executor",
-                        "Failed to load project {} for job {}: {}",
-                        pid,
-                        job.id,
-                        e
+                        "Failed to load project {pid} for job {}: {e}",
+                        job.id
                     );
                     None
                 }
             },
             None => {
+                if project_required {
+                    return Err("workspace_project_unavailable");
+                }
                 app_warn!(
                     "cron",
                     "executor",
-                    "Project DB not initialized while resolving project {} for job {}",
-                    pid,
+                    "Project DB not initialized while resolving project {pid} for job {}",
                     job.id
                 );
                 None
             }
-        });
+        },
+    };
 
     let agent_id =
         ha_core::cron::resolve_agent_id_for_execution(trimmed_explicit, project.as_ref());
 
-    CronExecutionContext {
+    Ok(CronExecutionContext {
         agent_id,
         project_id: project.map(|p| p.id),
         cleared_missing_project,
-    }
+    })
 }
 
 /// Build an AssistantAgent and run a chat message with full failover logic.
@@ -2286,6 +2349,7 @@ mod tests {
                 name: "Ordinary scheduled chat".into(),
                 description: None,
                 project_id: None,
+                workspace_policy: Default::default(),
                 schedule: CronSchedule::Every {
                     interval_ms: 300_000,
                     start_at: None,
@@ -2401,6 +2465,7 @@ mod tests {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
+                workspace_policy: Default::default(),
                 schedule: CronSchedule::Every {
                     interval_ms: 300_000,
                     start_at: None,
@@ -2479,6 +2544,7 @@ mod tests {
                 name: "One-shot".into(),
                 description: None,
                 project_id: None,
+                workspace_policy: Default::default(),
                 schedule: CronSchedule::At {
                     timestamp: "2999-01-01T00:00:00Z".into(),
                 },
@@ -2539,6 +2605,7 @@ mod tests {
                 name: "j".into(),
                 description: None,
                 project_id: None,
+                workspace_policy: Default::default(),
                 schedule: CronSchedule::Every {
                     interval_ms: 300_000,
                     start_at: None,
@@ -2612,6 +2679,7 @@ mod tests {
                 name: "one-shot".into(),
                 description: None,
                 project_id: None,
+                workspace_policy: Default::default(),
                 schedule: CronSchedule::At {
                     timestamp: "2999-01-01T00:00:00Z".into(),
                 },

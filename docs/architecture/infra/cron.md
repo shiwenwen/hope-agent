@@ -141,6 +141,7 @@ stateDiagram-v2
 | `revision` | `u64` | owner/config edit generation（初始 1）；纯 claim、排程推进、运行终态等 runtime bookkeeping 不递增 |
 | `name` / `description` | `String` / `Option<String>` | 名称与描述 |
 | `project_id` | `Option<String>` | 可选 Project 关联。执行时创建 Project 会话并注入 Project 上下文；Project 已删除时自愈清空、降级为普通 cron |
+| `workspace_policy` | `CronWorkspacePolicy` | `project` 直接使用 Project 目录；`fresh` 每次运行创建并由普通 run chat 持有；`persistent` 由 Task 长期持有并按 occurrence 精确绑定。Worktree 准备失败不回退 Project |
 | `schedule` | `CronSchedule` | 调度配置 |
 | `payload` | `CronPayload` | 执行内容 |
 | `status` | `CronJobStatus` | 五态状态 |
@@ -191,6 +192,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 | `result_preview` | `Option<String>` | 结果预览（截断至 500 字节） |
 | `error` | `Option<String>` | 错误信息 |
 | `delivery_status` | `Option<String>` | fan-out 结果：`None`=无目标 / `delivered` / `partial` / `failed` |
+| `worktree_id` / `workspace_status` / `workspace_snapshot` | `Option<…>` | 精确运行的 Worktree 身份、保管状态和终态 Git 快照；Project 模式也记录 `project` 状态但无 Worktree id |
 
 `status` 的取值：`running`（在途）/ `success` / `empty`（零输出）/ `cancelled` / `error` / `timeout` / `no_session`（会话创建失败的基础设施错误字面量）。
 
@@ -210,6 +212,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 |------|------|------|
 | `name` / `description` | `String` / `Option<String>` | 名称与描述 |
 | `project_id` | `Option<String>` | `None` = 普通 cron。模型工具 `create` 缺省继承当前会话 Project，显式 `null`/空串表示不关联 |
+| `workspace_policy` | `CronWorkspacePolicy` | Owner 控制面可选 Project / Fresh / Persistent 与 base ref；模型工具保持默认 Project |
 | `schedule` / `payload` | `CronSchedule` / `CronPayload` | 调度与执行内容 |
 | `max_failures` | `Option<u32>` | 默认 5 |
 | `notify_on_complete` | `Option<bool>` | 默认 true |
@@ -624,6 +627,8 @@ CREATE TABLE cron_jobs (
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     max_failures INTEGER NOT NULL DEFAULT 5,
     project_id TEXT,                                        -- 可选 Project 关联
+    workspace_policy_json TEXT NOT NULL DEFAULT '{"mode":"project"}',
+    workspace_resource_locked INTEGER NOT NULL DEFAULT 0,  -- Persistent 跨库创建/持有围栏
     notify_on_complete INTEGER NOT NULL DEFAULT 1,
     delivery_targets_json TEXT NOT NULL DEFAULT '[]',       -- IM 投递目标
     prefix_delivery_with_name INTEGER NOT NULL DEFAULT 0,   -- 成功投递加 [Cron] 前缀
@@ -652,6 +657,9 @@ CREATE TABLE cron_run_logs (
     result_preview TEXT,
     error TEXT,
     delivery_status TEXT,           -- NULL / delivered / partial / failed
+    worktree_id TEXT,
+    workspace_status TEXT,          -- project / running / retained / ready / attention / discarded
+    workspace_snapshot_json TEXT,   -- base/head/branch/dirty/conflict 审计快照
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

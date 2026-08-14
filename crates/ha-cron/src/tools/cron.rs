@@ -88,6 +88,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     // None here = follow the agent default.
                     permission_mode_override: None,
                     sandbox_mode_override: None,
+                    workspace_policy: Default::default(),
                 };
 
                 let job = cron_db.add_job(&input)?;

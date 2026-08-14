@@ -1094,6 +1094,7 @@ impl SessionDB {
             job_timeout_secs: input.max_runtime_secs.map(|v| v.max(30) as u64),
             permission_mode_override: None,
             sandbox_mode_override: None,
+            workspace_policy: Default::default(),
         })?;
         if input.trigger_kind == LoopTriggerKind::Event {
             if let Err(err) = cron_db.toggle_job(&cron_job.id, false) {

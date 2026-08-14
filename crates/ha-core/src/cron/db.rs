@@ -59,6 +59,8 @@ impl CronDB {
                 job_timeout_secs INTEGER,
                 permission_mode_override TEXT,
                 sandbox_mode_override TEXT,
+                workspace_policy_json TEXT NOT NULL DEFAULT '{\"mode\":\"project\"}',
+                workspace_resource_locked INTEGER NOT NULL DEFAULT 0,
                 deleted_at TEXT,
                 revision INTEGER NOT NULL DEFAULT 1
             );
@@ -77,6 +79,9 @@ impl CronDB {
                 duration_ms INTEGER,
                 result_preview TEXT,
                 error TEXT,
+                worktree_id TEXT,
+                workspace_status TEXT,
+                workspace_snapshot_json TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
@@ -173,6 +178,22 @@ impl CronDB {
                 "ALTER TABLE cron_jobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;",
             )?;
         }
+        if conn
+            .prepare("SELECT workspace_policy_json FROM cron_jobs LIMIT 0")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN workspace_policy_json TEXT NOT NULL DEFAULT '{\"mode\":\"project\"}';",
+            )?;
+        }
+        if conn
+            .prepare("SELECT workspace_resource_locked FROM cron_jobs LIMIT 0")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN workspace_resource_locked INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
 
         // Migration: `running_owner` / `started_owner` — 启动清理据此识别遗留，
         // 与墙上时钟解耦。旧库升上来的行 owner 为 NULL，第一次启动清理会当成
@@ -202,6 +223,16 @@ impl CronDB {
             .is_ok();
         if !has_turn_id {
             conn.execute_batch("ALTER TABLE cron_run_logs ADD COLUMN turn_id TEXT;")?;
+        }
+        for column in ["worktree_id", "workspace_status", "workspace_snapshot_json"] {
+            if conn
+                .prepare(&format!("SELECT {column} FROM cron_run_logs LIMIT 0"))
+                .is_err()
+            {
+                conn.execute_batch(&format!(
+                    "ALTER TABLE cron_run_logs ADD COLUMN {column} TEXT;"
+                ))?;
+            }
         }
 
         // §9 (C6): tiny key/value table for the scheduler liveness heartbeat, so
@@ -237,6 +268,11 @@ impl CronDB {
         // never fires, no unknown cron expression / timezone (which would silently
         // fall back to UTC at fire time).
         validate_schedule(&input.schedule)?;
+        let workspace_policy = validate_workspace_policy(
+            input.workspace_policy.clone(),
+            &input.payload,
+            input.project_id.as_deref(),
+        )?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
@@ -263,14 +299,15 @@ impl CronDB {
         let prefix_delivery_with_name = input.prefix_delivery_with_name.unwrap_or(false);
         let delivery_targets = input.delivery_targets.clone().unwrap_or_default();
         let delivery_targets_json = serde_json::to_string(&delivery_targets)?;
+        let workspace_policy_json = serde_json::to_string(&workspace_policy)?;
 
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override, workspace_policy_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 input.name,
@@ -287,7 +324,8 @@ impl CronDB {
                 prefix_delivery_with_name as i32,
                 input.job_timeout_secs.map(|v| v as i64),
                 input.permission_mode_override.map(|m| m.as_str()),
-                input.sandbox_mode_override.map(|m| m.as_str())
+                input.sandbox_mode_override.map(|m| m.as_str()),
+                workspace_policy_json
             ],
         )?;
 
@@ -297,6 +335,7 @@ impl CronDB {
             name: input.name.clone(),
             description: input.description.clone(),
             project_id: normalize_optional_string(input.project_id.as_deref()),
+            workspace_policy,
             schedule,
             payload: input.payload.clone(),
             status: initial_status,
@@ -344,6 +383,11 @@ impl CronDB {
     ) -> Result<CronUpdateResult> {
         // Persistence chokepoint — validate the whole schedule (see `add_job`).
         validate_schedule(&job.schedule)?;
+        let workspace_policy = validate_workspace_policy(
+            job.workspace_policy.clone(),
+            &job.payload,
+            job.project_id.as_deref(),
+        )?;
 
         let now = Utc::now();
         let now_str = now.to_rfc3339();
@@ -352,6 +396,7 @@ impl CronDB {
         let schedule_json = serde_json::to_string(&schedule)?;
         let payload_json = serde_json::to_string(&job.payload)?;
         let delivery_targets_json = serde_json::to_string(&job.delivery_targets)?;
+        let workspace_policy_json = serde_json::to_string(&workspace_policy)?;
         let expected_revision_i64 = i64::try_from(expected_revision)
             .context("cron revision exceeds SQLite INTEGER range")?;
 
@@ -368,16 +413,32 @@ impl CronDB {
         // C04: read the live system-managed fields — never trust the caller's
         // snapshot of status / next_run_at (it may be stale). Missing row = the job
         // was deleted; preserve the previous silent no-op.
-        let (current_status, current_next_run, current_schedule_json, current_revision): (
-            String,
-            Option<String>,
-            String,
-            i64,
+        let (
+            current_status,
+            current_next_run,
+            current_schedule_json,
+            current_revision,
+            current_project_id,
+            current_workspace_json,
+            current_running_at,
+            workspace_resource_locked,
         ) = match tx.query_row(
-            "SELECT status, next_run_at, schedule_json, revision FROM cron_jobs
+            "SELECT status, next_run_at, schedule_json, revision, project_id,
+                    workspace_policy_json, running_at, workspace_resource_locked FROM cron_jobs
              WHERE id=?1 AND deleted_at IS NULL",
             params![job.id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, bool>(7)?,
+                ))
+            },
         ) {
             Ok(row) => row,
             Err(rusqlite::Error::QueryReturnedNoRows) => anyhow::bail!("Cron job not found"),
@@ -393,6 +454,24 @@ impl CronDB {
             });
         }
         let db_status = CronJobStatus::from_str(&current_status);
+        let workspace_changed = current_workspace_json != workspace_policy_json
+            || current_project_id != normalize_optional_string(job.project_id.as_deref());
+        if workspace_changed {
+            let current_policy: CronWorkspacePolicy =
+                serde_json::from_str(&current_workspace_json)?;
+            let has_persistent_resource = current_policy.mode == CronWorkspaceMode::Persistent
+                && tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM cron_run_logs
+                      WHERE job_id=?1 AND worktree_id IS NOT NULL
+                        AND COALESCE(workspace_status,'') != 'discarded')",
+                    params![job.id],
+                    |row| row.get::<_, bool>(0),
+                )?;
+            if current_running_at.is_some() || workspace_resource_locked || has_persistent_resource
+            {
+                anyhow::bail!("workspace_policy_locked");
+            }
+        }
 
         // Preserve the current next_run_at unless the schedule actually changed —
         // a non-schedule edit (rename / prompt / targets) keeps its mid-cycle
@@ -417,8 +496,8 @@ impl CronDB {
         };
 
         let updated = tx.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, updated_at=?11, revision=revision+1
-             WHERE id=?12 AND deleted_at IS NULL AND revision=?17",
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, workspace_policy_json=?17, updated_at=?11, revision=revision+1
+             WHERE id=?12 AND deleted_at IS NULL AND revision=?18",
             params![
                 job.name,
                 job.description,
@@ -436,6 +515,7 @@ impl CronDB {
                 job.job_timeout_secs.map(|v| v as i64),
                 job.permission_mode_override.map(|m| m.as_str()),
                 job.sandbox_mode_override.map(|m| m.as_str()),
+                workspace_policy_json,
                 expected_revision_i64,
             ],
         )?;
@@ -572,11 +652,15 @@ impl CronDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        conn.execute(
+        if conn.execute(
             "UPDATE cron_jobs SET project_id=NULL, updated_at=?1, revision=revision+1
-             WHERE id=?2 AND deleted_at IS NULL",
+             WHERE id=?2 AND deleted_at IS NULL AND workspace_resource_locked=0
+               AND json_extract(workspace_policy_json,'$.mode')='project'",
             params![now, id],
-        )?;
+        )? != 1
+        {
+            anyhow::bail!("workspace_policy_locked");
+        }
         Ok(())
     }
 
@@ -634,7 +718,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
              FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -642,6 +726,23 @@ impl CronDB {
             Ok(Some(row_to_cron_job(row)?))
         } else {
             Ok(None)
+        }
+    }
+
+    /// Resource-only lookup that keeps logically deleted task ownership
+    /// inspectable without putting the task back on a live scheduling surface.
+    pub fn get_job_including_deleted(&self, id: &str) -> Result<Option<(CronJob, bool)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, deleted_at IS NOT NULL
+             FROM cron_jobs WHERE id=?1")?;
+        let mut rows = stmt.query(params![id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some((row_to_cron_job(row)?, row.get(22)?))),
+            None => Ok(None),
         }
     }
 
@@ -682,7 +783,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
              FROM cron_jobs WHERE deleted_at IS NULL ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -713,7 +814,7 @@ impl CronDB {
             // — without it SQLite returns rows in arbitrary rowid order and, under
             // sustained cap pressure, the most-overdue job could be skipped every
             // tick (starvation). Most-overdue-first makes the cap fair.
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
              FROM cron_jobs WHERE deleted_at IS NULL AND status='active'
                AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
              ORDER BY next_run_at ASC"
@@ -995,13 +1096,16 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, turn_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, started_owner)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO cron_run_logs (job_id, session_id, turn_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, started_owner, worktree_id, workspace_status, workspace_snapshot_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 log.job_id, log.session_id, log.turn_id, log.status, log.started_at,
                 log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error,
                 log.delivery_status,
                 self.owner_token,
+                log.worktree_id,
+                log.workspace_status,
+                log.workspace_snapshot.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -1075,6 +1179,97 @@ impl CronDB {
         Ok(())
     }
 
+    /// Persist the exact workspace custody/audit state for one occurrence.
+    pub fn set_run_workspace(
+        &self,
+        run_log_id: i64,
+        worktree_id: Option<&str>,
+        status: &str,
+        snapshot: Option<&CronWorkspaceSnapshot>,
+    ) -> Result<()> {
+        let snapshot_json = snapshot.map(serde_json::to_string).transpose()?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        if conn.execute(
+            "UPDATE cron_run_logs SET worktree_id=?1, workspace_status=?2,
+              workspace_snapshot_json=COALESCE(?3, workspace_snapshot_json) WHERE id=?4",
+            params![worktree_id, status, snapshot_json, run_log_id],
+        )? != 1
+        {
+            anyhow::bail!("workspace_run_not_found");
+        }
+        Ok(())
+    }
+
+    pub fn mark_worktree_discarded(&self, worktree_id: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_run_logs SET workspace_status='discarded' WHERE worktree_id=?1",
+            params![worktree_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_locked_persistent_workspaces(&self, limit: usize) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM cron_jobs WHERE workspace_resource_locked=1 AND running_at IS NULL
+              ORDER BY updated_at LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![limit.min(256) as i64], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into);
+        rows
+    }
+
+    pub fn finish_persistent_discard(&self, job_id: &str, worktree_id: Option<&str>) -> Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction()?;
+        if tx.execute(
+            "UPDATE cron_jobs SET workspace_resource_locked=0
+              WHERE id=?1 AND workspace_resource_locked=1",
+            params![job_id],
+        )? == 1
+        {
+            tx.execute(
+                "UPDATE cron_run_logs SET workspace_status='discarded'
+                  WHERE job_id=?1 AND worktree_id=COALESCE(?2, (
+                    SELECT worktree_id FROM cron_run_logs WHERE job_id=?1
+                      AND json_extract(workspace_snapshot_json, '$.mode')='persistent'
+                    ORDER BY id DESC LIMIT 1))",
+                params![job_id, worktree_id],
+            )?;
+        }
+        tx.commit().map_err(Into::into)
+    }
+
+    pub fn set_persistent_workspace_lock(&self, job_id: &str, locked: bool) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        if conn.execute(
+            "UPDATE cron_jobs SET workspace_resource_locked=?1 WHERE id=?2",
+            params![locked as i32, job_id],
+        )? != 1
+        {
+            anyhow::bail!("workspace_task_missing");
+        }
+        Ok(())
+    }
+
     /// Review fix: finalize the in-progress run log if it was opened
     /// (`Some(id)`), otherwise INSERT a complete terminal row. `add_running_run_log`
     /// can fail on a transient DB error; without this fallback every terminal path
@@ -1118,6 +1313,9 @@ impl CronDB {
                     result_preview: result_preview.map(|s| s.to_string()),
                     error: error.map(|s| s.to_string()),
                     delivery_status: delivery_status.map(|s| s.to_string()),
+                    worktree_id: None,
+                    workspace_status: None,
+                    workspace_snapshot: None,
                 };
                 self.add_run_log(&log).map(|_| ())
             }
@@ -1136,29 +1334,30 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id, worktree_id, workspace_status, workspace_snapshot_json
              FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2 OFFSET ?3"
         )?;
-        let rows = stmt.query_map(params![job_id, limit as i64, offset as i64], |row| {
-            Ok(CronRunLog {
-                id: row.get(0)?,
-                job_id: row.get(1)?,
-                session_id: row.get(2)?,
-                turn_id: row.get(10)?,
-                status: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                duration_ms: crate::sql_opt_u64(row, 6)?,
-                result_preview: row.get(7)?,
-                error: row.get(8)?,
-                delivery_status: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![job_id, limit as i64, offset as i64], row_to_run_log)?;
         let mut logs = Vec::new();
         for row in rows {
             logs.push(row?);
         }
         Ok(logs)
+    }
+
+    pub fn get_run_log(&self, run_log_id: i64) -> Result<Option<CronRunLog>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id, worktree_id, workspace_status, workspace_snapshot_json
+             FROM cron_run_logs WHERE id=?1",
+            params![run_log_id],
+            row_to_run_log,
+        )
+        .optional()
+        .map_err(Into::into)
     }
 
     /// Load one immutable run occurrence for exact cancellation. This query is
@@ -1204,7 +1403,8 @@ impl CronDB {
                     COALESCE(j.name, '(deleted job)') AS job_name,
                     (j.id IS NULL OR j.deleted_at IS NOT NULL) AS job_deleted,
                     j.payload_json,
-                    l.status, l.started_at, l.finished_at, l.result_preview
+                    l.status, l.started_at, l.finished_at, l.result_preview,
+                    l.worktree_id, l.workspace_status, l.workspace_snapshot_json
              FROM cron_run_logs l
              LEFT JOIN cron_jobs j ON j.id = l.job_id
              ORDER BY l.started_at DESC, l.id DESC
@@ -1228,6 +1428,9 @@ impl CronDB {
                 started_at: row.get(7)?,
                 finished_at: row.get(8)?,
                 result_preview: row.get(9)?,
+                worktree_id: row.get(10)?,
+                workspace_status: row.get(11)?,
+                workspace_snapshot: decode_workspace_snapshot(row.get(12)?)?,
                 title: None,
                 unread_count: 0,
             })
@@ -1416,25 +1619,11 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id, worktree_id, workspace_status, workspace_snapshot_json
              FROM cron_run_logs WHERE job_id=?1 AND started_at >= ?2 AND started_at <= ?3
              ORDER BY started_at ASC"
         )?;
-        let rows = stmt.query_map(params![job_id, window_start, window_end], |row| {
-            Ok(CronRunLog {
-                id: row.get(0)?,
-                job_id: row.get(1)?,
-                session_id: row.get(2)?,
-                turn_id: row.get(10)?,
-                status: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                duration_ms: crate::sql_opt_u64(row, 6)?,
-                result_preview: row.get(7)?,
-                error: row.get(8)?,
-                delivery_status: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![job_id, window_start, window_end], row_to_run_log)?;
         let mut logs = Vec::new();
         for row in rows {
             logs.push(row?);
@@ -1529,6 +1718,7 @@ impl CronDB {
             other => compute_next_run(other, &now).map(|dt| dt.to_rfc3339()),
         };
         let payload_json = serde_json::to_string(&job.payload)?;
+        let workspace_policy_json = serde_json::to_string(&job.workspace_policy)?;
 
         // Atomically claim only the exact payload snapshot that was listed.
         // Agent deletion may rebind payload_json between list and claim; in
@@ -1537,7 +1727,8 @@ impl CronDB {
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, running_owner=?2, next_run_at=?3, updated_at=?1
              WHERE id=?4 AND next_run_at=?5 AND next_run_at <= ?6
-               AND payload_json=?7 AND status='active' AND running_at IS NULL
+               AND payload_json=?7 AND revision=?8 AND project_id IS ?9
+               AND workspace_policy_json=?10 AND status='active' AND running_at IS NULL
                AND deleted_at IS NULL",
             params![
                 now_str,
@@ -1546,7 +1737,10 @@ impl CronDB {
                 job.id,
                 job.next_run_at,
                 now_str,
-                payload_json
+                payload_json,
+                job.revision as i64,
+                job.project_id,
+                workspace_policy_json
             ],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
@@ -1568,11 +1762,21 @@ impl CronDB {
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let now = chrono::Utc::now().to_rfc3339();
         let payload_json = serde_json::to_string(&job.payload)?;
+        let workspace_policy_json = serde_json::to_string(&job.workspace_policy)?;
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, running_owner=?2
-             WHERE id=?3 AND payload_json=?4 AND running_at IS NULL
+             WHERE id=?3 AND payload_json=?4 AND revision=?5 AND project_id IS ?6
+               AND workspace_policy_json=?7 AND running_at IS NULL
                AND deleted_at IS NULL",
-            params![now, self.owner_token, job.id, payload_json],
+            params![
+                now,
+                self.owner_token,
+                job.id,
+                payload_json,
+                job.revision as i64,
+                job.project_id,
+                workspace_policy_json
+            ],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
@@ -2051,6 +2255,36 @@ fn backfill_cron_schedule_timezone(conn: &Connection) -> Result<()> {
 
 // ── Helper: Row -> CronJob ───────────────────────────────────────
 
+fn decode_workspace_snapshot(
+    json: Option<String>,
+) -> rusqlite::Result<Option<CronWorkspaceSnapshot>> {
+    json.map(|value| {
+        serde_json::from_str(&value).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(13, rusqlite::types::Type::Text, error.into())
+        })
+    })
+    .transpose()
+}
+
+fn row_to_run_log(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronRunLog> {
+    Ok(CronRunLog {
+        id: row.get(0)?,
+        job_id: row.get(1)?,
+        session_id: row.get(2)?,
+        turn_id: row.get(10)?,
+        status: row.get(3)?,
+        started_at: row.get(4)?,
+        finished_at: row.get(5)?,
+        duration_ms: crate::sql_opt_u64(row, 6)?,
+        result_preview: row.get(7)?,
+        error: row.get(8)?,
+        delivery_status: row.get(9)?,
+        worktree_id: row.get(11)?,
+        workspace_status: row.get(12)?,
+        workspace_snapshot: decode_workspace_snapshot(row.get(13)?)?,
+    })
+}
+
 pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     let schedule_json: String = row.get(3)?;
     let payload_json: String = row.get(4)?;
@@ -2080,6 +2314,7 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         name: row.get(1)?,
         description: row.get(2)?,
         project_id: row.get(15).ok().flatten(),
+        workspace_policy: serde_json::from_str(&row.get::<_, String>(21)?)?,
         schedule: serde_json::from_str(&schedule_json)?,
         payload: serde_json::from_str(&payload_json)?,
         status: CronJobStatus::from_str(&status_str),
@@ -2119,6 +2354,32 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     })
 }
 
+fn validate_workspace_policy(
+    policy: CronWorkspacePolicy,
+    payload: &CronPayload,
+    project_id: Option<&str>,
+) -> Result<CronWorkspacePolicy> {
+    let policy = policy.normalized();
+    if matches!(payload, CronPayload::SessionLoop { .. })
+        && policy.mode != CronWorkspaceMode::Project
+    {
+        anyhow::bail!("workspace_policy_unsupported_payload");
+    }
+    if policy.mode != CronWorkspaceMode::Project && normalize_optional_string(project_id).is_none()
+    {
+        anyhow::bail!("workspace_project_required");
+    }
+    if let Some(base_ref) = policy.base_ref.as_deref() {
+        if base_ref.len() > 256
+            || base_ref.starts_with('-')
+            || base_ref.chars().any(char::is_control)
+        {
+            anyhow::bail!("workspace_base_ref_invalid");
+        }
+    }
+    Ok(policy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{match_run_logs_to_occurrences, row_to_cron_job, CronDB};
@@ -2128,6 +2389,17 @@ mod tests {
     use rusqlite::params;
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
+
+    macro_rules! job {
+        ($($fields:tt)*) => {
+            NewCronJob { workspace_policy: Default::default(), $($fields)* }
+        };
+    }
+    macro_rules! run_log {
+        ($($fields:tt)*) => {
+            crate::cron::CronRunLog { worktree_id: None, workspace_status: None, workspace_snapshot: None, $($fields)* }
+        };
+    }
 
     fn temp_db_path(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("hope-agent-cron-{label}-{}.db", Uuid::new_v4()))
@@ -2236,7 +2508,7 @@ mod tests {
         let path = temp_db_path("find-job-by-session");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Report".into(),
                 description: None,
                 project_id: None,
@@ -2258,7 +2530,7 @@ mod tests {
             })
             .expect("add job");
 
-        db.add_run_log(&crate::cron::CronRunLog {
+        db.add_run_log(&run_log! {
             id: 0,
             job_id: job.id.clone(),
             session_id: "cron-sess-1".into(),
@@ -2291,7 +2563,7 @@ mod tests {
         let path = temp_db_path("delete-run-logs-for-session");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Report".into(),
                 description: None,
                 project_id: None,
@@ -2314,7 +2586,7 @@ mod tests {
             .expect("add job");
 
         for session_id in ["delete-me", "keep-me"] {
-            db.add_run_log(&crate::cron::CronRunLog {
+            db.add_run_log(&run_log! {
                 id: 0,
                 job_id: job.id.clone(),
                 session_id: session_id.into(),
@@ -2356,7 +2628,7 @@ mod tests {
     }
 
     fn every_job(name: &str, targets: Vec<CronDeliveryTarget>, prefix: Option<bool>) -> NewCronJob {
-        NewCronJob {
+        job! {
             name: name.into(),
             description: None,
             project_id: None,
@@ -2385,7 +2657,7 @@ mod tests {
         let path = temp_db_path("job-timeout-override");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "long".into(),
                 description: None,
                 project_id: None,
@@ -2427,7 +2699,7 @@ mod tests {
         let path = temp_db_path("perm-sandbox-override");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "guarded".into(),
                 description: None,
                 project_id: None,
@@ -2483,7 +2755,7 @@ mod tests {
         let path = temp_db_path("update-job-c04");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "j".into(),
                 description: None,
                 project_id: None,
@@ -2830,7 +3102,7 @@ mod tests {
         let db = CronDB::open(&path).expect("open db");
 
         let mk = |name: &str| {
-            db.add_job(&NewCronJob {
+            db.add_job(&job! {
                 name: name.into(),
                 description: None,
                 project_id: None,
@@ -2945,7 +3217,7 @@ mod tests {
         let db = CronDB::open(&path).expect("open db");
 
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -2993,7 +3265,7 @@ mod tests {
         let db = CronDB::open(&path).expect("open db");
 
         let mut job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Project digest".into(),
                 description: None,
                 project_id: Some("project-a".into()),
@@ -3217,7 +3489,7 @@ mod tests {
                 parse("2026-04-22T12:01:00Z"),
                 parse("2026-04-22T12:02:00Z"),
             ],
-            &[crate::cron::CronRunLog {
+            &[run_log! {
                 id: 7,
                 job_id: "job".into(),
                 session_id: "session".into(),
@@ -3267,7 +3539,7 @@ mod tests {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision
+                "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
                  FROM cron_jobs WHERE id='row-read'",
             )
             .expect("prepare");
@@ -3295,7 +3567,7 @@ mod tests {
         let path = temp_db_path("scheduled-claim");
         let db = CronDB::open(&path).expect("open db");
         let mut job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -3351,7 +3623,7 @@ mod tests {
         let path = temp_db_path("scheduled-future-claim");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -3385,7 +3657,7 @@ mod tests {
         let path = temp_db_path("stale-payload-claim");
         let db = CronDB::open(&path).expect("open db");
         let mut stale_job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Rebind-safe".into(),
                 description: None,
                 project_id: None,
@@ -3441,7 +3713,7 @@ mod tests {
         let path = temp_db_path("immediate-claim");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -3491,24 +3763,26 @@ mod tests {
         // they clear.
         let path = temp_db_path("count-running");
         let db = CronDB::open(&path).expect("open db");
-        let mk = |name: &str| NewCronJob {
-            name: name.into(),
-            description: None,
-            project_id: None,
-            schedule: CronSchedule::At {
-                timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
-            },
-            payload: CronPayload::AgentTurn {
-                prompt: "p".into(),
-                agent_id: None,
-            },
-            max_failures: None,
-            notify_on_complete: None,
-            delivery_targets: None,
-            prefix_delivery_with_name: None,
-            job_timeout_secs: None,
-            permission_mode_override: None,
-            sandbox_mode_override: None,
+        let mk = |name: &str| {
+            job! {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            }
         };
         let a = db.add_job(&mk("a")).expect("add a");
         let b = db.add_job(&mk("b")).expect("add b");
@@ -3535,7 +3809,7 @@ mod tests {
         let path = temp_db_path("clear-if-owner");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "j".into(),
                 description: None,
                 project_id: None,
@@ -3590,7 +3864,7 @@ mod tests {
         let path = temp_db_path("auto-disable-signal");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "flaky".into(),
                 description: None,
                 project_id: None,
@@ -3654,7 +3928,7 @@ mod tests {
         let path = temp_db_path("success-no-revive-paused");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "recurring".into(),
                 description: None,
                 project_id: None,
@@ -3707,7 +3981,7 @@ mod tests {
         let path = temp_db_path("at-fail-terminal");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "one-shot".into(),
                 description: None,
                 project_id: None,
@@ -3755,7 +4029,7 @@ mod tests {
         let path = temp_db_path("reschedule-keeps-failures");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "j".into(),
                 description: None,
                 project_id: None,
@@ -3803,7 +4077,7 @@ mod tests {
         let path = temp_db_path("toggle-past-at");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "elapsed".into(),
                 description: None,
                 project_id: None,
@@ -3855,7 +4129,7 @@ mod tests {
         let path = temp_db_path("max-failures-zero");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "unlimited".into(),
                 description: None,
                 project_id: None,
@@ -3897,7 +4171,7 @@ mod tests {
         let path = temp_db_path("delete-cancel");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "running".into(),
                 description: None,
                 project_id: None,
@@ -3940,7 +4214,7 @@ mod tests {
         let path = temp_db_path("at-grace");
         let db = CronDB::open(&path).expect("open db");
         let mk_at = |name: &str| {
-            db.add_job(&NewCronJob {
+            db.add_job(&job! {
                 name: name.into(),
                 description: None,
                 project_id: None,
@@ -4024,7 +4298,7 @@ mod tests {
         let path = temp_db_path("inflight-reap-success");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "one-shot".into(),
                 description: None,
                 project_id: None,
@@ -4089,22 +4363,24 @@ mod tests {
         // that only the next restart's mark_missed would reap.
         let path = temp_db_path("past-at-missed");
         let db = CronDB::open(&path).expect("open db");
-        let mk = |name: &str, ts: String| NewCronJob {
-            name: name.into(),
-            description: None,
-            project_id: None,
-            schedule: CronSchedule::At { timestamp: ts },
-            payload: CronPayload::AgentTurn {
-                prompt: "p".into(),
-                agent_id: None,
-            },
-            max_failures: None,
-            notify_on_complete: None,
-            delivery_targets: None,
-            prefix_delivery_with_name: None,
-            job_timeout_secs: None,
-            permission_mode_override: None,
-            sandbox_mode_override: None,
+        let mk = |name: &str, ts: String| {
+            job! {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At { timestamp: ts },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            }
         };
 
         let past = db

@@ -34,13 +34,14 @@ import {
   Send,
   AlertTriangle,
   Settings,
+  FolderGit2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
 import CronConversationsPanel from "./CronConversationsPanel"
 import CronLoopBadge from "./CronLoopBadge"
-import type { CronJob, CalendarEvent } from "./CronJobForm.types"
+import type { CronJob, CalendarEvent, CronWorkspaceResource } from "./CronJobForm.types"
 import {
   statusColor,
   statusLabel,
@@ -100,6 +101,7 @@ export default function CronCalendarView({
   const [showForm, setShowForm] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
   const [detailJobId, setDetailJobId] = useState<string | null>(null)
+  const [pendingWorkspaces, setPendingWorkspaces] = useState<CronWorkspaceResource[] | null>([])
 
   // List-view state
   const [jobs, setJobs] = useState<CronJob[]>([])
@@ -151,6 +153,12 @@ export default function CronCalendarView({
     }
   }, [year, month])
 
+  const fetchPendingWorkspaces = useCallback(async () => {
+    const resources = await getTransport()
+      .call<CronWorkspaceResource[]>("cron_workspace_resources", {})
+      .catch(() => null)
+    setPendingWorkspaces(resources?.filter((resource) => resource.mode === "persistent") ?? null)
+  }, [])
   const fetchJobs = useCallback(async () => {
     setListLoading(true)
     try {
@@ -197,7 +205,8 @@ export default function CronCalendarView({
   useEffect(() => {
     if (!isViewVisible) return
     fetchEvents()
-  }, [fetchEvents, isViewVisible])
+    void fetchPendingWorkspaces()
+  }, [fetchEvents, fetchPendingWorkspaces, isViewVisible])
 
   // Entering or returning to list mode refreshes the data without resetting its UI state.
   useEffect(() => {
@@ -211,9 +220,10 @@ export default function CronCalendarView({
     if (!isViewVisible) return
     return getTransport().listen("cron:run_completed", () => {
       fetchEvents()
+      void fetchPendingWorkspaces()
       if (jobsLoaded) fetchJobs()
     })
-  }, [fetchEvents, fetchJobs, isViewVisible, jobsLoaded])
+  }, [fetchEvents, fetchJobs, fetchPendingWorkspaces, isViewVisible, jobsLoaded])
 
   // Load the agent roster once (job-independent); shared by both the embedded
   // and full-screen CronJobDetail so row switches don't refetch it.
@@ -460,6 +470,32 @@ export default function CronCalendarView({
 
         <div className="flex-1" />
 
+        {(pendingWorkspaces === null || pendingWorkspaces.length > 0) && (
+          <IconTip
+            label={
+              pendingWorkspaces === null
+                ? t("workspace.environment.unavailable")
+                : t("workspace.goal.detailWorktrees")
+            }
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setMode("conversations")}
+            >
+              {pendingWorkspaces === null ? (
+                <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+              ) : (
+                <FolderGit2 className="h-3.5 w-3.5" />
+              )}
+              {pendingWorkspaces === null
+                ? t("common.error")
+                : t("workspace.environment.worktreeCount", { count: pendingWorkspaces.length })}
+            </Button>
+          </IconTip>
+        )}
+
         {mode === "calendar" && (
           <>
             <div className="flex items-center gap-0.5 rounded-xl bg-muted/35 p-0.5">
@@ -512,6 +548,8 @@ export default function CronCalendarView({
         <CronConversationsPanel
           isViewVisible={isViewVisible}
           isSurfaceReadable={isSurfaceReadable}
+          pendingWorkspaces={pendingWorkspaces}
+          onRefreshPendingWorkspaces={fetchPendingWorkspaces}
         />
       </TabsContent>
 

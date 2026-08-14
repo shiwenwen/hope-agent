@@ -139,6 +139,7 @@ mod tests {
                 name: "Scheduled chat".into(),
                 description: None,
                 project_id: None,
+                workspace_policy: Default::default(),
                 schedule: CronSchedule::Every {
                     interval_ms: 300_000,
                     start_at: None,

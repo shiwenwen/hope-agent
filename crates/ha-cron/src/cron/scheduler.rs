@@ -168,6 +168,14 @@ pub fn start_scheduler(
                     ),
                     _ => {}
                 }
+                if let Err(error) = crate::cron::workspace::reconcile_workspaces(
+                    &cron_db,
+                    &session_db,
+                )
+                .await
+                {
+                    app_error!("cron", "workspace_reconcile", "Startup reconcile failed: {error:#}");
+                }
                 // Mark un-fireable At jobs missed BEFORE catch-up: those past the
                 // late-fire grace window (or claimed-then-crashed) are taken out
                 // so catch-up only late-fires At jobs still within grace (§7).
@@ -225,6 +233,15 @@ pub fn start_scheduler(
                     }
 
                     let now = Utc::now();
+
+                    if let Err(error) = crate::cron::workspace::reconcile_workspaces(
+                        &cron_db,
+                        &session_db,
+                    )
+                    .await
+                    {
+                        app_error!("cron", "workspace_reconcile", "Tick reconcile failed: {error:#}");
+                    }
 
                     // §7 (review fix): reap un-fireable `At` jobs every tick, not
                     // only at startup. An `At` left within the late-fire grace

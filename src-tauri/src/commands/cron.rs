@@ -190,3 +190,105 @@ pub async fn cron_get_calendar_events(
         .await
         .map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn cron_workspace_resources(
+    job_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ha_cron::cron::CronWorkspaceResource>, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::workspace_resources(&cron_db, &session_db, job_id.as_deref())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_resource_for_run(
+    run_log_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<ha_cron::cron::CronWorkspaceResource>, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::workspace_resource_for_run(&cron_db, &session_db, run_log_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_takeover(
+    job_id: String,
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::take_over_persistent_worktree(&cron_db, &session_db, &job_id, &session_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_return(
+    job_id: String,
+    session_id: String,
+    resume: bool,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::return_persistent_worktree(
+            &cron_db,
+            &session_db,
+            &job_id,
+            &session_id,
+            resume,
+        )
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_discard_run(
+    run_log_id: i64,
+    session_id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    if !confirm {
+        return Err(CmdError::msg("discard requires explicit confirmation"));
+    }
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::discard_run_worktree(&cron_db, &session_db, run_log_id, &session_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_discard_task(
+    job_id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    if !confirm {
+        return Err(CmdError::msg("discard requires explicit confirmation"));
+    }
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::discard_persistent_worktree(&cron_db, &session_db, &job_id)
+    })
+    .await
+    .map_err(Into::into)
+}

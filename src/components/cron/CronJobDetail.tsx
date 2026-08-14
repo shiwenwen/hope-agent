@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { requestChatFocus } from "@/components/chat/chatFocus"
 import {
   ArrowLeft,
@@ -27,11 +37,21 @@ import {
   ChevronDown,
   Square,
   Archive,
+  FolderGit2,
+  Hand,
+  RotateCcw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { markCronSessionRead } from "@/hooks/useCronUnreadStore"
-import type { CronJob, CronRunCancelResult, CronRunLog } from "./CronJobForm.types"
+import type {
+  CronJob,
+  CronRunCancelResult,
+  CronRunLog,
+  CronWorkspaceActionAvailability,
+  CronWorkspaceActionResult,
+  CronWorkspaceResource,
+} from "./CronJobForm.types"
 import {
   statusColor,
   statusLabel,
@@ -46,6 +66,174 @@ import CronSessionViewer from "./CronSessionViewer"
 import CronLoopBadge from "./CronLoopBadge"
 
 const LOG_PAGE = 50
+type WorkspaceAction = "takeover" | "return" | "resume" | "discard" | "archive" | "restore"
+const WORKSPACE_ACTION_KEYS = {
+  takeover: "chat.browserPanel.takeOver",
+  return: "cron.workspaceActionReturn",
+  resume: "cron.workspaceActionResume",
+  discard: "diffPanel.git.discard",
+  archive: "workspace.worktree.archive",
+  restore: "workspace.worktree.restore",
+} as const
+export function CronWorkspaceResourceCard({
+  resource,
+  onChanged,
+}: {
+  resource: CronWorkspaceResource
+  onChanged: () => void
+}) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState<string | null>(null)
+  const [discardOpen, setDiscardOpen] = useState(false)
+  const blockedLabel = (label: string, availability: CronWorkspaceActionAvailability) =>
+    availability.allowed
+      ? label
+      : t("cron.workspaceActionBlocked", { reason: availability.reasonCode ?? "-" })
+  const actionLabel = (action: WorkspaceAction) => t(WORKSPACE_ACTION_KEYS[action])
+  const act = async (action: WorkspaceAction) => {
+    if (busy) return
+    setBusy(action)
+    try {
+      let command = "cron_workspace_takeover"
+      let args: Record<string, unknown> = {
+        jobId: resource.jobId,
+        sessionId: resource.sessionId,
+      }
+      if (action === "return" || action === "resume") {
+        command = "cron_workspace_return"
+        args.resume = action === "resume"
+      } else if (action === "discard") {
+        if (resource.worktree.purpose === "scheduled_run") {
+          command = "cron_workspace_discard_run"
+          args = { runLogId: resource.runLogId, sessionId: resource.sessionId, confirm: true }
+        } else {
+          command = "cron_workspace_discard_task"
+          args = { jobId: resource.jobId, confirm: true }
+        }
+      } else if (action === "archive" || action === "restore") {
+        command = `${action}_managed_worktree`
+        args = { worktreeId: resource.worktree.id }
+      }
+      const result = await getTransport().call<CronWorkspaceActionResult>(command, args)
+      toast.success(t("cron.workspaceActionDone", { action: actionLabel(action) }))
+      onChanged()
+      if (action === "takeover") {
+        const sessionId = result.resource?.sessionId ?? resource.sessionId
+        if (sessionId) requestChatFocus({ sessionId })
+      }
+    } catch (error) {
+      logger.error("cron", "CronWorkspaceResourceCard::act", `${action} failed`, error)
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(null)
+      setDiscardOpen(false)
+    }
+  }
+  const actionButton = (
+    action: Exclude<WorkspaceAction, "discard">,
+    availability: CronWorkspaceActionAvailability,
+    icon: ReactNode,
+  ) => (
+    <IconTip label={blockedLabel(actionLabel(action), availability)}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 gap-1 px-2 text-[11px]"
+        disabled={!availability.allowed || Boolean(busy)}
+        onClick={() => void act(action)}
+      >
+        {busy === action ? <Loader2 className="h-3 w-3 animate-spin" /> : icon}
+        {actionLabel(action)}
+      </Button>
+    </IconTip>
+  )
+  const summary = resource.worktree.dirtySnapshot
+  return (
+    <div className="rounded-lg border border-border/55 bg-muted/20 px-2.5 py-2 text-[11px]">
+      <div className="flex min-w-0 items-center gap-2">
+        <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {resource.mode === "project"
+            ? t("cron.project")
+            : t(
+                resource.mode === "fresh"
+                  ? "chat.projectRuntime.worktree"
+                  : "cron.workspaceModePersistent",
+              )}{" "}
+          · {resource.workspaceStatus}
+          {resource.worktree.baseSha ? ` · ${resource.worktree.baseSha.slice(0, 8)}` : ""}
+        </span>
+        {resource.sessionId && (
+          <IconTip label={t("subagent.openSession")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => requestChatFocus({ sessionId: resource.sessionId! })}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+        )}
+      </div>
+      {summary && !summary.clean && (
+        <p className="mt-1 text-muted-foreground">
+          {t("workspace.worktree.changed", { count: summary.changedFiles })}
+        </p>
+      )}
+      <div className="mt-1 flex flex-wrap justify-end gap-1">
+        {resource.mode === "persistent" &&
+          !resource.worktree.handoffSessionId &&
+          actionButton("takeover", resource.actions.takeOver, <Hand className="h-3 w-3" />)}
+        {resource.mode === "persistent" && resource.worktree.handoffSessionId && (
+          <>
+            {actionButton(
+              "return",
+              resource.actions.returnToTask,
+              <RotateCcw className="h-3 w-3" />,
+            )}
+            {actionButton("resume", resource.actions.returnAndResume, <Play className="h-3 w-3" />)}
+          </>
+        )}
+        {resource.worktree.state === "archived"
+          ? actionButton("restore", resource.actions.restore, <Play className="h-3 w-3" />)
+          : actionButton("archive", resource.actions.archive, <Archive className="h-3 w-3" />)}
+        <IconTip label={blockedLabel(t("diffPanel.git.discard"), resource.actions.discard)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-[11px] text-destructive"
+            disabled={!resource.actions.discard.allowed || Boolean(busy)}
+            onClick={() => setDiscardOpen(true)}
+          >
+            <Trash2 className="h-3 w-3" />
+            {t("diffPanel.git.discard")}
+          </Button>
+        </IconTip>
+      </div>
+      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("diffPanel.git.discard")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("diffPanel.git.discardConfirm")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void act("discard")}
+            >
+              {t("diffPanel.git.discard")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
 
 interface CronJobDetailProps {
   jobId: string
@@ -79,6 +267,7 @@ export default function CronJobDetail({
   const { t } = useTranslation()
   const [job, setJob] = useState<CronJob | null>(null)
   const [logs, setLogs] = useState<CronRunLog[]>([])
+  const [workspaceResources, setWorkspaceResources] = useState<CronWorkspaceResource[] | null>([])
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
@@ -194,12 +383,16 @@ export default function CronJobDetail({
 
   async function fetchData() {
     try {
-      const [j, l] = await Promise.all([
+      const [j, l, resources] = await Promise.all([
         getTransport().call<CronJob | null>("cron_get_job", { id: jobId }),
         getTransport().call<CronRunLog[]>("cron_get_run_logs", { jobId, limit: LOG_PAGE }),
+        getTransport()
+          .call<CronWorkspaceResource[]>("cron_workspace_resources", { jobId })
+          .catch(() => null),
       ])
       setJob(j)
       setLogs(l)
+      setWorkspaceResources(Array.isArray(resources) ? resources : null)
       setLogsOffset(l.length)
       setLogsHasMore(l.length === LOG_PAGE)
       if (j?.payload.type === "sessionLoop") {
@@ -549,6 +742,22 @@ export default function CronJobDetail({
                   <span className="truncate">{agentLabel}</span>
                 </span>
               </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">{t("workspace.environment.worktree")}</span>
+                <span className="flex min-w-0 items-center gap-1.5 text-right">
+                  <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">
+                    {job.workspacePolicy.mode === "project"
+                      ? t("cron.project")
+                      : t(
+                          job.workspacePolicy.mode === "fresh"
+                            ? "chat.projectRuntime.worktree"
+                            : "cron.workspaceModePersistent",
+                        )}
+                    {job.workspacePolicy.baseRef ? ` · ${job.workspacePolicy.baseRef}` : ""}
+                  </span>
+                </span>
+              </div>
             </div>
 
             <button
@@ -637,6 +846,22 @@ export default function CronJobDetail({
               </div>
             )}
 
+            {workspaceResources === null ? (
+              <p className="mt-4 px-1 text-xs text-destructive">
+                {t("workspace.environment.unavailable")}
+              </p>
+            ) : workspaceResources.length > 0 ? (
+              <section className="mt-4 space-y-1.5">
+                <h4 className="px-1 text-xs font-medium">{t("workspace.goal.detailWorktrees")}</h4>
+                {workspaceResources.map((resource) => (
+                  <CronWorkspaceResourceCard
+                    key={resource.worktree.id}
+                    resource={resource}
+                    onChanged={() => void fetchData()}
+                  />
+                ))}
+              </section>
+            ) : null}
             {/* Run History */}
             <section className="mt-4">
               <div className="mb-2 flex items-center justify-between px-1">
@@ -702,6 +927,12 @@ export default function CronJobDetail({
                         <div className="text-muted-foreground mt-1">
                           {new Date(log.startedAt).toLocaleString()}
                         </div>
+                        {log.workspaceStatus && (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            <FolderGit2 className="h-3 w-3" />
+                            {log.workspaceStatus}
+                          </div>
+                        )}
                         {log.deliveryStatus && (
                           <div className="mt-1 flex items-center gap-1">
                             <Send
