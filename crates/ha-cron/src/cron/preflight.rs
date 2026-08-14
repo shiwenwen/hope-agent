@@ -71,6 +71,7 @@ pub enum CronPreflightIssueCode {
     ProjectDetached,
     ProjectArchived,
     AgentUnavailable,
+    SessionUnavailable,
     ModelUnconfigured,
     WorkspacePolicyLocked,
     WorkspaceSourceInvalid,
@@ -307,7 +308,7 @@ fn evaluate_sync(
     inspect_schedule(&candidate, operation, &mut report);
     inspect_policy(&candidate, &mut report);
     let project = resolve_project(&candidate, &mut report);
-    inspect_agent(&candidate, project.as_ref(), &mut report);
+    inspect_agent(&candidate, project.as_ref(), session_db, &mut report);
     if candidate.workspace.mode == CronWorkspaceMode::Project {
         if let Some(source) = project
             .as_ref()
@@ -423,6 +424,13 @@ fn inspect_policy(candidate: &Candidate, report: &mut CronPreflightReport) {
         };
         report.block(code);
     }
+    if matches!(candidate.payload, CronPayload::SessionTurn { .. })
+        && (candidate.project_id.is_some()
+            || candidate.permission.is_some()
+            || candidate.sandbox.is_some())
+    {
+        report.block(CronPreflightIssueCode::WorkspacePolicyInvalid);
+    }
 }
 
 fn resolve_project(
@@ -461,8 +469,32 @@ fn resolve_project(
 fn inspect_agent(
     candidate: &Candidate,
     project: Option<&ha_core::project::Project>,
+    session_db: &SessionDB,
     report: &mut CronPreflightReport,
 ) {
+    if let CronPayload::SessionTurn { session_id, .. } = &candidate.payload {
+        let Ok(Some(session)) = session_db.get_session(session_id) else {
+            report.block(CronPreflightIssueCode::SessionUnavailable);
+            return;
+        };
+        if !session.is_regular_chat() {
+            report.block(CronPreflightIssueCode::SessionUnavailable);
+            return;
+        }
+        report.execution.resolved_agent_id = Some(session.agent_id.clone());
+        report.execution.effective_permission_mode = Some(session.permission_mode);
+        report.execution.effective_sandbox_mode = Some(session.sandbox_mode);
+        let defaults =
+            ha_core::session::resolve_chat_runtime_defaults(Some(&session), &session.agent_id);
+        report.execution.primary_model = defaults.model;
+        if report.execution.primary_model.is_none() {
+            report.block(CronPreflightIssueCode::ModelUnconfigured);
+        }
+        if ha_core::agent_lifecycle::ensure_agent_runnable(&session.agent_id).is_err() {
+            report.block(CronPreflightIssueCode::AgentUnavailable);
+        }
+        return;
+    }
     let CronPayload::AgentTurn { agent_id, .. } = &candidate.payload else {
         return;
     };
@@ -625,31 +657,71 @@ pub async fn start_cron_run_now(
     if !report.can_proceed {
         return Ok(CronRunNowResult::Rejected { report });
     }
-    let claim_db = cron_db.clone();
-    let claim_id = job_id.clone();
-    let claimed = ha_core::blocking::run_blocking(move || -> Result<_> {
-        if !ha_core::runtime_lock::is_primary() {
-            return Ok(None);
-        }
-        let Some((job, false)) = claim_db.get_job_including_deleted(&claim_id)? else {
-            return Ok(None);
-        };
-        if job.revision != expected_revision {
-            return Ok(None);
-        }
-        ha_core::agent_lifecycle::with_lifecycle_gate(|| {
-            claim_db.claim_immediate_job_for_execution(&job)
-        })
+    let candidate_db = cron_db.clone();
+    let candidate_id = job_id.clone();
+    let candidate = ha_core::blocking::run_blocking(move || {
+        candidate_db.get_job_including_deleted(&candidate_id)
     })
     .await?;
-    if let Some(claimed) = claimed {
-        let result = CronRunNowResult::Started {
-            job_id: claimed.job.id.clone(),
-            revision: claimed.job.revision,
-            claimed_at: claimed.claimed_at.clone(),
-        };
-        super::executor::spawn_claimed_job_execution(cron_db, session_db, claimed);
-        return Ok(result);
+    let is_session_turn = candidate.as_ref().is_some_and(|(job, deleted)| {
+        !deleted
+            && job.revision == expected_revision
+            && matches!(job.payload, CronPayload::SessionTurn { .. })
+    });
+    if is_session_turn {
+        if let Some((job, false)) = candidate {
+            let stage_db = cron_db.clone();
+            let stage_sessions = session_db.clone();
+            let staged_job = job.clone();
+            let staged = ha_core::blocking::run_blocking(move || {
+                super::executor::stage_session_turn(&stage_db, &stage_sessions, &staged_job, true)
+            })
+            .await?;
+            if let Some(run) = staged {
+                super::executor::spawn_session_turn_pump_once(cron_db.clone(), session_db.clone());
+                return Ok(CronRunNowResult::Started {
+                    job_id: job.id,
+                    revision: job.revision,
+                    claimed_at: run.started_at,
+                });
+            }
+        }
+    }
+    if !is_session_turn {
+        let claim_db = cron_db.clone();
+        let claim_sessions = session_db.clone();
+        let claim_id = job_id.clone();
+        let claimed = ha_core::blocking::run_blocking(move || -> Result<_> {
+            if !ha_core::runtime_lock::is_primary() {
+                return Ok(None);
+            }
+            let foreground_stop_admission = claim_sessions.foreground_stop_admission(None)?;
+            let Some((job, false)) = claim_db.get_job_including_deleted(&claim_id)? else {
+                return Ok(None);
+            };
+            if job.revision != expected_revision {
+                return Ok(None);
+            }
+            let claimed = ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+                claim_db.claim_immediate_job_for_execution(&job)
+            })?;
+            Ok(claimed.map(|claimed| (claimed, foreground_stop_admission)))
+        })
+        .await?;
+        if let Some((claimed, foreground_stop_admission)) = claimed {
+            let result = CronRunNowResult::Started {
+                job_id: claimed.job.id.clone(),
+                revision: claimed.job.revision,
+                claimed_at: claimed.claimed_at.clone(),
+            };
+            super::executor::spawn_claimed_job_execution(
+                cron_db,
+                session_db,
+                claimed,
+                foreground_stop_admission,
+            );
+            return Ok(result);
+        }
     }
     let mut report = evaluate_cron_preflight(
         cron_db,

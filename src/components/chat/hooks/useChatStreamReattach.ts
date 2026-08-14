@@ -59,6 +59,9 @@ export interface UseChatStreamReattachDeps {
   reloadSessions: () => Promise<void>
   /** The caller already loaded the initial DB window into both state and cache. */
   messagesPreloaded?: boolean
+  /** Restrict reattachment to one durable turn occurrence. Unknown/mismatched
+   * stream generations are ignored rather than falling back to session latest. */
+  expectedTurnId?: string | null
   onTurnStarted?: (sessionId: string, turnId: string) => void
   onTurnEnded?: (
     sessionId: string,
@@ -152,6 +155,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     sessionCacheRef,
     reloadSessions,
     messagesPreloaded = false,
+    expectedTurnId = null,
     onTurnStarted,
     onTurnEnded,
   } = deps
@@ -162,8 +166,22 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   // pending text into a replacement turn before the rAF flush runs.
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
   const snapshotHandshakeRef = useRef(new Map<string, SnapshotHandshake>())
+  const expectedTurnIdRef = useRef(expectedTurnId)
+  const expectedStreamIdRef = useRef<string | null>(null)
+  expectedTurnIdRef.current = expectedTurnId
+
+  useEffect(() => {
+    expectedStreamIdRef.current = null
+  }, [currentSessionId, expectedTurnId])
+
+  const acceptsStreamPayload = (payload: StreamDeltaPayload): boolean => {
+    if (!expectedTurnIdRef.current) return true
+    const expectedStreamId = expectedStreamIdRef.current
+    return !!expectedStreamId && payload.streamId === expectedStreamId
+  }
 
   const applyStreamPayload = (payload: StreamDeltaPayload) => {
+    if (!acceptsStreamPayload(payload)) return
     const sid = payload.sessionId
     const seq = payload.seq
     if (isStreamEnded(endedStreamIdsRef.current, sid, payload.streamId)) return
@@ -196,6 +214,8 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     const unlisten = getTransport().listen(EVENT_CHAT_TURN_STARTED, (raw) => {
       const payload = raw as { sessionId?: string; turnId?: string; streamId?: string } | null
       if (!payload?.sessionId || !payload.turnId) return
+      if (expectedTurnIdRef.current && payload.turnId !== expectedTurnIdRef.current) return
+      if (expectedTurnIdRef.current) expectedStreamIdRef.current = payload.streamId ?? null
       const handshake = snapshotHandshakeRef.current.get(payload.sessionId)
       if (handshake) {
         handshake.liveTurnId = payload.turnId
@@ -297,6 +317,17 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           }
           if (currentSessionIdRef.current === sid) setLoading(true)
           return
+        }
+        if (
+          expectedTurnIdRef.current &&
+          (state.turnId !== expectedTurnIdRef.current ||
+            (snapshot !== null && snapshot.turnId !== expectedTurnIdRef.current))
+        ) {
+          if (handshakeRegistry.get(sid) === handshake) handshakeRegistry.delete(sid)
+          return
+        }
+        if (expectedTurnIdRef.current) {
+          expectedStreamIdRef.current = snapshot?.streamId || state.streamId || null
         }
         if (state.turnId && state.active) {
           onTurnStarted?.(sid, state.turnId)
@@ -408,14 +439,16 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         if (handshakeRegistry.get(sid) === handshake) {
           handshakeRegistry.delete(sid)
         }
-        handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
+        if (!expectedTurnIdRef.current) {
+          handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
+        }
       })
     return () => {
       cancelled = true
       if (handshakeRegistry.get(sid) === handshake) {
         handshakeRegistry.delete(sid)
       }
-      if (!handshake.ended) {
+      if (!handshake.ended && !expectedTurnIdRef.current) {
         handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
       }
     }
@@ -428,6 +461,11 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       if (!payload?.sessionId) return
       const sid = payload.sessionId
       const streamId = payload.streamId || streamIdFromPayload(raw)
+      if (expectedTurnIdRef.current) {
+        if (payload.turnId !== expectedTurnIdRef.current) return
+        if (expectedStreamIdRef.current && streamId !== expectedStreamIdRef.current) return
+        expectedStreamIdRef.current = streamId ?? null
+      }
       const appliesToCurrentTurn =
         onTurnEnded?.(sid, payload.status, payload.interruptReason, payload.turnId) ?? true
       if (!appliesToCurrentTurn) {
@@ -492,7 +530,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         // A pending/degraded end has no atomic DB materialization yet. Keep
         // the durable in-memory snapshot visible instead of replacing it with
         // an older DB window.
-        if (payload.persistenceStatus !== "pending") {
+        if (payload.persistenceStatus !== "pending" && !expectedTurnIdRef.current) {
           reloadAndMergeSessionMessages({
             sessionId: sid,
             pageSize: PAGE_SIZE,
@@ -530,6 +568,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         // clear a turn the backend still reports as active (e.g. a long
         // background-tool turn legitimately running for minutes).
         if (cancelled || currentSessionIdRef.current !== sid) return
+        if (expectedTurnIdRef.current && state.turnId !== expectedTurnIdRef.current) return
         if (state.active || !loadingSessionsRef.current.has(sid)) return
 
         // Re-confirm after a short delay so we don't mistake a just-sent turn
@@ -541,6 +580,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           sessionId: sid,
         })
         if (cancelled || currentSessionIdRef.current !== sid) return
+        if (expectedTurnIdRef.current && recheck.turnId !== expectedTurnIdRef.current) return
         if (recheck.active || !loadingSessionsRef.current.has(sid)) return
 
         // Terminal but the stream_end never landed → run the same teardown.
@@ -557,12 +597,14 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         loadingSessionsRef.current.delete(sid)
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
         setLoading(false)
-        void reloadAndMergeSessionMessages({
-          sessionId: sid,
-          pageSize: PAGE_SIZE,
-          sessionCacheRef,
-          setMessages,
-        })
+        if (!expectedTurnIdRef.current) {
+          void reloadAndMergeSessionMessages({
+            sessionId: sid,
+            pageSize: PAGE_SIZE,
+            sessionCacheRef,
+            setMessages,
+          })
+        }
         void reloadSessions()
       } catch {
         // Older backend without the command, or a transient failure — leave

@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Plus, Send, FolderOpen, AlertTriangle, GitBranch } from "lucide-react"
+import { X, Plus, Send, FolderOpen, AlertTriangle, GitBranch, Timer } from "lucide-react"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type {
   CronDeliveryTarget,
@@ -26,16 +26,12 @@ import type {
 } from "./CronJobForm.types"
 
 import type { CronFrequency } from "./CronJobForm.types"
-import {
-  parseCronToVisual,
-  buildCronFromVisual,
-  toLocalDatetimeString,
-} from "./cronHelpers"
+import { parseCronToVisual, buildCronFromVisual, toLocalDatetimeString } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
 import CronPreflightDialog from "./CronPreflightDialog"
 import { DockerSetupHint } from "@/components/settings/DockerSetupHint"
 import { useDockerStatus } from "@/hooks/useDockerStatus"
-import type { AgentInfo, SandboxMode, SessionMode } from "@/types/chat"
+import type { AgentInfo, SandboxMode, SessionMeta, SessionMode } from "@/types/chat"
 import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
 import type { ProjectMeta } from "@/types/project"
 
@@ -63,6 +59,7 @@ type PendingSave =
 
 interface CronJobFormProps {
   job?: CronJob | null
+  sessionTarget?: { id: string; title?: string | null }
   defaultDate?: Date | null
   defaultProjectId?: string | null
   onSave: () => void
@@ -74,16 +71,11 @@ const NO_PROJECT_VALUE = "__none__"
 /** Sentinel for the permission / sandbox selectors meaning "follow agent default". */
 const FOLLOW_MODE_VALUE = "__follow__"
 const PERMISSION_MODE_OPTIONS: SessionMode[] = ["default", "smart", "yolo"]
-const SANDBOX_MODE_OPTIONS: SandboxMode[] = [
-  "off",
-  "standard",
-  "isolated",
-  "workspace",
-  "trusted",
-]
+const SANDBOX_MODE_OPTIONS: SandboxMode[] = ["off", "standard", "isolated", "workspace", "trusted"]
 
 export default function CronJobForm({
   job,
+  sessionTarget,
   defaultDate,
   defaultProjectId,
   onSave,
@@ -91,12 +83,15 @@ export default function CronJobForm({
 }: CronJobFormProps) {
   const { t } = useTranslation()
   const isEditing = !!job
+  const sessionTurnId =
+    job?.payload.type === "sessionTurn" ? job.payload.sessionId : sessionTarget?.id
+  const isSessionTurn = !!sessionTurnId
   const [baselineJob, setBaselineJob] = useState<CronJob | null>(job ?? null)
   const [expectedRevision, setExpectedRevision] = useState(job?.revision ?? 1)
   const [conflictJob, setConflictJob] = useState<CronJob | null>(null)
 
   // Form state
-  const [name, setName] = useState(job?.name ?? "")
+  const [name, setName] = useState(job?.name ?? sessionTarget?.title ?? "")
   const [description, setDescription] = useState(job?.description ?? "")
   const [scheduleType, setScheduleType] = useState<"at" | "every" | "cron">(
     job?.schedule.type ?? "cron",
@@ -193,12 +188,17 @@ export default function CronJobForm({
   // (e.g. a backfilled host zone the browser doesn't enumerate) — no full re-sort
   // on every change, just a membership check.
   const timezoneOptions = useMemo<string[]>(
-    () => (timezone && !baseTimezones.includes(timezone) ? [timezone, ...baseTimezones] : baseTimezones),
+    () =>
+      timezone && !baseTimezones.includes(timezone) ? [timezone, ...baseTimezones] : baseTimezones,
     [baseTimezones, timezone],
   )
 
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
-  const [agentId, setAgentId] = useState(job?.payload.agentId ?? AUTO_AGENT_VALUE)
+  const [agentId, setAgentId] = useState(
+    job?.payload.type !== "sessionTurn"
+      ? (job?.payload.agentId ?? AUTO_AGENT_VALUE)
+      : AUTO_AGENT_VALUE,
+  )
   const [projectId, setProjectId] = useState(
     job ? (job.projectId ?? NO_PROJECT_VALUE) : (defaultProjectId ?? NO_PROJECT_VALUE),
   )
@@ -233,7 +233,7 @@ export default function CronJobForm({
   // so the hint only shows for an explicit non-off pick (conservative — runtime
   // still fail-closes if Docker is down at fire time).
   const sandboxNeedsDocker =
-    sandboxModeOverride !== FOLLOW_MODE_VALUE && sandboxModeOverride !== "off"
+    !isSessionTurn && sandboxModeOverride !== FOLLOW_MODE_VALUE && sandboxModeOverride !== "off"
   useEffect(() => {
     if (sandboxNeedsDocker) void checkDocker()
   }, [sandboxNeedsDocker, checkDocker])
@@ -246,6 +246,7 @@ export default function CronJobForm({
     Record<string, ChannelConversationDto[]>
   >({})
   const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [sessionTurnTitle, setSessionTurnTitle] = useState(sessionTarget?.title ?? null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null)
@@ -264,7 +265,9 @@ export default function CronJobForm({
     setDescription(latest.description ?? "")
     setScheduleType(latest.schedule.type)
     if (latest.schedule.type === "at") {
-      setTimestamp(latest.schedule.timestamp ? toLocalDatetimeString(latest.schedule.timestamp) : "")
+      setTimestamp(
+        latest.schedule.timestamp ? toLocalDatetimeString(latest.schedule.timestamp) : "",
+      )
     } else if (latest.schedule.type === "every") {
       const ms = latest.schedule.intervalMs ?? latest.schedule.interval_ms ?? 60_000
       if (ms % 86_400_000 === 0) {
@@ -288,7 +291,11 @@ export default function CronJobForm({
       setTimezone(latest.schedule.timezone || "UTC")
     }
     setMessage(latest.payload.prompt)
-    setAgentId(latest.payload.agentId ?? AUTO_AGENT_VALUE)
+    setAgentId(
+      latest.payload.type !== "sessionTurn"
+        ? (latest.payload.agentId ?? AUTO_AGENT_VALUE)
+        : AUTO_AGENT_VALUE,
+    )
     setProjectId(latest.projectId ?? NO_PROJECT_VALUE)
     setWorkspaceMode(latest.workspacePolicy?.mode ?? "project")
     setWorkspaceBaseRef(latest.workspacePolicy?.baseRef ?? "")
@@ -304,18 +311,31 @@ export default function CronJobForm({
   }
 
   useEffect(() => {
-    getTransport().call<AgentInfo[]>("list_agents")
-      .then(setAgents)
-      .catch(() => {})
+    if (!isSessionTurn) {
+      getTransport()
+        .call<AgentInfo[]>("list_agents")
+        .then(setAgents)
+        .catch(() => {})
 
-    getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
+      getTransport()
+        .call<ProjectMeta[]>("list_projects_cmd", { includeArchived: true })
+        .then((list) => setProjects(Array.isArray(list) ? list : []))
+        .catch(() => {})
+    }
+
+    getTransport()
+      .call<ChannelAccountConfig[]>("channel_list_accounts")
       .then((list) => setAccounts(list.filter((a) => a.enabled)))
       .catch(() => {})
+  }, [isSessionTurn])
 
-    getTransport().call<ProjectMeta[]>("list_projects_cmd", { includeArchived: true })
-      .then((list) => setProjects(Array.isArray(list) ? list : []))
+  useEffect(() => {
+    if (!sessionTurnId || sessionTarget?.title) return
+    getTransport()
+      .call<SessionMeta | null>("get_session_cmd", { sessionId: sessionTurnId })
+      .then((session) => setSessionTurnTitle(session?.title ?? null))
       .catch(() => {})
-  }, [])
+  }, [sessionTarget?.title, sessionTurnId])
 
   // Prefetch conversations for accounts already used in existing targets.
   useEffect(() => {
@@ -332,10 +352,10 @@ export default function CronJobForm({
   async function loadConversationsFor(channelId: string, accountId: string) {
     if (!channelId || !accountId) return
     try {
-      const list = await getTransport().call<ChannelConversationDto[]>(
-        "channel_list_sessions",
-        { channelId, accountId },
-      )
+      const list = await getTransport().call<ChannelConversationDto[]>("channel_list_sessions", {
+        channelId,
+        accountId,
+      })
       setConversationsByAccount((prev) => ({ ...prev, [accountId]: list }))
     } catch {
       setConversationsByAccount((prev) => ({ ...prev, [accountId]: [] }))
@@ -423,14 +443,10 @@ export default function CronJobForm({
     setError("")
 
     // Only persist fully-configured targets (skip rows still awaiting a chat pick).
-    const validTargets = deliveryTargets.filter(
-      (t) => t.channelId && t.accountId && t.chatId,
-    )
+    const validTargets = deliveryTargets.filter((t) => t.channelId && t.accountId && t.chatId)
     // FOLLOW sentinel → null (follow agent default); else the explicit mode.
     const resolvedPermissionMode: SessionMode | null =
-      permissionModeOverride === FOLLOW_MODE_VALUE
-        ? null
-        : (permissionModeOverride as SessionMode)
+      permissionModeOverride === FOLLOW_MODE_VALUE ? null : (permissionModeOverride as SessionMode)
     const resolvedSandboxMode: SandboxMode | null =
       sandboxModeOverride === FOLLOW_MODE_VALUE ? null : (sandboxModeOverride as SandboxMode)
     const parseJobTimeoutSecs = () => {
@@ -444,24 +460,27 @@ export default function CronJobForm({
       const candidate = {
         name: name.trim(),
         description: description.trim() || null,
-        projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
+        projectId: isSessionTurn || projectId === NO_PROJECT_VALUE ? null : projectId,
         workspacePolicy: {
-          mode: workspaceMode,
-          baseRef: workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
+          mode: isSessionTurn ? "project" : workspaceMode,
+          baseRef:
+            isSessionTurn || workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
         },
         schedule: buildSchedule(),
-        payload: {
-          type: "agentTurn" as const,
-          prompt: message.trim(),
-          agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
-        },
+        payload: isSessionTurn
+          ? { type: "sessionTurn" as const, sessionId: sessionTurnId!, prompt: message.trim() }
+          : {
+              type: "agentTurn" as const,
+              prompt: message.trim(),
+              agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
+            },
         maxFailures: parseInt(maxFailures) || 5,
         notifyOnComplete,
         deliveryTargets: validTargets,
         prefixDeliveryWithName,
         jobTimeoutSecs: parseJobTimeoutSecs(),
-        permissionModeOverride: resolvedPermissionMode,
-        sandboxModeOverride: resolvedSandboxMode,
+        permissionModeOverride: isSessionTurn ? null : resolvedPermissionMode,
+        sandboxModeOverride: isSessionTurn ? null : resolvedSandboxMode,
       }
       const pending: PendingSave =
         isEditing && job
@@ -545,7 +564,7 @@ export default function CronJobForm({
           type: "every",
           intervalMs,
           startAt: preserveStartAt
-            ? ((baselineJob.schedule.startAt ?? baselineJob.schedule.start_at) ?? null)
+            ? (baselineJob.schedule.startAt ?? baselineJob.schedule.start_at ?? null)
             : undefined,
         }
       }
@@ -560,7 +579,11 @@ export default function CronJobForm({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="text-base font-medium">
-            {isEditing ? t("cron.editJob") : t("cron.newJob")}
+            {isEditing
+              ? t("cron.editJob")
+              : isSessionTurn
+                ? t("cron.scheduleSession")
+                : t("cron.newJob")}
           </h3>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
             <X className="h-4 w-4" />
@@ -695,9 +718,7 @@ export default function CronJobForm({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {t("cron.timezoneHint")}
-                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">{t("cron.timezoneHint")}</p>
               </div>
             </>
           )}
@@ -715,171 +736,176 @@ export default function CronJobForm({
             />
           </div>
 
-          {/* Project */}
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
-              <FolderOpen className="h-3 w-3" />
-              {t("cron.project")}
-            </label>
-            <Select
-              value={projectId}
-              onValueChange={(value) => {
-                setProjectId(value)
-                if (value === NO_PROJECT_VALUE) setWorkspaceMode("project")
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_PROJECT_VALUE}>{t("cron.noProject")}</SelectItem>
-                {isMissingProject && (
-                  <SelectItem value={projectId}>{t("cron.missingProject")}</SelectItem>
-                )}
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    <span className="text-xs">
-                      {p.name}
-                      {p.archived ? (
-                        <span className="text-muted-foreground ml-1">
-                          {t("cron.archivedProject")}
-                        </span>
-                      ) : null}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Execution workspace */}
-          <div className="space-y-2 rounded-md border border-border/50 p-3">
-            <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <GitBranch className="h-3.5 w-3.5" />
-              {t("workspace.environment.worktree")}
-            </label>
-            <RadioPills<CronWorkspaceMode>
-              value={workspaceMode}
-              onChange={setWorkspaceMode}
-              ariaLabel={t("workspace.environment.worktree")}
-              options={(["project", "fresh", "persistent"] as const).map((mode) => ({
-                value: mode,
-                label:
-                  mode === "project"
-                    ? t("cron.project")
-                    : t(
-                        mode === "fresh"
-                          ? "chat.projectRuntime.worktree"
-                          : "cron.workspaceModePersistent",
-                      ),
-                disabled: mode !== "project" && projectId === NO_PROJECT_VALUE,
-              }))}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {t("cron.workspaceModeHint")}
-            </p>
-            {workspaceMode !== "project" && (
+          {isSessionTurn ? (
+            <div className="rounded-md border border-border/50 bg-muted/20 p-3">
+              <p className="flex items-center gap-1.5 text-xs font-medium">
+                <Timer className="h-3.5 w-3.5 text-primary" />
+                {t("cron.sessionTurnTarget")}: {sessionTurnTitle || sessionTurnId}
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                {t("cron.sessionTurnLiveHint")}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Project */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  {t("workspace.git.prBase")}
+                <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+                  <FolderOpen className="h-3 w-3" />
+                  {t("cron.project")}
                 </label>
-                <Input
-                  value={workspaceBaseRef}
-                  onChange={(event) => setWorkspaceBaseRef(event.target.value)}
-                  placeholder="HEAD"
-                />
+                <Select
+                  value={projectId}
+                  onValueChange={(value) => {
+                    setProjectId(value)
+                    if (value === NO_PROJECT_VALUE) setWorkspaceMode("project")
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_PROJECT_VALUE}>{t("cron.noProject")}</SelectItem>
+                    {isMissingProject && (
+                      <SelectItem value={projectId}>{t("cron.missingProject")}</SelectItem>
+                    )}
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <span className="text-xs">
+                          {p.name}
+                          {p.archived ? (
+                            <span className="text-muted-foreground ml-1">
+                              {t("cron.archivedProject")}
+                            </span>
+                          ) : null}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-          </div>
 
-          {/* Agent */}
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">
-              {t("cron.agent")}
-            </label>
-            <Select value={agentId} onValueChange={setAgentId}>
-              <SelectTrigger>
-                {selectedAgent ? <AgentSelectDisplay agent={selectedAgent} /> : <SelectValue />}
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={AUTO_AGENT_VALUE}>{t("cron.autoAgent")}</SelectItem>
-                {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id} textValue={a.name}>
-                    <AgentSelectDisplay agent={a} />
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Permission + sandbox overrides (per-job; default = follow agent) */}
-          <div className="space-y-2 rounded-md border border-border/50 p-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                {t("cron.permissionMode")}
-              </label>
-              <Select
-                value={permissionModeOverride}
-                onValueChange={setPermissionModeOverride}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={FOLLOW_MODE_VALUE}>
-                    {t("cron.followAgentMode")}
-                  </SelectItem>
-                  {PERMISSION_MODE_OPTIONS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {t(`cron.permissionMode_${m}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                {t("cron.sandboxMode")}
-              </label>
-              <Select value={sandboxModeOverride} onValueChange={setSandboxModeOverride}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={FOLLOW_MODE_VALUE}>
-                    {t("cron.followAgentMode")}
-                  </SelectItem>
-                  {SANDBOX_MODE_OPTIONS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {t(`chat.sandboxMode.${m}.label`, { defaultValue: m })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              {t("cron.permissionSandboxHint")}
-            </p>
-            {sandboxNeedsDocker &&
-              (!dockerReady ||
-                (dockerStatus?.isolatedModeOnly && sandboxModeOverride !== "isolated")) && (
-                <DockerSetupHint
-                  status={dockerStatus}
-                  checking={dockerChecking}
-                  onRefresh={checkDocker}
-                  sandboxMode={sandboxModeOverride}
-                  title={t("chat.sandboxMode.setupTitle", {
-                    defaultValue: "配置 Docker 后启用沙箱",
-                  })}
+              {/* Execution workspace */}
+              <div className="space-y-2 rounded-md border border-border/50 p-3">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  {t("workspace.environment.worktree")}
+                </label>
+                <RadioPills<CronWorkspaceMode>
+                  value={workspaceMode}
+                  onChange={setWorkspaceMode}
+                  ariaLabel={t("workspace.environment.worktree")}
+                  options={(["project", "fresh", "persistent"] as const).map((mode) => ({
+                    value: mode,
+                    label:
+                      mode === "project"
+                        ? t("cron.project")
+                        : t(
+                            mode === "fresh"
+                              ? "chat.projectRuntime.worktree"
+                              : "cron.workspaceModePersistent",
+                          ),
+                    disabled: mode !== "project" && projectId === NO_PROJECT_VALUE,
+                  }))}
                 />
-              )}
-            {permissionModeOverride === "yolo" && sandboxModeOverride === "off" && (
-              <div className="flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>{t("cron.unsandboxedYoloWarning")}</span>
+                <p className="text-[11px] text-muted-foreground">{t("cron.workspaceModeHint")}</p>
+                {workspaceMode !== "project" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      {t("workspace.git.prBase")}
+                    </label>
+                    <Input
+                      value={workspaceBaseRef}
+                      onChange={(event) => setWorkspaceBaseRef(event.target.value)}
+                      placeholder="HEAD"
+                    />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+
+              {/* Agent */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  {t("cron.agent")}
+                </label>
+                <Select value={agentId} onValueChange={setAgentId}>
+                  <SelectTrigger>
+                    {selectedAgent ? <AgentSelectDisplay agent={selectedAgent} /> : <SelectValue />}
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={AUTO_AGENT_VALUE}>{t("cron.autoAgent")}</SelectItem>
+                    {agents.map((a) => (
+                      <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                        <AgentSelectDisplay agent={a} />
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Permission + sandbox overrides (per-job; default = follow agent) */}
+              <div className="space-y-2 rounded-md border border-border/50 p-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                    {t("cron.permissionMode")}
+                  </label>
+                  <Select value={permissionModeOverride} onValueChange={setPermissionModeOverride}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FOLLOW_MODE_VALUE}>{t("cron.followAgentMode")}</SelectItem>
+                      {PERMISSION_MODE_OPTIONS.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {t(`cron.permissionMode_${m}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                    {t("cron.sandboxMode")}
+                  </label>
+                  <Select value={sandboxModeOverride} onValueChange={setSandboxModeOverride}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FOLLOW_MODE_VALUE}>{t("cron.followAgentMode")}</SelectItem>
+                      {SANDBOX_MODE_OPTIONS.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {t(`chat.sandboxMode.${m}.label`, { defaultValue: m })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {t("cron.permissionSandboxHint")}
+                </p>
+                {sandboxNeedsDocker &&
+                  (!dockerReady ||
+                    (dockerStatus?.isolatedModeOnly && sandboxModeOverride !== "isolated")) && (
+                    <DockerSetupHint
+                      status={dockerStatus}
+                      checking={dockerChecking}
+                      onRefresh={checkDocker}
+                      sandboxMode={sandboxModeOverride}
+                      title={t("chat.sandboxMode.setupTitle", {
+                        defaultValue: "配置 Docker 后启用沙箱",
+                      })}
+                    />
+                  )}
+                {permissionModeOverride === "yolo" && sandboxModeOverride === "off" && (
+                  <div className="flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>{t("cron.unsandboxedYoloWarning")}</span>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Max Failures */}
           <div>
@@ -938,16 +964,16 @@ export default function CronJobForm({
 
             {deliveryTargets.length === 0 ? (
               <p className="text-xs text-muted-foreground/60 py-1.5">
-                {accounts.length === 0
-                  ? t("cron.noDeliveryChannels")
-                  : t("cron.noDeliveryTargets")}
+                {accounts.length === 0 ? t("cron.noDeliveryChannels") : t("cron.noDeliveryTargets")}
               </p>
             ) : (
               <div className="space-y-2">
                 {deliveryTargets.map((target, idx) => {
                   const convs = conversationsByAccount[target.accountId] ?? []
                   const selectedConv = convs.find(
-                    (c) => c.chatId === target.chatId && (c.threadId ?? null) === (target.threadId ?? null),
+                    (c) =>
+                      c.chatId === target.chatId &&
+                      (c.threadId ?? null) === (target.threadId ?? null),
                   )
                   return (
                     <div
@@ -1006,9 +1032,7 @@ export default function CronJobForm({
                           <SelectContent>
                             {convs.map((c) => {
                               const name =
-                                c.senderName && c.senderName.length > 0
-                                  ? c.senderName
-                                  : c.chatId
+                                c.senderName && c.senderName.length > 0 ? c.senderName : c.chatId
                               return (
                                 <SelectItem key={c.id} value={String(c.id)}>
                                   <span className="text-xs">
@@ -1079,12 +1103,7 @@ export default function CronJobForm({
               <p>{error}</p>
               {conflictJob && (
                 <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={loadConflictVersion}
-                  >
+                  <Button type="button" variant="outline" size="sm" onClick={loadConflictVersion}>
                     {t("cron.reloadLatest")}
                   </Button>
                 </div>

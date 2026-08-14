@@ -19,7 +19,10 @@ mod schedule;
 // kernel 侧消费）——此处原路径再导出，`crate::cron::CronJob` 等调用点不变。
 pub use crate::cron_defs::*;
 
-pub use db::{validate_workspace_policy, CronDB};
+pub use db::{
+    validate_workspace_policy, CronDB, CronFinalScheduleAction, CronOccurrenceSettlement,
+    CronRunTerminal, CronScheduleDisposition, CronSettlementPolicy,
+};
 
 /// cron 执行期解析 agent id。**是 kernel 逻辑的薄包装**（只调
 /// `agent::resolver::resolve_default_agent_id_full`），故随台账留 kernel，

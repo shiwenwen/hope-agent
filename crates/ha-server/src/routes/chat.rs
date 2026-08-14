@@ -48,6 +48,8 @@ pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
     pub incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
+    #[serde(skip)]
+    pub ui_dispatch_fingerprint: Option<String>,
     #[serde(default)]
     pub ui_surface: Option<ha_core::pet::ChatUiSurface>,
     #[serde(default)]
@@ -178,6 +180,10 @@ pub struct QueueTurnUserMessageRequest {
     pub workflow_mode: Option<String>,
     #[serde(default)]
     pub incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
+    /// Internal provenance for bundled-UI direct-send fallback. Public queue
+    /// callers cannot supply or overwrite this durable idempotency binding.
+    #[serde(skip)]
+    pub ui_dispatch_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,10 +230,54 @@ pub struct ChatResponse {
     /// and incognito requests keep their synchronous completion contract.
     #[serde(default, skip_serializing_if = "is_false")]
     pub accepted: bool,
+    /// Present when a direct send lost the FIFO admission race and was durably
+    /// accepted as the next ordinary pending message instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_request_id: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Releases an unconsumed direct-send FIFO reservation on every pre-commit
+/// return. Successful message + ChatTurn persistence consumes the receipt in
+/// the same SQLite transaction, making this Drop a harmless exact no-op.
+struct DirectTurnAdmissionCleanup {
+    db: Arc<ha_core::session::SessionDB>,
+    admission: Option<ha_core::session::DirectTurnAdmission>,
+}
+
+impl Drop for DirectTurnAdmissionCleanup {
+    fn drop(&mut self) {
+        let db = self.db.clone();
+        let Some(admission) = self.admission.take() else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            ha_core::app_warn!(
+                "session",
+                "direct_admission_cleanup",
+                "No runtime available to release direct admission for session {}",
+                admission.session_id
+            );
+            return;
+        };
+        runtime.spawn(async move {
+            let session_id = admission.session_id.clone();
+            let result = db
+                .run(move |db| db.release_direct_turn_admission(admission))
+                .await;
+            if let Err(error) = result {
+                ha_core::app_warn!(
+                    "session",
+                    "direct_admission_cleanup",
+                    "Failed to release direct admission for session {}: {error:#}",
+                    session_id
+                );
+            }
+        });
+    }
 }
 
 #[derive(Clone)]
@@ -370,6 +420,20 @@ fn mark_ui_chat_dispatch_finished(request_id: &str) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(entry) = state.entries.get_mut(request_id) {
         entry.finished = true;
+    }
+}
+
+fn reset_finished_ui_chat_dispatch(request_id: &str) {
+    let mut state = ui_chat_dispatches()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if state
+        .entries
+        .get(request_id)
+        .is_some_and(|entry| entry.finished)
+    {
+        state.entries.remove(request_id);
+        state.order.retain(|candidate| candidate != request_id);
     }
 }
 
@@ -792,7 +856,12 @@ pub async fn chat(
     State(ctx): State<Arc<AppContext>>,
     Json(mut body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, AppError> {
-    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_durable_foreground_request(
+        ctx.session_db.as_ref(),
+        body.session_id
+            .as_deref()
+            .filter(|session_id| !session_id.trim().is_empty()),
+    )?;
     body.ui_surface = None;
     chat_inner(ctx, body, None, foreground_admission).await
 }
@@ -812,7 +881,12 @@ pub async fn ui_chat(
     // Capture at the HTTP transport boundary, before the incognito lookup or
     // detached-task handoff. A global Stop racing either await must reject this
     // already-arrived request even after the cleanup gate is released.
-    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_durable_foreground_request(
+        ctx.session_db.as_ref(),
+        body.session_id
+            .as_deref()
+            .filter(|session_id| !session_id.trim().is_empty()),
+    )?;
 
     // Incognito is deliberately close-and-burn: it must never outlive the
     // request/web surface that owns it. Existing sessions do not resend the
@@ -866,7 +940,10 @@ pub async fn ui_chat(
         .run(move |db| db.get_ui_chat_dispatch(&durable_request_id))
         .await?
     {
-        if dispatch.request_fingerprint != fingerprint {
+        if dispatch.request_fingerprint != fingerprint
+            && !(body.queued_request_id.as_deref() == Some(request_id.as_str())
+                && dispatch.queue_request_id.as_deref() == Some(request_id.as_str()))
+        {
             return Err(AppError::conflict_with_code(
                 "client_request_id_reused",
                 "clientRequestId was already used for a different chat request",
@@ -881,9 +958,52 @@ pub async fn ui_chat(
                 blocked_reason: None,
                 session_deleted: false,
                 accepted: true,
+                queued_request_id: None,
             }),
         )
             .into_response());
+    }
+
+    let queued_request_id = request_id.clone();
+    if let Some(queued) = ctx
+        .session_db
+        .run(move |db| db.get_queued_ui_dispatch(&queued_request_id))
+        .await?
+    {
+        if let Some(queued_fingerprint) = queued.ui_dispatch_fingerprint.as_deref() {
+            if body.queued_request_id.as_deref() == Some(request_id.as_str()) {
+                reset_finished_ui_chat_dispatch(&request_id);
+            } else {
+                if queued_fingerprint != fingerprint {
+                    return Err(AppError::conflict_with_code(
+                        "client_request_id_reused",
+                        "clientRequestId was already used for a different chat request",
+                    ));
+                }
+                return Ok((
+                    StatusCode::ACCEPTED,
+                    Json(ChatResponse {
+                        session_id: queued.session_id,
+                        response: String::new(),
+                        turn_id: queued.turn_id.unwrap_or_default(),
+                        blocked_reason: None,
+                        session_deleted: false,
+                        accepted: false,
+                        queued_request_id: Some(request_id),
+                    }),
+                )
+                    .into_response());
+            }
+        } else if body.queued_request_id.is_none() {
+            // Ordinary user-managed HTTP queue rows are not direct-send ACKs.
+            // Let normal admission handle them instead of aliasing identities.
+            if queued.request_id == request_id {
+                return Err(AppError::conflict_with_code(
+                    "client_request_id_reused",
+                    "clientRequestId belongs to an ordinary queued message",
+                ));
+            }
+        }
     }
 
     let subscription = subscribe_ui_chat_dispatch(&request_id, &fingerprint)?;
@@ -1310,6 +1430,8 @@ async fn chat_inner(
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
+    let mut _queued_dispatch_guard = None;
+    let mut queued_ui_dispatch_fingerprint = None;
     if let Some(request_id) = queued_request_id.as_ref() {
         let sid_for_claim = sid.clone();
         let request_id_for_claim = request_id.clone();
@@ -1320,6 +1442,7 @@ async fn chat_inner(
                     &sid_for_claim,
                     &request_id_for_claim,
                     &turn_for_claim,
+                    ha_core::session::QueuedTurnMessageSource::Http,
                 )
             })
             .await?
@@ -1329,6 +1452,7 @@ async fn chat_inner(
                     "Queued message is no longer available",
                 )
             })?;
+        _queued_dispatch_guard = Some(claimed.clone());
         body.message = claimed.message;
         body.attachments = claimed.attachments;
         body.display_text = claimed.display_text;
@@ -1336,6 +1460,7 @@ async fn chat_inner(
         body.goal_trigger = Some(claimed.goal_trigger);
         body.plan_comment = claimed.plan_comment;
         body.incoming_turn = claimed.incoming_turn;
+        queued_ui_dispatch_fingerprint = claimed.ui_dispatch_fingerprint;
         workflow_mode_pending = claimed
             .workflow_mode
             .as_deref()
@@ -1345,6 +1470,72 @@ async fn chat_inner(
         db.update_session_workflow_mode(&sid, mode)
             .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
+    let mut direct_admission_cleanup = if queued_request_id.is_none() {
+        let sid_for_admission = sid.clone();
+        let turn_for_admission = turn_id.clone();
+        let admission = db
+            .run(move |db| {
+                db.reserve_direct_turn_admission(
+                    &sid_for_admission,
+                    &turn_for_admission,
+                    ha_core::session::QueuedTurnMessageSource::Http,
+                    foreground_admission.durable_stop_admission(),
+                )
+            })
+            .await?;
+        match admission {
+            Some(admission) => Some(DirectTurnAdmissionCleanup {
+                db: db.clone(),
+                admission: Some(admission),
+            }),
+            None if body.edit_message_id.is_some() || detached_ui_dispatch.is_none() => {
+                return Err(AppError::conflict_with_code(
+                    ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE,
+                    "an earlier session turn is waiting to run",
+                ));
+            }
+            None => {
+                let request_id = body
+                    .client_request_id
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                let queued = queue_turn_user_message_inner(
+                    ctx.clone(),
+                    QueueTurnUserMessageRequest {
+                        request_id: Some(request_id),
+                        message: std::mem::take(&mut body.message),
+                        attachments: std::mem::take(&mut body.attachments),
+                        session_id: sid.clone(),
+                        display_text: body.display_text.take(),
+                        is_plan_trigger: body.is_plan_trigger,
+                        goal_trigger: body.goal_trigger,
+                        plan_comment: body.plan_comment.take(),
+                        plan_mode: None,
+                        workflow_mode: workflow_mode_pending.map(|mode| mode.as_str().to_string()),
+                        incoming_turn: body.incoming_turn.take(),
+                        ui_dispatch_fingerprint: detached_ui_dispatch
+                            .as_ref()
+                            .map(|dispatch| dispatch.fingerprint.clone()),
+                    },
+                    Some((foreground_admission, body.client_request_id.clone())),
+                )
+                .await?
+                .0;
+                return Ok(Json(ChatResponse {
+                    session_id: sid,
+                    response: String::new(),
+                    turn_id,
+                    blocked_reason: None,
+                    session_deleted: false,
+                    accepted: false,
+                    queued_request_id: Some(queued.request_id),
+                }));
+            }
+        }
+    } else {
+        None
+    };
     let cancel = Arc::new(AtomicBool::new(false));
     let _active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire_foreground_request(
         foreground_admission,
@@ -1477,6 +1668,7 @@ async fn chat_inner(
                     // Session was just deleted — tell the transport not to adopt it.
                     session_deleted: true,
                     accepted: false,
+                    queued_request_id: None,
                 }));
             }
             let _ = {
@@ -1498,6 +1690,7 @@ async fn chat_inner(
                 blocked_reason: Some(notice),
                 session_deleted: false,
                 accepted: false,
+                queued_request_id: None,
             }));
         }
     };
@@ -1612,6 +1805,16 @@ async fn chat_inner(
         meta
     };
 
+    let foreground_stop_admission = _queued_dispatch_guard
+        .as_ref()
+        .and_then(|record| record.foreground_stop_admission())
+        .or_else(|| {
+            direct_admission_cleanup
+                .as_ref()
+                .and_then(|cleanup| cleanup.admission.as_ref())
+                .map(|admission| admission.foreground_stop_admission())
+        });
+
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Http);
@@ -1630,12 +1833,19 @@ async fn chat_inner(
         let effective_prompt = effective_prompt.clone();
         let edit_message_id = body.edit_message_id;
         let ui_surface_for_turn = body.ui_surface;
-        let dispatch_request_id = detached_ui_dispatch
+        let dispatch_request_id = queued_ui_dispatch_fingerprint
             .as_ref()
-            .map(|dispatch| dispatch.request_id.clone());
-        let dispatch_fingerprint = detached_ui_dispatch
-            .as_ref()
-            .map(|dispatch| dispatch.fingerprint.clone());
+            .and(queued_request_id.clone())
+            .or_else(|| {
+                detached_ui_dispatch
+                    .as_ref()
+                    .map(|dispatch| dispatch.request_id.clone())
+            });
+        let dispatch_fingerprint = queued_ui_dispatch_fingerprint.or_else(|| {
+            detached_ui_dispatch
+                .as_ref()
+                .map(|dispatch| dispatch.fingerprint.clone())
+        });
         db.run(move |db| {
             ha_core::chat_engine::active_turn::with_persistence_target(
                 &sid,
@@ -1651,6 +1861,7 @@ async fn chat_inner(
                             ui_surface_for_turn,
                             dispatch_request_id.as_deref(),
                             dispatch_fingerprint.as_deref(),
+                            foreground_stop_admission,
                         )?;
                         let turn = db.get_chat_turn(&turn_id)?.ok_or_else(|| {
                             anyhow::anyhow!("replacement chat turn was not created")
@@ -1667,6 +1878,7 @@ async fn chat_inner(
                             ui_surface_for_turn,
                             dispatch_request_id.as_deref(),
                             dispatch_fingerprint.as_deref(),
+                            foreground_stop_admission,
                         )?;
                     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
                     let _ = session::ensure_first_message_title(
@@ -1795,6 +2007,15 @@ async fn chat_inner(
             ));
         }
     };
+    if let Some(admission) = direct_admission_cleanup
+        .as_mut()
+        .and_then(|cleanup| cleanup.admission.take())
+    {
+        let _ = db
+            .run(move |db| db.release_direct_turn_admission(admission))
+            .await;
+    }
+    drop(_queued_dispatch_guard.take());
     let mut turn_drop_finalizer =
         HttpChatTurnDropFinalizer::new(db.clone(), sid.clone(), turn_id.clone());
 
@@ -1815,6 +2036,7 @@ async fn chat_inner(
                 blocked_reason: None,
                 session_deleted: false,
                 accepted: true,
+                queued_request_id: None,
             }),
         );
         debug_assert!(accepted, "detached UI dispatch must publish exactly once");
@@ -1962,6 +2184,7 @@ async fn chat_inner(
         run_context: None,
         reasoning_effort: Some(effort),
         cancel: cancel.clone(),
+        foreground_stop_admission,
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
@@ -2015,6 +2238,7 @@ async fn chat_inner(
         blocked_reason: None,
         session_deleted: false,
         accepted: false,
+        queued_request_id: None,
     }))
 }
 
@@ -2100,6 +2324,17 @@ pub async fn queue_turn_user_message(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<QueueTurnUserMessageRequest>,
 ) -> Result<Json<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult>, AppError> {
+    queue_turn_user_message_inner(ctx, body, None).await
+}
+
+async fn queue_turn_user_message_inner(
+    ctx: Arc<AppContext>,
+    body: QueueTurnUserMessageRequest,
+    foreground_fence: Option<(
+        ha_core::chat_engine::active_turn::ForegroundRequestAdmission,
+        Option<String>,
+    )>,
+) -> Result<Json<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult>, AppError> {
     validate_http_chat_attachments(
         &body.session_id,
         &body.message,
@@ -2138,12 +2373,33 @@ pub async fn queue_turn_user_message(
         workflow_mode: body.workflow_mode,
         incoming_turn: body.incoming_turn,
         skill_allowed_tools: Vec::new(),
+        ui_dispatch_fingerprint: body.ui_dispatch_fingerprint,
         source: ha_core::session::QueuedTurnMessageSource::Http,
         channel_origin: None,
     };
+    let fence_session_id = session_id.clone();
     let item_result = ctx
         .session_db
-        .run(move |db| db.enqueue_turn_user_message(input))
+        .run(move |db| {
+            if let Some((admission, client_request_id)) = foreground_fence {
+                return ha_core::chat_engine::active_turn::with_validated_foreground_request(
+                    admission,
+                    &fence_session_id,
+                    ha_core::chat_engine::stream_seq::ChatSource::Http,
+                    client_request_id.as_deref(),
+                    |stop_admission| {
+                        db.enqueue_turn_user_message_with_stop_admission(
+                            input,
+                            stop_admission.ok_or_else(|| {
+                                anyhow::anyhow!("durable Stop admission was not captured")
+                            })?,
+                        )
+                    },
+                )
+                .map_err(anyhow::Error::new)?;
+            }
+            db.enqueue_turn_user_message(input)
+        })
         .await;
     let item = match item_result {
         Ok(outcome) => {
@@ -2162,6 +2418,15 @@ pub async fn queue_turn_user_message(
                 &request_id,
                 &attachments_for_cleanup,
             );
+            if error
+                .downcast_ref::<ha_core::chat_engine::active_turn::ActiveTurnError>()
+                .is_some()
+            {
+                return Err(AppError::conflict_with_code(
+                    ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
+                    error.to_string(),
+                ));
+            }
             return Err(AppError::bad_request(error.to_string()));
         }
     };
@@ -2939,6 +3204,7 @@ mod tests {
             blocked_reason: None,
             session_deleted: false,
             accepted: true,
+            queued_request_id: None,
         };
         assert!(publish_ui_chat_dispatch(
             &request_id,
@@ -2983,6 +3249,7 @@ mod tests {
                 blocked_reason: None,
                 session_deleted: false,
                 accepted: true,
+                queued_request_id: None,
             })
         ));
 

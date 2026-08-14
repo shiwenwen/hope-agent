@@ -79,6 +79,7 @@ pub struct SessionDB {
     readers: Vec<Mutex<Connection>>,
     /// Round-robin cursor into `readers`.
     reader_idx: AtomicUsize,
+    pub(super) direct_turn_locks_dir: PathBuf,
 }
 
 /// Log at `app_info!` when `align_window_to_user_boundary` extends a page by
@@ -237,7 +238,7 @@ fn unread_domain_for_session(conn: &Connection, session_id: &str) -> Result<Opti
     }))
 }
 
-fn insert_message_row(
+pub(super) fn insert_message_row(
     conn: &Connection,
     session_id: &str,
     msg: &NewMessage,
@@ -1168,8 +1169,10 @@ impl SessionDB {
              WHERE persistence_run_id IS NOT NULL AND logical_block_seq IS NOT NULL;",
         )?;
         Self::ensure_stream_persistence_tables(&conn)?;
+        let direct_turn_locks_dir = db_path.with_extension("turn-locks");
+        std::fs::create_dir_all(&direct_turn_locks_dir)?;
         Self::ensure_turn_message_queue_table(&conn)?;
-        Self::recover_turn_message_queue(&conn)?;
+        Self::recover_turn_message_queue(&conn, &direct_turn_locks_dir)?;
         crate::goal::ensure_tables(&conn)?;
         crate::worktree::ensure_tables(&conn)?;
         crate::project_bootstrap::ensure_tables(&conn)?;
@@ -1797,6 +1800,7 @@ impl SessionDB {
             conn: Mutex::new(conn),
             readers,
             reader_idx: AtomicUsize::new(0),
+            direct_turn_locks_dir,
         })
     }
 
@@ -2533,6 +2537,7 @@ impl SessionDB {
         ui_surface: Option<crate::pet::ChatUiSurface>,
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<i64> {
         let result = (|| {
             if client_request_id.is_some() != request_fingerprint.is_some() {
@@ -2551,7 +2556,23 @@ impl SessionDB {
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-            let tx = conn.transaction()?;
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if let Some(admission) = stop_admission {
+                if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                    &tx, session_id, admission,
+                )? {
+                    anyhow::bail!("{}", super::FOREGROUND_STOP_FENCE_ERROR);
+                }
+            }
+            let direct_admission_consumed = super::turn_queue::consume_direct_turn_admission(
+                &tx,
+                session_id,
+                new_turn_id,
+                source,
+            )?;
+            if matches!(source, "desktop" | "http") && !direct_admission_consumed {
+                anyhow::bail!("edited turn lost its durable admission");
+            }
 
             let (target_role, target_content, target_queue_request_id): (
                 String,
@@ -2587,7 +2608,7 @@ impl SessionDB {
                 params![session_id],
                 |row| row.get(0),
             )?;
-            if queued_count > 0 {
+            if queued_count > 0 && !direct_admission_consumed {
                 anyhow::bail!("session has queued messages; wait for them before editing");
             }
 
@@ -5732,9 +5753,6 @@ impl SessionDB {
         session_id: &str,
         reason: crate::session::events::SessionDeleteReason,
     ) -> Result<()> {
-        // A Fresh scheduled Worktree is chat-owned. Letting the FK cascade
-        // erase its custody row would strand the Git checkout on disk.
-        self.ensure_session_has_no_scheduled_worktree_custody(session_id)?;
         // Snapshot before deletion — needed for the emit payload, and lets us
         // skip the event entirely when nothing was there to delete.
         let snapshot = self.get_session(session_id)?;
@@ -5743,47 +5761,76 @@ impl SessionDB {
         // gone by emit time). Done before taking the conn lock — both helpers
         // lock it themselves.
         let cleanup_ctx = self.capture_session_cleanup_context(session_id);
-        {
-            let conn = self
+        let deleted = {
+            let mut conn = self
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-            // Try direct delete (CASCADE handles messages + fires FTS trigger).
-            match conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
-                Ok(_) => {}
-                Err(e) => {
-                    // FTS index corrupted — rebuild and retry.
-                    app_warn!(
-                        "session",
-                        "db",
-                        "delete_session failed ({}), rebuilding FTS and retrying",
-                        e
-                    );
-                    let _ = conn.execute_batch(
-                        "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-                         INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
-                    );
-                    conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
-                }
+            // The scheduled queue, Cron ChatTurn commit, and Worktree custody
+            // all live in this database. Reserving the writer before checking
+            // them makes permanent deletion linearizable across processes: a
+            // competing stage/commit either lands first and blocks deletion,
+            // or observes the deleted Session through its FK and fails closed.
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(&tx, session_id)?;
+            let scheduled_custody: bool = tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM queued_turn_user_messages
+                     WHERE session_id=?1 AND source='scheduled'
+                 ) OR EXISTS(
+                    SELECT 1 FROM chat_turns
+                     WHERE session_id=?1 AND source='cron'
+                       AND status IN ('running','cancelling')
+                 )",
+                params![session_id],
+                |row| row.get(0),
+            )?;
+            if scheduled_custody {
+                anyhow::bail!("scheduled_session_turn_active");
             }
-        }
+            // Try direct delete (CASCADE handles messages + fires FTS trigger).
+            let removed =
+                match tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
+                    Ok(removed) => removed,
+                    Err(e) => {
+                        // FTS index corrupted — rebuild and retry.
+                        app_warn!(
+                            "session",
+                            "db",
+                            "delete_session failed ({}), rebuilding FTS and retrying",
+                            e
+                        );
+                        let _ = tx.execute_batch(
+                            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
+                         INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
+                        );
+                        tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?
+                    }
+                };
+            tx.commit()?;
+            removed > 0
+        };
 
-        if let Ok(plans_dir) = crate::paths::plans_dir() {
-            let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+        if deleted {
+            if let Ok(plans_dir) = crate::paths::plans_dir() {
+                let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+            }
+            if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
+                let _ = std::fs::remove_dir_all(att_dir);
+            }
+            self.cleanup_session_orphan_tables(session_id);
+            // Drop the Smart-mode "already edited" trust set for this session so it
+            // can't outlive the session (and doesn't accumulate in long-running
+            // server processes).
+            crate::permission::session_edits::clear(session_id);
         }
-        if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
-            let _ = std::fs::remove_dir_all(att_dir);
-        }
-        self.cleanup_session_orphan_tables(session_id);
-        // Drop the Smart-mode "already edited" trust set for this session so it
-        // can't outlive the session (and doesn't accumulate in long-running
-        // server processes).
-        crate::permission::session_edits::clear(session_id);
 
         // Emit after the conn lock is released — subscribers (cleanup_watcher
         // fan-out) may re-lock the DB.
-        if let Some(meta) = snapshot {
-            crate::session::events::emit_session_deleted(&meta, reason, &cleanup_ctx);
+        if deleted {
+            if let Some(meta) = snapshot {
+                crate::session::events::emit_session_deleted(&meta, reason, &cleanup_ctx);
+            }
         }
 
         Ok(())
@@ -8698,6 +8745,7 @@ mod tests {
                 Some(crate::pet::ChatUiSurface::MainChat),
                 None,
                 None,
+                None,
             )
             .expect("replace latest turn");
         let remaining = db
@@ -8767,6 +8815,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .expect_err("older user message must be rejected");
         assert!(error.to_string().contains("latest user message"));
@@ -8826,6 +8875,7 @@ mod tests {
             &NewMessage::user("replacement prompt"),
             "duplicate-replacement-turn",
             crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
             None,
             None,
             None,

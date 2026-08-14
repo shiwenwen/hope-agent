@@ -22,10 +22,14 @@ import type { Message, SessionMessage, AgentSummaryForSidebar } from "@/types/ch
 const PAGE_SIZE = 50
 
 interface CronSessionViewerProps {
+  runLogId: number
   sessionId: string
+  requiresExactTarget?: boolean
+  targetMessageId?: number | null
+  expectedTurnId?: string | null
   agents: AgentSummaryForSidebar[]
   /** Fires only after the transcript request succeeds (an empty transcript still counts). */
-  onLoaded?: (sessionId: string) => void
+  onLoaded?: (runLogId: number) => void
 }
 
 interface CronSessionLiveReattachProps {
@@ -34,6 +38,7 @@ interface CronSessionLiveReattachProps {
   setStreamLoading: Dispatch<SetStateAction<boolean>>
   sessionCacheRef: MutableRefObject<Map<string, Message[]>>
   messagesPreloaded: boolean
+  expectedTurnId?: string | null
 }
 
 /** Mounted only after the viewer's one initial transcript read has settled. */
@@ -43,6 +48,7 @@ function CronSessionLiveReattach({
   setStreamLoading,
   sessionCacheRef,
   messagesPreloaded,
+  expectedTurnId,
 }: CronSessionLiveReattachProps) {
   const currentSessionIdRef = useRef<string | null>(sessionId)
   const lastSeqRef = useRef(new Map<string, number>())
@@ -78,6 +84,7 @@ function CronSessionLiveReattach({
     sessionCacheRef,
     reloadSessions,
     messagesPreloaded,
+    expectedTurnId,
   })
   return null
 }
@@ -86,15 +93,23 @@ function CronSessionLiveReattach({
  * Read-only preview for a single scheduled run's conversation. Reuses the main
  * chat `MessageList` renderer with every interaction callback omitted and no
  * `ChatInput`; interactive follow-up happens in the linked ordinary session.
- * Mounted with `key={sessionId}` by the parent so a row switch fully remounts.
+ * Mounted with `key={runLogId}` by the parent so a row switch fully remounts.
  *
  * Supports loading older messages (scroll-up) so a tool-heavy run with more than
  * PAGE_SIZE stored messages keeps its earlier prompt/tool context accessible.
  */
-export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronSessionViewerProps) {
+export default function CronSessionViewer({
+  runLogId,
+  sessionId,
+  requiresExactTarget,
+  targetMessageId,
+  expectedTurnId,
+  agents,
+  onLoaded,
+}: CronSessionViewerProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
-  // Mounted with key={sessionId} by both call sites, so each session starts
+  // Mounted with key={runLogId} by both call sites, so each run starts
   // fresh — loading begins true and no synchronous reset is needed in the effect.
   const [historyLoading, setHistoryLoading] = useState(true)
   const [initialLoadSucceeded, setInitialLoadSucceeded] = useState(false)
@@ -109,11 +124,21 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
 
   useEffect(() => {
     let cancelled = false
-    getTransport()
-      .call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
-        sessionId,
-        limit: PAGE_SIZE,
-      })
+    if (targetMessageId == null && requiresExactTarget) {
+      setHistoryLoading(false)
+      return
+    }
+    const request =
+      targetMessageId != null
+        ? getTransport().call<[SessionMessage[], number, boolean, boolean]>(
+            "load_session_messages_around_cmd",
+            { sessionId, targetMessageId, before: PAGE_SIZE, after: PAGE_SIZE },
+          )
+        : getTransport().call<[SessionMessage[], number, boolean]>(
+            "load_session_messages_latest_cmd",
+            { sessionId, limit: PAGE_SIZE },
+          )
+    request
       .then(([rawMsgs, , hasMoreBefore]) => {
         if (cancelled) return
         const persisted = parseSessionMessages(rawMsgs)
@@ -122,7 +147,7 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
         setInitialLoadSucceeded(true)
         oldestDbId.current = rawMsgs.length > 0 ? rawMsgs[0].id : null
         setHasMore(!!hasMoreBefore)
-        onLoadedRef.current?.(sessionId)
+        onLoadedRef.current?.(runLogId)
       })
       .catch((e) => {
         if (cancelled) return
@@ -134,7 +159,7 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
     return () => {
       cancelled = true
     }
-  }, [sessionId])
+  }, [requiresExactTarget, runLogId, sessionId, targetMessageId])
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMore || !hasMore || oldestDbId.current === null) return
@@ -153,9 +178,7 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
       const older = parseSessionMessages(olderMsgs)
       setMessages((prev) => {
         const existingIds = new Set(
-          prev.flatMap((message) =>
-            typeof message.dbId === "number" ? [message.dbId] : [],
-          ),
+          prev.flatMap((message) => (typeof message.dbId === "number" ? [message.dbId] : [])),
         )
         const next = [
           ...older.filter(
@@ -175,13 +198,14 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {!historyLoading && (
+      {!historyLoading && initialLoadSucceeded && (
         <CronSessionLiveReattach
           sessionId={sessionId}
           setMessages={setMessages}
           setStreamLoading={setStreamLoading}
           sessionCacheRef={sessionCacheRef}
           messagesPreloaded={initialLoadSucceeded}
+          expectedTurnId={expectedTurnId}
         />
       )}
       <div className="flex h-9 shrink-0 items-center justify-end border-b border-border-soft px-2">
@@ -191,7 +215,10 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
             variant="ghost"
             size="sm"
             className="h-7 gap-1.5 text-xs text-muted-foreground"
-            onClick={() => requestChatFocus({ sessionId })}
+            disabled={requiresExactTarget && targetMessageId == null}
+            onClick={() =>
+              requestChatFocus({ sessionId, targetMessageId: targetMessageId ?? undefined })
+            }
           >
             <ArrowUpRight className="h-3.5 w-3.5" />
             {t("subagent.openSession")}
@@ -216,6 +243,9 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
             loadingMore={loadingMore}
             onLoadMore={handleLoadMore}
             sessionId={sessionId}
+            pendingScrollIntent={
+              targetMessageId ? { messageId: targetMessageId, highlightTerms: null } : null
+            }
             heroComposer
             bottomInset
           />

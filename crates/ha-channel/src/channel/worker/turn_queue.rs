@@ -193,7 +193,31 @@ async fn run_pump(session_id: &str) {
             .await
         {
             Ok(Some(record)) => record,
-            Ok(None) => return,
+            Ok(None) => {
+                drop(dispatch_permit);
+                let sid = session_id.to_string();
+                match db.run(move |db| db.has_channel_turn_messages(&sid)).await {
+                    Ok(true) => {
+                        tokio::time::sleep(failure_backoff).await;
+                        failure_backoff = failure_backoff
+                            .saturating_mul(2)
+                            .min(Duration::from_secs(30));
+                        continue;
+                    }
+                    Ok(false) => return,
+                    Err(error) => {
+                        app_warn!(
+                            "channel",
+                            "turn_queue_probe",
+                            "Failed to recheck queued IM message for session {}: {}",
+                            session_id,
+                            error
+                        );
+                        tokio::time::sleep(failure_backoff).await;
+                        continue;
+                    }
+                }
+            }
             Err(error) => {
                 app_warn!(
                     "channel",

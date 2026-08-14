@@ -208,7 +208,11 @@ export function runLogDotColor(runStatus: string | undefined, jobStatus: string)
     case "timeout":
       return "bg-red-500"
     case "running":
+    case "completing":
       return "bg-blue-500"
+    case "queued":
+    case "cancelling":
+      return "bg-amber-500"
     case "empty":
     case "cancelled":
       return "bg-muted-foreground"
@@ -233,7 +237,16 @@ export function runStatusDisplay(runStatus: string): {
     case "success":
       return { className: "text-emerald-500", symbol: "✓ ", labelKey: "cron.runStatusSuccess" }
     case "running":
+    case "completing":
       return { className: "text-blue-500", symbol: "", labelKey: "cron.runStatusRunning" }
+    case "queued":
+      return { className: "text-amber-500", symbol: "", labelKey: "common.statusValues.queued" }
+    case "cancelling":
+      return {
+        className: "text-amber-500",
+        symbol: "",
+        labelKey: "common.statusValues.cancelling",
+      }
     case "empty":
       return { className: "text-muted-foreground", symbol: "○ ", labelKey: "cron.runStatusEmpty" }
     case "cancelled":

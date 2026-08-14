@@ -104,6 +104,30 @@ enum TargetResult {
 /// and fan its result out the same way the inline run does. No-op when the
 /// session isn't a cron run, the job is gone, or it has no delivery targets.
 pub async fn deliver_injection_for_session(session_id: &str, text: &str) {
+    // Ordinary SessionTurn targets are shared with later manual turns and with
+    // other scheduled tasks. The injection hook carries no immutable turn/run
+    // lineage, so session-only lookup could send task A's late result through
+    // task B's targets. Only legacy dedicated Cron sessions are unambiguous;
+    // every ordinary session fails closed until exact lineage is propagated.
+    let Some(session_db) = ha_core::get_session_db() else {
+        return;
+    };
+    let provenance_session_id = session_id.to_string();
+    match session_db
+        .run(move |db| db.get_session(&provenance_session_id))
+        .await
+    {
+        Ok(Some(meta)) if meta.is_cron => {}
+        Ok(_) => return,
+        Err(error) => {
+            app_warn!(
+                "cron",
+                "delivery",
+                "skipping injection delivery after session provenance read failed: {error:#}"
+            );
+            return;
+        }
+    }
     let Some(cron_db) = ha_core::globals::get_cron_db() else {
         return;
     };

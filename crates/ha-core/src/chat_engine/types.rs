@@ -615,6 +615,9 @@ pub struct ChatEngineParams {
     pub run_context: Option<crate::prompt_context::RunInstructionContext>,
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
+    /// Stop generation captured at the transport/queue admission boundary.
+    /// Stream durability revalidates it transactionally before model work.
+    pub foreground_stop_admission: Option<crate::session::ForegroundStopAdmission>,
     /// Spawn-supplied Plan-mode override. `Some` means the caller is the
     /// source of truth and the chat engine must NOT consult this session's
     /// backend `plan_mode` (used by `spawn_plan_subagent`: the child

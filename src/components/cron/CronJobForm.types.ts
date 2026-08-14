@@ -41,6 +41,11 @@ export type CronPayload =
       agentId?: string | null
     }
   | {
+      type: "sessionTurn"
+      sessionId: string
+      prompt: string
+    }
+  | {
       type: "sessionLoop"
       loopId: string
       sessionId: string
@@ -104,6 +109,7 @@ export interface CronRunLog {
   jobId: string
   sessionId: string
   turnId?: string | null
+  targetMessageId?: number | null
   status: string
   startedAt: string
   finishedAt?: string | null
@@ -185,6 +191,8 @@ export type CronRunNowResult =
 export interface CronTimelineRow {
   runLogId: number
   sessionId: string
+  turnId?: string | null
+  targetMessageId?: number | null
   jobId: string
   jobName: string
   /** The task was deleted, while this historical run remains available. */

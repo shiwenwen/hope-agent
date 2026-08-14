@@ -282,6 +282,26 @@ fn require_scheduled_session_idle_on(
     Ok(())
 }
 
+pub(crate) fn ensure_session_has_no_scheduled_worktree_custody_on(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<()> {
+    let held: Option<String> = conn
+        .query_row(
+            "SELECT id FROM managed_worktrees
+              WHERE purpose IN ('scheduled_run','scheduled_task')
+                AND (owner_session_id=?1 OR runtime_session_id=?1
+                     OR handoff_session_id=?1) LIMIT 1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(id) = held {
+        bail!("workspace_session_custody:{id}");
+    }
+    Ok(())
+}
+
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS managed_worktrees (
@@ -1004,27 +1024,6 @@ impl SessionDB {
     ) -> Result<bool> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         scheduled_session_idle_on(&conn, session_id, ignored_turn_id)
-    }
-
-    pub(crate) fn ensure_session_has_no_scheduled_worktree_custody(
-        &self,
-        session_id: &str,
-    ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let held: Option<String> = conn
-            .query_row(
-                "SELECT id FROM managed_worktrees
-                  WHERE purpose IN ('scheduled_run','scheduled_task')
-                    AND (owner_session_id=?1 OR runtime_session_id=?1
-                         OR handoff_session_id=?1) LIMIT 1",
-                params![session_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if let Some(id) = held {
-            bail!("workspace_session_custody:{id}");
-        }
-        Ok(())
     }
 
     pub fn list_scheduled_runtime_worktrees(&self, limit: usize) -> Result<Vec<ManagedWorktree>> {

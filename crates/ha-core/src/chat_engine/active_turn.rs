@@ -48,6 +48,7 @@ struct Entry {
     cancel: Arc<AtomicBool>,
     persistence_state: Arc<AtomicU8>,
     accepting_insertions: bool,
+    completion_sealed: bool,
 }
 
 const PERSISTENCE_PENDING: u8 = 0;
@@ -163,6 +164,25 @@ impl ActiveTurnGuard {
     /// the replacement-turn window over journal convergence.
     pub fn handoff_to_recovery(mut self) {
         self.released = true;
+    }
+
+    /// Linearize post-model completion with exact Stop while retaining this
+    /// admission for durable recovery. A Stop that acquired the registry first
+    /// has already set `cancel` and wins; after this seal, exact Stop must report
+    /// that the turn crossed its cancellation point without flipping the flag.
+    pub fn seal_completion(&self, expected_turn_id: &str) -> bool {
+        let mut map = registry_lock();
+        let Some(entry) = map.get_mut(&self.session_id) else {
+            return false;
+        };
+        if entry.token != self.token || entry.turn_id != expected_turn_id {
+            return false;
+        }
+        if entry.cancel.load(Ordering::SeqCst) {
+            return false;
+        }
+        entry.completion_sealed = true;
+        true
     }
 }
 
@@ -290,13 +310,87 @@ pub fn stop_cleanup_active(session_id: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForegroundRequestAdmission {
     global_stop_generation: u64,
+    durable_stop_admission: Option<crate::session::ForegroundStopAdmission>,
 }
 
 /// Capture at the transport entry point, before its first await.
 pub fn begin_foreground_request() -> ForegroundRequestAdmission {
     ForegroundRequestAdmission {
         global_stop_generation: GLOBAL_STOP_GENERATION.load(Ordering::SeqCst),
+        durable_stop_admission: None,
     }
+}
+
+/// Capture both the process-local cleanup generation and the shared SQLite
+/// Stop generations before a transport performs any asynchronous staging.
+pub fn begin_durable_foreground_request(
+    db: &crate::session::SessionDB,
+    session_id: Option<&str>,
+) -> anyhow::Result<ForegroundRequestAdmission> {
+    Ok(ForegroundRequestAdmission {
+        global_stop_generation: GLOBAL_STOP_GENERATION.load(Ordering::SeqCst),
+        durable_stop_admission: Some(db.foreground_stop_admission(session_id)?),
+    })
+}
+
+impl ForegroundRequestAdmission {
+    pub fn durable_stop_admission(self) -> Option<crate::session::ForegroundStopAdmission> {
+        self.durable_stop_admission
+    }
+}
+
+fn validate_foreground_request_locked(
+    admission: ForegroundRequestAdmission,
+    session_id: &str,
+    source: ChatSource,
+    client_request_id: Option<&str>,
+) -> Result<(), ActiveTurnError> {
+    let global_stop = admission.global_stop_generation
+        != GLOBAL_STOP_GENERATION.load(Ordering::SeqCst)
+        || !global_stop_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty();
+    let session_stop = stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|tokens| !tokens.is_empty());
+    let client_stop = client_request_id.is_some_and(|request_id| {
+        let mut pending = pending_client_cancels()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let matches = pending
+            .get(request_id)
+            .is_some_and(|expected| expected.as_deref().is_none_or(|value| value == session_id));
+        if matches {
+            pending.remove(request_id);
+        }
+        matches
+    });
+    if global_stop || session_stop || client_stop {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+            cancelled_by_global_stop: global_stop,
+        });
+    }
+    Ok(())
+}
+
+/// Validate the captured Stop generation and commit a durable queued request
+/// under the same foreground gate. Stop therefore either wins before this
+/// closure starts, or observes the committed request in its later snapshot.
+pub fn with_validated_foreground_request<T>(
+    admission: ForegroundRequestAdmission,
+    session_id: &str,
+    source: ChatSource,
+    client_request_id: Option<&str>,
+    commit: impl FnOnce(Option<crate::session::ForegroundStopAdmission>) -> anyhow::Result<T>,
+) -> Result<anyhow::Result<T>, ActiveTurnError> {
+    let _map = registry_lock();
+    validate_foreground_request_locked(admission, session_id, source, client_request_id)?;
+    Ok(commit(admission.durable_stop_admission))
 }
 
 pub fn try_acquire(
@@ -424,6 +518,7 @@ fn try_acquire_inner(
             cancel,
             persistence_state,
             accepting_insertions: true,
+            completion_sealed: false,
         },
     );
     Ok(ActiveTurnGuard {
@@ -493,6 +588,7 @@ pub fn current_for_client_request(client_request_id: &str) -> Option<ActiveTurnS
 #[derive(Debug, Clone)]
 pub enum ActiveTurnCancelOutcome {
     Cancelled(ActiveTurnSnapshot),
+    CompletionSealed,
     NotFound,
     TurnMismatch,
 }
@@ -509,6 +605,9 @@ pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> Activ
     };
     if expected_turn_id.is_some_and(|expected| expected != entry.turn_id) {
         return ActiveTurnCancelOutcome::TurnMismatch;
+    }
+    if entry.completion_sealed {
+        return ActiveTurnCancelOutcome::CompletionSealed;
     }
     entry.cancel.store(true, Ordering::SeqCst);
     let _ = entry.persistence_state.compare_exchange(
@@ -530,7 +629,10 @@ pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> Activ
 pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
     let map = registry_lock();
     map.iter()
-        .map(|(session_id, entry)| {
+        .filter_map(|(session_id, entry)| {
+            if entry.completion_sealed {
+                return None;
+            }
             entry.cancel.store(true, Ordering::SeqCst);
             let _ = entry.persistence_state.compare_exchange(
                 PERSISTENCE_PENDING,
@@ -538,13 +640,13 @@ pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
                 Ordering::SeqCst,
                 Ordering::SeqCst,
             );
-            ActiveTurnSnapshot {
+            Some(ActiveTurnSnapshot {
                 session_id: session_id.clone(),
                 turn_id: entry.turn_id.clone(),
                 stream_id: entry.stream_id.clone(),
                 source: entry.source,
                 cancel: Arc::clone(&entry.cancel),
-            }
+            })
         })
         .collect()
 }
@@ -1356,6 +1458,43 @@ mod tests {
             with_persistence_target(sid, "turn-persistence", || Ok("persisted")).unwrap(),
             PersistenceTargetOutcome::CancelledBeforeCommit
         );
+    }
+
+    #[test]
+    fn completion_seal_linearizes_with_exact_stop() {
+        let _lock = test_lock();
+        let sealed_sid = "test-active-turn-completion-sealed";
+        let sealed_cancel = Arc::new(AtomicBool::new(false));
+        let sealed_guard = try_acquire(
+            sealed_sid,
+            ChatSource::Cron,
+            "turn-completion-sealed".to_string(),
+            sealed_cancel.clone(),
+        )
+        .unwrap();
+        assert!(sealed_guard.seal_completion("turn-completion-sealed"));
+        assert!(matches!(
+            cancel_current(sealed_sid, Some("turn-completion-sealed")),
+            ActiveTurnCancelOutcome::CompletionSealed
+        ));
+        assert!(!sealed_cancel.load(Ordering::SeqCst));
+        drop(sealed_guard);
+
+        let cancelled_sid = "test-active-turn-stop-before-completion";
+        let cancelled_flag = Arc::new(AtomicBool::new(false));
+        let cancelled_guard = try_acquire(
+            cancelled_sid,
+            ChatSource::Cron,
+            "turn-stop-before-completion".to_string(),
+            cancelled_flag.clone(),
+        )
+        .unwrap();
+        assert!(matches!(
+            cancel_current(cancelled_sid, Some("turn-stop-before-completion")),
+            ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        assert!(!cancelled_guard.seal_completion("turn-stop-before-completion"));
+        assert!(cancelled_flag.load(Ordering::SeqCst));
     }
 
     #[test]

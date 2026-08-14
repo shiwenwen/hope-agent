@@ -173,9 +173,9 @@ pub(crate) fn tool_manage_cron<'a>(
                             *agent_id = v.as_str().map(String::from);
                         }
                     }
-                    CronPayload::SessionLoop { .. } => {
+                    CronPayload::SessionLoop { .. } | CronPayload::SessionTurn { .. } => {
                         anyhow::bail!(
-                            "Scheduled task '{}' is managed by /loop and can only be edited from the loop control plane.",
+                            "Scheduled task '{}' is owner-managed and can only be edited from its app control plane.",
                             id
                         );
                     }
@@ -311,7 +311,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 gate_cron_delete(args, ctx, desc).await?;
                 match ha_core::get_session_db() {
                     Some(session_db) => {
-                        crate::cron::delete_job_and_legacy_sessions(cron_db, session_db, id)?
+                        crate::cron::delete_job_and_legacy_sessions(cron_db, session_db, id).await?
                     }
                     // SessionDB should always be initialized when tools run; fall
                     // back to a job-only delete so the user's delete still lands.

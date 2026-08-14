@@ -88,9 +88,13 @@ export default function CronConversationsPanel({
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
   const [cancellingRunLogId, setCancellingRunLogId] = useState<number | null>(null)
   const markResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const markingSessionIdsRef = useRef(new Set<string>())
-  const pendingReadSessionIdRef = useRef<string | null>(null)
-  const loadedSessionIdRef = useRef<string | null>(null)
+  const markingRunLogIdsRef = useRef(new Set<number>())
+  const pendingReadRef = useRef<{
+    runLogId: number
+    sessionId: string
+    targetMessageId?: number | null
+  } | null>(null)
+  const loadedRunLogIdRef = useRef<number | null>(null)
   const surfaceReadableRef = useRef(isSurfaceReadable)
   surfaceReadableRef.current = isSurfaceReadable
 
@@ -147,14 +151,11 @@ export default function CronConversationsPanel({
     }
   }, [fetchPage, isViewVisible])
 
-  // Keep the timeline live while open: when a cron run completes, refresh the
-  // first page so the new run shows up at the top (mirrors CronCalendarView,
-  // which also listens to cron:run_completed). Resetting to page 0 is fine —
-  // new runs sort newest-first; the selected conversation on the right is keyed
-  // by sessionId and is unaffected.
+  // Queue/start/completion are three distinct occurrence transitions. Refresh
+  // the first page for each while visible so Scheduled never hides a queued run.
   useEffect(() => {
     if (!isViewVisible) return
-    const unlisten = getTransport().listen("cron:run_completed", () => {
+    const refresh = () => {
       fetchPage(0)
         .then((page) => {
           setRows(page)
@@ -163,8 +164,13 @@ export default function CronConversationsPanel({
           setHasMore(page.length === PAGE_SIZE)
         })
         .catch(() => {})
-    })
-    return unlisten
+    }
+    const unlisten = [
+      getTransport().listen("chat:turn_queue_changed", refresh),
+      getTransport().listen("chat:turn_started", refresh),
+      getTransport().listen("cron:run_completed", refresh),
+    ]
+    return () => unlisten.forEach((stop) => stop())
   }, [fetchPage, isViewVisible])
 
   useEffect(() => {
@@ -173,13 +179,13 @@ export default function CronConversationsPanel({
     }
   }, [])
 
-  const markRunRead = useCallback((sessionId: string) => {
-    if (markingSessionIdsRef.current.has(sessionId)) return
-    markingSessionIdsRef.current.add(sessionId)
-    void markCronSessionRead(sessionId)
+  const markRunRead = useCallback((target: NonNullable<typeof pendingReadRef.current>) => {
+    if (markingRunLogIdsRef.current.has(target.runLogId)) return
+    markingRunLogIdsRef.current.add(target.runLogId)
+    void markCronSessionRead(target.sessionId, target.targetMessageId)
       .then(() => {
         setRows((prev) =>
-          prev.map((row) => (row.sessionId === sessionId ? { ...row, unreadCount: 0 } : row)),
+          prev.map((row) => (row.runLogId === target.runLogId ? { ...row, unreadCount: 0 } : row)),
         )
       })
       .catch((error) => {
@@ -190,20 +196,16 @@ export default function CronConversationsPanel({
           error,
         )
       })
-      .finally(() => markingSessionIdsRef.current.delete(sessionId))
+      .finally(() => markingRunLogIdsRef.current.delete(target.runLogId))
   }, [])
 
   const markPendingRunReadIfReady = useCallback(() => {
-    const pendingSessionId = pendingReadSessionIdRef.current
-    if (
-      !surfaceReadableRef.current ||
-      !pendingSessionId ||
-      loadedSessionIdRef.current !== pendingSessionId
-    ) {
+    const pending = pendingReadRef.current
+    if (!surfaceReadableRef.current || !pending || loadedRunLogIdRef.current !== pending.runLogId) {
       return
     }
-    pendingReadSessionIdRef.current = null
-    markRunRead(pendingSessionId)
+    pendingReadRef.current = null
+    markRunRead(pending)
   }, [markRunRead])
 
   useEffect(() => {
@@ -244,22 +246,27 @@ export default function CronConversationsPanel({
   const handleSelect = useCallback(
     (row: CronTimelineRow) => {
       setSelectedRunLogId(row.runLogId)
-      pendingReadSessionIdRef.current = row.sessionId
-      if (row.sessionId === selectedSessionId) {
-        // The default-selected transcript may already be loaded; an explicit row
-        // click is sufficient user intent even when no remount will occur.
+      pendingReadRef.current =
+        row.payloadType === "sessionTurn" && row.targetMessageId == null
+          ? null
+          : {
+              runLogId: row.runLogId,
+              sessionId: row.sessionId,
+              targetMessageId: row.targetMessageId,
+            }
+      if (loadedRunLogIdRef.current === row.runLogId) {
         markPendingRunReadIfReady()
         return
       }
-      loadedSessionIdRef.current = null
+      loadedRunLogIdRef.current = null
       setSelectedSessionId(row.sessionId)
     },
-    [markPendingRunReadIfReady, selectedSessionId],
+    [markPendingRunReadIfReady],
   )
 
   const handleViewerLoaded = useCallback(
-    (sessionId: string) => {
-      loadedSessionIdRef.current = sessionId
+    (runLogId: number) => {
+      loadedRunLogIdRef.current = runLogId
       markPendingRunReadIfReady()
     },
     [markPendingRunReadIfReady],
@@ -329,6 +336,8 @@ export default function CronConversationsPanel({
     },
     [cancellingRunLogId, fetchPage, t],
   )
+
+  const selectedRow = rows.find((row) => row.runLogId === selectedRunLogId) ?? null
 
   return (
     <div className="flex min-h-0 flex-1 px-3 pb-3">
@@ -436,13 +445,19 @@ export default function CronConversationsPanel({
                           variant="ghost"
                           size="icon"
                           className="absolute right-9 top-1.5 h-7 w-7 text-muted-foreground"
-                          onClick={() => requestChatFocus({ sessionId: row.sessionId })}
+                          onClick={() =>
+                            requestChatFocus({
+                              sessionId: row.sessionId,
+                              targetMessageId: row.targetMessageId ?? undefined,
+                            })
+                          }
                         >
                           <ArrowUpRight className="h-3.5 w-3.5" />
                         </Button>
                       </IconTip>
                     )}
-                    {row.status === "running" && row.payloadType === "agentTurn" ? (
+                    {(row.status === "queued" || row.status === "running") &&
+                    row.payloadType !== "sessionLoop" ? (
                       <IconTip label={t("chat.stopReply")}>
                         <Button
                           type="button"
@@ -552,10 +567,14 @@ export default function CronConversationsPanel({
               />
             </div>
           )}
-        {selectedSessionId ? (
+        {selectedSessionId && selectedRow ? (
           <CronSessionViewer
-            key={selectedSessionId}
+            key={selectedRow.runLogId}
+            runLogId={selectedRow.runLogId}
             sessionId={selectedSessionId}
+            requiresExactTarget={selectedRow.payloadType === "sessionTurn"}
+            targetMessageId={selectedRow.targetMessageId}
+            expectedTurnId={selectedRow.turnId}
             agents={agents}
             onLoaded={handleViewerLoaded}
           />

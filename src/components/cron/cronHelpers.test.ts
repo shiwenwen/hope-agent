@@ -12,6 +12,8 @@ describe("runLogDotColor (C21)", () => {
     expect(runLogDotColor("empty", "active")).toBe("bg-muted-foreground")
     expect(runLogDotColor("cancelled", "active")).toBe("bg-muted-foreground")
     expect(runLogDotColor("running", "active")).toBe("bg-blue-500")
+    expect(runLogDotColor("queued", "active")).toBe("bg-amber-500")
+    expect(runLogDotColor("cancelling", "active")).toBe("bg-amber-500")
   })
 
   it("falls back to the job status color when there is no run log (future occurrence)", () => {
@@ -29,6 +31,14 @@ describe("runStatusDisplay (C21)", () => {
     expect(runStatusDisplay("running")).toMatchObject({
       className: "text-blue-500",
       labelKey: "cron.runStatusRunning",
+    })
+    expect(runStatusDisplay("queued")).toMatchObject({
+      className: "text-amber-500",
+      labelKey: "common.statusValues.queued",
+    })
+    expect(runStatusDisplay("cancelling")).toMatchObject({
+      className: "text-amber-500",
+      labelKey: "common.statusValues.cancelling",
     })
     expect(runStatusDisplay("empty")).toMatchObject({
       className: "text-muted-foreground",

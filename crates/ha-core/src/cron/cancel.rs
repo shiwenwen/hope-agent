@@ -8,7 +8,12 @@ use std::sync::{Arc, LazyLock, Mutex};
 /// it targets *this* live run and not a later re-claim of a recurring job (see
 /// [`cancel`] / [`remove`] — §9 review fix: the live-flag path used to flip
 /// whatever run was live, regardless of which run the caller meant).
-static CANCELS: LazyLock<Mutex<HashMap<String, (String, Arc<AtomicBool>)>>> =
+enum CancelState {
+    Live(String, Arc<AtomicBool>),
+    Closed(String),
+}
+
+static CANCELS: LazyLock<Mutex<HashMap<String, CancelState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// §9 (C7): pending cancels for jobs claimed (running_at set) but whose run
@@ -40,7 +45,10 @@ pub fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
     let flag = Arc::new(AtomicBool::new(targets_this_run));
     {
         let mut map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-        map.insert(job_id.to_string(), (claimed_at.to_string(), flag.clone()));
+        map.insert(
+            job_id.to_string(),
+            CancelState::Live(claimed_at.to_string(), flag.clone()),
+        );
     }
     flag
 }
@@ -65,10 +73,16 @@ pub fn cancel(job_id: &str, claimed_at: &str) -> bool {
 fn cancel_with_pending(job_id: &str, claimed_at: &str, allow_pending: bool) -> bool {
     {
         let map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some((live_claimed_at, flag)) = map.get(job_id) {
-            if live_claimed_at.as_str() == claimed_at {
-                flag.store(true, Ordering::SeqCst);
-                return true;
+        if let Some(state) = map.get(job_id) {
+            match state {
+                CancelState::Live(live_claimed_at, flag)
+                    if live_claimed_at.as_str() == claimed_at =>
+                {
+                    flag.store(true, Ordering::SeqCst);
+                    return true;
+                }
+                CancelState::Closed(closed_at) if closed_at == claimed_at => return false,
+                _ => {}
             }
             // A *different* run is live now — the run identified by `claimed_at`
             // already finished and a later run of this (recurring) job re-claimed
@@ -92,17 +106,23 @@ fn cancel_with_pending(job_id: &str, claimed_at: &str, allow_pending: bool) -> b
     true
 }
 
-/// Clear a run's cancel state at terminal, **run-keyed by `claimed_at`**. Only
-/// drops the live flag / pending placeholder if it still belongs to THIS run: a
-/// later run of a recurring job may have re-registered under the same `job_id`
-/// between this run clearing `running_at` and its guard dropping, and a blind
-/// `remove(job_id)` would clear that newer run's live flag — dropping a
-/// concurrent cancel targeting it.
+/// Close a run's cancel state at terminal, **run-keyed by `claimed_at`**. The
+/// closed marker is retained until a later run registers, so a post-settlement
+/// cancel cannot be mistaken for the claim→register window and reported as
+/// accepted. A later run's live flag is never replaced by an older close.
 pub fn remove(job_id: &str, claimed_at: &str) {
     {
         let mut map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-        if matches!(map.get(job_id), Some((live_at, _)) if live_at.as_str() == claimed_at) {
-            map.remove(job_id);
+        let closes_this_run = match map.get(job_id) {
+            None => true,
+            Some(CancelState::Live(live_at, _)) => live_at == claimed_at,
+            Some(CancelState::Closed(closed_at)) => closed_at == claimed_at,
+        };
+        if closes_this_run {
+            map.insert(
+                job_id.to_string(),
+                CancelState::Closed(claimed_at.to_string()),
+            );
         }
     }
     let mut pending = PENDING_CANCELS.lock().unwrap_or_else(|p| p.into_inner());
@@ -140,6 +160,7 @@ mod tests {
         assert!(cancel(job, "ts-1"));
         assert!(flag.load(Ordering::SeqCst));
         remove(job, "ts-1");
+        assert!(!cancel_with_pending(job, "ts-1", true));
     }
 
     #[test]

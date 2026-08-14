@@ -33,6 +33,10 @@ pub enum CronPayload {
         prompt: String,
         agent_id: Option<String>,
     },
+    /// Queue one ordinary turn into an existing regular conversation. Runtime
+    /// context is resolved from the live session when the queue row reaches the
+    /// session-wide FIFO head; no task-scoped agent/workspace overrides apply.
+    SessionTurn { session_id: String, prompt: String },
     /// Fire a managed `/loop` trigger back into an existing parent session.
     ///
     /// This reuses cron's durable scheduling and recovery, but executes through
@@ -53,6 +57,7 @@ pub enum CronPayload {
 #[serde(rename_all = "camelCase")]
 pub enum CronPayloadType {
     AgentTurn,
+    SessionTurn,
     SessionLoop,
 }
 
@@ -122,6 +127,7 @@ impl From<&CronPayload> for CronPayloadType {
     fn from(payload: &CronPayload) -> Self {
         match payload {
             CronPayload::AgentTurn { .. } => Self::AgentTurn,
+            CronPayload::SessionTurn { .. } => Self::SessionTurn,
             CronPayload::SessionLoop { .. } => Self::SessionLoop,
         }
     }
@@ -236,6 +242,19 @@ pub struct ClaimedCronJob {
     pub immediate: bool,
 }
 
+/// Durable identity of one SessionTurn occurrence while it moves through the
+/// ordinary session queue. `started_at` is the task-overlap claim timestamp;
+/// execution timing begins only after the queued row is dispatched.
+#[derive(Debug, Clone)]
+pub struct SessionTurnRunEnvelope {
+    pub run_log_id: i64,
+    pub job_id: String,
+    pub session_id: String,
+    pub request_id: String,
+    pub started_at: String,
+    pub immediate: bool,
+}
+
 /// A single IM channel conversation target for cron result delivery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,6 +290,18 @@ pub struct CronRunLog {
     /// SessionLoop rows intentionally leave this empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// Durable idempotency identity shared with the managed session queue row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Wall-clock execution start. SessionTurn queue wait is intentionally not
+    /// charged against the task execution timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_started_at: Option<String>,
+    /// User message committed by this exact occurrence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_message_id: Option<i64>,
+    #[serde(default)]
+    pub immediate: bool,
     pub status: String,
     pub started_at: String,
     pub finished_at: Option<String>,
@@ -329,6 +360,7 @@ pub struct CronRunCancelTarget {
     pub session_id: String,
     pub started_at: String,
     pub turn_id: Option<String>,
+    pub request_id: Option<String>,
     pub status: String,
     pub finished_at: Option<String>,
 }
@@ -360,6 +392,10 @@ pub struct CronTimelineRow {
     pub started_at: String,
     pub finished_at: Option<String>,
     pub result_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_message_id: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

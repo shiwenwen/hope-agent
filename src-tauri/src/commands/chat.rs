@@ -26,6 +26,46 @@ pub(crate) struct ChannelSink {
     pub channel: tauri::ipc::Channel<String>,
 }
 
+/// Best-effort rollback for the durable direct-send FIFO reservation. The
+/// atomic message + ChatTurn transaction consumes it on success; every earlier
+/// return drops this guard and releases the exact receipt asynchronously.
+struct DirectTurnAdmissionCleanup {
+    db: Arc<SessionDB>,
+    admission: Option<ha_core::session::DirectTurnAdmission>,
+}
+
+impl Drop for DirectTurnAdmissionCleanup {
+    fn drop(&mut self) {
+        let db = self.db.clone();
+        let Some(admission) = self.admission.take() else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            app_warn!(
+                "session",
+                "direct_admission_cleanup",
+                "No runtime available to release direct admission for session {}",
+                admission.session_id
+            );
+            return;
+        };
+        runtime.spawn(async move {
+            let session_id = admission.session_id.clone();
+            let result = db
+                .run(move |db| db.release_direct_turn_admission(admission))
+                .await;
+            if let Err(error) = result {
+                app_warn!(
+                    "session",
+                    "direct_admission_cleanup",
+                    "Failed to release direct admission for session {}: {error:#}",
+                    session_id
+                );
+            }
+        });
+    }
+}
+
 impl EventSink for ChannelSink {
     fn send(&self, event: &str) {
         let _ = self.channel.send(event.to_string());
@@ -144,7 +184,7 @@ fn validate_desktop_chat_attachment_boundary(
 pub async fn queue_turn_user_message(
     request_id: Option<String>,
     message: String,
-    mut attachments: Vec<Attachment>,
+    attachments: Vec<Attachment>,
     session_id: String,
     display_text: Option<String>,
     is_plan_trigger: Option<bool>,
@@ -154,6 +194,43 @@ pub async fn queue_turn_user_message(
     workflow_mode: Option<String>,
     incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
     state: State<'_, AppState>,
+) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
+    queue_turn_user_message_inner(
+        request_id,
+        message,
+        attachments,
+        session_id,
+        display_text,
+        is_plan_trigger,
+        goal_trigger,
+        plan_comment,
+        plan_mode,
+        workflow_mode,
+        incoming_turn,
+        state.session_db.clone(),
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn queue_turn_user_message_inner(
+    request_id: Option<String>,
+    message: String,
+    mut attachments: Vec<Attachment>,
+    session_id: String,
+    display_text: Option<String>,
+    is_plan_trigger: Option<bool>,
+    goal_trigger: Option<bool>,
+    plan_comment: Option<serde_json::Value>,
+    plan_mode: Option<String>,
+    workflow_mode: Option<String>,
+    incoming_turn: Option<ha_core::prompt_context::IncomingTurnWire>,
+    session_db: Arc<SessionDB>,
+    foreground_fence: Option<(
+        ha_core::chat_engine::active_turn::ForegroundRequestAdmission,
+        Option<String>,
+    )>,
 ) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
     validate_desktop_chat_attachment_boundary(&message, incoming_turn.as_ref(), &attachments)?;
     let request_id = request_id
@@ -184,12 +261,32 @@ pub async fn queue_turn_user_message(
         workflow_mode,
         incoming_turn,
         skill_allowed_tools: Vec::new(),
+        ui_dispatch_fingerprint: None,
         source: ha_core::session::QueuedTurnMessageSource::Desktop,
         channel_origin: None,
     };
-    let item_result = state
-        .session_db
-        .run(move |db| db.enqueue_turn_user_message(input))
+    let fence_session_id = session_id.clone();
+    let item_result = session_db
+        .run(move |db| {
+            if let Some((admission, client_request_id)) = foreground_fence {
+                return ha_core::chat_engine::active_turn::with_validated_foreground_request(
+                    admission,
+                    &fence_session_id,
+                    ha_core::chat_engine::stream_seq::ChatSource::Desktop,
+                    client_request_id.as_deref(),
+                    |stop_admission| {
+                        db.enqueue_turn_user_message_with_stop_admission(
+                            input,
+                            stop_admission.ok_or_else(|| {
+                                anyhow::anyhow!("durable Stop admission was not captured")
+                            })?,
+                        )
+                    },
+                )
+                .map_err(anyhow::Error::new)?;
+            }
+            db.enqueue_turn_user_message(input)
+        })
         .await;
     let item = match item_result {
         Ok(outcome) => {
@@ -208,6 +305,15 @@ pub async fn queue_turn_user_message(
                 &request_id,
                 &attachments_for_cleanup,
             );
+            if error
+                .downcast_ref::<ha_core::chat_engine::active_turn::ActiveTurnError>()
+                .is_some()
+            {
+                return Err(CmdError::msg(format!(
+                    "{}: {error}",
+                    ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE
+                )));
+            }
             return Err(error.into());
         }
     };
@@ -393,7 +499,10 @@ pub async fn chat(
     // Snapshot before the first await. A global Stop that begins while this
     // request is still resolving/bootstrapping must remain authoritative even
     // after its bounded cleanup gate has been released.
-    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_durable_foreground_request(
+        state.session_db.as_ref(),
+        session_id.as_deref().filter(|id| !id.trim().is_empty()),
+    )?;
     // Capture optional per-session modes — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
     let sandbox_mode_pending = sandbox_mode;
@@ -705,6 +814,8 @@ pub async fn chat(
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
+    let mut _queued_dispatch_guard = None;
+    let mut queued_ui_dispatch_fingerprint = None;
     if let Some(request_id) = queued_request_id.as_ref() {
         let sid_for_claim = sid.clone();
         let request_id_for_claim = request_id.clone();
@@ -715,10 +826,13 @@ pub async fn chat(
                     &sid_for_claim,
                     &request_id_for_claim,
                     &turn_for_claim,
+                    ha_core::session::QueuedTurnMessageSource::Desktop,
                 )
             })
             .await?
             .ok_or_else(|| CmdError::msg("Queued message is no longer available"))?;
+        _queued_dispatch_guard = Some(claimed.clone());
+        queued_ui_dispatch_fingerprint = claimed.ui_dispatch_fingerprint.clone();
         message = claimed.message;
         attachments = claimed.attachments;
         display_text = claimed.display_text;
@@ -732,6 +846,80 @@ pub async fn chat(
             .and_then(ha_core::workflow_mode::WorkflowMode::from_str);
         incoming_turn = claimed.incoming_turn;
     }
+    let mut direct_admission_cleanup = if queued_request_id.is_none() {
+        let sid_for_admission = sid.clone();
+        let turn_for_admission = turn_id.clone();
+        let admission = db
+            .run(move |db| {
+                db.reserve_direct_turn_admission(
+                    &sid_for_admission,
+                    &turn_for_admission,
+                    ha_core::session::QueuedTurnMessageSource::Desktop,
+                    foreground_admission.durable_stop_admission(),
+                )
+            })
+            .await?;
+        match admission {
+            Some(admission) => Some(DirectTurnAdmissionCleanup {
+                db: db.clone(),
+                admission: Some(admission),
+            }),
+            None if edit_message_id.is_some() => {
+                return Err(CmdError::msg(
+                    "active_stream: an earlier session turn is waiting to run",
+                ));
+            }
+            None => {
+                let fallback_allowed = {
+                    let sid = sid.clone();
+                    db.run(move |db| db.get_session(&sid)).await?
+                }
+                .is_some_and(|session| !session.incognito);
+                if !fallback_allowed {
+                    return Err(CmdError::msg(
+                        "active_stream: incognito turns cannot enter the durable queue",
+                    ));
+                }
+                let request_id = client_request_id
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                let queued = queue_turn_user_message_inner(
+                    Some(request_id),
+                    message,
+                    attachments,
+                    sid.clone(),
+                    display_text,
+                    is_plan_trigger,
+                    goal_trigger,
+                    plan_comment,
+                    plan_mode,
+                    workflow_mode_pending.map(|mode| mode.as_str().to_string()),
+                    incoming_turn,
+                    db.clone(),
+                    Some((foreground_admission, client_request_id.clone())),
+                )
+                .await?;
+                if new_session_created.is_some() {
+                    let _ = on_event.send(
+                        serde_json::json!({"type": "session_created", "session_id": sid})
+                            .to_string(),
+                    );
+                }
+                let _ = on_event.send(
+                    serde_json::json!({
+                        "type": "turn_queued",
+                        "session_id": sid,
+                        "request_id": queued.request_id,
+                    })
+                    .to_string(),
+                );
+                return Ok(String::new());
+            }
+        }
+    } else {
+        None
+    };
     // Queued rows were checked before persistence, but validate again after
     // the durable claim so direct and recovered dispatch share the same
     // message/sidecar/attachment boundary.
@@ -1017,6 +1205,16 @@ pub async fn chat(
         meta
     };
 
+    let foreground_stop_admission = _queued_dispatch_guard
+        .as_ref()
+        .and_then(|record| record.foreground_stop_admission())
+        .or_else(|| {
+            direct_admission_cleanup
+                .as_ref()
+                .and_then(|cleanup| cleanup.admission.as_ref())
+                .map(|admission| admission.foreground_stop_admission())
+        });
+
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Desktop);
@@ -1035,6 +1233,10 @@ pub async fn chat(
         let queue_id_for_consume = queued_request_id.clone();
         let edit_message_id = edit_message_id;
         let ui_surface_for_turn = ui_surface;
+        let dispatch_request_id = queued_ui_dispatch_fingerprint
+            .as_ref()
+            .and(queue_id_for_consume.clone());
+        let dispatch_fingerprint = queued_ui_dispatch_fingerprint;
         db.run(move |db| {
             ha_core::chat_engine::active_turn::with_persistence_target(
                 &sid,
@@ -1048,28 +1250,29 @@ pub async fn chat(
                             &turn_id,
                             ha_core::chat_engine::ChatSource::Desktop.as_str(),
                             ui_surface_for_turn,
-                            None,
-                            None,
+                            dispatch_request_id.as_deref(),
+                            dispatch_fingerprint.as_deref(),
+                            foreground_stop_admission,
                         )?;
                         return Ok(Some(replacement_id));
                     }
-                    let user_message_id = if queue_id_for_consume.is_some() {
-                        Some(db.append_message(&sid, &user_msg)?)
-                    } else {
-                        db.append_message(&sid, &user_msg).ok()
-                    };
-                    db.create_chat_turn_with_id_surface(
-                        &turn_id,
-                        &sid,
-                        ha_core::chat_engine::ChatSource::Desktop.as_str(),
-                        None,
-                        user_message_id,
-                        ui_surface_for_turn,
-                    )?;
-                    if let Some(request_id) = queue_id_for_consume.as_deref() {
-                        db.consume_dispatched_turn_message(&sid, request_id, &turn_id)?;
-                    }
-                    Ok(user_message_id)
+                    let (user_message_id, _) = db
+                        .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                            &turn_id,
+                            &sid,
+                            ha_core::chat_engine::ChatSource::Desktop.as_str(),
+                            None,
+                            &user_msg,
+                            ui_surface_for_turn,
+                            dispatch_request_id.as_deref(),
+                            dispatch_fingerprint.as_deref(),
+                            foreground_stop_admission,
+                        )?;
+                    debug_assert_eq!(
+                        queue_id_for_consume.as_deref(),
+                        user_msg.queue_request_id.as_deref()
+                    );
+                    Ok(Some(user_message_id))
                 },
             )
         })
@@ -1188,6 +1391,15 @@ pub async fn chat(
             )));
         }
     };
+    if let Some(admission) = direct_admission_cleanup
+        .as_mut()
+        .and_then(|cleanup| cleanup.admission.take())
+    {
+        let _ = db
+            .run(move |db| db.release_direct_turn_admission(admission))
+            .await;
+    }
+    drop(_queued_dispatch_guard.take());
 
     // Log chat start
     let msg_preview = if message.len() > 100 {
@@ -1533,6 +1745,7 @@ pub async fn chat(
         run_context: None,
         reasoning_effort: Some(effort.clone()),
         cancel: cancel.clone(),
+        foreground_stop_admission,
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),

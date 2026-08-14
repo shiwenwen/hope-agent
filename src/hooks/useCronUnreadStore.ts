@@ -78,8 +78,14 @@ export function refreshCronUnread() {
 }
 
 /** Advance one viewed Session's ordinary watermark, then reconcile Scheduled. */
-export async function markCronSessionRead(sessionId: string): Promise<void> {
-  await getTransport().call("mark_session_read_cmd", { sessionId })
+export async function markCronSessionRead(
+  sessionId: string,
+  throughMessageId?: number | null,
+): Promise<void> {
+  await getTransport().call("mark_session_read_cmd", {
+    sessionId,
+    throughMessageId: throughMessageId ?? undefined,
+  })
   await reload()
 }
 

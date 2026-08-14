@@ -941,6 +941,7 @@ pub(crate) async fn run_chat_engine_classified(
         run_context,
         reasoning_effort,
         cancel,
+        foreground_stop_admission,
         plan_context_override,
         mut skill_allowed_tools,
         denied_tools,
@@ -1250,17 +1251,31 @@ pub(crate) async fn run_chat_engine_classified(
         turn_id.clone(),
         event_sink.clone(),
         cancel.clone(),
+        foreground_stop_admission,
     )
     .await
     {
         Ok(coordinator) => coordinator,
         Err(error) => {
             let message = format!("Cannot initialize durable chat stream: {error}");
+            let stopped_by_fence = error
+                .to_string()
+                .contains(session::FOREGROUND_STOP_FENCE_ERROR);
+            let terminal_status = if stopped_by_fence {
+                session::ChatTurnStatus::Interrupted
+            } else {
+                session::ChatTurnStatus::Failed
+            };
+            let interrupt_reason = if stopped_by_fence {
+                session::ChatTurnInterruptReason::UserStop
+            } else {
+                session::ChatTurnInterruptReason::Unknown
+            };
             if let Some(turn_id) = turn_id.as_deref() {
                 if let Err(finish_error) = db.finish_chat_turn_once(
                     turn_id,
-                    session::ChatTurnStatus::Failed,
-                    Some(session::ChatTurnInterruptReason::Unknown),
+                    terminal_status,
+                    Some(interrupt_reason),
                     Some(&message),
                     None,
                 ) {
@@ -1274,12 +1289,16 @@ pub(crate) async fn run_chat_engine_classified(
                 }
             }
             stream_lifecycle.set_terminal(
-                session::ChatTurnStatus::Failed,
-                Some(session::ChatTurnInterruptReason::Unknown),
+                terminal_status,
+                Some(interrupt_reason),
                 Some(message.clone()),
             );
             stream_lifecycle.finish();
-            return Err(message.into());
+            return Err(if stopped_by_fence {
+                ChatEngineFailure::cancelled(message)
+            } else {
+                message.into()
+            });
         }
     };
     stream_lifecycle
@@ -4202,6 +4221,7 @@ mod stream_lifecycle_tests {
             run_context: None,
             reasoning_effort: Some("none".to_string()),
             cancel: Arc::new(AtomicBool::new(false)),
+            foreground_stop_admission: None,
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),

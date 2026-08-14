@@ -197,6 +197,7 @@ impl StreamCoordinator {
         turn_id: Option<String>,
         event_sink: Arc<dyn EventSink>,
         cancel: Arc<AtomicBool>,
+        stop_admission: Option<crate::session::ForegroundStopAdmission>,
     ) -> Result<Arc<Self>> {
         let run_id = uuid::Uuid::new_v4().to_string();
         let create = CreateStreamRun {
@@ -207,7 +208,9 @@ impl StreamCoordinator {
             turn_id: turn_id.clone(),
             provider_shape: None,
         };
-        let registration = db.run(move |db| db.create_stream_run(&create)).await?;
+        let registration = db
+            .run(move |db| db.create_stream_run_with_stop_admission(&create, stop_admission))
+            .await?;
         let coordinator = Arc::new(Self {
             db,
             session_id: session_id.clone(),
@@ -1117,6 +1120,7 @@ mod tests {
             None,
             sink.clone(),
             cancel,
+            None,
         )
         .await
         .expect("coordinator");
@@ -1188,6 +1192,7 @@ mod tests {
             None,
             sink.clone(),
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .await
         .expect("coordinator");
@@ -1275,6 +1280,7 @@ mod tests {
             None,
             Arc::new(crate::chat_engine::NoopEventSink),
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .await
         .expect("first coordinator");
@@ -1287,6 +1293,7 @@ mod tests {
             None,
             Arc::new(crate::chat_engine::NoopEventSink),
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .await;
         assert!(second.is_err());
@@ -1328,6 +1335,7 @@ mod tests {
                 None,
                 Arc::new(crate::chat_engine::NoopEventSink),
                 Arc::new(AtomicBool::new(false)),
+                None,
             )
             .await
             .expect("coordinator");

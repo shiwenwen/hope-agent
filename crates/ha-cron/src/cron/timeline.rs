@@ -100,27 +100,61 @@ pub fn visible_cron_run_logs(
 }
 
 /// Permanently delete one conversation and any Cron run-log rows that point at
-/// it. The run logs must go first: timeline hydration intentionally keeps
-/// missing Session rows for legacy/purged history, so leaving them behind would
-/// make a user-deleted conversation reappear as an unopenable shell.
+/// it. CronDB holds its cross-process writer fence while SessionDB atomically
+/// checks Worktree/queue/ChatTurn custody and deletes the Session; run logs are
+/// removed only after that succeeds.
 pub fn delete_conversation_and_run_logs(
     cron_db: &Arc<CronDB>,
     session_db: &Arc<SessionDB>,
     session_id: &str,
 ) -> anyhow::Result<()> {
-    cron_db.delete_run_logs_for_session(session_id)?;
-    session_db.delete_session(session_id)
+    ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+        cron_db.delete_conversation_and_run_logs(session_db, session_id)
+    })
 }
 
 /// Logically delete a cron job while retaining its run logs and every linked
 /// conversation, including legacy hidden Cron sessions. Historical readers can
 /// therefore keep navigating completed and cancelled runs after task removal.
-pub fn delete_job_and_legacy_sessions(
+pub async fn delete_job_and_legacy_sessions(
     cron_db: &Arc<CronDB>,
-    _session_db: &Arc<SessionDB>,
+    session_db: &Arc<SessionDB>,
     id: &str,
 ) -> anyhow::Result<()> {
-    cron_db.delete_job(id)
+    let db = cron_db.clone();
+    let sessions = session_db.clone();
+    let job_id = id.to_string();
+    let active_run = ha_core::blocking::run_blocking(move || {
+        ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+            db.delete_job_with_session_turn_cleanup(&sessions, &job_id)
+        })
+    })
+    .await?;
+
+    if let Some(run_log_id) = active_run {
+        for attempt in 0..4 {
+            let outcome = super::executor::cancel_run(run_log_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("deleted task's active run disappeared"))?;
+            if outcome.terminal || outcome.cancel_requested {
+                return Ok(());
+            }
+            if attempt < 3 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
+        // The task tombstone is itself polled by the exact occurrence runner;
+        // durable Stop is the fast path, not the sole cancellation owner. This
+        // also keeps delete idempotent in the run-log→ChatTurn commit window.
+        app_warn!(
+            "cron",
+            "delete_job",
+            "Task {} was deleted before exact run {} became stoppable; its durable occurrence fence will cancel it",
+            id,
+            run_log_id
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -128,8 +162,8 @@ mod tests {
     use super::*;
     use ha_core::cron::{CronPayload, CronSchedule, NewCronJob};
 
-    #[test]
-    fn ordinary_run_sessions_keep_title_and_survive_task_delete() {
+    #[tokio::test]
+    async fn ordinary_run_sessions_keep_title_and_survive_task_delete() {
         let dir = tempfile::tempdir().expect("tempdir");
         let cron_db = Arc::new(CronDB::open(&dir.path().join("cron.db")).expect("cron db"));
         let session_db =
@@ -196,12 +230,28 @@ mod tests {
             )
             .expect("legacy assistant");
 
-        cron_db
-            .add_running_run_log(&job.id, &ordinary.id, "2026-01-01T00:00:00Z")
-            .expect("ordinary run log");
-        cron_db
-            .add_running_run_log(&job.id, &legacy.id, "2026-01-01T00:01:00Z")
-            .expect("legacy run log");
+        for session_id in [&ordinary.id, &legacy.id] {
+            let live = cron_db.get_job(&job.id).unwrap().unwrap();
+            let claimed = cron_db
+                .claim_immediate_job_for_execution(&live)
+                .expect("claim run")
+                .expect("claimed run");
+            let run_id = cron_db
+                .add_running_run_log(&job.id, session_id, &claimed.claimed_at)
+                .expect("open run log");
+            cron_db
+                .finalize_run_log(
+                    run_id,
+                    "success",
+                    &chrono::Utc::now().to_rfc3339(),
+                    Some(1),
+                    Some("done"),
+                    None,
+                    None,
+                )
+                .expect("finish run log");
+            cron_db.clear_running(&job.id).expect("release run");
+        }
 
         let state = session_db
             .cron_session_read_state(&[ordinary.id.clone(), legacy.id.clone()])
@@ -216,7 +266,9 @@ mod tests {
             Some(&(Some("Legacy run title".to_string()), 1, false))
         );
 
-        delete_job_and_legacy_sessions(&cron_db, &session_db, &job.id).expect("delete job");
+        delete_job_and_legacy_sessions(&cron_db, &session_db, &job.id)
+            .await
+            .expect("delete job");
         assert!(cron_db.get_job(&job.id).expect("load job").is_none());
         assert!(session_db
             .get_session(&ordinary.id)

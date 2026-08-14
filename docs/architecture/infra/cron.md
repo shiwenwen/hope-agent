@@ -7,7 +7,7 @@
 用户想让 Agent「每天早上把日历汇总发到飞书」「磁盘超过 90% 就提醒」「三天后提醒续费」。这类需求的共同点是：**触发与执行在时间上解耦**——创建时用户在场，触发时用户往往不在。这带来三条硬约束：
 
 1. **可靠**。App 可能重启、机器可能休眠、进程可能崩溃。到点该跑的任务不能因为「那一刻没人开着窗口」就永远丢失。
-2. **隔离**。每次触发是一轮完整的 Agent 对话（可以再起子代理、调工具），不能污染用户当前正在进行的会话，也不能被它污染。
+2. **上下文边界明确**。`AgentTurn` 每次触发都在独立普通会话运行；用户显式创建的 `SessionTurn` 则进入目标会话的同一 durable FIFO，按 live 会话上下文串行执行，不能越过当前 turn 或其它已排队输入。
 3. **自治但安全**。触发时不能假设用户在场批准或停止，系统必须自己兜住并发、超时、连续失败、以及被 prompt 注入的模型试图越权外发数据的风险；用户随后打开运行会话时，仍可沿用普通对话的 Stop 与输入能力。
 
 Cron 子系统就是围绕这三条约束建起来的。核心设计可以浓缩成几句话：
@@ -102,14 +102,15 @@ serde 以 `type` 标签区分、字段 `camelCase`：
 
 ### CronPayload（任务载荷）
 
-serde 以 `type` 标签区分，有两种：
+serde 以 `type` 标签区分，有三种：
 
 | 类型 | 字段 | 说明 |
 |------|------|------|
 | `AgentTurn` | `prompt: String`, `agent_id: Option<String>` | 普通定时任务：每次 occurrence 创建普通可交互 Session，以指定 prompt 创建并执行一个持久化 ChatTurn。`agent_id` 缺省解析到 `ha-main`（`DEFAULT_AGENT_ID`） |
+| `SessionTurn` | `session_id`, `prompt` | 普通 Chat 标题栏创建的会话排程：不保存 Agent / Project / KB / cwd / permission / sandbox 的 Task 副本；每次触发从目标 Session 读取 live 配置，并把 occurrence 作为 backend-managed FIFO 行排入同一会话 |
 | `SessionLoop` | `loop_id`, `session_id`, `prompt`, `agent_id?`, `goal_id?` | 托管 `/loop` 触发：复用 cron 的持久调度与恢复，但执行走**父会话注入管线**，因此保留对话上下文、Goal 关联、权限、Project/KB 访问与空闲门控。详见 [loop](../agent/loop.md) |
 
-`CronPayloadType`（`AgentTurn` / `SessionLoop`）是给不需要完整 payload 的摘要 DTO 用的稳定判别式，出现在 `CronTimelineRow` 与 `CalendarEvent` 里。
+`CronPayloadType`（`AgentTurn` / `SessionTurn` / `SessionLoop`）是给不需要完整 payload 的摘要 DTO 用的稳定判别式，出现在 `CronTimelineRow` 与 `CalendarEvent` 里。
 
 ### CronJobStatus（五态）
 
@@ -183,8 +184,9 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 |------|------|------|
 | `id` | `i64` | 自增主键 |
 | `job_id` | `String` | 关联任务；Task 逻辑删除时保留，只有物理清库才触发外键 CASCADE |
-| `session_id` | `String` | 本次执行关联的会话 ID；`AgentTurn` 指向新建的普通 Session，`SessionLoop` 指向既有父会话 |
-| `turn_id` | `Option<String>` | standalone `AgentTurn` 对应的 exact 普通 ChatTurn；legacy / `SessionLoop` 可空 |
+| `session_id` | `String` | 本次执行关联的会话 ID；`AgentTurn` 指向新建的普通 Session，`SessionTurn` / `SessionLoop` 指向既有目标会话 |
+| `turn_id` | `Option<String>` | `AgentTurn` / `SessionTurn` 对应的 exact 普通 ChatTurn；legacy / `SessionLoop` 可空 |
+| `target_message_id` | `Option<i64>` | `SessionTurn` occurrence 的持久化消息锚点与 read-through 水位；旧数据及其它 payload 可空 |
 | `status` | `String` | 自由文本状态（见下） |
 | `started_at` | `String` | 开始时间 |
 | `finished_at` | `Option<String>` | 完成时间。在途 run_log 为 NULL，终态由 `finalize_run_log` 写入；`recover_orphaned_runs` 据此判定崩溃留痕 |
@@ -225,7 +227,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 
 **`CalendarEvent`**（日历视图一个时间点）：`job_id`、`job_name`、`payload_type`、`project_id?`（API 暴露为 `projectId`）、`scheduled_at`、`status`、`run_log?`。`run_log` 用**前向匹配**归属：每条 log 归到「不晚于其 `started_at` 的最近 occurrence」，辅以 60s 反向 skew 容差吸收时钟偏移，每条 log 只归一个 occurrence——这样密集/秒级排程也不丢圆点。
 
-**`CronTimelineRow`**（跨任务运行时间线一行，见「运行历史、普通会话与未读」）：`run_log_id`、`session_id`、`job_id`、`job_name`、`job_deleted`、`payload_type?`、`status`、`started_at`、`finished_at?`、`result_preview?`、`title?`、`unread_count`。**列表 key 与选中身份是 `run_log_id` 而非 `session_id`**——`SessionLoop` 的多次运行共享同一个父会话，`session_id` 不唯一。`job_deleted=true` 表示 Task 已逻辑删除但历史仍保留。`title` / archive / unread 均由装配层从 `sessions.db` 注入；普通 AgentTurn Session 的 Scheduled 未读只是同一普通 read watermark 的过滤投影。session 缺席时回退 `job_name` / `0`。
+**`CronTimelineRow`**（跨任务运行时间线一行，见「运行历史、普通会话与未读」）：`run_log_id`、`session_id`、`turn_id?`、`target_message_id?`、`job_id`、`job_name`、`job_deleted`、`payload_type?`、`status`、`started_at`、`finished_at?`、`result_preview?`、`title?`、`unread_count`。**列表 key 与选中身份是 `run_log_id` 而非 `session_id`**——`SessionLoop` 与 `SessionTurn` 的多次运行可共享同一个会话，`session_id` 不唯一；`SessionTurn` history/open/read 必须按 `target_message_id` 精确定位并只接匹配 `turn_id` 的 live stream，锚点缺失时 fail-closed，既有 `AgentTurn` / `SessionLoop` 仍按原 session 语义展示。`job_deleted=true` 表示 Task 已逻辑删除但历史仍保留。`title` / archive / unread 均由装配层从 `sessions.db` 注入；普通 AgentTurn Session 的 Scheduled 未读只是同一普通 read watermark 的过滤投影。session 缺席时回退 `job_name` / `0`。
 
 ### `manage_cron` 工具与 Project 语义
 
@@ -252,6 +254,7 @@ sequenceDiagram
     Thread->>RT: rt.block_on(async)
 
     Note over RT: 启动恢复（顺序不可颠倒）
+    RT->>DB: recover_session_turn_boundaries()<br/>terminal/missing envelope → 撤销 exact Scheduled queue row
     RT->>DB: recover_orphaned_runs()<br/>上次会话未完成的 run_log → error
     RT->>DB: clear_stale_running()<br/>清上次会话残留的 running_at
     RT->>DB: mark_missed_at_jobs()<br/>超 grace / 僵尸 At → missed
@@ -299,6 +302,8 @@ sequenceDiagram
 - **泄漏 slot 的 panic 兜底**：因为 `count_running` 是全局配额分母，一个泄漏的 `running_at` marker 会永久占一个 slot，若干次 panic 就能让 `available=0` 永真、整个调度器停摆到重启。故 `execute_claimed_job` 顶部挂一个 RAII 守卫，drop 时做 **owner-checked 清除**（`UPDATE … WHERE id=? AND running_at=?本次 claimed_at`）：正常终态已 `clear_running`（marker 已 NULL，守卫 no-op）；await 点 panic 解栈时守卫释放 slot；被后续 re-claim 的 marker（时间戳已变）守卫不动。进程崩溃（非 panic）仍由启动期 `clear_stale_running` 兜底。
 
 ### 启动清理的 owner 界
+
+通用 run 清理前先做 `SessionTurn` 双库边界恢复：按 `queued_turn_user_messages.id` 有界分页读取 Scheduled 身份，只有 exact `run_log_id + request_id + session_id` 仍对应 live `SessionTurn` 且 task 的 `running_at` 仍持有该 occurrence 才保留；terminal、Task 已删或 Cron envelope 缺失的行按 `request_id + source_ref` 精确撤销。这会收敛 enqueue 已提交、但 Cron publication/cleanup 进程崩溃留下的永久 FIFO 孤儿，同时不触碰别的用户或 Channel 队列行。
 
 两个启动清理谓词都带 owner 界：`clear_stale_running` 只清 `running_owner != CronDB::owner_token` 的行，`recover_orphaned_runs` 只收 `started_owner != owner_token` 的 run_log（`NULL` 视为「不是本进程」，覆盖旧库升上来与历史崩溃的行）。owner-token 是 `CronDB::open()` 时生成的一个 UUID。
 
@@ -364,7 +369,7 @@ flowchart TD
     CT -->|空 Ok 且被取消 / Err+被取消| CAN[Cancelled]
     CT -->|其它 Err / 超时| FAIL[Failure]
 
-    SUC --> S1["update_after_run(success) 重置失败计数<br/>先 clear_running 释放槽 → deliver_results → finalize status=success"]
+    SUC --> S1["running→completing 封住取消窗口<br/>先按 live schedule 记账并 exact 释放槽<br/>再 deliver_results → terminal seal"]
     EMP --> EM1["finalize status=empty、跳过投递<br/>不计失败、按非失败推进排程"]
     CAN --> CN1["record_cancelled + finalize status=cancelled<br/>At → 终态 completed；不投空、不推进"]
     FAIL --> W["record_failure(count_toward_disable=true)<br/>finalize error/timeout"] --> Z{连续失败 >= max_failures?}
@@ -374,7 +379,9 @@ flowchart TD
 
 `AgentTurn` 不再调用 `mark_session_cron`，也不另建 Cron 会话状态机。`run_chat_engine` 获得上面已经持久化的 exact `turn_id`，stream journal 与 ChatTurn 终态沿用普通聊天的重连和崩溃恢复路径。Scheduled 的 `run_log.session_id` 只提供任务运行到普通会话的导航关系，不拥有另一份聊天正文。
 
-用户在 scheduled turn 运行时打开该会话，看到的是普通 `ChatScreen`：首轮 `ChatSource::Cron` 通过主 stream bus 直播；Stop 按 exact active turn 取消，且与任务页取消共用同一个 flag。此时发送消息默认进入 `queued_turn_user_messages`，当前 turn 释放后按 FIFO 发起普通人工 turn；若后端投影 `canForceInsert=true`，用户也可显式选择“插入”，在当前 turn 的下一个完整工具边界交付。队列、插入资格与停止后的收敛完全遵循 [Chat Engine 的忙时队列契约](../core/chat-engine.md)，Cron 不增加专用 queue / takeover API。
+用户在 scheduled turn 运行时打开该会话，看到的是普通 `ChatScreen`：首轮 `ChatSource::Cron` 通过主 stream bus 直播；Stop 按 exact active turn 取消，且与任务页取消共用同一个 occurrence fence，但不会留下阻挡未来排程的 session autonomy pause。此时发送消息默认进入 `queued_turn_user_messages`，当前 turn 释放后按 FIFO 发起普通人工 turn；若后端投影 `canForceInsert=true`，用户也可显式选择“插入”，在当前 turn 的下一个完整工具边界交付。队列、插入资格与停止后的收敛完全遵循 [Chat Engine 的忙时队列契约](../core/chat-engine.md)，Cron 不增加专用 queue / takeover API。`SessionTurn` 的 Scheduled 队列行固定为 `managedBy='scheduled'`、`sourceRef=runLogId`、`canForceInsert=false`，GUI 不得跳过该全局队头；Global Stop 会在同一 SessionDB 事务中把它 hold，只有 exact Continue receipt 成功消费后才恢复。
+
+`SessionTurn` 在 Cron claim 前捕获目标会话的 Stop admission，并在 Scheduled queue 行插入事务中核验；旧请求不能在 Stop 后重新采样成“新一代”执行。目标会话缺失、归档、转成非普通会话或绑定 Channel 时，本 occurrence 终态化、exact marker 释放与 recurring Task 暂停在同一个 CronDB `IMMEDIATE` 事务中完成；修复或重绑后由用户显式恢复，避免每个 cadence 重复制造错误。
 
 ### 终态分类：一个隐藏的坑
 
@@ -487,7 +494,7 @@ delay = min(30_000ms * 2^min(consecutive_failures, 20), 3_600_000ms)
 两个红线：
 
 - **`running_at IS NULL` 守卫**：SQL 谓词是 `status='active' AND running_at IS NULL AND schedule_json LIKE '%"type":"at"%' AND (next_run_at IS NULL OR next_run_at < cutoff)`。少了 `running_at IS NULL`，正在执行中的 `At` 会被自己的每 tick 复扫误杀——claim 时 `At` 的 `next_run_at` 已清成 NULL、`status` 仍 `active`，任何跑够一个 tick（≥15s）的 `At` 都会落进 NULL 分支被标 `missed`。这个守卫不会漏掉真僵尸，因为启动恢复顺序是 `clear_stale_running`（把崩溃残留的 `running_at` 重置为 NULL）**先于** `mark_missed_at_jobs`，claim-后-崩溃的行照样匹配。
-- **每 tick 复扫 + 顺序**：`mark_missed_at_jobs` 在启动恢复期与每个 tick（dispatch 之前）各跑一次。一个判定 within-grace 保留为 active 的 `At` 若因并发上限持续抢不到 slot，会被后续每 tick 用重算的 cutoff 重新评估——一旦累计逾期超 grace 就终态化，而不是永远停在 active 被无限重评。启动恢复完整顺序 `recover_orphaned_runs` → `clear_stale_running` → `mark_missed_at_jobs` → catch-up，先后次序都关键、颠倒即出错：先把超 grace / 僵尸剔除，dispatch 才不会把已 aging-out 的 `At` 当 due 选中。
+- **每 tick 复扫 + 顺序**：`mark_missed_at_jobs` 在启动恢复期与每个 tick（dispatch 之前）各跑一次。一个判定 within-grace 保留为 active 的 `At` 若因并发上限持续抢不到 slot，会被后续每 tick 用重算的 cutoff 重新评估——一旦累计逾期超 grace 就终态化，而不是永远停在 active 被无限重评。启动恢复完整顺序 `recover_session_turn_boundaries` → `recover_orphaned_runs` → `clear_stale_running` → `mark_missed_at_jobs` → catch-up，先后次序都关键、颠倒即出错：先收敛双库 custody 并把超 grace / 僵尸剔除，dispatch 才不会把孤儿队头或已 aging-out 的 `At` 当成可执行工作。
 
 `toggle_job` resume 一个时间已过的 `At` 时同样终态化 `missed`，镜像 add/update 的处理（否则会写成 active + NULL next-run 僵尸）。
 
@@ -557,8 +564,8 @@ scheduled run 在 `deliver_results` fan-out **之前**就 `clear_running` 释放
 - **两层持久留痕**：session 创建后先由 `add_running_run_log` 插入 `status='running'` / `finished_at=NULL` 的 Cron 审计行；打开失败就拒绝启动模型，不能执行一个无法审计的 occurrence。随后 user message + running ChatTurn 在一个 `sessions.db` 事务中提交，`run_chat_engine` 以同一个 `turn_id` 接管 stream journal 与终态。Cron run_log 由 `recover_orphaned_runs` / RAII 守卫收尾，ChatTurn 由普通 stream recovery 收尾；两者各守自己的台账。
 - **claim↔register 窗口**：`cancel::register` 提前到 claim 成功后、任何 await 之前（job.id 已知即注册），由 RAII 守卫在所有退出路径清理。`cancel.rs` 的 `PENDING_CANCELS`：`cancel()` 在 flag 未注册时（窗口内）落一个 pending 占位（`cancel_running_job` 已先验 `running_at.is_some()`，故占位只对真在飞的 run 成立），`register()` drain 占位使 run 起跑即取消，`remove()` 清未消费占位防泄漏。
 - **全路径 run-key**（红线）：`CANCELS` 的值是 `(claimed_at, flag)`，live-flag 分支与 pending 占位分支**同样按 `claimed_at` 比对**，`remove(job_id, claimed_at)` 亦 run-keyed。否则一个针对已结束 run A 的迟到取消（A 跑完、循环任务以同 job_id 重 claim 成 run B）会误翻 B 的 flag、取消用户从未针对的 B。回归测试 `live_flag_for_a_different_run_is_not_cancelled`。
-- **Stop、单次取消与删运行中任务不空跑**：普通会话 Stop 按 exact `turn_id` 收敛。Scheduled 历史行的取消入口按 immutable `run_log_id` 读取保留的 `job_id/session_id/started_at/turn_id/status`，即使 Task 已逻辑删除仍可用；终态重复调用是 no-op。在途运行同时请求 exact `claimed_at` Cron flag；有 `turn_id` 的 `AgentTurn` 再复用普通 `stop_session(session_id, turn_id)`，获得同一 durable Stop generation、跨进程轮询与 Goal/Workflow/Subagent/Wakeup 收敛，不复制 Cron session 控制面。`delete_job` 在同一事务读取 exact `running_at` 并写 tombstone，再请求该 run 取消；run_log 保留并写终态，投递边界重查 live job 后拒绝已删任务发送。
-- **legacy / SessionLoop 取消边界**：两者历史行没有普通 ChatTurn 的 `turn_id`，且 Loop injection/workflow 并不消费通用 Cron flag；exact run API 明确返回 `code=cron_run_cancel_unsupported`、`cancelRequested=false`，UI 不展示 Stop，绝不假成功。不在本层新增 Cron 专用持久 `cancel_requested` 状态机；未来若支持须接 Loop `run_id` 的 typed durable cancel。
+- **Stop、单次取消与删运行中任务不空跑**：普通会话 Stop 按 exact `turn_id` 收敛。Scheduled 历史行的取消入口按 immutable `run_log_id` 读取保留的 `job_id/session_id/started_at/turn_id/status`，即使 Task 已逻辑删除仍可用；终态重复调用是 no-op。取消先在 CronDB 原子执行 `running → cancelling`，所以即使 exact ChatTurn 尚未提交，runner 与恢复流程也会消费这一 durable intent；`cancelling` 不能被迟到的 success/error 覆盖。模型终态后则以 `running → completing` 封住投递边界，先赢的取消收为 `cancelled`，completion 先赢后续 Stop 明确返回不可取消，绝不假报。exact Cron Stop 只收敛本 occurrence 与 exact ChatTurn，不创建 session-wide autonomy pause，未来排程无需用户另点 Continue。Task delete 在 Cron `BEGIN IMMEDIATE` 内按 live `running_at` 精确读取唯一 open envelope：`preparing/queued` 先撤销 exact queue custody并 terminalize；`running SessionTurn` 先尝试删除 dispatch row（删除赢则 message + ChatTurn 原子提交必 fail-closed），若 row 已被提交消费则 exact ChatTurn 必已可见，再于 tombstone 后走 durable Stop。AgentTurn / SessionTurn runner 还持续核验 exact open occurrence，因此 `deleted_at` 本身就是 durable cancel fence，删除进程即使在 tombstone 与 Stop 之间退出也不会让模型继续空跑。run_log 保留并写终态，投递边界重查 live job 后拒绝已删任务发送。
+- **legacy / SessionLoop 取消边界**：两者历史行没有普通 ChatTurn 的 `turn_id`，且 Loop injection/workflow 并不消费通用 Cron flag；exact run API 明确返回 `code=cron_run_cancel_unsupported`、`cancelRequested=false`，UI 不展示 Stop，绝不假成功。在这种 occurrence 运行期间删 Task 也 fail-closed 拒绝，待其终态后再删，不能 tombstone 后放任不可停止的副作用继续。`running → cancelling → cancelled` 只服务有 exact `turn_id` 的 `AgentTurn` / `SessionTurn`；未来若支持 Loop 须接其 `run_id` 的 typed durable cancel。
 - **Primary 崩溃可观测**：调度器每 tick UPSERT `cron_meta.scheduler_heartbeat`；启动时若上次心跳距今 ≥ `HEARTBEAT_STALE_WARN_SECS`（300s）则 `app_warn` 提示「调度器曾离线 ~Ns」。纯日志可观测——Primary 崩溃非丢任务（重启 catch-up 按 grace 补跑），故不做 Secondary 竞选接管。
 
 ### 单 Primary + run-now 正交
@@ -710,15 +717,15 @@ Tauri 全局事件，任务执行完成后（无论成功或失败）发射。
 1. `CronDB::list_run_timeline(batch, offset)`——`cron_run_logs LEFT JOIN cron_jobs`，按 `started_at DESC, id DESC` 倒序取批次；逻辑删除保留原 `job_name` 并返回 `job_deleted=true`，仅物理遗留孤儿回退 `(deleted job)`。
 2. `SessionDB::cron_session_read_state(session_ids)`——按批次 session id 取 `(title, Scheduled 未读标记 0/1, archived)`；过滤归档项后再按可见行做 offset/limit，防止归档造成短页或漏页。普通 Cron-origin Session 的 `unread_count` 直接投影普通会话的 `last_read_message_id`，legacy `is_cron=1` 继续兼容；缺失 session 回退 `title=job_name` / `0`。
 
-返回 `CronTimelineRow`（其 `run_log_id` 是列表 key，因 `SessionLoop` 多次运行共享父会话）。前端 `CronConversationsPanel` 与任务详情继续用 `CronSessionViewer` 做只读预览；`AgentTurn` 行另提供“打开会话”，通过普通 chat focus 导航到同一个 Session。完整输入框、实时 stream、Stop、默认排队与显式安全边界插入都由普通 `ChatScreen` 提供，Scheduled 预览不复制这些交互；预览成功渲染后可推进同一个普通 read watermark，不另建 Scheduled 未读域。
+返回 `CronTimelineRow`（其 `run_log_id` 是列表 key，因 `SessionLoop` 多次运行共享父会话）。前端 `CronConversationsPanel` 与任务详情继续用 `CronSessionViewer` 做只读预览；`AgentTurn` 行另提供“打开会话”，通过普通 chat focus 导航到同一个 Session。完整输入框、实时 stream、Stop、默认排队与显式安全边界插入都由普通 `ChatScreen` 提供；Scheduled 预览刻意不复制输入框或 composer，只负责历史与只读 live preview。预览成功渲染后可推进同一个普通 read watermark，不另建 Scheduled 未读域。
 
 普通 AgentTurn Session 的未读只由普通 read receipt 清除：主聊天或 Scheduled 只读预览成功加载并真实渲染消息后，均调用同一个 `mark_session_read` 推进 watermark。`cron_unread_total()` 只是过滤 `origin.kind=cron` 的普通 Session（并兼容 legacy `is_cron=1`），按会话数去重且排除 archived；`mark_all_cron_sessions_read()` 批量推进这两类 Session 的现有 watermark，不创建第二套 receipt。archive / restore / pin 也完全复用普通 Session 入口，其中 archive 会从 Scheduled 时间线与角标投影隐藏会话并清除 pin。
 
 命令 / 路由：`cron_run_timeline` ↔ `GET /api/cron/timeline`、`cron_unread_total` ↔ `GET /api/cron/unread`、`cron_mark_all_read` ↔ `POST /api/cron/read-all`。
 
-**删 Task 保留完整历史**：三处 owner delete 入口（Tauri `cron_delete_job` / HTTP `delete_job` / `manage_cron` delete）统一走 `cron::delete_job_and_legacy_sessions`。入口把 `cron_jobs.deleted_at` 写为当前时间并从所有 live CRUD、claim、列表、日历、账号引用与投递中排除；`cron_run_logs`、普通 Session 和 legacy `is_cron=1` Session 全部保留。按 job id 的历史 API 与跨 job timeline 仍可读取 tombstone 历史，timeline 用 `jobDeleted` 显式标记。
+**删 Task 保留完整历史**：三处 owner delete 入口（Tauri `cron_delete_job` / HTTP `delete_job` / `manage_cron` delete）统一走 `cron::delete_job_and_legacy_sessions`。入口在 Cron writer fence 内把 `cron_jobs.deleted_at` 写为当前时间，并按 `running_at` 而非“最近时间戳”选择 exact open occurrence；因此跨进程 stage 不能在 pending 检查与 tombstone 之间穿越。任务随后从所有 live CRUD、claim、列表、日历、账号引用与投递中排除；`cron_run_logs`、普通 Session 和 legacy `is_cron=1` Session 全部保留。按 job id 的历史 API 与跨 job timeline 仍可读取 tombstone 历史，timeline 用 `jobDeleted` 显式标记。
 
-**单对话永久删除**：用户从归档管理页永久删除运行会话时，Tauri / HTTP `delete_session_cmd` 仍经 `cron::delete_conversation_and_run_logs`：先删指向该 session 的 run logs，再删 session。顺序不可反转——否则 run log 清理失败会让用户刚删的对话以不可打开的时间线空壳重现。
+**单对话永久删除**：用户从归档管理页、HTTP 或 `/clear` 永久删除运行会话时，统一经 `CronDB::delete_conversation_and_run_logs`。仍被 live `SessionTurn` / `SessionLoop` Task 引用的会话必须先删对应 Task；Cron writer fence 随后阻止新的 stage，SessionDB 在同一个 `BEGIN IMMEDIATE` 内检查 Scheduled Worktree、queue 与 running/cancelling Cron ChatTurn custody并删除 Session，只有成功后才在尚未提交的 Cron 事务内删除对应 run logs。任一 custody / workspace 检查失败都会让两边原样保留，不再出现“历史先丢、会话却因 custody 拒绝而仍在”的半删除。
 
 ---
 

@@ -4,7 +4,10 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
 use crate::cron::delivery::{deliver_results, DeliveryOutcome};
-use ha_core::cron::CronDB;
+use ha_core::cron::{
+    CronDB, CronFinalScheduleAction, CronOccurrenceSettlement, CronRunTerminal,
+    CronScheduleDisposition, CronSettlementPolicy,
+};
 use ha_core::cron_defs::*;
 
 /// Grace window after a per-run timeout: the cooperative cancel flag is set and
@@ -12,6 +15,8 @@ use ha_core::cron_defs::*;
 /// session rows / stop spawning) before being dropped, instead of a hard
 /// mid-write tear-down. Bounded so a truly wedged run still releases its slot.
 const CRON_TIMEOUT_CANCEL_GRACE_SECS: u64 = 5;
+const OCCURRENCE_LIVENESS_POLL_MS: u64 = 250;
+static SESSION_TURN_PUMP_CURSOR: AtomicI64 = AtomicI64::new(0);
 
 /// Dedicated runtime for job executions dispatched outside the scheduler
 /// (run-now entries, loop monitors, loop event triggers). `execute_job_public`'s
@@ -52,10 +57,319 @@ pub fn spawn_claimed_job_execution(
     cron_db: Arc<CronDB>,
     session_db: Arc<ha_core::session::SessionDB>,
     claimed: ClaimedCronJob,
+    foreground_stop_admission: ha_core::session::ForegroundStopAdmission,
 ) {
     cron_dispatch_runtime().spawn(async move {
-        execute_claimed_job(&cron_db, &session_db, claimed).await;
+        execute_claimed_job(&cron_db, &session_db, claimed, foreground_stop_admission).await;
     });
+}
+
+/// Claim a SessionTurn occurrence without consuming a global execution slot,
+/// then publish its managed row into the target session's ordinary FIFO.
+pub(crate) fn stage_session_turn(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
+    job: &CronJob,
+    immediate: bool,
+) -> Result<Option<SessionTurnRunEnvelope>> {
+    let CronPayload::SessionTurn { session_id, prompt } = &job.payload else {
+        anyhow::bail!("cron_payload_not_session_turn");
+    };
+    // Capture before the Cron occurrence claim. The typed SessionDB enqueue
+    // validates this exact generation in its own IMMEDIATE transaction: Stop
+    // first means the old occurrence cannot appear after the Stop snapshot.
+    let foreground_stop_admission = session_db.foreground_stop_admission(Some(session_id))?;
+    let request_id = ha_core::session::new_chat_turn_id();
+    let Some(envelope) = ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+        cron_db.claim_session_turn_for_preparing(job, &request_id, immediate)
+    })?
+    else {
+        return Ok(None);
+    };
+    let mut guard = RunningMarkerGuard {
+        cron_db: cron_db.clone(),
+        job_id: envelope.job_id.clone(),
+        claimed_at: envelope.started_at.clone(),
+        run_log_id: AtomicI64::new(envelope.run_log_id),
+        retain_on_drop: AtomicBool::new(false),
+        immediate,
+        armed: true,
+    };
+    let source_ref = envelope.run_log_id.to_string();
+    if let Err(error) = session_db.enqueue_scheduled_turn_message(
+        ha_core::session::NewScheduledTurnMessage {
+            request_id: envelope.request_id.clone(),
+            session_id: envelope.session_id.clone(),
+            source_ref: source_ref.clone(),
+            message: prompt.clone(),
+        },
+        foreground_stop_admission,
+    ) {
+        guard.disarm();
+        let stopped = is_foreground_stop_fence_rejection(&error);
+        let error_text = format!("failed to queue scheduled turn: {error:#}");
+        let invalid_target = !immediate
+            && error
+                .to_string()
+                .contains(ha_core::session::SCHEDULED_TARGET_INELIGIBLE_ERROR);
+        let finished = if invalid_target {
+            cron_db.finish_invalid_session_turn_and_pause(
+                envelope.run_log_id,
+                &envelope.request_id,
+                None,
+                &error_text,
+                None,
+            )?
+        } else {
+            cron_db.finish_pending_session_turn(
+                envelope.run_log_id,
+                &envelope.request_id,
+                if stopped { "cancelled" } else { "error" },
+                Some(&error_text),
+            )?
+        };
+        if !finished {
+            anyhow::bail!("cron_session_turn_enqueue_rollback_conflict");
+        }
+        return Err(error);
+    }
+    match cron_db.mark_session_turn_queued(envelope.run_log_id, &envelope.request_id) {
+        Ok(true) => {
+            guard.disarm();
+            Ok(Some(envelope))
+        }
+        publish => {
+            // From this point an uncertain cross-DB rollback must retain the
+            // Cron owner marker. A later startup can reconcile it; clearing the
+            // marker while the Session row may survive would orphan FIFO work.
+            guard.disarm();
+            let removed = session_db
+                .cancel_scheduled_turn_message(&envelope.request_id, &source_ref)
+                .map_err(|cancel| {
+                    anyhow::anyhow!("cron_session_turn_publish_rollback_uncertain: {cancel:#}")
+                })?;
+            if !removed {
+                match session_db.get_scheduled_turn_message(&source_ref)? {
+                    None => {}
+                    Some(_) => anyhow::bail!("cron_session_turn_publish_rollback_uncertain"),
+                }
+            }
+            if !cron_db.finish_pending_session_turn(
+                envelope.run_log_id,
+                &envelope.request_id,
+                "error",
+                Some("failed to publish scheduled turn envelope"),
+            )? {
+                anyhow::bail!("cron_session_turn_publish_conflict");
+            }
+            match publish {
+                Err(error) => Err(error),
+                Ok(false) => anyhow::bail!("cron_session_turn_publish_conflict"),
+                Ok(true) => unreachable!(),
+            }
+        }
+    }
+}
+
+pub(crate) fn spawn_session_turn_pump_once(
+    cron_db: Arc<CronDB>,
+    session_db: Arc<ha_core::session::SessionDB>,
+) {
+    cron_dispatch_runtime().spawn(async move {
+        pump_session_turns(&cron_db, &session_db).await;
+    });
+}
+
+/// Bounded Primary-only admission pump. SessionDB decides the global FIFO head;
+/// CronDB atomically turns the queued overlap marker into a counted slot.
+pub(crate) async fn pump_session_turns(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
+) {
+    if !ha_core::runtime_lock::is_primary() {
+        return;
+    }
+    let max_concurrent = ha_core::config::cached_config()
+        .cron
+        .effective_max_concurrent();
+    let after_id = SESSION_TURN_PUMP_CURSOR.load(Ordering::Relaxed);
+    let runs = match cron_db.list_queued_session_turn_runs(after_id, 64) {
+        Ok(runs) => runs,
+        Err(error) => {
+            app_error!(
+                "cron",
+                "session_turn_pump",
+                "Queued run scan failed: {error:#}"
+            );
+            return;
+        }
+    };
+    let next_cursor = runs
+        .last()
+        .filter(|_| runs.len() == 64)
+        .map_or(0, |last| last.run_log_id);
+    SESSION_TURN_PUMP_CURSOR.store(next_cursor, Ordering::Relaxed);
+    for envelope in runs {
+        let source_ref = envelope.run_log_id.to_string();
+        match session_db.get_scheduled_turn_message(&source_ref) {
+            Ok(Some(row))
+                if row.request_id == envelope.request_id
+                    && row.session_id == envelope.session_id => {}
+            Ok(None) => {
+                let _ = cron_db.finish_pending_session_turn(
+                    envelope.run_log_id,
+                    &envelope.request_id,
+                    "cancelled",
+                    Some("Scheduled queue row was removed"),
+                );
+                continue;
+            }
+            Ok(Some(_)) => {
+                app_error!(
+                    "cron",
+                    "session_turn_pump",
+                    "Scheduled queue identity mismatch"
+                );
+                continue;
+            }
+            Err(error) => {
+                app_error!(
+                    "cron",
+                    "session_turn_pump",
+                    "Queue lookup failed: {error:#}"
+                );
+                continue;
+            }
+        }
+        let turn_id = ha_core::session::new_chat_turn_id();
+        let Some(record) = (match session_db.claim_scheduled_turn_message_for_dispatch(
+            &envelope.request_id,
+            &source_ref,
+            &turn_id,
+        ) {
+            Ok(record) => record,
+            Err(error) => {
+                app_error!("cron", "session_turn_pump", "FIFO claim failed: {error:#}");
+                continue;
+            }
+        }) else {
+            continue;
+        };
+        let cancel = ha_core::cron::cancel::register(&envelope.job_id, &envelope.started_at);
+        let active_guard = match ha_core::chat_engine::active_turn::try_acquire(
+            &envelope.session_id,
+            ha_core::chat_engine::ChatSource::Cron,
+            turn_id.clone(),
+            cancel.clone(),
+        ) {
+            Ok(guard) => guard,
+            Err(_) => {
+                let _ = session_db.release_scheduled_turn_message_dispatch(
+                    &envelope.request_id,
+                    &source_ref,
+                    &turn_id,
+                );
+                ha_core::cron::cancel::remove(&envelope.job_id, &envelope.started_at);
+                continue;
+            }
+        };
+        let _execution_started_at = match ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+            cron_db.claim_session_turn_for_execution(
+                envelope.run_log_id,
+                &envelope.request_id,
+                &turn_id,
+                max_concurrent,
+            )
+        }) {
+            Ok(Some(started)) => started,
+            Ok(None) => {
+                drop(active_guard);
+                let _ = session_db.release_scheduled_turn_message_dispatch(
+                    &envelope.request_id,
+                    &source_ref,
+                    &turn_id,
+                );
+                ha_core::cron::cancel::remove(&envelope.job_id, &envelope.started_at);
+                continue;
+            }
+            Err(error) => {
+                app_error!("cron", "session_turn_pump", "Slot claim failed: {error:#}");
+                drop(active_guard);
+                let _ = session_db.release_scheduled_turn_message_dispatch(
+                    &envelope.request_id,
+                    &source_ref,
+                    &turn_id,
+                );
+                ha_core::cron::cancel::remove(&envelope.job_id, &envelope.started_at);
+                continue;
+            }
+        };
+        let job = match cron_db.get_job(&envelope.job_id) {
+            Ok(Some(job)) => job,
+            Ok(None) => {
+                drop(active_guard);
+                if matches!(
+                    cron_db.release_session_turn_execution(
+                        envelope.run_log_id,
+                        &envelope.request_id,
+                        &turn_id
+                    ),
+                    Ok(true)
+                ) && matches!(
+                    session_db.cancel_scheduled_turn_message(&envelope.request_id, &source_ref),
+                    Ok(true)
+                ) {
+                    let _ = cron_db.finish_pending_session_turn(
+                        envelope.run_log_id,
+                        &envelope.request_id,
+                        "cancelled",
+                        Some("Scheduled task was deleted"),
+                    );
+                }
+                ha_core::cron::cancel::remove(&envelope.job_id, &envelope.started_at);
+                continue;
+            }
+            Err(error) => {
+                app_error!("cron", "session_turn_pump", "Task lookup failed: {error:#}");
+                drop(active_guard);
+                let _ = cron_db.release_session_turn_execution(
+                    envelope.run_log_id,
+                    &envelope.request_id,
+                    &turn_id,
+                );
+                let _ = session_db.release_scheduled_turn_message_dispatch(
+                    &envelope.request_id,
+                    &source_ref,
+                    &turn_id,
+                );
+                ha_core::cron::cancel::remove(&envelope.job_id, &envelope.started_at);
+                continue;
+            }
+        };
+        let db = cron_db.clone();
+        let sdb = session_db.clone();
+        let dispatch_guard = ScheduledDispatchGuard {
+            session_db: session_db.clone(),
+            request_id: envelope.request_id.clone(),
+            source_ref,
+            turn_id: turn_id.clone(),
+            armed: true,
+        };
+        tokio::spawn(async move {
+            execute_session_turn(
+                &db,
+                &sdb,
+                job,
+                envelope,
+                record,
+                dispatch_guard,
+                turn_id,
+                cancel,
+                active_guard,
+            )
+            .await;
+        });
+    }
 }
 
 /// Public wrapper for execute_job, callable from Tauri commands.
@@ -81,10 +395,46 @@ pub async fn execute_job_public(
         );
         return;
     }
+    if matches!(job.payload, CronPayload::SessionTurn { .. }) {
+        match stage_session_turn(cron_db, session_db, job, true) {
+            Ok(Some(_)) => {
+                spawn_session_turn_pump_once(cron_db.clone(), session_db.clone());
+            }
+            Ok(None) => app_warn!(
+                "cron",
+                "executor",
+                "SessionTurn job '{}' ({}) is already queued or running",
+                job.name,
+                job.id
+            ),
+            Err(error) => app_error!(
+                "cron",
+                "executor",
+                "Failed to stage SessionTurn job '{}' ({}): {error:#}",
+                job.name,
+                job.id
+            ),
+        }
+        return;
+    }
+    let foreground_stop_admission = match session_db.foreground_stop_admission(None) {
+        Ok(admission) => admission,
+        Err(error) => {
+            app_error!(
+                "cron",
+                "executor",
+                "Failed to capture the Global Stop fence before claiming job '{}': {error:#}",
+                job.name
+            );
+            return;
+        }
+    };
     match ha_core::agent_lifecycle::with_lifecycle_gate(|| {
         cron_db.claim_immediate_job_for_execution(job)
     }) {
-        Ok(Some(claimed)) => execute_claimed_job(cron_db, session_db, claimed).await,
+        Ok(Some(claimed)) => {
+            execute_claimed_job(cron_db, session_db, claimed, foreground_stop_admission).await
+        }
         Ok(None) => {
             app_warn!(
                 "cron",
@@ -111,59 +461,199 @@ pub async fn execute_job_public(
 /// panic anywhere inside `run_chat_engine` would leave `running_at` set until the
 /// next process restart — and since §4 counts every `running_at` marker against
 /// the global concurrency cap, a handful of leaked markers would permanently
-/// starve the cap and stall the whole scheduler. The clear is **owner-checked**
-/// (only fires when `running_at` still equals this run's claim timestamp), so on
-/// the normal path (already cleared) and after a later re-claim (new timestamp)
-/// it harmlessly no-ops.
+/// starve the cap and stall the whole scheduler. Panic settlement uses the same
+/// exact-owner transaction as ordinary terminals, so schedule accounting and
+/// slot release cannot become visible separately.
 struct RunningMarkerGuard {
     cron_db: Arc<CronDB>,
     job_id: String,
     claimed_at: String,
     /// §9 (D2): id of the in-progress run log, set once it's inserted (0 until
-    /// then). On an abnormal unwind the Drop finalizes it to `error` so a
-    /// same-process panic doesn't leave a perpetual `running` row; the
-    /// cross-restart backstop is `recover_orphaned_runs`.
+    /// then). On an abnormal unwind Drop atomically settles it as interrupted;
+    /// the cross-restart backstop is `recover_orphaned_runs`.
     run_log_id: AtomicI64,
+    /// A normal terminal transaction completed, or recovery owns an atomic
+    /// settlement failure. Either state suppresses the panic backstop so it
+    /// cannot settle the same occurrence a second time.
+    retain_on_drop: AtomicBool,
+    /// Manual occurrences release their slot without mutating the live schedule,
+    /// including when this panic backstop owns terminal settlement.
+    immediate: bool,
+    armed: bool,
+}
+
+impl RunningMarkerGuard {
+    /// Queue publication transfers ownership of the marker to the durable
+    /// SessionTurn envelope. Its later executor (or exact cancel/recovery) is
+    /// the only component allowed to clear it.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
 }
 
 impl Drop for RunningMarkerGuard {
     fn drop(&mut self) {
-        match self
-            .cron_db
-            .clear_running_if_owner(&self.job_id, &self.claimed_at)
-        {
-            Ok(true) => {
-                app_warn!(
-                    "cron",
-                    "executor",
-                    "Released leaked running marker for job {} (run did not reach a normal terminal path — likely panicked)",
-                    self.job_id
-                );
-                // The run never reached a terminal path, so its in-progress run
-                // log is still open — close it out as error.
-                let run_log_id = self.run_log_id.load(Ordering::SeqCst);
-                if run_log_id > 0 {
-                    let _ = self.cron_db.finalize_run_log(
-                        run_log_id,
-                        "error",
-                        &Utc::now().to_rfc3339(),
-                        None,
-                        None,
-                        Some("Interrupted (run did not reach a terminal path)"),
-                        None,
-                    );
-                }
-            }
-            Ok(false) => {} // normal path already cleared, or re-claimed since
-            Err(e) => app_error!(
+        if !self.armed || self.retain_on_drop.load(Ordering::SeqCst) {
+            return;
+        }
+        let run_log_id = self.run_log_id.load(Ordering::SeqCst);
+        let finished_at = Utc::now().to_rfc3339();
+        match self.cron_db.settle_running_occurrence(
+            (run_log_id > 0).then_some(run_log_id),
+            &self.job_id,
+            "",
+            &self.claimed_at,
+            CronRunTerminal {
+                status: "error",
+                finished_at: &finished_at,
+                duration_ms: None,
+                result_preview: None,
+                error: Some("Interrupted (run did not reach a terminal path)"),
+                delivery_status: None,
+                immediate: self.immediate,
+            },
+            CronScheduleDisposition::Interrupted,
+            CronSettlementPolicy::STANDARD,
+        ) {
+            Ok(_) => app_warn!(
                 "cron",
                 "executor",
-                "Failed to release running marker for job {}: {}",
-                self.job_id,
-                e
+                "Atomically settled leaked occurrence for job {} (run did not reach a normal terminal path — likely panicked)",
+                self.job_id
             ),
+            Err(error) => {
+                // Never expose an unaccounted terminal or release its marker.
+                // Make the still-open row visible to the scheduler's no-replay
+                // recovery pass; restart remains the backstop if this also fails.
+                self.retain_on_drop.store(true, Ordering::SeqCst);
+                if let Err(handoff_error) = self.cron_db.handoff_running_occurrence_to_recovery(
+                    (run_log_id > 0).then_some(run_log_id),
+                    &self.job_id,
+                    "",
+                    &self.claimed_at,
+                    self.immediate,
+                    false,
+                ) {
+                    app_error!(
+                        "cron",
+                        "executor",
+                        "Could not hand leaked occurrence for job {} to recovery after atomic settlement failed: {handoff_error:#}",
+                        self.job_id
+                    );
+                }
+                app_error!(
+                    "cron",
+                    "executor",
+                    "Could not atomically settle leaked occurrence for job {}; retaining exact marker: {error:#}",
+                    self.job_id
+                );
+            }
         }
     }
+}
+
+#[cfg(test)]
+fn release_running_occurrence(
+    cron_db: &Arc<CronDB>,
+    job_id: &str,
+    started_at: &str,
+    retain_on_drop: &AtomicBool,
+) {
+    if retain_on_drop.load(Ordering::SeqCst) {
+        return;
+    }
+    let _ = cron_db.clear_running_if_owner(job_id, started_at);
+}
+
+/// Commit terminal audit, live-schedule accounting, and exact marker release at
+/// one CronDB ordering point. On failure the row stays open and the marker is
+/// handed to the scheduler's no-replay recovery pass.
+#[allow(clippy::too_many_arguments)]
+fn settle_running_occurrence_or_handoff(
+    cron_db: &Arc<CronDB>,
+    job: &CronJob,
+    session_id: &str,
+    started_at: &str,
+    run_log_id: Option<i64>,
+    terminal: CronRunTerminal<'_>,
+    disposition: CronScheduleDisposition,
+    policy: CronSettlementPolicy,
+    retain_on_drop: &AtomicBool,
+) -> Option<CronOccurrenceSettlement> {
+    match cron_db.settle_running_occurrence(
+        run_log_id,
+        &job.id,
+        session_id,
+        started_at,
+        terminal,
+        disposition,
+        policy,
+    ) {
+        Ok(settlement) => {
+            if policy.release_marker {
+                retain_on_drop.store(true, Ordering::SeqCst);
+            }
+            Some(settlement)
+        }
+        Err(error) => {
+            retain_on_drop.store(true, Ordering::SeqCst);
+            if let Err(handoff_error) = cron_db.handoff_running_occurrence_to_recovery(
+                run_log_id,
+                &job.id,
+                session_id,
+                started_at,
+                terminal.immediate,
+                terminal.status == "cancelled" || disposition == CronScheduleDisposition::Cancelled,
+            ) {
+                app_error!(
+                    "cron",
+                    "schedule_accounting",
+                    "Could not hand run {} to recovery after settlement failure: {handoff_error:#}",
+                    job.id
+                );
+            }
+            app_error!(
+                "cron",
+                "schedule_accounting",
+                "Could not atomically settle run for job {}; retaining exact marker: {error:#}",
+                job.id
+            );
+            None
+        }
+    }
+}
+
+/// Run-now keeps its overlap marker through remote delivery. Once delivery has
+/// returned, release only that exact occurrence; on a transient DB error the
+/// still-armed guard retries through the atomic interrupted settlement path.
+fn release_deferred_immediate_marker(
+    cron_db: &Arc<CronDB>,
+    job_id: &str,
+    started_at: &str,
+    retain_on_drop: &AtomicBool,
+) {
+    match cron_db.clear_running_if_owner(job_id, started_at) {
+        Ok(_) => retain_on_drop.store(true, Ordering::SeqCst),
+        Err(error) => app_error!(
+            "cron",
+            "schedule_accounting",
+            "Could not release delivered run-now occurrence for job {job_id}; panic guard will retry: {error:#}"
+        ),
+    }
+}
+
+fn loop_settlement_policy(
+    disposition: ha_core::loop_control::LoopCronJobDisposition,
+    backoff_secs: Option<i64>,
+) -> CronSettlementPolicy {
+    let final_action = match disposition {
+        ha_core::loop_control::LoopCronJobDisposition::Keep => CronFinalScheduleAction::Keep,
+        ha_core::loop_control::LoopCronJobDisposition::Pause => CronFinalScheduleAction::Pause,
+        ha_core::loop_control::LoopCronJobDisposition::Complete => {
+            CronFinalScheduleAction::Complete
+        }
+    };
+    CronSettlementPolicy::loop_final(final_action, backoff_secs)
 }
 
 /// §9 (C7): RAII cleanup of a run's cancel registration. Held for the whole run
@@ -177,10 +667,659 @@ struct CancelRegistrationGuard {
     claimed_at: String,
 }
 
+struct ScheduledDispatchGuard {
+    session_db: Arc<ha_core::session::SessionDB>,
+    request_id: String,
+    source_ref: String,
+    turn_id: String,
+    armed: bool,
+}
+
+impl ScheduledDispatchGuard {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ScheduledDispatchGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.session_db.release_scheduled_turn_message_dispatch(
+                &self.request_id,
+                &self.source_ref,
+                &self.turn_id,
+            );
+        }
+    }
+}
+
 impl Drop for CancelRegistrationGuard {
     fn drop(&mut self) {
         ha_core::cron::cancel::remove(&self.job_id, &self.claimed_at);
     }
+}
+
+/// Makes the Cron tombstone itself a durable cross-process cancellation fence.
+/// Exact Stop remains the fast path, while this watcher closes the crash window
+/// between committing `deleted_at` in cron.db and publishing Stop in sessions.db.
+struct OccurrenceLivenessGuard {
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for OccurrenceLivenessGuard {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+fn watch_running_occurrence(
+    cron_db: Arc<CronDB>,
+    run_log_id: i64,
+    job_id: String,
+    started_at: String,
+    cancel: Arc<AtomicBool>,
+) -> OccurrenceLivenessGuard {
+    let task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(
+            OCCURRENCE_LIVENESS_POLL_MS,
+        ));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let db = cron_db.clone();
+            let job = job_id.clone();
+            let claim = started_at.clone();
+            match ha_core::blocking::run_blocking(move || {
+                db.running_occurrence_is_live(run_log_id, &job, &claim)
+            })
+            .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    cancel.store(true, Ordering::SeqCst);
+                    app_warn!(
+                        "cron",
+                        "occurrence_fence",
+                        "Cancelled run {} after its task occurrence was deleted or released",
+                        run_log_id
+                    );
+                    break;
+                }
+                Err(error) => {
+                    // An unattended runner must not continue side effects after
+                    // losing the durable ledger that proves its ownership.
+                    cancel.store(true, Ordering::SeqCst);
+                    app_error!(
+                        "cron",
+                        "occurrence_fence",
+                        "Cancelled run {} after its occurrence fence became unreadable: {error:#}",
+                        run_log_id
+                    );
+                    break;
+                }
+            }
+        }
+    });
+    OccurrenceLivenessGuard { task }
+}
+
+fn is_foreground_stop_fence_rejection(error: &anyhow::Error) -> bool {
+    format!("{error:#}").contains(ha_core::session::FOREGROUND_STOP_FENCE_ERROR)
+}
+
+fn close_run_cancellation_window(
+    cron_db: &CronDB,
+    run_log_id: i64,
+    cancel: &Arc<AtomicBool>,
+) -> bool {
+    match cron_db.close_running_run_cancellation(run_log_id) {
+        Ok(true) => true,
+        Ok(false) => {
+            cancel.store(true, Ordering::SeqCst);
+            false
+        }
+        Err(error) => {
+            // Losing the durable occurrence ledger must never fall through to
+            // delivery or a late success terminal.
+            cancel.store(true, Ordering::SeqCst);
+            app_error!(
+                "cron",
+                "cancel_fence",
+                "Could not close cancellation window for run {run_log_id}: {error:#}"
+            );
+            false
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fail_invalid_session_turn_target(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
+    job: &CronJob,
+    envelope: &SessionTurnRunEnvelope,
+    turn_id: &str,
+    start_time: std::time::Instant,
+    running_guard: &mut RunningMarkerGuard,
+    error: &str,
+) {
+    // From here the typed Cron transaction owns both the exact occurrence and
+    // the task pause. If queue cleanup or that transaction fails, retain the
+    // running marker for recovery instead of exposing an unpaused recurrence.
+    running_guard.disarm();
+    let source_ref = envelope.run_log_id.to_string();
+    match session_db.cancel_scheduled_turn_message(&envelope.request_id, &source_ref) {
+        Ok(true) => {}
+        Ok(false) => {
+            app_warn!(
+                "cron",
+                "invalid_session_target",
+                "Could not revoke queue custody for run {}; retaining its occurrence marker",
+                envelope.run_log_id
+            );
+            return;
+        }
+        Err(cancel_error) => {
+            app_error!(
+                "cron",
+                "invalid_session_target",
+                "Queue cleanup failed for run {}; retaining its occurrence marker: {cancel_error:#}",
+                envelope.run_log_id
+            );
+            return;
+        }
+    }
+    match cron_db.finish_invalid_session_turn_and_pause(
+        envelope.run_log_id,
+        &envelope.request_id,
+        Some(turn_id),
+        error,
+        Some(start_time.elapsed().as_millis() as u64),
+    ) {
+        Ok(true) => {
+            let reason = crate::cron::failure::CronFailureClass::classify(error).key();
+            emit_cron_event(
+                &job.id,
+                &job.name,
+                "error",
+                job.notify_on_complete,
+                Some(reason),
+            );
+        }
+        Ok(false) => app_warn!(
+            "cron",
+            "invalid_session_target",
+            "Exact run {} changed owner before invalid-target settlement; retaining its marker",
+            envelope.run_log_id
+        ),
+        Err(settle_error) => app_error!(
+            "cron",
+            "invalid_session_target",
+            "Atomic invalid-target settlement failed for run {}; retaining its marker: {settle_error:#}",
+            envelope.run_log_id
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_session_turn(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
+    job: CronJob,
+    envelope: SessionTurnRunEnvelope,
+    queue_record: ha_core::session::QueuedTurnMessageRecord,
+    mut dispatch_guard: ScheduledDispatchGuard,
+    turn_id: String,
+    cancel: Arc<AtomicBool>,
+    active_guard: ha_core::chat_engine::active_turn::ActiveTurnGuard,
+) {
+    let prompt = queue_record.message.clone();
+    let foreground_stop_admission = queue_record.foreground_stop_admission();
+    let start_time = std::time::Instant::now();
+    let mut running_guard = RunningMarkerGuard {
+        cron_db: cron_db.clone(),
+        job_id: job.id.clone(),
+        claimed_at: envelope.started_at.clone(),
+        run_log_id: AtomicI64::new(envelope.run_log_id),
+        retain_on_drop: AtomicBool::new(false),
+        immediate: envelope.immediate,
+        armed: true,
+    };
+    let occurrence_guard = watch_running_occurrence(
+        cron_db.clone(),
+        envelope.run_log_id,
+        job.id.clone(),
+        envelope.started_at.clone(),
+        cancel.clone(),
+    );
+    let _cancel_guard = CancelRegistrationGuard {
+        job_id: job.id.clone(),
+        claimed_at: envelope.started_at.clone(),
+    };
+    let fail_before_commit = |error: &str| {
+        let _ = session_db
+            .cancel_scheduled_turn_message(&envelope.request_id, &envelope.run_log_id.to_string());
+        record_failure(
+            cron_db,
+            &job,
+            &envelope.started_at,
+            start_time,
+            "error",
+            error,
+            &envelope.session_id,
+            None,
+            Some(envelope.run_log_id),
+            false,
+            envelope.immediate,
+            &running_guard.retain_on_drop,
+        );
+    };
+    let meta = match session_db.get_session(&envelope.session_id) {
+        Ok(Some(meta)) if meta.is_regular_chat() && meta.archived_at.is_none() => meta,
+        Ok(Some(meta)) if meta.is_regular_chat() => {
+            fail_invalid_session_turn_target(
+                cron_db,
+                session_db,
+                &job,
+                &envelope,
+                &turn_id,
+                start_time,
+                &mut running_guard,
+                "scheduled target conversation is archived",
+            );
+            return;
+        }
+        Ok(Some(_)) => {
+            fail_invalid_session_turn_target(
+                cron_db,
+                session_db,
+                &job,
+                &envelope,
+                &turn_id,
+                start_time,
+                &mut running_guard,
+                "scheduled target is no longer a regular conversation",
+            );
+            return;
+        }
+        Ok(None) => {
+            fail_invalid_session_turn_target(
+                cron_db,
+                session_db,
+                &job,
+                &envelope,
+                &turn_id,
+                start_time,
+                &mut running_guard,
+                "scheduled target conversation no longer exists",
+            );
+            return;
+        }
+        Err(error) => {
+            fail_before_commit(&format!("failed to read scheduled target: {error:#}"));
+            return;
+        }
+    };
+    let _agent_admission = match ha_core::agent_lifecycle::begin_agent_run(&meta.agent_id) {
+        Ok(guard) => guard,
+        Err(error) => {
+            fail_before_commit(&format!("agent unavailable: {error}"));
+            return;
+        }
+    };
+    let runtime_defaults =
+        match ha_core::session::ensure_session_runtime_defaults(session_db, &envelope.session_id) {
+            Ok(defaults) if defaults.model.is_some() => defaults,
+            Ok(_) => {
+                fail_before_commit("target conversation has no configured model");
+                return;
+            }
+            Err(error) => {
+                fail_before_commit(&format!("failed to resolve target runtime: {error:#}"));
+                return;
+            }
+        };
+    if meta.sandbox_mode.enabled() {
+        if let Err(error) =
+            ha_core::sandbox::ensure_sandbox_available_for_mode(meta.sandbox_mode).await
+        {
+            fail_before_commit(&format!("sandbox unavailable: {error}"));
+            return;
+        }
+    }
+
+    let mut user_message = ha_core::session::NewMessage::user(&prompt)
+        .with_source(ha_core::chat_engine::ChatSource::Cron);
+    user_message.queue_request_id = Some(envelope.request_id.clone());
+    user_message.attachments_meta = Some(
+        serde_json::json!({
+            "cron_trigger": {
+                "job_id": &job.id,
+                "job_name": &job.name,
+                "run_log_id": envelope.run_log_id,
+            }
+        })
+        .to_string(),
+    );
+    let persisted = ha_core::chat_engine::active_turn::with_persistence_target(
+        &envelope.session_id,
+        &turn_id,
+        || {
+            session_db.append_message_and_create_chat_turn_with_id_surface_dispatch(
+                &turn_id,
+                &envelope.session_id,
+                ha_core::chat_engine::ChatSource::Cron.as_str(),
+                None,
+                &user_message,
+                None,
+                None,
+                None,
+                foreground_stop_admission,
+            )
+        },
+    );
+    let message_id = match persisted {
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed((id, _))) => id,
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
+            (id, _),
+        )) => {
+            dispatch_guard.disarm();
+            let _ = cron_db.set_session_turn_target_message(
+                envelope.run_log_id,
+                &envelope.request_id,
+                &turn_id,
+                id,
+            );
+            let decision = settle_classified_turn_before_release(
+                session_db,
+                &envelope.session_id,
+                &turn_id,
+                CronTerminal::Cancelled,
+                None,
+            );
+            record_cancelled(
+                cron_db,
+                &job,
+                &envelope.session_id,
+                &envelope.started_at,
+                &Utc::now().to_rfc3339(),
+                start_time.elapsed().as_millis() as u64,
+                Some(envelope.run_log_id),
+                envelope.immediate,
+                &running_guard.retain_on_drop,
+            );
+            apply_active_turn_release_decision(active_guard, &turn_id, decision);
+            return;
+        }
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
+            let _ = session_db.cancel_scheduled_turn_message(
+                &envelope.request_id,
+                &envelope.run_log_id.to_string(),
+            );
+            record_cancelled(
+                cron_db,
+                &job,
+                &envelope.session_id,
+                &envelope.started_at,
+                &Utc::now().to_rfc3339(),
+                start_time.elapsed().as_millis() as u64,
+                Some(envelope.run_log_id),
+                envelope.immediate,
+                &running_guard.retain_on_drop,
+            );
+            return;
+        }
+        Err(error) => {
+            let _ = session_db.reconcile_failed_scheduled_turn_message_dispatch(
+                &envelope.request_id,
+                &envelope.run_log_id.to_string(),
+                &turn_id,
+            );
+            if is_foreground_stop_fence_rejection(&error) {
+                let _ = session_db.cancel_scheduled_turn_message(
+                    &envelope.request_id,
+                    &envelope.run_log_id.to_string(),
+                );
+                record_cancelled(
+                    cron_db,
+                    &job,
+                    &envelope.session_id,
+                    &envelope.started_at,
+                    &Utc::now().to_rfc3339(),
+                    start_time.elapsed().as_millis() as u64,
+                    Some(envelope.run_log_id),
+                    envelope.immediate,
+                    &running_guard.retain_on_drop,
+                );
+                return;
+            }
+            fail_before_commit(&format!("failed to persist scheduled turn: {error:#}"));
+            return;
+        }
+    };
+    dispatch_guard.disarm();
+    // The atomic message + ChatTurn commit consumed the scheduled queue row;
+    // release its cross-process session lease before model execution.
+    drop(queue_record);
+    let _ = cron_db.set_session_turn_target_message(
+        envelope.run_log_id,
+        &envelope.request_id,
+        &turn_id,
+        message_id,
+    );
+    emit_session_list_changed(&envelope.session_id);
+    let _intent_guard =
+        ha_core::permission::task_intent::TaskIntentGuard::new(&envelope.session_id, &prompt);
+
+    let timeout_secs = job.job_timeout_secs.map_or_else(
+        || {
+            ha_core::config::cached_config()
+                .cron
+                .effective_job_timeout_secs()
+        },
+        ha_core::config::clamp_cron_job_timeout_secs,
+    );
+    let mut run_fut = Box::pin(build_and_run_live_session_turn(
+        &meta.agent_id,
+        &prompt,
+        &envelope.session_id,
+        &turn_id,
+        session_db,
+        runtime_defaults,
+        cancel.clone(),
+        foreground_stop_admission,
+    ));
+    let mut timed_out = false;
+    let mut user_cancelled_pre_timeout = false;
+    let result = if timeout_secs == 0 {
+        run_fut.as_mut().await
+    } else {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            run_fut.as_mut(),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                timed_out = true;
+                user_cancelled_pre_timeout = cancel.load(Ordering::SeqCst);
+                cancel.store(true, Ordering::SeqCst);
+                let grace = tokio::time::timeout(
+                    std::time::Duration::from_secs(CRON_TIMEOUT_CANCEL_GRACE_SECS),
+                    run_fut.as_mut(),
+                )
+                .await
+                .ok();
+                resolve_after_timeout_grace(grace, timeout_secs, user_cancelled_pre_timeout)
+            }
+        }
+    };
+    drop(run_fut);
+    let stop_fence_rejected = result
+        .as_ref()
+        .err()
+        .is_some_and(is_foreground_stop_fence_rejection);
+    let cancellation_observed = stop_fence_rejected
+        || compute_was_cancelled(
+            timed_out,
+            user_cancelled_pre_timeout,
+            cancel.load(Ordering::SeqCst),
+        );
+    let completion_owned = cancellation_observed
+        || close_run_cancellation_window(cron_db, envelope.run_log_id, &cancel);
+    drop(occurrence_guard);
+    let was_cancelled = cancellation_observed || !completion_owned;
+    let terminal = classify_cron_terminal(&result, was_cancelled);
+    let failure = (terminal == CronTerminal::Failure).then(|| {
+        result
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "unknown error".to_string())
+    });
+    let decision = settle_classified_turn_before_release(
+        session_db,
+        &envelope.session_id,
+        &turn_id,
+        terminal,
+        failure.as_deref(),
+    );
+    apply_active_turn_release_decision(active_guard, &turn_id, decision);
+
+    let finished_at = Utc::now().to_rfc3339();
+    let duration_ms = start_time.elapsed().as_millis() as u64;
+    let _ = cron_db.set_session_turn_target_message(
+        envelope.run_log_id,
+        &envelope.request_id,
+        &turn_id,
+        message_id,
+    );
+    // Atomically close the live cancel registration before irreversible IM
+    // delivery. `cancel` now sees the run-keyed closed marker and reports false;
+    // a request that won before this fence already flipped `cancel` and wins.
+    drop(_cancel_guard);
+    if cancel.load(Ordering::SeqCst) {
+        record_cancelled(
+            cron_db,
+            &job,
+            &envelope.session_id,
+            &envelope.started_at,
+            &finished_at,
+            duration_ms,
+            Some(envelope.run_log_id),
+            envelope.immediate,
+            &running_guard.retain_on_drop,
+        );
+    } else {
+        match terminal {
+            CronTerminal::Cancelled => record_cancelled(
+                cron_db,
+                &job,
+                &envelope.session_id,
+                &envelope.started_at,
+                &finished_at,
+                duration_ms,
+                Some(envelope.run_log_id),
+                envelope.immediate,
+                &running_guard.retain_on_drop,
+            ),
+            CronTerminal::Failure => {
+                let error = failure.unwrap_or_else(|| "unknown error".to_string());
+                let delivery =
+                    deliver_results(&job, DeliveryOutcome::Failure { error: &error }).await;
+                record_failure(
+                    cron_db,
+                    &job,
+                    &envelope.started_at,
+                    start_time,
+                    crate::cron::failure::CronFailureClass::classify(&error).run_log_status(),
+                    &error,
+                    &envelope.session_id,
+                    delivery.run_log_status(),
+                    Some(envelope.run_log_id),
+                    true,
+                    envelope.immediate,
+                    &running_guard.retain_on_drop,
+                );
+            }
+            CronTerminal::Success | CronTerminal::Empty => {
+                let response = result.unwrap_or_default();
+                let status = if terminal == CronTerminal::Success {
+                    "success"
+                } else {
+                    "empty"
+                };
+                let preview = (!response.is_empty()).then(|| {
+                    if response.len() > 500 {
+                        ha_core::truncate_utf8(&response, 500).to_string()
+                    } else {
+                        response.clone()
+                    }
+                });
+                let disposition = if terminal == CronTerminal::Success {
+                    CronScheduleDisposition::Success
+                } else {
+                    CronScheduleDisposition::Empty
+                };
+                let settlement_policy = if terminal == CronTerminal::Success && envelope.immediate {
+                    CronSettlementPolicy::DEFER_MARKER
+                } else {
+                    CronSettlementPolicy::STANDARD
+                };
+                if settle_running_occurrence_or_handoff(
+                    cron_db,
+                    &job,
+                    &envelope.session_id,
+                    &envelope.started_at,
+                    Some(envelope.run_log_id),
+                    CronRunTerminal {
+                        status,
+                        finished_at: &finished_at,
+                        duration_ms: Some(duration_ms),
+                        result_preview: preview.as_deref(),
+                        error: None,
+                        delivery_status: None,
+                        immediate: envelope.immediate,
+                    },
+                    disposition,
+                    settlement_policy,
+                    &running_guard.retain_on_drop,
+                )
+                .is_none()
+                {
+                    return;
+                }
+                let delivery = if terminal == CronTerminal::Success {
+                    Some(deliver_results(&job, DeliveryOutcome::Success { text: &response }).await)
+                } else {
+                    None
+                };
+                if let Some(report) = delivery.as_ref() {
+                    let _ = cron_db.update_terminal_run_delivery_status(
+                        envelope.run_log_id,
+                        report.run_log_status(),
+                    );
+                }
+                if settlement_policy == CronSettlementPolicy::DEFER_MARKER {
+                    release_deferred_immediate_marker(
+                        cron_db,
+                        &job.id,
+                        &envelope.started_at,
+                        &running_guard.retain_on_drop,
+                    );
+                }
+                emit_cron_event(
+                    &job.id,
+                    &job.name,
+                    status,
+                    job.notify_on_complete && terminal == CronTerminal::Success,
+                    None,
+                );
+            }
+        }
+    }
+    drop(running_guard);
 }
 
 /// Execute a job whose running marker was already claimed by the DB.
@@ -188,6 +1327,7 @@ pub(crate) async fn execute_claimed_job(
     cron_db: &Arc<CronDB>,
     session_db: &Arc<ha_core::session::SessionDB>,
     claimed: ClaimedCronJob,
+    foreground_stop_admission: ha_core::session::ForegroundStopAdmission,
 ) {
     let start_time = std::time::Instant::now();
     let started_at = claimed.claimed_at.clone();
@@ -198,12 +1338,15 @@ pub(crate) async fn execute_claimed_job(
     let immediate = claimed.immediate;
 
     // Panic-safe slot release: held for the whole run, fires only if an abnormal
-    // unwind skips the explicit `clear_running` on the terminal paths below.
+    // unwind skips the explicit exact-owner release on the terminal paths below.
     let running_guard = RunningMarkerGuard {
         cron_db: cron_db.clone(),
         job_id: job.id.clone(),
         claimed_at: started_at.clone(),
         run_log_id: AtomicI64::new(0),
+        retain_on_drop: AtomicBool::new(false),
+        immediate,
+        armed: true,
     };
 
     // §9 (C7): register the cancel flag immediately after claim — before any
@@ -240,6 +1383,7 @@ pub(crate) async fn execute_claimed_job(
                 None,
                 false,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             return;
         }};
@@ -266,6 +1410,7 @@ pub(crate) async fn execute_claimed_job(
             start_time,
             immediate,
             &running_guard.run_log_id,
+            &running_guard.retain_on_drop,
         )
         .await;
         return;
@@ -276,6 +1421,9 @@ pub(crate) async fn execute_claimed_job(
     // chat when the job is bound to a Project.
     let (prompt, explicit_agent_id) = match &job.payload {
         CronPayload::AgentTurn { prompt, agent_id } => (prompt.clone(), agent_id.as_deref()),
+        CronPayload::SessionTurn { .. } => {
+            unreachable!("SessionTurn uses the managed ordinary-session queue")
+        }
         CronPayload::SessionLoop { .. } => {
             unreachable!("SessionLoop handled before AgentTurn path")
         }
@@ -383,6 +1531,7 @@ pub(crate) async fn execute_claimed_job(
                 start_time.elapsed().as_millis() as u64,
                 None,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             delete_empty_run_session_best_effort(session_db, &session_id, &job);
             return;
@@ -396,11 +1545,12 @@ pub(crate) async fn execute_claimed_job(
     // If the in-progress row cannot be opened, fail closed: executing a model
     // turn without its audit row would make this occurrence unrecoverable and
     // unaccountable. `record_failure` still attempts a terminal insert.
-    let run_log_id = match cron_db.add_running_run_log_with_turn(
+    let run_log_id = match cron_db.add_running_run_log_with_turn_for_occurrence(
         &job.id,
         &session_id,
         &started_at,
         Some(&turn_id),
+        immediate,
     ) {
         Ok(id) => id,
         Err(e) => {
@@ -424,18 +1574,32 @@ pub(crate) async fn execute_claimed_job(
                 None,
                 false,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             delete_empty_run_session_best_effort(session_db, &session_id, &job);
             return;
         }
     };
     running_guard.run_log_id.store(run_log_id, Ordering::SeqCst);
+    let occurrence_guard = watch_running_occurrence(
+        cron_db.clone(),
+        run_log_id,
+        job.id.clone(),
+        started_at.clone(),
+        cancel_flag.clone(),
+    );
 
     // Persist the prompt and exact ChatTurn atomically behind the same Stop
     // ordering point used by Desktop/HTTP. A committed prompt can therefore
     // never exist without the turn that owns it.
-    let turn_persistence =
-        persist_agent_turn_prompt(session_db, &job, &session_id, &turn_id, &prompt);
+    let turn_persistence = persist_agent_turn_prompt(
+        session_db,
+        &job,
+        &session_id,
+        &turn_id,
+        &prompt,
+        Some(foreground_stop_admission),
+    );
     match turn_persistence {
         Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(_)) => {
             emit_session_list_changed(&session_id);
@@ -460,6 +1624,7 @@ pub(crate) async fn execute_claimed_job(
                 start_time.elapsed().as_millis() as u64,
                 Some(run_log_id),
                 immediate,
+                &running_guard.retain_on_drop,
             );
             apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
             return;
@@ -474,11 +1639,27 @@ pub(crate) async fn execute_claimed_job(
                 start_time.elapsed().as_millis() as u64,
                 Some(run_log_id),
                 immediate,
+                &running_guard.retain_on_drop,
             );
             delete_empty_run_session_best_effort(session_db, &session_id, &job);
             return;
         }
         Err(error) => {
+            if is_foreground_stop_fence_rejection(&error) {
+                record_cancelled(
+                    cron_db,
+                    &job,
+                    &session_id,
+                    &started_at,
+                    &Utc::now().to_rfc3339(),
+                    start_time.elapsed().as_millis() as u64,
+                    Some(run_log_id),
+                    immediate,
+                    &running_guard.retain_on_drop,
+                );
+                delete_empty_run_session_best_effort(session_db, &session_id, &job);
+                return;
+            }
             let err_text = format!("failed to persist scheduled chat turn: {error:#}");
             app_error!(
                 "cron",
@@ -500,8 +1681,61 @@ pub(crate) async fn execute_claimed_job(
                 Some(run_log_id),
                 false,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             delete_empty_run_session_best_effort(session_db, &session_id, &job);
+            return;
+        }
+    }
+
+    // Task deletion and the run-log open are serialized in CronDB, but the
+    // ordinary ChatTurn lives in SessionDB. Close the remaining cross-database
+    // window before any model/tool side effect: deletion that committed first
+    // makes this false; deletion after this point can see the durable exact
+    // turn and stop it through the shared cross-process Stop path.
+    match cron_db.running_occurrence_is_live(run_log_id, &job.id, &started_at) {
+        Ok(true) => {}
+        Ok(false) => {
+            cancel_flag.store(true, Ordering::SeqCst);
+            let release_decision = settle_classified_turn_before_release(
+                session_db,
+                &session_id,
+                &turn_id,
+                CronTerminal::Cancelled,
+                None,
+            );
+            record_cancelled(
+                cron_db,
+                &job,
+                &session_id,
+                &started_at,
+                &Utc::now().to_rfc3339(),
+                start_time.elapsed().as_millis() as u64,
+                Some(run_log_id),
+                immediate,
+                &running_guard.retain_on_drop,
+            );
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
+            return;
+        }
+        Err(error) => {
+            let err_text = format!("failed to revalidate scheduled occurrence: {error:#}");
+            let release_decision = settle_pre_model_failure(
+                cron_db,
+                session_db,
+                &active_turn_guard,
+                &job,
+                &started_at,
+                start_time,
+                &err_text,
+                &session_id,
+                &turn_id,
+                run_log_id,
+                false,
+                immediate,
+                &running_guard.retain_on_drop,
+            );
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
             return;
         }
     }
@@ -550,26 +1784,20 @@ pub(crate) async fn execute_claimed_job(
                 job.id,
                 err_text
             );
-            let release_decision = settle_classified_turn_before_release(
-                session_db,
-                &session_id,
-                &turn_id,
-                CronTerminal::Failure,
-                Some(&err_text),
-            );
-            persist_failure_message_if_missing(session_db, &session_id, &err_text);
-            record_failure(
+            let release_decision = settle_pre_model_failure(
                 cron_db,
+                session_db,
+                &active_turn_guard,
                 &job,
                 &started_at,
                 start_time,
-                "error",
                 &err_text,
                 &session_id,
-                None,
-                Some(run_log_id),
+                &turn_id,
+                run_log_id,
                 false,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             drop(intent_guard);
             apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
@@ -617,26 +1845,20 @@ pub(crate) async fn execute_claimed_job(
                 job.id,
                 effective_sandbox.as_str()
             );
-            let release_decision = settle_classified_turn_before_release(
-                session_db,
-                &session_id,
-                &turn_id,
-                CronTerminal::Failure,
-                Some(&err_text),
-            );
-            persist_failure_message_if_missing(session_db, &session_id, &err_text);
-            record_failure(
+            let release_decision = settle_pre_model_failure(
                 cron_db,
+                session_db,
+                &active_turn_guard,
                 &job,
                 &started_at,
                 start_time,
-                "error",
                 &err_text,
                 &session_id,
-                None,
-                Some(run_log_id),
+                &turn_id,
+                run_log_id,
                 true,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             drop(intent_guard);
             apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
@@ -654,32 +1876,26 @@ pub(crate) async fn execute_claimed_job(
                 effective_sandbox.as_str(),
                 e
             );
-            let release_decision = settle_classified_turn_before_release(
-                session_db,
-                &session_id,
-                &turn_id,
-                CronTerminal::Failure,
-                Some(&err_text),
-            );
-            persist_failure_message_if_missing(session_db, &session_id, &err_text);
             // Docker-unavailable is an infra failure: the turn never ran (no side
             // effects), so reschedule with backoff but do NOT count toward
             // auto-disable — matching the `no_session` path's `false`. Otherwise
             // transient Docker downtime (laptop resume / daemon restart), or a job
             // that wouldn't even have called `exec`, could permanently disable an
             // otherwise-healthy recurring job.
-            record_failure(
+            let release_decision = settle_pre_model_failure(
                 cron_db,
+                session_db,
+                &active_turn_guard,
                 &job,
                 &started_at,
                 start_time,
-                "error",
                 &err_text,
                 &session_id,
-                None,
-                Some(run_log_id),
+                &turn_id,
+                run_log_id,
                 false,
                 immediate,
+                &running_guard.retain_on_drop,
             );
             drop(intent_guard);
             apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
@@ -707,30 +1923,24 @@ pub(crate) async fn execute_claimed_job(
                 "{}: {error:#}",
                 crate::cron::workspace::workspace_error_code(&error)
             );
-            persist_failure_message_if_missing(session_db, &session_id, &err_text);
-            let mut release_decision = settle_classified_turn_before_release(
+            let mut release_decision = settle_pre_model_failure(
+                cron_db,
                 session_db,
+                &active_turn_guard,
+                &job,
+                &started_at,
+                start_time,
+                &err_text,
                 &session_id,
                 &turn_id,
-                CronTerminal::Failure,
-                Some(&err_text),
+                run_log_id,
+                false,
+                immediate,
+                &running_guard.retain_on_drop,
             );
             if recovery_required {
                 release_decision = ActiveTurnReleaseDecision::Handoff;
             }
-            record_failure(
-                cron_db,
-                &job,
-                &started_at,
-                start_time,
-                "error",
-                &err_text,
-                &session_id,
-                None,
-                Some(run_log_id),
-                false,
-                immediate,
-            );
             drop(intent_guard);
             apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
             return;
@@ -754,6 +1964,7 @@ pub(crate) async fn execute_claimed_job(
         &turn_id,
         session_db,
         cancel_flag.clone(),
+        Some(foreground_stop_admission),
     ));
     let mut timed_out = false;
     // C08: whether the user had already cancelled BEFORE the outer timeout fired
@@ -821,16 +2032,32 @@ pub(crate) async fn execute_claimed_job(
         }
     };
 
+    drop(run_fut);
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
     // C08: user cancel vs timeout. On the normal path any set flag is the user's;
     // on the timeout path our own grace-cancel must NOT count — only a cancel the
     // user set before the timeout fired (captured above) does.
-    let was_cancelled = compute_was_cancelled(
-        timed_out,
-        user_cancelled_pre_timeout,
-        cancel_flag.load(Ordering::SeqCst),
-    );
+    let stop_fence_rejected = result
+        .as_ref()
+        .err()
+        .is_some_and(is_foreground_stop_fence_rejection);
+    let cancellation_observed = stop_fence_rejected
+        || compute_was_cancelled(
+            timed_out,
+            user_cancelled_pre_timeout,
+            cancel_flag.load(Ordering::SeqCst),
+        );
+    let completion_owned =
+        cancellation_observed || close_run_cancellation_window(cron_db, run_log_id, &cancel_flag);
+    drop(occurrence_guard);
+    // Cron cancel and ordinary exact Stop are separate durable/live owners.
+    // Once the Cron completion CAS wins, seal the ActiveTurn under the same
+    // registry lock used by Stop. Stop-first flips the flag and wins; seal-first
+    // makes later exact Stop honestly report that completion already started.
+    let active_completion_owned =
+        cancellation_observed || !completion_owned || active_turn_guard.seal_completion(&turn_id);
+    let was_cancelled = cancellation_observed || !completion_owned || !active_completion_owned;
 
     // Classify once so ChatTurn convergence and Cron delivery/accounting use
     // the same terminal decision. In particular, a pre-stream engine error has
@@ -852,8 +2079,6 @@ pub(crate) async fn execute_claimed_job(
     // future arms journal recovery from StreamLifecycle::Drop; a completed
     // engine normally leaves a terminal stream row (or no stream row at all for
     // a pre-stream error).
-    drop(run_fut);
-
     let mut release_decision = settle_classified_turn_before_release(
         session_db,
         &session_id,
@@ -906,6 +2131,7 @@ pub(crate) async fn execute_claimed_job(
                 duration_ms,
                 Some(run_log_id),
                 immediate,
+                &running_guard.retain_on_drop,
             );
         }
         CronTerminal::Success => {
@@ -924,38 +2150,48 @@ pub(crate) async fn execute_claimed_job(
             } else {
                 Some(response.clone())
             };
-            // C12a: a scheduled run advances the schedule + resets the failure
-            // count; a run-now (immediate) must not touch either.
-            if !immediate {
-                let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
-                // §8: the schedule is now advanced (next_run_at is in the future /
-                // NULL), so release the concurrency slot BEFORE the fire-and-forget
-                // IM delivery below — a hung or rate-limited target must not pin a
-                // cap slot and throttle other due jobs (delivery.rs invariant). A
-                // run-now (immediate) keeps its slot through delivery: it left
-                // next_run_at intact, so clearing early could let the scheduler
-                // re-claim a still-due job mid-delivery. The trailing clear_running
-                // stays (idempotent here; the real clear for the immediate path).
-                let _ = cron_db.clear_running(&job.id);
-            }
-
-            // Deliver first so the run log records the delivery outcome (§8) in
-            // the same terminal finalize (§9 D2 — the row was opened at start).
-            let report = deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
-            let _ = cron_db.finalize_or_insert_run_log(
-                Some(run_log_id),
-                &job.id,
+            let settlement_policy = if immediate {
+                CronSettlementPolicy::DEFER_MARKER
+            } else {
+                CronSettlementPolicy::STANDARD
+            };
+            if settle_running_occurrence_or_handoff(
+                cron_db,
+                &job,
                 &session_id,
                 &started_at,
-                "success",
-                &finished_at,
-                Some(duration_ms),
-                preview.as_deref(),
-                None,
-                report.run_log_status(),
-            );
+                Some(run_log_id),
+                CronRunTerminal {
+                    status: "success",
+                    finished_at: &finished_at,
+                    duration_ms: Some(duration_ms),
+                    result_preview: preview.as_deref(),
+                    error: None,
+                    delivery_status: None,
+                    immediate,
+                },
+                CronScheduleDisposition::Success,
+                settlement_policy,
+                &running_guard.retain_on_drop,
+            )
+            .is_none()
+            {
+                return;
+            }
 
-            let _ = cron_db.clear_running(&job.id);
+            // Scheduled occurrences release before delivery; run-now keeps its
+            // marker so a second manual occurrence cannot overlap the same task.
+            let report = deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
+            let _ =
+                cron_db.update_terminal_run_delivery_status(run_log_id, report.run_log_status());
+            if immediate {
+                release_deferred_immediate_marker(
+                    cron_db,
+                    &job.id,
+                    &started_at,
+                    &running_guard.retain_on_drop,
+                );
+            }
 
             // Emit Tauri event
             emit_cron_event(&job.id, &job.name, "success", job.notify_on_complete, None);
@@ -978,28 +2214,29 @@ pub(crate) async fn execute_claimed_job(
             // that ran empty terminalizes (it ran, no output → Completed); a
             // recurring job advances its schedule but keeps its failure counter
             // untouched (same as an infra reschedule).
-            // C12a: a run-now records the empty run but doesn't advance the
-            // schedule or terminalize a one-shot.
-            if !immediate {
-                if matches!(job.schedule, CronSchedule::At { .. }) {
-                    let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
-                } else {
-                    let _ = cron_db.reschedule_without_failure(&job.id, &job.schedule);
-                }
-            }
-            let _ = cron_db.finalize_or_insert_run_log(
-                Some(run_log_id),
-                &job.id,
+            if settle_running_occurrence_or_handoff(
+                cron_db,
+                &job,
                 &session_id,
                 &started_at,
-                "empty",
-                &finished_at,
-                Some(duration_ms),
-                None,
-                None,
-                None,
-            );
-            let _ = cron_db.clear_running(&job.id);
+                Some(run_log_id),
+                CronRunTerminal {
+                    status: "empty",
+                    finished_at: &finished_at,
+                    duration_ms: Some(duration_ms),
+                    result_preview: None,
+                    error: None,
+                    delivery_status: None,
+                    immediate,
+                },
+                CronScheduleDisposition::Empty,
+                CronSettlementPolicy::STANDARD,
+                &running_guard.retain_on_drop,
+            )
+            .is_none()
+            {
+                return;
+            }
             // Review fix: surface a neutral "empty" status, NOT "success" — a
             // zero-output run shouldn't pop a success notification (§10 "don't
             // mask zero output"). The frontend renders a distinct empty notice.
@@ -1043,6 +2280,7 @@ pub(crate) async fn execute_claimed_job(
                 Some(run_log_id),
                 true, // genuine run failure — counts toward auto-disable
                 immediate,
+                &running_guard.retain_on_drop,
             );
         }
     }
@@ -1062,22 +2300,44 @@ async fn execute_session_loop_payload(
     start_time: std::time::Instant,
     immediate: bool,
     run_log_slot: &AtomicI64,
+    retain_on_drop: &AtomicBool,
 ) {
-    let run_log_id = match cron_db.add_running_run_log(&job.id, parent_session_id, started_at) {
-        Ok(id) => Some(id),
+    let run_log_id = match cron_db.add_running_run_log_with_turn_for_occurrence(
+        &job.id,
+        parent_session_id,
+        started_at,
+        None,
+        immediate,
+    ) {
+        Ok(id) => id,
         Err(e) => {
             app_error!(
                 "cron",
                 "executor",
-                "Failed to open loop run log for job '{}' ({}): {} — terminal state will be inserted directly",
+                "Failed to open loop run log for job '{}' ({}): {} — refusing to execute a deleted or unaudited occurrence",
                 job.name,
                 job.id,
                 e
             );
-            None
+            record_failure(
+                cron_db,
+                job,
+                started_at,
+                start_time,
+                "error",
+                &format!("failed to open scheduled loop audit row: {e}"),
+                parent_session_id,
+                None,
+                None,
+                false,
+                immediate,
+                retain_on_drop,
+            );
+            return;
         }
     };
-    run_log_slot.store(run_log_id.unwrap_or(0), Ordering::SeqCst);
+    run_log_slot.store(run_log_id, Ordering::SeqCst);
+    let run_log_id = Some(run_log_id);
 
     let admission = match session_db.prepare_loop_cron_run(&job.id, parent_session_id, started_at) {
         Ok(decision) => decision,
@@ -1095,6 +2355,7 @@ async fn execute_session_loop_payload(
                 run_log_id,
                 false,
                 immediate,
+                retain_on_drop,
             );
             return;
         }
@@ -1115,35 +2376,14 @@ async fn execute_session_loop_payload(
                 run_log_id,
                 false,
                 immediate,
+                retain_on_drop,
             );
             return;
         }
         ha_core::loop_control::LoopRunDecision::Reject(rejection) => {
             let finished_at = Utc::now().to_rfc3339();
             let duration_ms = start_time.elapsed().as_millis() as u64;
-            let _ = cron_db.finalize_or_insert_run_log(
-                run_log_id,
-                &job.id,
-                parent_session_id,
-                started_at,
-                "cancelled",
-                &finished_at,
-                Some(duration_ms),
-                None,
-                Some(&rejection.reason),
-                None,
-            );
-            let _ = cron_db.clear_running(&job.id);
-            match rejection.cron_job_disposition {
-                ha_core::loop_control::LoopCronJobDisposition::Keep => {}
-                ha_core::loop_control::LoopCronJobDisposition::Pause => {
-                    let _ = cron_db.pause_job_for_runtime(&job.id);
-                }
-                ha_core::loop_control::LoopCronJobDisposition::Complete => {
-                    let _ = cron_db.mark_job_completed(&job.id);
-                }
-            }
-            let _ = session_db.finish_loop_cron_run(
+            if let Err(error) = session_db.finish_loop_cron_run(
                 &job.id,
                 None,
                 run_log_id,
@@ -1151,7 +2391,38 @@ async fn execute_session_loop_payload(
                 None,
                 Some(&rejection.reason),
                 &finished_at,
-            );
+            ) {
+                app_error!(
+                    "cron",
+                    "schedule_accounting",
+                    "Could not persist rejected Loop outcome for job {} before Cron settlement: {error:#}",
+                    job.id
+                );
+            }
+            let policy = loop_settlement_policy(rejection.cron_job_disposition, None);
+            if settle_running_occurrence_or_handoff(
+                cron_db,
+                job,
+                parent_session_id,
+                started_at,
+                run_log_id,
+                CronRunTerminal {
+                    status: "cancelled",
+                    finished_at: &finished_at,
+                    duration_ms: Some(duration_ms),
+                    result_preview: None,
+                    error: Some(&rejection.reason),
+                    delivery_status: None,
+                    immediate,
+                },
+                CronScheduleDisposition::Preserve,
+                policy,
+                retain_on_drop,
+            )
+            .is_none()
+            {
+                return;
+            }
             emit_cron_event(&job.id, &job.name, "cancelled", false, None);
             return;
         }
@@ -1315,56 +2586,63 @@ async fn execute_session_loop_payload(
     let finished_at = Utc::now().to_rfc3339();
     let duration_ms = start_time.elapsed().as_millis() as u64;
 
-    let _ = cron_db.finalize_or_insert_run_log(
-        run_log_id,
+    // Decide the SessionDB-owned Loop outcome while the exact Cron marker is
+    // still held. Cron then commits base accounting, backoff/final action, run
+    // terminal, and marker release at one IMMEDIATE ordering point.
+    let action = match session_db.finish_loop_cron_run_with_trace(
         &job.id,
-        parent_session_id,
-        started_at,
-        cron_status,
-        &finished_at,
-        Some(duration_ms),
+        Some(&admission.run_id),
+        run_log_id,
+        loop_state,
         summary.as_deref(),
         error.as_deref(),
-        None,
-    );
-
-    if immediate {
-        let _ = cron_db.clear_running(&job.id);
-    } else if error.is_some() {
-        let _ = cron_db.update_after_run(&job.id, false, &job.schedule);
-        let _ = cron_db.clear_running(&job.id);
+        &finished_at,
+        extra_trace,
+    ) {
+        Ok(action) => action,
+        Err(action_error) => {
+            app_error!(
+                "cron",
+                "schedule_accounting",
+                "Could not decide final Loop action for job {}; pausing fail-closed: {action_error:#}",
+                job.id
+            );
+            ha_core::loop_control::LoopAfterRunAction {
+                loop_id: Some(admission.loop_id.clone()),
+                cron_job_disposition: ha_core::loop_control::LoopCronJobDisposition::Pause,
+                backoff_secs: None,
+            }
+        }
+    };
+    let base_disposition = if error.is_some() {
+        CronScheduleDisposition::Failure
     } else {
-        let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
-        let _ = cron_db.clear_running(&job.id);
-    }
-
-    let action = session_db
-        .finish_loop_cron_run_with_trace(
-            &job.id,
-            Some(&admission.run_id),
-            run_log_id,
-            loop_state,
-            summary.as_deref(),
-            error.as_deref(),
-            &finished_at,
-            extra_trace,
-        )
-        .unwrap_or(ha_core::loop_control::LoopAfterRunAction {
-            loop_id: Some(admission.loop_id.clone()),
-            cron_job_disposition: ha_core::loop_control::LoopCronJobDisposition::Keep,
-            backoff_secs: None,
-        });
-    if let Some(delay) = action.backoff_secs {
-        let _ = cron_db.delay_next_run(&job.id, delay);
-    }
-    match action.cron_job_disposition {
-        ha_core::loop_control::LoopCronJobDisposition::Keep => {}
-        ha_core::loop_control::LoopCronJobDisposition::Pause => {
-            let _ = cron_db.pause_job_for_runtime(&job.id);
-        }
-        ha_core::loop_control::LoopCronJobDisposition::Complete => {
-            let _ = cron_db.mark_job_completed(&job.id);
-        }
+        CronScheduleDisposition::Success
+    };
+    let settlement_policy =
+        loop_settlement_policy(action.cron_job_disposition, action.backoff_secs);
+    if settle_running_occurrence_or_handoff(
+        cron_db,
+        job,
+        parent_session_id,
+        started_at,
+        run_log_id,
+        CronRunTerminal {
+            status: cron_status,
+            finished_at: &finished_at,
+            duration_ms: Some(duration_ms),
+            result_preview: summary.as_deref(),
+            error: error.as_deref(),
+            delivery_status: None,
+            immediate,
+        },
+        base_disposition,
+        settlement_policy,
+        retain_on_drop,
+    )
+    .is_none()
+    {
+        return;
     }
     let drain_next_event = matches!(
         admission.trigger_kind,
@@ -1474,6 +2752,7 @@ fn persist_agent_turn_prompt(
     session_id: &str,
     turn_id: &str,
     prompt: &str,
+    foreground_stop_admission: Option<ha_core::session::ForegroundStopAdmission>,
 ) -> Result<ha_core::chat_engine::active_turn::PersistenceTargetOutcome<ha_core::session::ChatTurn>>
 {
     let mut user_msg = ha_core::session::NewMessage::user(prompt)
@@ -1499,6 +2778,7 @@ fn persist_agent_turn_prompt(
                 None,
                 None,
                 None,
+                foreground_stop_admission,
             )
             .map(|(_, turn)| turn)
     })
@@ -1777,6 +3057,7 @@ pub async fn build_and_run_agent_with_cancel(
     turn_id: &str,
     session_db: &Arc<ha_core::session::SessionDB>,
     cancel: Arc<AtomicBool>,
+    foreground_stop_admission: Option<ha_core::session::ForegroundStopAdmission>,
 ) -> Result<String> {
     build_and_run_agent_with_context(
         agent_id,
@@ -1786,6 +3067,7 @@ pub async fn build_and_run_agent_with_cancel(
         session_db,
         None,
         Some(cancel),
+        foreground_stop_admission,
     )
     .await
 }
@@ -1800,6 +3082,7 @@ pub async fn build_and_run_agent_with_context(
     session_db: &Arc<ha_core::session::SessionDB>,
     run_instruction_context: Option<&str>,
     cancel: Option<Arc<AtomicBool>>,
+    foreground_stop_admission: Option<ha_core::session::ForegroundStopAdmission>,
 ) -> Result<String> {
     use ha_core::provider;
 
@@ -1838,6 +3121,7 @@ pub async fn build_and_run_agent_with_context(
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
         turn_id: Some(turn_id.to_string()),
+        foreground_stop_admission,
         message: message.to_string(),
         incoming_turn: None,
         display_text: None,
@@ -1902,6 +3186,86 @@ pub async fn build_and_run_agent_with_context(
     }
 }
 
+/// Run a scheduled turn through the target conversation's live immutable
+/// runtime defaults. Project/KB/cwd/permission/sandbox continue to resolve from
+/// the ordinary Session inside the shared engine; the task stores no copies.
+async fn build_and_run_live_session_turn(
+    agent_id: &str,
+    message: &str,
+    session_id: &str,
+    turn_id: &str,
+    session_db: &Arc<ha_core::session::SessionDB>,
+    defaults: ha_core::session::ChatRuntimeDefaults,
+    cancel: Arc<AtomicBool>,
+    foreground_stop_admission: Option<ha_core::session::ForegroundStopAdmission>,
+) -> Result<String> {
+    let store = ha_core::config::cached_config();
+    let agent_model = ha_core::agent_loader::load_agent(agent_id)
+        .ok()
+        .map(|definition| definition.config.model)
+        .unwrap_or_default();
+    let preferred = defaults
+        .preferred_model
+        .as_ref()
+        .map(|model| format!("{}::{}", model.provider_id, model.model_id));
+    let (primary, fallbacks) = ha_core::provider::resolve_model_chain_with_preferred(
+        preferred.as_deref(),
+        &agent_model,
+        &store,
+    );
+    let model_chain: Vec<_> = primary.into_iter().chain(fallbacks).collect();
+    if model_chain.is_empty() {
+        anyhow::bail!("target conversation has no available model");
+    }
+    let params = ha_core::chat_engine::ChatEngineParams {
+        session_id: session_id.to_string(),
+        agent_id: agent_id.to_string(),
+        turn_id: Some(turn_id.to_string()),
+        message: message.to_string(),
+        incoming_turn: None,
+        display_text: None,
+        attachments: Vec::new(),
+        session_db: session_db.clone(),
+        model_chain,
+        providers: store.providers.clone(),
+        codex_token: None,
+        resolved_temperature: defaults.temperature,
+        compact_config: store.compact.clone(),
+        run_context: Some(ha_core::prompt_context::RunInstructionContext::new(
+            ha_core::prompt_context::RunInstructionSource::Cron,
+            "## Execution Context\n\
+             This turn was scheduled into an existing ordinary conversation.\n\
+             - Use the conversation's existing history and live Project, Knowledge, working-directory, permission, sandbox, and model settings.\n\
+             - No user is actively waiting and no human is available for approvals; execute the scheduled prompt directly.\n\
+             - Do not treat the conversation as an isolated cron session."
+                .to_string(),
+        )?),
+        reasoning_effort: Some(defaults.reasoning_effort),
+        cancel,
+        foreground_stop_admission,
+        plan_context_override: None,
+        skill_allowed_tools: Vec::new(),
+        denied_tools: Vec::new(),
+        tool_scope: None,
+        subagent_depth: 0,
+        steer_run_id: None,
+        auto_approve_tools: false,
+        follow_global_reasoning_effort: false,
+        post_turn_effects: true,
+        abort_on_cancel: false,
+        persist_final_error_event: true,
+        source: ha_core::chat_engine::ChatSource::Cron,
+        ui_surface: None,
+        origin_source: None,
+        channel_kb_context: None,
+        event_sink: Arc::new(ha_core::chat_engine::NoopEventSink),
+    };
+    ha_core::chat_engine::run_chat_engine(params)
+        .await
+        .map(|result| result.response)
+        .map_err(anyhow::Error::msg)
+}
+
 pub fn cancel_running_job(job_id: &str) -> Result<Option<bool>> {
     let Some(cron_db) = ha_core::get_cron_db() else {
         return Ok(None);
@@ -1925,12 +3289,12 @@ pub async fn cancel_run(run_log_id: i64) -> Result<Option<ha_core::cron::CronRun
         return Ok(None);
     };
     let cron_db = cron_db.clone();
-    let Some(target) =
+    let Some(mut target) =
         ha_core::blocking::run_blocking(move || cron_db.get_run_cancel_target(run_log_id)).await?
     else {
         return Ok(None);
     };
-    if target.finished_at.is_some() || target.status != "running" {
+    if target.finished_at.is_some() {
         return Ok(Some(ha_core::cron::CronRunCancelResult {
             run_log_id,
             status: target.status,
@@ -1939,7 +3303,79 @@ pub async fn cancel_run(run_log_id: i64) -> Result<Option<ha_core::cron::CronRun
             code: None,
         }));
     }
-    let Some(turn_id) = target.turn_id.as_deref() else {
+    if matches!(target.status.as_str(), "preparing" | "queued") {
+        if let Some(request_id) = target.request_id.clone() {
+            let session_db = ha_core::get_session_db()
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("session DB unavailable for exact queued cancel"))?;
+            let request = request_id.clone();
+            let source_ref = run_log_id.to_string();
+            let removed = ha_core::blocking::run_blocking(move || {
+                session_db.cancel_scheduled_turn_message(&request, &source_ref)
+            })
+            .await?;
+            if !removed {
+                let db = ha_core::get_cron_db()
+                    .expect("cron DB checked above")
+                    .clone();
+                target =
+                    ha_core::blocking::run_blocking(move || db.get_run_cancel_target(run_log_id))
+                        .await?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("cron run disappeared during exact cancel")
+                        })?;
+                if matches!(target.status.as_str(), "preparing" | "queued")
+                    && target.finished_at.is_none()
+                {
+                    anyhow::bail!("scheduled queue custody could not be revoked");
+                }
+            }
+            let db = ha_core::get_cron_db()
+                .expect("cron DB checked above")
+                .clone();
+            let request = request_id.clone();
+            if removed
+                && ha_core::blocking::run_blocking(move || {
+                    db.finish_pending_session_turn(
+                        run_log_id,
+                        &request,
+                        "cancelled",
+                        Some("Cancelled by user"),
+                    )
+                })
+                .await?
+            {
+                emit_cron_event(&target.job_id, "Scheduled task", "cancelled", false, None);
+                return Ok(Some(ha_core::cron::CronRunCancelResult {
+                    run_log_id,
+                    status: "cancelled".to_string(),
+                    terminal: true,
+                    cancel_requested: true,
+                    code: None,
+                }));
+            }
+            let db = ha_core::get_cron_db()
+                .expect("cron DB checked above")
+                .clone();
+            let Some(reloaded) =
+                ha_core::blocking::run_blocking(move || db.get_run_cancel_target(run_log_id))
+                    .await?
+            else {
+                return Ok(None);
+            };
+            target = reloaded;
+        }
+    }
+    if target.finished_at.is_some() {
+        return Ok(Some(ha_core::cron::CronRunCancelResult {
+            run_log_id,
+            status: target.status,
+            terminal: true,
+            cancel_requested: false,
+            code: None,
+        }));
+    }
+    let Some(turn_id) = target.turn_id.clone() else {
         // Legacy and SessionLoop rows have no ordinary ChatTurn identity. The
         // Loop executor does not observe the generic cron flag while its
         // injection/workflow is running, so reporting success here would be a
@@ -1953,15 +3389,53 @@ pub async fn cancel_run(run_log_id: i64) -> Result<Option<ha_core::cron::CronRun
         }));
     };
 
+    let durable_cancel_requested = match target.status.as_str() {
+        "cancelling" => true,
+        "running" => {
+            let db = ha_core::get_cron_db()
+                .expect("cron DB checked above")
+                .clone();
+            let changed =
+                ha_core::blocking::run_blocking(move || db.request_running_run_cancel(run_log_id))
+                    .await?;
+            if changed {
+                target.status = "cancelling".to_string();
+                true
+            } else {
+                let db = ha_core::get_cron_db()
+                    .expect("cron DB checked above")
+                    .clone();
+                let Some(reloaded) =
+                    ha_core::blocking::run_blocking(move || db.get_run_cancel_target(run_log_id))
+                        .await?
+                else {
+                    return Ok(None);
+                };
+                target = reloaded;
+                target.status == "cancelling" && target.finished_at.is_none()
+            }
+        }
+        _ => false,
+    };
+    if !durable_cancel_requested {
+        return Ok(Some(ha_core::cron::CronRunCancelResult {
+            run_log_id,
+            status: target.status,
+            terminal: target.finished_at.is_some(),
+            cancel_requested: false,
+            code: None,
+        }));
+    }
+
     let cron_cancelled = ha_core::cron::cancel::cancel(&target.job_id, &target.started_at);
-    // AgentTurn runs reuse the ordinary exact-turn Stop path. Besides the
-    // in-process token, this records the durable Stop generation and converges
-    // foreground/Goal/Workflow/Subagent/Wakeup state across processes.
+    // The CronDB CAS above is the cross-process pre-ChatTurn cancellation
+    // owner. The ordinary exact-turn path accelerates an already durable turn;
+    // source-aware Stop deliberately does not pause future Cron occurrences.
     let stopped_turn = if let Some(session_db) = ha_core::get_session_db() {
         let outcome = ha_core::chat_engine::stop::stop_session(
             session_db.clone(),
             &target.session_id,
-            Some(turn_id),
+            Some(&turn_id),
             false,
         )
         .await;
@@ -1969,20 +3443,20 @@ pub async fn cancel_run(run_log_id: i64) -> Result<Option<ha_core::cron::CronRun
     } else {
         false
     };
-    let cancel_requested = cron_cancelled || stopped_turn;
     app_info!(
         "cron",
         "cancel_run",
-        "exact cancel run_log_id={} job_id={} requested={}",
+        "exact cancel run_log_id={} job_id={} durable=true local={} turn={}",
         run_log_id,
         target.job_id,
-        cancel_requested
+        cron_cancelled,
+        stopped_turn
     );
     Ok(Some(ha_core::cron::CronRunCancelResult {
         run_log_id,
-        status: target.status,
+        status: "cancelling".to_string(),
         terminal: false,
-        cancel_requested,
+        cancel_requested: true,
         code: None,
     }))
 }
@@ -2009,6 +3483,93 @@ fn persist_failure_message_if_missing(
     let _ = session_db.append_message(session_id, &err_msg);
 }
 
+/// Seal the Cron occurrence before projecting a pre-model failure into the
+/// ordinary ChatTurn. Exact cancel and failure therefore share one ordering
+/// point: cancel-first produces UserStop without an error message; failure-first
+/// closes the durable cancel window before the Failed projection is written.
+#[allow(clippy::too_many_arguments)]
+fn settle_pre_model_failure(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
+    active_turn_guard: &ha_core::chat_engine::active_turn::ActiveTurnGuard,
+    job: &CronJob,
+    started_at: &str,
+    start_time: std::time::Instant,
+    error: &str,
+    session_id: &str,
+    turn_id: &str,
+    run_log_id: i64,
+    count_toward_disable: bool,
+    immediate: bool,
+    retain_on_drop: &AtomicBool,
+) -> ActiveTurnReleaseDecision {
+    // Ordinary exact Stop and this pre-model terminal path must choose one
+    // owner under ActiveTurn's registry lock before either path projects a
+    // ChatTurn terminal. Stop-first has already flipped the shared cancel flag;
+    // completion-first seals the entry so Stop reports CompletionSealed instead
+    // of claiming a cancellation that can no longer win.
+    if !active_turn_guard.seal_completion(turn_id) {
+        record_cancelled(
+            cron_db,
+            job,
+            session_id,
+            started_at,
+            &Utc::now().to_rfc3339(),
+            start_time.elapsed().as_millis() as u64,
+            Some(run_log_id),
+            immediate,
+            retain_on_drop,
+        );
+        return settle_classified_turn_before_release(
+            session_db,
+            session_id,
+            turn_id,
+            CronTerminal::Cancelled,
+            None,
+        );
+    }
+    match record_failure(
+        cron_db,
+        job,
+        started_at,
+        start_time,
+        "error",
+        error,
+        session_id,
+        None,
+        Some(run_log_id),
+        count_toward_disable,
+        immediate,
+        retain_on_drop,
+    ) {
+        FailureSettlement::Cancelled => settle_classified_turn_before_release(
+            session_db,
+            session_id,
+            turn_id,
+            CronTerminal::Cancelled,
+            None,
+        ),
+        FailureSettlement::Failure => {
+            persist_failure_message_if_missing(session_db, session_id, error);
+            settle_classified_turn_before_release(
+                session_db,
+                session_id,
+                turn_id,
+                CronTerminal::Failure,
+                Some(error),
+            )
+        }
+        FailureSettlement::Indeterminate => {
+            app_warn!(
+                "cron",
+                "pre_model_settlement",
+                "Keeping turn {turn_id} fail-closed because run {run_log_id} terminal ownership is indeterminate"
+            );
+            ActiveTurnReleaseDecision::Handoff
+        }
+    }
+}
+
 /// Record a failure run log and update job state. `run_log_id` `Some` finalizes
 /// the in-progress row opened at run start; `None` inserts a complete row (no
 /// session was created, or the row failed to open). `count_toward_disable`
@@ -2016,8 +3577,15 @@ fn persist_failure_message_if_missing(
 /// `consecutive_failures` and can auto-disable; an *infrastructure* failure
 /// (the agent turn never ran — e.g. session creation failed) must NOT, or a
 /// transient hiccup could disable a healthy job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailureSettlement {
+    Failure,
+    Cancelled,
+    Indeterminate,
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn record_failure(
+fn record_failure(
     cron_db: &Arc<CronDB>,
     job: &CronJob,
     started_at: &str,
@@ -2029,61 +3597,49 @@ pub(crate) fn record_failure(
     run_log_id: Option<i64>,
     count_toward_disable: bool,
     immediate: bool,
-) {
+    retain_on_drop: &AtomicBool,
+) -> FailureSettlement {
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
 
-    let _ = cron_db.finalize_or_insert_run_log(
-        run_log_id,
-        &job.id,
+    let disposition = if count_toward_disable {
+        CronScheduleDisposition::Failure
+    } else {
+        CronScheduleDisposition::InfrastructureFailure
+    };
+    let Some(settlement) = settle_running_occurrence_or_handoff(
+        cron_db,
+        job,
         session_id,
         started_at,
-        status,
-        &finished_at,
-        Some(duration_ms),
-        None,
-        Some(error),
-        delivery_status,
-    );
-
-    if immediate {
-        // C12a: run-now is a one-off test — record the failure run log but do NOT
-        // bump the failure count, auto-disable, or reschedule the job.
-        let _ = cron_db.clear_running(&job.id);
-        let reason = crate::cron::failure::CronFailureClass::classify(error).key();
+        run_log_id,
+        CronRunTerminal {
+            status,
+            finished_at: &finished_at,
+            duration_ms: Some(duration_ms),
+            result_preview: None,
+            error: Some(error),
+            delivery_status,
+            immediate,
+        },
+        disposition,
+        CronSettlementPolicy::STANDARD,
+        retain_on_drop,
+    ) else {
+        return FailureSettlement::Indeterminate;
+    };
+    if settlement.cancel_won {
         emit_cron_event(
             &job.id,
             &job.name,
-            "error",
+            "cancelled",
             job.notify_on_complete,
-            Some(reason),
+            None,
         );
-        return;
+        return FailureSettlement::Cancelled;
     }
 
-    if !count_toward_disable {
-        // Infra failure: the agent turn never ran. Reschedule (so the job retries
-        // on its cadence) and surface the error, but don't bump the disable
-        // counter — never auto-disable a healthy job for a transient hiccup.
-        let _ = cron_db.reschedule_without_failure(&job.id, &job.schedule);
-        let _ = cron_db.clear_running(&job.id);
-        let reason = crate::cron::failure::CronFailureClass::classify(error).key();
-        emit_cron_event(
-            &job.id,
-            &job.name,
-            "error",
-            job.notify_on_complete,
-            Some(reason),
-        );
-        return;
-    }
-
-    let auto_disabled = cron_db
-        .update_after_run(&job.id, false, &job.schedule)
-        .unwrap_or(false);
-    let _ = cron_db.clear_running(&job.id);
-
-    if auto_disabled {
+    if settlement.auto_disabled {
         // The job just crossed its max_failures threshold and was disabled.
         // Always notify (overriding notify_on_complete) — a silently dead
         // scheduled task is exactly the failure mode this surfaces (§5).
@@ -2109,6 +3665,7 @@ pub(crate) fn record_failure(
             Some(reason),
         );
     }
+    FailureSettlement::Failure
 }
 
 /// §9 (D2): finalize the in-progress run log as cancelled. `run_log_id` is
@@ -2124,29 +3681,30 @@ fn record_cancelled(
     duration_ms: u64,
     run_log_id: Option<i64>,
     immediate: bool,
+    retain_on_drop: &AtomicBool,
 ) {
-    let _ = cron_db.finalize_or_insert_run_log(
-        run_log_id,
-        &job.id,
+    if settle_running_occurrence_or_handoff(
+        cron_db,
+        job,
         session_id,
         started_at,
-        "cancelled",
-        finished_at,
-        Some(duration_ms),
-        None,
-        Some("Cancelled by user"),
-        None,
-    );
-    let _ = cron_db.clear_running(&job.id);
-    // §11 review fix: a cancelled one-shot `At` had its `next_run_at` advanced to
-    // NULL at claim, so leaving it `active` strands an un-fireable zombie until
-    // the next restart's `mark_missed_at_jobs`. Terminalize it now — it ran and
-    // won't fire again. Recurring jobs keep their schedule (their `next_run_at`
-    // already points at the next occurrence), so this is At-only.
-    // C12a: a run-now cancel must NOT terminalize the real schedule
-    // (claim_immediate leaves next_run_at intact); only a scheduled At does.
-    if !immediate && matches!(job.schedule, CronSchedule::At { .. }) {
-        let _ = cron_db.mark_job_completed(&job.id);
+        run_log_id,
+        CronRunTerminal {
+            status: "cancelled",
+            finished_at,
+            duration_ms: Some(duration_ms),
+            result_preview: None,
+            error: Some("Cancelled by user"),
+            delivery_status: None,
+            immediate,
+        },
+        CronScheduleDisposition::Cancelled,
+        CronSettlementPolicy::STANDARD,
+        retain_on_drop,
+    )
+    .is_none()
+    {
+        return;
     }
     emit_cron_event(
         &job.id,
@@ -2292,6 +3850,19 @@ mod tests {
     }
 
     #[test]
+    fn durable_stop_fence_is_a_cancellation_signal() {
+        let error = anyhow::anyhow!(
+            "Cannot initialize durable chat stream: {}",
+            ha_core::session::FOREGROUND_STOP_FENCE_ERROR
+        );
+        assert!(is_foreground_stop_fence_rejection(&error));
+        assert_eq!(
+            classify_cron_terminal(&Err(error), true),
+            CronTerminal::Cancelled
+        );
+    }
+
+    #[test]
     fn compute_was_cancelled_decision_table() {
         // Normal path (no timeout): the flag IS the user's cancel.
         assert!(!compute_was_cancelled(false, false, false));
@@ -2353,6 +3924,455 @@ mod tests {
     }
 
     #[test]
+    fn scheduled_at_is_accounted_before_its_slot_is_released() {
+        let path = temp_db_path("at-account-before-release");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "One-shot".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do it once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open fixture cron.db");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                params![
+                    (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339(),
+                    job.id
+                ],
+            )
+            .expect("make At due");
+        }
+        let due = db.get_job(&job.id).expect("load due job").expect("exists");
+        let claimed = db
+            .claim_scheduled_job_for_execution(&due)
+            .expect("claim scheduled At")
+            .expect("claimed");
+        let running_guard = RunningMarkerGuard {
+            cron_db: db.clone(),
+            job_id: job.id.clone(),
+            claimed_at: claimed.claimed_at.clone(),
+            run_log_id: AtomicI64::new(0),
+            retain_on_drop: AtomicBool::new(false),
+            immediate: false,
+            armed: true,
+        };
+
+        // Deterministically model a `mark_missed_at_jobs` tick landing exactly
+        // when the slot becomes visible as free. If release happens before At
+        // terminal accounting, this trigger turns the still-active/NULL-next row
+        // into `missed`; the later success update is status-gated and cannot fix it.
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open trigger connection");
+            conn.execute_batch(
+                "CREATE TRIGGER reap_at_on_slot_release
+                 AFTER UPDATE OF running_at ON cron_jobs
+                 WHEN OLD.running_at IS NOT NULL
+                   AND NEW.running_at IS NULL
+                   AND NEW.status='active'
+                   AND NEW.next_run_at IS NULL
+                 BEGIN
+                   UPDATE cron_jobs SET status='missed' WHERE id=NEW.id;
+                 END;",
+            )
+            .expect("install deterministic reap trigger");
+        }
+
+        let finished_at = Utc::now().to_rfc3339();
+        assert!(settle_running_occurrence_or_handoff(
+            &db,
+            &claimed.job,
+            "account-before-release-session",
+            &claimed.claimed_at,
+            None,
+            CronRunTerminal {
+                status: "success",
+                finished_at: &finished_at,
+                duration_ms: Some(1),
+                result_preview: None,
+                error: None,
+                delivery_status: None,
+                immediate: false,
+            },
+            CronScheduleDisposition::Success,
+            CronSettlementPolicy::STANDARD,
+            &running_guard.retain_on_drop,
+        )
+        .is_some());
+
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(stored.status, CronJobStatus::Completed);
+        assert!(stored.running_at.is_none());
+        assert_eq!(
+            db.mark_missed_at_jobs(0).expect("reap after completion"),
+            0,
+            "a completed At occurrence must never be reclassified as missed"
+        );
+        drop(running_guard);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn run_now_success_keeps_marker_until_delivery_release() {
+        let path = temp_db_path("run-now-delivery-marker");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Manual delivery".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "deliver".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        let next_before = job.next_run_at.clone();
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim run-now")
+            .expect("claimed");
+        let run_log_id = db
+            .add_running_run_log_with_turn_for_occurrence(
+                &job.id,
+                "delivery-session",
+                &claimed.claimed_at,
+                None,
+                true,
+            )
+            .expect("open run log");
+        let running_guard = RunningMarkerGuard {
+            cron_db: db.clone(),
+            job_id: job.id.clone(),
+            claimed_at: claimed.claimed_at.clone(),
+            run_log_id: AtomicI64::new(run_log_id),
+            retain_on_drop: AtomicBool::new(false),
+            immediate: true,
+            armed: true,
+        };
+        let finished_at = Utc::now().to_rfc3339();
+        assert!(settle_running_occurrence_or_handoff(
+            &db,
+            &claimed.job,
+            "delivery-session",
+            &claimed.claimed_at,
+            Some(run_log_id),
+            CronRunTerminal {
+                status: "success",
+                finished_at: &finished_at,
+                duration_ms: Some(1),
+                result_preview: Some("done"),
+                error: None,
+                delivery_status: None,
+                immediate: true,
+            },
+            CronScheduleDisposition::Success,
+            CronSettlementPolicy {
+                release_marker: false,
+                final_action: CronFinalScheduleAction::Pause,
+                backoff_secs: Some(60),
+            },
+            &running_guard.retain_on_drop,
+        )
+        .is_some());
+
+        let during_delivery = db.get_job(&job.id).expect("load").expect("exists");
+        assert_eq!(
+            during_delivery.running_at.as_deref(),
+            Some(claimed.claimed_at.as_str()),
+            "run-now must retain its exact marker through delivery"
+        );
+        assert_eq!(during_delivery.status, CronJobStatus::Active);
+        assert_eq!(during_delivery.next_run_at, next_before);
+        assert!(db
+            .claim_immediate_job_for_execution(&job)
+            .expect("overlap claim")
+            .is_none());
+        release_deferred_immediate_marker(
+            &db,
+            &job.id,
+            &claimed.claimed_at,
+            &running_guard.retain_on_drop,
+        );
+        let delivered = db.get_job(&job.id).expect("load").expect("exists");
+        assert!(delivered.running_at.is_none());
+        assert_eq!(delivered.next_run_at, next_before);
+        drop(running_guard);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn loop_final_action_and_backoff_precede_exact_marker_release() {
+        let path = temp_db_path("loop-final-before-release");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Loop final action".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                },
+                payload: CronPayload::SessionLoop {
+                    loop_id: "loop-1".into(),
+                    session_id: "session-1".into(),
+                    prompt: "continue".into(),
+                    agent_id: None,
+                    goal_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open fixture cron.db");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                params![
+                    (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339(),
+                    job.id
+                ],
+            )
+            .expect("make At due");
+            conn.execute_batch(
+                "CREATE TRIGGER require_loop_final_before_release
+                 BEFORE UPDATE OF running_at ON cron_jobs
+                 WHEN OLD.running_at IS NOT NULL AND NEW.running_at IS NULL
+                   AND (NEW.status != 'paused' OR NEW.next_run_at IS NULL)
+                 BEGIN
+                   SELECT RAISE(ABORT, 'loop final action was not committed first');
+                 END;",
+            )
+            .expect("install ordering trigger");
+        }
+        let due = db.get_job(&job.id).expect("load due").expect("exists");
+        let claimed = db
+            .claim_scheduled_job_for_execution(&due)
+            .expect("claim")
+            .expect("claimed");
+        let retain = AtomicBool::new(false);
+        let finished_at = Utc::now().to_rfc3339();
+        assert!(settle_running_occurrence_or_handoff(
+            &db,
+            &claimed.job,
+            "session-1",
+            &claimed.claimed_at,
+            None,
+            CronRunTerminal {
+                status: "cancelled",
+                finished_at: &finished_at,
+                duration_ms: Some(1),
+                result_preview: None,
+                error: Some("loop paused"),
+                delivery_status: None,
+                immediate: false,
+            },
+            CronScheduleDisposition::Preserve,
+            CronSettlementPolicy::loop_final(CronFinalScheduleAction::Pause, Some(60)),
+            &retain,
+        )
+        .is_some());
+        let stored = db.get_job(&job.id).expect("load").expect("exists");
+        assert_eq!(stored.status, CronJobStatus::Paused);
+        assert!(
+            stored.next_run_at.is_some(),
+            "Loop backoff must be persisted"
+        );
+        assert!(stored.running_at.is_none());
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn panic_guard_accounting_error_recovers_at_before_missed_reap() {
+        let path = temp_db_path("at-account-error-retains-marker");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "One-shot accounting failure".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do it once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open fixture cron.db");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                params![
+                    (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339(),
+                    job.id
+                ],
+            )
+            .expect("make At due");
+            conn.execute_batch(
+                "CREATE TRIGGER reject_at_terminal_account
+                 BEFORE UPDATE OF status ON cron_jobs
+                 WHEN NEW.status='completed'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'injected accounting failure');
+                 END;",
+            )
+            .expect("install accounting failure trigger");
+        }
+        let due = db.get_job(&job.id).expect("load due job").expect("exists");
+        let claimed = db
+            .claim_scheduled_job_for_execution(&due)
+            .expect("claim scheduled At")
+            .expect("claimed");
+        let running_guard = RunningMarkerGuard {
+            cron_db: db.clone(),
+            job_id: job.id.clone(),
+            claimed_at: claimed.claimed_at.clone(),
+            run_log_id: AtomicI64::new(0),
+            retain_on_drop: AtomicBool::new(false),
+            immediate: false,
+            armed: true,
+        };
+
+        // The injected accounting failure makes Drop's atomic interrupted
+        // settlement roll back. It must hand the still-open occurrence to
+        // recovery and leave the exact marker in place, never clear it alone.
+        drop(running_guard);
+
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(stored.status, CronJobStatus::Active);
+        assert_eq!(
+            stored.running_at.as_deref(),
+            Some(claimed.claimed_at.as_str()),
+            "panic cleanup must retain the unaccounted marker"
+        );
+        assert_eq!(
+            db.mark_missed_at_jobs(0).expect("missed sweep"),
+            0,
+            "a still-owned At occurrence cannot be reaped as missed"
+        );
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open fixture cron.db");
+            conn.execute_batch("DROP TRIGGER reject_at_terminal_account;")
+                .expect("remove injected accounting failure");
+        }
+        assert_eq!(db.recover_orphaned_runs().expect("recover occurrence"), 1);
+        let recovered = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(recovered.status, CronJobStatus::Completed);
+        assert!(recovered.running_at.is_none());
+        assert_eq!(db.mark_missed_at_jobs(0).expect("missed sweep"), 0);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn stale_terminal_cleanup_does_not_clear_a_later_occurrence() {
+        let path = temp_db_path("stale-terminal-release");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Dense recurring".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::Every {
+                    interval_ms: 1,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "tick".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        let first = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim first")
+            .expect("first claimed");
+        let first_log = db
+            .add_running_run_log(&job.id, "session-first", &first.claimed_at)
+            .expect("open first log");
+        let retain = AtomicBool::new(false);
+        release_running_occurrence(&db, &job.id, &first.claimed_at, &retain);
+        let second = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim second")
+            .expect("second claimed");
+
+        // Model the old occurrence returning from a slow delivery after the next
+        // occurrence has already claimed the same task.
+        record_cancelled(
+            &db,
+            &first.job,
+            "session-first",
+            &first.claimed_at,
+            "2026-01-01T00:00:42Z",
+            42,
+            Some(first_log),
+            true,
+            &retain,
+        );
+
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(
+            stored.running_at.as_deref(),
+            Some(second.claimed_at.as_str())
+        );
+        release_running_occurrence(&db, &job.id, &second.claimed_at, &retain);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
     fn standalone_prompt_is_an_exact_turn_in_an_ordinary_session() {
         let cron_path = temp_db_path("ordinary-turn-cron");
         let session_path = temp_db_path("ordinary-turn-session");
@@ -2405,6 +4425,7 @@ mod tests {
             &session.id,
             &turn_id,
             "inspect the workspace",
+            None,
         )
         .expect("persist prompt and turn");
         let turn = match outcome {
@@ -2517,6 +4538,7 @@ mod tests {
         let run_log_id = db
             .add_running_run_log(&job.id, "session-cancel", &claimed.claimed_at)
             .expect("open in-progress run log");
+        let retain = AtomicBool::new(false);
         record_cancelled(
             &db,
             &claimed.job,
@@ -2526,6 +4548,7 @@ mod tests {
             42,
             Some(run_log_id),
             false,
+            &retain,
         );
 
         let stored = db.get_job(&job.id).expect("load").expect("job exists");
@@ -2583,6 +4606,7 @@ mod tests {
         let run_log_id = db
             .add_running_run_log(&job.id, "session-at", &claimed.claimed_at)
             .expect("open in-progress run log");
+        let retain = AtomicBool::new(false);
 
         record_cancelled(
             &db,
@@ -2593,6 +4617,7 @@ mod tests {
             42,
             Some(run_log_id),
             false,
+            &retain,
         );
 
         let stored = db.get_job(&job.id).expect("load").expect("job exists");
@@ -2647,6 +4672,7 @@ mod tests {
         let run_log_id = db
             .add_running_run_log(&job.id, "sid", &claimed.claimed_at)
             .expect("open log");
+        let retain = AtomicBool::new(false);
         record_failure(
             &db,
             &claimed.job,
@@ -2659,6 +4685,7 @@ mod tests {
             Some(run_log_id),
             true, // would auto-disable a scheduled run (max_failures=1)…
             true, // …but immediate (run-now) overrides that
+            &retain,
         );
         let stored = db.get_job(&job.id).expect("get").expect("exists");
         assert_eq!(
@@ -2681,6 +4708,173 @@ mod tests {
             "the failure IS recorded in the run log"
         );
         cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn durable_cancel_wins_a_racing_pre_model_failure() {
+        let path = temp_db_path("cancel-wins-pre-model-failure");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "cancel race".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(1),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        let run_log_id = db
+            .add_running_run_log_with_turn(
+                &job.id,
+                "cancel-race-session",
+                &claimed.claimed_at,
+                Some("cancel-race-turn"),
+            )
+            .expect("open log");
+        assert!(db
+            .request_running_run_cancel(run_log_id)
+            .expect("request cancel"));
+        let retain = AtomicBool::new(false);
+
+        record_failure(
+            &db,
+            &claimed.job,
+            &claimed.claimed_at,
+            std::time::Instant::now(),
+            "error",
+            "pre-model setup failed",
+            "cancel-race-session",
+            None,
+            Some(run_log_id),
+            true,
+            true,
+            &retain,
+        );
+
+        let log = db.get_run_log(run_log_id).unwrap().unwrap();
+        assert_eq!(log.status, "cancelled");
+        assert_eq!(log.error.as_deref(), Some("Cancelled by user"));
+        assert!(db.get_job(&job.id).unwrap().unwrap().running_at.is_none());
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn ordinary_stop_wins_pre_model_failure_without_error_message() {
+        let cron_path = temp_db_path("pre-model-cancel-turn-cron");
+        let session_path = temp_db_path("pre-model-cancel-turn-session");
+        let db = Arc::new(CronDB::open(&cron_path).expect("open cron db"));
+        let session_db =
+            Arc::new(ha_core::session::SessionDB::open(&session_path).expect("open session db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "cancel pre-model".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        let session = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let turn_id = ha_core::session::new_chat_turn_id();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let active_guard = ha_core::chat_engine::active_turn::try_acquire(
+            &session.id,
+            ha_core::chat_engine::ChatSource::Cron,
+            turn_id.clone(),
+            cancel.clone(),
+        )
+        .expect("active turn");
+        match persist_agent_turn_prompt(&session_db, &job, &session.id, &turn_id, "p", None)
+            .expect("persist prompt and turn")
+        {
+            ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(_) => {}
+            other => panic!("unexpected persistence outcome: {other:?}"),
+        }
+        let run_log_id = db
+            .add_running_run_log_with_turn(
+                &job.id,
+                &session.id,
+                &claimed.claimed_at,
+                Some(&turn_id),
+            )
+            .expect("open run log");
+        assert!(matches!(
+            ha_core::chat_engine::active_turn::cancel_current(&session.id, Some(&turn_id)),
+            ha_core::chat_engine::active_turn::ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        assert!(cancel.load(Ordering::SeqCst));
+        let retain = AtomicBool::new(false);
+
+        let decision = settle_pre_model_failure(
+            &db,
+            &session_db,
+            &active_guard,
+            &claimed.job,
+            &claimed.claimed_at,
+            std::time::Instant::now(),
+            "pre-model setup failed",
+            &session.id,
+            &turn_id,
+            run_log_id,
+            false,
+            true,
+            &retain,
+        );
+        assert_eq!(decision, ActiveTurnReleaseDecision::Release);
+        apply_active_turn_release_decision(active_guard, &turn_id, decision);
+
+        let run = db.get_run_log(run_log_id).unwrap().unwrap();
+        assert_eq!(run.status, "cancelled");
+        let turn = session_db.get_chat_turn(&turn_id).unwrap().unwrap();
+        assert_eq!(turn.status, ha_core::session::ChatTurnStatus::Interrupted);
+        assert_eq!(
+            turn.interrupt_reason,
+            Some(ha_core::session::ChatTurnInterruptReason::UserStop)
+        );
+        assert!(turn.error.is_none());
+        let messages = session_db.load_session_messages(&session.id).unwrap();
+        assert_eq!(messages.len(), 1, "cancel must not append an error message");
+        assert_eq!(messages[0].content, "p");
+        cleanup_db_files(&cron_path);
+        cleanup_db_files(&session_path);
     }
 
     #[test]
@@ -2718,6 +4912,7 @@ mod tests {
         let run_log_id = db
             .add_running_run_log(&job.id, "sid", &claimed.claimed_at)
             .expect("open log");
+        let retain = AtomicBool::new(false);
         record_cancelled(
             &db,
             &claimed.job,
@@ -2727,6 +4922,7 @@ mod tests {
             42,
             Some(run_log_id),
             true, // immediate run-now
+            &retain,
         );
         let stored = db.get_job(&job.id).expect("get").expect("exists");
         assert_eq!(

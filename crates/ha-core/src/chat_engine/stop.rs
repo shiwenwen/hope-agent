@@ -1173,11 +1173,14 @@ pub async fn stop_session(
     let mut matched_active = false;
     let mut active_not_found = false;
     let mut durable_turn_id = None;
+    let mut exact_cron_turn = false;
 
     match super::active_turn::cancel_current(session_id, expected_turn_id) {
         super::active_turn::ActiveTurnCancelOutcome::Cancelled(active) => {
             matched_active = true;
             outcome.stopped = true;
+            exact_cron_turn =
+                expected_turn_id.is_some() && matches!(active.source, super::ChatSource::Cron);
 
             // Channel has its own stream lifecycle bus and deliberately does
             // not create a GUI chat_turn row. Desktop/HTTP use the normal
@@ -1203,6 +1206,11 @@ pub async fn stop_session(
         super::active_turn::ActiveTurnCancelOutcome::TurnMismatch => {
             outcome.turn_mismatch = true;
         }
+        super::active_turn::ActiveTurnCancelOutcome::CompletionSealed => {
+            // Completion and Stop serialize through the active-turn registry.
+            // The executor crossed its cancellation point first, so this exact
+            // Stop must not claim success or fall through to durable recovery.
+        }
         super::active_turn::ActiveTurnCancelOutcome::NotFound => {
             active_not_found = true;
         }
@@ -1213,6 +1221,9 @@ pub async fn stop_session(
     } else {
         None
     };
+    exact_cron_turn |= recovered_not_found_turn
+        .as_ref()
+        .is_some_and(|(_, source)| matches!(source, super::ChatSource::Cron));
 
     // A session-only Stop is authoritative even if the active entry vanished
     // between UI observation and this call. An exact stale turn must not tear
@@ -1228,6 +1239,10 @@ pub async fn stop_session(
         || matched_active
         || already_signalled
         || recovered_not_found_turn.is_some();
+    // Stopping one exact Cron occurrence must not create a session-wide pause:
+    // later scheduled occurrences remain eligible while this turn still gets
+    // the ordinary exact-turn cancellation and runtime cleanup below.
+    let persist_autonomy_pause = settle_session && !exact_cron_turn;
     let autonomy_stop_claim =
         settle_session.then(|| Arc::new(begin_session_autonomy_stop(session_id)));
     if !settle_session {
@@ -1262,7 +1277,7 @@ pub async fn stop_session(
     // Publish the durable pause fence before taking the runtime snapshot. A
     // Workflow recovery or Goal wakeup racing this Stop must observe the fence
     // even if controller-specific convergence later times out.
-    if settle_session {
+    if persist_autonomy_pause {
         match tokio::time::timeout(
             STOP_DB_MARK_TIMEOUT,
             prepare_and_pause_session_autonomy(
@@ -1741,6 +1756,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exact_stop_after_completion_seal_does_not_claim_success() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db, session_id, turn_id) = fixture();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let guard = crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Cron,
+            turn_id.clone(),
+            cancel.clone(),
+        )
+        .expect("active turn");
+        assert!(guard.seal_completion(&turn_id));
+
+        let outcome = stop_session(db.clone(), &session_id, Some(&turn_id), false).await;
+
+        assert!(!outcome.stopped);
+        assert!(!outcome.turn_mismatch);
+        assert!(!cancel.load(Ordering::SeqCst));
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            ChatTurnStatus::Running
+        );
+    }
+
+    #[tokio::test]
+    async fn exact_cron_stop_does_not_pause_future_session_work() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("cron-stop.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let turn = db
+            .create_chat_turn(&session.id, "cron", None, None)
+            .expect("turn");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            crate::chat_engine::ChatSource::Cron,
+            turn.id.clone(),
+            cancel.clone(),
+        )
+        .expect("active cron turn");
+
+        let outcome = stop_session(db.clone(), &session.id, Some(&turn.id), false).await;
+
+        assert!(outcome.stopped);
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(outcome.autonomy_pause.is_none());
+        assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
+    }
+
+    #[tokio::test]
     async fn exact_stale_stop_does_not_cancel_a_newer_turn() {
         let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db, session_id, turn_id) = fixture();
@@ -2150,6 +2219,7 @@ mod tests {
             workflow_mode: None,
             incoming_turn: None,
             skill_allowed_tools: Vec::new(),
+            ui_dispatch_fingerprint: None,
             source: crate::session::QueuedTurnMessageSource::Channel,
             channel_origin: Some(serde_json::json!({"channelId": "wechat"})),
         })
@@ -2241,13 +2311,19 @@ mod tests {
             workflow_mode: None,
             incoming_turn: None,
             skill_allowed_tools: Vec::new(),
+            ui_dispatch_fingerprint: None,
             source: crate::session::QueuedTurnMessageSource::Desktop,
             channel_origin: None,
         })
         .expect("enqueue");
-        db.claim_queued_turn_message_for_dispatch(&session.id, "queued-request", "stopped-turn")
-            .expect("claim queue row")
-            .expect("queued row");
+        db.claim_queued_turn_message_for_dispatch(
+            &session.id,
+            "queued-request",
+            "stopped-turn",
+            crate::session::QueuedTurnMessageSource::Desktop,
+        )
+        .expect("claim queue row")
+        .expect("queued row");
 
         let cleanup = PreTurnCancelCleanup::begin(
             db.clone(),

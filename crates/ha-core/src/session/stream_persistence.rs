@@ -387,6 +387,14 @@ impl SessionDB {
     /// Register one durability run. Incognito sessions return an in-memory
     /// registration and deliberately leave no row in any journal table.
     pub fn create_stream_run(&self, input: &CreateStreamRun) -> Result<StreamRunRegistration> {
+        self.create_stream_run_with_stop_admission(input, None)
+    }
+
+    pub fn create_stream_run_with_stop_admission(
+        &self,
+        input: &CreateStreamRun,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+    ) -> Result<StreamRunRegistration> {
         let mut conn = self
             .conn
             .lock()
@@ -416,18 +424,23 @@ impl SessionDB {
                 input.session_id
             );
         };
-        let admitted_stop_epoch =
-            super::autonomy_pause::session_autonomy_lineage_pause_epoch_with_conn(
-                &tx,
-                &input.session_id,
-            )?;
-        let admitted_global_stop_epoch = super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
-        let admitted_global_stop_receipt_count =
-            super::autonomy_pause::lineage_attributed_global_stop_receipt_count_with_conn(
-                &tx,
-                &input.session_id,
-                admitted_global_stop_epoch,
-            )?;
+        let (admitted_stop_epoch, admitted_global_stop_epoch, admitted_global_stop_receipt_count) =
+            if let Some(admission) = stop_admission {
+                if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                    &tx,
+                    &input.session_id,
+                    admission,
+                )? {
+                    anyhow::bail!("{}", super::FOREGROUND_STOP_FENCE_ERROR);
+                }
+                admission.resolved_for(&input.session_id)
+            } else {
+                let admission = super::autonomy_pause::foreground_stop_admission_with_conn(
+                    &tx,
+                    Some(&input.session_id),
+                )?;
+                admission.resolved_for(&input.session_id)
+            };
         if incognito {
             tx.commit()?;
             return Ok(StreamRunRegistration {

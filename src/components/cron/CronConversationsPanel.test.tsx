@@ -21,6 +21,8 @@ vi.mock("@/lib/transport-provider", () => ({
           {
             runLogId: 1,
             sessionId: "cron-session-1",
+            turnId: "turn-1",
+            targetMessageId: 101,
             jobId: "job-1",
             jobName: "Daily summary",
             status: "success",
@@ -29,7 +31,9 @@ vi.mock("@/lib/transport-provider", () => ({
           },
           {
             runLogId: 2,
-            sessionId: "cron-session-2",
+            sessionId: "cron-session-1",
+            turnId: "turn-2",
+            targetMessageId: 202,
             jobId: "job-2",
             jobName: "Weekly review",
             status: "success",
@@ -52,14 +56,29 @@ vi.mock("@/lib/transport-provider", () => ({
 
 vi.mock("./CronSessionViewer", () => ({
   default: function MockCronSessionViewer({
+    runLogId,
     sessionId,
+    targetMessageId,
+    expectedTurnId,
     onLoaded,
   }: {
+    runLogId: number
     sessionId: string
-    onLoaded?: (sessionId: string) => void
+    targetMessageId?: number | null
+    expectedTurnId?: string | null
+    onLoaded?: (runLogId: number) => void
   }) {
-    useEffect(() => onLoaded?.(sessionId), [onLoaded, sessionId])
-    return <div data-testid="cron-viewer">{sessionId}</div>
+    useEffect(() => onLoaded?.(runLogId), [onLoaded, runLogId])
+    return (
+      <div
+        data-testid="cron-viewer"
+        data-run-log-id={runLogId}
+        data-target-message-id={targetMessageId}
+        data-expected-turn-id={expectedTurnId}
+      >
+        {sessionId}
+      </div>
+    )
   },
 }))
 
@@ -81,7 +100,13 @@ describe("CronConversationsPanel unread behavior", () => {
     fireEvent.click(title.closest("button") as HTMLButtonElement)
 
     await waitFor(() => {
-      expect(calls.some((call) => call.command === "mark_session_read_cmd")).toBe(true)
+      expect(
+        calls.some(
+          (call) =>
+            call.command === "mark_session_read_cmd" &&
+            (call.args as { throughMessageId?: number })?.throughMessageId === 101,
+        ),
+      ).toBe(true)
     })
   })
 
@@ -98,9 +123,13 @@ describe("CronConversationsPanel unread behavior", () => {
         calls.some(
           (call) =>
             call.command === "mark_session_read_cmd" &&
-            (call.args as { sessionId?: string })?.sessionId === "cron-session-2",
+            (call.args as { sessionId?: string; throughMessageId?: number })?.sessionId ===
+              "cron-session-1" &&
+            (call.args as { throughMessageId?: number })?.throughMessageId === 202,
         ),
       ).toBe(true)
     })
+    expect(screen.getByTestId("cron-viewer").dataset.runLogId).toBe("2")
+    expect(screen.getByTestId("cron-viewer").dataset.expectedTurnId).toBe("turn-2")
   })
 })

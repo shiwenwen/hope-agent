@@ -56,6 +56,7 @@ async fn enqueue_channel_message(
     user_text: &str,
     skill_allowed_tools: &[String],
     cancel: &Arc<AtomicBool>,
+    foreground_fence: Option<ha_core::chat_engine::active_turn::ForegroundRequestAdmission>,
     attempt_insert: bool,
 ) -> anyhow::Result<()> {
     let channel_id = msg.channel_id.to_string();
@@ -138,11 +139,32 @@ async fn enqueue_channel_message(
         workflow_mode: None,
         incoming_turn: None,
         skill_allowed_tools: skill_allowed_tools.to_vec(),
+        ui_dispatch_fingerprint: None,
         source: ha_core::session::QueuedTurnMessageSource::Channel,
         channel_origin: Some(serde_json::to_value(origin)?),
     };
+    let fence_session_id = session_id.to_string();
     let enqueue = session_db
-        .run(move |db| db.enqueue_turn_user_message(queue_input))
+        .run(move |db| {
+            if let Some(admission) = foreground_fence {
+                return ha_core::chat_engine::active_turn::with_validated_foreground_request(
+                    admission,
+                    &fence_session_id,
+                    ha_core::chat_engine::stream_seq::ChatSource::Channel,
+                    None,
+                    |stop_admission| {
+                        db.enqueue_turn_user_message_with_stop_admission(
+                            queue_input,
+                            stop_admission.ok_or_else(|| {
+                                anyhow::anyhow!("durable Stop admission was not captured")
+                            })?,
+                        )
+                    },
+                )
+                .map_err(anyhow::Error::new)?;
+            }
+            db.enqueue_turn_user_message(queue_input)
+        })
         .await;
     let outcome = match enqueue {
         Ok(outcome) => outcome,
@@ -152,6 +174,13 @@ async fn enqueue_channel_message(
                 &request_id,
                 &cleanup_attachments,
             );
+            if error
+                .downcast_ref::<ha_core::chat_engine::active_turn::ActiveTurnError>()
+                .is_some()
+            {
+                emit_channel_update(session_id);
+                return Ok(());
+            }
             let target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
@@ -581,11 +610,25 @@ async fn handle_inbound_message_inner(
     queued_record: Option<ha_core::session::QueuedTurnMessageRecord>,
 ) -> anyhow::Result<()> {
     let is_queued_replay = queued_record.is_some();
+    let session_db =
+        ha_core::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
+    let admission_session_id = match queued_record.as_ref() {
+        Some(record) => Some(record.session_id.clone()),
+        None => channel_db.get_session(
+            &msg.channel_id.to_string(),
+            &msg.account_id,
+            &msg.chat_id,
+            msg.thread_id.as_deref(),
+        )?,
+    };
     // Capture before approval/ask-user routing performs its first await. A
     // process-wide Stop that runs during those preludes must still reject this
     // inbound if it later reaches active-turn registration after the bounded
     // global cleanup gate has already closed.
-    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_durable_foreground_request(
+        session_db.as_ref(),
+        admission_session_id.as_deref(),
+    )?;
     let channel_id_str = msg.channel_id.to_string();
     let sender_label = msg
         .sender_name
@@ -811,8 +854,6 @@ async fn handle_inbound_message_inner(
         ChatType::Dm => None,
     };
 
-    let session_db =
-        ha_core::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
     let session_id = if let Some(record) = queued_record.as_ref() {
         let channel_db_for_lookup = channel_db.clone();
         let lookup_session_id = record.session_id.clone();
@@ -1091,31 +1132,25 @@ async fn handle_inbound_message_inner(
         return Ok(());
     }
 
-    // An idle session may still have a backend-owned FIFO head between the
-    // pump's DB claim and its active-turn admission (especially at restart).
-    // A fresh inbound must join behind that durable head rather than starting
-    // a newer turn merely because the in-memory active registry is empty.
-    if !is_queued_replay && !resumed_held_messages {
-        let sid = session_id.clone();
-        if session_db
-            .run(move |db| db.has_channel_turn_messages(&sid))
-            .await?
-        {
-            enqueue_channel_message(
-                &plugin,
-                &account,
-                &mut msg,
-                &session_db,
-                &session_id,
-                &engine_message,
-                &user_text,
-                &explicit_skill_allowed_tools,
-                &cancel,
-                false,
-            )
-            .await?;
-            return Ok(());
-        }
+    // Every fresh inbound first joins the durable all-source FIFO. The Primary
+    // pump immediately claims an idle head, while a Desktop/HTTP reservation
+    // or an older queued row remains a cross-process ordering barrier.
+    if !is_queued_replay {
+        enqueue_channel_message(
+            &plugin,
+            &account,
+            &mut msg,
+            &session_db,
+            &session_id,
+            &engine_message,
+            &user_text,
+            &explicit_skill_allowed_tools,
+            &cancel,
+            Some(foreground_admission),
+            !resumed_held_messages,
+        )
+        .await?;
+        return Ok(());
     }
 
     // Acquire before the user message becomes durable. Besides enforcing
@@ -1169,6 +1204,7 @@ async fn handle_inbound_message_inner(
                 &user_text,
                 &explicit_skill_allowed_tools,
                 &cancel,
+                Some(foreground_admission),
                 !resumed_held_messages,
             )
             .await?;
@@ -1227,6 +1263,7 @@ async fn handle_inbound_message_inner(
             &user_text,
             &explicit_skill_allowed_tools,
             &cancel,
+            Some(foreground_admission),
             false,
         )
         .await?;
@@ -1671,6 +1708,9 @@ async fn handle_inbound_message_inner(
         // Shared with the single-flight guard above (registered once in the
         // channel cancel registry); removal is handled by `_cancel_handle_guard`.
         cancel: cancel.clone(),
+        foreground_stop_admission: queued_record
+            .as_ref()
+            .and_then(|record| record.foreground_stop_admission()),
         plan_context_override: None,
         skill_allowed_tools: explicit_skill_allowed_tools,
         denied_tools: Vec::new(),

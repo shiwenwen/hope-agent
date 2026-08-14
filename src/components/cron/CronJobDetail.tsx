@@ -40,6 +40,7 @@ import {
   FolderGit2,
   Hand,
   RotateCcw,
+  Timer,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -288,17 +289,21 @@ export default function CronJobDetail({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [loopState, setLoopState] = useState<LoopState | null>(null)
   const [viewerRefreshKey, setViewerRefreshKey] = useState(0)
-  const pendingReadSessionIdRef = useRef<string | null>(null)
-  const loadedSessionIdRef = useRef<string | null>(null)
+  const pendingReadRef = useRef<{
+    runLogId: number
+    sessionId: string
+    targetMessageId?: number | null
+  } | null>(null)
+  const loadedRunLogIdRef = useRef<number | null>(null)
   const wasViewVisibleRef = useRef(isViewVisible)
   const surfaceReadableRef = useRef(isSurfaceReadable)
   surfaceReadableRef.current = isSurfaceReadable
-  const markingSessionIdsRef = useRef(new Set<string>())
+  const markingRunLogIdsRef = useRef(new Set<number>())
 
-  const markRunRead = useCallback((sessionId: string) => {
-    if (markingSessionIdsRef.current.has(sessionId)) return
-    markingSessionIdsRef.current.add(sessionId)
-    void markCronSessionRead(sessionId)
+  const markRunRead = useCallback((target: NonNullable<typeof pendingReadRef.current>) => {
+    if (markingRunLogIdsRef.current.has(target.runLogId)) return
+    markingRunLogIdsRef.current.add(target.runLogId)
+    void markCronSessionRead(target.sessionId, target.targetMessageId)
       .catch((error) => {
         logger.warn(
           "cron",
@@ -307,20 +312,16 @@ export default function CronJobDetail({
           error,
         )
       })
-      .finally(() => markingSessionIdsRef.current.delete(sessionId))
+      .finally(() => markingRunLogIdsRef.current.delete(target.runLogId))
   }, [])
 
   const markPendingRunReadIfReady = useCallback(() => {
-    const pendingSessionId = pendingReadSessionIdRef.current
-    if (
-      !surfaceReadableRef.current ||
-      !pendingSessionId ||
-      loadedSessionIdRef.current !== pendingSessionId
-    ) {
+    const pending = pendingReadRef.current
+    if (!surfaceReadableRef.current || !pending || loadedRunLogIdRef.current !== pending.runLogId) {
       return
     }
-    pendingReadSessionIdRef.current = null
-    markRunRead(pendingSessionId)
+    pendingReadRef.current = null
+    markRunRead(pending)
   }, [markRunRead])
 
   useEffect(() => {
@@ -331,20 +332,27 @@ export default function CronJobDetail({
     (log: CronRunLog) => {
       if (!log.sessionId) return
       setSelectedLogId(log.id)
-      pendingReadSessionIdRef.current = log.sessionId
-      if (log.sessionId === selectedSessionId) {
+      pendingReadRef.current =
+        job?.payload.type === "sessionTurn" && log.targetMessageId == null
+          ? null
+          : {
+              runLogId: log.id,
+              sessionId: log.sessionId,
+              targetMessageId: log.targetMessageId,
+            }
+      if (loadedRunLogIdRef.current === log.id) {
         markPendingRunReadIfReady()
         return
       }
-      loadedSessionIdRef.current = null
+      loadedRunLogIdRef.current = null
       setSelectedSessionId(log.sessionId)
     },
-    [markPendingRunReadIfReady, selectedSessionId],
+    [job, markPendingRunReadIfReady],
   )
 
   const handleViewerLoaded = useCallback(
-    (sessionId: string) => {
-      loadedSessionIdRef.current = sessionId
+    (runLogId: number) => {
+      loadedRunLogIdRef.current = runLogId
       markPendingRunReadIfReady()
     },
     [markPendingRunReadIfReady],
@@ -426,8 +434,8 @@ export default function CronJobDetail({
   useEffect(() => {
     setSelectedSessionId(null)
     setSelectedLogId(null)
-    pendingReadSessionIdRef.current = null
-    loadedSessionIdRef.current = null
+    pendingReadRef.current = null
+    loadedRunLogIdRef.current = null
     setDetailsOpen(false)
     setLoopState(null)
     fetchData()
@@ -442,6 +450,18 @@ export default function CronJobDetail({
     void fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewVisible])
+
+  useEffect(() => {
+    if (!isViewVisible) return
+    const refresh = () => void fetchData()
+    const unlisten = [
+      getTransport().listen("chat:turn_queue_changed", refresh),
+      getTransport().listen("chat:turn_started", refresh),
+      getTransport().listen("cron:run_completed", refresh),
+    ]
+    return () => unlisten.forEach((stop) => stop())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isViewVisible, jobId])
 
   // Default to the most recent run that has a session, so opening the detail
   // immediately shows its conversation; never overrides an explicit selection.
@@ -499,7 +519,7 @@ export default function CronJobDetail({
   }
 
   async function confirmRunNow() {
-    if (!job || job.payload.type !== "agentTurn" || !runPreflight?.canProceed) return
+    if (!job || job.payload.type === "sessionLoop" || !runPreflight?.canProceed) return
     setRunNowBusy(true)
     try {
       const result = await getTransport().call<CronRunNowResult>("cron_run_now", {
@@ -537,8 +557,8 @@ export default function CronJobDetail({
   }
 
   async function handleCancelRun() {
-    const run = logs.find((log) => log.status === "running" && log.turnId)
-    if (!job?.runningAt || job.payload.type === "sessionLoop" || !run || cancelling) return
+    const run = logs.find((log) => log.status === "queued" || log.status === "running")
+    if (!job || job.payload.type === "sessionLoop" || !run || cancelling) return
     setCancelling(true)
     try {
       const result = await getTransport().call<CronRunCancelResult>("cron_cancel_run", {
@@ -586,15 +606,19 @@ export default function CronJobDetail({
     return <div className="p-6 text-center text-muted-foreground">{t("cron.jobNotFound")}</div>
   }
   const project = job.projectId ? projects.find((p) => p.id === job.projectId) : null
-  const agentInfo = job.payload.agentId ? agents.find((a) => a.id === job.payload.agentId) : null
-  const agentLabel = job.payload.agentId
+  const taskAgentId = job.payload.type === "sessionTurn" ? null : job.payload.agentId
+  const agentInfo = taskAgentId ? agents.find((a) => a.id === taskAgentId) : null
+  const agentLabel = taskAgentId
     ? agentInfo
       ? `${agentInfo.emoji ? `${agentInfo.emoji} ` : ""}${agentInfo.name}`
-      : job.payload.agentId
+      : taskAgentId
     : t("cron.autoAgent")
   const isLoop = job.payload.type === "sessionLoop"
-  const cancellableRun =
-    !isLoop && job.runningAt ? logs.find((log) => log.status === "running" && log.turnId) : null
+  const sessionTurnPayload = job.payload.type === "sessionTurn" ? job.payload : null
+  const isSessionTurn = sessionTurnPayload !== null
+  const cancellableRun = !isLoop
+    ? logs.find((log) => log.status === "queued" || log.status === "running")
+    : null
   const isTerminalLoop =
     isLoop && (job.status === "completed" || loopState === "completed" || loopState === "cancelled")
   const isLoopActive = isLoop && (loopState === "active" || (!loopState && job.status === "active"))
@@ -623,6 +647,7 @@ export default function CronJobDetail({
               : t("workspace.loop.stateBlocked", "已阻塞")
       : statusLabel(job.status, t)
   const title = cronDisplayTitle(job.name, job.payload.type)
+  const selectedLog = logs.find((log) => log.id === selectedLogId) ?? null
 
   return (
     <div className="flex h-full flex-col">
@@ -654,7 +679,11 @@ export default function CronJobDetail({
               onClick={handleRunNow}
               disabled={runNowBusy}
             >
-              {runNowBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              {runNowBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Zap className="h-3.5 w-3.5" />
+              )}
               {t("cron.runNow")}
             </Button>
           )}
@@ -763,44 +792,58 @@ export default function CronJobDetail({
               </div>
             </section>
 
-            <div className="mt-3 space-y-2 px-1 text-xs">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">{t("cron.project")}</span>
-                <span className="flex min-w-0 items-center gap-1.5 text-right">
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">
-                    {job.projectId
-                      ? project
-                        ? project.name
-                        : t("cron.missingProject")
-                      : t("cron.noProject")}
+            {isSessionTurn ? (
+              <div className="mt-3 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+                <p className="flex items-center gap-1.5 font-medium">
+                  <Timer className="h-3.5 w-3.5 text-primary" />
+                  {t("cron.sessionTurnTarget")}: {sessionTurnPayload?.sessionId}
+                </p>
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                  {t("cron.sessionTurnLiveHint")}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2 px-1 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">{t("cron.project")}</span>
+                  <span className="flex min-w-0 items-center gap-1.5 text-right">
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">
+                      {job.projectId
+                        ? project
+                          ? project.name
+                          : t("cron.missingProject")
+                        : t("cron.noProject")}
+                    </span>
                   </span>
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">{t("cron.agent")}</span>
-                <span className="flex min-w-0 items-center gap-1.5 text-right">
-                  <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{agentLabel}</span>
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">{t("workspace.environment.worktree")}</span>
-                <span className="flex min-w-0 items-center gap-1.5 text-right">
-                  <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">
-                    {job.workspacePolicy.mode === "project"
-                      ? t("cron.project")
-                      : t(
-                          job.workspacePolicy.mode === "fresh"
-                            ? "chat.projectRuntime.worktree"
-                            : "cron.workspaceModePersistent",
-                        )}
-                    {job.workspacePolicy.baseRef ? ` · ${job.workspacePolicy.baseRef}` : ""}
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">{t("cron.agent")}</span>
+                  <span className="flex min-w-0 items-center gap-1.5 text-right">
+                    <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{agentLabel}</span>
                   </span>
-                </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">
+                    {t("workspace.environment.worktree")}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-1.5 text-right">
+                    <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">
+                      {job.workspacePolicy.mode === "project"
+                        ? t("cron.project")
+                        : t(
+                            job.workspacePolicy.mode === "fresh"
+                              ? "chat.projectRuntime.worktree"
+                              : "cron.workspaceModePersistent",
+                          )}
+                      {job.workspacePolicy.baseRef ? ` · ${job.workspacePolicy.baseRef}` : ""}
+                    </span>
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               type="button"
@@ -936,8 +979,12 @@ export default function CronJobDetail({
                           <div className="flex items-center gap-1.5">
                             {log.status === "success" ? (
                               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                            ) : log.status === "running" ? (
+                            ) : log.status === "queued" ? (
+                              <Clock className="h-3.5 w-3.5 text-amber-500" />
+                            ) : log.status === "running" || log.status === "completing" ? (
                               <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+                            ) : log.status === "cancelling" ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
                             ) : log.status === "empty" ? (
                               <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
                             ) : log.status === "cancelled" ? (
@@ -948,13 +995,17 @@ export default function CronJobDetail({
                             <span className="font-medium">
                               {log.status === "success"
                                 ? t("cron.runStatusSuccess")
-                                : log.status === "running"
-                                  ? t("cron.runStatusRunning")
-                                  : log.status === "empty"
-                                    ? t("cron.runStatusEmpty")
-                                    : log.status === "cancelled"
-                                      ? t("common.cancel")
-                                      : t("cron.runStatusError")}
+                                : log.status === "queued"
+                                  ? t("common.statusValues.queued")
+                                  : log.status === "running" || log.status === "completing"
+                                    ? t("cron.runStatusRunning")
+                                    : log.status === "cancelling"
+                                      ? t("common.statusValues.cancelling")
+                                      : log.status === "empty"
+                                        ? t("cron.runStatusEmpty")
+                                        : log.status === "cancelled"
+                                          ? t("common.cancel")
+                                          : t("cron.runStatusError")}
                             </span>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1017,7 +1068,12 @@ export default function CronJobDetail({
                             variant="ghost"
                             size="icon"
                             className="absolute right-8 top-1 h-7 w-7 text-muted-foreground"
-                            onClick={() => requestChatFocus({ sessionId: log.sessionId })}
+                            onClick={() =>
+                              requestChatFocus({
+                                sessionId: log.sessionId,
+                                targetMessageId: log.targetMessageId ?? undefined,
+                              })
+                            }
                           >
                             <ArrowUpRight className="h-3.5 w-3.5" />
                           </Button>
@@ -1068,10 +1124,14 @@ export default function CronJobDetail({
 
         {/* Right — read-only conversation of the selected run */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background">
-          {selectedSessionId ? (
+          {selectedSessionId && selectedLog ? (
             <CronSessionViewer
-              key={`${selectedSessionId}:${viewerRefreshKey}`}
+              key={`${selectedLog.id}:${viewerRefreshKey}`}
+              runLogId={selectedLog.id}
               sessionId={selectedSessionId}
+              requiresExactTarget={job.payload.type === "sessionTurn"}
+              targetMessageId={selectedLog.targetMessageId}
+              expectedTurnId={selectedLog.turnId}
               agents={agents}
               onLoaded={handleViewerLoaded}
             />

@@ -24,7 +24,7 @@ describe("durable pending queue projection", () => {
     expect(nextDispatchablePending(items)?.id).toBe("first")
   })
 
-  test("never lets the GUI claim a backend-managed Channel row", () => {
+  test("never skips a backend-managed global head", () => {
     const items = [
       {
         id: "channel-first",
@@ -34,7 +34,11 @@ describe("durable pending queue projection", () => {
       },
       { id: "desktop-next", sessionId: "s", status: "queued" as const },
     ]
-    expect(nextDispatchablePending(items)?.id).toBe("desktop-next")
+    expect(nextDispatchablePending(items)).toBeUndefined()
+
+    expect(
+      nextDispatchablePending([{ ...items[0], managedBy: "scheduled" as const }, items[1]]),
+    ).toBeUndefined()
   })
 
   test("allows a durable attachment-only row to reach the backend", () => {

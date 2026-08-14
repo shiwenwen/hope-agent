@@ -88,7 +88,9 @@ export interface PendingSendPreview {
   editable?: boolean
   /** Backend-owned rows are visible for status only; the GUI must not claim,
    * edit, delete, or force-insert them. */
-  managedBy?: "channel"
+  managedBy?: "channel" | "scheduled"
+  /** Opaque owner reference; Scheduled uses the canonical run-log id. */
+  sourceRef?: string
 }
 
 export interface MessageAttachment {

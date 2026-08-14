@@ -25,7 +25,10 @@ mod turns;
 mod types;
 
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
-pub use autonomy_pause::{SessionAutonomyPause, SessionAutonomyResumeOutcome};
+pub use autonomy_pause::{
+    ForegroundStopAdmission, SessionAutonomyPause, SessionAutonomyResumeOutcome,
+    FOREGROUND_STOP_FENCE_ERROR,
+};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, PinnedSessionFilter,
@@ -66,9 +69,11 @@ pub use tasks::{
 };
 pub(crate) use turn_queue::emit_turn_released;
 pub use turn_queue::{
-    EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage, QueuedTurnMessageMode,
-    QueuedTurnMessageRecord, QueuedTurnMessageSource, QueuedTurnMessageStatus,
-    QueuedTurnMessageView, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    DirectTurnAdmission, EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage,
+    NewScheduledTurnMessage, QueuedTurnMessageMode, QueuedTurnMessageRecord,
+    QueuedTurnMessageSource, QueuedTurnMessageStatus, QueuedTurnMessageView,
+    ScheduledTurnQueueIdentity, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    SCHEDULED_TARGET_INELIGIBLE_ERROR,
 };
 pub use turns::{new_chat_turn_id, ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{

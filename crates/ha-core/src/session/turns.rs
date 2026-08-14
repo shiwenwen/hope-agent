@@ -128,6 +128,7 @@ pub struct UiChatDispatchRecord {
     pub request_fingerprint: String,
     pub session_id: String,
     pub turn_id: String,
+    pub queue_request_id: Option<String>,
 }
 
 impl SessionDB {
@@ -391,6 +392,7 @@ impl SessionDB {
         ui_surface: Option<crate::pet::ChatUiSurface>,
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<(i64, ChatTurn)> {
         if client_request_id.is_some() != request_fingerprint.is_some() {
             anyhow::bail!(
@@ -401,7 +403,21 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(admission) = stop_admission {
+            if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                &tx, session_id, admission,
+            )? {
+                anyhow::bail!("{}", super::FOREGROUND_STOP_FENCE_ERROR);
+            }
+        }
+        if message.queue_request_id.is_none() {
+            let consumed =
+                super::turn_queue::consume_direct_turn_admission(&tx, session_id, id, source)?;
+            if matches!(source, "desktop" | "http") && !consumed {
+                anyhow::bail!("direct turn lost its durable admission");
+            }
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if message.timestamp.is_empty() {
             now.as_str()
@@ -532,15 +548,17 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.query_row(
-            "SELECT request_fingerprint, session_id, id
-               FROM chat_turns
-              WHERE client_request_id = ?1",
+            "SELECT ct.request_fingerprint, ct.session_id, ct.id, m.queue_request_id
+               FROM chat_turns ct
+               LEFT JOIN messages m ON m.id = ct.user_message_id
+              WHERE ct.client_request_id = ?1",
             params![client_request_id],
             |row| {
                 Ok(UiChatDispatchRecord {
                     request_fingerprint: row.get(0)?,
                     session_id: row.get(1)?,
                     turn_id: row.get(2)?,
+                    queue_request_id: row.get(3)?,
                 })
             },
         )
@@ -932,6 +950,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let projection = typed_mention_projection("@README.md");
@@ -972,6 +991,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
 
@@ -1008,6 +1028,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let mut projection = typed_mention_projection("@README.md");
@@ -1037,6 +1058,7 @@ mod tests {
                 "desktop",
                 None,
                 &NewMessage::user("@README.md"),
+                None,
                 None,
                 None,
                 None,
@@ -1099,6 +1121,7 @@ mod tests {
                     Some(crate::pet::ChatUiSurface::MainChat),
                     Some("request-1"),
                     Some("fingerprint-1"),
+                    None,
                 )
                 .unwrap();
             assert_eq!(turn.user_message_id, Some(message_id));
@@ -1111,6 +1134,7 @@ mod tests {
                 request_fingerprint: "fingerprint-1".to_string(),
                 session_id: session_id.clone(),
                 turn_id: "turn-1".to_string(),
+                queue_request_id: None,
             })
         );
         let duplicate = db.append_message_and_create_chat_turn_with_id_surface_dispatch(
@@ -1122,6 +1146,7 @@ mod tests {
             Some(crate::pet::ChatUiSurface::MainChat),
             Some("request-1"),
             Some("fingerprint-1"),
+            None,
         );
         assert!(duplicate.is_err(), "request id must be globally unique");
         let messages = db.load_session_messages(&session_id).unwrap();

@@ -1283,7 +1283,7 @@ impl SessionDB {
             .map(|job| {
                 let loop_state = match &job.payload {
                     CronPayload::SessionLoop { loop_id, .. } => loop_states.get(loop_id).copied(),
-                    CronPayload::AgentTurn { .. } => None,
+                    CronPayload::AgentTurn { .. } | CronPayload::SessionTurn { .. } => None,
                 };
                 CronJobView { job, loop_state }
             })

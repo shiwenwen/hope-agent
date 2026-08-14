@@ -523,6 +523,7 @@ async fn run_agent_for_session(
                 .and_then(|definition| definition.config.model.reasoning_effort.clone())
                 .or(crate::agent::live_reasoning_effort(None).await),
             cancel,
+            foreground_stop_admission: None,
             plan_context_override: None,
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),

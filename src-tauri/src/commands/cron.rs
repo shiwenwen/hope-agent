@@ -100,11 +100,9 @@ pub async fn cron_cancel_run(run_log_id: i64) -> Result<cron::CronRunCancelResul
 pub async fn cron_delete_job(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
-    ha_core::blocking::run_blocking(move || {
-        ha_cron::cron::delete_job_and_legacy_sessions(&cron_db, &session_db, &id)
-    })
-    .await
-    .map_err(Into::into)
+    ha_cron::cron::delete_job_and_legacy_sessions(&cron_db, &session_db, &id)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]

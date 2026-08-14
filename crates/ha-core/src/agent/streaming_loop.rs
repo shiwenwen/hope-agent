@@ -389,6 +389,7 @@ where
         crate::chat_engine::stream_seq::ChatSource::Desktop
             | crate::chat_engine::stream_seq::ChatSource::Http
             | crate::chat_engine::stream_seq::ChatSource::Channel
+            | crate::chat_engine::stream_seq::ChatSource::Cron
     ) {
         return 0;
     }
@@ -415,6 +416,14 @@ where
             }
             crate::session::QueuedTurnMessageSource::Channel => {
                 crate::chat_engine::stream_seq::ChatSource::Channel
+            }
+            crate::session::QueuedTurnMessageSource::Scheduled => {
+                crate::app_warn!(
+                    "session",
+                    "scheduled_turn_insertion_rejected",
+                    "Scheduled queue row reached the mid-turn insertion path"
+                );
+                continue;
             }
         };
         let raw_prompt =

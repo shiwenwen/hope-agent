@@ -2600,7 +2600,10 @@ export class HttpTransport implements Transport {
       // Preserve the transport-neutral CAS result so the form can keep its
       // draft and offer reload/retry. External HTTP callers still receive 409.
       if (command === "cron_update_job" && response.status === 409) {
-        const conflict = await response.clone().json().catch(() => null)
+        const conflict = await response
+          .clone()
+          .json()
+          .catch(() => null)
         if (
           conflict &&
           typeof conflict === "object" &&
@@ -2693,6 +2696,7 @@ export class HttpTransport implements Transport {
       blockedReason?: string
       sessionDeleted?: boolean
       accepted?: boolean
+      queuedRequestId?: string
     }>("chat", requestArgs)
     // `sessionDeleted` is set when a blocked first message on a design/knowledge
     // lazy-created session dropped that session before returning. Suppress the
@@ -2717,6 +2721,17 @@ export class HttpTransport implements Transport {
         JSON.stringify({
           type: "text",
           text: resp.blockedReason,
+        }),
+      )
+    }
+    // `accepted=false` is omitted by the Rust serializer; the durable queue id
+    // is the positive wire signal for this accepted-as-pending outcome.
+    if (resp.queuedRequestId) {
+      onEvent(
+        JSON.stringify({
+          type: "turn_queued",
+          session_id: resp.sessionId,
+          request_id: resp.queuedRequestId,
         }),
       )
     }

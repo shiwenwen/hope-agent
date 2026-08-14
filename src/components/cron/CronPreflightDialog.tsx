@@ -51,6 +51,7 @@ export default function CronPreflightDialog({
   const retry = blockers.length > 0 && onRetry
   const issueText = (code: string) => {
     if (code === "remote_workspace_writes_disabled") return t("fileEditor.remoteWritesTitle")
+    if (code === "session_unavailable") return t("pet.navigation.unavailable")
     const key =
       code.startsWith("workspace_") || code.startsWith("remote_workspace_")
         ? "workspace.environment.worktree"

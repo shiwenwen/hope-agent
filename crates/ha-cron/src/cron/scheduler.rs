@@ -2,7 +2,9 @@ use chrono::Utc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::cron::executor::execute_claimed_job;
+use crate::cron::executor::{
+    execute_claimed_job, pump_session_turns, spawn_session_turn_pump_once, stage_session_turn,
+};
 use ha_core::cron::CronDB;
 use ha_core::cron_defs::CronJob;
 
@@ -37,6 +39,28 @@ fn dispatch_due_jobs(
     if due_jobs.is_empty() {
         return 0;
     }
+    let (session_turns, due_jobs): (Vec<_>, Vec<_>) = due_jobs
+        .into_iter()
+        .partition(|job| matches!(job.payload, ha_core::cron::CronPayload::SessionTurn { .. }));
+    let mut dispatched = 0usize;
+    for job in session_turns {
+        match stage_session_turn(cron_db, session_db, &job, false) {
+            Ok(Some(_)) => dispatched += 1,
+            Ok(None) => {}
+            Err(error) => app_error!(
+                "cron",
+                "scheduler",
+                "Failed to queue SessionTurn job '{}': {error:#}",
+                job.name
+            ),
+        }
+    }
+    if dispatched > 0 {
+        spawn_session_turn_pump_once(cron_db.clone(), session_db.clone());
+    }
+    if due_jobs.is_empty() {
+        return dispatched;
+    }
     let max = ha_core::config::cached_config()
         .cron
         .effective_max_concurrent();
@@ -56,7 +80,6 @@ fn dispatch_due_jobs(
     };
     let mut available = available_slots(max, running);
     let total = due_jobs.len();
-    let mut dispatched = 0usize;
     for (idx, job) in due_jobs.into_iter().enumerate() {
         if available == Some(0) {
             app_info!(
@@ -68,6 +91,18 @@ fn dispatch_due_jobs(
             );
             break;
         }
+        let foreground_stop_admission = match session_db.foreground_stop_admission(None) {
+            Ok(admission) => admission,
+            Err(error) => {
+                app_error!(
+                    "cron",
+                    "scheduler",
+                    "Failed to capture the Global Stop fence before claiming job '{}': {error:#}",
+                    job.name
+                );
+                continue;
+            }
+        };
         match ha_core::agent_lifecycle::with_lifecycle_gate(|| {
             cron_db.claim_scheduled_job_for_execution(&job)
         }) {
@@ -79,7 +114,7 @@ fn dispatch_due_jobs(
                 let db = cron_db.clone();
                 let sdb = session_db.clone();
                 tokio::spawn(async move {
-                    execute_claimed_job(&db, &sdb, claimed).await;
+                    execute_claimed_job(&db, &sdb, claimed, foreground_stop_admission).await;
                 });
             }
             // Lost the race / already claimed elsewhere — do NOT consume a slot.
@@ -103,6 +138,123 @@ fn dispatch_due_jobs(
         }
     }
     dispatched
+}
+
+fn recover_session_turn_boundaries(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<ha_core::session::SessionDB>,
+) -> anyhow::Result<()> {
+    // Session and Cron use separate SQLite ledgers. A crash after queue commit
+    // but after/before a failed Cron publication can leave a durable Scheduled
+    // row whose exact occurrence is terminal or gone. Sweep by immutable queue
+    // id so deleting a page cannot skip later rows; live envelopes are retained.
+    let mut after_queue_row_id = 0;
+    loop {
+        let identities =
+            session_db.list_scheduled_turn_queue_identities(after_queue_row_id, 128)?;
+        let page_len = identities.len();
+        if let Some(last) = identities.last() {
+            after_queue_row_id = last.queue_row_id;
+        }
+        for identity in identities {
+            if cron_db.session_turn_queue_envelope_is_live(
+                identity.run_log_id,
+                &identity.request_id,
+                &identity.session_id,
+            )? {
+                continue;
+            }
+            let source_ref = identity.run_log_id.to_string();
+            if !session_db.cancel_scheduled_turn_message(&identity.request_id, &source_ref)? {
+                match session_db.get_scheduled_turn_message(&source_ref)? {
+                    None => {}
+                    Some(_) => {
+                        anyhow::bail!("scheduled orphan queue custody changed during recovery")
+                    }
+                }
+            }
+        }
+        if page_len < 128 {
+            break;
+        }
+    }
+
+    // A previous process may have committed the ordinary ChatTurn immediately
+    // before crashing. ChatTurn.user_message_id is the durable commit marker
+    // used to repair the exact history anchor before the open run is closed.
+    let mut after_id = 0;
+    loop {
+        let commits = cron_db.list_unprojected_session_turn_commits(after_id, 128)?;
+        let page_len = commits.len();
+        if let Some(last) = commits.last() {
+            after_id = last.0;
+        }
+        for (run_log_id, request_id, turn_id) in commits {
+            let committed = session_db
+                .get_chat_turn(&turn_id)?
+                .and_then(|turn| turn.user_message_id);
+            if let Some(message_id) = committed {
+                if !cron_db.set_session_turn_target_message(
+                    run_log_id,
+                    &request_id,
+                    &turn_id,
+                    message_id,
+                )? {
+                    anyhow::bail!("scheduled commit projection changed during recovery");
+                }
+            } else {
+                let source_ref = run_log_id.to_string();
+                if !session_db.cancel_scheduled_turn_message(&request_id, &source_ref)? {
+                    match session_db.get_scheduled_turn_message(&source_ref)? {
+                        None => {}
+                        Some(_) => {
+                            anyhow::bail!("scheduled commit boundary custody is uncertain")
+                        }
+                    }
+                }
+            }
+        }
+        if page_len < 128 {
+            break;
+        }
+    }
+    // `preparing` is invisible to the pump. Publish it only if the exact queue
+    // row survived; otherwise terminalize it without executing.
+    after_id = 0;
+    loop {
+        let preparing = cron_db.list_stale_preparing_session_turn_runs(after_id, 128)?;
+        let page_len = preparing.len();
+        if let Some(last) = preparing.last() {
+            after_id = last.run_log_id;
+        }
+        for run in preparing {
+            let source_ref = run.run_log_id.to_string();
+            match session_db.get_scheduled_turn_message(&source_ref)? {
+                Some(row)
+                    if row.request_id == run.request_id && row.session_id == run.session_id =>
+                {
+                    if !cron_db.mark_session_turn_queued(run.run_log_id, &run.request_id)? {
+                        anyhow::bail!("scheduled preparing publication changed during recovery");
+                    }
+                }
+                Some(_) => anyhow::bail!("scheduled preparing queue identity mismatch"),
+                None => {
+                    if !cron_db.finish_pending_session_turn(
+                        run.run_log_id,
+                        &run.request_id,
+                        "error",
+                        Some("Interrupted before session queue publication"),
+                    )? {
+                        anyhow::bail!("scheduled preparing custody changed during recovery");
+                    }
+                }
+            }
+        }
+        if page_len < 128 {
+            break;
+        }
+    }
+    Ok(())
 }
 
 // ── Scheduler ───────────────────────────────────────────────────
@@ -145,16 +297,28 @@ pub fn start_scheduler(
                 }
 
                 // Startup recovery
-                if let Err(e) = cron_db.recover_orphaned_runs() {
-                    app_error!(
-                        "cron",
-                        "scheduler",
-                        "Failed to recover orphaned runs: {}",
-                        e
-                    );
-                }
-                match cron_db.clear_stale_running() {
-                    Ok(n) if n > 0 => app_warn!(
+                let boundaries_recovered = match recover_session_turn_boundaries(&cron_db, &session_db) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        app_error!("cron", "scheduler", "SessionTurn recovery stopped fail-closed: {error:#}");
+                        false
+                    }
+                };
+                let recovery_complete = boundaries_recovered
+                    && match cron_db.recover_orphaned_runs() {
+                        Ok(_) => true,
+                        Err(e) => {
+                        app_error!(
+                            "cron",
+                            "scheduler",
+                            "Failed to recover orphaned runs: {}",
+                            e
+                        );
+                            false
+                        }
+                    };
+                match recovery_complete.then(|| cron_db.clear_stale_running()).transpose() {
+                    Ok(Some(n)) if n > 0 => app_warn!(
                         "cron",
                         "scheduler",
                         "Cleared {} stale running markers from previous session",
@@ -199,6 +363,20 @@ pub fn start_scheduler(
                     }
                 }
 
+                // SessionTurn readiness changes when any ordinary turn releases,
+                // independently of the 15s schedule cadence. A small bounded
+                // Primary pump keeps that FIFO handoff responsive.
+                let pump_db = cron_db.clone();
+                let pump_sessions = session_db.clone();
+                tokio::spawn(async move {
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(1));
+                    loop {
+                        interval.tick().await;
+                        pump_session_turns(&pump_db, &pump_sessions).await;
+                    }
+                });
+
                 // §9 (C6): record liveness only AFTER startup recovery completes.
                 // Writing it earlier would let a crash confined to the recovery
                 // phase refresh the heartbeat on every boot, masking the "scheduler
@@ -233,6 +411,18 @@ pub fn start_scheduler(
                     }
 
                     let now = Utc::now();
+
+                    // Atomic terminal/accounting failures hand the still-open
+                    // exact occurrence to this recovery pass. Run it before the
+                    // At missed sweep so a completed/interrupted one-shot is
+                    // settled by its marker owner, never reclassified as missed.
+                    if let Err(error) = cron_db.recover_orphaned_runs() {
+                        app_error!(
+                            "cron",
+                            "scheduler",
+                            "Failed to recover unsettled cron occurrences: {error:#}"
+                        );
+                    }
 
                     if let Err(error) = crate::cron::workspace::reconcile_workspaces(
                         &cron_db,
@@ -279,7 +469,10 @@ pub fn start_scheduler(
 
 #[cfg(test)]
 mod tests {
-    use super::available_slots;
+    use super::{available_slots, recover_session_turn_boundaries};
+    use ha_core::cron::{CronDB, CronPayload, CronSchedule, NewCronJob};
+    use ha_core::session::{NewScheduledTurnMessage, SessionDB};
+    use std::sync::Arc;
 
     #[test]
     fn available_slots_unlimited_is_unbounded() {
@@ -296,5 +489,101 @@ mod tests {
         // Over-occupancy (e.g. manual run-now pushed past the cap) saturates at 0,
         // never underflows — the scheduler simply dispatches nothing this pass.
         assert_eq!(available_slots(Some(5), 8), Some(0));
+    }
+
+    #[test]
+    fn startup_recovery_removes_only_terminal_scheduled_queue_orphans() {
+        let dir = tempfile::tempdir().unwrap();
+        let cron_path = dir.path().join("cron.db");
+        let session_db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).unwrap());
+        let session_id = session_db.create_session("ha-main").unwrap().id;
+        let (terminal_run_id, live_run_id) = {
+            let cron_db = CronDB::open(&cron_path).unwrap();
+            let job = cron_db
+                .add_job(&NewCronJob {
+                    name: "scheduled conversation".into(),
+                    description: None,
+                    project_id: None,
+                    workspace_policy: Default::default(),
+                    schedule: CronSchedule::Every {
+                        interval_ms: 60_000,
+                        start_at: None,
+                    },
+                    payload: CronPayload::SessionTurn {
+                        session_id: session_id.clone(),
+                        prompt: "continue".into(),
+                    },
+                    max_failures: None,
+                    notify_on_complete: None,
+                    delivery_targets: None,
+                    prefix_delivery_with_name: None,
+                    job_timeout_secs: None,
+                    permission_mode_override: None,
+                    sandbox_mode_override: None,
+                })
+                .unwrap();
+            let terminal = cron_db
+                .claim_session_turn_for_preparing(&job, "terminal-request", true)
+                .unwrap()
+                .unwrap();
+            let terminal_admission = session_db
+                .foreground_stop_admission(Some(&session_id))
+                .unwrap();
+            session_db
+                .enqueue_scheduled_turn_message(
+                    NewScheduledTurnMessage {
+                        request_id: terminal.request_id.clone(),
+                        session_id: session_id.clone(),
+                        source_ref: terminal.run_log_id.to_string(),
+                        message: "terminal".into(),
+                    },
+                    terminal_admission,
+                )
+                .unwrap();
+            assert!(cron_db
+                .finish_pending_session_turn(
+                    terminal.run_log_id,
+                    &terminal.request_id,
+                    "error",
+                    Some("publication failed"),
+                )
+                .unwrap());
+
+            let live = cron_db
+                .claim_session_turn_for_preparing(&job, "live-request", true)
+                .unwrap()
+                .unwrap();
+            let live_admission = session_db
+                .foreground_stop_admission(Some(&session_id))
+                .unwrap();
+            session_db
+                .enqueue_scheduled_turn_message(
+                    NewScheduledTurnMessage {
+                        request_id: live.request_id.clone(),
+                        session_id: session_id.clone(),
+                        source_ref: live.run_log_id.to_string(),
+                        message: "live".into(),
+                    },
+                    live_admission,
+                )
+                .unwrap();
+            (terminal.run_log_id, live.run_log_id)
+        };
+
+        let cron_db = Arc::new(CronDB::open(&cron_path).unwrap());
+        recover_session_turn_boundaries(&cron_db, &session_db).unwrap();
+
+        assert!(session_db
+            .get_scheduled_turn_message(&terminal_run_id.to_string())
+            .unwrap()
+            .is_none());
+        assert!(session_db
+            .get_scheduled_turn_message(&live_run_id.to_string())
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            cron_db.get_run_log(live_run_id).unwrap().unwrap().status,
+            "queued"
+        );
     }
 }

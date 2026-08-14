@@ -258,7 +258,8 @@ interface PendingSend {
   /** Authoritative backend projection; absent for the local `saving` row. */
   canForceInsert?: boolean
   editable?: boolean
-  managedBy?: "channel"
+  managedBy?: "channel" | "scheduled"
+  sourceRef?: string
 }
 
 interface QueuedTurnMessageView {
@@ -274,7 +275,8 @@ interface QueuedTurnMessageView {
   planComment?: { selectedText: string; comment: string }
   planMode?: string
   workflowMode?: string
-  managedBy?: "channel"
+  managedBy?: "channel" | "scheduled"
+  sourceRef?: string
   canForceInsert: boolean
   mode: "queue" | "force_insert"
   status:
@@ -812,9 +814,10 @@ export function useChatStream({
       goalTrigger: item.goalTrigger,
       planComment: item.planComment,
       managedBy: item.managedBy,
+      sourceRef: item.sourceRef,
       canForceInsert: item.canForceInsert,
       editable:
-        item.managedBy !== "channel" &&
+        item.managedBy == null &&
         !item.displayText &&
         !item.isPlanTrigger &&
         !item.goalTrigger &&
@@ -861,7 +864,7 @@ export function useChatStream({
       !pending.isPlanTrigger &&
       !pending.goalTrigger &&
       !pending.planComment &&
-      pending.managedBy !== "channel" &&
+      pending.managedBy == null &&
       pending.canForceInsert === true &&
       (pending.status === "queued" || pending.status === "fallback_after_reply") &&
       pending.mode !== "force_insert",
@@ -884,6 +887,7 @@ export function useChatStream({
     goalTrigger: pending.goalTrigger,
     editable: pending.editable,
     managedBy: pending.managedBy,
+    sourceRef: pending.sourceRef,
   }))
   const setPendingMessage = useCallback<React.Dispatch<React.SetStateAction<string | null>>>(
     (value) => {
@@ -1107,8 +1111,7 @@ export function useChatStream({
           sessionId,
         })
         const status = state.status ?? state.lastTerminalStatus ?? null
-        const terminal =
-          status === "completed" || status === "interrupted" || status === "failed"
+        const terminal = status === "completed" || status === "interrupted" || status === "failed"
         if (
           state.active ||
           state.admissionActive !== false ||
@@ -1231,6 +1234,29 @@ export function useChatStream({
       })
   }, [currentSessionId, syncPendingSends, updatePendingSends, wakeOwnerlessPendingReplayIfIdle])
 
+  // Release events are process-local, while the queue is shared by Desktop
+  // and bundled HTTP. Poll only while this client owns a runnable ordinary row
+  // so a turn completed by another process cannot strand the accepted send.
+  useEffect(() => {
+    if (
+      !currentSessionId ||
+      !pendingSendsState.some(
+        (item) =>
+          !item.managedBy && (item.status === "queued" || item.status === "fallback_after_reply"),
+      )
+    ) {
+      return
+    }
+    const timer = window.setInterval(
+      () =>
+        void syncPendingSends(currentSessionId).then(() =>
+          wakeOwnerlessPendingReplayIfIdle(currentSessionId),
+        ),
+      15_000,
+    )
+    return () => window.clearInterval(timer)
+  }, [currentSessionId, pendingSendsState, syncPendingSends, wakeOwnerlessPendingReplayIfIdle])
+
   useEffect(() => {
     return getTransport().listen("chat:turn_queue_changed", (raw) => {
       const payload = raw as { sessionId?: unknown; operation?: unknown } | null
@@ -1239,7 +1265,12 @@ export function useChatStream({
       void syncPendingSends(sid).catch((error) => {
         logger.warn("chat", "useChatStream::queueEvent", "Failed to reconcile queue", error)
       })
-      if (payload?.operation === "turn_released") wakeOwnerlessPendingReplay(sid)
+      if (
+        payload?.operation === "turn_released" ||
+        payload?.operation === "direct_admission_released"
+      ) {
+        wakeOwnerlessPendingReplay(sid)
+      }
     })
   }, [currentSessionIdRef, syncPendingSends, wakeOwnerlessPendingReplay])
 
@@ -1867,7 +1898,7 @@ export function useChatStream({
     const messageQuotesToSend = [...draftMessageQuotes]
     const displayed = options?.displayText?.trim() || text
     const sendDraftProjectId = sendSessionId ? null : draftProjectIdRef.current
-    const chatRequestOwnerId = generateClientId()
+    const chatRequestOwnerId = options?.queuedRequestId ?? generateClientId()
     const preparationAbort = new AbortController()
     preparationAbortByRequestRef.current.set(chatRequestOwnerId, preparationAbort)
     let chatRequestOwnerKey = sendSessionId ?? "__pending__"
@@ -2140,6 +2171,7 @@ export function useChatStream({
 
     let targetSessionId = sendSessionId ?? currentSessionId
     let chatResolved = false
+    let backendQueued = false
     let keepExistingStreamLoading = false
     let dispatchAccepted = false
     const markDispatchAccepted = () => {
@@ -2199,6 +2231,32 @@ export function useChatStream({
         return true
       }
 
+      const handleTurnQueuedEvent = (event: Record<string, unknown>): boolean => {
+        if (
+          event.type !== "turn_queued" ||
+          typeof event.session_id !== "string" ||
+          !event.session_id ||
+          typeof event.request_id !== "string" ||
+          !event.request_id
+        ) {
+          return false
+        }
+        if (targetSessionId && targetSessionId !== event.session_id) return true
+        targetSessionId = event.session_id
+        bindChatRequestOwner(event.session_id)
+        backendQueued = true
+        markDispatchAccepted()
+        updateSessionMessages(event.session_id, (prev) =>
+          prev.filter(
+            (message) =>
+              message._clientId !== assistantPlaceholderClientId &&
+              message._clientId !== optimisticUserClientId,
+          ),
+        )
+        void syncPendingSends(event.session_id).catch(() => undefined)
+        return true
+      }
+
       const shouldDropStreamEvent = (event: Record<string, unknown>, sid: string): boolean => {
         const streamId = streamIdFromEvent(event)
         if (isStreamEnded(endedStreamIdsRef.current, sid, streamId)) return true
@@ -2217,6 +2275,7 @@ export function useChatStream({
 
       const dispatchStreamEvent = (event: Record<string, unknown>) => {
         if (handleSessionCreated(event)) return
+        if (handleTurnQueuedEvent(event)) return
         if (handleTurnStartedEvent(event)) return
 
         const sid = targetSid()
@@ -2368,7 +2427,7 @@ export function useChatStream({
         onEvent,
       )
       if (options?.editMessageId != null) markDispatchAccepted()
-      chatResolved = true
+      chatResolved = !backendQueued
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       const ownsRequestLifecycleNow =
@@ -2630,7 +2689,7 @@ export function useChatStream({
     async (id: string, text: string): Promise<boolean> => {
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
       const next = text.trim()
-      if (!item || item.managedBy === "channel" || !next || item.status === "saving") return false
+      if (!item || item.managedBy != null || !next || item.status === "saving") return false
       const changed = await getTransport().call<boolean>("update_queued_turn_user_message", {
         sessionId: item.sessionId,
         requestId: id,
@@ -2646,7 +2705,7 @@ export function useChatStream({
   const discardPendingSend = useCallback(
     async (id: string) => {
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
-      if (!item || item.managedBy === "channel") return
+      if (!item || item.managedBy != null) return
       if (item.status === "saving") {
         updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
         return
@@ -2665,7 +2724,7 @@ export function useChatStream({
       const item = pendingSendsRef.current.find((pending) => pending.id === id)
       if (
         !item ||
-        item.managedBy === "channel" ||
+        item.managedBy != null ||
         loading ||
         (item.status !== "queued" && item.status !== "fallback_after_reply")
       ) {
