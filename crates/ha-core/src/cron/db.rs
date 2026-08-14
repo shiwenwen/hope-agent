@@ -1270,6 +1270,24 @@ impl CronDB {
         Ok(())
     }
 
+    /// Read-only mirror of the workspace-policy CAS guard used by owner edits.
+    pub fn workspace_policy_locked(&self, job_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT running_at IS NOT NULL OR workspace_resource_locked OR
+                    (json_extract(workspace_policy_json, '$.mode')='persistent' AND EXISTS(
+                      SELECT 1 FROM cron_run_logs WHERE job_id=?1 AND worktree_id IS NOT NULL
+                        AND COALESCE(workspace_status,'') != 'discarded'))
+                   FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
     /// Review fix: finalize the in-progress run log if it was opened
     /// (`Some(id)`), otherwise INSERT a complete terminal row. `add_running_run_log`
     /// can fail on a transient DB error; without this fallback every terminal path
@@ -2354,7 +2372,7 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     })
 }
 
-fn validate_workspace_policy(
+pub fn validate_workspace_policy(
     policy: CronWorkspacePolicy,
     payload: &CronPayload,
     project_id: Option<&str>,

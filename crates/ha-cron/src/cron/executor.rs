@@ -46,6 +46,18 @@ pub fn spawn_job_execution(
     });
 }
 
+/// Dispatch an already-claimed manual occurrence without attempting a second
+/// claim. The caller may report success only after constructing this lease.
+pub fn spawn_claimed_job_execution(
+    cron_db: Arc<CronDB>,
+    session_db: Arc<ha_core::session::SessionDB>,
+    claimed: ClaimedCronJob,
+) {
+    cron_dispatch_runtime().spawn(async move {
+        execute_claimed_job(&cron_db, &session_db, claimed).await;
+    });
+}
+
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,
@@ -1699,6 +1711,9 @@ pub(crate) fn resolve_execution_context(
         None => None,
         Some(pid) => match ha_core::get_project_db() {
             Some(db) => match db.get(pid) {
+                Ok(Some(project)) if project.archived && project_required => {
+                    return Err("workspace_project_archived")
+                }
                 Ok(Some(project)) => Some(project),
                 Ok(None) if project_required => return Err("workspace_project_missing"),
                 Ok(None) => {

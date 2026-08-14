@@ -1,10 +1,15 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::Value;
 
 use ha_core::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJob};
+
+use crate::cron::{
+    evaluate_cron_preflight, start_cron_run_now, CronPreflightRequest, CronRunNowResult,
+};
 
 /// Tool: manage_cron — create, list, get, update, delete, and trigger scheduled tasks,
 /// and discover IM channel delivery targets.
@@ -91,7 +96,13 @@ pub(crate) fn tool_manage_cron<'a>(
                     workspace_policy: Default::default(),
                 };
 
-                let job = cron_db.add_job(&input)?;
+                require_cron_preflight(
+                    cron_db.clone(),
+                    CronPreflightRequest::Create { job: input.clone() },
+                )
+                .await?;
+                let db = cron_db.clone();
+                let job = ha_core::blocking::run_blocking(move || db.add_job(&input)).await?;
                 let mut out = format!(
                     "Created scheduled task '{}' (id: {}). Next run: {}",
                     job.name,
@@ -199,12 +210,21 @@ pub(crate) fn tool_manage_cron<'a>(
                     if !v.is_null() {
                         let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
                             .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
-                        validate_delivery_targets(&parsed)?;
                         job.delivery_targets = parsed;
                     }
                 }
 
-                cron_db.update_job(&job)?;
+                require_cron_preflight(
+                    cron_db.clone(),
+                    CronPreflightRequest::Update {
+                        job: job.clone(),
+                        expected_revision: job.revision,
+                    },
+                )
+                .await?;
+                let db = cron_db.clone();
+                let draft = job.clone();
+                ha_core::blocking::run_blocking(move || db.update_job(&draft)).await?;
                 Ok(format!(
                     "Updated scheduled task '{}' (id: {}). Next run: {} | Project: {} | Targets: {}",
                     job.name,
@@ -360,21 +380,32 @@ pub(crate) fn tool_manage_cron<'a>(
 
                 // Prefer the global SessionDB (Tauri app); fall back to opening a fresh
                 // connection (ACP mode where SESSION_DB OnceLock is never populated).
-                let session_db = match ha_core::get_session_db() {
-                    Some(db) => db.clone(),
-                    None => {
-                        ha_core::blocking::run_blocking(move || {
-                            let path = ha_core::session::db_path()?;
-                            Ok::<_, anyhow::Error>(std::sync::Arc::new(
-                                ha_core::session::SessionDB::open(&path)?,
-                            ))
-                        })
-                        .await?
-                    }
-                };
+                let session_db = cron_session_db().await?;
 
-                crate::cron::spawn_job_execution(cron_db.clone(), session_db, job);
-                Ok(format!("Triggered immediate execution of '{}'.", id))
+                match start_cron_run_now(
+                    cron_db.clone(),
+                    session_db,
+                    id.to_string(),
+                    job.revision,
+                    crate::cron::CronManagedWorkspaceWritePolicy::Allowed,
+                )
+                .await?
+                {
+                    CronRunNowResult::Started { revision, .. } => Ok(format!(
+                        "Started immediate execution of '{}' at revision {}.",
+                        id, revision
+                    )),
+                    CronRunNowResult::Rejected { report } => anyhow::bail!(
+                        "run_now preflight rejected '{}': {}",
+                        id,
+                        report
+                            .issues
+                            .iter()
+                            .map(|issue| format!("{:?}", issue.code))
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    ),
+                }
             }
 
             "list_channel_targets" => Ok(list_channel_targets_text()),
@@ -392,6 +423,36 @@ pub(crate) fn tool_manage_cron<'a>(
             )),
         }
     })
+}
+
+async fn cron_session_db() -> Result<Arc<ha_core::session::SessionDB>> {
+    if let Some(db) = ha_core::get_session_db() {
+        return Ok(db.clone());
+    }
+    ha_core::blocking::run_blocking(move || {
+        let path = ha_core::session::db_path()?;
+        Ok(Arc::new(ha_core::session::SessionDB::open(&path)?))
+    })
+    .await
+}
+
+async fn require_cron_preflight(
+    cron_db: Arc<cron::CronDB>,
+    request: CronPreflightRequest,
+) -> Result<()> {
+    let report = evaluate_cron_preflight(
+        cron_db,
+        cron_session_db().await?,
+        request,
+        crate::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await?;
+    anyhow::ensure!(
+        report.can_proceed,
+        "cron preflight rejected: {:?}",
+        report.issues
+    );
+    Ok(())
 }
 
 fn reject_loop_managed_job(job: &cron::CronJob, id: &str, action: &str) -> Result<()> {
@@ -732,7 +793,6 @@ fn resolve_delivery_targets_for_create(
         Some(v) => {
             let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
                 .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
-            validate_delivery_targets(&parsed)?;
             Ok((parsed, false))
         }
     }
@@ -747,39 +807,6 @@ fn resolve_delivery_targets_for_create(
 /// and is the create-time complement to the runtime skip-and-warn guard in
 /// `cron::delivery`. Inferred targets (derived from the caller's own IM
 /// conversation row) skip this — they are recorded by construction.
-fn validate_delivery_targets(targets: &[CronDeliveryTarget]) -> Result<()> {
-    if targets.is_empty() {
-        return Ok(());
-    }
-    let Some(db) = ha_core::get_channel_db() else {
-        anyhow::bail!(
-            "Cannot validate delivery_targets: the IM channel subsystem is not available. \
-             Configure an IM channel account first."
-        );
-    };
-    for t in targets {
-        let known = db
-            .conversation_exists(
-                &t.channel_id,
-                &t.account_id,
-                &t.chat_id,
-                t.thread_id.as_deref(),
-            )
-            .unwrap_or(false);
-        if !known {
-            anyhow::bail!(
-                "delivery_target {}:{} (account '{}') is not a recorded conversation. \
-                 Call action='list_channel_targets' to discover valid \
-                 channel_id/account_id/chat_id triples before setting delivery_targets.",
-                t.channel_id,
-                t.chat_id,
-                t.account_id
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Compact single-line summary of delivery targets for status messages.
 fn format_targets_inline(targets: &[CronDeliveryTarget]) -> String {
     targets

@@ -11,11 +11,19 @@ use ha_core::cron;
 use crate::error::AppError;
 use crate::routes::helpers::{cron_db as db, session_db};
 
-fn ensure_workspace_writes_allowed() -> Result<(), AppError> {
+fn managed_workspace_write_policy() -> ha_cron::cron::CronManagedWorkspaceWritePolicy {
     if ha_core::config::cached_config()
         .filesystem
         .allow_remote_writes
     {
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed
+    } else {
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Denied
+    }
+}
+
+fn ensure_workspace_writes_allowed() -> Result<(), AppError> {
+    if managed_workspace_write_policy() == ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed {
         Ok(())
     } else {
         Err(AppError::forbidden(
@@ -54,6 +62,26 @@ pub async fn get_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(job)?))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PreflightBody {
+    pub request: ha_cron::cron::CronPreflightRequest,
+}
+
+/// `POST /api/cron/preflight` — read-only candidate/live execution preview.
+pub async fn preflight(
+    Json(body): Json<PreflightBody>,
+) -> Result<Json<ha_cron::cron::CronPreflightReport>, AppError> {
+    Ok(Json(
+        ha_cron::cron::evaluate_cron_preflight(
+            db()?.clone(),
+            session_db()?.clone(),
+            body.request,
+            managed_workspace_write_policy(),
+        )
+        .await?,
+    ))
+}
+
 /// Body wrapper used by `cron_create_job` / `cron_update_job` — frontend
 /// ships `{ job: <CronJob> }` to mirror the Tauri command's single
 /// `job:` parameter.
@@ -72,6 +100,21 @@ pub struct UpdateJobBody {
 /// `POST /api/cron/jobs`
 pub async fn create_job(Json(body): Json<CreateJobBody>) -> Result<Json<cron::CronJob>, AppError> {
     ensure_workspace_policy_allowed(&body.job.workspace_policy)?;
+    let report = ha_cron::cron::evaluate_cron_preflight(
+        db()?.clone(),
+        session_db()?.clone(),
+        ha_cron::cron::CronPreflightRequest::Create {
+            job: body.job.clone(),
+        },
+        managed_workspace_write_policy(),
+    )
+    .await?;
+    if !report.can_proceed {
+        return Err(AppError::conflict_with_code(
+            "cron_preflight_blocked",
+            "Cron preflight blocked",
+        ));
+    }
     let db = db()?;
     Ok(Json(run_blocking(move || db.add_job(&body.job)).await?))
 }
@@ -85,6 +128,22 @@ pub async fn update_job(
         return Err(AppError::bad_request("path id does not match job id"));
     }
     ensure_workspace_policy_allowed(&body.job.workspace_policy)?;
+    let report = ha_cron::cron::evaluate_cron_preflight(
+        db()?.clone(),
+        session_db()?.clone(),
+        ha_cron::cron::CronPreflightRequest::Update {
+            job: body.job.clone(),
+            expected_revision: body.expected_revision,
+        },
+        managed_workspace_write_policy(),
+    )
+    .await?;
+    if !report.can_proceed {
+        return Err(AppError::conflict_with_code(
+            "cron_preflight_blocked",
+            "Cron preflight blocked",
+        ));
+    }
     let db = db()?;
     let result = run_blocking(move || db.update_job_cas(&body.job, body.expected_revision)).await?;
     if result.updated {
@@ -133,28 +192,27 @@ pub async fn toggle_job(
     Ok(Json(json!({ "toggled": true })))
 }
 
-/// `POST /api/cron/jobs/{id}/run`
-pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    // Cron only runs on the Primary instance — `execute_job_public` no-ops on a
-    // Secondary (C10). If this HTTP server is Secondary (e.g. it shares a data dir
-    // with a desktop that holds the runtime lock), returning `{"scheduled": true}`
-    // would be a silent lie: the run would never execute, log, or deliver. Reject
-    // it so the caller knows to target the primary instance instead.
-    if !ha_core::runtime_lock::is_primary() {
-        return Err(AppError::conflict_with_code(
-            "not_primary",
-            "run-now is unavailable on this instance: scheduled jobs only run on the primary",
-        ));
-    }
-    let job = {
-        let db = db()?;
-        let id = id.clone();
-        run_blocking(move || db.get_job(&id)).await?
-    }
-    .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;
-    ensure_workspace_policy_allowed(&job.workspace_policy)?;
-    ha_cron::cron::spawn_job_execution(db()?.clone(), session_db()?.clone(), job);
-    Ok(Json(json!({ "scheduled": true })))
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunNowBody {
+    pub expected_revision: u64,
+}
+
+/// `POST /api/cron/jobs/{id}/run` — live preflight + exact synchronous claim.
+pub async fn run_now(
+    Path(id): Path<String>,
+    Json(body): Json<RunNowBody>,
+) -> Result<Json<ha_cron::cron::CronRunNowResult>, AppError> {
+    Ok(Json(
+        ha_cron::cron::start_cron_run_now(
+            db()?.clone(),
+            session_db()?.clone(),
+            id,
+            body.expected_revision,
+            managed_workspace_write_policy(),
+        )
+        .await?,
+    ))
 }
 
 /// `GET /api/cron/jobs-referencing-account/{accountId}` — §8: cron jobs whose

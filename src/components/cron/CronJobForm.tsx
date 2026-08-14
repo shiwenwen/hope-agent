@@ -19,6 +19,7 @@ import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type {
   CronDeliveryTarget,
   CronJob,
+  CronPreflightReport,
   CronSchedule,
   CronUpdateResult,
   CronWorkspaceMode,
@@ -31,6 +32,7 @@ import {
   toLocalDatetimeString,
 } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
+import CronPreflightDialog from "./CronPreflightDialog"
 import { DockerSetupHint } from "@/components/settings/DockerSetupHint"
 import { useDockerStatus } from "@/hooks/useDockerStatus"
 import type { AgentInfo, SandboxMode, SessionMode } from "@/types/chat"
@@ -52,6 +54,10 @@ interface ChannelConversationDto {
   createdAt: string
   updatedAt: string
 }
+
+type PendingSave =
+  | { operation: "create"; job: object }
+  | { operation: "update"; job: CronJob; expectedRevision: number }
 
 // ── Form Props ────────────────────────────────────────────────────
 
@@ -242,6 +248,8 @@ export default function CronJobForm({
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [pendingSave, setPendingSave] = useState<PendingSave | null>(null)
+  const [preflight, setPreflight] = useState<CronPreflightReport | null>(null)
   const selectedAgent = agentId === AUTO_AGENT_VALUE ? null : agents.find((a) => a.id === agentId)
   const selectedProject =
     projectId === NO_PROJECT_VALUE ? null : projects.find((p) => p.id === projectId)
@@ -433,72 +441,86 @@ export default function CronJobForm({
     }
 
     try {
-      if (isEditing && job) {
-        const schedule = buildSchedule()
-        const updated: CronJob = {
-          ...(baselineJob ?? job),
-          name: name.trim(),
-          description: description.trim() || null,
-          projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
-          workspacePolicy: {
-            mode: workspaceMode,
-            baseRef: workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
-          },
-          schedule,
-          payload: {
-            type: "agentTurn",
-            prompt: message.trim(),
-            agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
-          },
-          maxFailures: parseInt(maxFailures) || 5,
-          notifyOnComplete,
-          deliveryTargets: validTargets,
-          prefixDeliveryWithName,
-          jobTimeoutSecs: parseJobTimeoutSecs(),
-          permissionModeOverride: resolvedPermissionMode,
-          sandboxModeOverride: resolvedSandboxMode,
-        }
+      const candidate = {
+        name: name.trim(),
+        description: description.trim() || null,
+        projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
+        workspacePolicy: {
+          mode: workspaceMode,
+          baseRef: workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
+        },
+        schedule: buildSchedule(),
+        payload: {
+          type: "agentTurn" as const,
+          prompt: message.trim(),
+          agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
+        },
+        maxFailures: parseInt(maxFailures) || 5,
+        notifyOnComplete,
+        deliveryTargets: validTargets,
+        prefixDeliveryWithName,
+        jobTimeoutSecs: parseJobTimeoutSecs(),
+        permissionModeOverride: resolvedPermissionMode,
+        sandboxModeOverride: resolvedSandboxMode,
+      }
+      const pending: PendingSave =
+        isEditing && job
+          ? {
+              operation: "update",
+              job: { ...(baselineJob ?? job), ...candidate },
+              expectedRevision,
+            }
+          : { operation: "create", job: candidate }
+      const report = await getTransport().call<CronPreflightReport>("cron_preflight", {
+        request: pending,
+      })
+      if (report.issues.some((issue) => issue.code === "revision_conflict")) {
+        setPreflight(null)
+        setPendingSave(null)
+        const current = job
+          ? await getTransport()
+              .call<CronJob | null>("cron_get_job", { id: job.id })
+              .catch(() => null)
+          : null
+        setConflictJob(current)
+        setError(t("cron.revisionConflict"))
+        return
+      }
+      setPendingSave(pending)
+      setPreflight(report)
+    } catch (e: unknown) {
+      setError(String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function confirmSave() {
+    if (!pendingSave || !preflight?.canProceed) return
+    setSaving(true)
+    setError("")
+    try {
+      if (pendingSave.operation === "update") {
         const result = await getTransport().call<CronUpdateResult>("cron_update_job", {
-          job: updated,
-          expectedRevision,
+          job: pendingSave.job,
+          expectedRevision: pendingSave.expectedRevision,
         })
         if (!result.updated) {
           const current = result.currentJob ?? null
           setConflictJob(current)
-          if (current) setExpectedRevision(current.revision)
           setError(t("cron.revisionConflict"))
+          setPreflight(null)
+          setPendingSave(null)
           return
         }
       } else {
-        const schedule = buildSchedule()
-        await getTransport().call("cron_create_job", {
-          job: {
-            name: name.trim(),
-            description: description.trim() || null,
-            projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
-            workspacePolicy: {
-              mode: workspaceMode,
-              baseRef: workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
-            },
-            schedule,
-            payload: {
-              type: "agentTurn",
-              prompt: message.trim(),
-              agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
-            },
-            maxFailures: parseInt(maxFailures) || 5,
-            notifyOnComplete,
-            deliveryTargets: validTargets,
-            prefixDeliveryWithName,
-            jobTimeoutSecs: parseJobTimeoutSecs(),
-            permissionModeOverride: resolvedPermissionMode,
-            sandboxModeOverride: resolvedSandboxMode,
-          },
-        })
+        await getTransport().call("cron_create_job", { job: pendingSave.job })
       }
       onSave()
     } catch (e: unknown) {
       setError(String(e))
+      setPreflight(null)
+      setPendingSave(null)
     } finally {
       setSaving(false)
     }
@@ -1065,15 +1087,6 @@ export default function CronJobForm({
                   >
                     {t("cron.reloadLatest")}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={saving}
-                  >
-                    {t("common.retry")}
-                  </Button>
                 </div>
               )}
             </div>
@@ -1090,6 +1103,17 @@ export default function CronJobForm({
           </Button>
         </div>
       </div>
+      <CronPreflightDialog
+        report={preflight}
+        busy={saving}
+        confirmLabel={isEditing ? t("common.save") : t("cron.create")}
+        onClose={() => {
+          setPreflight(null)
+          setPendingSave(null)
+        }}
+        onConfirm={() => void confirmSave()}
+        onRetry={() => void handleSave()}
+      />
     </div>
   )
 }

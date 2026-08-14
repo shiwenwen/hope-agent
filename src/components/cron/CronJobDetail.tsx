@@ -46,8 +46,10 @@ import { logger } from "@/lib/logger"
 import { markCronSessionRead } from "@/hooks/useCronUnreadStore"
 import type {
   CronJob,
+  CronPreflightReport,
   CronRunCancelResult,
   CronRunLog,
+  CronRunNowResult,
   CronWorkspaceActionAvailability,
   CronWorkspaceActionResult,
   CronWorkspaceResource,
@@ -64,6 +66,7 @@ import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { LoopSnapshot, LoopState } from "@/components/chat/workspace/useLoopSchedules"
 import CronSessionViewer from "./CronSessionViewer"
 import CronLoopBadge from "./CronLoopBadge"
+import CronPreflightDialog from "./CronPreflightDialog"
 
 const LOG_PAGE = 50
 type WorkspaceAction = "takeover" | "return" | "resume" | "discard" | "archive" | "restore"
@@ -279,6 +282,8 @@ export default function CronJobDetail({
   const [logsOffset, setLogsOffset] = useState(0)
   const [logsHasMore, setLogsHasMore] = useState(false)
   const [loadingMoreLogs, setLoadingMoreLogs] = useState(false)
+  const [runNowBusy, setRunNowBusy] = useState(false)
+  const [runPreflight, setRunPreflight] = useState<CronPreflightReport | null>(null)
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [loopState, setLoopState] = useState<LoopState | null>(null)
@@ -475,10 +480,46 @@ export default function CronJobDetail({
         return
       await getTransport().call("run_loop_schedule_now", { loopId: job.payload.loopId })
     } else {
-      await getTransport().call("cron_run_now", { id: job.id })
+      setRunNowBusy(true)
+      try {
+        const report = await getTransport().call<CronPreflightReport>("cron_preflight", {
+          request: { operation: "runNow", jobId: job.id, expectedRevision: job.revision },
+        })
+        setRunPreflight(report)
+      } catch (error) {
+        logger.error("cron", "CronJobDetail::preflightRunNow", "Run-now preflight failed", error)
+        toast.error(t("cron.preflightTitle"), { description: String(error) })
+      } finally {
+        setRunNowBusy(false)
+      }
+      return
     }
     // Refresh after a short delay to pick up the run log
     setTimeout(fetchData, 2000)
+  }
+
+  async function confirmRunNow() {
+    if (!job || job.payload.type !== "agentTurn" || !runPreflight?.canProceed) return
+    setRunNowBusy(true)
+    try {
+      const result = await getTransport().call<CronRunNowResult>("cron_run_now", {
+        id: job.id,
+        expectedRevision: job.revision,
+      })
+      if (result.status === "rejected") {
+        setRunPreflight(result.report)
+        return
+      }
+      setRunPreflight(null)
+      await fetchData()
+      onRefresh()
+      setTimeout(fetchData, 1500)
+    } catch (error) {
+      logger.error("cron", "CronJobDetail::runNow", "Run-now start failed", error)
+      toast.error(t("cron.preflightTitle"), { description: String(error) })
+    } finally {
+      setRunNowBusy(false)
+    }
   }
 
   async function handleStopLoop() {
@@ -611,8 +652,9 @@ export default function CronJobDetail({
               size="sm"
               className="mr-1 h-8 gap-1.5 rounded-lg bg-primary/10 px-2.5 text-xs text-primary hover:bg-primary/15 hover:text-primary"
               onClick={handleRunNow}
+              disabled={runNowBusy}
             >
-              <Zap className="h-3.5 w-3.5" />
+              {runNowBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
               {t("cron.runNow")}
             </Button>
           )}
@@ -1041,6 +1083,14 @@ export default function CronJobDetail({
           )}
         </div>
       </div>
+      <CronPreflightDialog
+        report={runPreflight}
+        busy={runNowBusy}
+        confirmLabel={t("cron.runNow")}
+        onClose={() => setRunPreflight(null)}
+        onConfirm={() => void confirmRunNow()}
+        onRetry={() => void handleRunNow()}
+      />
     </div>
   )
 }

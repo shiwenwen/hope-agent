@@ -1230,11 +1230,12 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 |---|---|---|
 | `cron_list_jobs` | `GET /api/cron/jobs` | ✅ |
 | `cron_get_job` | `GET /api/cron/jobs/{id}` | ✅ |
+| `cron_preflight` | `POST /api/cron/preflight` | ✅（只读；body `{ request }`，支持 create/update/runNow，返回下三次触发、实际执行摘要和 blocker/warning/info） |
 | `cron_create_job` | `POST /api/cron/jobs` | ✅ |
 | `cron_update_job` | `PUT /api/cron/jobs/{id}` | ✅（`expectedRevision` CAS；冲突 HTTP 409 / code=`cron_revision_conflict` + `currentJob`，Tauri 返回同形结果） |
 | `cron_toggle_job` | `POST /api/cron/jobs/{id}/toggle` | ✅ |
 | `cron_delete_job` | `DELETE /api/cron/jobs/{id}` | ✅（逻辑删除；保留运行历史与普通 / legacy Session） |
-| `cron_run_now` | `POST /api/cron/jobs/{id}/run` | ✅ |
+| `cron_run_now` | `POST /api/cron/jobs/{id}/run` | ✅（body `{ expectedRevision }`；live preflight 后同步精确 claim，返回 `started` 或带新报告的 `rejected`） |
 | `cron_cancel_run` | `POST /api/cron/runs/{runLogId}/cancel` | ✅（按 immutable run-log occurrence 精确取消 standalone `AgentTurn`；terminal 幂等 no-op；无 `turnId` 的 legacy / SessionLoop 返回 `code=cron_run_cancel_unsupported`、`cancelRequested=false`） |
 | `cron_jobs_referencing_account` | `GET /api/cron/jobs-referencing-account/{accountId}` | ✅ |
 | `cron_get_run_logs` | `GET /api/cron/jobs/{jobId}/logs` | ✅（按可见行分页，排除已归档运行对话；standalone 行含 exact `turnId`） |
@@ -1249,7 +1250,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `cron_workspace_discard_run` | `POST /api/cron/runs/{runLogId}/workspace/discard` | ✅（body `{ sessionId, confirm: true }`） |
 | `cron_workspace_discard_task` | `POST /api/cron/jobs/{jobId}/workspace/discard` | ✅（body `{ confirm: true }`） |
 
-Scheduled Worktree 读取端点不写盘；非 Project 任务的远程 create/update/enable/run-now 与资源接管、归还、丢弃都必须实时命中 `filesystem.allowRemoteWrites=true`，否则 403。可用性及拒绝原因由 `CronWorkspaceResource.actions` 返回，客户端不根据本地状态猜测；真正的 Diff / branch / commit / push / PR 继续复用普通 Session Workspace / Git 控制面。
+`cron_preflight` 不联网、不创建 Worktree、不写数据库；create/update 壳在临写前重跑同一 evaluator 并拒绝 blocker。非 Project 任务的远程 create/update/enable/run-now 与资源接管、归还、丢弃还必须实时命中 `filesystem.allowRemoteWrites=true`，否则 403。Scheduled Worktree 读取端点同样不写盘；可用性及拒绝原因由 `CronWorkspaceResource.actions` 返回，客户端不根据本地状态猜测；真正的 Diff / branch / commit / push / PR 继续复用普通 Session Workspace / Git 控制面。
 
 ### Dashboard
 

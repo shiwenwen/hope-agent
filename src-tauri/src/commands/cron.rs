@@ -27,10 +27,35 @@ pub async fn cron_get_job(
 }
 
 #[tauri::command]
+pub async fn cron_preflight(
+    request: ha_cron::cron::CronPreflightRequest,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronPreflightReport, CmdError> {
+    ha_cron::cron::evaluate_cron_preflight(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        request,
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn cron_create_job(
     job: cron::NewCronJob,
     state: State<'_, AppState>,
 ) -> Result<cron::CronJob, CmdError> {
+    let report = ha_cron::cron::evaluate_cron_preflight(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        ha_cron::cron::CronPreflightRequest::Create { job: job.clone() },
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await?;
+    if !report.can_proceed {
+        return Err(CmdError::msg("Cron preflight blocked"));
+    }
     let cron_db = state.cron_db.clone();
     ha_core::blocking::run_blocking(move || cron_db.add_job(&job))
         .await
@@ -43,6 +68,19 @@ pub async fn cron_update_job(
     expected_revision: u64,
     state: State<'_, AppState>,
 ) -> Result<cron::CronUpdateResult, CmdError> {
+    let report = ha_cron::cron::evaluate_cron_preflight(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        ha_cron::cron::CronPreflightRequest::Update {
+            job: job.clone(),
+            expected_revision,
+        },
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await?;
+    if !report.can_proceed {
+        return Err(CmdError::msg("Cron preflight blocked"));
+    }
     let cron_db = state.cron_db.clone();
     ha_core::blocking::run_blocking(move || cron_db.update_job_cas(&job, expected_revision))
         .await
@@ -82,23 +120,20 @@ pub async fn cron_toggle_job(
 }
 
 #[tauri::command]
-pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    // Cron only runs on the Primary instance — `execute_job_public` no-ops on a
-    // Secondary (C10). The desktop is normally Primary, but guard anyway so a
-    // Secondary desktop reports the failure instead of silently swallowing the run.
-    if !ha_core::runtime_lock::is_primary() {
-        return Err(CmdError::msg(
-            "run-now is unavailable on this instance: scheduled jobs only run on the primary",
-        ));
-    }
-    let job = {
-        let cron_db = state.cron_db.clone();
-        ha_core::blocking::run_blocking(move || cron_db.get_job(&id)).await?
-    }
-    .ok_or_else(|| CmdError::msg("Job not found"))?;
-
-    ha_cron::cron::spawn_job_execution(state.cron_db.clone(), state.session_db.clone(), job);
-    Ok(())
+pub async fn cron_run_now(
+    id: String,
+    expected_revision: u64,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronRunNowResult, CmdError> {
+    ha_cron::cron::start_cron_run_now(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        id,
+        expected_revision,
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]

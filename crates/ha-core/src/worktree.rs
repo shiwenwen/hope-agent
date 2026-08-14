@@ -119,6 +119,27 @@ pub struct ManagedWorktreeDirtySnapshot {
     pub changed_files: u32,
 }
 
+/// Validate the same source/ref boundary as managed-worktree creation without
+/// creating a directory or writing a database row.
+pub fn preflight_managed_worktree_source(
+    source_working_dir: &str,
+    base_ref: Option<&str>,
+) -> Result<u32> {
+    let source = canonical_dir(source_working_dir)?;
+    if !is_inside_git_work_tree(&source) {
+        bail!("{} is not inside a git worktree", source.display());
+    }
+    canonical_dir(git_output(&source, &["rev-parse", "--show-toplevel"])?.trim())?;
+    let base_ref = base_ref
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD");
+    resolve_commit(&source, base_ref)?;
+    Ok(worktree_dirty_snapshot(&source)
+        .ok_or_else(|| anyhow!("{} is not inside a git worktree", source.display()))?
+        .changed_files)
+}
+
 #[derive(Debug, Clone)]
 pub struct ManagedWorktreeRuntimeSnapshot {
     pub head_sha: Option<String>,
@@ -591,9 +612,7 @@ impl SessionDB {
                     .filter(|s| !s.is_empty())
                     .unwrap_or("HEAD")
                     .to_string();
-                let base_sha = git_output(&source_dir, &["rev-parse", "--verify", &base_ref])?
-                    .trim()
-                    .to_string();
+                let base_sha = resolve_commit(&source_dir, &base_ref)?;
                 let base_branch = if base_ref == "HEAD" {
                     current_branch(&source_dir)
                 } else {
@@ -1808,8 +1827,19 @@ fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
 }
 
 fn git_output_bytes(cwd: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    git_output_bytes_mode(cwd, args, false)
+}
+
+fn git_output_read_only(cwd: &Path, args: &[&str]) -> Result<String> {
+    Ok(String::from_utf8_lossy(&git_output_bytes_mode(cwd, args, true)?).into_owned())
+}
+
+fn git_output_bytes_mode(cwd: &Path, args: &[&str], no_optional_locks: bool) -> Result<Vec<u8>> {
     let mut cmd = Command::new("git");
     crate::filesystem::isolate_repository_env(&mut cmd);
+    if no_optional_locks {
+        cmd.env("GIT_OPTIONAL_LOCKS", "0");
+    }
     cmd.current_dir(cwd).args(args);
     crate::platform::hide_console(&mut cmd);
     let out = cmd
@@ -1823,6 +1853,13 @@ fn git_output_bytes(cwd: &Path, args: &[&str]) -> Result<Vec<u8>> {
         );
     }
     Ok(out.stdout)
+}
+
+fn resolve_commit(cwd: &Path, base_ref: &str) -> Result<String> {
+    let commit_ref = format!("{base_ref}^{{commit}}");
+    Ok(git_output(cwd, &["rev-parse", "--verify", &commit_ref])?
+        .trim()
+        .to_string())
 }
 
 fn git_status(cwd: &Path, args: &[&str]) -> Result<()> {
@@ -2137,7 +2174,7 @@ fn worktree_dirty_snapshot(path: &Path) -> Option<ManagedWorktreeDirtySnapshot> 
     if !path.exists() || !is_inside_git_work_tree(path) {
         return None;
     }
-    let out = git_output(path, &["status", "--porcelain=v1"]).ok()?;
+    let out = git_output_read_only(path, &["status", "--porcelain=v1"]).ok()?;
     let mut staged = 0u32;
     let mut unstaged = 0u32;
     let mut untracked = 0u32;

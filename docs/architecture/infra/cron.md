@@ -565,7 +565,8 @@ scheduled run 在 `deliver_results` fan-out **之前**就 `clear_running` 释放
 
 cron 是 Primary-only。run-now 也补上这道门，并与调度机制正交：
 
-- **run-now 前置 `is_primary()`**：owner 三入口（Tauri `cron_run_now` / HTTP `POST /api/cron/jobs/{id}/run` / `manage_cron action=run_now`）在 spawn 前各自前置校验，非 Primary 直接返错（HTTP 409 `not_primary` / Tauri·工具 `Err`）而非假成功——否则 Secondary 上的 run-now 返回成功却永不执行/投递。Secondary 永不跑 cron，于是 Primary 启动期清理只清自己上次崩溃残留、绝不误伤其它活进程的在途 run。
+- **统一只读 Preflight**：`evaluate_cron_preflight` 只读 SQLite / 配置 / Git / 本机沙箱状态，不联网、不创建 Worktree、不写 DB；create/update owner 壳在临写前重跑并拒绝 blocker，warning 只由 GUI 二次确认。读取失败 fail-closed 为稳定 issue，不伪装成功。
+- **run-now 精确启动**：owner 三入口共用 `start_cron_run_now`，按 `expected_revision` 重跑 live preflight，再在 lifecycle gate 内原子 claim；只有 running lease 已落库才返回 `started`，否则返回带最新报告的 `rejected`。GUI 的预览/确认不能绕过 blocker；`SessionLoop` 仍由原 Loop owner 路径运行。
 - **取消占位也带 `is_primary()` 门**：非 Primary 取消一个本进程没有 live flag 的 run（run 在 Primary 内存里）返回 false、不留永不排空的占位，回落 job-timeout。
 - **`immediate` 与调度/禁用正交**：run-now 只记 run_log + 投递 + clear_running + emit，绝不动 status / schedule / consecutive_failures——run-now 一个 disabled 任务成功不复活成 active，run-now 失败不 bump 失败计数 / 不自动禁用你的计划任务，也不推进 next_run_at / 不终态化一次性 At。
 

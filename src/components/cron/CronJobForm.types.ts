@@ -1,6 +1,7 @@
 // ── Types ─────────────────────────────────────────────────────────
 
 import type { ManagedWorktree } from "@/lib/transport"
+import type { ActiveModel } from "@/types/chat"
 
 export type CronWorkspaceMode = "project" | "fresh" | "persistent"
 export interface CronWorkspacePolicy {
@@ -155,6 +156,30 @@ export interface CronRunCancelResult {
   cancelRequested: boolean
   code?: string | null
 }
+
+export interface CronPreflightReport {
+  checkedRevision?: number | null
+  canProceed: boolean
+  nextRuns: string[]
+  issues: Array<{
+    code: string
+    severity: "blocker" | "warning"
+  }>
+  execution: {
+    resolvedAgentId?: string | null
+    projectName?: string | null
+    workspaceMode: CronWorkspaceMode
+    baseRef?: string | null
+    workspaceDirtyFiles?: number | null
+    effectivePermissionMode?: string | null
+    effectiveSandboxMode?: string | null
+    primaryModel?: ActiveModel | null
+  }
+}
+
+export type CronRunNowResult =
+  | { status: "started" }
+  | { status: "rejected"; report: CronPreflightReport }
 
 /** One row of the cross-job cron run timeline (cron panel "conversations" view). */
 export interface CronTimelineRow {

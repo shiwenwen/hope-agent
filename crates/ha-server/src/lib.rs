@@ -2011,6 +2011,7 @@ fn build_router_with_cors(
         // Cron
         .route("/cron/jobs", get(routes::cron::list_jobs))
         .route("/cron/jobs", post(routes::cron::create_job))
+        .route("/cron/preflight", post(routes::cron::preflight))
         .route("/cron/jobs/{id}", get(routes::cron::get_job))
         .route("/cron/jobs/{id}", put(routes::cron::update_job))
         .route("/cron/jobs/{id}", delete(routes::cron::delete_job))
