@@ -158,7 +158,16 @@ mod tests {
             .expect("add job");
 
         let ordinary = session_db
-            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .create_session_with_project_and_origin(
+                ha_core::agent_loader::DEFAULT_AGENT_ID,
+                None,
+                None,
+                &ha_core::session::SessionOrigin {
+                    kind: "cron".into(),
+                    id: job.id.clone(),
+                    label: job.name.clone(),
+                },
+            )
             .expect("ordinary session");
         session_db
             .update_session_title(&ordinary.id, "Ordinary run title")
@@ -198,8 +207,8 @@ mod tests {
             .expect("hydrate timeline state");
         assert_eq!(
             state.get(&ordinary.id),
-            Some(&(Some("Ordinary run title".to_string()), 0, false)),
-            "ordinary run title is visible but unread stays in the regular domain"
+            Some(&(Some("Ordinary run title".to_string()), 1, false)),
+            "ordinary Scheduled unread projects the regular Session watermark"
         );
         assert_eq!(
             state.get(&legacy.id),

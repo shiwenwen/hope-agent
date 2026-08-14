@@ -1231,12 +1231,13 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `cron_list_jobs` | `GET /api/cron/jobs` | ✅ |
 | `cron_get_job` | `GET /api/cron/jobs/{id}` | ✅ |
 | `cron_create_job` | `POST /api/cron/jobs` | ✅ |
-| `cron_update_job` | `PUT /api/cron/jobs/{id}` | ✅ |
+| `cron_update_job` | `PUT /api/cron/jobs/{id}` | ✅（`expectedRevision` CAS；冲突 HTTP 409 / code=`cron_revision_conflict` + `currentJob`，Tauri 返回同形结果） |
 | `cron_toggle_job` | `POST /api/cron/jobs/{id}/toggle` | ✅ |
 | `cron_delete_job` | `DELETE /api/cron/jobs/{id}` | ✅（逻辑删除；保留运行历史与普通 / legacy Session） |
 | `cron_run_now` | `POST /api/cron/jobs/{id}/run` | ✅ |
+| `cron_cancel_run` | `POST /api/cron/runs/{runLogId}/cancel` | ✅（按 immutable run-log occurrence 精确取消 standalone `AgentTurn`；terminal 幂等 no-op；无 `turnId` 的 legacy / SessionLoop 返回 `code=cron_run_cancel_unsupported`、`cancelRequested=false`） |
 | `cron_jobs_referencing_account` | `GET /api/cron/jobs-referencing-account/{accountId}` | ✅ |
-| `cron_get_run_logs` | `GET /api/cron/jobs/{jobId}/logs` | ✅（按可见行分页，排除已归档运行对话） |
+| `cron_get_run_logs` | `GET /api/cron/jobs/{jobId}/logs` | ✅（按可见行分页，排除已归档运行对话；standalone 行含 exact `turnId`） |
 | `cron_get_calendar_events` | `GET /api/cron/calendar` | ✅ |
 | `cron_run_timeline` | `GET /api/cron/timeline?limit=&offset=` | ✅（跨 job 运行时间线，含已删 Task 历史；`jobDeleted` 标记，按可见行分页并排除已归档对话） |
 | `cron_unread_total` | `GET /api/cron/unread` | ✅（未读 Cron 运行 session 数，侧边栏独立角标） |

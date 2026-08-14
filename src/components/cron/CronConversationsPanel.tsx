@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Archive, ArrowUpRight, Check, CheckCheck, Loader2, MessagesSquare } from "lucide-react"
+import {
+  Archive,
+  ArrowUpRight,
+  Check,
+  CheckCheck,
+  Loader2,
+  MessagesSquare,
+  Square,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { requestChatFocus } from "@/components/chat/chatFocus"
@@ -10,7 +18,7 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { markAllCronRead, markCronSessionRead } from "@/hooks/useCronUnreadStore"
 import { cronDisplayTitle, runLogDotColor, runStatusDisplay } from "./cronHelpers"
-import type { CronTimelineRow } from "./CronJobForm.types"
+import type { CronRunCancelResult, CronTimelineRow } from "./CronJobForm.types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import CronSessionViewer from "./CronSessionViewer"
 import CronLoopBadge from "./CronLoopBadge"
@@ -65,6 +73,7 @@ export default function CronConversationsPanel({
   const [markingRead, setMarkingRead] = useState(false)
   const [markStatus, setMarkStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
+  const [cancellingRunLogId, setCancellingRunLogId] = useState<number | null>(null)
   const markResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const markingSessionIdsRef = useRef(new Set<string>())
   const pendingReadSessionIdRef = useRef<string | null>(null)
@@ -125,6 +134,7 @@ export default function CronConversationsPanel({
       fetchPage(0)
         .then((page) => {
           setRows(page)
+          setCancellingRunLogId(null)
           setOffset(page.length)
           setHasMore(page.length === PAGE_SIZE)
         })
@@ -270,6 +280,32 @@ export default function CronConversationsPanel({
     [archivingSessionId, rows, selectedSessionId, t],
   )
 
+  const handleCancelRun = useCallback(
+    async (row: CronTimelineRow) => {
+      if (cancellingRunLogId != null) return
+      setCancellingRunLogId(row.runLogId)
+      try {
+        const result = await getTransport().call<CronRunCancelResult>("cron_cancel_run", {
+          runLogId: row.runLogId,
+        })
+        if (result.terminal) {
+          const page = await fetchPage(0)
+          setRows(page)
+          setOffset(page.length)
+          setHasMore(page.length === PAGE_SIZE)
+          setCancellingRunLogId(null)
+        } else if (!result.cancelRequested) {
+          throw new Error("exact run was not active in this process")
+        }
+      } catch (error) {
+        logger.error("cron", "CronConversationsPanel::cancelRun", "Failed to cancel run", error)
+        toast.error(t("cron.cancelRunFailed"))
+        setCancellingRunLogId(null)
+      }
+    },
+    [cancellingRunLogId, fetchPage, t],
+  )
+
   return (
     <div className="flex min-h-0 flex-1 px-3 pb-3">
       {/* Left — timeline list */}
@@ -376,22 +412,41 @@ export default function CronConversationsPanel({
                         </Button>
                       </IconTip>
                     )}
-                    <IconTip label={t("chat.archiveSession")}>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1.5 top-1.5 h-7 w-7 opacity-0 transition-opacity group-hover/row:opacity-100"
-                        disabled={archivingSessionId === row.sessionId}
-                        onClick={() => void handleArchive(row)}
-                      >
-                        {archivingSessionId === row.sessionId ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Archive className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </IconTip>
+                    {row.status === "running" && row.payloadType === "agentTurn" ? (
+                      <IconTip label={t("chat.stopReply")}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1.5 top-1.5 h-7 w-7 text-destructive"
+                          disabled={cancellingRunLogId === row.runLogId}
+                          onClick={() => void handleCancelRun(row)}
+                        >
+                          {cancellingRunLogId === row.runLogId ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Square className="h-3.5 w-3.5 fill-current" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    ) : (
+                      <IconTip label={t("chat.archiveSession")}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1.5 top-1.5 h-7 w-7 opacity-0 transition-opacity group-hover/row:opacity-100"
+                          disabled={archivingSessionId === row.sessionId}
+                          onClick={() => void handleArchive(row)}
+                        >
+                          {archivingSessionId === row.sessionId ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Archive className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    )}
                   </div>
                 )
               })}

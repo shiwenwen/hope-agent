@@ -40,12 +40,20 @@ pub async fn cron_create_job(
 #[tauri::command]
 pub async fn cron_update_job(
     job: cron::CronJob,
+    expected_revision: u64,
     state: State<'_, AppState>,
-) -> Result<(), CmdError> {
+) -> Result<cron::CronUpdateResult, CmdError> {
     let cron_db = state.cron_db.clone();
-    ha_core::blocking::run_blocking(move || cron_db.update_job(&job))
+    ha_core::blocking::run_blocking(move || cron_db.update_job_cas(&job, expected_revision))
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_cancel_run(run_log_id: i64) -> Result<cron::CronRunCancelResult, CmdError> {
+    ha_cron::cron::cancel_run(run_log_id)
+        .await?
+        .ok_or_else(|| CmdError::msg("Cron run not found"))
 }
 
 #[tauri::command]

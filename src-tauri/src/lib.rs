@@ -937,6 +937,7 @@ pub fn run() {
             commands::cron::cron_get_job,
             commands::cron::cron_create_job,
             commands::cron::cron_update_job,
+            commands::cron::cron_cancel_run,
             commands::cron::cron_delete_job,
             commands::cron::cron_toggle_job,
             commands::cron::cron_run_now,

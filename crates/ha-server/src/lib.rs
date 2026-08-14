@@ -2016,6 +2016,10 @@ fn build_router_with_cors(
         .route("/cron/jobs/{id}", delete(routes::cron::delete_job))
         .route("/cron/jobs/{id}/toggle", post(routes::cron::toggle_job))
         .route("/cron/jobs/{id}/run", post(routes::cron::run_now))
+        .route(
+            "/cron/runs/{run_log_id}/cancel",
+            post(routes::cron::cancel_run),
+        )
         .route("/cron/jobs/{id}/logs", get(routes::cron::get_run_logs))
         .route(
             "/cron/jobs-referencing-account/{account_id}",

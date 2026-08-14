@@ -14,7 +14,7 @@ pub mod failure;
 pub mod scheduler;
 pub mod timeline;
 
-pub use executor::{cancel_running_job, execute_job_public, spawn_job_execution};
+pub use executor::{cancel_run, cancel_running_job, execute_job_public, spawn_job_execution};
 pub use scheduler::start_scheduler;
 pub use timeline::{
     cron_run_timeline, delete_conversation_and_run_logs, delete_job_and_legacy_sessions,

@@ -15,7 +15,12 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { X, Plus, Send, FolderOpen, AlertTriangle } from "lucide-react"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
-import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
+import type {
+  CronDeliveryTarget,
+  CronJob,
+  CronSchedule,
+  CronUpdateResult,
+} from "./CronJobForm.types"
 
 import type { CronFrequency } from "./CronJobForm.types"
 import {
@@ -78,6 +83,9 @@ export default function CronJobForm({
 }: CronJobFormProps) {
   const { t } = useTranslation()
   const isEditing = !!job
+  const [baselineJob, setBaselineJob] = useState<CronJob | null>(job ?? null)
+  const [expectedRevision, setExpectedRevision] = useState(job?.revision ?? 1)
+  const [conflictJob, setConflictJob] = useState<CronJob | null>(null)
 
   // Form state
   const [name, setName] = useState(job?.name ?? "")
@@ -233,6 +241,52 @@ export default function CronJobForm({
     projectId === NO_PROJECT_VALUE ? null : projects.find((p) => p.id === projectId)
   const isMissingProject = projectId !== NO_PROJECT_VALUE && !selectedProject
 
+  const loadConflictVersion = () => {
+    if (!conflictJob) return
+    const latest = conflictJob
+    setBaselineJob(latest)
+    setExpectedRevision(latest.revision)
+    setName(latest.name)
+    setDescription(latest.description ?? "")
+    setScheduleType(latest.schedule.type)
+    if (latest.schedule.type === "at") {
+      setTimestamp(latest.schedule.timestamp ? toLocalDatetimeString(latest.schedule.timestamp) : "")
+    } else if (latest.schedule.type === "every") {
+      const ms = latest.schedule.intervalMs ?? latest.schedule.interval_ms ?? 60_000
+      if (ms % 86_400_000 === 0) {
+        setIntervalValue(String(ms / 86_400_000))
+        setIntervalUnit("day")
+      } else if (ms % 3_600_000 === 0) {
+        setIntervalValue(String(ms / 3_600_000))
+        setIntervalUnit("hour")
+      } else {
+        setIntervalValue(String(ms / 60_000))
+        setIntervalUnit("min")
+      }
+    } else {
+      const visual = parseCronToVisual(latest.schedule.expression ?? "0 0 9 * * *")
+      setCronFreq(visual.freq)
+      setCronHour(visual.hour)
+      setCronMinute(visual.minute)
+      setCronWeekdays(visual.weekdays)
+      setCronMonthDay(visual.monthDay)
+      setCronRawExpr(latest.schedule.expression ?? "0 0 9 * * *")
+      setTimezone(latest.schedule.timezone || "UTC")
+    }
+    setMessage(latest.payload.prompt)
+    setAgentId(latest.payload.agentId ?? AUTO_AGENT_VALUE)
+    setProjectId(latest.projectId ?? NO_PROJECT_VALUE)
+    setMaxFailures(String(latest.maxFailures))
+    setNotifyOnComplete(latest.notifyOnComplete)
+    setPrefixDeliveryWithName(latest.prefixDeliveryWithName ?? false)
+    setJobTimeoutSecs(latest.jobTimeoutSecs != null ? String(latest.jobTimeoutSecs) : "")
+    setPermissionModeOverride(latest.permissionModeOverride ?? FOLLOW_MODE_VALUE)
+    setSandboxModeOverride(latest.sandboxModeOverride ?? FOLLOW_MODE_VALUE)
+    setDeliveryTargets(latest.deliveryTargets.map((target) => ({ ...target })))
+    setConflictJob(null)
+    setError("")
+  }
+
   useEffect(() => {
     getTransport().call<AgentInfo[]>("list_agents")
       .then(setAgents)
@@ -374,7 +428,7 @@ export default function CronJobForm({
       if (isEditing && job) {
         const schedule = buildSchedule()
         const updated: CronJob = {
-          ...job,
+          ...(baselineJob ?? job),
           name: name.trim(),
           description: description.trim() || null,
           projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
@@ -392,7 +446,17 @@ export default function CronJobForm({
           permissionModeOverride: resolvedPermissionMode,
           sandboxModeOverride: resolvedSandboxMode,
         }
-        await getTransport().call("cron_update_job", { job: updated })
+        const result = await getTransport().call<CronUpdateResult>("cron_update_job", {
+          job: updated,
+          expectedRevision,
+        })
+        if (!result.updated) {
+          const current = result.currentJob ?? null
+          setConflictJob(current)
+          if (current) setExpectedRevision(current.revision)
+          setError(t("cron.revisionConflict"))
+          return
+        }
       } else {
         const schedule = buildSchedule()
         await getTransport().call("cron_create_job", {
@@ -437,13 +501,13 @@ export default function CronJobForm({
         // `interval_ms` rejects at deserialization, failing the whole create/update.
         const intervalMs = Math.max(60000, Math.round(num * multiplier))
         const preserveStartAt =
-          job?.schedule.type === "every" &&
-          (job.schedule.intervalMs ?? job.schedule.interval_ms) === intervalMs
+          baselineJob?.schedule.type === "every" &&
+          (baselineJob.schedule.intervalMs ?? baselineJob.schedule.interval_ms) === intervalMs
         return {
           type: "every",
           intervalMs,
           startAt: preserveStartAt
-            ? ((job.schedule.startAt ?? job.schedule.start_at) ?? null)
+            ? ((baselineJob.schedule.startAt ?? baselineJob.schedule.start_at) ?? null)
             : undefined,
         }
       }
@@ -926,7 +990,32 @@ export default function CronJobForm({
           </div>
 
           {/* Error */}
-          {error && <p className="text-xs text-red-500">{error}</p>}
+          {error && (
+            <div className="space-y-2 text-xs text-red-500">
+              <p>{error}</p>
+              {conflictJob && (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={loadConflictVersion}
+                  >
+                    {t("cron.reloadLatest")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    {t("common.retry")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

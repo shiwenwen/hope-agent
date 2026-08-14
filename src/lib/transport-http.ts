@@ -1259,6 +1259,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cron_toggle_job: { method: "POST", path: "/api/cron/jobs/{id}/toggle" },
   cron_delete_job: { method: "DELETE", path: "/api/cron/jobs/{id}" },
   cron_run_now: { method: "POST", path: "/api/cron/jobs/{id}/run" },
+  cron_cancel_run: { method: "POST", path: "/api/cron/runs/{runLogId}/cancel" },
   cron_jobs_referencing_account: {
     method: "GET",
     path: "/api/cron/jobs-referencing-account/{accountId}",
@@ -1996,6 +1997,12 @@ function normalizeHttpCommandArgs(
   command: string,
   args: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
+  if (command === "cron_update_job") {
+    const job = args?.job
+    if (job && typeof job === "object" && !Array.isArray(job)) {
+      return { ...args, id: (job as Record<string, unknown>).id }
+    }
+  }
   if (command === "import_artifact") {
     const request = args?.request
     return request && typeof request === "object" && !Array.isArray(request)
@@ -2568,6 +2575,18 @@ export class HttpTransport implements Transport {
     })
 
     if (!response.ok) {
+      // Preserve the transport-neutral CAS result so the form can keep its
+      // draft and offer reload/retry. External HTTP callers still receive 409.
+      if (command === "cron_update_job" && response.status === 409) {
+        const conflict = await response.clone().json().catch(() => null)
+        if (
+          conflict &&
+          typeof conflict === "object" &&
+          (conflict as { code?: unknown }).code === "cron_revision_conflict"
+        ) {
+          return conflict as T
+        }
+      }
       const text = await response.text().catch(() => "")
       this.handleAuthFailure(response.status, auth.revision)
       throw new HttpTransportResponseError(

@@ -31,7 +31,7 @@ import {
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { markCronSessionRead } from "@/hooks/useCronUnreadStore"
-import type { CronJob, CronRunLog } from "./CronJobForm.types"
+import type { CronJob, CronRunCancelResult, CronRunLog } from "./CronJobForm.types"
 import {
   statusColor,
   statusLabel,
@@ -303,12 +303,21 @@ export default function CronJobDetail({
   }
 
   async function handleCancelRun() {
-    if (!job?.runningAt || cancelling) return
+    const run = logs.find((log) => log.status === "running" && log.turnId)
+    if (!job?.runningAt || job.payload.type === "sessionLoop" || !run || cancelling) return
     setCancelling(true)
     try {
-      await getTransport().call("cancel_runtime_task", { kind: "cron", id: job.id })
+      const result = await getTransport().call<CronRunCancelResult>("cron_cancel_run", {
+        runLogId: run.id,
+      })
+      if (!result.terminal && !result.cancelRequested) {
+        throw new Error(result.code ?? "exact cron run was not cancellable")
+      }
       await fetchData()
       onRefresh()
+    } catch (error) {
+      logger.error("cron", "CronJobDetail::cancelRun", "Failed to cancel exact cron run", error)
+      toast.error(t("cron.cancelRunFailed"))
     } finally {
       setCancelling(false)
     }
@@ -350,6 +359,8 @@ export default function CronJobDetail({
       : job.payload.agentId
     : t("cron.autoAgent")
   const isLoop = job.payload.type === "sessionLoop"
+  const cancellableRun =
+    !isLoop && job.runningAt ? logs.find((log) => log.status === "running" && log.turnId) : null
   const isTerminalLoop =
     isLoop && (job.status === "completed" || loopState === "completed" || loopState === "cancelled")
   const isLoopActive = isLoop && (loopState === "active" || (!loopState && job.status === "active"))
@@ -412,7 +423,7 @@ export default function CronJobDetail({
               {t("cron.runNow")}
             </Button>
           )}
-          {job.runningAt && (
+          {cancellableRun && (
             <IconTip label={t("common.cancel")}>
               <Button
                 variant="ghost"

@@ -387,6 +387,42 @@ pub(crate) fn regular_unread_predicate_sql(session_alias: &str) -> String {
     )
 }
 
+/// Scheduled is a filtered projection over two generations of the same
+/// Session read watermark: hidden legacy `is_cron` rows and ordinary
+/// conversations whose display-only origin is `cron`.
+fn scheduled_session_scope_sql(session_alias: &str) -> String {
+    let valid_origin = format!(
+        "CASE WHEN json_valid({session_alias}.origin_json) \
+              THEN {session_alias}.origin_json ELSE NULL END"
+    );
+    format!(
+        "{session_alias}.archived_at IS NULL
+         AND (
+             {session_alias}.is_cron = 1
+             OR (
+                 {}
+                 AND json_extract({valid_origin}, '$.kind') = 'cron'
+             )
+         )",
+        regular_session_scope_sql(session_alias)
+    )
+}
+
+fn scheduled_unread_exists_sql(session_alias: &str) -> String {
+    format!(
+        "EXISTS (
+             SELECT 1 FROM messages m_scheduled_unread
+              WHERE m_scheduled_unread.session_id = {session_alias}.id
+                AND m_scheduled_unread.id > COALESCE({session_alias}.last_read_message_id, 0)
+                AND m_scheduled_unread.role = 'assistant'
+                AND (
+                    {session_alias}.is_cron = 1
+                    OR COALESCE(m_scheduled_unread.source, 'desktop') != 'channel'
+                )
+         )"
+    )
+}
+
 /// Shared SELECT for every query that hydrates a full `SessionMeta`. Column
 /// positions are locked to the parser in `SessionDB::row_to_session_meta`;
 /// when adding a column, append it and update both the mapper and tests.
@@ -6258,13 +6294,12 @@ impl SessionDB {
 
     // ── Cron timeline / unread (cron panel "conversations" view) ─────────────
 
-    /// Batch-fetch `(title, unread_flag, archived)` for the given cron session
-    /// ids — used to hydrate the cross-job run timeline (`cron_run_timeline`).
+    /// Batch-fetch `(title, unread_flag, archived)` for the given Scheduled
+    /// session ids — used to hydrate `cron_run_timeline`.
     /// Returns a map `session_id -> (title, unread, archived)`; ids whose
     /// session row is missing (purged) are simply absent, and the caller falls
-    /// back to the job name / 0. Ordinary scheduled-run Sessions and SessionLoop
-    /// parents return their real title/archive state, but keep Cron unread at 0:
-    /// their unread belongs exclusively to the regular conversation domain.
+    /// back to the job name / 0. The unread flag projects the same
+    /// `last_read_message_id` used by ordinary Chat; no second receipt exists.
     pub fn cron_session_read_state(
         &self,
         session_ids: &[String],
@@ -6283,15 +6318,12 @@ impl SessionDB {
         let sql = format!(
             "SELECT s.id,
                     s.title,
-                    CASE WHEN s.is_cron = 1 THEN EXISTS(
-                      SELECT 1 FROM messages m
-                       WHERE m.session_id = s.id
-                         AND m.id > COALESCE(s.last_read_message_id, 0)
-                         AND m.role = 'assistant'
-                    ) ELSE 0 END AS unread,
+                    CASE WHEN {} THEN {} ELSE 0 END AS unread,
                     s.archived_at IS NOT NULL AS archived
              FROM sessions s
              WHERE s.id IN ({})",
+            scheduled_session_scope_sql("s"),
+            scheduled_unread_exists_sql("s"),
             placeholders.join(",")
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -6311,49 +6343,45 @@ impl SessionDB {
         Ok(map)
     }
 
-    /// Total unread cron run conversations. Each run session contributes at
-    /// most one regardless of how many assistant rows it contains.
+    /// Total unread Scheduled conversations. Each Session contributes at most
+    /// one, whether it is a legacy `is_cron` row or an ordinary Cron-origin row.
     pub fn cron_unread_total(&self) -> Result<i64> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let total: i64 = conn.query_row(
-            "SELECT COUNT(*)
-              FROM sessions s
-              WHERE s.is_cron = 1
-                AND s.archived_at IS NULL
-                AND EXISTS (
-                    SELECT 1 FROM messages m
-                     WHERE m.session_id = s.id
-                       AND m.role = 'assistant'
-                       AND m.id > COALESCE(s.last_read_message_id, 0)
-                )",
-            [],
-            |row| row.get(0),
-        )?;
+        let sql = format!(
+            "SELECT COUNT(*) FROM sessions s WHERE {} AND {}",
+            scheduled_session_scope_sql("s"),
+            scheduled_unread_exists_sql("s")
+        );
+        let total: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
         Ok(total)
     }
 
-    /// Mark every cron session as read (badge → 0). Mirrors `mark_session_read`'s
-    /// `last_read_message_id = MAX(message id)` logic, scoped to `is_cron = 1`.
-    /// Returns the number of sessions updated.
+    /// Advance the existing read watermark for every visible Scheduled
+    /// conversation. This is a bulk projection over ordinary + legacy Sessions,
+    /// not a separate Scheduled read domain. Returns the number updated.
     pub fn mark_all_cron_sessions_read(&self) -> Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let n = conn.execute(
-            "UPDATE sessions
+        let sql = format!(
+            "UPDATE sessions AS s
                 SET last_read_message_id = (
                     SELECT COALESCE(MAX(id), 0) FROM messages
-                     WHERE messages.session_id = sessions.id
+                     WHERE messages.session_id = s.id
                 )
-              WHERE is_cron = 1 AND archived_at IS NULL",
-            [],
-        )?;
+              WHERE {}",
+            scheduled_session_scope_sql("s")
+        );
+        let n = conn.execute(&sql, [])?;
         drop(conn);
-        emit_unread_changed(None, Some(UnreadDomain::Cron));
+        // Both generations may be updated, so every projection over the shared
+        // watermark must reconcile.
+        emit_unread_changed(None, None);
+        crate::pet::emit_activity_changed();
         Ok(n)
     }
 
@@ -7134,6 +7162,7 @@ mod tests {
     };
     use crate::session::{
         ChatTurnStatus, CommitAssistantTurn, CreateStreamRun, NewMessage, SessionKind,
+        SessionOrigin,
     };
     use rusqlite::{Connection, OptionalExtension};
 
@@ -8075,6 +8104,24 @@ mod tests {
             &NewMessage::assistant("project reply").with_source(ChatSource::Desktop),
         )
         .expect("append project reply");
+
+        let scheduled = db
+            .create_session_with_project_and_origin(
+                "ha-main",
+                None,
+                None,
+                &SessionOrigin {
+                    kind: "cron".into(),
+                    id: "scheduled-job".into(),
+                    label: "Scheduled job".into(),
+                },
+            )
+            .expect("ordinary scheduled session");
+        db.append_message(
+            &scheduled.id,
+            &NewMessage::assistant("scheduled reply").with_source(ChatSource::Cron),
+        )
+        .expect("append scheduled reply");
         set_session_updated_at(&db, &regular.id, "2026-01-01T00:00:00Z");
         set_session_updated_at(&db, &project.id, "2026-01-02T00:00:00Z");
 
@@ -8137,13 +8184,13 @@ mod tests {
 
         assert_eq!(
             db.regular_unread_total(None).expect("regular unread total"),
-            2,
-            "only the two top-level regular conversations count"
+            3,
+            "ordinary Scheduled sessions remain regular conversations"
         );
         assert_eq!(
             db.regular_unread_total(Some(&project.id))
                 .expect("active-excluded total"),
-            1,
+            2,
             "the active conversation is excluded from every display aggregate"
         );
         let target = db
@@ -8156,8 +8203,8 @@ mod tests {
         assert_eq!(target.list_offset, 0);
         assert_eq!(
             db.cron_unread_total().expect("cron unread total"),
-            1,
-            "multiple outputs in one cron run session count once"
+            2,
+            "legacy and ordinary Scheduled sessions each count once"
         );
 
         db.mark_all_sessions_read().expect("mark regular all read");
@@ -8165,7 +8212,48 @@ mod tests {
         assert_eq!(
             db.cron_unread_total().unwrap(),
             1,
-            "regular mark-all must not clear cron"
+            "regular mark-all clears the ordinary Scheduled watermark, not legacy Cron"
+        );
+
+        db.append_message(
+            &scheduled.id,
+            &NewMessage::assistant("scheduled again").with_source(ChatSource::Cron),
+        )
+        .expect("append another scheduled reply");
+        assert_eq!(db.cron_unread_total().unwrap(), 2);
+        db.set_session_archived(&scheduled.id, true)
+            .expect("archive scheduled session");
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            1,
+            "archive hides the ordinary Session from the Scheduled projection"
+        );
+        db.set_session_archived(&scheduled.id, false)
+            .expect("restore scheduled session");
+        db.set_session_pinned(&scheduled.id, true)
+            .expect("pin scheduled session");
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            1,
+            "restore does not invent unread state after archive advanced the watermark"
+        );
+        db.append_message(
+            &scheduled.id,
+            &NewMessage::assistant("scheduled after restore").with_source(ChatSource::Cron),
+        )
+        .expect("append scheduled reply after restore");
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            2,
+            "pin keeps a restored Session in the Scheduled unread projection"
+        );
+        db.mark_all_cron_sessions_read()
+            .expect("mark all Scheduled read");
+        assert_eq!(db.cron_unread_total().unwrap(), 0);
+        assert_eq!(
+            db.regular_unread_total(None).unwrap(),
+            0,
+            "Scheduled mark-all advances the ordinary Session watermark too"
         );
         let channel_meta = db
             .get_session(&channel.id)

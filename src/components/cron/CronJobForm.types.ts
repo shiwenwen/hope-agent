@@ -47,6 +47,7 @@ export interface CronDeliveryTarget {
 
 export interface CronJob {
   id: string
+  revision: number
   name: string
   description?: string | null
   projectId?: string | null
@@ -78,6 +79,7 @@ export interface CronRunLog {
   id: number
   jobId: string
   sessionId: string
+  turnId?: string | null
   status: string
   startedAt: string
   finishedAt?: string | null
@@ -86,6 +88,20 @@ export interface CronRunLog {
   error?: string | null
   /** §8: "delivered" | "partial" | "failed" | null (no targets). */
   deliveryStatus?: string | null
+}
+
+export interface CronUpdateResult {
+  updated: boolean
+  code?: string | null
+  currentJob?: CronJob | null
+}
+
+export interface CronRunCancelResult {
+  runLogId: number
+  status: string
+  terminal: boolean
+  cancelRequested: boolean
+  code?: string | null
 }
 
 /** One row of the cross-job cron run timeline (cron panel "conversations" view). */

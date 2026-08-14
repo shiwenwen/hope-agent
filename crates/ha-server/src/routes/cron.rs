@@ -1,4 +1,6 @@
 use axum::extract::{Path, Query};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,8 +35,10 @@ pub struct CreateJobBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateJobBody {
     pub job: cron::CronJob,
+    pub expected_revision: u64,
 }
 
 /// `POST /api/cron/jobs`
@@ -45,12 +49,29 @@ pub async fn create_job(Json(body): Json<CreateJobBody>) -> Result<Json<cron::Cr
 
 /// `PUT /api/cron/jobs/{id}`
 pub async fn update_job(
-    Path(_id): Path<String>,
+    Path(id): Path<String>,
     Json(body): Json<UpdateJobBody>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Response, AppError> {
+    if body.job.id != id {
+        return Err(AppError::bad_request("path id does not match job id"));
+    }
     let db = db()?;
-    run_blocking(move || db.update_job(&body.job)).await?;
-    Ok(Json(json!({ "updated": true })))
+    let result = run_blocking(move || db.update_job_cas(&body.job, body.expected_revision)).await?;
+    if result.updated {
+        Ok(Json(result).into_response())
+    } else {
+        Ok((StatusCode::CONFLICT, Json(result)).into_response())
+    }
+}
+
+/// `POST /api/cron/runs/{runLogId}/cancel` — exact occurrence cancel.
+pub async fn cancel_run(
+    Path(run_log_id): Path<i64>,
+) -> Result<Json<cron::CronRunCancelResult>, AppError> {
+    let result = ha_cron::cron::cancel_run(run_log_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("cron run not found: {run_log_id}")))?;
+    Ok(Json(result))
 }
 
 /// `DELETE /api/cron/jobs/{id}` — logical delete; history/chats are retained.

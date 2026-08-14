@@ -103,6 +103,10 @@ impl CronJobStatus {
 #[serde(rename_all = "camelCase")]
 pub struct CronJob {
     pub id: String,
+    /// Owner-edit generation. Runtime scheduling/bookkeeping writes do not
+    /// advance it, so an open form conflicts only with another owner mutation.
+    #[serde(default = "default_cron_revision")]
+    pub revision: u64,
     pub name: String,
     pub description: Option<String>,
     /// Optional Project context to attach each isolated cron run session to.
@@ -199,6 +203,10 @@ pub struct CronRunLog {
     pub id: i64,
     pub job_id: String,
     pub session_id: String,
+    /// Exact ordinary ChatTurn for standalone AgentTurn runs. Legacy and
+    /// SessionLoop rows intentionally leave this empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
     pub status: String,
     pub started_at: String,
     pub finished_at: Option<String>,
@@ -211,6 +219,48 @@ pub struct CronRunLog {
     /// `"failed"` (no target received it). Surfaced in the GUI run-log list.
     #[serde(default)]
     pub delivery_status: Option<String>,
+}
+
+fn default_cron_revision() -> u64 {
+    1
+}
+
+pub const CRON_REVISION_CONFLICT_CODE: &str = "cron_revision_conflict";
+
+/// Transport-neutral result for an owner edit. Conflicts are data, not an
+/// opaque error string, so Desktop and HTTP can preserve the user's draft.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronUpdateResult {
+    pub updated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_job: Option<CronJob>,
+}
+
+/// Result of cancelling one immutable run-log occurrence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronRunCancelResult {
+    pub run_log_id: i64,
+    pub status: String,
+    pub terminal: bool,
+    pub cancel_requested: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+/// Internal lookup shape for exact occurrence cancellation.
+#[derive(Debug, Clone)]
+pub struct CronRunCancelTarget {
+    pub run_log_id: i64,
+    pub job_id: String,
+    pub session_id: String,
+    pub started_at: String,
+    pub turn_id: Option<String>,
+    pub status: String,
+    pub finished_at: Option<String>,
 }
 
 /// One row of the global cron-run timeline (a single run of any job), surfaced

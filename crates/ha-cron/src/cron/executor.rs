@@ -389,7 +389,12 @@ pub(crate) async fn execute_claimed_job(
     // If the in-progress row cannot be opened, fail closed: executing a model
     // turn without its audit row would make this occurrence unrecoverable and
     // unaccountable. `record_failure` still attempts a terminal insert.
-    let run_log_id = match cron_db.add_running_run_log(&job.id, &session_id, &started_at) {
+    let run_log_id = match cron_db.add_running_run_log_with_turn(
+        &job.id,
+        &session_id,
+        &started_at,
+        Some(&turn_id),
+    ) {
         Ok(id) => id,
         Err(e) => {
             app_error!(
@@ -1061,7 +1066,7 @@ async fn execute_session_loop_payload(
             match rejection.cron_job_disposition {
                 ha_core::loop_control::LoopCronJobDisposition::Keep => {}
                 ha_core::loop_control::LoopCronJobDisposition::Pause => {
-                    let _ = cron_db.toggle_job(&job.id, false);
+                    let _ = cron_db.pause_job_for_runtime(&job.id);
                 }
                 ha_core::loop_control::LoopCronJobDisposition::Complete => {
                     let _ = cron_db.mark_job_completed(&job.id);
@@ -1284,7 +1289,7 @@ async fn execute_session_loop_payload(
     match action.cron_job_disposition {
         ha_core::loop_control::LoopCronJobDisposition::Keep => {}
         ha_core::loop_control::LoopCronJobDisposition::Pause => {
-            let _ = cron_db.toggle_job(&job.id, false);
+            let _ = cron_db.pause_job_for_runtime(&job.id);
         }
         ha_core::loop_control::LoopCronJobDisposition::Complete => {
             let _ = cron_db.mark_job_completed(&job.id);
@@ -1833,6 +1838,75 @@ pub fn cancel_running_job(job_id: &str) -> Result<Option<bool>> {
     // left in the claim→register window can't leak onto a later run (see
     // `cancel.rs`). `running_at` IS the in-flight run's `claimed_at`.
     Ok(Some(ha_core::cron::cancel::cancel(job_id, running_at)))
+}
+
+/// Cancel one immutable run-log occurrence. The retained run row is the source
+/// of truth, so this remains usable after its task has been logically deleted.
+pub async fn cancel_run(run_log_id: i64) -> Result<Option<ha_core::cron::CronRunCancelResult>> {
+    let Some(cron_db) = ha_core::get_cron_db() else {
+        return Ok(None);
+    };
+    let cron_db = cron_db.clone();
+    let Some(target) =
+        ha_core::blocking::run_blocking(move || cron_db.get_run_cancel_target(run_log_id)).await?
+    else {
+        return Ok(None);
+    };
+    if target.finished_at.is_some() || target.status != "running" {
+        return Ok(Some(ha_core::cron::CronRunCancelResult {
+            run_log_id,
+            status: target.status,
+            terminal: true,
+            cancel_requested: false,
+            code: None,
+        }));
+    }
+    let Some(turn_id) = target.turn_id.as_deref() else {
+        // Legacy and SessionLoop rows have no ordinary ChatTurn identity. The
+        // Loop executor does not observe the generic cron flag while its
+        // injection/workflow is running, so reporting success here would be a
+        // false Stop. A durable Loop cancel is intentionally outside Phase A2.
+        return Ok(Some(ha_core::cron::CronRunCancelResult {
+            run_log_id,
+            status: target.status,
+            terminal: false,
+            cancel_requested: false,
+            code: Some("cron_run_cancel_unsupported".to_string()),
+        }));
+    };
+
+    let cron_cancelled = ha_core::cron::cancel::cancel(&target.job_id, &target.started_at);
+    // AgentTurn runs reuse the ordinary exact-turn Stop path. Besides the
+    // in-process token, this records the durable Stop generation and converges
+    // foreground/Goal/Workflow/Subagent/Wakeup state across processes.
+    let stopped_turn = if let Some(session_db) = ha_core::get_session_db() {
+        let outcome = ha_core::chat_engine::stop::stop_session(
+            session_db.clone(),
+            &target.session_id,
+            Some(turn_id),
+            false,
+        )
+        .await;
+        outcome.stopped && !outcome.turn_mismatch
+    } else {
+        false
+    };
+    let cancel_requested = cron_cancelled || stopped_turn;
+    app_info!(
+        "cron",
+        "cancel_run",
+        "exact cancel run_log_id={} job_id={} requested={}",
+        run_log_id,
+        target.job_id,
+        cancel_requested
+    );
+    Ok(Some(ha_core::cron::CronRunCancelResult {
+        run_log_id,
+        status: target.status,
+        terminal: false,
+        cancel_requested,
+        code: None,
+    }))
 }
 
 fn persist_failure_message_if_missing(
