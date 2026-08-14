@@ -251,7 +251,7 @@ CREATE TABLE design_systems (          -- DESIGN.md 的可重建索引
 
 | 表 | 服务的能力 | 主键 / 关键列 |
 | --- | --- | --- |
-| `design_comments` | 元素锚定批注钉（[§7.2](#72-交互三通道)） | `oid` + `rel_x/rel_y` + `snippet` + `resolved` |
+| `design_comments` | 元素锚定批注钉（[§7.2](#72-交互四通道)） | `oid` + `rel_x/rel_y` + `snippet` + `resolved` |
 | `design_folders` | 空文件夹注册（有产物的从 `artifacts.folder` 派生） | `(project_id, path)` |
 | `design_code_bindings` | 设计系统 → 代码工程 token 同步（[§12](#12-工程轴设计如何走到代码)） | `system_id` FK CASCADE + `target_dir` + `formats` |
 | `design_shares` | 只读分享 token → 产物快照 | `token` PK + `artifact_id`（每产物唯一） |
@@ -494,12 +494,13 @@ sequenceDiagram
 
 **渲染版本自愈**：inspector bridge 与 oid 注入是「编辑工具层」，会烧进 `index.html`。工具层升级后老产物的 `index.html` 仍是旧 bridge。故可编辑态 `index.html` 的 `<html>` 带 `data-ds-r="{RENDER_VERSION}"`（`renderer::RENDER_VERSION`，工具层变更时 +1）；打开产物时 `service::ensure_artifact_render_fresh` 检测版本落后即用当前 renderer 从磁盘源**静默重渲染**（内容不变、不新增版本、不动 source），前端据返回值 bump `previewKey` 重载。仅 `status=ready` 的可编辑 kind 执行、已最新即 no-op。
 
-### 7.2 交互三通道
+### 7.2 交互四通道
 
 ```mermaid
 graph LR
     subgraph iframe["产物 iframe（sandbox）"]
         SEL["选中元素"]
+        TXT["精确文本选区"]
     end
     subgraph parent["父窗（主 App）"]
         INSP["DesignInspector<br/>8 分区控件"]
@@ -510,12 +511,14 @@ graph LR
     INSP -- "onLiveStyle 乐观预览" --> SEL
     INSP -- "onCommitStyle" --> PATCH["patch_element<br/>按 oidmap 字节回写 + 新版本"]
     COMMENT -- "带到对话（附 oid）" --> CHAT
+    TXT -- "postMessage: text / rect" --> CHAT
     CHAT -- "design 工具 edit_element" --> PATCH
 ```
 
 1. **对话改写**（自然语言）：让 AI 改，产出新版本，可要多个变体并排。
 2. **就地直接编辑**：点选元素 → bridge 回传 `{oid, tag, computedStyle, textContent, rect}` → `DesignInspector` 显示 **8 分区控件**（文本 / 颜色 / 排版 / 间距圆角 / 布局 / 尺寸 / 描边 / 效果）。改控件时 bridge 即时把 inline style / 文本应用到 live DOM（零延迟乐观预览），交互结束 commit：owner 端 `patch_element(artifact_id, oid, patch)` 按 oidmap 定位字节范围确定性回写、生成新版本。文本双击 → contenteditable → commit 写回文本节点源码范围。前端有客户端 inverse-patch 撤销/重做栈（每次 commit 记 `{oid, before, after}`，`Cmd/Ctrl+Z`，切产物清栈）。
 3. **批注钉**（`design_comments` 表）：批注模式点选元素落**元素锚定钉**（`oid` + 元素内相对坐标 `rel_x/rel_y` + snippet）；bridge 在 iframe 内渲染钉（坐标随锚元素、zoom 无关），设计变化后按 `oid`→snippet 前缀软着陆重锚（漂移不丢，脱锚回退角落堆叠），可拖钉手动重锚。批注可标记已解决 / 编辑 / 删除，可「带到对话」让 AI 就地精修新版本。未解决数量随 `openArtifact` / `refreshView` 免费带出（`count_open_comments` 走 `(artifact_id,resolved,id)` 索引），工具栏批注按钮据此渲染角标。
+4. **精确文本引用**：拖选或键盘选择正文后，预览 bridge 回传纯文本与矩形，父窗校验当前 iframe source、每次导航重建的 version + token + artifact/navigation 绑定、finite 坐标与 20,000 字符上限，再自动浮出复制/引用操作。引用使用无源码行号的 quote chip 进入 Design composer，不触发发送。文本选区优先于元素 click 与 Deck 翻页；密码输入框永不外送，原生右键不被接管。同一预览脚本兼容通用 `ArtifactViewer` 的 version + token 协议。
 
 ### 7.3 回写安全（沙箱消息不可信）
 

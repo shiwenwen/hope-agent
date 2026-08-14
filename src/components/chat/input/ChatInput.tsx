@@ -2157,33 +2157,46 @@ export default function ChatInput({
         <AnimatedCollapse open={!!pendingQuotes?.length}>
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {pendingQuotes?.map((q, index) => {
+              const canJumpToQuote = Boolean(onJumpToQuote && q.revealable !== false)
               const lines =
-                q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
+                q.startLine <= 0 || q.endLine <= 0
+                  ? null
+                  : q.startLine === q.endLine
+                    ? `${q.startLine}`
+                    : `${q.startLine}-${q.endLine}`
               // Code-point-safe truncation so the preview can't split a surrogate
               // pair (emoji / astral CJK) and render a � at the cut.
               const cps = Array.from(q.content)
               const preview = cps.length > 400 ? `${cps.slice(0, 400).join("")}…` : q.content
               return (
                 <span
-                  key={`${q.path}:${lines}:${index}`}
+                  key={`${q.path}:${lines ?? "context"}:${index}`}
                   className="inline-flex max-w-[260px] items-center gap-0.5 rounded-md border border-border/60 bg-secondary/40 py-0.5 pl-1 pr-1 text-xs text-foreground/80"
                 >
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        onClick={() => onJumpToQuote?.(q)}
-                        disabled={!onJumpToQuote}
-                        className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-background/70 disabled:pointer-events-none"
+                        onClick={() => {
+                          if (canJumpToQuote) onJumpToQuote?.(q)
+                        }}
+                        aria-disabled={!canJumpToQuote}
+                        tabIndex={canJumpToQuote ? 0 : -1}
+                        className={cn(
+                          "inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors",
+                          canJumpToQuote ? "hover:bg-background/70" : "cursor-default",
+                        )}
                       >
                         <Quote className="h-3 w-3 shrink-0 text-muted-foreground" />
                         <span className="truncate">
                           {q.name}
-                          <span className="ml-1 text-muted-foreground">L{lines}</span>
+                          {lines ? (
+                            <span className="ml-1 text-muted-foreground">L{lines}</span>
+                          ) : null}
                         </span>
                       </button>
                     </TooltipTrigger>
-                    {/* Hover preview of the quoted text (click jumps to it). */}
+                    {/* Hover always previews; revealable file references can also jump to source. */}
                     <TooltipContent side="top" className="max-w-[340px]">
                       <span className="block max-h-40 overflow-hidden whitespace-pre-wrap text-xs">
                         {preview}

@@ -655,6 +655,12 @@ export function parseUserAttachmentsMeta(
         if (!qname) continue
         const quoteProjectRoot = quoteProjectRootField(obj)
         const quoteWorktreeRoot = stringField(obj, "worktree_root", "worktreeRoot")
+        const quoteRevealable =
+          typeof obj.revealable === "boolean"
+            ? obj.revealable
+            : typeof obj.quote_revealable === "boolean"
+              ? obj.quote_revealable
+              : undefined
         attachments.push({
           name: qname,
           mimeType: "text/plain",
@@ -663,6 +669,7 @@ export function parseUserAttachmentsMeta(
           quotePath: stringField(obj, "path"),
           quoteLines: stringField(obj, "lines"),
           quoteContent: stringField(obj, "content"),
+          ...(quoteRevealable !== undefined ? { quoteRevealable } : {}),
           ...(quoteProjectRoot ? { quoteProjectRoot } : {}),
           ...(quoteWorktreeRoot ? { quoteWorktreeRoot } : {}),
         })

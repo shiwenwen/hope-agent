@@ -4,7 +4,132 @@ use serde_json::Value;
 use std::path::Path;
 
 const OFFLINE_CSP_INTERACTIVE: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline' 'unsafe-eval'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
-const OFFLINE_CSP_STATIC: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'none'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+const LEGACY_OFFLINE_CSP_STATIC_V0: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'none'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+const ARTIFACT_OFFLINE_CSP_STATIC_V0: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+pub(crate) const OFFLINE_CSP_STATIC: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'sha256-JqLDS1iiS31wIW1ENPDQITO83oAAbogGDpIEvGz+wo8='; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+
+/// Privileged, app-authored bridge shared by Canvas and Artifact reading
+/// surfaces. Static previews authorize exactly these bytes through a CSP hash;
+/// they do not gain arbitrary inline-script execution.
+pub(crate) const ARTIFACT_SELECTION_BRIDGE_SCRIPT: &str = r#"(function(){
+'use strict';
+var VERSION=1;
+var MAX_TEXT=20000;
+var token=null;
+var pointerDown=false;
+var timer=0;
+var suppressSelectionUntil=0;
+function send(type,payload){
+  if(!token||parent===window)return;
+  var message={type:type,version:VERSION,token:token};
+  if(payload){for(var key in payload){if(Object.prototype.hasOwnProperty.call(payload,key)){message[key]=payload[key];}}}
+  try{parent.postMessage(message,'*');}catch(_){}
+}
+function clearSelectionMenu(){send('hope_artifact_text_selection_clear');}
+function readSelection(){
+  var active=document.activeElement;
+  if(active){
+    var tag=(active.tagName||'').toLowerCase();
+    var inputType=(active.type||'text').toLowerCase();
+    if((tag==='textarea'||(tag==='input'&&inputType!=='password'))&&typeof active.selectionStart==='number'&&typeof active.selectionEnd==='number'&&active.selectionStart!==active.selectionEnd){
+      var inputText=String(active.value||'').slice(active.selectionStart,active.selectionEnd);
+      if(inputText.trim())return {text:inputText,rect:active.getBoundingClientRect()};
+    }
+  }
+  var selection=window.getSelection();
+  var text=selection?String(selection):'';
+  if(!selection||selection.isCollapsed||!text.trim()||selection.rangeCount<1)return null;
+  return {text:text,rect:selection.getRangeAt(0).getBoundingClientRect()};
+}
+function reportSelection(){
+  if(pointerDown||!token||Date.now()<suppressSelectionUntil)return;
+  try{
+    var picked=readSelection();
+    if(!picked){clearSelectionMenu();return;}
+    var text=picked.text;
+    var rect=picked.rect;
+    if(!rect||![rect.left,rect.top,rect.right,rect.bottom].every(Number.isFinite)){clearSelectionMenu();return;}
+    send('hope_artifact_text_selection',{
+      text:text.slice(0,MAX_TEXT),
+      truncated:text.length>MAX_TEXT,
+      rect:{left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom}
+    });
+  }catch(_){clearSelectionMenu();}
+}
+function scheduleReport(){clearTimeout(timer);timer=setTimeout(reportSelection,80);}
+function finishPointerSelection(){
+  if(!pointerDown)return;
+  pointerDown=false;
+  scheduleReport();
+}
+window.addEventListener('message',function(event){
+  var data=event.data;
+  if(event.source!==parent||!data||data.type!=='hope_artifact_selection_activate'||data.version!==VERSION||typeof data.token!=='string'||data.token.length<1||data.token.length>256)return;
+  token=data.token;
+});
+document.addEventListener('pointerdown',function(event){
+  if(event.button===2){pointerDown=false;suppressSelectionUntil=Date.now()+400;clearSelectionMenu();return;}
+  pointerDown=true;clearSelectionMenu();
+},true);
+document.addEventListener('pointerup',function(event){
+  if(event.button===2){suppressSelectionUntil=Date.now()+400;clearSelectionMenu();return;}
+  if(event.button===0)finishPointerSelection();else pointerDown=false;
+},true);
+document.addEventListener('pointercancel',function(){pointerDown=false;clearSelectionMenu();},true);
+document.addEventListener('pointerout',function(event){
+  if(pointerDown&&event.pointerType==='mouse'&&!event.relatedTarget)finishPointerSelection();
+},true);
+document.addEventListener('touchend',finishPointerSelection,true);
+document.addEventListener('touchcancel',function(){pointerDown=false;clearSelectionMenu();},true);
+window.addEventListener('blur',function(){pointerDown=false;clearSelectionMenu();});
+document.addEventListener('selectionchange',function(){if(!pointerDown)scheduleReport();},true);
+document.addEventListener('select',scheduleReport,true);
+document.addEventListener('scroll',clearSelectionMenu,true);
+document.addEventListener('keyup',function(event){if(event.key==='Escape')clearSelectionMenu();else scheduleReport();},true);
+})();"#;
+
+pub(crate) fn artifact_selection_bridge_tag() -> String {
+    format!(
+        "<script data-hope-artifact-selection-bridge=\"1\">{ARTIFACT_SELECTION_BRIDGE_SCRIPT}</script>"
+    )
+}
+
+/// Add the bridge to a complete HTML projection without changing its content
+/// model. The operation is idempotent because managed Artifact restore paths
+/// may hand us an already-rendered historical projection.
+pub(crate) fn inject_artifact_selection_bridge(html: &str) -> String {
+    if html.contains("data-hope-artifact-selection-bridge=\"1\"") {
+        return html.to_string();
+    }
+    let bridge = artifact_selection_bridge_tag();
+    let lower = html.to_ascii_lowercase();
+    let insertion_at = lower
+        .rfind("</body>")
+        .or_else(|| lower.rfind("</html>"))
+        .unwrap_or(html.len());
+    let mut output = String::with_capacity(html.len() + bridge.len());
+    output.push_str(&html[..insertion_at]);
+    output.push_str(&bridge);
+    output.push_str(&html[insertion_at..]);
+    output
+}
+
+/// Self-heal stored projections produced before the selection bridge existed.
+/// Only Hope's two exact historical static policies are upgraded; an imported
+/// document's custom CSP remains authoritative.
+pub(crate) fn upgrade_artifact_selection_bridge(html: &str) -> String {
+    let replace_managed_csp = |document: String, previous: &str| {
+        document.replace(
+            &format!("content=\"{previous}\""),
+            &format!("content=\"{OFFLINE_CSP_STATIC}\""),
+        )
+    };
+    let with_current_csp = replace_managed_csp(
+        replace_managed_csp(html.to_string(), LEGACY_OFFLINE_CSP_STATIC_V0),
+        ARTIFACT_OFFLINE_CSP_STATIC_V0,
+    );
+    inject_artifact_selection_bridge(&with_current_csp)
+}
 
 /// Build the complete index.html file for a canvas project.
 /// Wraps user HTML/CSS/JS in a safe template with live-reload support.
@@ -13,7 +138,7 @@ pub fn build_html_page(html: Option<&str>, css: Option<&str>, js: Option<&str>) 
     let user_css = css.unwrap_or("");
     let user_js = js.unwrap_or("");
 
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -53,7 +178,7 @@ window.addEventListener('message', function(event) {{
         user_html = user_html,
         user_js = user_js,
         csp = OFFLINE_CSP_INTERACTIVE,
-    )
+    ))
 }
 
 /// Build a Markdown preview page.
@@ -71,7 +196,7 @@ pub fn build_markdown_page(content: &str) -> String {
     });
     let mut rendered = String::new();
     markdown_html::push_html(&mut rendered, parser);
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -97,7 +222,7 @@ blockquote {{ border-left: 4px solid #ddd; margin-left: 0; padding-left: 16px; c
 </html>"#,
         csp = OFFLINE_CSP_STATIC,
         rendered = rendered,
-    )
+    ))
 }
 
 /// Build a code preview page with syntax highlighting.
@@ -108,7 +233,7 @@ pub fn build_code_page(content: &str, language: Option<&str>) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;");
 
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -129,12 +254,12 @@ code {{ font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }}
         csp = OFFLINE_CSP_STATIC,
         lang = lang,
         escaped_content = escaped_content,
-    )
+    ))
 }
 
 /// Build an SVG preview page.
 pub fn build_svg_page(content: &str) -> String {
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -152,13 +277,13 @@ svg {{ max-width: 100%; height: auto; }}
 </html>"#,
         content = content,
         csp = OFFLINE_CSP_STATIC,
-    )
+    ))
 }
 
 /// Build a Mermaid diagram page.
 pub fn build_mermaid_page(content: &str) -> String {
     let escaped = escape_html(content);
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -178,7 +303,7 @@ pre {{ max-width: 100%; overflow: auto; border-radius: 8px; background: #f5f5f5;
 </html>"#,
         escaped = escaped,
         csp = OFFLINE_CSP_STATIC,
-    )
+    ))
 }
 
 /// Build a Chart.js visualization page.
@@ -233,7 +358,7 @@ pub fn build_chart_page(content: &str) -> String {
             escape_html(content)
         ));
     }
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,7 +379,7 @@ table {{ border-collapse: collapse; width: 100%; }} th,td {{ border: 1px solid #
         title = escape_html(title),
         header = header,
         rows = rows,
-    )
+    ))
 }
 
 /// Build a slides/presentation page.
@@ -262,7 +387,7 @@ pub fn build_slides_page(html: Option<&str>, css: Option<&str>) -> String {
     let user_html = html.unwrap_or("<section><h1>Empty Presentation</h1></section>");
     let user_css = css.unwrap_or("");
 
-    format!(
+    inject_artifact_selection_bridge(&format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -316,7 +441,7 @@ section ul, section ol {{ text-align: left; font-size: 1.1em; line-height: 1.8; 
         user_css = user_css,
         user_html = user_html,
         csp = OFFLINE_CSP_INTERACTIVE,
-    )
+    ))
 }
 
 /// Write canvas project files to disk based on content type.
@@ -395,4 +520,65 @@ fn display_value(value: &Value) -> String {
         .as_str()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+
+    use super::*;
+
+    #[test]
+    fn static_csp_authorizes_only_the_exact_selection_bridge() {
+        let digest = Sha256::digest(ARTIFACT_SELECTION_BRIDGE_SCRIPT.as_bytes());
+        let encoded = base64::engine::general_purpose::STANDARD.encode(digest);
+        assert!(OFFLINE_CSP_STATIC.contains(&format!("'sha256-{encoded}'")));
+        assert!(!OFFLINE_CSP_STATIC.contains("script-src 'unsafe-inline'"));
+        assert!(ARTIFACT_SELECTION_BRIDGE_SCRIPT.contains("!event.relatedTarget"));
+        assert!(ARTIFACT_SELECTION_BRIDGE_SCRIPT.contains("'touchend',finishPointerSelection"));
+    }
+
+    #[test]
+    fn every_canvas_projection_contains_one_selection_bridge() {
+        for html in [
+            build_html_page(Some("<p>HTML</p>"), None, None),
+            build_markdown_page("# Markdown"),
+            build_code_page("let value = 1;", Some("javascript")),
+            build_svg_page("<svg><text>SVG</text></svg>"),
+            build_mermaid_page("graph TD; A-->B"),
+            build_chart_page(r#"{"data":{"labels":["A"]}}"#),
+            build_slides_page(Some("<section>Slide</section>"), None),
+        ] {
+            assert_eq!(
+                html.matches("data-hope-artifact-selection-bridge=\"1\"")
+                    .count(),
+                1
+            );
+            assert!(html.contains("hope_artifact_selection_activate"));
+        }
+    }
+
+    #[test]
+    fn selection_bridge_injection_is_idempotent() {
+        let once = inject_artifact_selection_bridge("<html><body><p>x</p></body></html>");
+        let twice = inject_artifact_selection_bridge(&once);
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn upgrades_known_static_projection_without_opening_arbitrary_scripts() {
+        let old = format!(
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"{LEGACY_OFFLINE_CSP_STATIC_V0}\"><body>x</body>"
+        );
+        let upgraded = upgrade_artifact_selection_bridge(&old);
+        assert!(upgraded.contains(OFFLINE_CSP_STATIC));
+        assert!(!upgraded.contains("script-src 'none'"));
+        assert!(!upgraded.contains("script-src 'unsafe-inline'"));
+        assert!(upgraded.contains("data-hope-artifact-selection-bridge=\"1\""));
+
+        let policy_as_content = format!("<body><pre>{LEGACY_OFFLINE_CSP_STATIC_V0}</pre></body>");
+        let content_upgrade = upgrade_artifact_selection_bridge(&policy_as_content);
+        assert!(content_upgrade.contains(&format!("<pre>{LEGACY_OFFLINE_CSP_STATIC_V0}</pre>")));
+    }
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { quoteReferencePath, resolveProjectFileQuoteTarget } from "./fileQuoteTarget"
+import {
+  detachProjectFileQuote,
+  quoteReferencePath,
+  resolveProjectFileQuoteTarget,
+} from "./fileQuoteTarget"
 
 describe("linked-root file quotes", () => {
   it("uses an absolute linked-root path for model and history references", () => {
@@ -83,6 +87,47 @@ describe("linked-root file quotes", () => {
       projectRoot: null,
       worktreeRoot: "/repos/app-worktrees/feature",
       valid: true,
+    })
+  })
+
+  it("detaches project-settings quotes from the active composer project", () => {
+    const quote = detachProjectFileQuote(
+      {
+        path: "src/index.ts",
+        name: "index.ts",
+        startLine: 3,
+        endLine: 4,
+        content: "export {}",
+      },
+      "/repos/project-b",
+    )
+
+    expect(quote).toMatchObject({
+      path: "/repos/project-b/src/index.ts",
+      revealable: false,
+    })
+    expect(quote.projectRoot).toBeUndefined()
+    expect(quote.worktreeRoot).toBeUndefined()
+  })
+
+  it("keeps linked-root provenance in the detached absolute path", () => {
+    expect(
+      detachProjectFileQuote(
+        {
+          path: "src/index.ts",
+          name: "index.ts",
+          startLine: 1,
+          endLine: 1,
+          content: "export {}",
+          projectRoot: { index: 1, path: "C:\\shared" },
+        },
+        "C:\\primary",
+      ),
+    ).toMatchObject({
+      path: "C:\\shared\\src\\index.ts",
+      revealable: false,
+      projectRoot: undefined,
+      worktreeRoot: undefined,
     })
   })
 })

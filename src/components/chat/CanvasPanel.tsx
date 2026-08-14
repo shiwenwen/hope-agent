@@ -11,7 +11,8 @@ import { IconTip } from "@/components/ui/tooltip"
 import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
-import ArtifactViewer from "@/components/artifacts/ArtifactViewer"
+import ArtifactViewer, { type ArtifactTextSelection } from "@/components/artifacts/ArtifactViewer"
+import type { PendingFileQuote } from "@/types/chat"
 
 interface CanvasInfo {
   projectId: string
@@ -54,6 +55,8 @@ interface CanvasPanelProps {
   reservedMainWidth?: number
   currentSessionId?: string | null
   onOpenChange?: (open: boolean) => void
+  /** Stages a selected Canvas excerpt in the owning composer; never sends it. */
+  onQuote?: (quote: PendingFileQuote) => void
   visible?: boolean
   collapsed?: boolean
   overlay?: boolean
@@ -70,6 +73,7 @@ export default function CanvasPanel({
   reservedMainWidth,
   currentSessionId = null,
   onOpenChange,
+  onQuote,
   visible = true,
   collapsed = false,
   overlay = false,
@@ -309,6 +313,11 @@ export default function CanvasPanel({
   // Handle messages from iframe (eval results, snapshot results)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // The sandboxed frame has an opaque origin, so `event.origin` is not a
+      // usable discriminator. Accept responses only from this panel's live
+      // iframe; unrelated/forged window messages must never resolve a backend
+      // Canvas request.
+      if (event.source !== iframeRef.current?.contentWindow) return
       if (!event.data || typeof event.data !== "object") return
 
       if (event.data.type === "canvas_eval_result") {
@@ -355,6 +364,21 @@ export default function CanvasPanel({
     resetFullscreen()
     setDetached(false)
   }, [resetFullscreen])
+
+  const handleQuoteSelection = useCallback(
+    (selection: ArtifactTextSelection) => {
+      if (!canvas || !onQuote) return
+      onQuote({
+        path: `artifact:${canvas.projectId}`,
+        name: canvas.title,
+        startLine: 0,
+        endLine: 0,
+        content: selection.text,
+        revealable: false,
+      })
+    },
+    [canvas, onQuote],
+  )
 
   const handleDetach = useCallback(async () => {
     if (!canvas?.projectPath) return
@@ -555,6 +579,7 @@ export default function CanvasPanel({
           projectPath={canvas.projectPath}
           refreshKey={`${canvas.projectId}-${refreshKey}`}
           title={canvas.title}
+          onQuoteSelection={onQuote ? handleQuoteSelection : undefined}
         />
       </div>
     </RightPanelShell>

@@ -83,6 +83,11 @@ pub struct Attachment {
     /// block to the model. Not persisted as a file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote_lines: Option<String>,
+    /// Whether a persisted quote can be reopened in the file browser. Visual
+    /// and synthetic sources set this to `false`; absent preserves legacy
+    /// clients' revealable-by-default behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_revealable: Option<bool>,
     /// Exact linked-project root identity captured with a file-browser quote.
     /// This is durable UI provenance only; filesystem authorization continues
     /// to resolve the live project row when a restored quote is opened.

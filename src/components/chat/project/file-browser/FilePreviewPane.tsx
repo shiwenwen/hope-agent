@@ -5,8 +5,10 @@
  * placeholder for everything else. Ordinary HTML renders in a script-free
  * sandbox; managed HTML artifacts use their dedicated script-enabled path.
  *
- * Selecting text in a code/text/markdown-source preview reveals a "quote to
- * chat" action capturing the file path + exact line range + content.
+ * Selecting text in a code/text, rendered/source Markdown, or selectable Office
+ * preview automatically reveals copy and optional "quote to chat" actions.
+ * Source previews retain exact line ranges; rendered surfaces report lines only
+ * when they can map the literal selection without ambiguity.
  */
 
 import { useCallback, useEffect, useState } from "react"
@@ -23,8 +25,10 @@ import type { FileTextContent } from "@/lib/transport"
 import type { PreviewSource } from "@/components/chat/files/previewSource"
 import type { PendingFileQuote } from "@/types/chat"
 import { OfficeRichPreview } from "@/components/chat/files/office/OfficeRichPreview"
+import { ArtifactSelectionIframe } from "@/components/artifacts/ArtifactViewer"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
 import { buildOfflineHtmlPreview } from "./offlineHtmlPreview"
+import { SelectableDomPreview } from "./SelectableDomPreview"
 import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
 export type QuotePayload = PendingFileQuote
@@ -66,7 +70,13 @@ export function FilePreviewPane({
   onToggleMaximize,
 }: FilePreviewPaneProps) {
   const { t } = useTranslation()
-  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [loadedResult, setLoadedResult] = useState<{
+    source: PreviewSource
+    value: Loaded
+  } | null>(null)
+  // Async resolution for the previous file must never be rendered under the
+  // next file's header/quote provenance while its new load effect catches up.
+  const loaded = loadedResult?.source === source ? loadedResult.value : null
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewSource, setViewSource] = useState(false)
@@ -76,7 +86,7 @@ export function FilePreviewPane({
     let leasedRawUrl: string | null = null
     if (!source) {
       setViewSource(false)
-      setLoaded(null)
+      setLoadedResult(null)
       return
     }
     setLoading(true)
@@ -98,7 +108,7 @@ export function FilePreviewPane({
             return
           }
           if (url) leasedRawUrl = url
-          if (!cancelled) setLoaded({ kind: "managed_html", url })
+          if (!cancelled) setLoadedResult({ source, value: { kind: "managed_html", url } })
         } else if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
           const url = await source.rawUrl(false)
           if (url && cancelled) {
@@ -106,18 +116,18 @@ export function FilePreviewPane({
             return
           }
           if (url) leasedRawUrl = url
-          if (!cancelled) setLoaded({ kind, url })
+          if (!cancelled) setLoadedResult({ source, value: { kind, url } })
         } else if (kind === "office") {
           // Office files are rich-rendered from raw bytes by OfficeRichPreview;
           // text extraction runs lazily only if that falls back.
-          if (!cancelled) setLoaded({ kind: "office" })
+          if (!cancelled) setLoadedResult({ source, value: { kind: "office" } })
         } else {
           const data = await source.readText()
           if (cancelled) return
           // code/text/markdown render as text; `other` renders as text when
           // readable, else falls through to the binary placeholder.
           const renderKind = data.isBinary ? "binary" : kind === "other" ? "text" : kind
-          setLoaded({ kind: renderKind, data })
+          setLoadedResult({ source, value: { kind: renderKind, data } })
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -134,9 +144,11 @@ export function FilePreviewPane({
   const isHtmlPreview =
     loaded?.kind === "code" && shikiLang(source?.name ?? "", source?.language) === "html"
   const supportsRenderedView = loaded?.kind === "markdown" || isHtmlPreview
+  const effectiveHighlightLines =
+    highlightLines && highlightLines.start > 0 && highlightLines.end > 0 ? highlightLines : null
   const effectiveViewSource =
     viewSource ||
-    (!!highlightLines && (loaded?.kind === "markdown" || isHtmlPreview))
+    (!!effectiveHighlightLines && (loaded?.kind === "markdown" || isHtmlPreview))
 
   const handleQuoteSelection = useCallback(
     (sel: CodeSelection) => {
@@ -147,6 +159,7 @@ export function FilePreviewPane({
         startLine: sel.startLine,
         endLine: sel.endLine,
         content: sel.text,
+        ...(source.presentation === "managed_html" ? { revealable: false } : {}),
       })
       toast.success(t("fileBrowser.quoted", "Added to chat"))
     },
@@ -296,7 +309,7 @@ export function FilePreviewPane({
             source={source}
             viewSource={effectiveViewSource}
             onQuote={onQuote ? handleQuoteSelection : undefined}
-            highlightLines={highlightLines}
+            highlightLines={effectiveHighlightLines}
             onOpen={onOpen}
             onDownload={onDownload}
           />
@@ -370,11 +383,17 @@ function PreviewBody({
 
   if (loaded.kind === "managed_html") {
     return loaded.url ? (
-      <iframe
+      <ArtifactSelectionIframe
         title={source.name}
         src={loaded.url}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
+        refreshKey={source.displayPath ?? source.name}
+        onQuoteSelection={
+          onQuote
+            ? ({ text }) => {
+                onQuote({ startLine: 0, endLine: 0, text })
+              }
+            : undefined
+        }
         className="h-full w-full border-0 bg-white dark:bg-surface-app"
       />
     ) : (
@@ -386,12 +405,13 @@ function PreviewBody({
     // key on the file so a new source remounts (resets fetch/fail state) —
     // OfficeRichPreview's effect only fetches, it never resets synchronously.
     return (
-      <OfficeRichPreview
+      <SelectableDomPreview
         key={source.displayPath ?? source.name}
-        source={source}
-        onOpen={onOpen}
-        onDownload={onDownload}
-      />
+        onQuote={onQuote}
+        className="h-full"
+      >
+        <OfficeRichPreview source={source} onOpen={onOpen} onDownload={onDownload} />
+      </SelectableDomPreview>
     )
   }
 
@@ -414,9 +434,14 @@ function PreviewBody({
   // markdown (rendered) — view-source falls through to the fenced-code path.
   if (loaded.kind === "markdown" && !viewSource) {
     return (
-      <div className="px-4 py-3">
+      <SelectableDomPreview
+        key={source.displayPath ?? source.name}
+        sourceText={loaded.data.content}
+        onQuote={onQuote}
+        className="px-4 py-3"
+      >
         <MarkdownRenderer content={loaded.data.content} />
-      </div>
+      </SelectableDomPreview>
     )
   }
 

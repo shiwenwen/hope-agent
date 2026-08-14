@@ -33,8 +33,20 @@ vi.mock("./ProjectMemorySection", () => ({
   ),
 }))
 vi.mock("./file-browser/FileBrowserView", () => ({
-  FileBrowserView: ({ editable, rootPath }: { editable?: boolean; rootPath?: string | null }) => (
-    <div data-testid="file-browser" data-root-path={rootPath ?? ""}>
+  FileBrowserView: ({
+    editable,
+    rootPath,
+    onQuote,
+  }: {
+    editable?: boolean
+    rootPath?: string | null
+    onQuote?: (quote: unknown) => void
+  }) => (
+    <div
+      data-testid="file-browser"
+      data-root-path={rootPath ?? ""}
+      data-quote-enabled={onQuote ? "true" : "false"}
+    >
       {editable ? "file-browser-editable" : "file-browser-read-only"}
     </div>
   ),
@@ -197,6 +209,25 @@ describe("ProjectOverviewDialog", () => {
       expect(screen.getByTestId("file-browser").getAttribute("data-root-path")).toBe(
         "/data/projects/project-1/workspace",
       ),
+    )
+  })
+
+  it("keeps project quotes disabled until the canonical root resolves", async () => {
+    let resolveAccess: ((value: { rootPath: string }) => void) | undefined
+    transportMock.getWorkspaceAccess.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAccess = resolve
+      }),
+    )
+    transportMock.call.mockResolvedValue(overview)
+    renderOverview({ onQuote: vi.fn() })
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "文件" }), { button: 0 })
+    expect(screen.getByTestId("file-browser").getAttribute("data-quote-enabled")).toBe("false")
+
+    resolveAccess?.({ rootPath: "/data/projects/project-1/workspace" })
+    await waitFor(() =>
+      expect(screen.getByTestId("file-browser").getAttribute("data-quote-enabled")).toBe("true"),
     )
   })
 

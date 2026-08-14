@@ -177,4 +177,36 @@ describe("FilePreviewPane", () => {
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
     expect(readText).not.toHaveBeenCalled()
   })
+
+  test("does not retain the previous managed document while the next source resolves", async () => {
+    const first = {
+      name: "First.html",
+      presentation: "managed_html" as const,
+      readText: vi.fn(),
+      extractDoc: vi.fn(),
+      rawUrl: vi.fn(async () => "https://server.test/first.html"),
+    } satisfies PreviewSource
+    const second = {
+      name: "Second.html",
+      presentation: "managed_html" as const,
+      readText: vi.fn(),
+      extractDoc: vi.fn(),
+      rawUrl: vi.fn(() => new Promise<string | null>(() => undefined)),
+    } satisfies PreviewSource
+    const { rerender } = render(
+      <TooltipProvider>
+        <FilePreviewPane source={first} />
+      </TooltipProvider>,
+    )
+    await waitFor(() => expect(screen.getByTitle("First.html")).toBeTruthy())
+
+    rerender(
+      <TooltipProvider>
+        <FilePreviewPane source={second} />
+      </TooltipProvider>,
+    )
+
+    expect(screen.queryByTitle("First.html")).toBeNull()
+    expect(screen.queryByTitle("Second.html")).toBeNull()
+  })
 })
