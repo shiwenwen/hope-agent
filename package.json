@@ -108,6 +108,7 @@
     "katex": "^0.16.38",
     "lucide-react": "^1.7.0",
     "mp4-muxer": "^5.2.2",
+    "parse5": "^8.0.1",
     "pptxviewjs": "^1.1.9",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",

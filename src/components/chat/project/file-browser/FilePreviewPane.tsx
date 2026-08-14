@@ -1,8 +1,9 @@
 /**
  * Read-only preview for a workspace file, dispatched by file kind:
- * code/text (Shiki, direct), markdown (rendered + view-source), image
+ * code/text (Shiki, direct), markdown and HTML (rendered + view-source), image
  * (`<img>`), PDF (`<iframe>`), Office (extracted text + images), and a binary
- * placeholder for everything else.
+ * placeholder for everything else. Ordinary HTML renders in a script-free
+ * sandbox; managed HTML artifacts use their dedicated script-enabled path.
  *
  * Selecting text in a code/text/markdown-source preview reveals a "quote to
  * chat" action capturing the file path + exact line range + content.
@@ -23,6 +24,7 @@ import type { PreviewSource } from "@/components/chat/files/previewSource"
 import type { PendingFileQuote } from "@/types/chat"
 import { OfficeRichPreview } from "@/components/chat/files/office/OfficeRichPreview"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
+import { buildOfflineHtmlPreview } from "./offlineHtmlPreview"
 import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
 export type QuotePayload = PendingFileQuote
@@ -72,14 +74,21 @@ export function FilePreviewPane({
   useEffect(() => {
     let cancelled = false
     let leasedRawUrl: string | null = null
-    setViewSource(false)
     if (!source) {
+      setViewSource(false)
       setLoaded(null)
       return
     }
     setLoading(true)
     setError(null)
     const kind = fileKindOf(source.name, source.mime, source.language)
+    // Preserve the existing highlighted-source default for ordinary HTML.
+    // Managed HTML artifacts follow their dedicated renderer below.
+    setViewSource(
+      source.presentation !== "managed_html" &&
+        kind === "code" &&
+        shikiLang(source.name, source.language) === "html",
+    )
     void (async () => {
       try {
         if (source.presentation === "managed_html") {
@@ -122,7 +131,12 @@ export function FilePreviewPane({
     }
   }, [source])
 
-  const effectiveViewSource = viewSource || (!!highlightLines && loaded?.kind === "markdown")
+  const isHtmlPreview =
+    loaded?.kind === "code" && shikiLang(source?.name ?? "", source?.language) === "html"
+  const supportsRenderedView = loaded?.kind === "markdown" || isHtmlPreview
+  const effectiveViewSource =
+    viewSource ||
+    (!!highlightLines && (loaded?.kind === "markdown" || isHtmlPreview))
 
   const handleQuoteSelection = useCallback(
     (sel: CodeSelection) => {
@@ -164,14 +178,14 @@ export function FilePreviewPane({
           ) : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {loaded?.kind === "markdown" ? (
+          {supportsRenderedView ? (
             <div className="inline-flex items-center rounded-md border border-border/60 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewSource(false)}
                 className={cn(
                   "rounded px-2 py-0.5 text-xs transition-colors",
-                  !viewSource
+                  !effectiveViewSource
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -183,7 +197,7 @@ export function FilePreviewPane({
                 onClick={() => setViewSource(true)}
                 className={cn(
                   "rounded px-2 py-0.5 text-xs transition-colors",
-                  viewSource
+                  effectiveViewSource
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -406,6 +420,20 @@ function PreviewBody({
     )
   }
 
+  if (
+    loaded.kind === "code" &&
+    shikiLang(source.name, source.language) === "html" &&
+    !viewSource
+  ) {
+    return (
+      <OfflineHtmlPreview
+        name={source.name}
+        sizeBytes={loaded.data.sizeBytes}
+        content={loaded.data.content}
+      />
+    )
+  }
+
   // code / text / markdown-source: render directly with Shiki (no Markdown
   // round-trip). Selection → exact line numbers via per-line `data-line`.
   if (loaded.kind === "code" || loaded.kind === "text" || loaded.kind === "markdown") {
@@ -422,4 +450,63 @@ function PreviewBody({
   }
 
   return null
+}
+
+function OfflineHtmlPreview({
+  name,
+  sizeBytes,
+  content,
+}: {
+  name: string
+  sizeBytes: number
+  content: string
+}) {
+  const [result, setResult] = useState<{
+    content: string
+    html: string | null
+    error: string | null
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void buildOfflineHtmlPreview(content).then(
+      (html) => {
+        if (!cancelled) setResult({ content, html, error: null })
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setResult({
+            content,
+            html: null,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [content])
+
+  if (result?.content !== content) {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!result.html) {
+    return <BinaryPlaceholder name={name} sizeBytes={sizeBytes} note={result.error ?? undefined} />
+  }
+
+  return (
+    <iframe
+      title={name}
+      srcDoc={result.html}
+      sandbox=""
+      referrerPolicy="no-referrer"
+      className="h-full w-full border-0 bg-white dark:bg-surface-app"
+    />
+  )
 }
