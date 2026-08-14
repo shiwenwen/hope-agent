@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 19;
+pub const RENDER_VERSION: u32 = 21;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -277,6 +277,19 @@ pub fn build_artifact_html(
   // 编辑期放行按键/点击给编辑器（打字、方向键移光标、点击移光标），翻页器不再抢——否则 deck 就地
   // 改字幕时空格打不出还翻页、方向键翻页、编辑区内点击=半屏翻页。
   function editing(e){var t=e&&e.target;return !!(t&&t.isContentEditable);}
+  function selectedTextControl(){
+    var el=document.activeElement;if(!el)return null;
+    var tag=(el.tagName||'').toLowerCase(),type=(el.type||'text').toLowerCase();
+    if(tag!=='textarea'&&!(tag==='input'&&type!=='password'))return null;
+    var a=el.selectionStart,b=el.selectionEnd;
+    if(typeof a!=='number'||typeof b!=='number'||a===b)return null;
+    var text=String(el.value||'').slice(a,b);
+    return text.trim()?{element:el,text:text}:null;
+  }
+  function hasPreciseTextSelection(){
+    if(selectedTextControl())return true;
+    var s=window.getSelection();return !!(s&&!s.isCollapsed&&String(s).trim());
+  }
   document.addEventListener('keydown',function(e){
     if(editing(e))return;
     if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();show(i+1)}
@@ -285,6 +298,8 @@ pub fn build_artifact_html(
     else if(e.key==='End'){e.preventDefault();show(slides.length-1)}});
   document.addEventListener('click',function(e){
     if(editing(e))return;
+    // 拖选文字后的 click 不应顺带翻页；保留浏览器原生选区，交给预览选区桥显示操作浮层。
+    if(hasPreciseTextSelection())return;
     show(e.clientX>window.innerWidth/2?i+1:i-1)});
   window.addEventListener('message',function(e){var d=e.data||{};
     if(d.type==='ds_slide_next')show(i+1);
@@ -374,6 +389,30 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     'border-style','border-color','box-shadow','opacity',
     'display','align-items','justify-content','z-index'];
   function elByOid(oid){return document.querySelector('[data-ds-oid="'+oid+'"]')}
+  // DOM Selection 不包含 input/textarea 的 selectionStart/End。点选、右键与 Escape
+  // 共用这一判定，避免表单文字选区又被解释为元素编辑操作。
+  function selectedTextControl(){
+    var el=document.activeElement;if(!el)return null;
+    var tag=(el.tagName||'').toLowerCase(),type=(el.type||'text').toLowerCase();
+    if(tag!=='textarea'&&!(tag==='input'&&type!=='password'))return null;
+    var a=el.selectionStart,b=el.selectionEnd;
+    if(typeof a!=='number'||typeof b!=='number'||a===b)return null;
+    var text=String(el.value||'').slice(a,b);
+    return text.trim()?{element:el,text:text}:null;
+  }
+  function domTextSelection(){
+    var s=window.getSelection();
+    return s&&!s.isCollapsed&&String(s).trim()?s:null;
+  }
+  function hasPreciseTextSelection(){return !!(selectedTextControl()||domTextSelection())}
+  function clearPreciseTextSelection(){
+    var control=selectedTextControl();
+    if(control){var el=control.element,end=el.selectionEnd;try{el.setSelectionRange(end,end)}catch(_){}return}
+    var s=domTextSelection();if(s)try{s.collapseToEnd()}catch(_){try{s.removeAllRanges()}catch(__){}}
+  }
+  function textSelectionActive(){
+    return hasPreciseTextSelection()||document.documentElement.hasAttribute('data-ds-text-selection-active');
+  }
   // 可编辑元素可发现性：编辑态给所有 [data-ds-oid] 一层极淡虚线 outline（低透明、outline 不占布局），
   // 让用户一眼看到「哪些能点」。hover/选中的 inline outline 天然更强、覆盖它；清除后回落到此淡框。
   // 经 body.ds-edit-active class 门控 stylesheet，一次注入。（对齐参考实现的 manual-edit bridge style）
@@ -596,6 +635,9 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
       return;
     }
     if(!active)return;
+    // 编辑模式仍允许精确拖选文字：mouseup 后浏览器会派发 click，若已有非空选区就不再把它
+    // 解释成元素点选/就地编辑。右键语义另由 contextmenu handler 保持原生。
+    if(hasPreciseTextSelection())return;
     if(editing){if(editing.contains(e.target))return;endEdit(true)} // 编辑内点=移光标；点外=提交
     var el=e.target.closest('[data-ds-oid]');
     // 点空白（无命中元素）→ **取消选中**（P1-E）。此前回落选中根元素纯属反直觉——「改整页背景/字体」
@@ -616,12 +658,18 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   var preSel='',preSelAnchor=null;
   document.addEventListener('mousedown',function(e){
     if(e.button!==2)return;
-    var s=window.getSelection();
-    preSel=s?String(s):'';
+    var control=selectedTextControl();
+    if(control){preSel=control.text;preSelAnchor=control.element;return}
+    var s=domTextSelection();preSel=s?String(s):'';
     preSelAnchor=(s&&s.rangeCount)?s.getRangeAt(0).commonAncestorContainer:null;
   },true);
   document.addEventListener('contextmenu',function(e){
     if(!active||editing)return;
+    // 键盘菜单 / macOS Ctrl-click 不一定有 button=2 的 mousedown 快照；
+    // 表单控件选区可直接用 selectionStart/End 验证，仍应放行原生菜单。
+    var liveControl=selectedTextControl();
+    if(liveControl){var field=liveControl.element;
+      if(field===e.target||field.contains(e.target)||(e.target.contains&&e.target.contains(field)))return}
     if(preSel.trim()&&preSelAnchor){
       var anc=preSelAnchor.nodeType===1?preSelAnchor:preSelAnchor.parentNode;
       if(anc&&(anc===e.target||anc.contains(e.target)||(e.target.contains&&e.target.contains(anc))))return;
@@ -679,6 +727,9 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     if(tn&&(tn.textContent||'').replace(/\s+/g,'').length)beginTextNodeEdit(el,tn,e.clientX,e.clientY);
   },true);
   document.addEventListener('keydown',function(e){
+    // 选区浮层优先级高于元素选中/编辑模式：Inspector 比预览选区桥先注册，
+    // 故这里只清 DOM/表单选区并 return；同一事件继续交给后注册的桥发 clear 消息。
+    if(e.key==='Escape'&&textSelectionActive()){e.preventDefault();clearPreciseTextSelection();return}
     if(editing){
       if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();endEdit(true)}
       else if(e.key==='Escape'){e.preventDefault();endEdit(false)}
@@ -776,16 +827,120 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
 })();
 </script>"#;
 
-/// 手势缩放转发脚本（**仅预览注入，导出不注入**）：捏合 / Ctrl·⌘+滚轮在 iframe 内派发、
-/// 跨源不冒泡到宿主，故转发 `ds_zoom` 让父窗连续驱动预览 CSS scale，并 `preventDefault` 掉本
-/// 文档自身的整页缩放。独立于 inspector 桥——故 image/audio（无桥）与 component（编译产物）
-/// 预览也能手势缩放。普通滚动（无修饰键）不干预，仍走原生内容滚动。`passive:false` 方能拦截。
-/// 导出走 `render_clean` 不注入，保交付物纯净（浏览器打开时 Ctrl+滚轮仍缩放页面）。
+/// 预览交互转发脚本（**仅预览注入，导出不注入**）：
+/// - 捏合 / Ctrl·⌘+滚轮跨源不冒泡，转发 `ds_zoom` 让父窗连续驱动预览 CSS scale；
+/// - 用户完成精确文本选择后转发 `ds_text_selection`（纯文本 + 选区矩形），由父窗显示
+///   「复制 / 添加到对话」浮层。脚本不监听/阻止 `contextmenu`，原生复制、查词等右键语义不变。
+///
+/// 独立于 inspector 桥——故 image/audio（无桥）与 component（编译产物）同样可用。普通滚动
+/// 不干预。导出走 `render_clean` 不注入，保交付物纯净。
 pub(super) const ZOOM_FORWARD_SCRIPT: &str = r#"<script>
-(function(){window.addEventListener('wheel',function(e){
-  if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();
-  try{parent.postMessage({type:'ds_zoom',deltaY:e.deltaY,deltaMode:e.deltaMode},'*')}catch(_){}
-},{passive:false,capture:true});})();
+(function(){
+  var selectionTimer=0,selectionVisible=false,lastSelectionKey='',suppressSelectionUntil=0;
+  var selectionPointerDown=false;
+  var designSelectionToken='';
+  var artifactSelectionToken='';
+  function markSelectionVisible(on){
+    selectionVisible=on;
+    if(on)document.documentElement.setAttribute('data-ds-text-selection-active','');
+    else document.documentElement.removeAttribute('data-ds-text-selection-active');
+  }
+  function rectPayload(r){return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,
+    width:r.width,height:r.height}}
+  function inputSelection(){
+    var el=document.activeElement;if(!el)return null;
+    var tag=(el.tagName||'').toLowerCase(),type=(el.type||'text').toLowerCase();
+    // 密码框永不外送；其余仅处理真有 selectionStart/End 的文本控件。
+    if(tag!=='textarea'&&!(tag==='input'&&type!=='password'))return null;
+    if(typeof el.selectionStart!=='number'||typeof el.selectionEnd!=='number'||el.selectionStart===el.selectionEnd)return null;
+    var text=String(el.value||'').slice(el.selectionStart,el.selectionEnd);
+    if(!text.trim())return null;
+    return {text:text,rect:rectPayload(el.getBoundingClientRect())};
+  }
+  function readSelection(){
+    var inp=inputSelection();if(inp)return inp;
+    var s=window.getSelection();if(!s||s.isCollapsed||!s.rangeCount)return null;
+    var text=String(s);if(!text.trim())return null;
+    var range=s.getRangeAt(0),rects=range.getClientRects();
+    var r=rects.length?rects[0]:range.getBoundingClientRect();
+    if(!r)return null;
+    return {text:text,rect:rectPayload(r)};
+  }
+  function clearSelectionMenu(){
+    var wasVisible=selectionVisible;markSelectionVisible(false);lastSelectionKey='';
+    if(!wasVisible)return;
+    if(designSelectionToken){try{parent.postMessage({type:'ds_text_selection_cleared',
+      version:1,token:designSelectionToken},'*')}catch(_){}}
+    if(artifactSelectionToken){try{parent.postMessage({type:'hope_artifact_text_selection_clear',
+      version:1,token:artifactSelectionToken},'*')}catch(_){}}
+  }
+  function reportSelection(){
+    selectionTimer=0;if(selectionPointerDown||Date.now()<suppressSelectionUntil)return;
+    var p=readSelection();if(!p){clearSelectionMenu();return}
+    // 与宿主接收端同一上限：超长选区不截断（避免「复制/引用」悄悄丢字），直接不展示动作。
+    if(p.text.length>20000){clearSelectionMenu();return}
+    var r=p.rect,key=p.text+'\u0000'+[r.left,r.top,r.right,r.bottom].join(',');
+    if(selectionVisible&&key===lastSelectionKey)return;
+    markSelectionVisible(true);lastSelectionKey=key;
+    // DesignView 在每次 iframe load 后下发新 token；未激活或旧文档不会发 ds 选区。
+    if(designSelectionToken){try{parent.postMessage({type:'ds_text_selection',version:1,
+      token:designSelectionToken,text:p.text,rect:p.rect},'*')}catch(_){}}
+    // 同一 Design HTML 也会被 ArtifactViewer 承载。该宿主先下发一次性 token 握手；回包带
+    // version+token，避免旧文档/其它 frame 的延迟消息串进当前预览。
+    if(artifactSelectionToken){try{parent.postMessage({type:'hope_artifact_text_selection',
+      version:1,token:artifactSelectionToken,text:p.text,rect:p.rect},'*')}catch(_){}}
+  }
+  function scheduleSelection(delay){
+    if(selectionTimer)clearTimeout(selectionTimer);
+    selectionTimer=setTimeout(reportSelection,delay||0);
+  }
+  // selectionchange 在拖拽过程中会高频触发：非空选区防抖，主键 pointerup 则立即上报，做到
+  // 「选完即弹」而不是拖到一半就闪菜单。input/textarea 的 select 事件走同一入口。
+  document.addEventListener('selectionchange',function(){
+    if(selectionPointerDown)return;
+    var p=readSelection();if(p)scheduleSelection(120);else clearSelectionMenu();
+  });
+  document.addEventListener('select',function(){scheduleSelection(0)},true);
+  function finishSelectionPointer(){
+    if(!selectionPointerDown)return;selectionPointerDown=false;scheduleSelection(0);
+  }
+  document.addEventListener('pointerup',function(e){
+    if(e.button===0)finishSelectionPointer();else selectionPointerDown=false
+  },true);
+  document.addEventListener('pointercancel',finishSelectionPointer,true);
+  document.addEventListener('touchend',finishSelectionPointer,true);
+  // Mouse 在 iframe 外释放时子文档收不到 pointerup。离开子文档边界即结束
+  // 本文档可见的选区；另以 blur 覆盖应用切换，两者都不在父窗口挂全局监听。
+  document.addEventListener('pointerout',function(e){
+    if(selectionPointerDown&&e.pointerType==='mouse'&&!e.relatedTarget)finishSelectionPointer()
+  },true);
+  window.addEventListener('blur',finishSelectionPointer);
+  document.addEventListener('keyup',function(e){if(e.key!=='Escape')scheduleSelection(0)},true);
+  // WebKit 右键按下可能自动选中光标下的单词；它不代表用户完成了拖选，短暂抑制上报，且
+  // 全程不 preventDefault / 不监听 contextmenu，原生右键菜单保持完整。
+  document.addEventListener('pointerdown',function(e){
+    if(e.button===2){selectionPointerDown=false;suppressSelectionUntil=Date.now()+400;clearSelectionMenu();return}
+    if(e.button===0){selectionPointerDown=true;if(selectionTimer)clearTimeout(selectionTimer);clearSelectionMenu()}
+  },true);
+  document.addEventListener('touchstart',function(){selectionPointerDown=true},true);
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')clearSelectionMenu()},true);
+  window.addEventListener('scroll',clearSelectionMenu,true);
+  window.addEventListener('message',function(e){
+    var d=e.data||{};if(e.source!==parent)return;
+    if(d.type==='ds_selection_activate'&&d.version===1&&typeof d.token==='string'&&
+       d.token.length>0&&d.token.length<=256){
+      designSelectionToken=d.token;markSelectionVisible(false);lastSelectionKey='';scheduleSelection(0);
+    }
+    else if(d.type==='hope_artifact_selection_activate'&&d.version===1&&typeof d.token==='string'&&
+       d.token.length>0&&d.token.length<=256){
+      artifactSelectionToken=d.token;markSelectionVisible(false);lastSelectionKey='';scheduleSelection(0);
+    }
+  });
+  window.addEventListener('wheel',function(e){
+    if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();clearSelectionMenu();
+    try{parent.postMessage({type:'ds_zoom',deltaY:e.deltaY,deltaMode:e.deltaMode},'*')}catch(_){}
+  },{passive:false,capture:true});
+})();
 </script>"#;
 
 /// 流式占位页接收脚本：**dormant + postMessage + 零网络**（仿 `INSPECTOR_BRIDGE`）。
@@ -1065,6 +1220,57 @@ mod tests {
         // 零网络：不引外链
         assert!(!html.contains("http://"));
         assert!(!html.contains("https://"));
+    }
+
+    #[test]
+    fn preview_forwarder_reports_text_selection_without_hijacking_context_menu() {
+        assert!(ZOOM_FORWARD_SCRIPT.contains("d.type==='ds_selection_activate'"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains(
+            "if(designSelectionToken){try{parent.postMessage({type:'ds_text_selection',version:1,"
+        ));
+        assert!(ZOOM_FORWARD_SCRIPT.contains(
+            "{type:'ds_text_selection_cleared',\n      version:1,token:designSelectionToken}"
+        ));
+        assert!(!ZOOM_FORWARD_SCRIPT.contains("{type:'ds_text_selection',text:"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("var d=e.data||{};if(e.source!==parent)return;"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("hope_artifact_selection_activate"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("hope_artifact_text_selection"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("hope_artifact_text_selection_clear"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("p.text.length>20000"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("type!=='password'"));
+        assert!(ZOOM_FORWARD_SCRIPT
+            .contains("document.addEventListener('pointercancel',finishSelectionPointer,true)"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("!e.relatedTarget)finishSelectionPointer()"));
+        assert!(
+            !ZOOM_FORWARD_SCRIPT.contains("addEventListener('contextmenu'"),
+            "text selection bridge must preserve the native context menu"
+        );
+    }
+
+    #[test]
+    fn text_selection_wins_over_deck_and_inspector_actions() {
+        // Deck 不注入 inspector 时仍须独立识别表单控件选区，不误翻页。
+        let parts = ArtifactParts {
+            body_html: "<section class=\"ds-slide\"><input value=\"hello\"></section>".to_string(),
+            ..ArtifactParts::default()
+        };
+        let (deck, _) = build_artifact_html(ArtifactKind::Deck, "T", &parts, &[], false);
+        assert!(deck.contains("function selectedTextControl()"));
+        assert!(deck.contains("if(hasPreciseTextSelection())return;\n    show("));
+
+        // Inspector 点选/右键共用同一表单选区 helper；Escape 守卫必须早于
+        // editing/元素选中分支，否则一次 Escape 会越级退出编辑态。
+        assert!(INSPECTOR_BRIDGE.contains("if(hasPreciseTextSelection())return;"));
+        assert!(INSPECTOR_BRIDGE.contains("var liveControl=selectedTextControl();"));
+        let keydown = INSPECTOR_BRIDGE
+            .rfind("document.addEventListener('keydown'")
+            .expect("inspector keydown listener");
+        let keydown_script = &INSPECTOR_BRIDGE[keydown..];
+        let selection_guard = keydown_script
+            .find("if(e.key==='Escape'&&textSelectionActive())")
+            .expect("selection escape guard");
+        let editing_guard = keydown_script.find("if(editing){").expect("editing guard");
+        assert!(selection_guard < editing_guard);
     }
 
     #[test]

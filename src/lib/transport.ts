@@ -38,6 +38,9 @@ export interface ChatAttachment {
   upload_id?: string;
   /** For `source: "quote"`: 1-based line range of the quoted snippet ("12-20"). */
   quote_lines?: string;
+  /** For `source: "quote"`: whether the persisted reference can be reopened
+   * in the file browser. False for visual or synthetic sources. */
+  quote_revealable?: boolean;
   /** For `source: "quote"`: exact linked-project root identity used to
    * restore the same browser scope after edit/fork/resend. */
   quote_project_root?: { index: number; path: string };

@@ -10,6 +10,12 @@ use crate::artifacts::{
 use ha_core::tools::ToolExecContext;
 
 pub(crate) async fn tool_artifact(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let args = args.clone();
+    let ctx = ctx.clone();
+    ha_core::blocking::run_blocking(move || tool_artifact_blocking(&args, &ctx)).await
+}
+
+fn tool_artifact_blocking(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     if ctx.incognito {
         return Err(anyhow!(
             "artifact tool is unavailable in incognito sessions because Artifacts are durable"

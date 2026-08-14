@@ -106,6 +106,7 @@ describe("message fork semantics", () => {
           path: "brief.md",
           lines: "3-5",
           content: "quoted lines",
+          revealable: false,
           project_root: { index: 1, path: "/repos/shared" },
           worktree_root: "/repos/shared-feature",
         },
@@ -131,6 +132,7 @@ describe("message fork semantics", () => {
         startLine: 3,
         endLine: 5,
         content: "quoted lines",
+        revealable: false,
         projectRoot: { index: 1, path: "/repos/shared" },
         worktreeRoot: "/repos/shared-feature",
       },
@@ -167,6 +169,36 @@ describe("message fork semantics", () => {
         content: "quoted lines",
         projectRoot: { index: 1, path: "/repos/shared" },
         worktreeRoot: "/repos/shared-feature",
+      },
+    ])
+  })
+
+  test("restores a non-revealable visual quote without inventing line one", async () => {
+    const draft = await resendComposerDraftForMessage({
+      role: "user",
+      content: "revise this",
+      dbId: 49,
+      attachments: [
+        {
+          name: "Dashboard",
+          mimeType: "text/plain",
+          sizeBytes: 0,
+          kind: "quote",
+          quotePath: "artifact:dashboard-1",
+          quoteContent: "visual selection",
+          quoteRevealable: false,
+        },
+      ],
+    })
+
+    expect(draft.pendingQuotes).toEqual([
+      {
+        path: "artifact:dashboard-1",
+        name: "Dashboard",
+        startLine: 0,
+        endLine: 0,
+        content: "visual selection",
+        revealable: false,
       },
     ])
   })

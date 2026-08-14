@@ -864,7 +864,7 @@ cancel handle。精确 `turnId` 不匹配时 fail closed，不得误停同 sessi
 
 `quote_role` 只能是 `user` 或 `assistant`。`message_quote` 不带 `file_path` / `quote_lines`，不会被当成上传文件、URL 来源或知识空间归档来源；后端将其作为已转义的 `<message_quote role="…">…</message_quote>` 用户上下文处理。历史消息会以 `{ kind: "message_quote", role, content }` 元数据恢复为引用卡片。旧客户端可忽略未知 `source`。
 
-文件浏览器的 `source: "quote"` 除 `file_path` / `quote_lines` 外，可带 `quote_project_root: { index, path }` 与 `quote_worktree_root`。两者只作为编辑、分叉、重发时恢复源文件夹及 Git worktree 的持久 provenance；实际打开文件仍由当前 Project 行和后端 scope 校验，这些字段不扩大文件权限。历史元数据分别保存为 `project_root` / `worktree_root`。
+文件浏览器的 `source: "quote"` 除 `file_path` / `quote_lines` 外，可带 `quote_revealable`、`quote_project_root: { index, path }` 与 `quote_worktree_root`。`quote_revealable=false` 表示视觉／合成来源不能在文件浏览器重新打开；缺失时保持旧客户端的默认可揭示语义。后两者只作为编辑、分叉、重发时恢复源文件夹及 Git worktree 的持久 provenance；实际打开文件仍由当前 Project 行和后端 scope 校验，这些字段不扩大文件权限。历史元数据分别保存为 `revealable`、`project_root` / `worktree_root`。
 
 ### macOS Control
 

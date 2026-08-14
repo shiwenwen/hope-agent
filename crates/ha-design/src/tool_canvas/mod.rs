@@ -84,24 +84,47 @@ pub(crate) async fn tool_canvas(
     }
 
     match action {
-        "create" => action_create(args, ctx).await,
-        "update" => action_update(args).await,
-        "show" => action_show(args).await,
-        "hide" => action_hide().await,
-        "list" => action_list().await,
-        "delete" => action_delete(args).await,
-        "versions" => action_versions(args).await,
-        "restore" => action_restore(args).await,
         "snapshot" => action_snapshot(args).await,
         "eval_js" => action_eval_js(args).await,
-        "export" => action_export(args).await,
+        _ => {
+            let action = action.to_string();
+            let args = args.clone();
+            let ctx = ctx.clone();
+            run_canvas_blocking(move || action_blocking(&action, &args, &ctx)).await
+        }
+    }
+}
+
+async fn run_canvas_blocking<T, F>(operation: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    ha_core::blocking::run_blocking(operation).await
+}
+
+fn action_blocking(
+    action: &str,
+    args: &Value,
+    ctx: &ha_core::tools::ToolExecContext,
+) -> Result<String> {
+    match action {
+        "create" => action_create(args, ctx),
+        "update" => action_update(args),
+        "show" => action_show(args),
+        "hide" => action_hide(),
+        "list" => action_list(),
+        "delete" => action_delete(args),
+        "versions" => action_versions(args),
+        "restore" => action_restore(args),
+        "export" => action_export(args),
         _ => Err(anyhow::anyhow!("Unknown canvas action: '{}'", action)),
     }
 }
 
 // ── Actions ────────────────────────────────────────────────────────
 
-async fn action_create(args: &Value, ctx: &ha_core::tools::ToolExecContext) -> Result<String> {
+fn action_create(args: &Value, ctx: &ha_core::tools::ToolExecContext) -> Result<String> {
     let db = get_canvas_db()?;
 
     let title = args.get("title").and_then(|v| v.as_str());
@@ -161,7 +184,7 @@ async fn action_create(args: &Value, ctx: &ha_core::tools::ToolExecContext) -> R
     .to_string())
 }
 
-async fn action_update(args: &Value) -> Result<String> {
+fn action_update(args: &Value) -> Result<String> {
     let db = get_canvas_db()?;
 
     let project_id = args
@@ -218,7 +241,7 @@ async fn action_update(args: &Value) -> Result<String> {
     .to_string())
 }
 
-async fn action_show(args: &Value) -> Result<String> {
+fn action_show(args: &Value) -> Result<String> {
     let project_id = args
         .get("project_id")
         .and_then(|v| v.as_str())
@@ -247,12 +270,12 @@ async fn action_show(args: &Value) -> Result<String> {
     .to_string())
 }
 
-async fn action_hide() -> Result<String> {
+fn action_hide() -> Result<String> {
     emit_canvas_event("canvas_hide", &serde_json::json!({}));
     Ok(r#"{"status":"hidden","message":"Canvas panel hidden."}"#.to_string())
 }
 
-async fn action_list() -> Result<String> {
+fn action_list() -> Result<String> {
     let db = get_canvas_db()?;
     let projects = db.list_projects()?;
     Ok(serde_json::to_string(&serde_json::json!({
@@ -262,7 +285,7 @@ async fn action_list() -> Result<String> {
     }))?)
 }
 
-async fn action_delete(args: &Value) -> Result<String> {
+fn action_delete(args: &Value) -> Result<String> {
     let project_id = args
         .get("project_id")
         .and_then(|v| v.as_str())
@@ -286,7 +309,7 @@ async fn action_delete(args: &Value) -> Result<String> {
     .to_string())
 }
 
-async fn action_versions(args: &Value) -> Result<String> {
+fn action_versions(args: &Value) -> Result<String> {
     let project_id = args
         .get("project_id")
         .and_then(|v| v.as_str())
@@ -316,7 +339,7 @@ async fn action_versions(args: &Value) -> Result<String> {
     .to_string())
 }
 
-async fn action_restore(args: &Value) -> Result<String> {
+fn action_restore(args: &Value) -> Result<String> {
     let project_id = args
         .get("project_id")
         .and_then(|v| v.as_str())
@@ -489,7 +512,7 @@ async fn action_eval_js(args: &Value) -> Result<String> {
     }
 }
 
-async fn action_export(args: &Value) -> Result<String> {
+fn action_export(args: &Value) -> Result<String> {
     let project_id = args
         .get("project_id")
         .and_then(|v| v.as_str())
@@ -623,9 +646,12 @@ pub async fn save_canvas_config(config: CanvasConfig) -> Result<(), String> {
 }
 
 pub async fn list_canvas_projects() -> Result<String, String> {
-    let db = get_canvas_db().map_err(|e| e.to_string())?;
-    let projects = db.list_projects().map_err(|e| e.to_string())?;
-    serde_json::to_string(&projects).map_err(|e| e.to_string())
+    run_canvas_blocking(|| {
+        let db = get_canvas_db().map_err(|e| e.to_string())?;
+        let projects = db.list_projects().map_err(|e| e.to_string())?;
+        serde_json::to_string(&projects).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Project + resolved on-disk path. Frontend needs the path to render the
@@ -641,48 +667,59 @@ pub struct CanvasProjectView {
 pub async fn list_canvas_projects_by_session(
     session_id: String,
 ) -> Result<Vec<CanvasProjectView>, String> {
-    let db = get_canvas_db().map_err(|e| e.to_string())?;
-    let projects = db
-        .list_projects_by_session(&session_id)
-        .map_err(|e| e.to_string())?;
-    let views = projects
-        .into_iter()
-        .map(|p| CanvasProjectView {
-            project_path: resolve_project_path(&p.id),
-            project: p,
-        })
-        .collect();
-    Ok(views)
+    run_canvas_blocking(move || {
+        let db = get_canvas_db().map_err(|e| e.to_string())?;
+        let projects = db
+            .list_projects_by_session(&session_id)
+            .map_err(|e| e.to_string())?;
+        let views = projects
+            .into_iter()
+            .map(|p| CanvasProjectView {
+                project_path: resolve_project_path(&p.id),
+                project: p,
+            })
+            .collect();
+        Ok(views)
+    })
+    .await
 }
 
 pub async fn get_canvas_project(project_id: String) -> Result<String, String> {
-    let db = get_canvas_db().map_err(|e| e.to_string())?;
-    let project = db.get_project(&project_id).map_err(|e| e.to_string())?;
-    serde_json::to_string(&project).map_err(|e| e.to_string())
+    run_canvas_blocking(move || {
+        let db = get_canvas_db().map_err(|e| e.to_string())?;
+        let project = db.get_project(&project_id).map_err(|e| e.to_string())?;
+        serde_json::to_string(&project).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 pub async fn delete_canvas_project(project_id: String) -> Result<(), String> {
-    let db = get_canvas_db().map_err(|e| e.to_string())?;
-    project::delete_project(&db, &project_id).map_err(|e| e.to_string())
+    run_canvas_blocking(move || {
+        let db = get_canvas_db().map_err(|e| e.to_string())?;
+        project::delete_project(&db, &project_id).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
-    if let Ok(service) = crate::artifacts::ArtifactService::open() {
-        if let Err(error) = service.refresh_analysis_projection(&project_id) {
-            app_warn!(
-                "artifact",
-                "refresh_show_projection",
-                "failed to refresh analysis preview for {}: {}",
-                project_id,
-                error
-            );
+    let project = run_canvas_blocking(move || {
+        if let Ok(service) = crate::artifacts::ArtifactService::open() {
+            if let Err(error) = service.refresh_analysis_projection(&project_id) {
+                app_warn!(
+                    "artifact",
+                    "refresh_show_projection",
+                    "failed to refresh analysis preview for {}: {}",
+                    project_id,
+                    error
+                );
+            }
         }
-    }
-    let db = get_canvas_db().map_err(|e| e.to_string())?;
-    let project = db
-        .get_project(&project_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Canvas project '{}' not found", project_id))?;
+        let db = get_canvas_db().map_err(|e| e.to_string())?;
+        db.get_project(&project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Canvas project '{}' not found", project_id))
+    })
+    .await?;
     emit_canvas_event(
         "canvas_show",
         &build_show_payload(
@@ -693,4 +730,32 @@ pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
         ),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_canvas_blocking;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocking_canvas_wait_does_not_pin_the_async_runtime() {
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let waiter = tokio::spawn(run_canvas_blocking(move || {
+            let _ = started_tx.send(());
+            release_rx.recv().expect("release blocking operation");
+        }));
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), started_rx)
+            .await
+            .expect("blocking operation started")
+            .expect("blocking operation reported start");
+        tokio::time::timeout(std::time::Duration::from_millis(100), async {
+            tokio::task::yield_now().await;
+        })
+        .await
+        .expect("Tokio worker remains responsive while blocking operation waits");
+
+        release_tx.send(()).expect("release blocking operation");
+        waiter.await.expect("blocking operation joined");
+    }
 }

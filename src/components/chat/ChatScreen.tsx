@@ -46,6 +46,7 @@ import type {
   ChatRuntimeDefaults,
   ForkSessionResult,
   Message,
+  PendingFileQuote,
   PendingMessageQuote,
   SessionMessage,
   SessionMeta,
@@ -243,6 +244,9 @@ interface ChatScreenProps {
   onCurrentProjectChange?: (projectId: string | null) => void
   externalChatFocus?: (ChatFocusTarget & { nonce: number }) | null
   onExternalChatFocusHandled?: (nonce: number) => void
+  /** A cross-space excerpt to stage in the currently active composer. */
+  externalFileQuote?: { quote: PendingFileQuote; nonce: number } | null
+  onExternalFileQuoteHandled?: (nonce: number) => void
   externalProjectFocus?: { projectId: string; nonce: number } | null
   onExternalProjectFocusHandled?: (nonce: number) => void
   /** Token and optional typed provenance to append on next render. */
@@ -620,6 +624,8 @@ export default function ChatScreen({
   onCurrentProjectChange,
   externalChatFocus,
   onExternalChatFocusHandled,
+  externalFileQuote,
+  onExternalFileQuoteHandled,
   externalProjectFocus,
   onExternalProjectFocusHandled,
   pendingChatInsert,
@@ -2085,21 +2091,35 @@ export default function ChatScreen({
     parentInjectionDeltasViaChatStream: true,
   })
 
+  const stageExternalFileQuote = stream.setPendingQuotes
+  const restoreForkInput = stream.setInput
+  const restoreForkAttachedFiles = stream.setAttachedFiles
+  const restoreForkMessageQuotes = stream.setPendingMessageQuotes
+  const lastExternalFileQuoteNonceRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!externalFileQuote) return
+    if (lastExternalFileQuoteNonceRef.current === externalFileQuote.nonce) return
+    lastExternalFileQuoteNonceRef.current = externalFileQuote.nonce
+    stageExternalFileQuote((current) => [...current, externalFileQuote.quote])
+    setComposerFocusSignal((current) => (current ?? 0) + 1)
+    onExternalFileQuoteHandled?.(externalFileQuote.nonce)
+  }, [externalFileQuote, onExternalFileQuoteHandled, stageExternalFileQuote])
+
   useEffect(() => {
     const pending = pendingForkComposerRef.current
     if (!pending || session.currentSessionId !== pending.sessionId) return
     pendingForkComposerRef.current = null
-    stream.setInput(pending.draft.text)
-    stream.setAttachedFiles(pending.draft.attachedFiles)
-    stream.setPendingQuotes(pending.draft.pendingQuotes)
-    stream.setPendingMessageQuotes(pending.draft.pendingMessageQuotes)
+    restoreForkInput(pending.draft.text)
+    restoreForkAttachedFiles(pending.draft.attachedFiles)
+    stageExternalFileQuote(pending.draft.pendingQuotes)
+    restoreForkMessageQuotes(pending.draft.pendingMessageQuotes)
     setComposerFocusSignal((value) => (value ?? 0) + 1)
   }, [
+    restoreForkAttachedFiles,
+    restoreForkInput,
+    restoreForkMessageQuotes,
     session.currentSessionId,
-    stream.setAttachedFiles,
-    stream.setInput,
-    stream.setPendingMessageQuotes,
-    stream.setPendingQuotes,
+    stageExternalFileQuote,
   ])
 
   // Ambient file-action wiring for persisted resources and renderer-only drafts.
@@ -3317,6 +3337,7 @@ export default function ChatScreen({
   // Reveal a quoted file in the browser: open the files panel + signal target.
   const handleQuoteJump = useCallback(
     (q: QuotePayload) => {
+      if (q.revealable === false) return
       setShowFilesPanel(true)
       showRightPanelByUser("files")
       revealQuoteNonce.current += 1
@@ -3999,6 +4020,7 @@ export default function ChatScreen({
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => void handleSwitchSession(sid)}
+        onQuote={handleFileQuote}
         onOpenStructuredMemory={(projectId) => {
           setProjectOverviewOpen(false)
           requestMemoryFocus(
@@ -4645,6 +4667,7 @@ export default function ChatScreen({
               onPanelWidthChange={setRightPanelWidth}
               currentSessionId={currentSessionId}
               onOpenChange={setCanvasPanelOpen}
+              onQuote={handleFileQuote}
               collapsed={rightPanelCollapsed}
               overlay={rightPanelOverlay}
               animateOnMount={animateRightPanelOnMount}
@@ -4866,6 +4889,7 @@ export default function ChatScreen({
                   target={filePreview.target}
                   sessionId={session.currentSessionId}
                   onReplaceDraft={replaceDraftAttachment}
+                  onQuote={handleFileQuote}
                   maximized={filePreviewMaximized}
                   onToggleMaximize={toggleFilePreviewFullscreen}
                   onClose={() => {

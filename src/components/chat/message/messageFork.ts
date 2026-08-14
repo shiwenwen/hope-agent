@@ -70,7 +70,7 @@ function mediaItemFromAttachment(attachment: MessageAttachment): MediaItem {
 
 function parseQuoteRange(lines: string | undefined): { start: number; end: number } {
   const match = lines?.trim().match(/^(\d+)(?:-(\d+))?$/)
-  if (!match) return { start: 1, end: 1 }
+  if (!match) return { start: 0, end: 0 }
   const start = Math.max(1, Number(match[1]))
   const end = Math.max(start, Number(match[2] ?? match[1]))
   return { start, end }
@@ -158,6 +158,9 @@ function quoteDraftsFromAttachments(attachments: MessageAttachment[]): {
         startLine: range.start,
         endLine: range.end,
         content: attachment.quoteContent,
+        ...(attachment.quoteRevealable !== undefined
+          ? { revealable: attachment.quoteRevealable }
+          : {}),
         ...(attachment.quoteProjectRoot ? { projectRoot: attachment.quoteProjectRoot } : {}),
         ...(attachment.quoteWorktreeRoot ? { worktreeRoot: attachment.quoteWorktreeRoot } : {}),
       },

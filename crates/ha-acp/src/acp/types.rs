@@ -553,6 +553,7 @@ pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<ha_core::agent
                 file_path: None,
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
                 quote_project_root: None,
                 quote_worktree_root: None,

@@ -46,9 +46,12 @@ export interface MediaItem {
 export interface PendingFileQuote {
   path: string
   name: string
+  /** 1-based source range; `0 / 0` means visual context without a source-line mapping. */
   startLine: number
   endLine: number
   content: string
+  /** False for visual/pseudo sources that cannot be reopened in the file browser. */
+  revealable?: boolean
   /** Exact linked-project root selected when the quote was captured. The
    *  index + path pair is a stale-selection guard, mirroring project_folder
    *  filesystem scopes. */
@@ -117,6 +120,8 @@ export interface MessageAttachment {
   quotePath?: string
   quoteLines?: string
   quoteContent?: string
+  /** Persisted reopen capability for visual or synthetic quote sources. */
+  quoteRevealable?: boolean
   /** Persisted browser provenance for restoring a linked-root quote draft. */
   quoteProjectRoot?: PendingFileQuote["projectRoot"]
   quoteWorktreeRoot?: string

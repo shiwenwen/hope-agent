@@ -2,7 +2,10 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
-import { FilePreviewPane } from "@/components/chat/project/file-browser/FilePreviewPane"
+import {
+  FilePreviewPane,
+  type QuotePayload,
+} from "@/components/chat/project/file-browser/FilePreviewPane"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -28,6 +31,7 @@ export function StagedFilePreviewPane({
   maximized,
   onToggleMaximize,
   onReplaceFile,
+  onQuote,
 }: {
   target: StagedPreviewTarget
   onClose?: () => void
@@ -35,6 +39,7 @@ export function StagedFilePreviewPane({
   maximized?: boolean
   onToggleMaximize?: () => void
   onReplaceFile?: (file: File) => void
+  onQuote?: (quote: QuotePayload) => void
 }) {
   const { t } = useTranslation()
   const actionsContext = useFileActionsContext()
@@ -113,6 +118,7 @@ export function StagedFilePreviewPane({
             ? () => void fileActions.run("edit")
             : undefined
         }
+        onQuote={onQuote}
         className={className}
         maximized={maximized}
         onToggleMaximize={onToggleMaximize}

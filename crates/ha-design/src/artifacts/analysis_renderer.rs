@@ -8,7 +8,8 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
-use super::{escape_html, markdown_to_html, AnalysisArtifactV1, OFFLINE_CSP_STATIC};
+use super::{escape_html, markdown_to_html, AnalysisArtifactV1};
+use crate::tool_canvas::renderer::{inject_artifact_selection_bridge, OFFLINE_CSP_STATIC};
 
 pub(super) fn render(analysis: &AnalysisArtifactV1) -> String {
     let labels = Labels::for_analysis(analysis);
@@ -29,7 +30,7 @@ pub(super) fn render(analysis: &AnalysisArtifactV1) -> String {
     render_validation(&mut body, analysis, &labels);
     render_sources(&mut body, &analysis.sources, &labels);
 
-    format!(
+    inject_artifact_selection_bridge(&format!(
         "<!DOCTYPE html><html lang=\"{}\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"{}\">\
@@ -39,7 +40,7 @@ pub(super) fn render(analysis: &AnalysisArtifactV1) -> String {
         escape_html(analysis.question.trim()),
         ANALYSIS_CSS,
         body
-    )
+    ))
 }
 
 struct Labels {

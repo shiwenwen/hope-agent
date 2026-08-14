@@ -25,6 +25,32 @@ export function quoteReferencePath(quote: PendingFileQuote): string {
 }
 
 /**
+ * Turn a quote captured in a project-settings browser into a detached,
+ * non-navigable reference. That browser may belong to a different project
+ * than the active composer, so carrying only a relative primary-root path
+ * would silently rebind it to the composer's project.
+ */
+export function detachProjectFileQuote(
+  quote: PendingFileQuote,
+  primaryRootPath: string | null,
+): PendingFileQuote {
+  let path = quoteReferencePath(quote)
+  if (!quote.projectRoot && !quote.worktreeRoot && primaryRootPath) {
+    const separator = primaryRootPath.includes("\\") && !primaryRootPath.includes("/") ? "\\" : "/"
+    const base = primaryRootPath.replace(/[\\/]+$/, "")
+    const relative = quote.path.replace(/^[\\/]+/, "").replace(/[\\/]/g, separator)
+    path = `${base}${separator}${relative}`
+  }
+  return {
+    ...quote,
+    path,
+    revealable: false,
+    projectRoot: undefined,
+    worktreeRoot: undefined,
+  }
+}
+
+/**
  * Restore the exact linked root and optional Git worktree for a quote-chip
  * jump. A carried project identity must still match the current Project row;
  * stale identities fail closed instead of redirecting the relative path into

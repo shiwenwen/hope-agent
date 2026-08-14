@@ -215,14 +215,14 @@ flowchart TD
 | content_type | 渲染策略 | CSP / 脚本 | 用户提供字段 |
 | --- | --- | --- | --- |
 | `html` | 用户 HTML/CSS/JS 包进最小骨架 + messaging bridge | 允许 inline script + eval，禁网络 | `html` / `css` / `js` |
-| `markdown` | `pulldown-cmark` 在 Rust 里生成语义 HTML；raw HTML 降为文本 | 静态，无脚本 | `content` |
-| `code` | HTML 实体编码后放进 `<pre><code>`；当前不加载高亮 runtime | 静态，无脚本 | `content`, `language` |
-| `svg` | 直接内嵌 SVG source | 静态，无脚本 | `content`（完整 SVG） |
-| `mermaid` | 展示转义后的 Mermaid source，作为离线语义 fallback | 静态，无脚本 | `content`（Mermaid source） |
-| `chart` | 解析 Chart config 的 title/labels/datasets，确定性生成 HTML table | 静态，无脚本 | `content`（Chart config JSON） |
+| `markdown` | `pulldown-cmark` 在 Rust 里生成语义 HTML；raw HTML 降为文本 | 正文静态；仅固定选区桥 | `content` |
+| `code` | HTML 实体编码后放进 `<pre><code>`；当前不加载高亮 runtime | 正文静态；仅固定选区桥 | `content`, `language` |
+| `svg` | 直接内嵌 SVG source | 正文静态；仅固定选区桥 | `content`（完整 SVG） |
+| `mermaid` | 展示转义后的 Mermaid source，作为离线语义 fallback | 正文静态；仅固定选区桥 | `content`（Mermaid source） |
+| `chart` | 解析 Chart config 的 title/labels/datasets，确定性生成 HTML table | 正文静态；仅固定选区桥 | `content`（Chart config JSON） |
 | `slides` | 内联 SPA：`<section>` 列表，键盘/点击切页，右下角页码 | 允许内联脚本，禁网络 | `html`（多个 `<section>`）、`css` |
 
-两套 CSP 常量决定了脚本能力：`html` 与 `slides` 用「交互」CSP（`script-src 'unsafe-inline' 'unsafe-eval'`），其余五种用「静态」CSP（`script-src 'none'`）。两套都锁死 `connect-src 'none'`、`frame-src 'none'`、`object-src 'none'`、`form-action 'none'`、`base-uri 'none'`，图片只放行 `data:` / `blob:`——也就是说无论哪种类型，画布都无法发起网络请求。
+两套 CSP 常量决定作者脚本能力：`html` 与 `slides` 用「交互」CSP（`script-src 'unsafe-inline' 'unsafe-eval'`），其余五种用「静态」CSP，只按 SHA-256 精确放行 Hope 固定选区 bridge，仍禁止任意 inline script。两套都锁死 `connect-src 'none'`、`frame-src 'none'`、`object-src 'none'`、`form-action 'none'`、`base-uri 'none'`，图片只放行 `data:` / `blob:`——也就是说无论哪种类型，画布都无法发起网络请求。
 
 ### messaging bridge（仅 `html` 注入）
 
@@ -242,7 +242,7 @@ window.addEventListener('message', function(event) {
 });
 ```
 
-**这带来一个不对称行为**：`html` 的 `eval_js` 可以稳定工作；它的 `snapshot` 会立即返回一句「离线快照运行时不可用，请走 app-owned browser capture」的明确错误。而 `markdown` / `code` / `svg` / `mermaid` / `chart` / `slides` 完全没有这段桥接，对它们调 eval / snapshot 会因为无人应答而**超时**（见下方[已知限制](#1-非-html-模板缺-messaging-bridge)）。新的 Artifact PDF / 验证 / 导出不依赖这条旧 snapshot 通道。
+**这带来一个不对称行为**：`html` 的 `eval_js` 可以稳定工作；它的 `snapshot` 会立即返回一句「离线快照运行时不可用，请走 app-owned browser capture」的明确错误。而 `markdown` / `code` / `svg` / `mermaid` / `chart` / `slides` 没有这段 eval/snapshot 桥接，对它们调 eval / snapshot 会因为无人应答而**超时**（见下方[已知限制](#1-非-html-模板缺-messaging-bridge)）。所有当前 renderer 投影都另有独立、固定的文本选区 bridge；新的 Artifact PDF / 验证 / 导出不依赖旧 snapshot 通道。
 
 ### 源文件保留策略
 
@@ -450,6 +450,7 @@ iframe 本体在 `ArtifactViewer`：
 - `sandbox="allow-scripts"`：允许 JS 执行，但**没有** `allow-same-origin`——脚本碰不到主应用的 `localStorage`、cookie 或父窗口 DOM，想通信只能 postMessage。
 - `key={artifactId-refreshKey}`：`canvas_reload` 递增 `refreshKey`，触发 React **完全 remount** iframe（而非只换 src），确保任何缓存的 JS 状态被清掉。
 - `referrerPolicy="no-referrer"`：HTTP token 或本地项目 URL 不通过 Referer 外发。
+- 文档 load 前，后端重读当前 projection 并核验 bridge marker 与精确的 script-isolated CSP；只有核验通过的 Markdown／Code／SVG／Mermaid／Chart 等静态页面才返回可信 capability。文档 load 后父层用 version + 随机 token 关联当前导航并激活固定选区 bridge，只接受当前 `contentWindow`、finite rect 与不超过 20,000 字符的完整文本。选区完成后自动显示复制/引用浮层，引用只入 composer 草稿，右键仍走原生菜单。HTML／Slides 等可执行页面不激活宿主 bridge，只保留原生选择／复制。
 
 `src` 由 transport 的预览 URL 解析给出，两种模式不同：
 
@@ -557,9 +558,10 @@ HTTP 模式下 iframe 不能直接读磁盘，必须走 server 转发。`serve_c
 | **路径穿越读到 `~/.hope-agent/credentials/auth.json`** | `canvas_project_dir` 自带 id 校验 + HTTP 路由 `validate_canvas_project_id` 白名单 + `validate_safe_rest_path` 拒 `..` + `contained_canonical` canonicalize 后再断言子树包含 |
 | **HTTP 模式 token 泄漏** | 静态资源响应与 `ArtifactViewer` 都用 `Referrer-Policy: no-referrer`；跨源 API-Key 模式下预览走短时、绑定子树的资源票据，绝不复用静态票据；renderer 不加载 CDN |
 | **`eval_js` 任意代码执行** | 仅在 sandbox iframe 内 `eval`，触不到主应用与 Tauri runtime；返回值 `String(result)` 强转字符串，避免通过返回值做 prototype 注入 |
-| **SVG XSS（`<script>` / `onerror=`）** | `build_svg_page` 虽内嵌 SVG source，但静态 CSP `script-src 'none'`、`connect-src 'none'`；外层 iframe 继续 sandbox |
+| **SVG XSS（`<script>` / `onerror=`）** | `build_svg_page` 虽内嵌 SVG source，但静态 CSP 只放行固定选区 bridge 的精确 hash、仍拒绝作者脚本，且 `connect-src 'none'`；外层 iframe 继续 sandbox |
 | **Markdown raw HTML** | `pulldown-cmark` 的 `Html` / `InlineHtml` event 被转成文本，不允许从 Markdown 注入可执行 DOM |
 | **iframe 加载非项目目录资源** | iframe 同源是 `asset://localhost` 或 server 域，相对路径请求只能命中 `/api/canvas/projects/{id}/...`，路由层再验一遍 |
+| **iframe 伪造文本选区消息** | 后端在每次读取时以当前 projection bytes 为准，只对带 bridge marker 与精确 script-isolated CSP 的页面签发可信 capability；宿主无 capability 即不发激活 token、不注册消息接收器。`WindowProxy`、协议版本、token、长度与有限坐标是导航／载荷完整性校验，不把同帧作者脚本升级为可信发送者。正文仍按不可信引用处理，只有用户点击浮层才进入草稿，绝不自动发送 |
 | **OAuth / API key 泄漏进 canvas content** | 由模型自身输入约束 + 主应用日志脱敏（`logging::redact_sensitive`）防御；canvas 模板本身不主动写凭据 |
 
 Artifact 的 import / verify 还会额外扫描远程资源、外部导航和禁止元素；完整规则见 [Artifacts 安全与验证](artifacts.md#verification)。

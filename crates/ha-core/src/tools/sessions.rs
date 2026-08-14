@@ -866,6 +866,7 @@ fn parse_inline_attachments(args: &Value) -> Result<Vec<crate::agent::Attachment
             file_path: None,
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
             quote_project_root: None,
             quote_worktree_root: None,
