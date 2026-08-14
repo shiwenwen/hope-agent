@@ -37,12 +37,18 @@ struct CandidateEntry {
 
 #[derive(Debug, Clone)]
 enum RecheckSource {
-    Manifest(PathBuf),
+    Manifest {
+        path: PathBuf,
+        display_name: Option<String>,
+    },
     Local {
         path: PathBuf,
         display_name: Option<String>,
     },
-    LocalGroup(Vec<PathBuf>),
+    LocalGroup {
+        paths: Vec<PathBuf>,
+        display_name: Option<String>,
+    },
     Cached,
 }
 
@@ -349,35 +355,60 @@ fn package_from_zip(bytes: Vec<u8>) -> Result<ValidatedPetPackage> {
 
 fn package_from_local(path: &Path, display_name: Option<&str>) -> Result<ValidatedPetPackage> {
     let canonical = path.canonicalize().context("pet_import_path_missing")?;
-    if canonical.is_dir() {
+    let package = if canonical.is_dir() {
         for name in ["pet.json", "avatar.json"] {
             let manifest = canonical.join(name);
             if manifest.is_file() {
-                return package_from_manifest_path(&manifest);
+                return apply_display_name_override(
+                    package_from_manifest_path(&manifest)?,
+                    display_name,
+                );
             }
         }
         anyhow::bail!("pet_manifest_missing");
-    }
-    match canonical.extension().and_then(|value| value.to_str()) {
-        Some(ext) if ext.eq_ignore_ascii_case("json") => package_from_manifest_path(&canonical),
-        Some(ext) if ext.eq_ignore_ascii_case("zip") => package_from_zip(read_bounded(
-            &canonical,
-            MAX_ARCHIVE_BYTES,
-            "pet_zip_too_large",
-        )?),
-        Some(ext) if ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("webp") => {
-            package_from_raw_image(&canonical, display_name)
-        }
-        _ => anyhow::bail!("pet_import_type_unsupported"),
-    }
+    } else {
+        match canonical.extension().and_then(|value| value.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("json") => package_from_manifest_path(&canonical),
+            Some(ext) if ext.eq_ignore_ascii_case("zip") => package_from_zip(read_bounded(
+                &canonical,
+                MAX_ARCHIVE_BYTES,
+                "pet_zip_too_large",
+            )?),
+            Some(ext) if ext.eq_ignore_ascii_case("png") || ext.eq_ignore_ascii_case("webp") => {
+                package_from_raw_image(&canonical, display_name)
+            }
+            _ => anyhow::bail!("pet_import_type_unsupported"),
+        }?
+    };
+    apply_display_name_override(package, display_name)
 }
 
-fn package_from_local_group(paths: &[PathBuf]) -> Result<ValidatedPetPackage> {
+fn apply_display_name_override(
+    mut package: ValidatedPetPackage,
+    display_name: Option<&str>,
+) -> Result<ValidatedPetPackage> {
+    let Some(display_name) = display_name
+        .map(|value| super::atlas::sanitize_text(value, 256))
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(package);
+    };
+    if package.manifest.display_name == display_name {
+        return Ok(package);
+    }
+    package.manifest.display_name = display_name;
+    validate_package(package.manifest, package.sprite_bytes)
+}
+
+fn package_from_local_group(
+    paths: &[PathBuf],
+    display_name: Option<&str>,
+) -> Result<ValidatedPetPackage> {
     if paths.is_empty() || paths.len() > MAX_ARCHIVE_ENTRIES {
         anyhow::bail!("pet_import_file_count_invalid");
     }
     if paths.len() == 1 {
-        return package_from_local(&paths[0], None);
+        return package_from_local(&paths[0], display_name);
     }
     let manifests = paths
         .iter()
@@ -400,7 +431,7 @@ fn package_from_local_group(paths: &[PathBuf]) -> Result<ValidatedPetPackage> {
             anyhow::bail!("pet_loose_files_must_share_parent");
         }
     }
-    package_from_manifest_path(&manifest_path)
+    apply_display_name_override(package_from_manifest_path(&manifest_path)?, display_name)
 }
 
 fn add_uploaded_batch_bytes(current: u64, next: u64) -> Result<u64> {
@@ -459,7 +490,10 @@ fn package_from_uploaded(
         } else {
             anyhow::bail!("single_manifest_upload_requires_sprite");
         };
-        return Ok((package, vec![id]));
+        return Ok((
+            apply_display_name_override(package, display_name)?,
+            vec![id],
+        ));
     }
 
     let manifest_indexes = uploaded
@@ -505,7 +539,8 @@ fn package_from_uploaded(
         MAX_SPRITE_BYTES as u64,
     )?;
     infer_missing_manifest_version(&manifest_bytes, &mut manifest, &sprite_bytes);
-    let package = validate_package(manifest, sprite_bytes)?;
+    let package =
+        apply_display_name_override(validate_package(manifest, sprite_bytes)?, display_name)?;
     Ok((package, uploaded.into_iter().map(|entry| entry.0).collect()))
 }
 
@@ -750,46 +785,52 @@ pub fn preview_token_thumbnail(preview_token: &str) -> Result<Vec<u8>> {
 }
 
 pub fn preview_import(request: PetImportPreviewRequest) -> Result<PetImportPreview> {
-    let display_name = request.display_name.as_deref();
-    match request.source {
+    let PetImportPreviewRequest {
+        source,
+        display_name,
+    } = request;
+    match source {
         PetImportSource::Candidate { candidate_id } => {
             let path = candidate_path(&candidate_id)?;
-            let package = package_from_manifest_path(&path)?;
+            let package = apply_display_name_override(
+                package_from_manifest_path(&path)?,
+                display_name.as_deref(),
+            )?;
             register_preview(
                 package,
                 PetSourceKind::Codex,
                 Some(candidate_id),
-                RecheckSource::Manifest(path),
+                RecheckSource::Manifest { path, display_name },
                 Vec::new(),
             )
         }
         PetImportSource::LocalPath { path } => {
             let path = PathBuf::from(path);
-            let package = package_from_local(&path, display_name)?;
+            let package = package_from_local(&path, display_name.as_deref())?;
             register_preview(
                 package,
                 PetSourceKind::File,
                 None,
-                RecheckSource::Local {
-                    path,
-                    display_name: request.display_name,
-                },
+                RecheckSource::Local { path, display_name },
                 Vec::new(),
             )
         }
         PetImportSource::LocalPaths { paths } => {
             let paths = paths.into_iter().map(PathBuf::from).collect::<Vec<_>>();
-            let package = package_from_local_group(&paths)?;
+            let package = package_from_local_group(&paths, display_name.as_deref())?;
             register_preview(
                 package,
                 PetSourceKind::File,
                 None,
-                RecheckSource::LocalGroup(paths),
+                RecheckSource::LocalGroup {
+                    paths,
+                    display_name,
+                },
                 Vec::new(),
             )
         }
         PetImportSource::UploadedPath { upload_id } => {
-            let (package, ids) = package_from_uploaded(&[upload_id], display_name)?;
+            let (package, ids) = package_from_uploaded(&[upload_id], display_name.as_deref())?;
             register_preview(
                 package,
                 PetSourceKind::File,
@@ -799,7 +840,7 @@ pub fn preview_import(request: PetImportPreviewRequest) -> Result<PetImportPrevi
             )
         }
         PetImportSource::UploadedFiles { upload_ids } => {
-            let (package, ids) = package_from_uploaded(&upload_ids, display_name)?;
+            let (package, ids) = package_from_uploaded(&upload_ids, display_name.as_deref())?;
             register_preview(
                 package,
                 PetSourceKind::File,
@@ -818,6 +859,77 @@ struct LinkSpec {
     display_name: String,
     description: Option<String>,
     version: Option<super::types::PetSpriteVersion>,
+}
+
+#[derive(Debug)]
+struct CodexPetPageSpec {
+    manifest_url: String,
+    files_base_url: url::Url,
+    fallback_id: String,
+}
+
+/// Recognize the public detail-page shape emitted by codex-pet.org. Treating
+/// every HTTPS page as an install manifest would turn arbitrary HTML into a
+/// package-discovery protocol, so this resolver stays deliberately
+/// allowlisted and maps the stable pet slug to the site's bounded file API.
+fn parse_codex_pet_page(raw: &str) -> Result<Option<CodexPetPageSpec>> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.len() > MAX_LINK_LENGTH {
+        anyhow::bail!("pet_link_invalid");
+    }
+    let parsed = url::Url::parse(raw).context("pet_link_invalid")?;
+    if parsed.scheme() != "https"
+        || !matches!(
+            parsed.host_str(),
+            Some("codex-pet.org") | Some("www.codex-pet.org")
+        )
+    {
+        return Ok(None);
+    }
+    if parsed.port().is_some() {
+        anyhow::bail!("pet_link_invalid");
+    }
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+        || parsed.query().is_some()
+    {
+        anyhow::bail!("pet_link_invalid");
+    }
+    let segments = parsed
+        .path_segments()
+        .map(|segments| {
+            segments
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let slug = match segments.as_slice() {
+        ["pets", slug] => *slug,
+        [locale, "pets", slug] if matches!(*locale, "en" | "zh" | "ja" | "ko" | "es") => *slug,
+        _ => return Ok(None),
+    };
+    if slug.is_empty()
+        || slug.len() > 128
+        || !slug
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        anyhow::bail!("pet_link_invalid");
+    }
+    let origin = format!(
+        "{}://{}",
+        parsed.scheme(),
+        parsed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("pet_link_invalid"))?
+    );
+    let files_base_url = url::Url::parse(&format!("{origin}/api/pets/{slug}/files/"))?;
+    Ok(Some(CodexPetPageSpec {
+        manifest_url: files_base_url.join("pet.json")?.to_string(),
+        files_base_url,
+        fallback_id: slug.to_string(),
+    }))
 }
 
 fn parse_link_spec(raw: &str, display_name: Option<&str>) -> Result<LinkSpec> {
@@ -916,7 +1028,70 @@ fn parse_link_spec(raw: &str, display_name: Option<&str>) -> Result<LinkSpec> {
     })
 }
 
-async fn download_link_image(raw: &str) -> Result<Vec<u8>> {
+#[derive(Clone, Copy)]
+enum RemoteContentKind {
+    Image,
+    Manifest,
+    Artifact,
+}
+
+struct RemoteDownload {
+    bytes: Vec<u8>,
+    final_url: url::Url,
+}
+
+impl RemoteContentKind {
+    fn accepts(self, content_type: &str) -> bool {
+        let content_type = content_type.split(';').next().unwrap_or_default().trim();
+        match self {
+            Self::Image => {
+                content_type.starts_with("image/") || content_type == "application/octet-stream"
+            }
+            Self::Manifest => matches!(
+                content_type,
+                "application/json" | "text/json" | "application/octet-stream"
+            ),
+            Self::Artifact => {
+                content_type.starts_with("image/")
+                    || matches!(
+                        content_type,
+                        "application/json"
+                            | "text/json"
+                            | "text/plain"
+                            | "application/zip"
+                            | "application/x-zip-compressed"
+                            | "application/octet-stream"
+                    )
+            }
+        }
+    }
+
+    const fn too_large_code(self) -> &'static str {
+        match self {
+            Self::Image => "pet_sprite_too_large",
+            Self::Manifest => "pet_manifest_too_large",
+            Self::Artifact => "pet_remote_artifact_too_large",
+        }
+    }
+
+    const fn content_type_code(self) -> &'static str {
+        match self {
+            Self::Image => "pet_link_content_type_invalid",
+            Self::Manifest => "pet_link_manifest_content_type_invalid",
+            Self::Artifact => "pet_link_artifact_content_type_invalid",
+        }
+    }
+}
+
+async fn download_link_bytes(
+    raw: &str,
+    max_bytes: usize,
+    kind: RemoteContentKind,
+) -> Result<RemoteDownload> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.len() > MAX_LINK_LENGTH {
+        anyhow::bail!("pet_link_invalid");
+    }
     let mut next =
         ha_core::security::ssrf::check_url(raw, ha_core::security::ssrf::SsrfPolicy::Strict, &[])
             .await?;
@@ -955,27 +1130,121 @@ async fn download_link_image(raw: &str) -> Result<Vec<u8>> {
         }
         if response
             .content_length()
-            .is_some_and(|length| length > MAX_SPRITE_BYTES as u64)
+            .is_some_and(|length| length > max_bytes as u64)
         {
-            anyhow::bail!("pet_sprite_too_large");
+            anyhow::bail!(kind.too_large_code());
         }
         if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE) {
             let content_type = content_type.to_str().unwrap_or_default();
-            if !content_type.starts_with("image/")
-                && !content_type.starts_with("application/octet-stream")
-            {
-                anyhow::bail!("pet_link_content_type_invalid");
+            if !kind.accepts(content_type) {
+                anyhow::bail!(kind.content_type_code());
             }
         }
+        let final_url = response.url().clone();
         let bytes =
-            ha_core::security::http_stream::read_bytes_capped(response, MAX_SPRITE_BYTES + 1)
-                .await?;
-        if bytes.is_empty() || bytes.len() > MAX_SPRITE_BYTES {
-            anyhow::bail!("pet_sprite_too_large");
+            ha_core::security::http_stream::read_bytes_capped(response, max_bytes + 1).await?;
+        if bytes.is_empty() || bytes.len() > max_bytes {
+            anyhow::bail!(kind.too_large_code());
         }
-        return Ok(bytes);
+        return Ok(RemoteDownload { bytes, final_url });
     }
     anyhow::bail!("pet_link_too_many_redirects")
+}
+
+async fn download_link_image(raw: &str) -> Result<Vec<u8>> {
+    Ok(
+        download_link_bytes(raw, MAX_SPRITE_BYTES, RemoteContentKind::Image)
+            .await?
+            .bytes,
+    )
+}
+
+fn remote_fallback_name(url: &url::Url, fallback: &str) -> String {
+    url.path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn is_zip_payload(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"PK\x03\x04")
+        || bytes.starts_with(b"PK\x05\x06")
+        || bytes.starts_with(b"PK\x07\x08")
+}
+
+/// Resolve a direct HTTPS artifact without assigning trust to its origin.
+/// The payload itself decides the supported shape: compatible zip, PNG/WebP
+/// atlas, or pet.json whose relative sprite stays under the same URL folder.
+async fn package_from_remote_artifact(
+    raw: &str,
+    display_name: Option<&str>,
+) -> Result<ValidatedPetPackage> {
+    let download = download_link_bytes(raw, MAX_ARCHIVE_BYTES, RemoteContentKind::Artifact).await?;
+    if is_zip_payload(&download.bytes) {
+        return package_from_zip(download.bytes);
+    }
+    if image::guess_format(&download.bytes).is_ok() {
+        let file_name = remote_fallback_name(&download.final_url, "spritesheet.png");
+        let manifest = generated_manifest(&file_name, &download.bytes, display_name)?;
+        return validate_package(manifest, download.bytes);
+    }
+
+    let manifest_bytes = download.bytes;
+    if manifest_bytes.len() > MAX_MANIFEST_BYTES {
+        anyhow::bail!("pet_manifest_too_large");
+    }
+    let fallback_id = Path::new(&remote_fallback_name(&download.final_url, "pet"))
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("pet")
+        .to_string();
+    let mut manifest = parse_manifest(&manifest_bytes, &fallback_id)?;
+    if let Some(display_name) = display_name
+        .map(|value| super::atlas::sanitize_text(value, 256))
+        .filter(|value| !value.is_empty())
+    {
+        manifest.display_name = display_name;
+    }
+    let files_base_url = download.final_url.join("./")?;
+    let sprite_url = files_base_url.join(&manifest.spritesheet_path)?;
+    if sprite_url.origin() != files_base_url.origin()
+        || !sprite_url.path().starts_with(files_base_url.path())
+    {
+        anyhow::bail!("pet_link_image_url_invalid");
+    }
+    let sprite_bytes = download_link_image(sprite_url.as_str()).await?;
+    infer_missing_manifest_version(&manifest_bytes, &mut manifest, &sprite_bytes);
+    validate_package(manifest, sprite_bytes)
+}
+
+async fn package_from_codex_pet_page(
+    page: CodexPetPageSpec,
+    display_name: Option<&str>,
+) -> Result<ValidatedPetPackage> {
+    let manifest_bytes = download_link_bytes(
+        &page.manifest_url,
+        MAX_MANIFEST_BYTES,
+        RemoteContentKind::Manifest,
+    )
+    .await?
+    .bytes;
+    let mut manifest = parse_manifest(&manifest_bytes, &page.fallback_id)?;
+    if let Some(display_name) = display_name
+        .map(|value| super::atlas::sanitize_text(value, 256))
+        .filter(|value| !value.is_empty())
+    {
+        manifest.display_name = display_name;
+    }
+    let sprite_url = page.files_base_url.join(&manifest.spritesheet_path)?;
+    if sprite_url.origin() != page.files_base_url.origin()
+        || !sprite_url.path().starts_with(page.files_base_url.path())
+    {
+        anyhow::bail!("pet_link_image_url_invalid");
+    }
+    let sprite_bytes = download_link_image(sprite_url.as_str()).await?;
+    infer_missing_manifest_version(&manifest_bytes, &mut manifest, &sprite_bytes);
+    validate_package(manifest, sprite_bytes)
 }
 
 pub async fn preview_import_async(request: PetImportPreviewRequest) -> Result<PetImportPreview> {
@@ -985,15 +1254,22 @@ pub async fn preview_import_async(request: PetImportPreviewRequest) -> Result<Pe
     } = request;
     match source {
         PetImportSource::Link { link } => {
-            let spec = parse_link_spec(&link, display_name.as_deref())?;
-            let bytes = download_link_image(&spec.image_url).await?;
-            let mut manifest =
-                generated_manifest("spritesheet.png", &bytes, Some(&spec.display_name))?;
-            manifest.description = spec.description;
-            if let Some(version) = spec.version {
-                manifest.sprite_version_number = version;
-            }
-            let package = validate_package(manifest, bytes)?;
+            let package = if let Some(page) = parse_codex_pet_page(&link)? {
+                package_from_codex_pet_page(page, display_name.as_deref()).await?
+            } else if url::Url::parse(link.trim()).is_ok_and(|parsed| parsed.scheme() == "https") {
+                package_from_remote_artifact(&link, display_name.as_deref()).await?
+            } else {
+                let spec = parse_link_spec(&link, display_name.as_deref())?;
+                let bytes = download_link_image(&spec.image_url).await?;
+                let mut manifest =
+                    generated_manifest("spritesheet.png", &bytes, Some(&spec.display_name))?;
+                manifest.description = spec.description;
+                if let Some(version) = spec.version {
+                    manifest.sprite_version_number = version;
+                }
+                validate_package(manifest, bytes)?
+            };
+            let package = apply_display_name_override(package, display_name.as_deref())?;
             ha_core::blocking::run_blocking(move || {
                 register_preview(
                     package,
@@ -1019,11 +1295,17 @@ pub async fn preview_import_async(request: PetImportPreviewRequest) -> Result<Pe
 
 fn recheck(entry: &PreviewEntry) -> Result<()> {
     let current = match &entry.recheck {
-        RecheckSource::Manifest(path) => Some(package_from_manifest_path(path)?),
+        RecheckSource::Manifest { path, display_name } => Some(apply_display_name_override(
+            package_from_manifest_path(path)?,
+            display_name.as_deref(),
+        )?),
         RecheckSource::Local { path, display_name } => {
             Some(package_from_local(path, display_name.as_deref())?)
         }
-        RecheckSource::LocalGroup(paths) => Some(package_from_local_group(paths)?),
+        RecheckSource::LocalGroup {
+            paths,
+            display_name,
+        } => Some(package_from_local_group(paths, display_name.as_deref())?),
         RecheckSource::Cached => None,
     };
     if current
@@ -1142,6 +1424,53 @@ mod tests {
     }
 
     #[test]
+    fn display_name_override_is_revalidated_into_the_package_hash() {
+        let original = super::super::store::builtin_package().unwrap();
+        let package_dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            package_dir.path().join("pet.json"),
+            serde_json::to_vec(&original.manifest).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            package_dir.path().join(&original.manifest.spritesheet_path),
+            &original.sprite_bytes,
+        )
+        .unwrap();
+
+        let renamed = package_from_local(package_dir.path(), Some("  Imported Nori  ")).unwrap();
+
+        assert_eq!(renamed.manifest.display_name, "Imported Nori");
+        assert_eq!(renamed.asset_hash, original.asset_hash);
+        assert_ne!(renamed.package_hash, original.package_hash);
+    }
+
+    #[test]
+    fn remote_artifact_accepts_supported_package_content_types_from_any_origin() {
+        let kind = RemoteContentKind::Artifact;
+        for content_type in [
+            "image/png",
+            "image/webp",
+            "application/json; charset=utf-8",
+            "text/plain",
+            "application/zip",
+            "application/x-zip-compressed",
+            "application/octet-stream",
+        ] {
+            assert!(kind.accepts(content_type), "rejected {content_type}");
+        }
+        assert!(!kind.accepts("text/html"));
+        assert!(!kind.accepts("application/javascript"));
+    }
+
+    #[test]
+    fn remote_artifact_zip_detection_uses_magic_bytes_not_file_names() {
+        assert!(is_zip_payload(b"PK\x03\x04payload"));
+        assert!(is_zip_payload(b"PK\x05\x06"));
+        assert!(!is_zip_payload(b"not-a-zip.zip"));
+    }
+
+    #[test]
     fn codex_and_hope_install_links_share_the_strict_parser() {
         for scheme in ["codex", "hope-agent"] {
             let spec = parse_link_spec(
@@ -1158,6 +1487,45 @@ mod tests {
                 Some(super::super::types::PetSpriteVersion::V2)
             );
         }
+    }
+
+    #[test]
+    fn codex_pet_pages_resolve_to_the_bounded_files_api() {
+        for page in [
+            "https://codex-pet.org/pets/ikkun/",
+            "https://www.codex-pet.org/zh/pets/ikkun",
+        ] {
+            let spec = parse_codex_pet_page(page).unwrap().unwrap();
+            assert_eq!(spec.fallback_id, "ikkun");
+            assert_eq!(
+                spec.manifest_url,
+                format!(
+                    "https://{}/api/pets/ikkun/files/pet.json",
+                    url::Url::parse(page).unwrap().host_str().unwrap()
+                )
+            );
+            assert_eq!(spec.files_base_url.path(), "/api/pets/ikkun/files/");
+        }
+    }
+
+    #[test]
+    fn codex_pet_page_resolver_rejects_ambiguous_or_unrelated_urls() {
+        for invalid in [
+            "https://codex-pet.org/zh/pets/ikkun/?download=1",
+            "https://codex-pet.org:444/pets/ikkun/",
+            "https://codex-pet.org/fr/pets/ikkun/",
+            "https://codex-pet.org/guides/pets/ikkun/",
+            "https://codex-pet.org/pets/ikkun%2Fother/",
+        ] {
+            let result = parse_codex_pet_page(invalid);
+            assert!(
+                result.is_err() || result.unwrap().is_none(),
+                "accepted {invalid}"
+            );
+        }
+        assert!(parse_codex_pet_page("https://example.com/pets/ikkun/")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

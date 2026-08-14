@@ -93,6 +93,14 @@ fn main() {
         return;
     }
 
+    // Pet package CLI: `hope-agent pet ...` — uses the same preview / commit
+    // pipeline as Settings and HTTP; activation calls the already-running
+    // desktop API instead of starting another desktop runtime.
+    if args.len() >= 2 && args[1] == "pet" {
+        run_pet_cli(&args[2..]);
+        return;
+    }
+
     // ACP subcommand: `hope-agent acp` — runs the ACP stdio server
     if args.len() >= 2 && args[1] == "acp" {
         run_acp_server(&args[2..]);
@@ -263,6 +271,27 @@ fn print_mcp_help() {
     );
     println!("  --version       Print version and exit");
     println!("  --help, -h      Print help and exit");
+}
+
+// ── Pet Package CLI ─────────────────────────────────────────────────
+
+fn run_pet_cli(args: &[String]) {
+    if let Err(error) = ha_core::paths::ensure_dirs() {
+        eprintln!("[pet] Failed to initialize data directories: {error}");
+        std::process::exit(1);
+    }
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|error| {
+            eprintln!("[pet] Failed to initialize async runtime: {error}");
+            std::process::exit(1);
+        });
+    if let Err(error) = runtime.block_on(ha_pet::cli::run(args)) {
+        eprintln!("[pet] {error:#}");
+        std::process::exit(1);
+    }
 }
 
 // ── Guardian Mode ──────────────────────────────────────────────────

@@ -26,6 +26,10 @@ pub(crate) const MIN_MAX_OUTPUT_CHARS: usize = 8_000;
 pub(crate) const DEFAULT_YIELD_MS: u64 = 10_000;
 pub(crate) const MAX_YIELD_MS: u64 = 120_000;
 
+/// Exact executable that owns the current Hope runtime. Tool subprocesses use
+/// this instead of guessing from PATH, which may contain an older installation.
+pub(crate) const HOPE_AGENT_EXECUTABLE_ENV: &str = "HOPE_AGENT_EXECUTABLE";
+
 // ── Shell Environment Resolution ──────────────────────────────────
 
 #[cfg(unix)]
@@ -830,6 +834,13 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         }
     }
 
+    // Keep the owning Hope binary authoritative over login-shell and
+    // model-supplied env values. This path is non-secret and lets bundled
+    // skills avoid accidentally invoking an older Homebrew/system install.
+    if let Ok(executable) = std::env::current_exe() {
+        cmd.env(HOPE_AGENT_EXECUTABLE_ENV, executable);
+    }
+
     // Create a session for tracking
     let session_id = create_session_id();
     let session = ProcessSession {
@@ -1291,6 +1302,10 @@ async fn exec_via_pty(
         // Apply custom environment variables
         for (key, val) in &env_vars {
             cmd.env(key, val);
+        }
+
+        if let Ok(executable) = std::env::current_exe() {
+            cmd.env(HOPE_AGENT_EXECUTABLE_ENV, executable);
         }
 
         // Spawn the child process

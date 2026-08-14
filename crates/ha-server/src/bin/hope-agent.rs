@@ -7,6 +7,7 @@
 //! - `hope-agent server start [--bind ADDR] [--api-key-file PATH]` — same flags
 //!   as the desktop binary; runs the HTTP/WS server and blocks until exit.
 //! - `hope-agent knowledge-mcp` — stdio MCP wrapper for Knowledge Space.
+//! - `hope-agent pet` — local pet package listing, two-stage import, and desktop activation.
 //! - `--version` / `--help`.
 //! - `hope-agent server {install,uninstall,status,stop,setup}` — print a
 //!   pointer at the orchestrator (compose / k8s / browser onboarding) and
@@ -48,6 +49,10 @@ fn main() {
 
     if args.len() >= 2 && args[1] == "mcp" {
         return run_mcp(&args[2..]);
+    }
+
+    if args.len() >= 2 && args[1] == "pet" {
+        return run_pet_cli(&args[2..]);
     }
 
     // `hope-agent server [sub] [opts...]`
@@ -139,7 +144,7 @@ fn print_top_help() {
     println!("Hope Agent — headless HTTP/WebSocket server");
     println!();
     println!("This binary ships in the official Docker image. Only the headless");
-    println!("`server`, `knowledge-mcp` and `mcp` subcommands are wired up; the");
+    println!("`server`, `knowledge-mcp`, `mcp`, and `pet` subcommands are wired up; the");
     println!("desktop GUI, ACP stdio, and `auth` flows live in the Tauri-built binary.");
     println!();
     println!("Usage:");
@@ -147,6 +152,7 @@ fn print_top_help() {
     println!("  hope-agent server token <show|rotate>");
     println!("  hope-agent knowledge-mcp [OPTIONS]");
     println!("  hope-agent mcp [OPTIONS]");
+    println!("  hope-agent pet <capabilities|activate|list|preview|import> [OPTIONS]");
     println!();
     println!("Server options:");
     println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
@@ -285,6 +291,25 @@ fn run_mcp(args: &[String]) {
     )];
     if let Err(e) = ha_core::mcp_server::run_stdio(options, providers) {
         eprintln!("[mcp] Server error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run_pet_cli(args: &[String]) {
+    if let Err(error) = ha_core::paths::ensure_dirs() {
+        eprintln!("[pet] Failed to initialize data directories: {error}");
+        std::process::exit(1);
+    }
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|error| {
+            eprintln!("[pet] Failed to initialize async runtime: {error}");
+            std::process::exit(1);
+        });
+    if let Err(error) = runtime.block_on(ha_pet::cli::run(args)) {
+        eprintln!("[pet] {error:#}");
         std::process::exit(1);
     }
 }

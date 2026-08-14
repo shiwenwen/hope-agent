@@ -181,9 +181,9 @@ pub enum PetImportSource {
     UploadedFiles {
         upload_ids: Vec<String>,
     },
-    /// A pasted Codex/Hope install link or a direct HTTPS spritesheet URL.
-    /// The URL is fetched only into the bounded preview cache and never sent
-    /// to the renderer as an image source.
+    /// A pasted Codex/Hope install link or a direct HTTPS zip, manifest, or
+    /// spritesheet URL from any public origin. The URL is fetched only into
+    /// the bounded preview cache and never sent to the renderer as a resource.
     Link {
         link: String,
     },

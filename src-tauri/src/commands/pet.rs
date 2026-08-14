@@ -62,6 +62,28 @@ pub async fn pet_set_enabled_cmd(
 }
 
 #[tauri::command]
+pub async fn pet_activate_cmd(
+    app: tauri::AppHandle,
+    pet_ref: ha_pet::PetRef,
+) -> Result<ha_pet::PetConfig, CmdError> {
+    let previous = ha_core::config::cached_config().pet.clone();
+    if !previous.enabled {
+        // Match the enabled switch's fail-closed ordering: prove the native
+        // overlay can be created before persisting enabled=true.
+        crate::pet_window::sync_enabled(&app, true)?;
+    }
+    match ha_pet::update_config(Some(true), Some(pet_ref), "pet-activate").await {
+        Ok(config) => Ok(config),
+        Err(error) => {
+            if !previous.enabled {
+                let _ = crate::pet_window::sync_enabled(&app, false);
+            }
+            Err(error.into())
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn pet_sync_window_cmd(app: tauri::AppHandle) -> Result<(), CmdError> {
     crate::pet_window::sync_enabled(&app, ha_core::config::cached_config().pet.enabled)?;
     Ok(())

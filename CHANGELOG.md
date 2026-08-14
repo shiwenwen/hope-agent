@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **项目可以关联多个源文件夹**：一个主文件夹继续负责默认工作目录、相对路径和项目指令，同时可添加、切换、搜索并编辑多个辅助文件夹；会话单独切换工作目录时仍保留项目主文件夹。 (#652)
+- **桌面宠物可从任意兼容来源安全导入并按需启用**：新增 `hope-agent pet` 两阶段预览与确认命令，以及内置导入技能；模型可分析任意下载网页，再把本地目录、zip、manifest + sprite、atlas 或任意公网来源的直接 HTTPS 产物统一交给 Hope 校验并原子安装。CLI 提供 capability 握手、支持一次交付多个 loose 文件，技能优先调用当前运行实例而不会误命中 PATH 中的旧版，也不会为 HTTP fallback 暴露 Server Owner Token；用户明确要求时，`pet activate` / desktop-only Pet API 会按唯一已安装 `petRef` 原子选择并启用当前 Tauri 宠物窗口，仅请求导入时保持关闭状态不变。
 
 ## [0.32.0] - 2026-08-12
 

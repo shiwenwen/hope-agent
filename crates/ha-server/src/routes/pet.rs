@@ -46,6 +46,24 @@ pub async fn set_enabled(
     Err(overlay_unsupported().await)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetActivateBody {
+    pub pet_ref: ha_pet::PetRef,
+}
+
+pub async fn activate(
+    Json(body): Json<PetActivateBody>,
+) -> Result<Json<ha_pet::PetConfig>, AppError> {
+    if !ha_core::is_desktop() {
+        return Err(overlay_unsupported().await);
+    }
+    ha_pet::update_config(Some(true), Some(body.pet_ref), "http-pet-activate")
+        .await
+        .map(Json)
+        .map_err(bad_request)
+}
+
 pub async fn list() -> Result<Json<ha_pet::PetLibrarySnapshot>, AppError> {
     ha_core::blocking::run_blocking(ha_pet::list_pets)
         .await

@@ -224,6 +224,7 @@ pub fn run() {
             commands::pet::get_pet_config_cmd,
             commands::pet::save_pet_config_cmd,
             commands::pet::pet_set_enabled_cmd,
+            commands::pet::pet_activate_cmd,
             commands::pet::pet_sync_window_cmd,
             commands::pet::pet_list_cmd,
             commands::pet::pet_asset_path_cmd,

@@ -292,12 +292,12 @@ flowchart LR
     codex["Codex current / legacy 扫描"]
     drop["目录 / zip / 独立 PNG·WebP drop"]
     upload["浏览器 upload"]
-    link["粘贴 codex:// · hope-agent:// · HTTPS sprite"]
+    link["任意来源的 HTTPS zip / manifest / sprite<br/>codex:// · hope-agent:// deep link"]
     proto["系统注册的 hope-agent:// 协议"]
   end
   sources --> preview["preview_import<br/>解析 + 校验 + 短期 token"]
-  preview --> card["Settings 预览卡<br/>人工确认（含 duplicate 提示）"]
-  card -->|commit_token| commit["commit_import"]
+  preview --> confirm["Settings / API / CLI<br/>展示 manifest、告警、duplicate、hash"]
+  confirm -->|用户确认后 commit_token / expected hash| commit["commit_import"]
   commit --> recheck["recheck：本地源重读比 package hash"]
   recheck --> install["install_validated<br/>staging 写入 → 原子发布"]
   install --> enable{"enable_after_import?"}
@@ -306,6 +306,10 @@ flowchart LR
 ```
 
 自动发现只扫描用户自己的 Codex 自定义目录：`CODEX_HOME`（或 `~/.codex`）下的 `pets/pet.json`（current）与 `avatars/avatar.json`（legacy）。系统协议只把主窗口带到 Settings 的预览确认页；`codex://` 只支持粘贴解析，因为该 scheme 属于 Codex。
+
+CLI 与技能走同一业务管线，不直接写宠物目录：调用方先以 `hope-agent pet capabilities --json` 验证稳定握手（不能只看旧 binary 也可能返回的退出码），再用 `hope-agent pet preview --source <PATH|URL> [--source <PATH> ...] --json` 展示 manifest、尺寸、告警、duplicate 与 `packageHash`；重复 `--source` 把同目录 loose manifest + sprite 作为一个包交付。用户确认后，调用方用完全相同的有序来源执行 `hope-agent pet import ... --expected-package-hash <HASH> --json`。由于两个 CLI 命令是两个短进程，preview 退出前会销毁临时 token，import 会重新读取或下载、重新校验并比对用户确认过的 hash；源在两步之间变化就 fail closed。CLI commit 恒 `enable_after_import=false`，只安装到 Hope 库，不切换选择或唤醒桌面 overlay。
+
+HTTPS 入口不按来源域名决定资格：任意公网 origin 都可提供直接 zip、`pet.json` 或 PNG/WebP；下载后按 magic bytes / manifest 内容识别，再进入同一 validator。远端 `pet.json` 只能引用最终 manifest URL 同 origin、同目录下的相对 sprite。普通 HTML 页面不是宠物包协议，技能或 UI 必须先解析出实际下载物，绝不运行页面展示的安装器。`codex-pet.org[/<locale>]/pets/<slug>` 仅保留一个便利 resolver，和其它来源走相同校验，不是导入能力的边界。
 
 一个 drop 若含 manifest 就作为一个 loose-file 包；否则多个目录、zip 或独立 atlas 分别生成 preview card。标准 WebView drop 通过 `DataTransferItem.webkitGetAsEntry()` 有界递归顶层目录（最大深度 8、最多 64 个文件），再用通用分块上传 lease 进入同一 preview 流程；Tauri native path drop 仅作可用时的快速路径。批量 commit 独立处理，成功项消失、失败项留在界面重试，失败的 preview source lease 立即释放。HTTP / Web 只接收 staged upload id，拒绝客户端本机路径。
 
@@ -316,7 +320,7 @@ flowchart LR
 | 路径 | manifest / sprite 全部 canonicalize；拒绝 absolute、`..`、symlink escape、设备文件；资源必须落在包目录内 |
 | zip | 32 MiB 总量、64 entry、深度 8 上限，拒绝 symlink 条目、重复条目和超额展开 |
 | 图片 | magic bytes + 有界解码，sprite ≤ 20 MiB；仅 PNG / WebP；已使用格不得缺帧或近乎不透明，未使用格必须透明；v2 必须有 neutral 与 16 个方向格 |
-| URL | 仅 HTTPS，每一跳走 Strict SSRF 检查，最多 5 次 redirect，流式读取限制解压后 bytes |
+| URL | origin 不限但仅 HTTPS；每一跳走 Strict SSRF，最多 5 次 redirect；直接产物只接受 zip / JSON manifest / PNG / WebP / octet-stream 并有界读取；远端 manifest 的 sprite 限同 origin、同目录；HTML 不作安装协议 |
 | preview token | 256-bit 随机、短期 capability；本地 commit 重读并比对 hash，URL / upload commit 用已缓存 bytes 不二次联网 |
 | token 消费 | 只在所有请求副作用成功后消费，失败可幂等重试（安装是内容寻址、幂等）；cancel 幂等，立即释放 cache 与绑定 upload lease |
 | token 传输 | cancel / commit token 只放 JSON body；thumbnail 因资源 URL 必须带 token，HTTP access log 对该 path segment 固定脱敏 |
@@ -350,7 +354,9 @@ Debug 构建额外注入内置 `builtin:hope-debug`：v1 atlas 每个**已使用
 
 `AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。作为用户可调配置，它同时具备设置面板、侧边栏底部快捷开关、`ha-settings` category / risk 与 skill 风险表；各入口都监听 `pet:config_changed`，不维护独立可见性状态。配置写入是字段级 patch，选择校验与持久化持有宠物库锁，避免并发开关 / 选择互相回滚，也避免"删除后立即被选中"的 TOCTOU。
 
-`enabled` 只能由桌面 GUI 会话改：`ha-settings` 在非桌面 GUI 来源上拒绝改 `enabled`，HTTP 的 `save_config` / `set_enabled` 与所有窗口命令一律返回 desktop-only。HTTP / ACP 可以管理宠物库与选择，但不能声称拥有桌面 overlay。
+模型侧启用已安装宠物先以 `hope-agent pet list --json` 将用户名称解析成唯一、已安装的 `petRef`，再调用 `hope-agent pet activate --pet-ref <REF> --json`。CLI 不离线改 enabled，而是从 0600 credential store 内部取得本机托管 Token、以禁代理/禁重定向的客户端调用当前桌面的 loopback Bearer-auth `POST /api/pets/activate`；非回环 bind fail closed，Token 不进 argv/stdout/模型上下文。desktop route 原子写 `selectedPetRef + enabled=true` 并经当前 Tauri EventBus 驱动 PetWindow，headless Server 明确返回 desktop-only。仅请求导入时绝不顺带启用；用户明确请求“导入并启用”时，确认必须同时覆盖 reviewed package 与启用意图，commit 成功后再以返回的 `petRef` 独立 activate，禁止 `enableAfterImport` 偷渡或短进程离线改配置假成功。
+
+`enabled` 只能由 desktop runtime 改：桌面 GUI 会话可走 `ha-settings`，显式 Pet 激活可走 Tauri `pet_activate_cmd` 或 desktop-only HTTP `/pets/activate`；`ha-settings` 在非桌面 GUI 来源上拒绝 enabled，headless HTTP 的 `activate` / `save_config` / `set_enabled` 与所有窗口命令返回 desktop-only。HTTP / ACP 可以管理宠物库与选择，但不能声称拥有桌面 overlay。
 
 桌面端在 Pet 配置首次就绪且仍关闭时，于侧边栏蛋图标旁延迟 700ms 显示一次非模态 discovery popover：不抢焦点，提供"直接开启"和"进入 Pets 设置"两个动作。开启过、进入过设置或明确关闭提示后，以版本化 localStorage key `hope-agent.pet-discovery.v1` 记为已发现；outside click / Escape 只 snooze 当前挂载周期，避免误触让用户永久错过。该 key 只记引导曝光，不复制 `enabled` 或其它配置。
 
@@ -371,7 +377,7 @@ Debug 构建额外注入内置 `builtin:hope-debug`：v1 atlas 每个**已使用
 
 ### 接口边界
 
-Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](../system/api-reference.md)。HTTP 侧把桌面独占能力显式标记为不支持，而不是假成功：`/pets/window/bounds`、`/pets/window/sync`、`/pets/focus-target`（对应 `pet_apply_window_bounds_cmd` / `pet_sync_window_cmd` / `pet_focus_target_cmd`）返回 `PET_OVERLAY_DESKTOP_ONLY`；`/pets/install-link/pending`（对应 `pet_take_install_link_cmd`）恒返回 `null`；带 `enable_after_import` 的 commit 与本机路径预览在 HTTP 上被拒。
+Tauri commands 与 HTTP routes 一一对应，详见 [API 参考](../system/api-reference.md)。HTTP 侧把桌面独占能力显式标记为不支持，而不是假成功：headless 的 `/pets/activate`、`/pets/window/bounds`、`/pets/window/sync`、`/pets/focus-target` 返回 `PET_OVERLAY_DESKTOP_ONLY`；desktop 的 `/pets/activate` 经 EventBus 让主 renderer 同步 PetWindow；`/pets/install-link/pending`（对应 `pet_take_install_link_cmd`）恒返回 `null`；带 `enable_after_import` 的 commit 与本机路径预览在 HTTP 上被拒。CLI 是本机短进程适配器，允许本机路径，但不接收或打印 Owner Token；远程自动化继续用 Bearer-auth HTTP preview / commit / activate，Token 只能进 Authorization header。
 
 ### 能力边界与非目标
 

@@ -1030,6 +1030,7 @@ fn build_router_with_cors(
             get(routes::pet::get_config).put(routes::pet::save_config),
         )
         .route("/pets/enabled", post(routes::pet::set_enabled))
+        .route("/pets/activate", post(routes::pet::activate))
         .route("/pets/asset", get(routes::pet::asset_descriptor))
         .route("/pets/sprite", get(routes::pet::sprite))
         .route("/pets/codex-candidates", get(routes::pet::codex_candidates))

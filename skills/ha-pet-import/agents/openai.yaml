@@ -1,0 +1,4 @@
+interface:
+  display_name: "Import & Enable Hope Pet"
+  short_description: "Import, select, and enable Hope desktop pets"
+  default_prompt: "Use $ha-pet-import to safely import, select, or enable a pet in Hope Agent."
