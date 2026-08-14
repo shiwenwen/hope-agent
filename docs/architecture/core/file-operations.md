@@ -352,7 +352,7 @@ stateDiagram-v2
 - 二进制/失败状态：显示原因，并从同一能力层提供打开或下载。
 - 顶部按钮按 capability 显示打开、下载和编辑。
 
-可选文字的预览统一遵守同一交互：鼠标、触控或键盘选区完成后，在选区附近自动浮出「复制 / 引用到对话」；右键入口继续保留作兼容。引用只进入 composer 的可删 quote chip，用户仍须显式发送。code/text/Markdown 源码可携精确行号；渲染态 Markdown 只有唯一 literal source match 时才携行号，Office 与 iframe 正文使用无行号上下文，禁止伪造 `L1-n`。managed HTML 通过 app-authored、token 关联且限长的 `postMessage` bridge 上报选区，宿主只接受当前 iframe 的 `WindowProxy`；iframe 正文不能直接触发发送。
+可选文字的预览统一遵守同一交互：鼠标、触控或键盘选区完成后，在选区附近自动浮出「复制 / 引用到对话」；右键入口继续保留作兼容。引用只进入 composer 的可删 quote chip，用户仍须显式发送。code/text/Markdown 源码可携精确行号；渲染态 Markdown 只有唯一 literal source match 时才携行号，Office 与 iframe 正文使用无行号上下文，禁止伪造 `L1-n`。managed HTML 只有在后端重读当前 projection、确认 bridge marker 与精确 script-isolated CSP 后，才通过 app-authored、限长的 `postMessage` bridge 上报选区；宿主无可信 capability 时不发送激活 token、也不监听选择消息。HTML／Slides／Design 等允许作者脚本的 iframe 只保留原生选择／复制，不能仅靠同帧 token 打开宿主引用入口。iframe 正文无论何种形态都不能直接触发发送。
 
 浏览器原生 PDF viewer 与 PPTX 的 canvas 绘制层没有可安全读取的 DOM Range，当前只保留原生复制，不展示「引用到对话」。若以后替换 PDF renderer，须复用同一 selection action/quote 契约，而不是读取或放宽原生 viewer 的跨文档边界。
 

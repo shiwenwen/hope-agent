@@ -271,8 +271,8 @@ Artifact 注册时会从显式结构写入 scoped Domain Evidence：
 - `referrerPolicy="no-referrer"`；
 - 本地桌面经 `convertFileSrc`，HTTP 经受保护的 `/api/canvas/projects/{id}/{path}`；用 opaque Artifact ID 解析投影，业务组件不拼受管路径；
 - `refreshKey` 变化时 remount iframe（`key` 含 refreshKey），确保 reload／restore 用上新页面状态。
-- 受管 projection 注入 app-authored 文本选区 bridge；`ArtifactViewer` 在每次文档 load 后用 version + 随机 token 激活，只接受当前 iframe `WindowProxy` 回传、finite rect 与不超过 20,000 字符的完整文本（超限不截断引用）。选区完成后自动显示「复制 / 引用到对话」，引用只进入当前主对话草稿，不自动发送；右键原生语义不被 bridge 接管。
-- 静态 projection 的 CSP 只额外放行 bridge 精确脚本 hash，不开放任意 inline script；历史 Hope 静态 projection 可幂等自愈，第三方自带 CSP 仍保持其更严格约束。
+- 受管 projection 可以注入 app-authored 文本选区 bridge，但宿主只在后端**重新读取当前 `index.html`**并确认 bridge marker 与精确的 script-isolated CSP 同时存在后，才返回 `capabilities.selectionBridgeTrusted=true` 并激活它。`ArtifactViewer` 每次文档 load 用 version + 随机 token 关联当前导航，只接受当前 iframe `WindowProxy` 回传、finite rect 与不超过 20,000 字符的完整文本（超限不截断引用）。选区完成后自动显示「复制 / 引用到对话」，引用只进入当前主对话草稿，不自动发送；右键原生语义不被 bridge 接管。
+- 静态 projection 的 CSP 只额外放行 bridge 精确脚本 hash，不开放任意作者脚本；历史 Hope 静态 projection 可幂等自愈。Freeform HTML、Slides 等可执行 projection 即使也包含 bridge，宿主仍 fail-closed 不激活，只保留 iframe 内原生选择／复制。随机 token 只用于关联一次导航，不能把同一 iframe 里的作者脚本认证成可信发送者。
 
 顶层 `ArtifactsView` 当前提供：
 
@@ -344,7 +344,7 @@ flowchart TB
 
 ### HTML
 
-直接交付当前受管 `index.html`。Analysis／Markdown 的作者内容是确定性静态页面，文件中只额外保留未获宿主 token 时惰性的 Hope 选区 bridge；Freeform HTML 可能含作者内联脚本，因此 UI 只按作者内容显示 executable content 标记。HTML verifier 通过只表示"未发现已知远程依赖"，不表示接收者在普通浏览器里直接打开任意可执行 HTML 等同于 Hope 的 iframe 沙盒。
+直接交付当前受管 `index.html`。Analysis／Markdown 的作者内容是确定性静态页面，文件中只额外保留未获宿主激活时惰性的 Hope 选区 bridge；Freeform HTML 可能含作者内联脚本，因此 UI 只按作者内容显示 executable content 标记，App 也不会为它开启宿主选区浮层。HTML verifier 通过只表示"未发现已知远程依赖"，不表示接收者在普通浏览器里直接打开任意可执行 HTML 等同于 Hope 的 iframe 沙盒。
 
 ### Markdown
 

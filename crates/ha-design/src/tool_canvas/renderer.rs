@@ -94,6 +94,37 @@ pub(crate) fn artifact_selection_bridge_tag() -> String {
     )
 }
 
+/// True only when the browser-enforced CSP permits the exact app-authored
+/// selection bridge and no author-controlled script. A channel token cannot
+/// authenticate code running in the same iframe, so host selection actions
+/// must stay disabled for every other projection.
+pub(crate) fn selection_bridge_is_script_isolated(html: &str) -> bool {
+    if !html.contains("data-hope-artifact-selection-bridge=\"1\"") {
+        return false;
+    }
+    let exact_csp_tag =
+        format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{OFFLINE_CSP_STATIC}\">");
+    let Some(csp_start) = html.find(&exact_csp_tag) else {
+        return false;
+    };
+    let lower = html.to_ascii_lowercase();
+    let Some(head_start) = lower.find("<head") else {
+        return false;
+    };
+    let Some(head_end) = lower[head_start..]
+        .find("</head>")
+        .map(|at| head_start + at)
+    else {
+        return false;
+    };
+    let first_csp = lower.find("http-equiv=\"content-security-policy\"");
+    let first_script = lower.find("<script");
+    head_start < csp_start
+        && csp_start < head_end
+        && first_csp == Some(csp_start + "<meta ".len())
+        && first_script.is_none_or(|script_start| csp_start < script_start)
+}
+
 /// Add the bridge to a complete HTML projection without changing its content
 /// model. The operation is idempotent because managed Artifact restore paths
 /// may hand us an already-rendered historical projection.
@@ -537,6 +568,18 @@ mod tests {
         assert!(!OFFLINE_CSP_STATIC.contains("script-src 'unsafe-inline'"));
         assert!(ARTIFACT_SELECTION_BRIDGE_SCRIPT.contains("!event.relatedTarget"));
         assert!(ARTIFACT_SELECTION_BRIDGE_SCRIPT.contains("'touchend',finishPointerSelection"));
+        let trusted = build_markdown_page("safe text");
+        assert!(selection_bridge_is_script_isolated(&trusted));
+        let executable = build_html_page(Some("<p>text</p>"), None, Some("void 0"));
+        assert!(!selection_bridge_is_script_isolated(&executable));
+        let forged = build_html_page(
+            Some(&format!(
+                "<meta http-equiv=\"Content-Security-Policy\" content=\"{OFFLINE_CSP_STATIC}\">"
+            )),
+            None,
+            Some("void 0"),
+        );
+        assert!(!selection_bridge_is_script_isolated(&forged));
     }
 
     #[test]

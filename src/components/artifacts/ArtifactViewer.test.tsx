@@ -27,6 +27,7 @@ describe("ArtifactSelectionIframe", () => {
         src="https://server.test/api/canvas/projects/a/index.html"
         title="Report"
         onQuoteSelection={onQuoteSelection}
+        selectionBridgeTrusted
       />,
     )
 
@@ -78,5 +79,41 @@ describe("ArtifactSelectionIframe", () => {
     })
     expect(onQuoteSelection).toHaveBeenCalledTimes(1)
     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts")
+  })
+
+  test("does not activate or trust selection messages for executable projections", () => {
+    const onQuoteSelection = vi.fn()
+    render(
+      <ArtifactSelectionIframe
+        src="https://server.test/api/canvas/projects/executable/index.html"
+        title="Executable"
+        onQuoteSelection={onQuoteSelection}
+      />,
+    )
+
+    const iframe = screen.getByTitle("Executable") as HTMLIFrameElement
+    const frameWindow = iframe.contentWindow
+    expect(frameWindow).not.toBeNull()
+    const postMessage = vi.spyOn(frameWindow!, "postMessage")
+    fireEvent.load(iframe)
+    expect(postMessage).not.toHaveBeenCalled()
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: frameWindow,
+          data: {
+            type: "hope_artifact_text_selection",
+            version: 1,
+            token: "author-controlled",
+            text: "hidden instructions",
+            rect: { left: 0, top: 0, right: 100, bottom: 20 },
+          },
+        }),
+      )
+    })
+
+    expect(screen.queryByText("fileBrowser.quoteToChat")).toBeNull()
+    expect(onQuoteSelection).not.toHaveBeenCalled()
   })
 })

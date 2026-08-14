@@ -39,6 +39,12 @@ export interface ArtifactSelectionIframeProps {
   refreshKey?: string | number
   className?: string
   onQuoteSelection?: (selection: ArtifactTextSelection) => void
+  /**
+   * True only for projections whose CSP permits the exact app-authored bridge
+   * and no author script. Tokens are correlation IDs, not an authentication
+   * boundary for JavaScript running in the same iframe.
+   */
+  selectionBridgeTrusted?: boolean
 }
 
 const SELECTION_PROTOCOL_VERSION = 1
@@ -146,7 +152,17 @@ function selectionMenuPosition(
  * callers only provide a credential-safe URL and an optional staging callback.
  */
 export const ArtifactSelectionIframe = forwardRef<HTMLIFrameElement, ArtifactSelectionIframeProps>(
-  ({ src, title, refreshKey = 0, className, onQuoteSelection }, forwardedRef) => {
+  (
+    {
+      src,
+      title,
+      refreshKey = 0,
+      className,
+      onQuoteSelection,
+      selectionBridgeTrusted = false,
+    },
+    forwardedRef,
+  ) => {
     const { t } = useTranslation()
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
     const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null)
@@ -161,7 +177,7 @@ export const ArtifactSelectionIframe = forwardRef<HTMLIFrameElement, ArtifactSel
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [contextKey],
     )
-    const menuOpen = selectionMenu?.contextKey === contextKey
+    const menuOpen = selectionBridgeTrusted && selectionMenu?.contextKey === contextKey
 
     const setIframeRef = useCallback(
       (node: HTMLIFrameElement | null) => {
@@ -192,6 +208,7 @@ export const ArtifactSelectionIframe = forwardRef<HTMLIFrameElement, ArtifactSel
     }, [menuOpen])
 
     useEffect(() => {
+      if (!selectionBridgeTrusted) return
       const handler = (event: MessageEvent) => {
         const iframe = iframeRef.current
         // sandbox="allow-scripts" deliberately gives the document an opaque
@@ -225,7 +242,7 @@ export const ArtifactSelectionIframe = forwardRef<HTMLIFrameElement, ArtifactSel
 
       window.addEventListener("message", handler)
       return () => window.removeEventListener("message", handler)
-    }, [contextKey, onQuoteSelection, selectionChannelToken])
+    }, [contextKey, onQuoteSelection, selectionBridgeTrusted, selectionChannelToken])
 
     const activateSelectionBridge = useCallback(() => {
       iframeRef.current?.contentWindow?.postMessage(
@@ -258,7 +275,7 @@ export const ArtifactSelectionIframe = forwardRef<HTMLIFrameElement, ArtifactSel
           src={resolvedSrc}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          onLoad={activateSelectionBridge}
+          onLoad={selectionBridgeTrusted ? activateSelectionBridge : undefined}
           className={cn(
             "block h-full min-h-0 w-full min-w-0 max-w-full border-0 bg-white dark:bg-surface-app",
             className,
@@ -303,9 +320,14 @@ const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
       [artifactId, projectPath, t, title],
     )
     const sourceKey = `${artifactId}\u0000${projectPath ?? ""}\u0000${refreshKey}\u0000${transportRevision}`
-    const [resolvedSource, setResolvedSource] = useState<{ key: string; url: string }>({
+    const [resolvedSource, setResolvedSource] = useState<{
+      key: string
+      url: string
+      selectionBridgeTrusted: boolean
+    }>({
       key: "",
       url: "",
+      selectionBridgeTrusted: false,
     })
     // Never render the previous Artifact's URL under the next Artifact's title
     // and quote callback while async URL resolution catches up.
@@ -314,13 +336,23 @@ const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
     useEffect(() => {
       let cancelled = false
       const source = fileResourceAdapterFor(target).previewSource(target, { transport })
-      void source
-        .rawUrl()
-        .then((url) => {
-          if (!cancelled) setResolvedSource({ key: sourceKey, url: url ?? "" })
+      void Promise.all([
+        source.rawUrl(),
+        source.selectionBridgeTrusted?.().catch(() => false) ?? Promise.resolve(false),
+      ])
+        .then(([url, selectionBridgeTrusted]) => {
+          if (!cancelled) {
+            setResolvedSource({
+              key: sourceKey,
+              url: url ?? "",
+              selectionBridgeTrusted,
+            })
+          }
         })
         .catch(() => {
-          if (!cancelled) setResolvedSource({ key: sourceKey, url: "" })
+          if (!cancelled) {
+            setResolvedSource({ key: sourceKey, url: "", selectionBridgeTrusted: false })
+          }
         })
       return () => {
         cancelled = true
@@ -335,6 +367,9 @@ const ArtifactViewer = forwardRef<HTMLIFrameElement, ArtifactViewerProps>(
         refreshKey={`${artifactId}-${refreshKey}-${transportRevision}`}
         className={className}
         onQuoteSelection={onQuoteSelection}
+        selectionBridgeTrusted={
+          resolvedSource.key === sourceKey && resolvedSource.selectionBridgeTrusted
+        }
       />
     )
   },

@@ -450,7 +450,7 @@ iframe 本体在 `ArtifactViewer`：
 - `sandbox="allow-scripts"`：允许 JS 执行，但**没有** `allow-same-origin`——脚本碰不到主应用的 `localStorage`、cookie 或父窗口 DOM，想通信只能 postMessage。
 - `key={artifactId-refreshKey}`：`canvas_reload` 递增 `refreshKey`，触发 React **完全 remount** iframe（而非只换 src），确保任何缓存的 JS 状态被清掉。
 - `referrerPolicy="no-referrer"`：HTTP token 或本地项目 URL 不通过 Referer 外发。
-- 文档 load 后父层用 version + 随机 token 激活固定选区 bridge；父层只接受当前 `contentWindow`、finite rect 与不超过 20,000 字符的完整文本。选区完成后自动显示复制/引用浮层，引用只入 composer 草稿，右键仍走原生菜单。
+- 文档 load 前，后端重读当前 projection 并核验 bridge marker 与精确的 script-isolated CSP；只有核验通过的 Markdown／Code／SVG／Mermaid／Chart 等静态页面才返回可信 capability。文档 load 后父层用 version + 随机 token 关联当前导航并激活固定选区 bridge，只接受当前 `contentWindow`、finite rect 与不超过 20,000 字符的完整文本。选区完成后自动显示复制/引用浮层，引用只入 composer 草稿，右键仍走原生菜单。HTML／Slides 等可执行页面不激活宿主 bridge，只保留原生选择／复制。
 
 `src` 由 transport 的预览 URL 解析给出，两种模式不同：
 
@@ -561,7 +561,7 @@ HTTP 模式下 iframe 不能直接读磁盘，必须走 server 转发。`serve_c
 | **SVG XSS（`<script>` / `onerror=`）** | `build_svg_page` 虽内嵌 SVG source，但静态 CSP 只放行固定选区 bridge 的精确 hash、仍拒绝作者脚本，且 `connect-src 'none'`；外层 iframe 继续 sandbox |
 | **Markdown raw HTML** | `pulldown-cmark` 的 `Html` / `InlineHtml` event 被转成文本，不允许从 Markdown 注入可执行 DOM |
 | **iframe 加载非项目目录资源** | iframe 同源是 `asset://localhost` 或 server 域，相对路径请求只能命中 `/api/canvas/projects/{id}/...`，路由层再验一遍 |
-| **iframe 伪造文本选区消息** | 父层校验当前 `WindowProxy`、协议版本、token、长度与有限坐标；正文始终按不可信引用处理，只有用户点击浮层才进入草稿，绝不自动发送 |
+| **iframe 伪造文本选区消息** | 后端在每次读取时以当前 projection bytes 为准，只对带 bridge marker 与精确 script-isolated CSP 的页面签发可信 capability；宿主无 capability 即不发激活 token、不注册消息接收器。`WindowProxy`、协议版本、token、长度与有限坐标是导航／载荷完整性校验，不把同帧作者脚本升级为可信发送者。正文仍按不可信引用处理，只有用户点击浮层才进入草稿，绝不自动发送 |
 | **OAuth / API key 泄漏进 canvas content** | 由模型自身输入约束 + 主应用日志脱敏（`logging::redact_sensitive`）防御；canvas 模板本身不主动写凭据 |
 
 Artifact 的 import / verify 还会额外扫描远程资源、外部导航和禁止元素；完整规则见 [Artifacts 安全与验证](artifacts.md#verification)。

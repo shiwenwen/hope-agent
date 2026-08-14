@@ -44,6 +44,8 @@ export interface PreviewSource {
   sizeBytes?: number
   /** Opt into a renderer that intentionally executes a managed, sandboxed HTML projection. */
   presentation?: "managed_html"
+  /** Resolve whether Hope's selection bridge is isolated from author scripts. */
+  selectionBridgeTrusted?: () => Promise<boolean>
   /** Read text content (binary/oversized → `isBinary: true`). */
   readText: () => Promise<FileTextContent>
   /** Extract a PDF / Office document (text + images). */
@@ -121,6 +123,10 @@ export function artifactPreviewSource(
     mime: "text/html",
     displayPath: target.name,
     presentation: "managed_html",
+    async selectionBridgeTrusted() {
+      const artifact = await transport.getArtifact(target.artifactId)
+      return artifact.capabilities?.selectionBridgeTrusted === true
+    },
     async readText() {
       throw new Error("Artifact previews use the managed HTML viewer")
     },

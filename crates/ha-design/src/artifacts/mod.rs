@@ -28,7 +28,8 @@ use ha_core::file_upload::FileUploadPurpose;
 use ha_core::paths;
 
 use crate::tool_canvas::renderer::{
-    inject_artifact_selection_bridge, upgrade_artifact_selection_bridge, OFFLINE_CSP_STATIC,
+    inject_artifact_selection_bridge, selection_bridge_is_script_isolated,
+    upgrade_artifact_selection_bridge, OFFLINE_CSP_STATIC,
 };
 
 pub const ARTIFACT_SCHEMA_VERSION: &str = "hope.artifact.v1";
@@ -707,6 +708,24 @@ impl ArtifactService {
                         error
                     );
                 }
+            }
+        }
+        if let Some(record) = record.as_mut() {
+            // The projection bytes + CSP are the authority. Stored capability
+            // metadata can be legacy or stale, and an in-frame token cannot
+            // distinguish Hope's bridge from author JavaScript in that frame.
+            let trusted_selection_bridge =
+                fs::read_to_string(paths::canvas_project_dir(id)?.join("index.html"))
+                    .is_ok_and(|html| selection_bridge_is_script_isolated(&html));
+            if let Some(capabilities) = record.capabilities.as_object_mut() {
+                capabilities.insert(
+                    "selectionBridgeTrusted".to_string(),
+                    Value::Bool(trusted_selection_bridge),
+                );
+            } else {
+                record.capabilities = json!({
+                    "selectionBridgeTrusted": trusted_selection_bridge
+                });
             }
         }
         match record {
@@ -4090,6 +4109,7 @@ mod tests {
         assert!(html.contains("Content-Security-Policy"));
         assert!(html.contains("connect-src 'none'"));
         assert!(html.contains("data-hope-artifact-selection-bridge=\"1\""));
+        assert!(!selection_bridge_is_script_isolated(&html));
         assert!(!contains_remote_dependency(&html));
     }
 
@@ -4130,6 +4150,13 @@ mod tests {
                 .expect("import Artifact upload");
 
             assert_eq!(artifact.title, "Uploaded report");
+            assert_eq!(
+                artifact
+                    .capabilities
+                    .get("selectionBridgeTrusted")
+                    .and_then(Value::as_bool),
+                Some(true)
+            );
             assert!(ha_core::file_upload::upload_status(&lease.upload_id).is_err());
         });
     }

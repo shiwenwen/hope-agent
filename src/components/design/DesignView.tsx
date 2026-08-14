@@ -288,9 +288,9 @@ const ZOOM_MAX = 4
 const ZOOM_WHEEL_SENSITIVITY = 0.0022
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
 
-// iframe 内脚本与产物正文均不可信；文本选区只用于用户显式点击后的复制/草稿引用，仍做长度闸，
-// 避免产物脚本伪造超大 postMessage 拖垮宿主。与通用 ArtifactViewer 协议保持同一 2 万字符上限；
-// 超限直接不展示动作，不做可能悄悄丢字的截断。
+// Design 产物本身可执行作者代码；同 iframe 内的 token 只能关联导航，不能认证选择来源。
+// 在桥获得独立可信执行域前 fail closed，保留原生选择/复制与现有元素/批注引用能力。
+const PREVIEW_TEXT_SELECTION_BRIDGE_TRUSTED = false
 const MAX_PREVIEW_TEXT_SELECTION_CHARS = 20_000
 const PREVIEW_TEXT_SELECTION_PROTOCOL_VERSION = 1
 let previewTextSelectionTokenCounter = 0
@@ -3663,7 +3663,7 @@ export default function DesignView({
     setPreviewCtxMenu(null) // 重载后旧菜单挂在已失效元素上，关掉
     setPreviewTextSelection(null) // 文档导航后旧 Range/坐标已失效
     const artifact = activeArtifactRef.current
-    if (artifact) {
+    if (artifact && PREVIEW_TEXT_SELECTION_BRIDGE_TRUSTED) {
       const channel: PreviewTextSelectionChannel = {
         token: createPreviewTextSelectionToken(),
         artifactId: artifact.id,

@@ -35,7 +35,8 @@ export type QuotePayload = PendingFileQuote
 
 type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
-  | { kind: "image" | "pdf" | "audio" | "video" | "managed_html"; url: string | null }
+  | { kind: "image" | "pdf" | "audio" | "video"; url: string | null }
+  | { kind: "managed_html"; url: string | null; selectionBridgeTrusted: boolean }
   | { kind: "office" }
 
 export interface FilePreviewPaneProps {
@@ -102,13 +103,21 @@ export function FilePreviewPane({
     void (async () => {
       try {
         if (source.presentation === "managed_html") {
-          const url = await source.rawUrl(false)
+          const [url, selectionBridgeTrusted] = await Promise.all([
+            source.rawUrl(false),
+            source.selectionBridgeTrusted?.().catch(() => false) ?? Promise.resolve(false),
+          ])
           if (url && cancelled) {
             source.releaseRawUrl?.(url)
             return
           }
           if (url) leasedRawUrl = url
-          if (!cancelled) setLoadedResult({ source, value: { kind: "managed_html", url } })
+          if (!cancelled) {
+            setLoadedResult({
+              source,
+              value: { kind: "managed_html", url, selectionBridgeTrusted },
+            })
+          }
         } else if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
           const url = await source.rawUrl(false)
           if (url && cancelled) {
@@ -395,6 +404,7 @@ function PreviewBody({
             : undefined
         }
         className="h-full w-full border-0 bg-white dark:bg-surface-app"
+        selectionBridgeTrusted={loaded.selectionBridgeTrusted}
       />
     ) : (
       <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
