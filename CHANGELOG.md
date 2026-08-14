@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **定时任务现在可以在新对话或现有对话中运行**：可从普通聊天标题栏直接排程当前对话，按同一消息队列延续实时的 Agent、项目、知识空间与工作目录；每次运行都拥有可定位的普通聊天历史、来源徽标、统一未读与精确 Stop / 取消。新对话任务另支持 Project、Fresh 和 Persistent Worktree，保存或立即运行前会检查模型、项目、工作区、权限、沙箱与投递目标。
+
 ### Fixed
 
 - **`@` 引用在项目与会话间切换时不再串用上下文**：文件引用会绑定选择时的工作区，输入框与历史消息中的文件、笔记、Skill、Agent、插件和连接器引用统一为轻量行内样式，并可在重载历史后保持可信展示。 (#649)
