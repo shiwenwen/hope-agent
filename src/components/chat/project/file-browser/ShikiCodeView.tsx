@@ -93,7 +93,6 @@ export function ShikiCodeView({
       codeToHtml(content, {
         lang: l,
         themes: { light: "github-light", dark: "github-dark" },
-        defaultColor: false,
         transformers: [lineData],
       })
     void render(lang)

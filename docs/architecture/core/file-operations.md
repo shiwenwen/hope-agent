@@ -345,7 +345,7 @@ stateDiagram-v2
 
 [`FilePreviewPane`](../../../src/components/chat/project/file-browser/FilePreviewPane.tsx) 是统一预览视图，按 `fileKindOf` 结果分派（外壳 `FilePreviewPanel.tsx` 负责 target 切换与全屏，两者不是同一文件）：
 
-- code/text/Markdown：文本与语法高亮；Markdown 可切换渲染/源码。
+- code/text/Markdown：文本与语法高亮；Markdown 与普通 HTML 可切换渲染/源码。普通 HTML 默认显示高亮源码，渲染视图使用无脚本 sandbox，并注入与 Canvas 静态页面一致的离线 CSP（禁脚本、网络、frame、表单与 object）；受管 Artifact HTML 仍走独立的 `allow-scripts` 预览链路。
 - image/PDF/audio/video：浏览器原生预览。
 - Office：docx-preview / SheetJS / pptxviewjs 富预览，失败时回退后端抽取文本。
 - 二进制/失败状态：显示原因，并从同一能力层提供打开或下载。

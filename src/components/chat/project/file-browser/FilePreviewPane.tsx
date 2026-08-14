@@ -1,8 +1,9 @@
 /**
  * Read-only preview for a workspace file, dispatched by file kind:
- * code/text (Shiki, direct), markdown (rendered + view-source), image
+ * code/text (Shiki, direct), markdown and HTML (rendered + view-source), image
  * (`<img>`), PDF (`<iframe>`), Office (extracted text + images), and a binary
- * placeholder for everything else.
+ * placeholder for everything else. Ordinary HTML renders in a script-free
+ * sandbox; managed HTML artifacts use their dedicated script-enabled path.
  *
  * Selecting text in a code/text/markdown-source preview reveals a "quote to
  * chat" action capturing the file path + exact line range + content.
@@ -31,6 +32,23 @@ type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
   | { kind: "image" | "pdf" | "audio" | "video" | "managed_html"; url: string | null }
   | { kind: "office" }
+
+const OFFLINE_HTML_PREVIEW_CSP =
+  "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'none'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
+
+/**
+ * Put the offline policy before any caller-controlled markup so the browser
+ * applies it before discovering subresources. A leading doctype stays first;
+ * the HTML parser places the following meta element in its generated head.
+ * Keep this aligned with Canvas' static renderer; the iframe sandbox remains
+ * the second boundary.
+ */
+function buildOfflineHtmlPreview(source: string): string {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${OFFLINE_HTML_PREVIEW_CSP}">`
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(source)
+  const offset = doctype?.[0].length ?? 0
+  return `${source.slice(0, offset)}${policy}${source.slice(offset)}`
+}
 
 export interface FilePreviewPaneProps {
   /** The file to preview (memoize this — it drives the load effect), or `null`. */
@@ -72,14 +90,21 @@ export function FilePreviewPane({
   useEffect(() => {
     let cancelled = false
     let leasedRawUrl: string | null = null
-    setViewSource(false)
     if (!source) {
+      setViewSource(false)
       setLoaded(null)
       return
     }
     setLoading(true)
     setError(null)
     const kind = fileKindOf(source.name, source.mime, source.language)
+    // Preserve the existing highlighted-source default for ordinary HTML.
+    // Managed HTML artifacts follow their dedicated renderer below.
+    setViewSource(
+      source.presentation !== "managed_html" &&
+        kind === "code" &&
+        shikiLang(source.name, source.language) === "html",
+    )
     void (async () => {
       try {
         if (source.presentation === "managed_html") {
@@ -122,7 +147,12 @@ export function FilePreviewPane({
     }
   }, [source])
 
-  const effectiveViewSource = viewSource || (!!highlightLines && loaded?.kind === "markdown")
+  const isHtmlPreview =
+    loaded?.kind === "code" && shikiLang(source?.name ?? "", source?.language) === "html"
+  const supportsRenderedView = loaded?.kind === "markdown" || isHtmlPreview
+  const effectiveViewSource =
+    viewSource ||
+    (!!highlightLines && (loaded?.kind === "markdown" || isHtmlPreview))
 
   const handleQuoteSelection = useCallback(
     (sel: CodeSelection) => {
@@ -164,14 +194,14 @@ export function FilePreviewPane({
           ) : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {loaded?.kind === "markdown" ? (
+          {supportsRenderedView ? (
             <div className="inline-flex items-center rounded-md border border-border/60 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewSource(false)}
                 className={cn(
                   "rounded px-2 py-0.5 text-xs transition-colors",
-                  !viewSource
+                  !effectiveViewSource
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -183,7 +213,7 @@ export function FilePreviewPane({
                 onClick={() => setViewSource(true)}
                 className={cn(
                   "rounded px-2 py-0.5 text-xs transition-colors",
-                  viewSource
+                  effectiveViewSource
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -403,6 +433,22 @@ function PreviewBody({
       <div className="px-4 py-3">
         <MarkdownRenderer content={loaded.data.content} />
       </div>
+    )
+  }
+
+  if (
+    loaded.kind === "code" &&
+    shikiLang(source.name, source.language) === "html" &&
+    !viewSource
+  ) {
+    return (
+      <iframe
+        title={source.name}
+        srcDoc={buildOfflineHtmlPreview(loaded.data.content)}
+        sandbox=""
+        referrerPolicy="no-referrer"
+        className="h-full w-full border-0 bg-white dark:bg-surface-app"
+      />
     )
   }
 
