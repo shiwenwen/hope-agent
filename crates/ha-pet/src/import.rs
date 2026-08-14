@@ -1042,7 +1042,13 @@ struct RemoteDownload {
 
 impl RemoteContentKind {
     fn accepts(self, content_type: &str) -> bool {
-        let content_type = content_type.split(';').next().unwrap_or_default().trim();
+        let content_type = content_type
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        let content_type = content_type.as_str();
         match self {
             Self::Image => {
                 content_type.starts_with("image/") || content_type == "application/octet-stream"
@@ -1450,10 +1456,12 @@ mod tests {
         let kind = RemoteContentKind::Artifact;
         for content_type in [
             "image/png",
+            "Image/PNG",
             "image/webp",
             "application/json; charset=utf-8",
             "text/plain",
             "application/zip",
+            "Application/Zip",
             "application/x-zip-compressed",
             "application/octet-stream",
         ] {
