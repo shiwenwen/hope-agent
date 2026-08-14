@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 #[cfg(unix)]
 use std::sync::OnceLock;
@@ -39,18 +40,11 @@ fn parse_sealed_argv(command: &str) -> Option<Vec<String>> {
     }
 
     let mut quote = Quote::None;
-    let mut escaped = false;
     let mut current = String::new();
     let mut argv = Vec::new();
     let mut token_started = false;
 
     for ch in command.chars() {
-        if escaped {
-            current.push(ch);
-            token_started = true;
-            escaped = false;
-            continue;
-        }
         match quote {
             Quote::Single => {
                 if ch == '\'' {
@@ -63,8 +57,6 @@ fn parse_sealed_argv(command: &str) -> Option<Vec<String>> {
             Quote::Double => {
                 if ch == '"' {
                     quote = Quote::None;
-                } else if ch == '\\' {
-                    escaped = true;
                 } else {
                     current.push(ch);
                 }
@@ -80,7 +72,10 @@ fn parse_sealed_argv(command: &str) -> Option<Vec<String>> {
                     token_started = true;
                 }
                 '\\' => {
-                    escaped = true;
+                    // This argv is passed directly to `Command`, not through a
+                    // shell. Preserve path separators (notably Windows paths)
+                    // instead of interpreting backslash as shell escaping.
+                    current.push(ch);
                     token_started = true;
                 }
                 '\n' | '\r' => return None,
@@ -101,13 +96,57 @@ fn parse_sealed_argv(command: &str) -> Option<Vec<String>> {
             },
         }
     }
-    if escaped || quote != Quote::None {
+    if quote != Quote::None {
         return None;
     }
     if token_started {
         argv.push(current);
     }
     Some(argv)
+}
+
+fn expand_sealed_source_path(raw: &str, cwd: &Path) -> PathBuf {
+    let path = if raw == "~" {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(raw))
+    } else if let Some(rest) = raw.strip_prefix("~/") {
+        dirs::home_dir()
+            .map(|home| home.join(rest))
+            .unwrap_or_else(|| PathBuf::from(raw))
+    } else {
+        PathBuf::from(raw)
+    };
+    if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    }
+}
+
+/// A sealed host-control invocation cannot see files created only inside a
+/// previous isolated sandbox copy. Fail with an actionable explanation before
+/// spawning Hope instead of letting the import pipeline report a misleading
+/// generic missing-file error.
+fn ensure_sealed_pet_sources_available(argv: &[String], cwd: &Path) -> Result<()> {
+    let mut index = 0;
+    while index < argv.len() {
+        if argv[index] != "--source" {
+            index += 1;
+            continue;
+        }
+        let Some(source) = argv.get(index + 1) else {
+            anyhow::bail!("pet_cli_source_argument_missing");
+        };
+        if !source.contains("://") {
+            let path = expand_sealed_source_path(source, cwd);
+            if !path.exists() {
+                anyhow::bail!(
+                    "pet_cli_local_source_unavailable_to_host: `{source}` is not present in the durable workspace; files created only inside an isolated sandbox command are discarded. Materialize the package through a trusted attachment/connector into the durable workspace, or use a direct HTTPS artifact URL"
+                );
+            }
+        }
+        index += 2;
+    }
+    Ok(())
 }
 
 /// Recognize only the current product's Pet CLI. The returned argv starts at
@@ -144,6 +183,14 @@ async fn execute_sealed_pet_cli(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    if argv.get(1).map(String::as_str) == Some("activate") {
+        if let Some(bound_addr) = crate::server_status::snapshot().bound_addr {
+            command.env(
+                crate::server_status::PET_CLI_LIVE_SERVER_ADDR_ENV,
+                bound_addr,
+            );
+        }
+    }
 
     let output = command.output();
     tokio::pin!(output);
@@ -1059,6 +1106,16 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
             anyhow::bail!("pet_cli_host_handoff_requires_foreground_without_custom_env");
         }
+        if sandbox {
+            if let Err(error) =
+                ensure_sealed_pet_sources_available(&pet_argv, Path::new(&session_cwd))
+            {
+                let mut registry = get_registry().lock().await;
+                registry.append_output(&session_id, "stderr", &error.to_string());
+                registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+                return Err(error);
+            }
+        }
         app_info!(
             "tool",
             "exec::pet_host_handoff",
@@ -1715,6 +1772,52 @@ mod tests {
                 .unwrap(),
             vec!["pet", "activate", "--pet-ref", "custom:seal", "--json"]
         );
+        assert_eq!(
+            sealed_pet_cli_args(
+                r#"hope-agent.exe pet preview --source "C:\Users\me\My Pet\pet.zip" --json"#
+            )
+            .unwrap(),
+            vec![
+                "pet",
+                "preview",
+                "--source",
+                r#"C:\Users\me\My Pet\pet.zip"#,
+                "--json"
+            ]
+        );
+    }
+
+    #[test]
+    fn sealed_pet_cli_requires_local_sources_to_exist_before_host_handoff() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let present = workspace.path().join("pet.zip");
+        std::fs::write(&present, b"zip").expect("source fixture");
+        let present_argv = vec![
+            "pet".to_string(),
+            "preview".to_string(),
+            "--source".to_string(),
+            "pet.zip".to_string(),
+        ];
+        ensure_sealed_pet_sources_available(&present_argv, workspace.path()).unwrap();
+
+        let missing_argv = vec![
+            "pet".to_string(),
+            "import".to_string(),
+            "--source".to_string(),
+            "sandbox-only.zip".to_string(),
+        ];
+        let error = ensure_sealed_pet_sources_available(&missing_argv, workspace.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("durable workspace"));
+
+        let remote_argv = vec![
+            "pet".to_string(),
+            "preview".to_string(),
+            "--source".to_string(),
+            "https://example.com/pet.zip".to_string(),
+        ];
+        ensure_sealed_pet_sources_available(&remote_argv, workspace.path()).unwrap();
     }
 
     #[test]

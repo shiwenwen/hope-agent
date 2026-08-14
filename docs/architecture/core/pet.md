@@ -307,7 +307,7 @@ flowchart LR
 
 自动发现只扫描用户自己的 Codex 自定义目录：`CODEX_HOME`（或 `~/.codex`）下的 `pets/pet.json`（current）与 `avatars/avatar.json`（legacy）。系统协议只把主窗口带到 Settings 的预览确认页；`codex://` 只支持粘贴解析，因为该 scheme 属于 Codex。
 
-CLI 与技能走同一业务管线，不直接写宠物目录：调用方先以 `hope-agent pet capabilities --json` 验证稳定握手（不能只看旧 binary 也可能返回的退出码），再用 `hope-agent pet preview --source <PATH|URL> [--source <PATH> ...] --json` 展示 manifest、尺寸、告警、duplicate 与 `packageHash`；重复 `--source` 把同目录 loose manifest + sprite 作为一个包交付。用户确认后，调用方用完全相同的有序来源执行 `hope-agent pet import ... --expected-package-hash <HASH> --json`。由于两个 CLI 命令是两个短进程，preview 退出前会销毁临时 token，import 会重新读取或下载、重新校验并比对用户确认过的 hash；源在两步之间变化就 fail closed。CLI commit 恒 `enable_after_import=false`，只安装到 Hope 库，不切换选择或唤醒桌面 overlay。
+CLI 与技能走同一业务管线，不直接写宠物目录：调用方先以 `hope-agent pet capabilities --json` 验证稳定握手（不能只看旧 binary 也可能返回的退出码），再用 `hope-agent pet preview --source <PATH|URL> [--source <PATH> ...] --json` 展示 manifest、尺寸、告警、duplicate 与 `packageHash`；重复 `--source` 把同目录 loose manifest + sprite 作为一个包交付。用户确认后，调用方用完全相同的有序来源执行 `hope-agent pet import ... --expected-package-hash <HASH> --json`。由于两个 CLI 命令是两个短进程，preview 退出前会销毁临时 token，import 会重新读取或下载、重新校验并比对用户确认过的 hash；源在两步之间变化就 fail closed。CLI commit 恒 `enable_after_import=false`，只安装到 Hope 库，不切换选择或唤醒桌面 overlay。sealed host handoff 的本地来源必须已存在于 durable workspace；isolated exec 临时副本里新建、命令结束即销毁的文件不会假装可导入，而是在 handoff 前明确报错并要求走可信附件/connector 落盘或直接 HTTPS artifact。
 
 HTTPS 入口不按来源域名决定资格：任意公网 origin 都可提供直接 zip、`pet.json` 或 PNG/WebP；下载后按 magic bytes / manifest 内容识别，再进入同一 validator。远端 `pet.json` 只能引用最终 manifest URL 同 origin、同目录下的相对 sprite。普通 HTML 页面不是宠物包协议，技能或 UI 必须先解析出实际下载物，绝不运行页面展示的安装器。`codex-pet.org[/<locale>]/pets/<slug>` 仅保留一个便利 resolver，和其它来源走相同校验，不是导入能力的边界。
 
@@ -354,7 +354,7 @@ Debug 构建额外注入内置 `builtin:hope-debug`：v1 atlas 每个**已使用
 
 `AppConfig.pet` 含 `enabled` 与 `selectedPetRef`，默认关闭。作为用户可调配置，它同时具备设置面板、侧边栏底部快捷开关、`ha-settings` category / risk 与 skill 风险表；各入口都监听 `pet:config_changed`，不维护独立可见性状态。配置写入是字段级 patch，选择校验与持久化持有宠物库锁，避免并发开关 / 选择互相回滚，也避免"删除后立即被选中"的 TOCTOU。
 
-模型侧启用已安装宠物先以 `hope-agent pet list --json` 将用户名称解析成唯一、已安装的 `petRef`，再调用 `hope-agent pet activate --pet-ref <REF> --json`。CLI 不离线改 enabled，而是从 0600 credential store 内部取得本机托管 Token、以禁代理/禁重定向的客户端调用当前桌面的 loopback Bearer-auth `POST /api/pets/activate`；非回环 bind fail closed，Token 不进 argv/stdout/模型上下文。desktop route 原子写 `selectedPetRef + enabled=true` 并经当前 Tauri EventBus 驱动 PetWindow，headless Server 明确返回 desktop-only。仅请求导入时绝不顺带启用；用户明确请求“导入并启用”时，确认必须同时覆盖 reviewed package 与启用意图，commit 成功后再以返回的 `petRef` 独立 activate，禁止 `enableAfterImport` 偷渡或短进程离线改配置假成功。
+模型侧启用已安装宠物先以 `hope-agent pet list --json` 将用户名称解析成唯一、已安装的 `petRef`，再调用 `hope-agent pet activate --pet-ref <REF> --json`。CLI 不离线改 enabled，而是从 0600 credential store 内部取得本机托管 Token、以禁代理/禁重定向的客户端调用当前桌面的 loopback Bearer-auth `POST /api/pets/activate`；sealed handoff 由父进程把 `server_status` 中的实际 listener 地址（包括 ephemeral port）通过 non-secret internal env 交给短进程，不能回读可能已修改但尚未重绑的 config 地址。非回环 bind fail closed，Token 不进 argv/stdout/模型上下文。desktop route 原子写 `selectedPetRef + enabled=true` 并经当前 Tauri EventBus 驱动 PetWindow，headless Server 明确返回 desktop-only。仅请求导入时绝不顺带启用；用户明确请求“导入并启用”时，确认必须同时覆盖 reviewed package 与启用意图，commit 成功后再以返回的 `petRef` 独立 activate，禁止 `enableAfterImport` 偷渡或短进程离线改配置假成功。
 
 `enabled` 只能由 desktop runtime 改：桌面 GUI 会话可走 `ha-settings`，显式 Pet 激活可走 Tauri `pet_activate_cmd` 或 desktop-only HTTP `/pets/activate`；`ha-settings` 在非桌面 GUI 来源上拒绝 enabled，headless HTTP 的 `activate` / `save_config` / `set_enabled` 与所有窗口命令返回 desktop-only。HTTP / ACP 可以管理宠物库与选择，但不能声称拥有桌面 overlay。
 

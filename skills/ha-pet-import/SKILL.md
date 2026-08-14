@@ -22,6 +22,8 @@ Route every source through Hope's validator and atomic installer. Treat the orig
 
 Use the exact `hope-agent pet ...` command prefix through Hope's `exec` tool. Hope recognizes only a strictly parsed Pet CLI argv, rejects shell operators and expansions, and routes it to the owning Hope binary on the host after normal exec approval. This sealed control-plane handoff also works when the conversation's shell commands are sandboxed; it never copies the platform binary or Owner Token into the container. Do not prepend a discovered executable path, add custom environment variables, request PTY/background mode, or wrap the command in another shell.
 
+Local `--source` paths must already exist in the durable conversation workspace (for example, as an attachment or a file materialized by a trusted connector). Files created only inside an `isolated` exec command are discarded and cannot cross into the sealed host handoff; if Hope reports `pet_cli_local_source_unavailable_to_host`, materialize the package durably or use a direct HTTPS artifact URL. Never claim that an isolated-only file was imported.
+
 Before inspecting or downloading the source, run:
 
 ```text

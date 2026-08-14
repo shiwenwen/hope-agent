@@ -136,8 +136,16 @@ pub async fn run(args: &[String]) -> Result<()> {
 }
 
 async fn activate(options: ActivateOptions) -> Result<()> {
-    let bind_addr = ha_core::config::cached_config().server.bind_addr.clone();
-    let endpoint = desktop_pet_activate_url(&bind_addr)?;
+    let configured_bind_addr = ha_core::config::cached_config().server.bind_addr.clone();
+    let live_bind_addr = match std::env::var(ha_core::server_status::PET_CLI_LIVE_SERVER_ADDR_ENV) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            anyhow::bail!("pet_cli_desktop_live_bind_invalid")
+        }
+    };
+    let endpoint =
+        desktop_pet_activate_endpoint(live_bind_addr.as_deref(), configured_bind_addr.as_str())?;
     let token = ha_core::blocking::run_blocking(ha_core::server_auth::load_managed_token).await?;
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -178,6 +186,13 @@ async fn activate(options: ActivateOptions) -> Result<()> {
         println!("Activated: {}", output.pet_ref.0);
     }
     Ok(())
+}
+
+fn desktop_pet_activate_endpoint(
+    live_bind_addr: Option<&str>,
+    configured_bind_addr: &str,
+) -> Result<url::Url> {
+    desktop_pet_activate_url(live_bind_addr.unwrap_or(configured_bind_addr))
 }
 
 fn desktop_pet_activate_url(bind_addr: &str) -> Result<url::Url> {
@@ -663,5 +678,15 @@ mod tests {
             "http://localhost:8420/api/pets/activate"
         );
         assert!(desktop_pet_activate_url("192.0.2.10:8420").is_err());
+    }
+
+    #[test]
+    fn desktop_activate_endpoint_prefers_the_live_listener() {
+        assert_eq!(
+            desktop_pet_activate_endpoint(Some("127.0.0.1:49152"), "127.0.0.1:8420")
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:49152/api/pets/activate"
+        );
     }
 }
