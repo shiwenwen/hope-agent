@@ -53,7 +53,7 @@ pub async fn update_job(
     Ok(Json(json!({ "updated": true })))
 }
 
-/// `DELETE /api/cron/jobs/{id}`
+/// `DELETE /api/cron/jobs/{id}` — logical delete; history/chats are retained.
 pub async fn delete_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let (cdb, sdb) = (db()?, session_db()?);
     run_blocking(move || ha_cron::cron::delete_job_and_legacy_sessions(cdb, sdb, &id)).await?;
@@ -142,8 +142,8 @@ pub struct TimelineQuery {
     pub offset: Option<usize>,
 }
 
-/// `GET /api/cron/timeline?limit=&offset=` — cross-job run timeline for the cron
-/// panel's "conversations" view.
+/// `GET /api/cron/timeline?limit=&offset=` — cross-job run timeline, including
+/// retained rows from logically deleted tasks (`jobDeleted=true`).
 pub async fn run_timeline(
     Query(q): Query<TimelineQuery>,
 ) -> Result<Json<Vec<cron::CronTimelineRow>>, AppError> {

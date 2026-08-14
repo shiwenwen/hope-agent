@@ -540,6 +540,7 @@
       "noMatches": "No matching quick prompts"
     },
     "cronTaskStarted": "A scheduled task was triggered",
+    "scheduledOrigin": "Scheduled task: {{name}}",
     "cronTrigger": "Scheduled Task",
     "loopTriggered": "Triggered one loop step",
     "loopTrigger": "Loop",
@@ -1460,7 +1461,7 @@
     "cronHelp": "Format: sec min hour day month weekday (e.g. 0 0 9 * * 1-5 = weekdays 9am)",
     "dateTime": "Date & Time",
     "daySuffix": "",
-    "deleteConfirmDesc": "This will permanently remove the scheduled task and its run history.",
+    "deleteConfirmDesc": "Deleting only stops future scheduling. Run history, conversations, and worktrees will be retained.",
     "deleteConfirmTitle": "Delete \"{{name}}\"?",
     "deleteFailed": "Failed to delete \"{{name}}\"",
     "deleteSuccess": "Deleted \"{{name}}\"",

@@ -57,6 +57,8 @@ export interface UseChatStreamReattachDeps {
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
   reloadSessions: () => Promise<void>
+  /** The caller already loaded the initial DB window into both state and cache. */
+  messagesPreloaded?: boolean
   onTurnStarted?: (sessionId: string, turnId: string) => void
   onTurnEnded?: (
     sessionId: string,
@@ -149,6 +151,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     setLoadingSessionIds,
     sessionCacheRef,
     reloadSessions,
+    messagesPreloaded = false,
     onTurnStarted,
     onTurnEnded,
   } = deps
@@ -251,12 +254,14 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       getTransport().call<SessionStreamSnapshot | null>("get_session_stream_snapshot", {
         sessionId: sid,
       }),
-      reloadAndMergeSessionMessages({
-        sessionId: sid,
-        pageSize: PAGE_SIZE,
-        sessionCacheRef: stagedSessionCacheRef,
-        setMessages: stageMessages,
-      }),
+      messagesPreloaded
+        ? Promise.resolve()
+        : reloadAndMergeSessionMessages({
+            sessionId: sid,
+            pageSize: PAGE_SIZE,
+            sessionCacheRef: stagedSessionCacheRef,
+            setMessages: stageMessages,
+          }),
     ])
       .then(([state, snapshot]) => {
         if (cancelled || handshake.ended) return

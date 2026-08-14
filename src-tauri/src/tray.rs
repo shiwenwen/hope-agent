@@ -830,6 +830,7 @@ mod tests {
             updated_at: "2026-05-01T00:00:00Z".to_string(),
             pinned_at: None,
             archived_at: None,
+            origin: None,
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,

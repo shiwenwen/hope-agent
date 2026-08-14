@@ -540,6 +540,7 @@
       "noMatches": "沒有符合的快捷輸入"
     },
     "cronTaskStarted": "定時器觸發了一個任務",
+    "scheduledOrigin": "定時任務：{{name}}",
     "cronTrigger": "定時任務",
     "loopTriggered": "已觸發一次推進",
     "loopTrigger": "持續推進",
@@ -1460,7 +1461,7 @@
     "cronHelp": "格式：秒、分、時、日、月、週（例如 0 0 9 * * 1-5 = 工作日上午 9 點）",
     "dateTime": "日期和時間",
     "daySuffix": "日",
-    "deleteConfirmDesc": "這會永久刪除此定時任務及其執行記錄。",
+    "deleteConfirmDesc": "刪除後只會停止未來排程；執行歷史、對話與工作樹都會保留。",
     "deleteConfirmTitle": "刪除「{{name}}」？",
     "deleteFailed": "刪除「{{name}}」失敗",
     "deleteSuccess": "已刪除「{{name}}」",

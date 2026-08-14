@@ -540,6 +540,7 @@
       "noMatches": "Tiada input pantas yang sepadan"
     },
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
+    "scheduledOrigin": "Tugasan berjadual: {{name}}",
     "cronTrigger": "Tugasan berjadual",
     "loopTriggered": "Satu langkah gelung dicetuskan",
     "loopTrigger": "Gelung",
@@ -1460,7 +1461,7 @@
     "cronHelp": "Format: saat min jam hari bulan harimingguan (cth. 0 0 9 * * 1-5 = hari kerja 9 pagi)",
     "dateTime": "Tarikh & masa",
     "daySuffix": "",
-    "deleteConfirmDesc": "Ini akan memadamkan tugasan berjadual dan sejarah jalannya secara kekal.",
+    "deleteConfirmDesc": "Pemadaman hanya menghentikan jadual masa hadapan. Sejarah pelaksanaan, perbualan dan pepohon kerja akan dikekalkan.",
     "deleteConfirmTitle": "Padam \"{{name}}\"?",
     "deleteFailed": "Gagal memadam \"{{name}}\"",
     "deleteSuccess": "\"{{name}}\" dipadam",

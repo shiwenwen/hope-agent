@@ -428,7 +428,8 @@ fn session_meta_select() -> String {
            EXISTS(
              SELECT 1 FROM session_autonomy_pauses sap
               WHERE sap.session_id = s.id AND sap.resumed_at IS NULL
-           ) as autonomy_paused
+           ) as autonomy_paused,
+           s.origin_json
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id"
     )
@@ -513,6 +514,7 @@ impl SessionDB {
                 title_source TEXT NOT NULL DEFAULT 'manual',
                 pinned_at TEXT,
                 archived_at TEXT,
+                origin_json TEXT,
                 kind TEXT NOT NULL DEFAULT 'regular',
                 execution_mode TEXT NOT NULL DEFAULT 'off',
                 workflow_mode TEXT NOT NULL DEFAULT 'off',
@@ -1069,6 +1071,13 @@ impl SessionDB {
                ON sessions(archived_at DESC)
              WHERE archived_at IS NOT NULL;",
         )?;
+
+        let has_origin_json = conn
+            .prepare("SELECT origin_json FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_origin_json {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN origin_json TEXT;")?;
+        }
 
         Self::ensure_model_usage_table(&conn)?;
         const SCHEMA_FLAG_MODEL_USAGE_BACKFILLED: i64 = 0x4;
@@ -2255,6 +2264,20 @@ impl SessionDB {
         self.create_session_full(agent_id, None, project_id, incognito)
     }
 
+    /// Create an ordinary conversation with display-only producer provenance.
+    /// The origin is persisted in the same INSERT as the session row.
+    pub fn create_session_with_project_and_origin(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        incognito: Option<bool>,
+        origin: &crate::session::SessionOrigin,
+    ) -> Result<SessionMeta> {
+        crate::memory_extract::flush_all_idle_extractions();
+        let incognito = incognito.unwrap_or(false) && project_id.is_none();
+        self.create_session_full_with_origin(agent_id, None, project_id, incognito, Some(origin))
+    }
+
     /// Fully-parameterized session creator. Private helper called by the other
     /// `create_session*` variants so the INSERT statement exists in exactly one
     /// place.
@@ -2265,8 +2288,26 @@ impl SessionDB {
         project_id: Option<&str>,
         incognito: bool,
     ) -> Result<SessionMeta> {
+        self.create_session_full_with_origin(
+            agent_id,
+            parent_session_id,
+            project_id,
+            incognito,
+            None,
+        )
+    }
+
+    fn create_session_full_with_origin(
+        &self,
+        agent_id: &str,
+        parent_session_id: Option<&str>,
+        project_id: Option<&str>,
+        incognito: bool,
+        origin: Option<&crate::session::SessionOrigin>,
+    ) -> Result<SessionMeta> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
+        let origin_json = origin.map(serde_json::to_string).transpose()?;
 
         // New sessions inherit the agent's configured default permission mode
         // (`capabilities.default_session_permission_mode`). This is the single
@@ -2311,8 +2352,8 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO sessions (id, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito, origin_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 id,
                 agent_id,
@@ -2327,7 +2368,8 @@ impl SessionDB {
                 project_id,
                 initial_permission_mode.as_str(),
                 initial_sandbox_mode.as_str(),
-                incognito
+                incognito,
+                origin_json,
             ],
         )?;
 
@@ -2348,6 +2390,7 @@ impl SessionDB {
             updated_at: now,
             pinned_at: None,
             archived_at: None,
+            origin: origin.cloned(),
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,
@@ -4013,6 +4056,11 @@ impl SessionDB {
             runtime_defaults_initialized: row.get::<_, i64>(30).unwrap_or(0) != 0,
             pinned_at: row.get(25).ok().flatten(),
             archived_at: row.get(36).ok().flatten(),
+            origin: row
+                .get::<_, Option<String>>(38)
+                .ok()
+                .flatten()
+                .and_then(|raw| serde_json::from_str(&raw).ok()),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
             message_count: row.get(8)?,

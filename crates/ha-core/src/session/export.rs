@@ -428,6 +428,7 @@ mod tests {
             updated_at: "2026-05-10T10:30:00Z".into(),
             pinned_at: None,
             archived_at: None,
+            origin: None,
             message_count: 4,
             unread_count: 0,
             channel_unread_count: 0,

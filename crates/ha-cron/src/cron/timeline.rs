@@ -112,43 +112,15 @@ pub fn delete_conversation_and_run_logs(
     session_db.delete_session(session_id)
 }
 
-/// Delete a cron job while retaining its ordinary run conversations. Sessions
-/// carrying the legacy `is_cron` marker remain hidden and would become
-/// unreachable after the run-log cascade, so only those old shells are purged.
-/// Session inspection/deletion is best-effort so it cannot block task removal.
+/// Logically delete a cron job while retaining its run logs and every linked
+/// conversation, including legacy hidden Cron sessions. Historical readers can
+/// therefore keep navigating completed and cancelled runs after task removal.
 pub fn delete_job_and_legacy_sessions(
     cron_db: &Arc<CronDB>,
-    session_db: &Arc<SessionDB>,
+    _session_db: &Arc<SessionDB>,
     id: &str,
 ) -> anyhow::Result<()> {
-    let session_ids = cron_db.session_ids_for_job(id).unwrap_or_default();
-    cron_db.delete_job(id)?;
-    for sid in session_ids {
-        match session_db.get_session(&sid) {
-            Ok(Some(meta)) if meta.is_cron => {
-                if let Err(e) = session_db.delete_session(&sid) {
-                    app_warn!(
-                        "cron",
-                        "delete",
-                        "failed to delete legacy cron session {} of job {}: {:#}",
-                        sid,
-                        id,
-                        e
-                    );
-                }
-            }
-            Ok(_) => {}
-            Err(e) => app_warn!(
-                "cron",
-                "delete",
-                "failed to inspect run session {} of job {}; preserving it: {:#}",
-                sid,
-                id,
-                e
-            ),
-        }
-    }
-    Ok(())
+    cron_db.delete_job(id)
 }
 
 #[cfg(test)]
@@ -243,6 +215,16 @@ mod tests {
         assert!(session_db
             .get_session(&legacy.id)
             .expect("load legacy")
-            .is_none());
+            .is_some());
+        assert_eq!(
+            cron_db
+                .get_run_logs(&job.id, 10, 0)
+                .expect("retained run logs")
+                .len(),
+            2
+        );
+        let timeline = cron_db.list_run_timeline(10, 0).expect("timeline");
+        assert_eq!(timeline.len(), 2);
+        assert!(timeline.iter().all(|row| row.job_deleted));
     }
 }

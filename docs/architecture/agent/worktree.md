@@ -95,10 +95,14 @@ flowchart TB
 | 字段 | 说明 |
 | --- | --- |
 | `id` | `wt_*` 主键。 |
-| `session_id` | 拥有者会话（外键，会话删除时级联删除）。 |
+| `session_id` | 创建会话的不可变审计值；不再承担所有权 FK。 |
 | `child_session_id` | 可选；subagent 的 child session（外键，会话删除时置空）。 |
 | `workflow_run_id` | 可选；Workflow 反向索引。`create_workflow_run(worktreeId)` 在该字段为空时回填，已绑定则不覆盖。 |
-| `purpose` | `manual` / `workflow` / `subagent`。 |
+| `owner_session_id` / `owner_scheduled_task_id` | 二选一的 durable owner。普通、Workflow、Subagent 与每次独立 Scheduled Run 仍随 owner session 删除；任务专属 Worktree 不因创建它的 run chat 删除而丢台账。 |
+| `scheduled_task_id` | Scheduled 来源；`scheduled_run` 在 handoff 后仍保留来源。 |
+| `runtime_session_id` / `runtime_run_id` | 任务专属 Worktree 当前精确 occurrence 的临时执行绑定。 |
+| `handoff_session_id` | 用户接管任务专属 Worktree 的普通聊天；存在时新 scheduled runtime fail closed。 |
+| `purpose` | `manual` / `workflow` / `subagent` / `scheduled_run` / `scheduled_task`。后两种只许 scheduler 的 typed kernel API 创建，通用 Tauri/HTTP create 拒绝伪造。 |
 | `state` | `active` / `archived` / `handoff` / `bootstrap_failed`。 |
 | `label` | 展示标签，不作为身份。 |
 | `repo_root` | 源仓库 canonical 根目录。 |
@@ -141,6 +145,12 @@ stateDiagram-v2
 ```
 
 每次状态变化都通过 EventBus 广播一个事件，GUI 据此实时刷新：`worktree:created` / `worktree:updated`（回填 workflow 反向索引时）/ `worktree:archived` / `worktree:restored` / `worktree:handoff`。
+
+Scheduled Worktree 不另建生命周期状态机：Fresh 仍是 session owner；Persistent
+只用 `runtime_*` 与 `handoff_session_id` 的 typed CAS 表达临时运行和人工保管。
+acquire 同事务绑定 run session cwd，release 仅在未接管时清 cwd；takeover 只允许
+空闲 Worktree 或当前精确 runtime session，return/discard 拒绝 live runtime。
+任务暂停/恢复与 run log 仍由 CronDB 负责，SessionDB 不跨库补偿或重放。
 
 ### 创建：两阶段夹一个 Hook 边界
 

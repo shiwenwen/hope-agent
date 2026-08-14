@@ -540,6 +540,7 @@
       "noMatches": "Nenhuma instrução rápida correspondente"
     },
     "cronTaskStarted": "Uma tarefa agendada foi acionada",
+    "scheduledOrigin": "Tarefa agendada: {{name}}",
     "cronTrigger": "Tarefa agendada",
     "loopTriggered": "Uma etapa do loop foi acionada",
     "loopTrigger": "Laço",
@@ -1460,7 +1461,7 @@
     "cronHelp": "Formato: seg min hora dia mês dia_semana (ex.: 0 0 9 * * 1-5 = seg–sex 9h)",
     "dateTime": "Data e hora",
     "daySuffix": "",
-    "deleteConfirmDesc": "Isso removerá permanentemente a tarefa agendada e o histórico de execuções.",
+    "deleteConfirmDesc": "A exclusão interrompe apenas os agendamentos futuros. O histórico de execuções, as conversas e as árvores de trabalho serão preservados.",
     "deleteConfirmTitle": "Excluir \"{{name}}\"?",
     "deleteFailed": "Falha ao excluir \"{{name}}\"",
     "deleteSuccess": "\"{{name}}\" excluída",

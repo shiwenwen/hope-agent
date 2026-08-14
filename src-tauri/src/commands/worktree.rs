@@ -1,11 +1,17 @@
 use crate::commands::CmdError;
 use ha_core::worktree::{CreateManagedWorktreeInput, ManagedWorktree, ManagedWorktreePurpose};
 
-fn parse_purpose(purpose: Option<String>) -> ManagedWorktreePurpose {
-    purpose
+fn parse_purpose(purpose: Option<String>) -> Result<ManagedWorktreePurpose, CmdError> {
+    let purpose = purpose
         .as_deref()
         .map(ManagedWorktreePurpose::from_str)
-        .unwrap_or(ManagedWorktreePurpose::Manual)
+        .unwrap_or(ManagedWorktreePurpose::Manual);
+    if !purpose.is_owner_transport_safe() {
+        return Err(CmdError::msg(
+            "scheduled worktree purposes are internal to the scheduler",
+        ));
+    }
+    Ok(purpose)
 }
 
 #[tauri::command]
@@ -37,7 +43,7 @@ pub async fn create_managed_worktree(
             session_id,
             source_working_dir,
             label,
-            purpose: parse_purpose(purpose),
+            purpose: parse_purpose(purpose)?,
             workflow_run_id,
             child_session_id,
             base_ref,

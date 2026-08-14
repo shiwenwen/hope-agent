@@ -41,6 +41,7 @@ import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/Con
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
 import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
+import { subscribeCronTaskFocus } from "@/components/cron/cronNavigation"
 import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import {
   clearMemoryFocusUrl,
@@ -151,6 +152,11 @@ interface PendingProjectFocus {
   nonce: number
 }
 
+interface PendingCronTaskFocus {
+  jobId: string
+  nonce: number
+}
+
 type PendingKnowledgePetFocus = {
   target: Extract<PetNavigationTarget, { kind: "knowledge" }>
   nonce: number
@@ -199,6 +205,8 @@ export default function App() {
     { sessionId: string; message: string; nonce: number } | undefined
   >(undefined)
   const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
+  const [pendingCronTaskFocus, setPendingCronTaskFocus] =
+    useState<PendingCronTaskFocus | null>(null)
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [pendingKnowledgePetFocus, setPendingKnowledgePetFocus] =
     useState<PendingKnowledgePetFocus | null>(null)
@@ -236,6 +244,7 @@ export default function App() {
 
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
   const chatFocusNonceRef = useRef(0)
+  const cronTaskFocusNonceRef = useRef(0)
   const projectFocusNonceRef = useRef(0)
   const petFocusNonceRef = useRef(0)
   const knowledgeFocusNonceRef = useRef(0)
@@ -582,6 +591,17 @@ export default function App() {
   )
 
   useEffect(() => subscribeChatFocus(handleChatFocus), [handleChatFocus])
+
+  useEffect(
+    () =>
+      subscribeCronTaskFocus((jobId) => {
+        if (keepConfigRecoveryView()) return
+        const nonce = ++cronTaskFocusNonceRef.current
+        setPendingCronTaskFocus({ jobId, nonce })
+        setView("calendar")
+      }),
+    [keepConfigRecoveryView],
+  )
 
   useEffect(() => {
     if (!isTauriMode()) return
@@ -1236,6 +1256,7 @@ export default function App() {
                     <CronCalendarView
                       isViewVisible={view === "calendar"}
                       defaultProjectId={currentChatProjectId}
+                      taskFocus={pendingCronTaskFocus}
                       onOpenSettings={handleOpenSettings}
                     />
                   </Suspense>

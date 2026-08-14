@@ -540,6 +540,7 @@
       "noMatches": "Eşleşen hızlı girdi yok"
     },
     "cronTaskStarted": "Zamanlanmış bir görev tetiklendi",
+    "scheduledOrigin": "Zamanlanmış görev: {{name}}",
     "cronTrigger": "Zamanlanmış görev",
     "loopTriggered": "Bir döngü adımı tetiklendi",
     "loopTrigger": "Döngü",
@@ -1460,7 +1461,7 @@
     "cronHelp": "Format: sn dk sa gün ay haftagünü (örn. 0 0 9 * * 1-5 = haftaiçi 09:00)",
     "dateTime": "Tarih ve saat",
     "daySuffix": "",
-    "deleteConfirmDesc": "Bu işlem zamanlanmış görevi ve çalıştırma geçmişini kalıcı olarak siler.",
+    "deleteConfirmDesc": "Silme işlemi yalnızca gelecekteki zamanlamayı durdurur. Çalıştırma geçmişi, konuşmalar ve çalışma ağaçları korunur.",
     "deleteConfirmTitle": "\"{{name}}\" silinsin mi?",
     "deleteFailed": "\"{{name}}\" silinemedi",
     "deleteSuccess": "\"{{name}}\" silindi",

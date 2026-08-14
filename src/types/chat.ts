@@ -341,6 +341,8 @@ export interface Message {
   isMeta?: boolean
   /** The cron job name that triggered this message */
   cronJobName?: string
+  /** The scheduled task that triggered this message. */
+  cronJobId?: string
   /** If set, this user message came from an IM channel */
   channelInbound?: {
     channelId: string
@@ -534,6 +536,12 @@ export type SessionMode = "default" | "smart" | "yolo"
  */
 export type SandboxMode = "off" | "standard" | "isolated" | "workspace" | "trusted"
 
+export interface SessionOrigin {
+  kind: string
+  id: string
+  label: string
+}
+
 export interface SessionMeta {
   id: string
   /** A durable Stop receipt fences autonomous work until explicit Continue. */
@@ -553,6 +561,8 @@ export interface SessionMeta {
   pinnedAt?: string | null
   /** Retained but hidden from active chat surfaces until restored. */
   archivedAt?: string | null
+  /** Display-only producer provenance; never an execution or permission input. */
+  origin?: SessionOrigin | null
   messageCount: number
   /** Regular-conversation unread flag encoded as 0 or 1. */
   unreadCount: number

@@ -540,6 +540,7 @@
       "noMatches": "No hay instrucciones rápidas coincidentes"
     },
     "cronTaskStarted": "Se ha activado una tarea programada",
+    "scheduledOrigin": "Tarea programada: {{name}}",
     "cronTrigger": "Tarea programada",
     "loopTriggered": "Se activó un paso del bucle",
     "loopTrigger": "Bucle",
@@ -1460,7 +1461,7 @@
     "cronHelp": "Formato: seg min hora día mes día_semana (p. ej. 0 0 9 * * 1-5 = lun–vie 9:00)",
     "dateTime": "Fecha y hora",
     "daySuffix": "",
-    "deleteConfirmDesc": "Esto eliminará permanentemente la tarea programada y su historial de ejecuciones.",
+    "deleteConfirmDesc": "Al eliminarla solo se detendrán las ejecuciones programadas futuras. Se conservarán el historial de ejecuciones, las conversaciones y los árboles de trabajo.",
     "deleteConfirmTitle": "¿Eliminar \"{{name}}\"?",
     "deleteFailed": "No se pudo eliminar \"{{name}}\"",
     "deleteSuccess": "Se eliminó \"{{name}}\"",

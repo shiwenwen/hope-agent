@@ -300,39 +300,48 @@ pub(crate) async fn execute_claimed_job(
     // Each standalone scheduled run starts an ordinary conversation. The
     // scheduling relationship lives in `cron_run_logs.session_id`; the Session
     // itself must stay fully interactive after this first background turn.
-    let session_id =
-        match session_db.create_session_with_project(&agent_id, project_id.as_deref(), None) {
-            Ok(meta) => {
-                let _ = session_db.update_session_title(&meta.id, &job.name);
-                // Per-job permission/sandbox overrides are applied below, after the
-                // run log is open, so a failed *sandbox* write (which would leave the
-                // run unconfined) can fail-closed with a proper run-log entry.
-                meta.id
-            }
-            Err(e) => {
-                app_error!(
-                    "cron",
-                    "executor",
-                    "Failed to create session for job '{}': {}",
-                    job.name,
-                    e
-                );
-                record_failure(
-                    cron_db,
-                    &job,
-                    &started_at,
-                    start_time,
-                    "no_session",
-                    &e.to_string(),
-                    "",
-                    None,
-                    None,
-                    false, // infra failure — the turn never ran; don't auto-disable
-                    immediate,
-                );
-                return;
-            }
-        };
+    let origin = ha_core::session::SessionOrigin {
+        kind: "cron".to_string(),
+        id: job.id.clone(),
+        label: job.name.clone(),
+    };
+    let session_id = match session_db.create_session_with_project_and_origin(
+        &agent_id,
+        project_id.as_deref(),
+        None,
+        &origin,
+    ) {
+        Ok(meta) => {
+            let _ = session_db.update_session_title(&meta.id, &job.name);
+            // Per-job permission/sandbox overrides are applied below, after the
+            // run log is open, so a failed *sandbox* write (which would leave the
+            // run unconfined) can fail-closed with a proper run-log entry.
+            meta.id
+        }
+        Err(e) => {
+            app_error!(
+                "cron",
+                "executor",
+                "Failed to create session for job '{}': {}",
+                job.name,
+                e
+            );
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                "no_session",
+                &e.to_string(),
+                "",
+                None,
+                None,
+                false, // infra failure — the turn never ran; don't auto-disable
+                immediate,
+            );
+            return;
+        }
+    };
 
     // Register the exact ordinary ChatTurn before the run log makes this
     // Session navigable from Scheduled. This prevents a user who opens the run
@@ -1997,6 +2006,32 @@ fn record_cancelled(
 }
 
 /// Emit an event to notify the frontend of a cron run result.
+fn job_is_live_for_notification(job_id: &str) -> bool {
+    let Some(cron_db) = ha_core::globals::get_cron_db() else {
+        app_warn!(
+            "cron",
+            "notification",
+            "suppressing notification for job '{}' because cron DB is unavailable",
+            job_id
+        );
+        return false;
+    };
+    match cron_db.get_job(job_id) {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(e) => {
+            app_warn!(
+                "cron",
+                "notification",
+                "suppressing notification for job '{}' after live-state check failed: {:#}",
+                job_id,
+                e
+            );
+            false
+        }
+    }
+}
+
 pub(crate) fn emit_cron_event(
     job_id: &str,
     job_name: &str,
@@ -2007,6 +2042,11 @@ pub(crate) fn emit_cron_event(
     // — not just the job name. `None` for success / cancelled / empty.
     failure_reason: Option<&str>,
 ) {
+    // Task deletion suppresses the user-facing notification, not the durable
+    // UI invalidation. Scheduled history may already be open while the exact
+    // in-flight run converges to terminal, and still needs this event to reload
+    // the retained run log.
+    let notify = notify && job_is_live_for_notification(job_id);
     if let Some(bus) = ha_core::get_event_bus() {
         let payload = serde_json::json!({
             "job_id": job_id,
@@ -2030,12 +2070,15 @@ pub(crate) fn emit_cron_disabled_event(
     consecutive_failures: u32,
     reason_key: &str,
 ) {
+    // As above, always invalidate history. A deleted/unreadable task must not
+    // surface the otherwise-forced auto-disabled desktop notification.
+    let notify = job_is_live_for_notification(job_id);
     if let Some(bus) = ha_core::get_event_bus() {
         let payload = serde_json::json!({
             "job_id": job_id,
             "job_name": job_name,
             "status": "error",
-            "notify": true,
+            "notify": notify,
             "auto_disabled": true,
             "consecutive_failures": consecutive_failures,
             "failure_reason": reason_key,

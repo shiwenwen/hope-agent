@@ -273,10 +273,18 @@ export default function SessionItem({
               {isCompact && isLoading && (
                 <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
               )}
-              {session.isCron && (
-                <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-orange-500/15 text-orange-500">
-                  <Timer className="w-2.5 h-2.5" />
-                </span>
+              {(session.isCron || session.origin?.kind === "cron") && (
+                <IconTip
+                  label={
+                    session.origin
+                      ? t("chat.scheduledOrigin", { name: session.origin.label })
+                      : t("chat.cronTrigger")
+                  }
+                >
+                  <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-orange-500/15 text-orange-500">
+                    <Timer className="w-2.5 h-2.5" />
+                  </span>
+                </IconTip>
               )}
               {showSubagentBadge &&
                 session.parentSessionId &&

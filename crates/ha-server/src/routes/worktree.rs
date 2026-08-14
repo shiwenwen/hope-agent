@@ -31,16 +31,22 @@ pub async fn create_managed_worktree(
     Json(body): Json<CreateManagedWorktreeBody>,
 ) -> Result<Json<ha_core::worktree::ManagedWorktree>, AppError> {
     let db = session_db()?;
+    let purpose = body
+        .purpose
+        .as_deref()
+        .map(ha_core::worktree::ManagedWorktreePurpose::from_str)
+        .unwrap_or(ha_core::worktree::ManagedWorktreePurpose::Manual);
+    if !purpose.is_owner_transport_safe() {
+        return Err(AppError::bad_request(
+            "scheduled worktree purposes are internal to the scheduler",
+        ));
+    }
     let worktree = db
         .create_managed_worktree(ha_core::worktree::CreateManagedWorktreeInput {
             session_id,
             source_working_dir: body.source_working_dir,
             label: body.label,
-            purpose: body
-                .purpose
-                .as_deref()
-                .map(ha_core::worktree::ManagedWorktreePurpose::from_str)
-                .unwrap_or(ha_core::worktree::ManagedWorktreePurpose::Manual),
+            purpose,
             workflow_run_id: body.workflow_run_id,
             child_session_id: body.child_session_id,
             base_ref: body.base_ref,

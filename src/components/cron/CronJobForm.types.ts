@@ -94,6 +94,8 @@ export interface CronTimelineRow {
   sessionId: string
   jobId: string
   jobName: string
+  /** The task was deleted, while this historical run remains available. */
+  jobDeleted?: boolean
   /** Structured discriminator from the owning job; absent only for orphaned legacy rows. */
   payloadType?: CronPayloadType | null
   status: string

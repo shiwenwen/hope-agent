@@ -1,10 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2 } from "lucide-react"
+import { ArrowUpRight, Loader2 } from "lucide-react"
 import MessageList from "@/components/chat/MessageList"
 import { parseSessionMessages } from "@/components/chat/chatUtils"
+import { useChatStreamReattach } from "@/components/chat/hooks/useChatStreamReattach"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { IconTip } from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button"
+import { requestChatFocus } from "@/components/chat/chatFocus"
 import type { Message, SessionMessage, AgentSummaryForSidebar } from "@/types/chat"
 
 const PAGE_SIZE = 50
@@ -14,6 +26,60 @@ interface CronSessionViewerProps {
   agents: AgentSummaryForSidebar[]
   /** Fires only after the transcript request succeeds (an empty transcript still counts). */
   onLoaded?: (sessionId: string) => void
+}
+
+interface CronSessionLiveReattachProps {
+  sessionId: string
+  setMessages: Dispatch<SetStateAction<Message[]>>
+  setStreamLoading: Dispatch<SetStateAction<boolean>>
+  sessionCacheRef: MutableRefObject<Map<string, Message[]>>
+  messagesPreloaded: boolean
+}
+
+/** Mounted only after the viewer's one initial transcript read has settled. */
+function CronSessionLiveReattach({
+  sessionId,
+  setMessages,
+  setStreamLoading,
+  sessionCacheRef,
+  messagesPreloaded,
+}: CronSessionLiveReattachProps) {
+  const currentSessionIdRef = useRef<string | null>(sessionId)
+  const lastSeqRef = useRef(new Map<string, number>())
+  const endedStreamIdsRef = useRef(new Map<string, Set<string>>())
+  const loadingSessionsRef = useRef(new Set<string>())
+  const [, setLoadingSessionIds] = useState<Set<string>>(new Set())
+  const [, setShowCodexAuthExpired] = useState(false)
+
+  const updateSessionMessages = useCallback(
+    (sid: string, updater: (prev: Message[]) => Message[]) => {
+      if (sid !== sessionId) return
+      setMessages((prev) => {
+        const next = updater(prev)
+        sessionCacheRef.current.set(sid, next)
+        return next
+      })
+    },
+    [sessionCacheRef, sessionId, setMessages],
+  )
+  const reloadSessions = useCallback(async () => {}, [])
+
+  useChatStreamReattach({
+    currentSessionId: sessionId,
+    currentSessionIdRef,
+    lastSeqRef,
+    endedStreamIdsRef,
+    updateSessionMessages,
+    setShowCodexAuthExpired,
+    setMessages,
+    setLoading: setStreamLoading,
+    loadingSessionsRef,
+    setLoadingSessionIds,
+    sessionCacheRef,
+    reloadSessions,
+    messagesPreloaded,
+  })
+  return null
 }
 
 /**
@@ -30,11 +96,16 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
   const [messages, setMessages] = useState<Message[]>([])
   // Mounted with key={sessionId} by both call sites, so each session starts
   // fresh — loading begins true and no synchronous reset is needed in the effect.
-  const [loading, setLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [initialLoadSucceeded, setInitialLoadSucceeded] = useState(false)
+  const [streamLoading, setStreamLoading] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   // DB id of the oldest message currently loaded; the cursor for "load earlier".
   const oldestDbId = useRef<number | null>(null)
+  const sessionCacheRef = useRef(new Map<string, Message[]>())
+  const onLoadedRef = useRef(onLoaded)
+  onLoadedRef.current = onLoaded
 
   useEffect(() => {
     let cancelled = false
@@ -45,23 +116,25 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
       })
       .then(([rawMsgs, , hasMoreBefore]) => {
         if (cancelled) return
-        setMessages(parseSessionMessages(rawMsgs))
+        const persisted = parseSessionMessages(rawMsgs)
+        sessionCacheRef.current.set(sessionId, persisted)
+        setMessages(persisted)
+        setInitialLoadSucceeded(true)
         oldestDbId.current = rawMsgs.length > 0 ? rawMsgs[0].id : null
         setHasMore(!!hasMoreBefore)
-        onLoaded?.(sessionId)
+        onLoadedRef.current?.(sessionId)
       })
       .catch((e) => {
         if (cancelled) return
         logger.error("cron", "CronSessionViewer::load", "Failed to load cron session messages", e)
-        setMessages([])
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setHistoryLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [onLoaded, sessionId])
+  }, [sessionId])
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMore || !hasMore || oldestDbId.current === null) return
@@ -77,7 +150,22 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
       }
       oldestDbId.current = olderMsgs[0].id
       setHasMore(hasMoreBefore)
-      setMessages((prev) => [...parseSessionMessages(olderMsgs), ...prev])
+      const older = parseSessionMessages(olderMsgs)
+      setMessages((prev) => {
+        const existingIds = new Set(
+          prev.flatMap((message) =>
+            typeof message.dbId === "number" ? [message.dbId] : [],
+          ),
+        )
+        const next = [
+          ...older.filter(
+            (message) => typeof message.dbId !== "number" || !existingIds.has(message.dbId),
+          ),
+          ...prev,
+        ]
+        sessionCacheRef.current.set(sessionId, next)
+        return next
+      })
     } catch (e) {
       logger.error("cron", "CronSessionViewer::loadMore", "Failed to load older cron messages", e)
     } finally {
@@ -85,35 +173,54 @@ export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronS
     }
   }, [sessionId, hasMore, loadingMore])
 
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    )
-  }
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-        {t("cron.conversationEmpty")}
-      </div>
-    )
-  }
-
   return (
-    <div className="flex flex-1 min-h-0 flex-col pt-3">
-      <MessageList
-        messages={messages}
-        loading={false}
-        agents={agents}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
-        onLoadMore={handleLoadMore}
-        sessionId={sessionId}
-        heroComposer
-        bottomInset
-      />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {!historyLoading && (
+        <CronSessionLiveReattach
+          sessionId={sessionId}
+          setMessages={setMessages}
+          setStreamLoading={setStreamLoading}
+          sessionCacheRef={sessionCacheRef}
+          messagesPreloaded={initialLoadSucceeded}
+        />
+      )}
+      <div className="flex h-9 shrink-0 items-center justify-end border-b border-border-soft px-2">
+        <IconTip label={t("subagent.openSession")}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-muted-foreground"
+            onClick={() => requestChatFocus({ sessionId })}
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" />
+            {t("subagent.openSession")}
+          </Button>
+        </IconTip>
+      </div>
+      {historyLoading ? (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+      ) : messages.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+          {t("cron.conversationEmpty")}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col pt-3">
+          <MessageList
+            messages={messages}
+            loading={streamLoading}
+            agents={agents}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={handleLoadMore}
+            sessionId={sessionId}
+            heroComposer
+            bottomInset
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -1024,7 +1024,12 @@ export interface GitDirtySummary {
 }
 
 export type ManagedWorktreeState = "active" | "archived" | "handoff" | "bootstrap_failed";
-export type ManagedWorktreePurpose = "manual" | "workflow" | "subagent";
+export type ManagedWorktreePurpose =
+  | "manual"
+  | "workflow"
+  | "subagent"
+  | "scheduled_run"
+  | "scheduled_task";
 export type ManagedWorktreePathSource = "builtin" | "hook";
 
 export interface ManagedWorktreeDirtySnapshot {
@@ -1041,6 +1046,12 @@ export interface ManagedWorktree {
   sessionId: string;
   childSessionId?: string | null;
   workflowRunId?: string | null;
+  ownerSessionId?: string | null;
+  ownerScheduledTaskId?: string | null;
+  scheduledTaskId?: string | null;
+  runtimeSessionId?: string | null;
+  runtimeRunId?: string | null;
+  handoffSessionId?: string | null;
   purpose: ManagedWorktreePurpose;
   state: ManagedWorktreeState;
   label?: string | null;

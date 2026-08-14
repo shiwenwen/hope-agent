@@ -332,6 +332,11 @@ export default function CronConversationsPanel({
                         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
                           {isLoop && <CronLoopBadge />}
                           <span className="truncate">{title}</span>
+                          {row.jobDeleted && (
+                            <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-normal text-muted-foreground/70">
+                              {t("common.deleted")}
+                            </span>
+                          )}
                         </span>
                         {row.unreadCount > 0 && (
                           <>

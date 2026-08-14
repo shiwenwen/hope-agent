@@ -78,6 +78,8 @@ interface CronCalendarViewProps {
   /** 顶层侧边栏当前是否正在展示日历；隐藏时保留状态并暂停实时刷新。 */
   isViewVisible: boolean
   defaultProjectId?: string | null
+  /** Cross-surface request to open one scheduled task. */
+  taskFocus?: { jobId: string; nonce: number } | null
   /** Open the main Settings page deep-linked to a section (e.g. "cron"). */
   onOpenSettings?: (section: SettingsSection) => void
 }
@@ -85,6 +87,7 @@ interface CronCalendarViewProps {
 export default function CronCalendarView({
   isViewVisible,
   defaultProjectId,
+  taskFocus,
   onOpenSettings,
 }: CronCalendarViewProps) {
   const { t } = useTranslation()
@@ -158,12 +161,33 @@ export default function CronCalendarView({
       setJobs(result)
       setProjects(Array.isArray(projectList) ? projectList : [])
       setJobsLoaded(true)
+      return result
     } catch {
-      // ignore
+      return null
     } finally {
       setListLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    const jobId = taskFocus?.jobId
+    if (!isViewVisible || !jobId) return
+    let cancelled = false
+    void fetchJobs().then((latestJobs) => {
+      if (cancelled) return
+      if (latestJobs?.some((job) => job.id === jobId)) {
+        setDetailJobId(jobId)
+        return
+      }
+      // A retained conversation may outlive its deleted task. Never navigate
+      // to an unresolvable detail surface; keep run history reachable.
+      setDetailJobId(null)
+      setMode("conversations")
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [fetchJobs, isViewVisible, taskFocus])
 
   const refreshAll = useCallback(() => {
     fetchEvents()

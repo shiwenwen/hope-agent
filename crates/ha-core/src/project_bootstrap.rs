@@ -1396,10 +1396,10 @@ mod tests {
             let conn = db.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO managed_worktrees (
-                    id, session_id, purpose, state, repo_root,
+                    id, session_id, owner_session_id, purpose, state, repo_root,
                     source_working_dir, path, created_at, updated_at, path_source
                  ) VALUES (
-                    'worktree-cancelled', ?1, 'manual', 'active', ?2,
+                    'worktree-cancelled', ?1, ?1, 'manual', 'active', ?2,
                     ?2, ?3, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z', 'builtin'
                  )",
                 params![session.id, repo.to_string_lossy(), worktree_path_arg],

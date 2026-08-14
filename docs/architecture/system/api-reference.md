@@ -576,7 +576,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 | `get_project_bootstrap_run` | `GET /api/project-bootstrap/{requestId}` | ✅ |
 | `cancel_project_bootstrap` | `POST /api/project-bootstrap/{requestId}/cancel` | ✅ |
 
-Managed Worktree owner API 管理 session-scoped durable git worktree：`create_managed_worktree` 拒绝 incognito、默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 建 detached worktree（可由 `WorktreeCreate` hook 接管），`archive` 记 dirty snapshot 且 clean 才 best-effort remove，`restore` 重建已清理路径，`handoff` 只绑父 session cwd 不复制 Git 改动；`chat` / `POST /api/chat` 新项目草稿可带 `projectBootstrap`，配套查询 / 取消接口用于断线恢复。完整契约见 [Managed Worktree 控制平面](../agent/worktree.md)。
+Managed Worktree owner API 管理 durable git worktree：`create_managed_worktree` 拒绝 incognito，且只接受 `manual/workflow/subagent` purpose（Scheduled provenance 只由 kernel typed API 铸造）；默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 建 detached worktree（可由 `WorktreeCreate` hook 接管）。返回 DTO 可含 session/task owner、runtime 与 handoff 绑定；`archive` 记 dirty snapshot且 clean 才 best-effort remove，`restore` 重建已清理路径，`handoff` 只绑父 session cwd 不复制 Git 改动；`chat` / `POST /api/chat` 新项目草稿可带 `projectBootstrap`，配套查询 / 取消接口用于断线恢复。完整契约见 [Managed Worktree 控制平面](../agent/worktree.md)。
 
 `POST /api/chat` 的 `projectBootstrap` 可能执行本地分支切换或创建 Worktree，因此与 Git 写端点共用 `filesystem.allow_remote_writes` 默认关闭闸门，并在创建临时 Session 前返回 403；普通聊天以及 Bootstrap 状态查询/取消不受此闸门影响。
 
@@ -1233,12 +1233,12 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `cron_create_job` | `POST /api/cron/jobs` | ✅ |
 | `cron_update_job` | `PUT /api/cron/jobs/{id}` | ✅ |
 | `cron_toggle_job` | `POST /api/cron/jobs/{id}/toggle` | ✅ |
-| `cron_delete_job` | `DELETE /api/cron/jobs/{id}` | ✅ |
+| `cron_delete_job` | `DELETE /api/cron/jobs/{id}` | ✅（逻辑删除；保留运行历史与普通 / legacy Session） |
 | `cron_run_now` | `POST /api/cron/jobs/{id}/run` | ✅ |
 | `cron_jobs_referencing_account` | `GET /api/cron/jobs-referencing-account/{accountId}` | ✅ |
 | `cron_get_run_logs` | `GET /api/cron/jobs/{jobId}/logs` | ✅（按可见行分页，排除已归档运行对话） |
 | `cron_get_calendar_events` | `GET /api/cron/calendar` | ✅ |
-| `cron_run_timeline` | `GET /api/cron/timeline?limit=&offset=` | ✅ (跨 job 运行时间线，按可见行分页并排除已归档对话) |
+| `cron_run_timeline` | `GET /api/cron/timeline?limit=&offset=` | ✅（跨 job 运行时间线，含已删 Task 历史；`jobDeleted` 标记，按可见行分页并排除已归档对话） |
 | `cron_unread_total` | `GET /api/cron/unread` | ✅（未读 Cron 运行 session 数，侧边栏独立角标） |
 | `cron_mark_all_read` | `POST /api/cron/read-all` | ✅ (一键清除 cron 未读，emit `cron:unread_changed`) |
 

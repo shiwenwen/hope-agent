@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use cron::Schedule as CronExpression;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Mutex;
@@ -58,7 +58,8 @@ impl CronDB {
                 project_id TEXT,
                 job_timeout_secs INTEGER,
                 permission_mode_override TEXT,
-                sandbox_mode_override TEXT
+                sandbox_mode_override TEXT,
+                deleted_at TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
@@ -152,6 +153,15 @@ impl CronDB {
             .is_ok();
         if !has_sandbox_override {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN sandbox_mode_override TEXT;")?;
+        }
+
+        // Logical deletion keeps run history and its ordinary conversations
+        // reachable while removing the task from every live control surface.
+        let has_deleted_at: bool = conn
+            .prepare("SELECT deleted_at FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_deleted_at {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN deleted_at TEXT;")?;
         }
 
         // Migration: `running_owner` / `started_owner` — 启动清理据此识别遗留，
@@ -323,7 +333,8 @@ impl CronDB {
             Option<String>,
             String,
         ) = match conn.query_row(
-            "SELECT status, next_run_at, schedule_json FROM cron_jobs WHERE id=?1",
+            "SELECT status, next_run_at, schedule_json FROM cron_jobs
+             WHERE id=?1 AND deleted_at IS NULL",
             params![job.id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         ) {
@@ -357,7 +368,7 @@ impl CronDB {
 
         conn.execute(
             "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, updated_at=?11
-             WHERE id=?12",
+             WHERE id=?12 AND deleted_at IS NULL",
             params![
                 job.name,
                 job.description,
@@ -403,7 +414,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let json: String = match conn.query_row(
-            "SELECT delivery_targets_json FROM cron_jobs WHERE id=?1",
+            "SELECT delivery_targets_json FROM cron_jobs
+             WHERE id=?1 AND deleted_at IS NULL",
             params![job_id],
             |r| r.get::<_, String>(0),
         ) {
@@ -426,7 +438,8 @@ impl CronDB {
             let targets_json = serde_json::to_string(&targets)?;
             let now = Utc::now().to_rfc3339();
             conn.execute(
-                "UPDATE cron_jobs SET delivery_targets_json=?1, updated_at=?2 WHERE id=?3",
+                "UPDATE cron_jobs SET delivery_targets_json=?1, updated_at=?2
+                 WHERE id=?3 AND deleted_at IS NULL",
                 params![targets_json, now, job_id],
             )?;
         }
@@ -492,52 +505,43 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET project_id=NULL, updated_at=?1 WHERE id=?2",
+            "UPDATE cron_jobs SET project_id=NULL, updated_at=?1
+             WHERE id=?2 AND deleted_at IS NULL",
             params![now, id],
         )?;
         Ok(())
     }
 
-    /// Delete a job by ID.
+    /// Logically delete a job while retaining its run logs and conversations.
+    /// The running claim is read and tombstoned in one transaction, then its
+    /// exact run-keyed cancel flag is signalled after releasing the DB lock.
     pub fn delete_job(&self, id: &str) -> Result<()> {
-        // C15: if the job is mid-run, request cancellation first so the in-flight
-        // turn stops promptly (cron's `abort_on_cancel=false` → it returns `Ok("")`
-        // → classified Cancelled → no wasted completion, no IM delivery to a
-        // now-deleted job) instead of running to the end against a row that's about
-        // to vanish. Read-then-cancel is run-keyed by `running_at` (the run's
-        // claimed_at), so a stale read can't cancel a later run of a recurring job.
-        // The cancelled run's own terminal writes then no-op against the deleted row
-        // (its in-progress run_log is CASCADE-removed — an accepted loss for a
-        // user-initiated delete). Done before taking the lock since `get_job` locks.
-        if let Ok(Some(job)) = self.get_job(id) {
-            if let Some(running_at) = job.running_at.as_deref() {
-                super::cancel::cancel(id, running_at);
-            }
-        }
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        conn.execute("DELETE FROM cron_jobs WHERE id=?1", params![id])?;
+        let tx = conn.transaction()?;
+        let running_at: Option<String> = tx
+            .query_row(
+                "SELECT running_at FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let now = Utc::now().to_rfc3339();
+        tx.execute(
+            "UPDATE cron_jobs
+             SET deleted_at=?1, status='paused', next_run_at=NULL, updated_at=?1
+             WHERE id=?2 AND deleted_at IS NULL",
+            params![now, id],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        if let Some(claimed_at) = running_at {
+            super::cancel::cancel(id, &claimed_at);
+        }
         Ok(())
-    }
-
-    /// Distinct run-session ids produced by a job. Must be read BEFORE
-    /// `delete_job` (which CASCADE-removes `cron_run_logs`), so the caller can
-    /// clean up hidden legacy Cron sessions while retaining ordinary run chats.
-    pub fn session_ids_for_job(&self, job_id: &str) -> Result<Vec<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        let mut stmt =
-            conn.prepare("SELECT DISTINCT session_id FROM cron_run_logs WHERE job_id=?1")?;
-        let rows = stmt.query_map(params![job_id], |row| row.get::<_, String>(0))?;
-        let mut ids = Vec::new();
-        for r in rows {
-            ids.push(r?);
-        }
-        Ok(ids)
     }
 
     /// Remove every run-log row that points at a permanently deleted
@@ -562,7 +566,7 @@ impl CronDB {
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
-             FROM cron_jobs WHERE id=?1"
+             FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL"
         )?;
         let mut rows = stmt.query(params![id])?;
         if let Some(row) = rows.next()? {
@@ -610,7 +614,7 @@ impl CronDB {
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
-             FROM cron_jobs ORDER BY created_at DESC"
+             FROM cron_jobs WHERE deleted_at IS NULL ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
             row_to_cron_job(row).map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
@@ -641,7 +645,8 @@ impl CronDB {
             // sustained cap pressure, the most-overdue job could be skipped every
             // tick (starvation). Most-overdue-first makes the cap fair.
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
-             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
+             FROM cron_jobs WHERE deleted_at IS NULL AND status='active'
+               AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
              ORDER BY next_run_at ASC"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
@@ -668,7 +673,8 @@ impl CronDB {
         if enabled {
             // Read current schedule
             let schedule_json: String = conn.query_row(
-                "SELECT schedule_json FROM cron_jobs WHERE id=?1",
+                "SELECT schedule_json FROM cron_jobs
+                 WHERE id=?1 AND deleted_at IS NULL",
                 params![id],
                 |row| row.get(0),
             )?;
@@ -685,12 +691,14 @@ impl CronDB {
                     new_status
                 };
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, next_run_at=?2, consecutive_failures=0, updated_at=?3 WHERE id=?4",
+                "UPDATE cron_jobs SET status=?1, next_run_at=?2, consecutive_failures=0, updated_at=?3
+                 WHERE id=?4 AND deleted_at IS NULL",
                 params![resumed_status, next_run, now, id],
             )?;
         } else {
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, updated_at=?2 WHERE id=?3",
+                "UPDATE cron_jobs SET status=?1, updated_at=?2
+                 WHERE id=?3 AND deleted_at IS NULL",
                 params![new_status, now, id],
             )?;
         }
@@ -736,22 +744,24 @@ impl CronDB {
             // `status != 'disabled'` guard below; run-now skips this path entirely
             // via `immediate`.)
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4 AND status='active'",
+                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3
+                 WHERE id=?4 AND status='active' AND deleted_at IS NULL",
                 params![next_status, next_run, now_str, id],
             )?;
             Ok(false)
         } else {
             // Failure: increment failures, apply backoff
-            let (failures,): (u32,) = conn.query_row(
-                "SELECT consecutive_failures FROM cron_jobs WHERE id=?1",
-                params![id],
-                |row| Ok((row.get(0)?,)),
-            )?;
-            let (max_failures,): (u32,) = conn.query_row(
-                "SELECT max_failures FROM cron_jobs WHERE id=?1",
-                params![id],
-                |row| Ok((row.get(0)?,)),
-            )?;
+            let Some((failures, max_failures)) = conn
+                .query_row(
+                    "SELECT consecutive_failures, max_failures FROM cron_jobs
+                     WHERE id=?1 AND deleted_at IS NULL",
+                    params![id],
+                    |row| Ok((row.get::<_, u32>(0)?, row.get::<_, u32>(1)?)),
+                )
+                .optional()?
+            else {
+                return Ok(false);
+            };
 
             let new_failures = failures + 1;
 
@@ -765,7 +775,8 @@ impl CronDB {
             // Recurring jobs fall through to the backoff / auto-disable logic below.
             if matches!(schedule, CronSchedule::At { .. }) {
                 conn.execute(
-                    "UPDATE cron_jobs SET status='missed', next_run_at=NULL, consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+                    "UPDATE cron_jobs SET status='missed', next_run_at=NULL, consecutive_failures=?1, last_run_at=?2, updated_at=?2
+                     WHERE id=?3 AND deleted_at IS NULL",
                     params![new_failures, now_str, id],
                 )?;
                 return Ok(false);
@@ -785,7 +796,8 @@ impl CronDB {
                 // again must NOT re-notify or re-bump the count. (A re-run that
                 // *succeeds* still re-activates via the success branch above.)
                 let rows = conn.execute(
-                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3 AND status != 'disabled'",
+                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2
+                     WHERE id=?3 AND status != 'disabled' AND deleted_at IS NULL",
                     params![new_failures, now_str, id],
                 )?;
                 Ok(rows > 0)
@@ -805,7 +817,8 @@ impl CronDB {
                     }
                 };
                 conn.execute(
-                    "UPDATE cron_jobs SET consecutive_failures=?1, next_run_at=?2, last_run_at=?3, updated_at=?3 WHERE id=?4",
+                    "UPDATE cron_jobs SET consecutive_failures=?1, next_run_at=?2, last_run_at=?3, updated_at=?3
+                     WHERE id=?4 AND deleted_at IS NULL",
                     params![new_failures, next_run_base.to_rfc3339(), now_str, id],
                 )?;
                 Ok(false)
@@ -834,7 +847,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET next_run_at=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+            "UPDATE cron_jobs SET next_run_at=?1, last_run_at=?2, updated_at=?2
+             WHERE id=?3 AND deleted_at IS NULL",
             params![next_run, now_str, id],
         )?;
         Ok(())
@@ -858,7 +872,7 @@ impl CronDB {
         let rows = conn.execute(
             "UPDATE cron_jobs
              SET next_run_at = ?1, updated_at = ?2
-             WHERE id = ?3 AND status = 'active'",
+             WHERE id = ?3 AND status = 'active' AND deleted_at IS NULL",
             params![next_run, now_str, id],
         )?;
         if rows > 0 {
@@ -881,7 +895,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1 WHERE id=?2",
+            "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1
+             WHERE id=?2 AND deleted_at IS NULL",
             params![now, id],
         )?;
         Ok(())
@@ -1053,8 +1068,8 @@ impl CronDB {
     /// Cross-job timeline: every cron run across all jobs, newest-first,
     /// paginated. `title` / `unread_count` are left at their defaults here — the
     /// caller (`cron_run_timeline`) hydrates them from `SessionDB`, a separate
-    /// database. LEFT JOIN so a run whose job row was deleted still surfaces,
-    /// with `job_name` falling back to `(deleted job)`.
+    /// database. LEFT JOIN preserves legacy orphan rows; logical tombstones keep
+    /// their original task name and are exposed through `job_deleted`.
     pub fn list_run_timeline(&self, limit: usize, offset: usize) -> Result<Vec<CronTimelineRow>> {
         let conn = self
             .conn
@@ -1063,6 +1078,7 @@ impl CronDB {
         let mut stmt = conn.prepare(
             "SELECT l.id, l.session_id, l.job_id,
                     COALESCE(j.name, '(deleted job)') AS job_name,
+                    (j.id IS NULL OR j.deleted_at IS NOT NULL) AS job_deleted,
                     j.payload_json,
                     l.status, l.started_at, l.finished_at, l.result_preview
              FROM cron_run_logs l
@@ -1071,7 +1087,7 @@ impl CronDB {
              LIMIT ?1 OFFSET ?2",
         )?;
         let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
-            let payload_json: Option<String> = row.get(4)?;
+            let payload_json: Option<String> = row.get(5)?;
             let payload_type = payload_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str::<CronPayload>(json).ok())
@@ -1082,11 +1098,12 @@ impl CronDB {
                 session_id: row.get(1)?,
                 job_id: row.get(2)?,
                 job_name: row.get(3)?,
+                job_deleted: row.get(4)?,
                 payload_type,
-                status: row.get(5)?,
-                started_at: row.get(6)?,
-                finished_at: row.get(7)?,
-                result_preview: row.get(8)?,
+                status: row.get(6)?,
+                started_at: row.get(7)?,
+                finished_at: row.get(8)?,
+                result_preview: row.get(9)?,
                 title: None,
                 unread_count: 0,
             })
@@ -1395,7 +1412,8 @@ impl CronDB {
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, running_owner=?2, next_run_at=?3, updated_at=?1
              WHERE id=?4 AND next_run_at=?5 AND next_run_at <= ?6
-               AND payload_json=?7 AND status='active' AND running_at IS NULL",
+               AND payload_json=?7 AND status='active' AND running_at IS NULL
+               AND deleted_at IS NULL",
             params![
                 now_str,
                 self.owner_token,
@@ -1427,7 +1445,8 @@ impl CronDB {
         let payload_json = serde_json::to_string(&job.payload)?;
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, running_owner=?2
-             WHERE id=?3 AND payload_json=?4 AND running_at IS NULL",
+             WHERE id=?3 AND payload_json=?4 AND running_at IS NULL
+               AND deleted_at IS NULL",
             params![now, self.owner_token, job.id, payload_json],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
@@ -1559,7 +1578,7 @@ impl CronDB {
         // `running_at` to NULL) BEFORE `mark_missed_at_jobs`, so they still match.
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1
-             WHERE status='active' AND running_at IS NULL
+             WHERE deleted_at IS NULL AND status='active' AND running_at IS NULL
                AND schedule_json LIKE '%\"type\":\"at\"%'
                AND (next_run_at IS NULL OR next_run_at < ?2)",
             params![now_str, cutoff],

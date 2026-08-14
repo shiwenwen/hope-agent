@@ -216,6 +216,19 @@ pub struct PendingCountdown {
     pub server_now_ms: i64,
 }
 
+/// Display-only provenance for an ordinary conversation. This must never be
+/// used to derive permissions or execution policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOrigin {
+    /// Stable producer kind (currently `cron`).
+    pub kind: String,
+    /// Producer-owned identifier, such as the scheduled task id.
+    pub id: String,
+    /// Human-readable label captured when the conversation is created.
+    pub label: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -249,6 +262,9 @@ pub struct SessionMeta {
     /// project / Agent ownership.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// Display-only provenance; deliberately independent of permissions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SessionOrigin>,
     pub message_count: i64,
     /// Whether this regular desktop conversation is unread, encoded as `0` or
     /// `1` for transport compatibility. Any number of assistant messages after
@@ -815,6 +831,7 @@ mod tests {
             updated_at: "2026-05-01T00:00:00Z".to_string(),
             pinned_at: None,
             archived_at: None,
+            origin: None,
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,

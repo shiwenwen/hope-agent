@@ -540,6 +540,7 @@
       "noMatches": "一致するクイック入力はありません"
     },
     "cronTaskStarted": "定期タスクが起動されました",
+    "scheduledOrigin": "予定タスク：{{name}}",
     "cronTrigger": "定期タスク",
     "loopTriggered": "ループのステップを1回実行しました",
     "loopTrigger": "ループ",
@@ -1460,7 +1461,7 @@
     "cronHelp": "形式: 秒 分 時 日 月 週 (例: 0 0 9 * * 1-5 = 平日午前9時)",
     "dateTime": "日時",
     "daySuffix": "日",
-    "deleteConfirmDesc": "この操作により、定期タスクと実行履歴が完全に削除されます。",
+    "deleteConfirmDesc": "削除すると今後のスケジュールのみが停止されます。実行履歴、会話、ワークツリーは保持されます。",
     "deleteConfirmTitle": "「{{name}}」を削除しますか？",
     "deleteFailed": "「{{name}}」を削除できませんでした",
     "deleteSuccess": "「{{name}}」を削除しました",

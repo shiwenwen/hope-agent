@@ -23,6 +23,7 @@ import {
   Share2,
   PanelLeftDashed,
   SquareTerminal,
+  Timer,
   type LucideIcon,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
@@ -60,6 +61,7 @@ import type {
   AgentSummaryForSidebar,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
+import { requestCronTaskFocus } from "@/components/cron/cronNavigation"
 
 interface RightPanelTitleBarItem {
   id: string
@@ -557,6 +559,20 @@ export default function ChatTitleBar({
                   <span className="text-blue-400">· {currentSession.channelInfo.senderName}</span>
                 )}
               </span>
+            )}
+            {currentSession?.origin?.kind === "cron" && (
+              <IconTip
+                label={t("chat.scheduledOrigin", { name: currentSession.origin.label })}
+              >
+                <button
+                  type="button"
+                  className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+                  onClick={() => requestCronTaskFocus(currentSession.origin!.id)}
+                >
+                  <Timer className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{currentSession.origin.label}</span>
+                </button>
+              </IconTip>
             )}
             {currentSession?.incognito && (
               <span className={INCOGNITO_BADGE_LABEL_CLASSES}>

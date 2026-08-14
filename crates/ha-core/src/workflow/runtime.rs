@@ -7413,11 +7413,17 @@ fn workflow_session_context_for_run(
     let worktree = db
         .get_managed_worktree(worktree_id)?
         .ok_or_else(|| anyhow!("managed worktree not found: {worktree_id}"))?;
-    if worktree.session_id != run.session_id {
+    if !worktree.purpose.is_owner_transport_safe() {
+        bail!(
+            "managed worktree {} cannot be restored by workflow runtime through the generic owner API",
+            worktree_id
+        );
+    }
+    if worktree.owner_session_id.as_deref() != Some(run.session_id.as_str()) {
         bail!(
             "managed worktree {} belongs to session {}; expected {}",
             worktree_id,
-            worktree.session_id,
+            worktree.owner_session_id.as_deref().unwrap_or("<none>"),
             run.session_id
         );
     }

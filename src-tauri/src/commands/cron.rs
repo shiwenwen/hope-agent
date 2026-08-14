@@ -49,6 +49,8 @@ pub async fn cron_update_job(
 }
 
 #[tauri::command]
+/// Logically delete a task. Run logs and linked conversations stay available
+/// through the history endpoints.
 pub async fn cron_delete_job(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
@@ -121,8 +123,8 @@ pub async fn cron_get_run_logs(
 }
 
 /// Cross-job run timeline for the cron panel's "conversations" view: every cron
-/// run across all jobs, newest-first, paginated; each row carries the run's
-/// session id + title + unread count for the read-only conversation viewer.
+/// run across live and deleted jobs, newest-first, paginated; each row carries
+/// the run's session id, title, unread count, and task-deleted marker.
 #[tauri::command]
 pub async fn cron_run_timeline(
     limit: Option<usize>,

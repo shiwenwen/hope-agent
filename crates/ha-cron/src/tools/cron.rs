@@ -302,7 +302,10 @@ pub(crate) fn tool_manage_cron<'a>(
                     "manage_cron deleted scheduled task '{}' (approved)",
                     id
                 );
-                Ok(format!("Deleted scheduled task '{}'.", id))
+                Ok(format!(
+                    "Deleted scheduled task '{}'; its run history and conversations were retained.",
+                    id
+                ))
             }
 
             "pause" => {

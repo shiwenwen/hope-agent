@@ -540,6 +540,7 @@
       "noMatches": "일치하는 빠른 입력이 없습니다"
     },
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
+    "scheduledOrigin": "예약 작업: {{name}}",
     "cronTrigger": "예약 작업",
     "loopTriggered": "루프 단계가 한 번 트리거됨",
     "loopTrigger": "루프",
@@ -1460,7 +1461,7 @@
     "cronHelp": "형식: 초 분 시 일 월 요일 (예: 0 0 9 * * 1-5 = 평일 오전 9 시)",
     "dateTime": "날짜 및 시간",
     "daySuffix": "일",
-    "deleteConfirmDesc": "이 작업은 예약 작업과 실행 기록을 영구적으로 삭제합니다.",
+    "deleteConfirmDesc": "삭제하면 향후 예약만 중지됩니다. 실행 기록, 대화 및 워크트리는 유지됩니다.",
     "deleteConfirmTitle": "\"{{name}}\"을 삭제할까요?",
     "deleteFailed": "\"{{name}}\" 삭제에 실패했습니다",
     "deleteSuccess": "\"{{name}}\"을 삭제했습니다",

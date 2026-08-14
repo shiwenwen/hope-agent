@@ -440,7 +440,9 @@ pub fn load_control_snapshot(
         .list_managed_worktrees_for_session(session_id)?
         .into_iter()
         .find(|wt| {
-            wt.path_exists && managed_worktree_matches_checkout(&wt.path, &ctx.checkout_root)
+            managed_worktree_session_access(wt, session_id)
+                && wt.path_exists
+                && managed_worktree_matches_checkout(&wt.path, &ctx.checkout_root)
         });
     let active_location = if managed.is_some() {
         "worktree"
@@ -1017,7 +1019,8 @@ pub async fn handoff(
                 .list_managed_worktrees_for_session(&session_id)?
                 .into_iter()
                 .find(|worktree| {
-                    managed_worktree_matches_checkout(&worktree.path, &current_checkout)
+                    managed_worktree_session_access(worktree, &session_id)
+                        && managed_worktree_matches_checkout(&worktree.path, &current_checkout)
                 })
                 .ok_or_else(|| {
                     anyhow!(
@@ -1031,11 +1034,12 @@ pub async fn handoff(
                 let worktree = db
                     .get_managed_worktree(id)?
                     .ok_or_else(|| anyhow!("managed_worktree_not_found: {id}"))?;
-                if !worktree_in_session_scope(
-                    &worktree.session_id,
-                    worktree.child_session_id.as_deref(),
-                    &session_id,
-                ) {
+                if !worktree.purpose.is_owner_transport_safe() {
+                    bail!(
+                        "worktree_scope_mismatch: scheduled worktrees require the typed Cron handoff API"
+                    );
+                }
+                if !managed_worktree_session_access(&worktree, &session_id) {
                     bail!("worktree_scope_mismatch: selected worktree does not belong to this session");
                 }
                 Some(worktree)
@@ -1123,8 +1127,37 @@ pub async fn handoff(
     result
 }
 
-fn worktree_in_session_scope(owner: &str, child: Option<&str>, session_id: &str) -> bool {
-    owner == session_id || child == Some(session_id)
+fn managed_worktree_session_access(
+    worktree: &ha_core::worktree::ManagedWorktree,
+    session_id: &str,
+) -> bool {
+    managed_worktree_session_scope(
+        worktree.purpose,
+        worktree.owner_session_id.as_deref(),
+        worktree.child_session_id.as_deref(),
+        worktree.handoff_session_id.as_deref(),
+        session_id,
+    )
+}
+
+fn managed_worktree_session_scope(
+    purpose: ha_core::worktree::ManagedWorktreePurpose,
+    owner: Option<&str>,
+    child: Option<&str>,
+    handoff: Option<&str>,
+    session_id: &str,
+) -> bool {
+    use ha_core::worktree::ManagedWorktreePurpose;
+
+    match purpose {
+        ManagedWorktreePurpose::Manual
+        | ManagedWorktreePurpose::Workflow
+        | ManagedWorktreePurpose::Subagent => {
+            owner == Some(session_id) || child == Some(session_id)
+        }
+        ManagedWorktreePurpose::ScheduledRun => owner == Some(session_id),
+        ManagedWorktreePurpose::ScheduledTask => handoff == Some(session_id),
+    }
 }
 
 fn managed_worktree_matches_checkout(worktree_path: &str, checkout_root: &Path) -> bool {
@@ -3216,10 +3249,73 @@ mod tests {
     }
 
     #[test]
-    fn handoff_worktree_scope_accepts_only_owner_or_child_session() {
-        assert!(worktree_in_session_scope("owner", None, "owner"));
-        assert!(worktree_in_session_scope("owner", Some("child"), "child"));
-        assert!(!worktree_in_session_scope("other", Some("child"), "owner"));
+    fn managed_worktree_scope_respects_custody_kind() {
+        use ha_core::worktree::ManagedWorktreePurpose;
+
+        let cases = [
+            (
+                ManagedWorktreePurpose::Manual,
+                Some("owner"),
+                None,
+                None,
+                "owner",
+                true,
+            ),
+            (
+                ManagedWorktreePurpose::Subagent,
+                Some("owner"),
+                Some("child"),
+                None,
+                "child",
+                true,
+            ),
+            (
+                ManagedWorktreePurpose::Manual,
+                Some("other"),
+                Some("child"),
+                None,
+                "owner",
+                false,
+            ),
+            (
+                ManagedWorktreePurpose::ScheduledRun,
+                Some("fresh-chat"),
+                None,
+                None,
+                "fresh-chat",
+                true,
+            ),
+            (
+                ManagedWorktreePurpose::ScheduledRun,
+                Some("fresh-chat"),
+                None,
+                Some("other-chat"),
+                "other-chat",
+                false,
+            ),
+            (
+                ManagedWorktreePurpose::ScheduledTask,
+                None,
+                None,
+                Some("handoff-chat"),
+                "handoff-chat",
+                true,
+            ),
+            (
+                ManagedWorktreePurpose::ScheduledTask,
+                Some("runtime-chat"),
+                None,
+                None,
+                "runtime-chat",
+                false,
+            ),
+        ];
+        for (purpose, owner, child, handoff, session, expected) in cases {
+            assert_eq!(
+                managed_worktree_session_scope(purpose, owner, child, handoff, session),
+                expected
+            );
+        }
     }
 
     #[test]

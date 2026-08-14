@@ -142,6 +142,40 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) -> Del
     if job.delivery_targets.is_empty() {
         return report;
     }
+    // The executor carries the job snapshot it claimed. A delete can tombstone
+    // that row while the turn is still finishing, so re-check live state at the
+    // irreversible delivery boundary instead of sending from a stale snapshot.
+    let Some(cron_db) = ha_core::globals::get_cron_db() else {
+        app_warn!(
+            "cron",
+            "delivery",
+            "skipping delivery for job '{}' because cron DB is unavailable",
+            job.id
+        );
+        return report;
+    };
+    match cron_db.get_job(&job.id) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            app_info!(
+                "cron",
+                "delivery",
+                "skipping delivery for deleted job '{}'",
+                job.id
+            );
+            return report;
+        }
+        Err(e) => {
+            app_warn!(
+                "cron",
+                "delivery",
+                "skipping delivery for job '{}' after live-state check failed: {:#}",
+                job.id,
+                e
+            );
+            return report;
+        }
+    }
     // §10: never fan out a blank success message (a zero-output run, or an
     // injection turn with no text). The executor's main path already routes
     // empty success to the `Empty` terminal and skips delivery; this guards the

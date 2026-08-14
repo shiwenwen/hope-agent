@@ -228,6 +228,10 @@ pub struct CronTimelineRow {
     pub session_id: String,
     pub job_id: String,
     pub job_name: String,
+    /// The task definition was logically deleted after this run. Historical
+    /// run logs and their ordinary conversations remain navigable.
+    #[serde(default)]
+    pub job_deleted: bool,
     /// Payload discriminator from the owning job. `None` is reserved for
     /// orphaned legacy run rows whose job record no longer exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]

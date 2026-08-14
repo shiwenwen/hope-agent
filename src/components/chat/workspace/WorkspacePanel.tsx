@@ -1869,6 +1869,9 @@ function managedWorktreePurposeLabel(
       return t("workspace.worktree.purposeSubagent", "Subagent")
     case "manual":
       return t("workspace.worktree.purposeManual", "Manual")
+    case "scheduled_run":
+    case "scheduled_task":
+      return t("chat.cronTrigger", "Scheduled Task")
   }
 }
 
