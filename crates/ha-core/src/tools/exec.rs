@@ -126,7 +126,16 @@ fn expand_sealed_source_path(raw: &str, cwd: &Path) -> PathBuf {
 /// previous isolated sandbox copy. Fail with an actionable explanation before
 /// spawning Hope instead of letting the import pipeline report a misleading
 /// generic missing-file error.
-fn ensure_sealed_pet_sources_available(argv: &[String], cwd: &Path) -> Result<()> {
+fn ensure_sealed_pet_sources_available_against(
+    argv: &[String],
+    cwd: &Path,
+    data_root: &Path,
+) -> Result<()> {
+    let workspace = cwd
+        .canonicalize()
+        .context("pet_cli_durable_workspace_invalid")?;
+    crate::sandbox::validate_container_isolated_source_against(&workspace, data_root)
+        .context("pet_cli_durable_workspace_rejected")?;
     let mut index = 0;
     while index < argv.len() {
         if argv[index] != "--source" {
@@ -138,15 +147,28 @@ fn ensure_sealed_pet_sources_available(argv: &[String], cwd: &Path) -> Result<()
         };
         if !source.contains("://") {
             let path = expand_sealed_source_path(source, cwd);
-            if !path.exists() {
+            let canonical_source = path.canonicalize().map_err(|error| {
+                anyhow::anyhow!(
+                    "pet_cli_local_source_unavailable_to_host: `{source}` is not present in the durable workspace ({error}); files created only inside an isolated sandbox command are discarded. Materialize the package through a trusted attachment/connector into the durable workspace, or use a direct HTTPS artifact URL"
+                )
+            })?;
+            if !canonical_source.starts_with(&workspace) {
                 anyhow::bail!(
-                    "pet_cli_local_source_unavailable_to_host: `{source}` is not present in the durable workspace; files created only inside an isolated sandbox command are discarded. Materialize the package through a trusted attachment/connector into the durable workspace, or use a direct HTTPS artifact URL"
+                    "pet_cli_local_source_outside_durable_workspace: `{source}` resolves outside the approved durable workspace"
                 );
             }
         }
         index += 2;
     }
     Ok(())
+}
+
+fn ensure_sealed_pet_sources_available(argv: &[String], cwd: &Path) -> Result<()> {
+    let data_root_path = crate::paths::root_dir()?;
+    let data_root = data_root_path
+        .canonicalize()
+        .context("pet_cli_data_root_unavailable")?;
+    ensure_sealed_pet_sources_available_against(argv, cwd, &data_root)
 }
 
 /// Recognize only the current product's Pet CLI. The returned argv starts at
@@ -1789,8 +1811,13 @@ mod tests {
 
     #[test]
     fn sealed_pet_cli_requires_local_sources_to_exist_before_host_handoff() {
-        let workspace = tempfile::tempdir().expect("workspace");
-        let present = workspace.path().join("pet.zip");
+        let root = tempfile::tempdir().expect("root");
+        let data_root = root.path().join("hope-data");
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(data_root.join("credentials")).expect("data root");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let data_root = data_root.canonicalize().expect("canonical data root");
+        let present = workspace.join("pet.zip");
         std::fs::write(&present, b"zip").expect("source fixture");
         let present_argv = vec![
             "pet".to_string(),
@@ -1798,7 +1825,7 @@ mod tests {
             "--source".to_string(),
             "pet.zip".to_string(),
         ];
-        ensure_sealed_pet_sources_available(&present_argv, workspace.path()).unwrap();
+        ensure_sealed_pet_sources_available_against(&present_argv, &workspace, &data_root).unwrap();
 
         let missing_argv = vec![
             "pet".to_string(),
@@ -1806,10 +1833,25 @@ mod tests {
             "--source".to_string(),
             "sandbox-only.zip".to_string(),
         ];
-        let error = ensure_sealed_pet_sources_available(&missing_argv, workspace.path())
-            .unwrap_err()
-            .to_string();
+        let error =
+            ensure_sealed_pet_sources_available_against(&missing_argv, &workspace, &data_root)
+                .unwrap_err()
+                .to_string();
         assert!(error.contains("durable workspace"));
+
+        let outside = root.path().join("outside.zip");
+        std::fs::write(&outside, b"zip").expect("outside fixture");
+        let outside_argv = vec![
+            "pet".to_string(),
+            "preview".to_string(),
+            "--source".to_string(),
+            "../outside.zip".to_string(),
+        ];
+        let error =
+            ensure_sealed_pet_sources_available_against(&outside_argv, &workspace, &data_root)
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("outside the approved durable workspace"));
 
         let remote_argv = vec![
             "pet".to_string(),
@@ -1817,7 +1859,40 @@ mod tests {
             "--source".to_string(),
             "https://example.com/pet.zip".to_string(),
         ];
-        ensure_sealed_pet_sources_available(&remote_argv, workspace.path()).unwrap();
+        ensure_sealed_pet_sources_available_against(&remote_argv, &workspace, &data_root).unwrap();
+
+        let error =
+            ensure_sealed_pet_sources_available_against(&remote_argv, &data_root, &data_root)
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("pet_cli_durable_workspace_rejected"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sealed_pet_cli_rejects_a_source_symlink_escaping_the_workspace() {
+        let root = tempfile::tempdir().expect("root");
+        let data_root = root.path().join("hope-data");
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(&data_root).expect("data root");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let outside = root.path().join("outside.zip");
+        std::fs::write(&outside, b"zip").expect("outside fixture");
+        std::os::unix::fs::symlink(&outside, workspace.join("pet.zip")).expect("source symlink");
+        let argv = vec![
+            "pet".to_string(),
+            "preview".to_string(),
+            "--source".to_string(),
+            "pet.zip".to_string(),
+        ];
+        let error = ensure_sealed_pet_sources_available_against(
+            &argv,
+            &workspace,
+            &data_root.canonicalize().expect("canonical data root"),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("outside the approved durable workspace"));
     }
 
     #[test]
