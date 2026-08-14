@@ -51,6 +51,7 @@ mod process;
 mod project_memory;
 pub(crate) mod read;
 pub mod registry;
+mod result_store;
 mod runtime_cancel;
 mod schedule_wakeup;
 mod send_attachment;

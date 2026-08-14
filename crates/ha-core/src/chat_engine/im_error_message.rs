@@ -86,6 +86,12 @@ fn headline(reason: FailoverReason, is_codex_auth: bool) -> &'static str {
         FailoverReason::ContextOverflow => {
             "📚 **Conversation got too long** — try `/compact` or start a new session."
         }
+        FailoverReason::CurrentToolGroupOverflow => {
+            "📦 **The current tool-result group cannot fit safely** — request a smaller page/result or reduce the active context."
+        }
+        FailoverReason::DispatchUnknown => {
+            "⚠️ **Provider dispatch outcome is unknown** — automatic retry was stopped to avoid a duplicate request. Retry manually after checking the provider activity."
+        }
         FailoverReason::ModelNotFound => "🤖 **Model unavailable** — pick another in settings.",
         FailoverReason::Unknown => "⚠️ **Something went wrong**.",
     }
@@ -203,6 +209,18 @@ mod tests {
         ));
         assert!(out.starts_with("🌐 **Network issue"));
         assert!(out.contains("\n> error sending request: connection reset"));
+    }
+
+    #[test]
+    fn dispatch_unknown_stops_automatic_retry_and_directs_manual_check() {
+        let out = format_im_engine_error(ctx(
+            FailoverReason::DispatchUnknown,
+            "transport closed after dispatch claim",
+            false,
+        ));
+        assert!(out.contains("dispatch outcome is unknown"));
+        assert!(out.contains("automatic retry was stopped"));
+        assert!(out.contains("Retry manually after checking the provider activity"));
     }
 
     #[test]

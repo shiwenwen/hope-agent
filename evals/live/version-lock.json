@@ -11,6 +11,7 @@
     "live-nightly@1.0.6": "c7bc01673376ea2e5b70b89db38ce7faae5719e5d15eb635d885844d0639dcb0",
     "live-nightly@1.0.7": "5f7ac752b1c2722578eedc6a86fd9b3fffbcf5e72e3c98d765c41a713adcab25",
     "live-nightly@1.0.8": "38d0f4b5e1c5d1bec2ede8cbd8d7313127246bf0cf2f9e5131679dae69d63fd4",
+    "live-nightly@1.0.9": "929cd7c99b7f6b971fb7c24a6bcdb4f75c5e795c9a4574aadf653f61c5812a2e",
     "live-release@1.0.4": "12d346b917b115511aa80d687d924924f6fe83905507cd21b6f6d96bedc2ef64",
     "live-release@1.0.5": "6f251ad5553ef97e286a1d39da50a2d041d7a5bc432ea85734f5a1fba554da1a",
     "live-release@1.0.6": "9df1b3e8199d9d1a2d3573dbabd0e42c584e4758658b1c681c407879faaba6ff",
@@ -25,6 +26,7 @@
   "appProfiles": {
     "custom@1.0.0": "3aba1ebdf5239b771ae9fdab640ff7641bd43664fe178dcd9c3bf1ca52d40922",
     "custom@1.1.0": "dd91952275a011b1b24ee3f58f6192a043c12ea631e00dea7c5174e5c0976bf2",
+    "context-compaction@1.0.0": "6154d5958b90bb10767b44d824efa54e4ff9b79653104036f1e2d0ba4fe887b9",
     "quick@1.0.0": "07cdcddbda2b078ca9995e67c3cfcb28bc87d77b526463642d910918740ddf12",
     "quick@1.1.0": "7a65b375d0b16389377b8c1523b8554515f04e1cf6e00a4e05eff9813a88dbf0",
     "quick@1.2.0": "5f3975876b1e329a924c37a81e4412f9754eca2afe41c2a6690255a6c355b6a9",
@@ -35,6 +37,7 @@
   },
   "trustRegistries": {},
   "suites": {
+    "context-compaction@1.0.0": "df6d07f38f4310f06363e778a707375595f68d18082619bb33ee1343f6dd0a6d",
     "hope-core-orchestration@1.4.0": "03919ad4d35306cf2df7233f30be6e32f5bdd0b8da172c50e84d396d09048ee9",
     "hope-core-orchestration@1.5.0": "a98d124b366c7976c89f517cfa6bdef2061c453fd0f75508aa90954f5692d605",
     "hope-core-orchestration@1.6.0": "2a18742739f1c6354cf779c0d892242772235c70cc0e1d6d2727678360a46f04",
@@ -42,6 +45,8 @@
     "hope-core-orchestration@1.8.0": "acdf0226da92ef2486164f8d6f2fe5d4246b77e2518e6e0d2cb51ecac028032a"
   },
   "scenarios": {
+    "HA-CTX-001@1.0.0": "d8592e550d76d001f2349b6fb46b33c7a5fc93fa1d3fed7ce291a05d5718b68d",
+    "HA-CTX-002@1.0.0": "ad3a9a9c22d3d1333751d7180e5fdad9c3a523c4142e7cb5b1c87a863b25335e",
     "HA-AJ-001@1.4.0": "3563aa4887aee8c1f24d305d007317966bbe4ff8d99b99892b98df8e1875e777",
     "HA-AJ-001@1.5.0": "1b09ac1129a0d2671aa05748bcab3d685dd593d269454a047da9ead6bd11e3ad",
     "HA-AJ-001@1.6.0": "3573e48265ff121db6f13e39b220fdbc4e466766bf3f762668854889fa0291db",

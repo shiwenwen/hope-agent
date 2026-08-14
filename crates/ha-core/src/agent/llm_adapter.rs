@@ -1146,6 +1146,46 @@ mod tests {
     }
 
     #[test]
+    fn responses_cached_body_preserves_native_role_content_blocks() {
+        let native_message = json!({
+            "role": "user",
+            "content": [
+                { "type": "input_text", "text": "describe this image" },
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/png;base64,AAAA"
+                }
+            ]
+        });
+        let mut params = cached_responses();
+        params.conversation_history = vec![
+            native_message.clone(),
+            json!({ "role": "assistant", "content": "ready" }),
+        ];
+        let req = OneShotRequest {
+            instruction: "continue",
+            max_tokens: 100,
+            mode: OneShotMode::Cached(&params),
+            user_content: None,
+        };
+
+        let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
+        let input = body
+            .get("input")
+            .and_then(serde_json::Value::as_array)
+            .expect("Responses body input");
+
+        assert_eq!(input.first(), Some(&native_message));
+        assert_eq!(
+            input.last(),
+            Some(&json!({
+                "role": "user",
+                "content": "continue"
+            }))
+        );
+    }
+
+    #[test]
     fn responses_system_override_uses_responses_protocol_not_chat_completions() {
         // Regression guard: legacy summarize_direct sent a Chat Completions
         // body here (worked by accident on dual-protocol providers, 404'd on

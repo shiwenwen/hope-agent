@@ -267,6 +267,8 @@ sequenceDiagram
             end
 
             Engine->>Agent: agent.chat(message, …, on_delta)
+            Agent->>Coord: 冻结 exact body + request-local projection plan/context fence
+            Coord->>DB: context_committed → dispatching（联网前）
             Note over Engine,Coord: on_delta 只解析并 accept seq；<br/>后台 writer 追加 journal；<br/>durable 后才投递 Sink/总线；<br/>tool 边界等待 durability barrier
 
             alt 成功
@@ -275,10 +277,14 @@ sequenceDiagram
                 Engine->>Sink: emit committed chat:stream_end
                 Engine->>Engine: 调度 Goal 续跑 / 记忆提取 / 技能审核
                 Engine-->>Caller: Ok(ChatEngineResult)
-            else ContextOverflow（首次）
-                Engine->>Engine: emergency_compact() + save_agent_context()
-                Engine->>Sink: emit 压缩进度 + context_compacted
-                Note over Engine: 同 profile 重试一次
+            else ContextOverflow（首次且有匹配的本地容量证书）
+                Engine->>Engine: 验证失败请求 identity / history / replay-safe 边界
+                Engine->>DB: emergency context + tier3_required 原子 checkpoint
+                Engine->>Sink: emit 压缩进度 + committed context_compacted
+                Note over Engine: 新 exact plan；同模型最多单次重试；<br/>下一安全主请求强制 Tier 3
+            else DispatchUnknown / CurrentToolGroupOverflow
+                Engine->>DB: 保留 typed 终态与请求证据
+                Engine-->>Caller: Err(terminal)
             else Terminal 错误
                 Engine->>DB: commit_interrupted_turn
                 Engine-->>Caller: Err(error)
@@ -551,8 +557,8 @@ server-owned UI turn 运行期间注册 session-scoped `ReattachableUiSessionGua
 | `UserStop` | Interrupted | UserStop | engine 失败收敛 + 成功路径 cancel 检测；`abort_on_cancel=true` 的 Subagent 仍返回 Err，但已耐久 partial/tool 同样原子收敛 |
 | `RuntimeCancel` | Interrupted | RuntimeCancel | engine future 被 runtime/request Drop；按 run_id 重放 durable prefix 后才结束 stream |
 | `NoProfileAvailable` | Failed | NoProfile | engine 收敛时 `last_reason=None && last_error=None` + 配置缺失入口 |
-| `ProviderFailed { last_kind, last_message, is_codex_auth }` | Failed | ProviderFailed | engine 收敛时 `ExecutorError::Exhausted` |
-| `CompactionFailed { detail }` | Failed | CompactionFailed | emergency_compact 跑过仍 over-threshold，下一轮再返 ContextOverflow |
+| `ProviderFailed { last_kind, last_message, is_codex_auth }` | Failed | ProviderFailed / CurrentToolGroupOverflow / DispatchUnknown | engine 收敛时 `ExecutorError::Exhausted`；两类安全终态用独立 typed interrupt reason 持久化，不依赖错误文案重分类 |
+| `CompactionFailed { detail }` | Failed | CompactionFailed | Tier 4 证明不足、重试后仍超窗，或强制 Tier 3 自动重试耗尽；保留可见失败与手动重试入口 |
 | `Shutdown` | Interrupted | Shutdown | 启动 sweep 看到 sentinel 文件（`~/.hope-agent/.shutdown-clean`），含 SIGTERM/SIGINT 与 dev 热重载 |
 | `Crash` | Interrupted | CrashRecovery | 启动 sweep 看到 sentinel 缺失（panic / SIGKILL / 断电 / OOM） |
 | `Other { message }` | Failed | Unknown | 内部异常 / 边角失败兜底 |
@@ -657,11 +663,12 @@ Chat Engine 内置完整的模型降级和重试逻辑。退避基数 / 上限 /
 
 ```mermaid
 flowchart TD
-    A["agent.chat() 失败"] --> B{"classify_error"}
-    B -->|"ContextOverflow"| C{"首次?"}
-    C -->|"是"| D["emit 进度<br/>emergency_compact<br/>emit final + 重试"]
+    A["agent.chat() 失败"] --> B{"classify_error_with_evidence"}
+    B -->|"ContextOverflow + 本地完整容量证书"| C{"本模型首次且可安全重放?"}
+    C -->|"是"| D["proof-gated emergency_compact<br/>原子 checkpoint + Tier3 marker<br/>新 exact plan 单次重试"]
     C -->|"否"| E["Terminal: 返回错误"]
-    B -->|"Terminal<br/>Auth/Billing/ModelNotFound"| E
+    B -->|"Terminal<br/>EvaluationBudget / CurrentToolGroupOverflow / DispatchUnknown"| E
+    B -->|"不可重试<br/>Auth/Billing/ModelNotFound"| I
     B -->|"Retryable<br/>RateLimit/Overloaded/Timeout"| F{"retry &lt; MAX?"}
     F -->|"是"| G["指数退避<br/>delay = min(1s · 2^retry, 10s)"]
     G --> H["重试同一模型"]
@@ -678,7 +685,9 @@ GUI 按 `delay_ms` 显示真实倒计时/进度条并可跳过等待；存在下
 
 **Codex 特殊处理**：Auth 错误时若当前 Provider 是 Codex 类型，额外发送 `codex_auth_expired` 通知前端触发重新授权。
 
-**ContextOverflow 特殊处理**：Chat Engine 重构造同 profile 的临时 Agent，恢复 history 后执行 Tier 4 `emergency_compact()`，保存压缩后的 `context_json`，写回 `PROFILE_STICKY`，并用同一 profile 重试一次。非 incognito 会话把 runtime ledger snapshot 交给 emergency compaction；incognito 或会话行已焚毁时跳过 ledger，避免 job/subagent id 被注入或持久化。
+**ContextOverflow 特殊处理**：Chat Engine 只接受高置信 typed overflow；真正发布 Tier 4 还要求失败 attempt 携带不可变的本地完整请求容量证书，并重新验证 Provider/model/request shape、tokenizer revision、history fingerprint、当前用户恰好一次、工具活动可安全重放以及压缩后完整请求仍适配。全部成立时，紧急 canonical history 与 `tier3_required` 标记在同一个 SQLite checkpoint 事务提交，再以新的 exact request plan/dispatch claim 单次重试。任一证明缺失都保持旧 history，不把自由文本相似错误升级为有损操作。非 incognito 会话可注入有界 runtime ledger；incognito 使用等价内存状态并跳过持久 marker。Tier 4 成功后，下一安全主请求必须先 durable-first 完成一次 Tier 3；失败进入可见的 `RetryExhausted` 并提供手动重试，不会每轮重复付费。
+
+**精确发送与终态提交**：主 Provider 请求先冻结最终 JSON bytes，再发布 request-local projection plan/context fence，联网前 CAS `dispatching`，headers 到达即记 `response_started`。一次 claim 只允许一个 POST；redirect 与客户端透明 retry 均关闭。claim 后 headers 前无法证明是否发送时写 `send_unknown` 并禁止自动 fallback；SSE 缺 Provider 终止证明时写 `response_incomplete`。无工具最终回复由 assistant/context/run 同一事务把 `response_started → terminal(success)`；工具轮只有在 durable ToolResultBoundary 后且明确还会发下一请求时才提前结束该 plan，PostToolBatch stop、最后一轮与 cancel 都留给最终/中断事务收口。
 
 ## Post-turn Effects 与记忆提取门控
 
@@ -735,10 +744,10 @@ flowchart TB
 
     Engine --> Prov["Provider<br/>build_agent_from_snapshot()"]
     Prov --> Agent["AssistantAgent<br/>agent.chat() · Tool Loop · Side Query"]
-    Agent --> Fail["Failover<br/>classify_error + retry_delay_ms"]
+    Agent --> Fail["Failover<br/>classify_error_with_evidence + retry_delay_ms"]
     Agent --> Coord["StreamCoordinator<br/>TurnDurabilitySink"]
     Coord --> DB["SessionDB<br/>journal · CAS · 最终原子提交"]
-    Agent -->|ContextOverflow| Compact["Context Compact<br/>emergency_compact()"]
+    Agent -->|"ContextOverflow + 完整容量证书"| Compact["Context Compact<br/>proof-gated Tier 4"]
     Engine -->|成功后| Post["Memory Extract · Skill Review · Goal 续跑 · 自动标题"]
     Engine -->|GUI/HTTP turn| Mirror["Channel<br/>attach/finalize_im_live_mirror"]
     Engine --> Plan["Plan Mode<br/>plan_context_override"]
@@ -749,8 +758,8 @@ flowchart TB
 | **SessionDB** | `TurnDurabilitySink` / 最终事务 | journal、上下文 CAS、消息物化、turn 与 usage 原子提交 |
 | **Provider** | `build_agent_from_snapshot()` | 按 Provider 配置构建 Agent |
 | **AssistantAgent** | `agent.chat()` | Tool Loop、流式输出、Side Query |
-| **Failover** | `classify_error()` + `FailoverPolicy::chat_engine_default()` | 错误分类和退避计算，见 [failover.md](../agent/failover.md) |
-| **Context Compact** | `emergency_compact()` | ContextOverflow 时紧急压缩，见 [context-compact.md](context-compact.md) |
+| **Failover** | `classify_error_with_evidence()` + `FailoverPolicy::chat_engine_default()` | typed 发送/容量证据优先的错误分类和退避计算，见 [failover.md](../agent/failover.md) |
+| **Context Compact** | proof-gated Tier 4 | 仅在 ContextOverflow 绑定本地完整容量证书且可安全重放时发布紧急 history，见 [context-compact.md](context-compact.md) |
 | **Memory Extract** | `run_extraction()` | 自动记忆提取，见 [memory.md](memory.md) |
 | **Channel** | `attach_im_live_mirror()` + `finalize_im_live_mirror()` | GUI/HTTP turn → IM live 流式镜像（复用 dispatcher 投递路径） |
 | **Plan Mode** | `plan_context_override` | 透传到 Agent 限制工具和路径，见 [plan-mode.md](../agent/plan-mode.md) |

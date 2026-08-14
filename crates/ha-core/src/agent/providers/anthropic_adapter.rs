@@ -7,7 +7,7 @@
 //! Phase 2 of the LLM call unification — the public tool loop lives in
 //! [`super::super::streaming_loop`]. See `docs/architecture/agent/side-query.md`.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -18,9 +18,13 @@ use super::super::api_types::{AnthropicSseEvent, FunctionCallItem};
 use super::super::config::{build_api_url, map_think_anthropic_style, ANTHROPIC_API_VERSION};
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, expand_anthropic_image_markers_for_api,
+    project_anthropic_image_markers_for_token_count,
 };
 use super::super::streaming_adapter::{
-    ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
+    observe_before_send, observe_response_started, ExecutedTool, PreparedProviderRequest,
+    PreparedRequestVariant, ProviderAccountingInput, ProviderDispatchObserver,
+    ProviderDispatchUnknown, ProviderEndpointKind, ProviderRequestShape, RoundOutcome,
+    RoundRequest, StreamingChatAdapter,
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tool_defs::ToolProvider;
@@ -241,6 +245,45 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         )
     }
 
+    fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
+        project_anthropic_image_markers_for_token_count(history)
+    }
+
+    fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
+        expand_anthropic_image_markers_for_api(history)
+    }
+
+    fn token_count_input_for(&self, req: &RoundRequest<'_>) -> ProviderAccountingInput {
+        let stable_system = json!([{
+            "type": "text",
+            "text": req.system_prompt,
+            "cache_control": { "type": "ephemeral" }
+        }]);
+        let mut dynamic_system = Vec::new();
+        for suffix in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
+            dynamic_system.push(json!({ "type": "text", "text": suffix }));
+        }
+        let mut dynamic_items = Vec::new();
+        if !dynamic_system.is_empty() {
+            dynamic_items.push(json!({
+                "_provider_lane": "system",
+                "content": dynamic_system
+            }));
+        }
+        if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+            dynamic_items.push(json!({
+                "role": "user",
+                "content": [{ "type": "text", "text": content }]
+            }));
+        }
+        ProviderAccountingInput {
+            stable_prompt: serde_json::to_string(&json!({ "system": stable_system }))
+                .unwrap_or_default(),
+            dynamic_prompt: serde_json::to_string(&dynamic_items).unwrap_or_default(),
+            history: self.token_count_history_for(req.history_for_api),
+        }
+    }
+
     async fn count_input_tokens(
         &self,
         client: &reqwest::Client,
@@ -307,34 +350,30 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         Ok(count)
     }
 
-    async fn chat_round(
-        &self,
-        client: &reqwest::Client,
-        req: RoundRequest<'_>,
-        cancel: &Arc<AtomicBool>,
-        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
-    ) -> Result<RoundOutcome> {
+    fn prepare_round_request(&self, req: &RoundRequest<'_>) -> Result<PreparedProviderRequest> {
         let (body, tools_with_cache, native_deferred) =
-            build_anthropic_body(self.base_url, self.model, &req);
-
-        let api_url = build_api_url(self.base_url, "/v1/messages");
-
-        // ── Log API request.
-        // Measure with a temporary serialization; do not retain a second full
-        // image/Base64 request body until reqwest builds the actual body.
-        let body_size = serde_json::to_string(&body)
-            .map(|serialized| serialized.len())
-            .unwrap_or(0);
+            build_anthropic_body(self.base_url, self.model, req);
+        let prepared = PreparedProviderRequest::from_json(
+            ProviderEndpointKind::AnthropicMessages,
+            ProviderRequestShape::AnthropicMessagesJson,
+            self.model,
+            req.round,
+            req.session_id,
+            req.reasoning_effort,
+            req.vision_bridge_available,
+            PreparedRequestVariant::Anthropic,
+            &body,
+        )?;
         super::super::token_manifest::log_round_manifest(
             "Anthropic",
             self.model,
             "messages",
-            &req,
+            req,
             body.get("tools")
                 .and_then(Value::as_array)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]),
-            body_size,
+            prepared.identity.body_len as usize,
             native_deferred,
         );
         if let Some(logger) = crate::get_logger() {
@@ -347,16 +386,17 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                     req.round,
                     req.history_for_api.len(),
                     tools_with_cache.len(),
-                    body_size
+                    prepared.identity.body_len
                 ),
                 Some(
                     json!({
                         "round": req.round,
-                        "api_url": &api_url,
+                        "endpoint_kind": "anthropic_messages",
                         "model": self.model,
                         "message_count": req.history_for_api.len(),
                         "tool_count": tools_with_cache.len(),
-                        "body_size_bytes": body_size,
+                        "body_size_bytes": prepared.identity.body_len,
+                        "body_fingerprint": &prepared.identity.body_keyed_fingerprint,
                         "thinking_enabled": body.get("thinking").is_some(),
                     })
                     .to_string(),
@@ -365,20 +405,41 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                 None,
             );
         }
+        Ok(prepared)
+    }
 
+    async fn dispatch_prepared(
+        &self,
+        client: &reqwest::Client,
+        prepared: &PreparedProviderRequest,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+        observer: &dyn ProviderDispatchObserver,
+    ) -> Result<RoundOutcome> {
+        let api_url = build_api_url(self.base_url, "/v1/messages");
         // ── Send.
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
+        observe_before_send(observer, prepared).await?;
         let request_start = std::time::Instant::now();
         let request = client
             .post(&api_url)
             .header("x-api-key", self.api_key)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .header("content-type", "application/json")
-            .json(&body);
+            .body(prepared.body().to_vec());
         let resp = match super::cancel::send_with_cancel(request, cancel).await {
             Ok(Some(resp)) => resp,
-            Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
-            Err(e) => return Err(anyhow::anyhow!("Anthropic API request failed: {}", e)),
+            Ok(None) => {
+                return Err(ProviderDispatchUnknown(
+                    "cancelled after dispatch claim and before response headers".to_string(),
+                )
+                .into())
+            }
+            Err(e) => return Err(ProviderDispatchUnknown(e.to_string()).into()),
         };
+        observe_response_started(observer, prepared, 1, &resp).await?;
 
         // ── Log response status with rate-limit headers for debugging.
         if let Some(logger) = crate::get_logger() {
@@ -415,7 +476,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                         "status": status,
                         "request_id": request_id,
                         "ttfb_ms": ttfb_ms,
-                        "round": req.round,
+                        "round": prepared.identity.round,
                         "response_headers": response_headers,
                     })
                     .to_string(),
@@ -447,7 +508,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                             "status": status,
                             "error_bytes": error_text.len(),
                             "error_fingerprint": error_fingerprint,
-                            "round": req.round
+                            "round": prepared.identity.round
                         })
                         .to_string(),
                     ),
@@ -455,11 +516,12 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                     None,
                 );
             }
-            return Err(anyhow::anyhow!(
-                "Anthropic API error ({}): {}",
+            return Err(crate::failover::ProviderApiError::from_http_response(
+                "Anthropic",
                 status,
-                error_text
-            ));
+                &error_text,
+            )
+            .into());
         }
 
         // ── Parse SSE stream.
@@ -472,6 +534,9 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             thinking_text,
             ttft_ms,
         ) = parse_anthropic_sse(resp, request_start, cancel, on_delta).await?;
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
 
         // Log tool loop progress (moved here from the old chat_anthropic so
         // the orchestrator stays oblivious to which tools were requested).
@@ -484,13 +549,13 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                     "agent::chat_anthropic::tool_loop",
                     &format!(
                         "Tool loop round {}: executing {} tools: {:?}",
-                        req.round,
+                        prepared.identity.round,
                         tool_calls.len(),
                         tool_names
                     ),
                     Some(
                         json!({
-                            "round": req.round,
+                            "round": prepared.identity.round,
                             "tool_count": tool_calls.len(),
                             "tools": tool_names,
                         })
@@ -506,8 +571,8 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         super::super::token_manifest::log_round_usage(
             "Anthropic",
             self.model,
-            req.round,
-            req.session_id,
+            prepared.identity.round,
+            prepared.session_id.as_deref(),
             &usage,
             ttft_ms,
         );
@@ -618,6 +683,67 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
 ///
 /// Free function (not a `&self` method) because none of the streaming state
 /// lives on `AssistantAgent` — only `cancel`, `on_delta`, and accumulators.
+fn take_next_anthropic_sse_event_block(buffer: &mut Vec<u8>) -> Result<Option<String>> {
+    let lf = buffer
+        .windows(b"\n\n".len())
+        .position(|window| window == b"\n\n")
+        .map(|idx| (idx, 2));
+    let crlf = buffer
+        .windows(b"\r\n\r\n".len())
+        .position(|window| window == b"\r\n\r\n")
+        .map(|idx| (idx, 4));
+    let (idx, delimiter_len) = match (lf, crlf) {
+        (Some(left), Some(right)) => {
+            if left.0 <= right.0 {
+                left
+            } else {
+                right
+            }
+        }
+        (Some(found), None) | (None, Some(found)) => found,
+        (None, None) => return Ok(None),
+    };
+    let mut consumed: Vec<u8> = buffer.drain(..idx + delimiter_len).collect();
+    consumed.truncate(idx);
+    let block = String::from_utf8(consumed)
+        .map_err(|_| anyhow::anyhow!("Anthropic SSE event contained invalid UTF-8"))?;
+    Ok(Some(block))
+}
+
+fn validate_anthropic_sse_eof_tail(cancelled: bool, buffer: &[u8]) -> Result<()> {
+    if cancelled || buffer.is_empty() {
+        return Ok(());
+    }
+    std::str::from_utf8(buffer)
+        .map_err(|_| anyhow::anyhow!("Anthropic SSE ended with invalid UTF-8"))?;
+    anyhow::bail!("Anthropic SSE ended with an incomplete event")
+}
+
+fn validate_anthropic_stream_completion(
+    cancelled: bool,
+    saw_message_stop: bool,
+    has_open_content_block: bool,
+) -> Result<()> {
+    if cancelled {
+        return Ok(());
+    }
+    if !saw_message_stop {
+        anyhow::bail!("Anthropic SSE ended before message_stop")
+    }
+    if has_open_content_block {
+        anyhow::bail!("Anthropic SSE message_stop arrived with an unfinished content block")
+    }
+    Ok(())
+}
+
+fn decode_anthropic_sse_event(data: &str) -> Result<(Value, AnthropicSseEvent)> {
+    let raw_event = serde_json::from_str::<Value>(data)
+        .map_err(|err| anyhow::anyhow!("Anthropic SSE event could not be decoded: {err}"))?;
+    let event = serde_json::from_value::<AnthropicSseEvent>(raw_event.clone())
+        .map_err(|err| anyhow::anyhow!("Anthropic SSE event could not be decoded: {err}"))?;
+    Ok((raw_event, event))
+}
+
 pub(in crate::agent) async fn parse_anthropic_sse(
     resp: reqwest::Response,
     request_start: std::time::Instant,
@@ -649,16 +775,20 @@ pub(in crate::agent) async fn parse_anthropic_sse(
     let mut first_token_time: Option<u64> = None;
 
     let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
+    let mut buffer = Vec::new();
+    let mut saw_message_stop = false;
 
-    while let Some(chunk) = super::cancel::next_chunk_or_cancel(&mut stream, cancel).await {
-        let chunk = chunk?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+    'anthropic_stream: while let Some(chunk) =
+        super::cancel::next_chunk_or_cancel(&mut stream, cancel).await
+    {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(_) if cancel.load(Ordering::SeqCst) => break,
+            Err(err) => return Err(err.into()),
+        };
+        buffer.extend_from_slice(&chunk);
 
-        while let Some(idx) = buffer.find("\n\n") {
-            let event_block = buffer[..idx].to_string();
-            buffer = buffer[idx + 2..].to_string();
-
+        while let Some(event_block) = take_next_anthropic_sse_event_block(&mut buffer)? {
             // SSE event format: "event: <type>\ndata: <json>"
             let mut event_name = String::new();
             let mut data_lines = Vec::new();
@@ -676,181 +806,207 @@ pub(in crate::agent) async fn parse_anthropic_sse(
             if data.is_empty() || data == "[DONE]" {
                 continue;
             }
+            if saw_message_stop {
+                anyhow::bail!("Anthropic SSE emitted data after message_stop")
+            }
 
-            let raw_event = serde_json::from_str::<Value>(&data).ok();
-            if let Ok(event) = serde_json::from_str::<AnthropicSseEvent>(&data) {
-                match event_name.as_str() {
-                    "content_block_start" => {
-                        if let Some(block) = &event.content_block {
-                            match block.block_type.as_deref() {
-                                Some("tool_use") => {
-                                    let idx = event.index.unwrap_or(0);
-                                    current_tool = Some((
-                                        idx,
-                                        FunctionCallItem {
-                                            // Synthesize a stable id if the block
-                                            // omits one, so the tool loop,
-                                            // persistence, and PreToolUse /
-                                            // PostToolUse hooks all correlate on a
-                                            // non-empty tool_use_id rather than "".
-                                            call_id: block
-                                                .id
-                                                .clone()
-                                                .filter(|s| !s.is_empty())
-                                                .unwrap_or_else(|| format!("toolu_idx_{idx}")),
-                                            name: block.name.clone().unwrap_or_default(),
-                                            arguments: String::new(),
-                                        },
-                                    ));
+            let (raw_event, event) = decode_anthropic_sse_event(&data)?;
+            let data_event_name = event.event_type.as_deref().unwrap_or("");
+            if !event_name.is_empty()
+                && !data_event_name.is_empty()
+                && event_name != data_event_name
+            {
+                anyhow::bail!("Anthropic SSE event name did not match its data type")
+            }
+            if event_name.is_empty() {
+                event_name = data_event_name.to_string();
+            }
+            match event_name.as_str() {
+                "content_block_start" => {
+                    if let Some(block) = &event.content_block {
+                        match block.block_type.as_deref() {
+                            Some("tool_use") => {
+                                let idx = event.index.unwrap_or(0);
+                                current_tool = Some((
+                                    idx,
+                                    FunctionCallItem {
+                                        // Synthesize a stable id if the block
+                                        // omits one, so the tool loop,
+                                        // persistence, and PreToolUse /
+                                        // PostToolUse hooks all correlate on a
+                                        // non-empty tool_use_id rather than "".
+                                        call_id: block
+                                            .id
+                                            .clone()
+                                            .filter(|s| !s.is_empty())
+                                            .unwrap_or_else(|| format!("toolu_idx_{idx}")),
+                                        name: block.name.clone().unwrap_or_default(),
+                                        arguments: String::new(),
+                                    },
+                                ));
+                            }
+                            Some("thinking") => {
+                                in_thinking_block = true;
+                            }
+                            Some("text") => {
+                                let block = raw_event
+                                    .get("content_block")
+                                    .cloned()
+                                    .unwrap_or_else(|| json!({ "type": "text", "text": "" }));
+                                current_text_block = Some(streamed_content_blocks.len());
+                                streamed_content_blocks.push(block);
+                            }
+                            Some(
+                                "server_tool_use" | "tool_search_tool_result" | "tool_reference",
+                            ) => {
+                                if let Some(raw_block) = raw_event.get("content_block").cloned() {
+                                    saw_native_tool_search_block = true;
+                                    let item_pos = streamed_content_blocks.len();
+                                    streamed_content_blocks.push(raw_block);
+                                    if block.block_type.as_deref() == Some("server_tool_use") {
+                                        current_native_block = Some((
+                                            event.index.unwrap_or(0),
+                                            item_pos,
+                                            String::new(),
+                                        ));
+                                    }
                                 }
-                                Some("thinking") => {
-                                    in_thinking_block = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "content_block_delta" => {
+                    if let Some(delta) = &event.delta {
+                        match delta.delta_type.as_deref() {
+                            Some("thinking_delta") => {
+                                if let Some(text) = &delta.text {
+                                    if first_token_time.is_none() {
+                                        first_token_time =
+                                            Some(request_start.elapsed().as_millis() as u64);
+                                    }
+                                    emit_thinking_delta(&on_delta, text);
+                                    collected_thinking.push_str(text);
                                 }
-                                Some("text") => {
-                                    let block = raw_event
-                                        .as_ref()
-                                        .and_then(|raw| raw.get("content_block"))
-                                        .cloned()
-                                        .unwrap_or_else(|| json!({ "type": "text", "text": "" }));
-                                    current_text_block = Some(streamed_content_blocks.len());
-                                    streamed_content_blocks.push(block);
-                                }
-                                Some(
-                                    "server_tool_use"
-                                    | "tool_search_tool_result"
-                                    | "tool_reference",
-                                ) => {
-                                    if let Some(raw_block) = raw_event
-                                        .as_ref()
-                                        .and_then(|raw| raw.get("content_block"))
-                                        .cloned()
-                                    {
-                                        saw_native_tool_search_block = true;
-                                        let item_pos = streamed_content_blocks.len();
-                                        streamed_content_blocks.push(raw_block);
-                                        if block.block_type.as_deref() == Some("server_tool_use") {
-                                            current_native_block = Some((
-                                                event.index.unwrap_or(0),
-                                                item_pos,
-                                                String::new(),
-                                            ));
+                            }
+                            Some("text_delta") => {
+                                if let Some(text) = &delta.text {
+                                    if first_token_time.is_none() {
+                                        first_token_time =
+                                            Some(request_start.elapsed().as_millis() as u64);
+                                    }
+                                    emit_text_delta(&on_delta, text);
+                                    collected_text.push_str(text);
+                                    if let Some(item_pos) = current_text_block {
+                                        if let Some(Value::String(block_text)) =
+                                            streamed_content_blocks[item_pos].get_mut("text")
+                                        {
+                                            block_text.push_str(text);
                                         }
                                     }
                                 }
-                                _ => {}
                             }
-                        }
-                    }
-                    "content_block_delta" => {
-                        if let Some(delta) = &event.delta {
-                            match delta.delta_type.as_deref() {
-                                Some("thinking_delta") => {
-                                    if let Some(text) = &delta.text {
-                                        if first_token_time.is_none() {
-                                            first_token_time =
-                                                Some(request_start.elapsed().as_millis() as u64);
-                                        }
-                                        emit_thinking_delta(&on_delta, text);
-                                        collected_thinking.push_str(text);
+                            Some("input_json_delta") => {
+                                if let Some(partial) = &delta.partial_json {
+                                    if let Some((_, ref mut tc)) = current_tool {
+                                        tc.arguments.push_str(partial);
+                                    }
+                                    if let Some((_, _, ref mut input)) = current_native_block {
+                                        input.push_str(partial);
                                     }
                                 }
-                                Some("text_delta") => {
-                                    if let Some(text) = &delta.text {
-                                        if first_token_time.is_none() {
-                                            first_token_time =
-                                                Some(request_start.elapsed().as_millis() as u64);
-                                        }
-                                        emit_text_delta(&on_delta, text);
-                                        collected_text.push_str(text);
-                                        if let Some(item_pos) = current_text_block {
-                                            if let Some(Value::String(block_text)) =
-                                                streamed_content_blocks[item_pos].get_mut("text")
-                                            {
-                                                block_text.push_str(text);
-                                            }
-                                        }
-                                    }
-                                }
-                                Some("input_json_delta") => {
-                                    if let Some(partial) = &delta.partial_json {
-                                        if let Some((_, ref mut tc)) = current_tool {
-                                            tc.arguments.push_str(partial);
-                                        }
-                                        if let Some((_, _, ref mut input)) = current_native_block {
-                                            input.push_str(partial);
-                                        }
-                                    }
-                                }
-                                _ => {}
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "content_block_stop" => {
+                    if in_thinking_block {
+                        in_thinking_block = false;
+                    }
+                    current_text_block = None;
+                    if let Some((_, tc)) = current_tool.take() {
+                        tool_calls.push(tc);
+                    }
+                    if let Some((index, item_pos, input)) = current_native_block.take() {
+                        if index == event.index.unwrap_or(index) && !input.is_empty() {
+                            if let Ok(input) = serde_json::from_str::<Value>(&input) {
+                                streamed_content_blocks[item_pos]["input"] = input;
                             }
                         }
                     }
-                    "content_block_stop" => {
-                        if in_thinking_block {
-                            in_thinking_block = false;
-                        }
-                        current_text_block = None;
-                        if let Some((_, tc)) = current_tool.take() {
-                            tool_calls.push(tc);
-                        }
-                        if let Some((index, item_pos, input)) = current_native_block.take() {
-                            if index == event.index.unwrap_or(index) && !input.is_empty() {
-                                if let Ok(input) = serde_json::from_str::<Value>(&input) {
-                                    streamed_content_blocks[item_pos]["input"] = input;
-                                }
-                            }
-                        }
-                    }
-                    "message_start" => {
-                        if let Some(msg) = &event.message {
-                            if let Some(u) = &msg.usage {
-                                if let Some(it) = u.input_tokens {
-                                    usage.input_tokens = it;
-                                    usage.input_coverage =
-                                        crate::token_accounting::UsageCoverage::Complete;
-                                }
-                                if let Some(ct) = u.cache_creation_input_tokens {
-                                    usage.cache_creation_input_tokens = ct;
-                                }
-                                if let Some(cr) = u.cache_read_input_tokens {
-                                    usage.cache_read_input_tokens = cr;
-                                }
-                            }
-                        }
-                    }
-                    "message_delta" => {
-                        if let Some(delta) = &event.delta {
-                            if let Some(reason) = &delta.stop_reason {
-                                stop_reason = Some(reason.clone());
-                            }
-                        }
-                        if let Some(u) = &event.usage {
-                            if let Some(ot) = u.output_tokens {
-                                usage.output_tokens = ot;
-                                usage.output_coverage =
+                }
+                "message_start" => {
+                    if let Some(msg) = &event.message {
+                        if let Some(u) = &msg.usage {
+                            if let Some(it) = u.input_tokens {
+                                usage.input_tokens = it;
+                                usage.input_coverage =
                                     crate::token_accounting::UsageCoverage::Complete;
                             }
+                            if let Some(ct) = u.cache_creation_input_tokens {
+                                usage.cache_creation_input_tokens = ct;
+                            }
+                            if let Some(cr) = u.cache_read_input_tokens {
+                                usage.cache_read_input_tokens = cr;
+                            }
                         }
                     }
-                    "error" => {
-                        let msg = event
-                            .error
-                            .as_ref()
-                            .and_then(|e| e.message.as_deref())
-                            .unwrap_or("Unknown Anthropic error");
-                        return Err(anyhow::anyhow!("Anthropic error: {}", msg));
-                    }
-                    _ => {}
                 }
+                "message_delta" => {
+                    if let Some(delta) = &event.delta {
+                        if let Some(reason) = &delta.stop_reason {
+                            stop_reason = Some(reason.clone());
+                        }
+                    }
+                    if let Some(u) = &event.usage {
+                        if let Some(ot) = u.output_tokens {
+                            usage.output_tokens = ot;
+                            usage.output_coverage =
+                                crate::token_accounting::UsageCoverage::Complete;
+                        }
+                    }
+                }
+                "message_stop" => {
+                    saw_message_stop = true;
+                }
+                "error" => {
+                    let provider_error = event.error.as_ref();
+                    let msg = provider_error
+                        .and_then(|error| error.message.as_deref())
+                        .unwrap_or("Unknown Anthropic error");
+                    return Err(crate::failover::ProviderApiError::from_stream_event(
+                        "Anthropic",
+                        None,
+                        provider_error.and_then(|error| error.error_type.as_deref()),
+                        Some(msg),
+                        format!("Anthropic error: {msg}"),
+                    )
+                    .into());
+                }
+                _ => {}
+            }
+            if saw_message_stop {
+                break 'anthropic_stream;
             }
         }
     }
 
-    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+    let cancelled = cancel.load(Ordering::SeqCst);
+    if cancelled {
         stop_reason = Some("cancelled".to_string());
         let _ = current_tool.take();
         tool_calls.clear();
     }
+    validate_anthropic_sse_eof_tail(cancelled, &buffer)?;
+    validate_anthropic_stream_completion(
+        cancelled,
+        saw_message_stop,
+        current_tool.is_some()
+            || current_native_block.is_some()
+            || current_text_block.is_some()
+            || in_thinking_block,
+    )?;
 
     if let Some(logger) = crate::get_logger() {
         let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -903,9 +1059,79 @@ pub(in crate::agent) async fn parse_anthropic_sse(
 mod tests {
     use super::{
         build_anthropic_body, build_anthropic_count_body, build_tools_with_cache,
-        supports_native_tool_search, AnthropicStreamingAdapter,
+        decode_anthropic_sse_event, supports_native_tool_search,
+        take_next_anthropic_sse_event_block, validate_anthropic_sse_eof_tail,
+        validate_anthropic_stream_completion, AnthropicStreamingAdapter,
     };
     use crate::agent::streaming_adapter::{RoundOutcome, RoundRequest, StreamingChatAdapter};
+
+    #[test]
+    fn anthropic_stream_requires_message_stop_and_closed_blocks() {
+        assert!(validate_anthropic_stream_completion(false, false, false).is_err());
+        assert!(validate_anthropic_stream_completion(false, true, true).is_err());
+        assert!(validate_anthropic_stream_completion(false, true, false).is_ok());
+        assert!(validate_anthropic_stream_completion(true, false, true).is_ok());
+    }
+
+    #[test]
+    fn anthropic_sse_framing_accepts_crlf_message_stop() {
+        let mut buffer = concat!(
+            "event: message_stop\r\n",
+            "data: {\"type\":\"message_stop\"}\r\n\r\n",
+            "rest"
+        )
+        .as_bytes()
+        .to_vec();
+        let block = take_next_anthropic_sse_event_block(&mut buffer)
+            .unwrap()
+            .unwrap();
+        assert!(block.contains("event: message_stop"));
+        assert!(block.contains("\"type\":\"message_stop\""));
+        assert_eq!(buffer, b"rest");
+        assert!(decode_anthropic_sse_event(r#"{"type":"message_stop"}"#).is_ok());
+        assert!(decode_anthropic_sse_event("{").is_err());
+    }
+
+    #[test]
+    fn anthropic_sse_framing_preserves_unicode_split_inside_scalar() {
+        let payload = serde_json::json!({
+            "type": "content_block_delta",
+            "delta": { "type": "text_delta", "text": "中文🙂" }
+        });
+        let wire = format!("event: content_block_delta\ndata: {payload}\n\n").into_bytes();
+        let scalar_start = wire
+            .windows("中".len())
+            .position(|window| window == "中".as_bytes())
+            .expect("Chinese scalar in fixture");
+        let split = scalar_start + 1;
+        let mut buffer = wire[..split].to_vec();
+        assert!(take_next_anthropic_sse_event_block(&mut buffer)
+            .unwrap()
+            .is_none());
+        buffer.extend_from_slice(&wire[split..]);
+        let block = take_next_anthropic_sse_event_block(&mut buffer)
+            .unwrap()
+            .expect("complete SSE frame");
+        let data = block
+            .lines()
+            .find_map(|line| line.strip_prefix("data:"))
+            .expect("data line")
+            .trim();
+        let (raw, _) = decode_anthropic_sse_event(data).expect("valid Unicode JSON event");
+        assert_eq!(raw["delta"]["text"], "中文🙂");
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn anthropic_sse_eof_and_invalid_utf8_fail_closed() {
+        assert!(validate_anthropic_sse_eof_tail(false, b"data: partial").is_err());
+        assert!(validate_anthropic_sse_eof_tail(false, &[0xff]).is_err());
+        assert!(validate_anthropic_sse_eof_tail(false, b"").is_ok());
+        let mut invalid_frame = b"data: ".to_vec();
+        invalid_frame.push(0xff);
+        invalid_frame.extend_from_slice(b"\n\n");
+        assert!(take_next_anthropic_sse_event_block(&mut invalid_frame).is_err());
+    }
 
     #[test]
     fn native_deferred_tools_never_receive_cache_control() {
@@ -1065,11 +1291,40 @@ mod tests {
         assert!(tools[1].get("cache_control").is_none());
         assert_eq!(tools[2]["type"], "tool_search_tool_bm25_20251119");
         let adapter = AnthropicStreamingAdapter {
-            api_key: "",
+            api_key: "sk-ant-test-must-stay-in-header",
             base_url: "https://api.anthropic.com",
             model: "claude-sonnet-4-5",
         };
+        let accounting = adapter.token_count_input_for(&req);
+        let counted_stable: serde_json::Value =
+            serde_json::from_str(&accounting.stable_prompt).unwrap();
+        let counted_dynamic: Vec<serde_json::Value> =
+            serde_json::from_str(&accounting.dynamic_prompt).unwrap();
+        assert_eq!(counted_stable["system"][0], body["system"][0]);
+        assert_eq!(
+            counted_dynamic[0]["content"].as_array().unwrap(),
+            &body["system"].as_array().unwrap()[1..]
+        );
+        assert_eq!(
+            counted_dynamic[1]["content"][0],
+            body["messages"][0]["content"][1]
+        );
+        assert_eq!(accounting.history, history);
+        assert_eq!(body["max_tokens"], req.max_tokens);
         assert_eq!(adapter.token_count_tool_schemas(&req), tools);
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        assert_eq!(
+            prepared.body_bytes_for_test(),
+            serde_json::to_vec(&body).unwrap()
+        );
+        assert!(!String::from_utf8_lossy(prepared.body_bytes_for_test())
+            .contains("sk-ant-test-must-stay-in-header"));
+        assert!(!prepared.identity.body_keyed_fingerprint.contains("sk-ant"));
+        let prepared_json: serde_json::Value =
+            serde_json::from_slice(prepared.body_bytes_for_test()).unwrap();
+        for transport_field in ["authorization", "api_key", "access_token", "account_id"] {
+            assert!(prepared_json.get(transport_field).is_none());
+        }
         req.is_final_round = true;
         assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }

@@ -1493,10 +1493,6 @@ impl SubagentExecutionFailure {
             message: message.into(),
         }
     }
-
-    fn provider_exhausted(message: impl Into<String>) -> Self {
-        Self::new(SubagentTerminalReason::ProviderExhausted, message)
-    }
 }
 
 impl From<anyhow::Error> for SubagentExecutionFailure {
@@ -1508,6 +1504,33 @@ impl From<anyhow::Error> for SubagentExecutionFailure {
 impl std::fmt::Display for SubagentExecutionFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message)
+    }
+}
+
+fn subagent_terminal_reason_for_chat_failure(
+    kind: crate::chat_engine::ChatEngineFailureKind,
+    reason: Option<crate::failover::FailoverReason>,
+) -> SubagentTerminalReason {
+    match (kind, reason) {
+        (
+            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            Some(crate::failover::FailoverReason::CurrentToolGroupOverflow),
+        ) => SubagentTerminalReason::CurrentToolGroupOverflow,
+        (
+            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            Some(crate::failover::FailoverReason::DispatchUnknown),
+        ) => SubagentTerminalReason::DispatchUnknown,
+        (crate::chat_engine::ChatEngineFailureKind::ProviderExhausted, _) => {
+            SubagentTerminalReason::ProviderExhausted
+        }
+        (crate::chat_engine::ChatEngineFailureKind::Cancelled, _) => {
+            SubagentTerminalReason::ParentCancelled
+        }
+        (
+            crate::chat_engine::ChatEngineFailureKind::Terminal
+            | crate::chat_engine::ChatEngineFailureKind::Infrastructure,
+            _,
+        ) => SubagentTerminalReason::ModelError,
     }
 }
 
@@ -1745,7 +1768,7 @@ fn execute_subagent(
             match attempt {
                 Ok(result) => break Ok(result),
                 Err(error)
-                    if error.kind
+                    if error.kind()
                         == crate::chat_engine::ChatEngineFailureKind::ProviderExhausted
                         && retry_attempt < max_provider_retries
                         && !cancel.load(Ordering::SeqCst) =>
@@ -1844,17 +1867,9 @@ fn execute_subagent(
 
         let result = result.map_err(|error| {
             let message = format!("Sub-agent chat execution failed: {error}");
-            match error.kind {
-                crate::chat_engine::ChatEngineFailureKind::ProviderExhausted => {
-                    SubagentExecutionFailure::provider_exhausted(message)
-                }
-                crate::chat_engine::ChatEngineFailureKind::Cancelled => {
-                    SubagentExecutionFailure::new(SubagentTerminalReason::ParentCancelled, message)
-                }
-                crate::chat_engine::ChatEngineFailureKind::Infrastructure => {
-                    SubagentExecutionFailure::new(SubagentTerminalReason::ModelError, message)
-                }
-            }
+            let terminal_reason =
+                subagent_terminal_reason_for_chat_failure(error.kind(), error.reason());
+            SubagentExecutionFailure::new(terminal_reason, message)
         })?;
 
         let model_used = result.model_used.as_ref().map(ToString::to_string);
@@ -1888,7 +1903,13 @@ mod hook_label_tests {
 
     #[test]
     fn execution_failure_keeps_provider_exhaustion_distinct_from_setup_errors() {
-        let provider = SubagentExecutionFailure::provider_exhausted("providers unavailable");
+        let provider = SubagentExecutionFailure::new(
+            subagent_terminal_reason_for_chat_failure(
+                crate::chat_engine::ChatEngineFailureKind::ProviderExhausted,
+                Some(crate::failover::FailoverReason::Timeout),
+            ),
+            "providers unavailable",
+        );
         assert_eq!(
             provider.terminal_reason,
             SubagentTerminalReason::ProviderExhausted
@@ -1896,6 +1917,31 @@ mod hook_label_tests {
 
         let setup = SubagentExecutionFailure::from(anyhow::anyhow!("agent config invalid"));
         assert_eq!(setup.terminal_reason, SubagentTerminalReason::ModelError);
+    }
+
+    #[test]
+    fn current_tool_group_terminal_never_becomes_provider_recovery() {
+        let terminal_reason = subagent_terminal_reason_for_chat_failure(
+            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            Some(crate::failover::FailoverReason::CurrentToolGroupOverflow),
+        );
+        assert_eq!(
+            terminal_reason,
+            SubagentTerminalReason::CurrentToolGroupOverflow
+        );
+        assert_ne!(terminal_reason, SubagentTerminalReason::ProviderExhausted);
+        assert!(!terminal_reason.resume_recommended());
+    }
+
+    #[test]
+    fn dispatch_unknown_never_becomes_provider_recovery() {
+        let terminal_reason = subagent_terminal_reason_for_chat_failure(
+            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            Some(crate::failover::FailoverReason::DispatchUnknown),
+        );
+        assert_eq!(terminal_reason, SubagentTerminalReason::DispatchUnknown);
+        assert_ne!(terminal_reason, SubagentTerminalReason::ProviderExhausted);
+        assert!(!terminal_reason.resume_recommended());
     }
 }
 

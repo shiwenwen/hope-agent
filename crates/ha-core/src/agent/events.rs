@@ -274,6 +274,134 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
     (combined_text, image_items)
 }
 
+/// Marker expansion used only for token accounting. It mirrors Anthropic's
+/// content-block shape without loading marker payload bytes from disk (or
+/// cloning them into the request), so repeated Tier-1 candidate evaluations
+/// remain bounded and side-effect free.
+fn build_anthropic_tool_result_content_for_token_count(result: &str) -> Value {
+    let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
+        return json!(result);
+    };
+
+    let mut content = Vec::new();
+    if !parsed.leading_text.is_empty() {
+        content.push(json!({ "type": "text", "text": parsed.leading_text }));
+    }
+    for marker in &parsed.markers {
+        let text = if marker.text.is_empty() {
+            "Image captured."
+        } else {
+            marker.text.as_str()
+        };
+        content.push(json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": marker.mime,
+                "data": ""
+            }
+        }));
+        content.push(json!({ "type": "text", "text": text }));
+    }
+    json!(content)
+}
+
+/// Marker expansion used only for token accounting. The placeholder data URI
+/// intentionally carries no payload; the accounting service recognizes the
+/// native `image_url` item and applies its bounded media estimate.
+fn build_openai_chat_tool_result_content_for_token_count(
+    result: &str,
+    model_supports_vision: bool,
+) -> Value {
+    let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
+        return json!(result);
+    };
+
+    if !model_supports_vision {
+        let mut text_parts = Vec::new();
+        if !parsed.leading_text.is_empty() {
+            text_parts.push(parsed.leading_text);
+        }
+        for marker in &parsed.markers {
+            text_parts.push(if marker.text.is_empty() {
+                "Image captured.".to_string()
+            } else {
+                marker.text.clone()
+            });
+        }
+        return json!(text_parts.join("\n"));
+    }
+
+    let mut content = Vec::new();
+    if !parsed.leading_text.is_empty() {
+        content.push(json!({ "type": "text", "text": parsed.leading_text }));
+    }
+    for marker in &parsed.markers {
+        let text = if marker.text.is_empty() {
+            "Image captured."
+        } else {
+            marker.text.as_str()
+        };
+        content.push(json!({
+            "type": "image_url",
+            "image_url": { "url": format!("data:{};base64,", marker.mime) }
+        }));
+        content.push(json!({ "type": "text", "text": text }));
+    }
+    json!(content)
+}
+
+/// Responses/Codex accounting projection for one tool output. It preserves
+/// the exact output text and user/input item topology while omitting media
+/// bytes that the accounting service must never tokenize as text.
+fn build_responses_tool_result_for_token_count(result: &str) -> (String, Vec<Value>) {
+    let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
+        return (result.to_string(), Vec::new());
+    };
+
+    let mut text_parts = Vec::new();
+    if !parsed.leading_text.is_empty() {
+        text_parts.push(parsed.leading_text.clone());
+    }
+    for marker in &parsed.markers {
+        text_parts.push(if marker.text.is_empty() {
+            "Image captured.".to_string()
+        } else {
+            marker.text.clone()
+        });
+    }
+
+    let total = parsed.markers.len();
+    let image_items = parsed
+        .markers
+        .iter()
+        .enumerate()
+        .map(|(index, marker)| {
+            let label = if marker.text.is_empty() {
+                "Image captured."
+            } else {
+                marker.text.as_str()
+            };
+            let tag = if total > 1 {
+                format!("[Tool visual output {}/{}] {}", index + 1, total, label)
+            } else {
+                format!("[Tool visual output] {label}")
+            };
+            json!({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_image",
+                        "image_url": format!("data:{};base64,", marker.mime)
+                    },
+                    { "type": "input_text", "text": tag }
+                ]
+            })
+        })
+        .collect();
+    (text_parts.join("\n"), image_items)
+}
+
 pub(super) fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<Value> {
     history
         .iter()
@@ -291,6 +419,28 @@ pub(super) fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<V
                 }
             }
             msg
+        })
+        .collect()
+}
+
+pub(super) fn project_anthropic_image_markers_for_token_count(history: &[Value]) -> Vec<Value> {
+    history
+        .iter()
+        .map(|item| {
+            let mut message = item.clone();
+            if message.get("role").and_then(Value::as_str) == Some("user") {
+                if let Some(Value::Array(blocks)) = message.get_mut("content") {
+                    for block in blocks {
+                        if block.get("type").and_then(Value::as_str) == Some("tool_result") {
+                            if let Some(result) = block.get("content").and_then(Value::as_str) {
+                                block["content"] =
+                                    build_anthropic_tool_result_content_for_token_count(result);
+                            }
+                        }
+                    }
+                }
+            }
+            message
         })
         .collect()
 }
@@ -328,6 +478,37 @@ pub(super) fn expand_openai_chat_image_markers_for_api(
                 _ => {}
             }
             msg
+        })
+        .collect()
+}
+
+pub(super) fn project_openai_chat_image_markers_for_token_count(
+    history: &[Value],
+    model_supports_vision: bool,
+) -> Vec<Value> {
+    history
+        .iter()
+        .map(|item| {
+            let mut message = item.clone();
+            match message.get("role").and_then(Value::as_str) {
+                Some("tool") => {
+                    if let Some(result) = message.get("content").and_then(Value::as_str) {
+                        message["content"] = build_openai_chat_tool_result_content_for_token_count(
+                            result,
+                            model_supports_vision,
+                        );
+                    }
+                }
+                Some("user") if !model_supports_vision => {
+                    if let Some(Value::Array(parts)) = message.get("content") {
+                        if parts.iter().any(is_openai_image_part) {
+                            message["content"] = fold_openai_user_content_without_images(parts);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            message
         })
         .collect()
 }
@@ -409,6 +590,25 @@ pub(super) fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<V
         expanded.push(item.clone());
     }
     expanded
+}
+
+pub(super) fn project_responses_image_markers_for_token_count(history: &[Value]) -> Vec<Value> {
+    let mut projected = Vec::with_capacity(history.len());
+    for item in history {
+        if item.get("type").and_then(Value::as_str) == Some("function_call_output") {
+            if let Some(result) = item.get("output").and_then(Value::as_str) {
+                let (text_output, image_items) =
+                    build_responses_tool_result_for_token_count(result);
+                let mut output_item = item.clone();
+                output_item["output"] = json!(text_output);
+                projected.push(output_item);
+                projected.extend(image_items);
+                continue;
+            }
+        }
+        projected.push(item.clone());
+    }
+    projected
 }
 
 pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {

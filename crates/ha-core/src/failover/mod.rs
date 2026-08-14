@@ -22,6 +22,157 @@ use std::time::Instant;
 
 use crate::provider::{AuthProfile, ProviderConfig};
 
+/// Structured provider failure retained across `anyhow` wrapping. Provider
+/// adapters must construct this from the decoded HTTP/SSE error envelope so
+/// destructive recovery never has to trust arbitrary display text.
+#[derive(Debug, Clone)]
+pub(crate) struct ProviderApiError {
+    provider: String,
+    status: Option<u16>,
+    code: Option<String>,
+    error_type: Option<String>,
+    message: Option<String>,
+    transport: ProviderErrorTransport,
+    display: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderErrorTransport {
+    HttpResponse,
+    StreamEvent,
+}
+
+impl ProviderApiError {
+    /// Whether the Provider supplied an explicit terminal rejection rather
+    /// than the client merely observing an interrupted response body.
+    ///
+    /// Both a complete non-2xx HTTP response and a decoded terminal SSE error
+    /// (`error` / `response.failed`) prove that the claimed request reached a
+    /// known Provider outcome. Callers may therefore close that exact request
+    /// before preparing a fallback; transport/decode failures without one of
+    /// these typed envelopes remain dispatch-unknown.
+    pub(crate) fn is_explicit_rejection(&self) -> bool {
+        matches!(
+            self.transport,
+            ProviderErrorTransport::HttpResponse | ProviderErrorTransport::StreamEvent
+        )
+    }
+
+    pub(crate) fn from_http_response(provider: &str, status: u16, raw_body: &str) -> Self {
+        let decoded = serde_json::from_str::<serde_json::Value>(raw_body).ok();
+        let code = decoded.as_ref().and_then(|value| {
+            json_string_at(value, &["/error/code", "/code", "/error/status", "/status"])
+        });
+        let error_type = decoded.as_ref().and_then(|value| {
+            json_string_at(value, &["/error/type", "/type", "/error/error_type"])
+        });
+        let message = decoded
+            .as_ref()
+            .and_then(|value| json_string_at(value, &["/error/message", "/message", "/detail"]));
+        let public_detail = message
+            .as_deref()
+            .or(code.as_deref())
+            .or(error_type.as_deref())
+            .unwrap_or("request failed");
+        // Keep the decoded envelope for typed classification, but never echo
+        // an arbitrary response body into user-facing errors/logs: a proxy may
+        // include request headers or credentials in that body.
+        let display = format!(
+            "{provider} API error ({status}): {}",
+            crate::truncate_utf8(public_detail, 1_024)
+        );
+        Self {
+            provider: provider.to_string(),
+            status: Some(status),
+            code,
+            error_type,
+            message,
+            transport: ProviderErrorTransport::HttpResponse,
+            display,
+        }
+    }
+
+    pub(crate) fn from_stream_event(
+        provider: &str,
+        code: Option<&str>,
+        error_type: Option<&str>,
+        message: Option<&str>,
+        display: String,
+    ) -> Self {
+        Self {
+            provider: provider.to_string(),
+            status: None,
+            code: code.map(ToOwned::to_owned),
+            error_type: error_type.map(ToOwned::to_owned),
+            message: message.map(ToOwned::to_owned),
+            transport: ProviderErrorTransport::StreamEvent,
+            display,
+        }
+    }
+
+    /// Preserve an existing user-facing provider error without discarding the
+    /// structured fields used by recovery classification.
+    pub(crate) fn with_display(mut self, display: String) -> Self {
+        self.display = display;
+        self
+    }
+}
+
+impl std::fmt::Display for ProviderApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.display)
+    }
+}
+
+impl std::error::Error for ProviderApiError {}
+
+fn json_string_at(value: &serde_json::Value, pointers: &[&str]) -> Option<String> {
+    pointers.iter().find_map(|pointer| {
+        value
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+/// Evidence that an error may represent an input-context overflow.
+///
+/// [`Self::LocalPreflight`] and [`Self::StructuredProvider`] are both strong
+/// enough to classify the failure as overflow. Destructive Tier-4 recovery is
+/// narrower: it additionally requires a [`Self::LocalPreflight`] carrying an
+/// immutable complete-request capacity proof. [`Self::TextHint`] exists only
+/// for diagnostics and telemetry; arbitrary provider/proxy text can never
+/// trigger destructive compaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextOverflowEvidence {
+    LocalPreflight {
+        input_tokens: u64,
+        max_input_tokens: u64,
+        source: crate::token_accounting::TokenCountSource,
+        capacity_proof: Option<crate::token_accounting::PreflightCapacityProof>,
+    },
+    StructuredProvider {
+        provider: String,
+        status: Option<u16>,
+        code: Option<String>,
+        error_type: Option<String>,
+        message_pattern: Option<String>,
+    },
+    TextHint {
+        pattern: String,
+    },
+}
+
+impl ContextOverflowEvidence {
+    pub fn is_high_confidence(&self) -> bool {
+        matches!(
+            self,
+            Self::LocalPreflight { .. } | Self::StructuredProvider { .. }
+        )
+    }
+}
+
 /// Why a model request failed — drives retry / fallback decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +194,14 @@ pub enum FailoverReason {
     ModelNotFound,
     /// Context window exceeded — NOT fallback-able (smaller model would be worse)
     ContextOverflow,
+    /// Even the current tool-result group's cheapest protocol-legal envelope
+    /// cannot fit after the configured old-history recovery ladder. This is an
+    /// application-level terminal outcome, not a Provider failure.
+    CurrentToolGroupOverflow,
+    /// The exact request crossed the durable dispatch claim but no response
+    /// proof was obtained. Retrying may duplicate billing or Provider-side
+    /// work, so automatic retry/profile/model rotation is forbidden.
+    DispatchUnknown,
     /// Unrecognized error — retry with a small budget because opaque provider / proxy errors
     /// are often transient, then skip to the next model.
     Unknown,
@@ -59,6 +218,8 @@ impl FailoverReason {
             Self::Billing => "billing",
             Self::ModelNotFound => "model_not_found",
             Self::ContextOverflow => "context_overflow",
+            Self::CurrentToolGroupOverflow => "current_tool_group_overflow",
+            Self::DispatchUnknown => "dispatch_unknown",
             Self::Unknown => "unknown",
         }
     }
@@ -76,7 +237,10 @@ impl FailoverReason {
     /// without trying any fallback models.
     /// Note: ContextOverflow is no longer terminal — it triggers compaction first.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::EvaluationBudget)
+        matches!(
+            self,
+            Self::EvaluationBudget | Self::CurrentToolGroupOverflow | Self::DispatchUnknown
+        )
     }
 
     /// Whether this error should trigger context compaction before retry.
@@ -138,6 +302,169 @@ fn contains_http_status(error_msg: &str, expected: &str) -> bool {
         })
 }
 
+fn exact_overflow_code(code: &str) -> bool {
+    matches!(
+        code.trim().to_ascii_lowercase().as_str(),
+        "context_length_exceeded"
+            | "context_window_exceeded"
+            | "prompt_too_long"
+            | "input_too_long"
+    )
+}
+
+fn invalid_request_type(error_type: &str) -> bool {
+    matches!(
+        error_type.trim().to_ascii_lowercase().as_str(),
+        "invalid_request_error" | "invalid_request" | "bad_request_error" | "bad_request"
+    )
+}
+
+fn high_confidence_overflow_message(lower: &str) -> Option<&'static str> {
+    let direct = [
+        "context length exceeded",
+        "context_length_exceeded",
+        "context window exceeded",
+        "exceeds the context window",
+        "exceeded the context window",
+        "prompt is too long",
+        "input is too long for this model",
+    ]
+    .into_iter()
+    .find(|pattern| lower.contains(pattern));
+    direct.or_else(|| {
+        (lower.contains("maximum context length")
+            && [
+                "messages resulted in",
+                "message resulted in",
+                "input resulted in",
+                "tokens in the messages",
+            ]
+            .into_iter()
+            .any(|pattern| lower.contains(pattern)))
+        .then_some("maximum context length with input token count")
+    })
+}
+
+fn low_confidence_overflow_hint(lower: &str) -> Option<&'static str> {
+    high_confidence_overflow_message(lower).or_else(|| {
+        [
+            "context window",
+            "maximum context length",
+            "token limit",
+            "input too long",
+            "request too large",
+            "max_tokens",
+        ]
+        .into_iter()
+        .find(|pattern| lower.contains(pattern))
+    })
+}
+
+fn structured_provider_overflow_evidence(
+    error: &ProviderApiError,
+) -> Option<ContextOverflowEvidence> {
+    let exact_code = error
+        .code
+        .as_deref()
+        .filter(|code| exact_overflow_code(code));
+    let exact_type = error
+        .error_type
+        .as_deref()
+        .filter(|error_type| exact_overflow_code(error_type));
+    let message_pattern = error
+        .message
+        .as_deref()
+        .and_then(|message| high_confidence_overflow_message(&message.to_ascii_lowercase()));
+    let has_invalid_request_type = error
+        .error_type
+        .as_deref()
+        .is_some_and(invalid_request_type);
+    let structured_message = match error.transport {
+        ProviderErrorTransport::HttpResponse => {
+            matches!(error.status, Some(400 | 413 | 422))
+                && has_invalid_request_type
+                && message_pattern.is_some()
+        }
+        ProviderErrorTransport::StreamEvent => {
+            has_invalid_request_type && message_pattern.is_some()
+        }
+    };
+    if exact_code.is_none() && exact_type.is_none() && !structured_message {
+        return None;
+    }
+
+    Some(ContextOverflowEvidence::StructuredProvider {
+        provider: error.provider.clone(),
+        status: error.status,
+        code: error.code.clone(),
+        error_type: error.error_type.clone(),
+        message_pattern: message_pattern.map(ToOwned::to_owned),
+    })
+}
+
+/// Recover high-confidence typed evidence when available, otherwise retain a
+/// low-confidence text hint for diagnostics only.
+pub(crate) fn context_overflow_evidence(error: &anyhow::Error) -> Option<ContextOverflowEvidence> {
+    if let Some(preflight) = error.downcast_ref::<crate::token_accounting::PreflightOverflow>() {
+        return Some(ContextOverflowEvidence::LocalPreflight {
+            input_tokens: preflight.input_tokens,
+            max_input_tokens: preflight.max_input_tokens,
+            source: preflight.source,
+            capacity_proof: preflight.capacity_proof.clone(),
+        });
+    }
+    if let Some(provider) = error.downcast_ref::<ProviderApiError>() {
+        if let Some(evidence) = structured_provider_overflow_evidence(provider) {
+            return Some(evidence);
+        }
+        if let Some(pattern) = provider
+            .message
+            .as_deref()
+            .and_then(|message| low_confidence_overflow_hint(&message.to_ascii_lowercase()))
+        {
+            return Some(ContextOverflowEvidence::TextHint {
+                pattern: pattern.to_string(),
+            });
+        }
+    }
+
+    low_confidence_overflow_hint(&error.to_string().to_ascii_lowercase()).map(|pattern| {
+        ContextOverflowEvidence::TextHint {
+            pattern: pattern.to_string(),
+        }
+    })
+}
+
+/// Classification for an executable model attempt. Tier 4 is authorized only
+/// by high-confidence typed evidence; free-form text falls through to normal
+/// retry/failover classification.
+pub fn classify_error_with_evidence(
+    error: &anyhow::Error,
+) -> (FailoverReason, Option<ContextOverflowEvidence>) {
+    if error
+        .downcast_ref::<crate::agent::ProviderDispatchUnknown>()
+        .is_some()
+    {
+        return (FailoverReason::DispatchUnknown, None);
+    }
+    if error
+        .downcast_ref::<crate::context_compact::group_admission::CurrentToolGroupEnvelopeOverflowError>()
+        .is_some()
+    {
+        return (FailoverReason::CurrentToolGroupOverflow, None);
+    }
+    let evidence = context_overflow_evidence(error);
+    let reason = if evidence
+        .as_ref()
+        .is_some_and(ContextOverflowEvidence::is_high_confidence)
+    {
+        FailoverReason::ContextOverflow
+    } else {
+        classify_error(&error.to_string())
+    };
+    (reason, evidence)
+}
+
 /// Classify an API error message into a `FailoverReason`.
 ///
 /// Checks HTTP-style status codes and well-known error patterns from
@@ -147,11 +474,6 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
 
     if lower.contains("evaluation budget exhausted") {
         return FailoverReason::EvaluationBudget;
-    }
-
-    // ── Context overflow (terminal — never fallback) ──────────────
-    if is_context_overflow(&lower) {
-        return FailoverReason::ContextOverflow;
     }
 
     // ── Rate limit (retryable) ────────────────────────────────────
@@ -251,21 +573,6 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
     }
 
     FailoverReason::Unknown
-}
-
-/// Check if an error message indicates context window overflow.
-/// These errors should NEVER trigger model fallback — a smaller context
-/// window model would produce an even worse result.
-fn is_context_overflow(lower: &str) -> bool {
-    lower.contains("context length exceeded")
-        || lower.contains("context_length_exceeded")
-        || lower.contains("context window")
-        || lower.contains("maximum context length")
-        || lower.contains("prompt is too long")
-        || lower.contains("token limit")
-        || lower.contains("max_tokens") && (lower.contains("exceed") || lower.contains("too large"))
-        || lower.contains("input too long")
-        || lower.contains("request too large")
 }
 
 // ── Retry with Backoff ────────────────────────────────────────────
@@ -644,15 +951,139 @@ mod tests {
     }
 
     #[test]
-    fn test_context_overflow() {
-        assert_eq!(
-            classify_error("This model's maximum context length is 200000 tokens"),
-            FailoverReason::ContextOverflow
+    fn free_text_context_hints_never_authorize_compaction() {
+        for message in [
+            "This model's maximum context length is 200000 tokens",
+            "context_length_exceeded",
+            "prompt is too long",
+        ] {
+            let error = anyhow::anyhow!(message);
+            let (reason, evidence) = classify_error_with_evidence(&error);
+            assert_eq!(reason, FailoverReason::Unknown);
+            assert!(matches!(
+                evidence,
+                Some(ContextOverflowEvidence::TextHint { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn known_provider_overflow_shapes_are_high_confidence() {
+        let fixtures = [
+            ProviderApiError::from_http_response(
+                "OpenAI Responses",
+                400,
+                r#"{"error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"This model's maximum context length is 128000 tokens. However, your messages resulted in 129000 tokens."}}"#,
+            ),
+            ProviderApiError::from_http_response(
+                "Anthropic",
+                400,
+                r#"{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 201000 tokens > 200000 maximum"}}"#,
+            ),
+            ProviderApiError::from_http_response(
+                "Codex",
+                400,
+                r#"{"error":{"type":"invalid_request_error","code":"context_window_exceeded","message":"Your input exceeds the context window of this model."}}"#,
+            )
+            .with_display("Codex API 错误 (400): 请求无法完成".to_string()),
+            ProviderApiError::from_stream_event(
+                "OpenAI Responses/Codex",
+                Some("context_length_exceeded"),
+                Some("invalid_request_error"),
+                Some("input rejected"),
+                "input rejected".to_string(),
+            ),
+        ];
+
+        for provider_error in fixtures {
+            let error = anyhow::Error::new(provider_error);
+            let (reason, evidence) = classify_error_with_evidence(&error);
+            assert_eq!(reason, FailoverReason::ContextOverflow);
+            assert!(evidence.is_some_and(|value| value.is_high_confidence()));
+        }
+    }
+
+    #[test]
+    fn local_preflight_overflow_is_high_confidence() {
+        let error = anyhow::Error::new(crate::token_accounting::PreflightOverflow {
+            input_tokens: 129_000,
+            max_input_tokens: 128_000,
+            source: crate::token_accounting::TokenCountSource::LocalTokenizer,
+            capacity_proof: None,
+        });
+        let (reason, evidence) = classify_error_with_evidence(&error);
+        assert_eq!(reason, FailoverReason::ContextOverflow);
+        assert!(matches!(
+            evidence,
+            Some(ContextOverflowEvidence::LocalPreflight {
+                input_tokens: 129_000,
+                max_input_tokens: 128_000,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn current_tool_group_c0_overflow_is_typed_terminal_not_provider_overflow() {
+        let error = anyhow::Error::new(
+            crate::context_compact::group_admission::CurrentToolGroupEnvelopeOverflowError {
+                capacity: crate::context_compact::group_admission::RequestCapacityCount::new(
+                    129_000, 8_000,
+                ),
+                context_window: 128_000,
+                safety_headroom: 2_000,
+            },
         );
-        assert_eq!(
-            classify_error("context_length_exceeded"),
-            FailoverReason::ContextOverflow
-        );
+
+        let (reason, evidence) = classify_error_with_evidence(&error);
+
+        assert_eq!(reason, FailoverReason::CurrentToolGroupOverflow);
+        assert!(reason.is_terminal());
+        assert!(!reason.is_retryable());
+        assert!(!reason.needs_compaction());
+        assert!(evidence.is_none());
+    }
+
+    #[test]
+    fn ambiguous_token_and_request_limits_do_not_authorize_compaction() {
+        let cases = [
+            (
+                "429 rate limit reached for this token limit tier",
+                FailoverReason::RateLimit,
+            ),
+            (
+                "reverse proxy rejected request too large",
+                FailoverReason::Unknown,
+            ),
+            (
+                "max_tokens exceeds the output token limit",
+                FailoverReason::Unknown,
+            ),
+        ];
+        for (message, expected_reason) in cases {
+            let error = anyhow::anyhow!(message);
+            let (reason, evidence) = classify_error_with_evidence(&error);
+            assert_eq!(reason, expected_reason, "{message}");
+            assert!(evidence.is_some_and(|value| !value.is_high_confidence()));
+        }
+
+        let proxy_error = anyhow::Error::new(ProviderApiError::from_http_response(
+            "OpenAI-compatible proxy",
+            413,
+            r#"{"error":{"type":"request_too_large","message":"request too large"}}"#,
+        ));
+        let (reason, evidence) = classify_error_with_evidence(&proxy_error);
+        assert_eq!(reason, FailoverReason::Unknown);
+        assert!(evidence.is_some_and(|value| !value.is_high_confidence()));
+
+        let untyped_bad_request = anyhow::Error::new(ProviderApiError::from_http_response(
+            "opaque proxy",
+            400,
+            r#"{"error":{"message":"prompt is too long"}}"#,
+        ));
+        let (reason, evidence) = classify_error_with_evidence(&untyped_bad_request);
+        assert_eq!(reason, FailoverReason::Unknown);
+        assert!(evidence.is_some_and(|value| !value.is_high_confidence()));
     }
 
     #[test]
@@ -668,6 +1099,8 @@ mod tests {
         assert!(FailoverReason::Unknown.is_retryable());
         assert!(!FailoverReason::Auth.is_retryable());
         assert!(!FailoverReason::ContextOverflow.is_retryable());
+        assert!(!FailoverReason::CurrentToolGroupOverflow.is_retryable());
+        assert!(!FailoverReason::DispatchUnknown.is_retryable());
     }
 
     #[test]
@@ -681,6 +1114,10 @@ mod tests {
         assert!(!FailoverReason::EvaluationBudget.is_retryable());
         assert!(!FailoverReason::EvaluationBudget.is_profile_rotatable());
         assert!(!FailoverReason::ContextOverflow.is_terminal());
+        assert!(FailoverReason::CurrentToolGroupOverflow.is_terminal());
+        assert!(FailoverReason::DispatchUnknown.is_terminal());
+        assert!(!FailoverReason::DispatchUnknown.is_retryable());
+        assert!(!FailoverReason::DispatchUnknown.is_profile_rotatable());
         assert!(!FailoverReason::RateLimit.is_terminal());
         assert!(!FailoverReason::Unknown.is_terminal());
     }
@@ -708,6 +1145,7 @@ mod tests {
         assert!(!FailoverReason::Timeout.is_profile_rotatable());
         assert!(!FailoverReason::ModelNotFound.is_profile_rotatable());
         assert!(!FailoverReason::ContextOverflow.is_profile_rotatable());
+        assert!(!FailoverReason::DispatchUnknown.is_profile_rotatable());
         assert!(!FailoverReason::Unknown.is_profile_rotatable());
     }
 

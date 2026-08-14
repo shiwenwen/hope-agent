@@ -160,6 +160,14 @@ impl SubagentDeliveryKind {
 pub enum SubagentTerminalReason {
     Success,
     ProviderExhausted,
+    /// The active tool-result group cannot fit even in its protocol-minimal
+    /// envelope after bounded old-history recovery. This is not a provider
+    /// outage and must never enter automatic provider-recovery continuation.
+    CurrentToolGroupOverflow,
+    /// A Provider request crossed its dispatch claim, but receipt/processing
+    /// could not be proven. Automatic continuation could duplicate work or
+    /// billing, so only an explicit manual continuation is appropriate.
+    DispatchUnknown,
     ModelError,
     ToolError,
     DeadlineExceeded,
@@ -182,6 +190,8 @@ impl SubagentTerminalReason {
         match self {
             Self::Success => "success",
             Self::ProviderExhausted => "provider_exhausted",
+            Self::CurrentToolGroupOverflow => "current_tool_group_overflow",
+            Self::DispatchUnknown => "dispatch_unknown",
             Self::ModelError => "model_error",
             Self::ToolError => "tool_error",
             Self::DeadlineExceeded => "deadline_exceeded",
@@ -202,6 +212,8 @@ impl SubagentTerminalReason {
         match value {
             "success" => Self::Success,
             "provider_exhausted" => Self::ProviderExhausted,
+            "current_tool_group_overflow" => Self::CurrentToolGroupOverflow,
+            "dispatch_unknown" => Self::DispatchUnknown,
             "model_error" => Self::ModelError,
             "tool_error" => Self::ToolError,
             "deadline_exceeded" => Self::DeadlineExceeded,
@@ -443,7 +455,7 @@ pub struct ParentAgentStreamEvent {
 
 #[cfg(test)]
 mod status_tests {
-    use super::SubagentStatus;
+    use super::{SubagentStatus, SubagentTerminalReason};
 
     #[test]
     fn queued_round_trips_and_is_non_terminal() {
@@ -456,6 +468,30 @@ mod status_tests {
         assert!(!SubagentStatus::Queued.is_terminal());
         // Unknown still falls back to Error (unchanged).
         assert_eq!(SubagentStatus::from_str("bogus"), SubagentStatus::Error);
+    }
+
+    #[test]
+    fn current_tool_group_overflow_is_durable_and_not_auto_recommended() {
+        let reason = SubagentTerminalReason::CurrentToolGroupOverflow;
+        assert_eq!(reason.as_str(), "current_tool_group_overflow");
+        assert_eq!(SubagentTerminalReason::from_str(reason.as_str()), reason);
+        assert!(!reason.resume_recommended());
+        assert!(
+            reason.resume_allowed(),
+            "an explicit continuation may compact the now-historical group"
+        );
+    }
+
+    #[test]
+    fn dispatch_unknown_is_durable_and_not_auto_recommended() {
+        let reason = SubagentTerminalReason::DispatchUnknown;
+        assert_eq!(reason.as_str(), "dispatch_unknown");
+        assert_eq!(SubagentTerminalReason::from_str(reason.as_str()), reason);
+        assert!(!reason.resume_recommended());
+        assert!(
+            reason.resume_allowed(),
+            "a user may explicitly continue after checking Provider activity"
+        );
     }
 }
 

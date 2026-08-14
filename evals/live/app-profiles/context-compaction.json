@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "eval-app-profile.v1",
+  "id": "context-compaction",
+  "version": "1.0.0",
+  "title": "上下文压缩专项",
+  "description": "用一个模型、一个对照臂和一次重复验证第 3 层语义摘要与 UTF-8 文件分页，总费用上限为 5 美元。",
+  "baseTier": "nightly",
+  "suites": [
+    {
+      "suiteId": "context-compaction",
+      "caseTags": [
+        "context_compaction"
+      ]
+    }
+  ],
+  "allowedArms": [
+    "control"
+  ],
+  "armMode": "one_control_per_case",
+  "defaultRepetitions": 1,
+  "useSuiteRepetitions": false,
+  "maxTrials": 2,
+  "maxModels": 1,
+  "maxConcurrency": 1,
+  "maxCostUsd": 5,
+  "maxTrialSeconds": 900,
+  "allowCustom": false
+}

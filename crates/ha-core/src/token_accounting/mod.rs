@@ -22,7 +22,7 @@ pub use resolver::{ResolvedTokenizer, TokenizerResolver, TOKENIZER_REGISTRY_VERS
 pub use service::{service, CompactionTokenCounter, TokenAccountingService};
 pub use tokenizer::{SyncTextTokenizer, TiktokenTokenizer, TokenizerError};
 pub use types::{
-    PreflightOverflow, ProviderFamily, RequestShape, TokenAccountingObservation, TokenBreakdown,
-    TokenCount, TokenCountConfidence, TokenCountRequest, TokenCountSource, TokenCountUnknown,
-    TokenizerId, UsageCoverage,
+    CapacityProofError, PreflightCapacityProof, PreflightOverflow, ProviderFamily, RequestShape,
+    TokenAccountingObservation, TokenBreakdown, TokenCount, TokenCountConfidence,
+    TokenCountRequest, TokenCountSource, TokenCountUnknown, TokenizerId, UsageCoverage,
 };

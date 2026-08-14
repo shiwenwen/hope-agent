@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "live-agent-scenario.v1",
+  "id": "HA-CTX-001",
+  "version": "1.0.0",
+  "title": "第 3 层摘要后保持早期事实",
+  "capabilities": [
+    "context_compaction"
+  ],
+  "businessDomains": [
+    "context_management"
+  ],
+  "subject": {
+    "entrypoint": "server",
+    "driver": "chat_task",
+    "configProfile": "eval-safe-context-compaction-v1"
+  },
+  "environment": {
+    "runnerClass": "dedicated_linux",
+    "assets": [],
+    "services": [],
+    "controlledClock": false
+  },
+  "task": {
+    "promptPath": "fixtures/task.zh-CN.md",
+    "hiddenTruthPath": "verifiers/truth.json",
+    "successSummary": "执行真实第 3 层摘要并准确复述摘要前后的合成交接事实"
+  },
+  "userSimulator": {
+    "kind": "scripted_fsm",
+    "scriptPath": "fixtures/turns.json",
+    "maxTurns": 9
+  },
+  "milestones": [
+    {
+      "id": "scripted_compact_context_1",
+      "requires": [],
+      "anyOf": [],
+      "weight": 0.4,
+      "blocking": true
+    },
+    {
+      "id": "facts_preserved",
+      "requires": [
+        "scripted_compact_context_1"
+      ],
+      "anyOf": [],
+      "verifier": "facts_preserved",
+      "weight": 0.5,
+      "blocking": true
+    },
+    {
+      "id": "trace_terminal",
+      "requires": [
+        "facts_preserved"
+      ],
+      "anyOf": [],
+      "verifier": "trace_closed",
+      "weight": 0.1,
+      "blocking": true
+    }
+  ],
+  "faults": [],
+  "verifiers": [
+    {
+      "id": "facts_preserved",
+      "kind": "http_assertion",
+      "handler": "response_json_exact",
+      "configPath": "verifiers/expected-response.json",
+      "blocking": true,
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "trace_closed",
+      "kind": "trace_assertion",
+      "handler": "trace_closed",
+      "blocking": true,
+      "timeoutSeconds": 30
+    }
+  ],
+  "invariants": [
+    {
+      "id": "no_orphan_children",
+      "kind": "parent_child_closed",
+      "blocking": true
+    },
+    {
+      "id": "root_closed_once",
+      "kind": "exactly_once",
+      "event": "session.root.closed",
+      "key": "sessionId",
+      "blocking": true
+    }
+  ],
+  "artifacts": [],
+  "budgets": {
+    "maxWallSeconds": 900,
+    "maxModelCalls": 12,
+    "maxInputTokens": 80000,
+    "maxOutputTokens": 12000,
+    "maxCostUsd": 2,
+    "maxToolCalls": 1,
+    "maxAgents": 1,
+    "maxConcurrency": 1
+  },
+  "network": {
+    "policy": "provider_only",
+    "allow": []
+  },
+  "privacy": {
+    "classification": "synthetic",
+    "redact": [
+      "authorization",
+      "api_key",
+      "cookie"
+    ],
+    "rawTraceRetentionDays": 14
+  },
+  "cadence": [
+    "nightly"
+  ]
+}

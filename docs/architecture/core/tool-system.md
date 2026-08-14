@@ -506,9 +506,9 @@ flowchart TD
     A["模型响应含 tool_calls[]"] --> B["按 is_concurrent_safe() 分组"]
     B --> C["第一趟：并发安全组 → join_all() 并行"]
     C --> D["第二趟：串行组 → for loop 逐个"]
-    D --> E["结果合并为 tool_results[] 推入历史"]
-    E --> F["Tier 1 截断检查"]
-    F --> G["下一轮 API 调用（或退出 loop）"]
+    D --> E["按模型原始 call ordinal<br/>收集 PostToolUse-effective 结果组"]
+    E --> F["Tier 1 C0 接纳 + 组预算规划<br/>完整请求终验"]
+    F --> G["一次追加 canonical/request<br/>下一轮 API 调用（或退出 loop）"]
 ```
 
 每个工具执行都通过 `tokio::select!` 与 cancel flag 竞争，cancel 分支必须排在 dispatch 前；进入 executor 前还要再检查一次，使并发批次里等 semaphore 的调用在用户停止后不会补启动。
@@ -715,23 +715,19 @@ A wakeup you scheduled earlier has fired. Continue the work you set this timer f
 
 ---
 
-## 工具结果磁盘持久化
+## 工具结果接纳与 ResultStore
 
-工具返回结果超过阈值时自动写入磁盘，避免大输出长期占用上下文：
+普通文本工具结果的唯一接纳点在 **PostToolUse 之后、Provider adapter 之前**。执行层不再把 hook 前 raw 正文写进 `~/.hope-agent/tool_results/`，也不把绝对路径拼进模型/UI 结果；否则 hook rewrite/脱敏会被旧正文旁路。当前流程是：
 
-- **阈值**：默认 50,000 字节（约 50KB），`config.json` → `toolResultDiskThreshold` 配置（`0` = 禁用）
-- **存储路径**：`~/.hope-agent/tool_results/{session_id}/{tool_name}_{timestamp}.txt`
-- **上下文内容**：head 2KB + `[...N bytes omitted...]` + tail 1KB + 路径引用
-- **访问方式**：模型可用 `read` 工具读完整文件
-- **视觉输出例外**：含图片 marker 的结果不能按普通文本 head/tail 截断；合法图片 marker 完整保留或物化为受管 `__IMAGE_FILE__` 交给 Provider 视觉输入，非法/损坏 marker 只返回纯文本落盘引用，避免把半截 base64 当图片发送
+1. 工具执行完成，只记录大小、状态和 installation-keyed 短指纹，不记录正文/路径；
+2. PostToolUse 可改写 effective output；发生 rewrite 时丢弃 hook 前媒体引用，additional context 另作有界一次性请求数据，不进入 ResultStore/UI/readback；
+3. 为每次 occurrence 写会话授权元数据，并为前台纯文本构造 C0≈2KiB、4/8/16KiB、可选 full-exact（≤64KiB）候选；
+4. 当前完整工具组按模型 call ordinal 一次规划，canonical 只接纳最终协议合法投影；Tier 0/2 后续只改 request projection；
+5. `tool_result_meta` / `tool_result_read` 只接受不透明 `result_id` + 当前 session/durable turn 授权，并受每页与每 turn 总预算约束。ID、hash 或路径本身从不是 bearer capability。
 
-```mermaid
-flowchart TD
-    A["工具返回 200KB 结果"] --> B{"result.len() > threshold?"}
-    B -- 是 --> C["写入 ~/.hope-agent/tool_results/<session>/read_<ts>.txt"]
-    C --> D["返回 head + omitted + tail + 路径引用<br/>提示用 read 工具取全文"]
-    B -- 否 --> E["原文返回给模型"]
-```
+ResultStore 已有 object/occurrence/session-ref、加密正文、游标读取、hold/GC 的数据模型，但 `kernel_private_storage_available()` 当前固定为 `false`：同一 OS 用户下的后续 host/YOLO shell 仍可能读取普通文件和密钥，可逆的 `isolated` 设置不能证明长期私有边界。因此新普通文本正文只持久化 `availability=lost` 元数据，模型看到有界投影但**没有**磁盘路径、假 `result_id` readback 或 raw fallback。`toolResultDiskThreshold` 暂为兼容配置，不代表正文能力已开启；只有内核私有根与密钥对任何后续模型工具/子进程都不可达时才能开放 writer/readback。
+
+分页工具必须与该边界协同：`read` 的完整 UTF-8 页（包含 continuation cursor）最多约 2KiB，作为 Tier 1 singleton exact C0；byte cursor 只跨过模型实际收到的字节。这样模型可以连续读完整个大文件，不会因为 head/tail 预览已经把 cursor 推到页尾而永久跳过中段。
 
 ---
 
@@ -773,7 +769,7 @@ __MEDIA_ITEMS__[{"url":"/api/attachments/<session>/<file>","localPath":"/abs/pat
 - 任意工具结果伪造的普通 `/Users/...` 路径不得被自动读取
 - marker 一旦被截断、混入 `[...bytes omitted...]`、缺分隔符，必须降级为普通文本，不得生成 Provider 图片输入
 
-图片 marker 是机器可解析载荷，因此大结果落盘、Tier 1/2 上下文压缩都不得制造"半截 marker"；要裁剪视觉结果时应移除图片载荷并保留文本说明/文件路径。
+图片 marker 是机器可解析载荷，因此媒体物化、Tier 1 接纳和 Tier 0/2 请求投影都不得制造“半截 marker”；要降档视觉结果时应保留类型化媒体引用，或移除图片载荷并留下有界文本说明，不能暴露未经授权的主机路径。
 
 关键实现：
 
@@ -781,7 +777,7 @@ __MEDIA_ITEMS__[{"url":"/api/attachments/<session>/<file>","localPath":"/abs/pat
 | --- | --- |
 | [`ha-core/src/tools/image_markers.rs`](../../../crates/ha-core/src/tools/image_markers.rs) | 解析/校验两类 marker，文件路径安全检查，按需读取并编码 |
 | [`ha-core/src/agent/events.rs`](../../../crates/ha-core/src/agent/events.rs) | 把 marker 转成各 Provider 标准图片输入；解析/编码失败时降级为文本说明，绝不把内部 marker 回灌模型 |
-| [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | 大结果落盘、内联图片物化、对 marker 做完整性保护 |
+| [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | 工具执行、内联图片物化、对 marker 做完整性保护；普通文本正文不在此落盘 |
 | [`ha-core/src/context_compact/truncation.rs`](../../../crates/ha-core/src/context_compact/truncation.rs) | Tier 1 截断时保护图片 marker |
 | [`ha-browser/src/tool/mod.rs`](../../../crates/ha-browser/src/tool/mod.rs) | browser 截图存为 session attachment，用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
 | [`ha-mac/src/tool.rs`](../../../crates/ha-mac/src/tool.rs) | `visual.observe` 把受管截图包装为 `__IMAGE_FILE__` 供模型视觉定位 |
@@ -794,16 +790,9 @@ flowchart TD
     Run --> HasImageMarker{"含合法图片 marker?"}
     HasImageMarker -->|"base64 可物化"| Materialize["写入 tool_results/<br/>替换为 __IMAGE_FILE__"]
     HasImageMarker -->|"file marker 或物化失败"| PreserveVisual["保留完整 marker<br/>禁止 head/tail 截断"]
-    HasImageMarker -->|否| IsLarge{"raw 超过 threshold?"}
+    HasImageMarker -->|否| AdmitText["PostToolUse 后进入 ResultStore admission<br/>正文 gate 关闭时只记 lost + 有界投影"]
     Materialize --> PreserveVisual
-    IsLarge -- 否 --> Inline["完整 raw result 返回"]
-    IsLarge -- 是 --> AnyMarker{"含图片 marker 前缀?"}
-    AnyMarker -- 否 --> PersistText["落盘 → head+omitted+tail+路径引用"]
-    AnyMarker -- 是 --> PersistVisualText["落盘 → 纯文本路径引用<br/>不保留 marker 前缀"]
-
-    Inline --> StripMedia["extract_media_items()<br/>剥离 __MEDIA_ITEMS__ 前缀"]
-    PersistText --> StripMedia
-    PersistVisualText --> StripMedia
+    AdmitText --> StripMedia["extract_media_items()<br/>剥离 __MEDIA_ITEMS__ 前缀"]
     PreserveVisual --> StripMedia
     StripMedia --> EmitEvent["emit tool_result 事件<br/>result=文本/marker · media_items=UI 附件"]
     EmitEvent --> PersistDb["SessionDB 更新 messages.tool_result"]
@@ -830,10 +819,10 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    T0["Tier 0 微压缩<br/>零成本清旧临时工具结果"] --> T1["Tier 1 截断<br/>单个过大结果 head+tail"]
-    T1 --> T2["Tier 2 裁剪<br/>旧工具结果 soft-trim / hard-clear"]
+    T0["Tier 0 微压缩<br/>无需额外 LLM 的 request-only 清理"] --> T1["Tier 1 接纳<br/>当前完整结果组 C0→富候选"]
+    T1 --> T2["Tier 2 裁剪<br/>旧工具结果 request-only 降档"]
     T2 --> T3["Tier 3 LLM 摘要<br/>调用模型压缩旧消息"]
-    T3 --> T4["Tier 4 紧急<br/>清所有工具结果 + 只留最近 N 轮"]
+    T3 --> T4["Tier 4 紧急恢复<br/>容量证书 + 用户/协议硬边界 + 下一安全点 Tier 3"]
 ```
 
 ---
@@ -989,7 +978,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动把 `PLAN_MODE_DENIED_TOOLS` 
 | [`ha-core/src/agent/mod.rs`](../../../crates/ha-core/src/agent/mod.rs) | `build_tool_schemas()` / `build_full_system_prompt()` 共享 `resolve_tool_fate` 单一注入决策；`tool_context()` 构建 ToolExecContext |
 | [`ha-core/src/system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) | `build_tools_section()` / `build_deferred_tools_section()` 渲染 eager 描述段 / deferred 一行索引 |
 | [`ha-core/src/tools/tool_search.rs`](../../../crates/ha-core/src/tools/tool_search.rs) | `tool_search`：按当前 Agent/Skill/Plan 限制过滤可发现工具 + v2 metadata 加权检索 |
-| [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | 工具执行入口、审批门接线（`resolve_async`）、Plan Mode 路径检查、大结果落盘、图片 marker 处理 |
+| [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | 工具执行入口、审批门接线（`resolve_async`）、Plan Mode 路径检查、图片 marker 物化；普通文本交 PostToolUse 接纳 |
 | [`ha-core/src/tools/exec.rs`](../../../crates/ha-core/src/tools/exec.rs) | exec 独立命令级审批逻辑 |
 | [`ha-core/src/permission/`](../../../crates/ha-core/src/permission/) | 审批引擎（`engine.rs` / `mode.rs` `SessionMode`+`SandboxMode` / `allowlist.rs` scoped allowlist），详见 [permission-system](../agent/permission-system.md) |
 | [`ha-core/src/agent_config.rs`](../../../crates/ha-core/src/agent_config.rs) | `FilterConfig` · `CapabilitiesConfig`（`enable_custom_tool_approval` / `custom_approval_tools` / `mcp_enabled` / `async_tool_policy` / `default_session_permission_mode`）· `SubagentConfig.denied_tools` |

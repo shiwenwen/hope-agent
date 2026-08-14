@@ -33,6 +33,14 @@ const RECOVERY_HEADER: &str =
 #[derive(Debug, Clone)]
 pub struct RecoveryContext<'a> {
     pub session_working_dir: Option<&'a Path>,
+    /// Provenance-checked file bindings keyed by the exact logical path that
+    /// appeared in the historical tool call. A historical tool argument is
+    /// not authorization by itself: denied/failed/sandboxed calls can still be
+    /// present in provider history. Callers must therefore supply a binding
+    /// produced by the durable tool-result/file ledger before recovery may
+    /// open any host file. `None` fail-closes body recovery while still
+    /// returning file-touch metadata for the runtime ledger.
+    pub authorized_files: Option<&'a HashMap<String, PathBuf>>,
     pub tokens_freed: u32,
     /// Optional caller-provided ceiling for the total recovery payload. This is
     /// used to keep summary + ledger + recovery under a shared injection budget.
@@ -148,7 +156,28 @@ pub fn build_recovery_message(
             break;
         }
 
-        let abs_path = resolve_recovery_path(path, ctx.session_working_dir);
+        let Some(authorized_path) = ctx
+            .authorized_files
+            .and_then(|authorized| authorized.get(path))
+        else {
+            result.skipped_files.push(SkippedFile {
+                path: path.clone(),
+                reason: "unverified_file_provenance".to_string(),
+            });
+            continue;
+        };
+
+        let abs_path =
+            match resolve_authorized_recovery_path(authorized_path, ctx.session_working_dir) {
+                Ok(path) => path,
+                Err(reason) => {
+                    result.skipped_files.push(SkippedFile {
+                        path: path.clone(),
+                        reason: reason.to_string(),
+                    });
+                    continue;
+                }
+            };
 
         match std::fs::read_to_string(&abs_path) {
             Ok(content) => {
@@ -235,17 +264,41 @@ pub fn build_recovery_message(
     result
 }
 
-fn resolve_recovery_path(path: &str, session_working_dir: Option<&Path>) -> PathBuf {
-    let p = Path::new(path);
-    if p.is_absolute() {
-        return p.to_path_buf();
+fn resolve_authorized_recovery_path(
+    authorized_path: &Path,
+    session_working_dir: Option<&Path>,
+) -> Result<PathBuf, &'static str> {
+    if !authorized_path.is_absolute() {
+        return Err("authorized_path_not_absolute");
     }
+
+    let link_metadata =
+        std::fs::symlink_metadata(authorized_path).map_err(|_| "authorized_path_unavailable")?;
+    if link_metadata.file_type().is_symlink() {
+        return Err("authorized_path_is_symlink");
+    }
+    if !link_metadata.is_file() {
+        return Err("authorized_path_not_file");
+    }
+
+    let canonical = authorized_path
+        .canonicalize()
+        .map_err(|_| "authorized_path_canonicalize_failed")?;
+
+    // Workspace-backed bindings remain confined to the canonical session
+    // workspace. Managed immutable objects may deliberately live outside the
+    // workspace, so containment is enforced only when the authorized binding
+    // itself points below the supplied working directory.
     if let Some(cwd) = session_working_dir {
-        return cwd.join(p);
+        let canonical_cwd = cwd
+            .canonicalize()
+            .map_err(|_| "working_dir_canonicalize_failed")?;
+        if authorized_path.starts_with(cwd) && !canonical.starts_with(canonical_cwd) {
+            return Err("authorized_path_escaped_working_dir");
+        }
     }
-    std::env::current_dir()
-        .map(|cwd| cwd.join(p))
-        .unwrap_or_else(|_| p.to_path_buf())
+
+    Ok(canonical)
 }
 
 fn escape_xml_attr(value: &str) -> String {
@@ -605,8 +658,11 @@ mod tests {
             }]
         })];
         let config = CompactConfig::default();
+        let canonical_file = dir.join("src/lib.rs").canonicalize().unwrap();
+        let authorized_files = HashMap::from([("src/lib.rs".to_string(), canonical_file)]);
         let ctx = RecoveryContext {
             session_working_dir: Some(&dir),
+            authorized_files: Some(&authorized_files),
             tokens_freed: 10_000,
             max_total_bytes: Some(10_000),
             config: &config,
@@ -640,6 +696,7 @@ mod tests {
         let config = CompactConfig::default();
         let ctx = RecoveryContext {
             session_working_dir: None,
+            authorized_files: None,
             tokens_freed: 10_000,
             max_total_bytes: Some(0),
             config: &config,
@@ -648,6 +705,40 @@ mod tests {
         let result = build_recovery_message(&summarized, &[], &ctx);
         assert!(result.message.is_none());
         assert_eq!(result.skipped_files[0].reason, "recovery_budget_too_small");
+    }
+
+    #[test]
+    fn recovery_does_not_treat_historical_tool_arguments_as_authority() {
+        let dir = temp_recovery_dir("unverified-provenance");
+        fs::write(dir.join("secret.txt"), "must not be injected").unwrap();
+        let summarized = vec![json!({
+            "role": "assistant",
+            "content": [{
+                "type": "tool_use",
+                "id": "tc-denied",
+                "name": "write",
+                "input": { "path": "secret.txt", "content": "never executed" }
+            }]
+        })];
+        let config = CompactConfig::default();
+        let ctx = RecoveryContext {
+            session_working_dir: Some(&dir),
+            authorized_files: None,
+            tokens_freed: 10_000,
+            max_total_bytes: Some(10_000),
+            config: &config,
+        };
+
+        let result = build_recovery_message(&summarized, &[], &ctx);
+        assert!(result.message.is_some());
+        assert!(result.recovered_files.is_empty());
+        assert_eq!(result.skipped_files[0].reason, "unverified_file_provenance");
+        let rendered = result.message.unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(!rendered.contains("must not be injected"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

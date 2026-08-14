@@ -251,9 +251,18 @@ impl StreamPersister {
                     let description = data
                         .and_then(|d| d.get("description"))
                         .and_then(|d| d.as_str());
+                    let is_summary_failure = matches!(
+                        description,
+                        Some(
+                            "summarization_timed_out"
+                                | "summarization_timed_out_sync_compaction_only"
+                                | "summarization_not_applied"
+                                | "summarization_not_applied_sync_compaction_only"
+                        )
+                    );
                     let is_start_marker =
                         matches!(description, Some("summarizing" | "emergency_compacting"));
-                    if tier >= 2 && !is_start_marker {
+                    if (tier >= 2 || is_summary_failure) && !is_start_marker {
                         if !me.journal_only {
                             if let Err(error) = me.db.append_message(
                                 &me.session_id,
@@ -947,5 +956,39 @@ mod tests {
         assert!(!messages
             .iter()
             .any(|msg| { msg.role == MessageRole::TextBlock && msg.content == "failed partial" }));
+    }
+
+    #[test]
+    fn summary_failure_is_persisted_without_a_lower_tier_mutation() {
+        let db = temp_db();
+        let session_id = session_with_user(&db);
+        let persister = StreamPersister::new(db.clone(), session_id.clone(), ChatSource::Desktop);
+        let cb = persister.build_callback();
+
+        cb(
+            r#"{"type":"context_compacted","data":{"tier_applied":0,"description":"summarization_not_applied","messages_affected":0}}"#,
+        );
+
+        let messages = db.load_session_messages(&session_id).unwrap();
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::Event && msg.content.contains("summarization_not_applied")
+        }));
+    }
+
+    #[test]
+    fn tier_one_micro_compaction_remains_live_only() {
+        let db = temp_db();
+        let session_id = session_with_user(&db);
+        let persister = StreamPersister::new(db.clone(), session_id.clone(), ChatSource::Desktop);
+        let cb = persister.build_callback();
+
+        cb(
+            r#"{"type":"context_compacted","data":{"tier_applied":1,"description":"tool_results_truncated","messages_affected":1}}"#,
+        );
+
+        let messages = db.load_session_messages(&session_id).unwrap();
+        assert!(!messages
+            .iter()
+            .any(|msg| msg.content.contains("tool_results_truncated")));
     }
 }

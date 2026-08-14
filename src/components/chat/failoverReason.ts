@@ -6,6 +6,8 @@ const REASON_KEYS: Record<string, string> = {
   billing: "reasonBilling",
   model_not_found: "reasonModelNotFound",
   context_overflow: "reasonContextOverflow",
+  current_tool_group_overflow: "reasonContextOverflow",
+  dispatch_unknown: "reasonDispatchUnknown",
   unknown: "reasonUnknown",
 }
 

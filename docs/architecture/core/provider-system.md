@@ -194,7 +194,7 @@ Codex 变体特殊：它不带 `api_key`，而是 `access_token` + `account_id`�
 | `denied_tools` | Vec\<String\> | 基于深度的工具策略 |
 | `plan_agent_mode` | `ArcSwap<PlanAgentMode>` | Plan / Executing 双 Agent 模式，用 ArcSwap 支持 turn 中途无锁切换 |
 
-关键约束：`conversation_history` 是**唯一一份对话真相**，活在内存里逐轮追加。它是"历史标准化"（第 6 节）和"双轨落盘"（第 8 节）共同围绕的对象。
+关键约束：已提交的 canonical `conversation_history` 是**会话上下文真相**；主工具循环另维护本次请求专用 projection。Tier 1 接纳后的 provider-native delta 同时追加到两者，Tier 0/2 只改变 request projection，checkpoint / crash recovery / `context_json` 只写 canonical。它们共同经过“历史标准化”（第 6 节），但只有冻结后的 request projection 进入 Provider body。
 
 ### 2.3 Chat 分发
 
@@ -233,14 +233,15 @@ flowchart TD
   API --> PARSE["解析 SSE → 发射事件到前端"]
   PARSE --> TOOL{"有 tool_call?"}
   TOOL -->|是| EXEC["执行工具 → 回传结果"] --> PARSE
-  TOOL -->|否| SAVE["SessionDB::save_context()"]
-  SAVE --> OK["返回 Ok(text)"]
+  TOOL -->|否| SAVE["commit_assistant_turn<br/>assistant + canonical context + run/plan 终态"]
+  SAVE --> OK["返回 committed Ok(text)"]
 
-  CHAT -->|失败| CLASSIFY["classify_error()"]
+  CHAT -->|失败| CLASSIFY["classify_error_with_evidence()<br/>typed evidence 优先"]
   CLASSIFY -->|retryable| RETRY["指数退避重试"] --> CHAT
-  CLASSIFY -->|overflow| EMERGENCY["紧急压缩"] --> CHAT
-  CLASSIFY -->|terminal| NEXT["跳下一模型"] --> BUILD
-  CLASSIFY -->|全部失败| ERR["返回 Err"]
+  CLASSIFY -->|"ContextOverflow + 匹配完整容量证书"| EMERGENCY["proof-gated Tier 4<br/>原子 emergency checkpoint"] --> CHAT
+  CLASSIFY -->|"terminal"| ABORT["commit_interrupted_turn<br/>禁止自动重试/换模型"] --> ERR["返回 typed Err"]
+  CLASSIFY -->|"非 terminal 耗尽；或证书不足但仍可安全 fallback"| NEXT["跳下一模型"] --> BUILD
+  CLASSIFY -->|"不可安全重放 / 全链失败"| ERR
 ```
 
 ### 3.2 事件流
@@ -404,7 +405,7 @@ SSE 事件处理：
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` 头
 - **终端登录**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，成功后写 `~/.hope-agent/credentials/auth.json` 并调 `ensure_codex_provider_persisted(...)`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>`
 - **内置模型目录三处必须同步**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()`（id 集合 + 顺序一致，单测锁长度）。`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——**不是**列表里的旗舰 `gpt-5.6-sol`。原因：GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
-- **重试与降级**：Codex adapter 保留 3 次传输层 retry（1s/2s/4s），每次通过流式 `model_retry` 提示用户并注册 `recovery_id` 允许 GUI 跳过等待；adapter 不掌握外层模型链，故不提供"立即换模型"。执行器不再对 Codex 的 retryable 错误叠加同模型 retry，裸 500/504 也统一归为 Overloaded，避免 adapter × executor 放大重试
+- **重试与降级**：Codex adapter 的一次 dispatch claim 严格只发送一次，不在内部隐藏传输层重试。明确未发送或收到完整 HTTP 拒绝的 retryable 错误由外层执行器按 policy 退避；每次重试都重新准备精确正文、建立新计划并取得新 claim。收到响应前发送状态未知、流中断或 WAL 收敛失败统一进入 `DispatchUnknown`，禁止自动重发；Codex 仍不参与 profile 轮换，只有**非 terminal** 错误耗尽当前模型后才允许外层 fallback model 链换模型
 - **不参与 profile 轮换**：OAuth 无 api_key profile，执行器硬编码跳过 Codex 的 profile 选择；凭据失败直接走标准失败路径到下一模型
 - **构造期失败保活**：`ensure_codex_provider_persisted` 保证 token 缺失或构造异常时配置仍持久化，下次手动登录即可补回，不会被静默移除
 
@@ -532,16 +533,18 @@ flowchart LR
 
 ### 7.1 错误分类
 
-`failover/mod.rs` 的 `classify_error(error_text)` 把裸错误文本映射成 `FailoverReason`，再由这个 reason 决定重试还是降级：
+生产调用由 `classify_error_with_evidence(error)` 先消费 typed 请求状态和 Provider 结构化字段；只有缺少类型证据时才用 `classify_error(error_text)` 做兼容分类。发送状态安全边界永远覆盖字符串相似度：
 
 ```mermaid
 flowchart TD
-  ERR["classify_error(error_text)"] --> R{"FailoverReason"}
+  ERR["classify_error_with_evidence(error)"] --> R{"FailoverReason"}
 
   R -->|"429 / rate limit / throttl"| RL["RateLimit<br/>同模型重试（可轮换密钥）"]
   R -->|"500/502/503/504/521/522/524 / overloaded"| OL["Overloaded<br/>同模型重试"]
-  R -->|"网络超时 / 连接错误 / body 中断"| TO["Timeout<br/>同模型重试"]
-  R -->|"上下文溢出关键词"| CO["ContextOverflow<br/>紧急压缩后重试（不降级）"]
+  R -->|"确定未发送的网络错误"| TO["Timeout<br/>同模型重试"]
+  R -->|"typed 高置信溢出证据"| CO["ContextOverflow<br/>有完整容量证书才允许 Tier 4"]
+  R -->|"当前组 C0 仍放不下"| CG["CurrentToolGroupOverflow<br/>终态，不重跑工具"]
+  R -->|"claim 后发送状态未知"| DU["DispatchUnknown<br/>终态，等待显式新前台意图"]
   R -->|"401/403 / unauthorized"| AU["Auth<br/>跳下一模型"]
   R -->|"402 / quota / billing"| BI["Billing<br/>跳下一模型"]
   R -->|"404 / model not found"| NF["ModelNotFound<br/>跳下一模型"]
@@ -550,10 +553,10 @@ flowchart TD
 
 几个要点：
 
-- **ContextOverflow 不是终态**——它触发紧急压缩后重试同一模型，因为换一个上下文更小的模型只会更糟。
+- **ContextOverflow 不是终态，但也不自动等于 Tier 4**——只有与失败请求绑定的本地完整容量证书、可重放工具边界和压缩后完整请求证明全部成立，才发布紧急 history；裸 overflow 文本或只有 Provider 结构化 evidence 时不改历史。
 - **Overloaded 覆盖一大票 5xx**（含 Cloudflare 的 521/522/524）。
-- **body 中途被截断**（部分服务商高负载时会先回 200 头、再掐断流）归到 **Timeout**，不进 Overloaded——匹配 `error decoding response body` / `connection closed before message completed` 关键词。
-- 还有一个 `EvaluationBudget` reason，专用于确定性评测触顶（"evaluation budget exhausted"），不属于线上降级路径。
+- **请求阶段决定是否可重试**：dispatch claim 前且能证明零字节发送的连接错误可归 Timeout；claim 后、headers 前的失败是 `DispatchUnknown`；headers 后的 SSE 中断是已开始响应但不完整，由持久终态收敛，二者都不自动重发。
+- `EvaluationBudget`、`CurrentToolGroupOverflow`、`DispatchUnknown` 都是 terminal；前者用于确定性评测，后两者是线上安全终态。
 
 ### 7.2 模型链解析
 
@@ -589,10 +592,11 @@ flowchart TD
   MODEL --> BUILD["build_agent_from_snapshot()"]
   BUILD --> CHAT["agent.chat()"]
 
-  CHAT -->|成功| SAVE["SessionDB::save_context() → return Ok"]
-  CHAT -->|失败| CLASSIFY["classify_error()"]
+  CHAT -->|成功| SAVE["commit_assistant_turn<br/>canonical context + run/plan 终态 → return Ok"]
+  CHAT -->|失败| CLASSIFY["classify_error_with_evidence()"]
 
-  CLASSIFY -->|"ContextOverflow（首次）"| COMPACT["emergency_compact()"] --> CHAT
+  CLASSIFY -->|"ContextOverflow + 本地容量证书（首次）"| COMPACT["proof-gated emergency_compact()"] --> CHAT
+  CLASSIFY -->|"CurrentToolGroupOverflow / DispatchUnknown"| ABORT
   CLASSIFY -->|"retryable 且未超次数"| BACKOFF["sleep(1s × 2^retry)"] --> CHAT
   CLASSIFY -->|"terminal"| ABORT["return Err 立即终止"]
   CLASSIFY -->|"其他"| NEXT{"还有模型?"}
@@ -600,6 +604,14 @@ flowchart TD
   NEXT -->|是| MODEL
   NEXT -->|否| FAIL["return Err 全部失败"]
 ```
+
+### 7.4 精确请求、单次发送与响应完成证明
+
+主对话在 Provider adapter 内分成 `prepare_round_request` 与 `dispatch_prepared` 两段。prepare 生成最终 JSON bytes 和不含凭据的 identity（Provider/model/shape、endpoint kind、content type、长度、keyed fingerprint）；WAL 先发布 request-local projection plan 与 context fence，再在网络 I/O 前取得唯一 dispatch claim。实际 POST 直接发送这份冻结 bytes，禁止 `.json()` 二次序列化；HTTP client 显式关闭 redirect 和 reqwest transparent retry，所以一个 claim 恰好对应一个 send。Authorization、API key、OAuth token 和 account token 只存在于传输 header，不进入 exact payload 或日志。
+
+收到 HTTP headers 立即记录 `response_started`。之后只有 Provider 自己的终止证明才算成功：Anthropic=`message_stop`，OpenAI Chat=`[DONE]` + 非空合法 `finish_reason`（tool call 还要求完整参数），Responses/Codex=`response.completed`。SSE 以 byte buffer 跨 HTTP chunk 分帧后再严格 UTF-8 解码；非法 UTF-8、EOF 残帧、解析错误、半截 tool call 或缺终止事件全部失败关闭，不能把 partial output 当成功继续执行工具。
+
+主请求 exact WAL 的恢复矩阵是：未联网的 `context_committed` 可安全撤销；遗留 `dispatching` 转 `send_unknown`；`response_started` 无完整终止证明转 `terminal(response_incomplete)`；`send_unknown` 永不自动 supersede/retry。下一次用户显式发起新的前台 run 时，系统在任何网络动作前原子把旧歧义收敛为 `manual_retry_as_new`。这套生产接线当前只覆盖主请求；Tier 3 summary/side query 仍使用各自的一次性执行器，没有持久 exact-body WAL。
 
 ---
 
@@ -617,16 +629,16 @@ graph TB
       M2["流式回调中逐条实时写入"]
       M3["前端分页加载 + FTS5 全文搜索 + token 统计"]
     end
-    subgraph CH2["通道 2: sessions.context_json — 面向模型上下文"]
+    subgraph CH2["通道 2: sessions.context_json + checkpoints — canonical 模型上下文"]
       C1["整段 conversation_history 序列化为 JSON"]
-      C2["对话成功结束后一次性写入"]
+      C2["初始/工具边界 checkpoint<br/>成功或中断终态受 revision/attempt/plan 守卫提交"]
       C3["下一轮 restore_agent_context() 整体加载"]
       C4["保留 Provider 特有格式，直接喂 API 无需转换"]
     end
   end
 ```
 
-一句话：`messages` 是**行式的、给人看的**；`context_json` 是**整块的、给模型看的**。前者方便分页/搜索/统计，后者保留原始 API 形状省去每轮转换。
+一句话：`messages` 是**行式的人类/工具投影**；`context_json` 与 stream checkpoint 是**整块的 canonical 模型上下文**。前者方便分页/搜索/统计，后者保留 Provider-native API 形状并由 revision、run/attempt 和 active request plan 共同保护。任何一方都不能单独冒充完整 exact request body。
 
 ### 8.2 通道 1：messages 表
 
@@ -676,8 +688,8 @@ flowchart TD
   FLUSH --> IT["INSERT tool（call_id, name, arguments）"]
 
   DONE["chat 完成后"] --> FKREM["flush 剩余 pending_thinking → INSERT thinking_block"]
-  DONE --> ASST["INSERT assistant（content + thinking + tokens + model + ttft）"]
-  DONE --> CTX["SessionDB::save_context() → UPDATE context_json"]
+  DONE --> FINAL["commit_assistant_turn<br/>assistant + canonical context CAS + turn/run/request-plan 终态（同事务）"]
+  FAIL["失败 / 取消 / 崩溃恢复"] --> INTERRUPT["commit_interrupted_turn<br/>durable prefix + canonical context + typed interrupt/request-plan 终态"]
 ```
 
 **消息角色**（`MessageRole` 枚举）：
@@ -695,7 +707,7 @@ flowchart TD
 
 ### 8.3 通道 2：context_json
 
-写入走 `SessionDB::save_context(session_id, context_json)`（另有 `save_context_at_revision` / `save_context_if_unchanged` 两个修订守卫变体，防并发覆盖）：把 `agent.get_conversation_history()` 整体 `serde_json::to_string` 后 `UPDATE sessions SET context_json`。加载走 `restore_agent_context`：`SELECT context_json` → 反序列化成 `Vec<Value>` → `agent.set_conversation_history()`。
+生产主对话不会在成功末尾无条件调用裸 `save_context()`。canonical context 会在初始上下文、工具结果边界、Tier 3/Tier 4 发布点写入带 run/attempt/revision 的 checkpoint；最终成功由 `commit_assistant_turn` 在一个事务里提交 assistant、context CAS、turn/run 和 active request plan 终态，失败/取消/恢复则由 `commit_interrupted_turn` 收敛 durable prefix、typed interrupt 与 request-plan 状态。`save_context_at_revision` / `save_context_if_unchanged` 是较窄的修订守卫，裸 `save_context` 只保留给兼容/测试路径，新增生产入口不得绕过组合事务。加载仍走 `restore_agent_context`：读取已提交 `context_json` → 反序列化成 `Vec<Value>` → `agent.set_conversation_history()`。
 
 `context_json` 里的具体形态取决于**最后一次用的 Provider**——可能是 Anthropic content 数组、OpenAI Chat 的 `reasoning_content` 平铺、或 Responses 的 `type` items（其中 reasoning item 已按 §4.3 契约缺席）。正因如此，下一轮加载后必须先经 §6 的标准化，才能安全喂给可能不同的目标 Provider。
 
@@ -728,8 +740,8 @@ sequenceDiagram
   Agent-->>FE: 流结束
   deactivate Agent
   CMD->>DB: 2. flush 剩余 thinking → INSERT thinking_block
-  CMD->>DB: 3. INSERT assistant（content + tokens + model + ttft）
-  CMD->>DB: 4. UPDATE context_json（序列化 conversation_history）
+  CMD->>DB: 3. commit_assistant_turn<br/>assistant + context CAS + turn/run/request-plan 终态
+  DB-->>CMD: committed
   CMD->>FE: return Ok(text)
 ```
 
@@ -744,14 +756,14 @@ sequenceDiagram
   participant B as Model B (Anthropic)
 
   Note over A: 上一轮对话成功
-  A->>DB: SessionDB::save_context()（context_json = Responses 格式）
-  A->>DB: INSERT messages（user + thinking_block + tool + assistant）
+  A->>DB: commit_assistant_turn（context_json = Responses 格式）
+  A->>DB: 同事务物化 assistant/context/run/request-plan；过程块来自 durable journal
 
   Note over B: 下一轮 Model A 失败，降级到 B
   DB->>B: restore_agent_context()（加载 Responses 格式）
   B->>B: normalize_history_for_anthropic()<br/>reasoning 跳过 / message 提取 text
   B->>B: chat_anthropic() 成功
-  B->>DB: SessionDB::save_context()（context_json 覆盖为 Anthropic 格式）
+  B->>DB: commit_assistant_turn（revision-CAS 后 context_json 切为 Anthropic 格式）
 ```
 
 ### 8.6 附件存储
@@ -770,7 +782,7 @@ sequenceDiagram
 
 Provider 系统作为压缩的**消费方**，只需保证两件事：消息格式标准化（§6）与 Token 计量准确。压缩本身是一套 **5 层渐进式**结构（详见 [context-compact.md](context-compact.md)）：
 
-- **Tier 0** 反应式微压缩（turn-start + tool-loop checkpoint 清理 eager 旧工具结果，cache-safe）
+- **Tier 0** 反应式微压缩（turn-start + tool-loop checkpoint 清理 eager 旧工具结果；不调额外模型，但修改点之后的动态 cache 可能失效）
 - **Tier 1** 工具结果截断
 - **Tier 2** 上下文裁剪（软/硬）
 - **Tier 3** LLM 摘要
@@ -814,12 +826,13 @@ flowchart TD
     SSE --> TOOLQ{"tool_call?"}
     TOOLQ -->|是| TEXEC["execute_tool_with_context()"]
     TEXEC --> SSE
-    TOOLQ -->|否| SAVE["SessionDB::save_context() → SessionDB"]
+    TOOLQ -->|否| SAVE["commit_assistant_turn<br/>context CAS + run/request-plan 终态 → SessionDB"]
 
-    AGENT -->|失败| CLASSIFY["classify_error()"]
+    AGENT -->|失败| CLASSIFY["classify_error_with_evidence()"]
     CLASSIFY -->|retryable| BACKOFF["指数退避重试"] --> AGENT
-    CLASSIFY -->|overflow| EMERGENCY["emergency_compact"] --> AGENT
-    CLASSIFY -->|skip| LOOP
+    CLASSIFY -->|"ContextOverflow + 完整容量证书"| EMERGENCY["proof-gated Tier 4"] --> AGENT
+    CLASSIFY -->|terminal| ABORT["commit_interrupted_turn → return typed Err"]
+    CLASSIFY -->|"非 terminal skip"| LOOP
   end
 ```
 
@@ -876,7 +889,7 @@ OpenAI Chat 兼容端点还有一条运行时恢复路径：静态 catalog 乐�
 | Anthropic | `agent/providers/anthropic.rs` + `anthropic_adapter.rs` | Messages API + thinking 块回传 |
 | Chat Completions | `agent/providers/openai_chat.rs` + `openai_chat_adapter.rs` | ThinkingStyle 分发 + reasoning_content / `<think>` 回传 |
 | Responses API | `agent/providers/openai_responses.rs` + `openai_responses_adapter.rs` | Responses 请求 + `parse_openai_sse`；`store:false` 下 reasoning item 就地丢弃 |
-| Codex OAuth | `agent/providers/codex.rs` + `codex_adapter.rs` | Responses 变体 + OAuth + 传输重试 |
+| Codex OAuth | `agent/providers/codex.rs` + `codex_adapter.rs` | Responses 变体 + OAuth + exact prepare/单次 dispatch；retry 只在外层以新 plan/claim 发生 |
 | 推理参数 | `crates/ha-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制、Codex 模型目录 |
 | 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
 | 事件发射 | `crates/ha-core/src/agent/events.rs` | text_delta / thinking_delta / tool_call 等 |

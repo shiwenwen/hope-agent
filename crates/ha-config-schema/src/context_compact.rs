@@ -64,6 +64,14 @@ fn default_reactive_trigger_ratio() -> f64 {
     0.75
 }
 
+fn finite_or(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value
+    } else {
+        fallback
+    }
+}
+
 /// Context compaction configuration, stored in config.json `compact` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -266,7 +274,29 @@ impl CompactConfig {
 
         // max_tool_result_context_share: 0.1–0.6
         // Too low → useful tool results get truncated; too high → single result crowds out context
-        self.max_tool_result_context_share = self.max_tool_result_context_share.clamp(0.1, 0.6);
+        self.max_tool_result_context_share = finite_or(
+            self.max_tool_result_context_share,
+            default_max_tool_result_context_share(),
+        )
+        .clamp(0.1, 0.6);
+
+        // Tier thresholds must describe one strictly ordered pressure ladder.
+        // In particular, f64::clamp does not repair NaN, and equal thresholds
+        // leave an undefined branch at the exact boundary.
+        self.soft_trim_ratio =
+            finite_or(self.soft_trim_ratio, default_soft_trim_ratio()).clamp(0.10, 0.80);
+        self.hard_clear_ratio = finite_or(self.hard_clear_ratio, default_hard_clear_ratio())
+            .clamp((self.soft_trim_ratio + 0.01).min(0.89), 0.90);
+        self.summarization_threshold = finite_or(
+            self.summarization_threshold,
+            default_summarization_threshold(),
+        )
+        .clamp((self.hard_clear_ratio + 0.01).min(0.94), 0.95);
+
+        // A zero timeout makes every automatic summary fail before any I/O;
+        // excessively large values can pin a foreground turn for hours.
+        self.summarization_timeout_secs = self.summarization_timeout_secs.clamp(10, 600);
+        self.summary_max_tokens = self.summary_max_tokens.clamp(256, 32_768);
 
         // max_compaction_summary_chars: 4000–64000
         // Too low → summaries lose critical context; too high → summary itself wastes context budget
@@ -274,21 +304,70 @@ impl CompactConfig {
 
         // reactive_trigger_ratio: 0.50–0.95
         // Below 0.50 overlaps with soft_trim_ratio; above 0.95 is too close to emergency territory.
-        self.reactive_trigger_ratio = self.reactive_trigger_ratio.clamp(0.50, 0.95);
+        self.reactive_trigger_ratio = finite_or(
+            self.reactive_trigger_ratio,
+            default_reactive_trigger_ratio(),
+        )
+        .clamp(0.50, 0.95);
 
         // max_history_share: 0.10–0.90
-        self.max_history_share = self.max_history_share.clamp(0.10, 0.90);
+        self.max_history_share =
+            finite_or(self.max_history_share, default_max_history_share()).clamp(0.10, 0.90);
 
         // max_compaction_injected_context_share: 0.05–max_history_share.
         // Summary + ledger + recovery must not immediately refill the context
         // after a Tier 3 compaction.
-        self.max_compaction_injected_context_share = self
-            .max_compaction_injected_context_share
-            .clamp(0.05, self.max_history_share);
+        self.max_compaction_injected_context_share = finite_or(
+            self.max_compaction_injected_context_share,
+            default_max_compaction_injected_context_share(),
+        )
+        .clamp(0.05, self.max_history_share);
 
         // preserve_recent_rounds: 1–12. The boundary expands to user-turn start,
         // so values above 12 can protect too much history in tool-heavy turns.
         self.preserve_recent_rounds = self.preserve_recent_rounds.clamp(1, 12);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_repairs_non_finite_and_orders_tier_thresholds() {
+        let mut config = CompactConfig {
+            max_tool_result_context_share: f64::NAN,
+            soft_trim_ratio: f64::INFINITY,
+            hard_clear_ratio: 0.20,
+            summarization_threshold: f64::NAN,
+            reactive_trigger_ratio: f64::NEG_INFINITY,
+            max_history_share: f64::NAN,
+            max_compaction_injected_context_share: f64::INFINITY,
+            ..CompactConfig::default()
+        };
+
+        config.clamp();
+
+        assert!(config.max_tool_result_context_share.is_finite());
+        assert!(config.soft_trim_ratio < config.hard_clear_ratio);
+        assert!(config.hard_clear_ratio < config.summarization_threshold);
+        assert!(config.reactive_trigger_ratio.is_finite());
+        assert!(config.max_history_share.is_finite());
+        assert!(config.max_compaction_injected_context_share.is_finite());
+    }
+
+    #[test]
+    fn clamp_bounds_summary_runtime_budget() {
+        let mut config = CompactConfig {
+            summarization_timeout_secs: 0,
+            summary_max_tokens: u32::MAX,
+            ..CompactConfig::default()
+        };
+
+        config.clamp();
+
+        assert_eq!(config.summarization_timeout_secs, 10);
+        assert_eq!(config.summary_max_tokens, 32_768);
     }
 }
 

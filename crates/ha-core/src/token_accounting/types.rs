@@ -252,11 +252,79 @@ impl UsageCoverage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Immutable evidence captured from the exact local preflight request that
+/// overflowed. Tier 4 may use this certificate to prove that replacing only
+/// the history lane with a compacted projection brings the complete request
+/// back under the same input ceiling without rebuilding dynamic prompt or
+/// tool-schema lanes.
+///
+/// The certificate deliberately carries counts and a content fingerprint, not
+/// prompt/tool text. A fingerprint mismatch, tokenizer drift, media, or an
+/// insufficient reduction invalidates the proof and must fail closed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PreflightCapacityProof {
+    pub provider: ProviderFamily,
+    pub model: String,
+    pub request_shape: RequestShape,
+    pub tokenizer_id: Option<TokenizerId>,
+    pub tokenizer_registry_version: u32,
+    pub original_history_fingerprint: String,
+    pub fixed_non_history_upper_bound: u64,
+    pub original_history_upper_bound: u64,
+    pub original_raw_tokens: u64,
+    pub original_local_upper_bound: u64,
+    pub max_input_tokens: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CapacityProofError {
+    OriginalHistoryMismatch,
+    TokenizerDrift,
+    UnsupportedUnknownContent,
+    InvalidCertificate,
+    DoesNotFit {
+        projected_input_upper: u64,
+        max_input_tokens: u64,
+    },
+}
+
+impl fmt::Display for CapacityProofError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OriginalHistoryMismatch => {
+                f.write_str("preflight capacity proof history fingerprint mismatch")
+            }
+            Self::TokenizerDrift => {
+                f.write_str("preflight capacity proof tokenizer identity changed")
+            }
+            Self::UnsupportedUnknownContent => f.write_str(
+                "preflight capacity proof cannot conservatively account for media or unknown content",
+            ),
+            Self::InvalidCertificate => {
+                f.write_str("preflight capacity proof certificate is internally inconsistent")
+            }
+            Self::DoesNotFit {
+                projected_input_upper,
+                max_input_tokens,
+            } => write!(
+                f,
+                "compacted request upper bound {projected_input_upper} still exceeds max input {max_input_tokens}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CapacityProofError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreflightOverflow {
     pub input_tokens: u64,
     pub max_input_tokens: u64,
     pub source: TokenCountSource,
+    /// Present only when the *local complete request* count itself overflowed.
+    /// A provider-only count cannot prove how much a local history rewrite
+    /// removes and therefore cannot authorize Tier 4 by itself.
+    pub capacity_proof: Option<PreflightCapacityProof>,
 }
 
 impl fmt::Display for PreflightOverflow {

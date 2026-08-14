@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { Archive, Loader2, AlertCircle } from "lucide-react"
+import { Archive, Loader2, AlertCircle, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ContextCompactedEvent, ContextCompactionProgressEvent } from "@/types/chat"
 
@@ -9,8 +9,12 @@ import type { ContextCompactedEvent, ContextCompactionProgressEvent } from "@/ty
  *  layer (see chat_engine/persister.rs); this banner only sees Tier ≥ 2. */
 export default function ContextCompactedBanner({
   event,
+  compacting = false,
+  onRetry,
 }: {
   event: ContextCompactedEvent & ContextCompactionProgressEvent
+  compacting?: boolean
+  onRetry?: () => Promise<unknown>
 }) {
   const { t } = useTranslation()
   const phase = event.phase
@@ -22,7 +26,12 @@ export default function ContextCompactedBanner({
     phase === "finalizing" ||
     event.description === "summarizing" ||
     event.description === "emergency_compacting"
-  const isFailed = phase === "failed"
+  const isFailed =
+    phase === "failed" ||
+    event.description === "summarization_timed_out" ||
+    event.description === "summarization_timed_out_sync_compaction_only" ||
+    event.description === "summarization_not_applied" ||
+    event.description === "summarization_not_applied_sync_compaction_only"
   const isEmergency =
     event.kind === "emergency" ||
     event.description === "emergency_compacting" ||
@@ -43,6 +52,18 @@ export default function ContextCompactedBanner({
       : affectedMsgs ?? summarizedMsgs
   const Icon = isFailed ? AlertCircle : isRunning ? Loader2 : Archive
   const title = (() => {
+    if (event.description === "summarization_timed_out") {
+      return t("chat.compactSummaryTimedOut")
+    }
+    if (event.description === "summarization_timed_out_sync_compaction_only") {
+      return t("chat.compactSummaryTimedOutSync")
+    }
+    if (event.description === "summarization_not_applied") {
+      return t("chat.compactSummaryNotApplied")
+    }
+    if (event.description === "summarization_not_applied_sync_compaction_only") {
+      return t("chat.compactSummaryNotAppliedSync")
+    }
     if (isFailed) return t("chat.contextCompactionFailedTitle")
     if (isRunning) {
       if (isEmergency) return t("chat.contextCompaction.emergency")
@@ -57,18 +78,6 @@ export default function ContextCompactedBanner({
     if (isEmergency) return t("chat.contextCompaction.emergencyDone")
     if (event.description === "no_messages") return t("chat.compactNoMessages")
     if (event.description === "no_action_needed") return t("chat.compactNoChange")
-    if (event.description === "summarization_timed_out") {
-      return t("chat.compactSummaryTimedOut")
-    }
-    if (event.description === "summarization_timed_out_sync_compaction_only") {
-      return t("chat.compactSummaryTimedOutSync")
-    }
-    if (event.description === "summarization_not_applied") {
-      return t("chat.compactSummaryNotApplied")
-    }
-    if (event.description === "summarization_not_applied_sync_compaction_only") {
-      return t("chat.compactSummaryNotAppliedSync")
-    }
     if (event.description === "cancelled") return t("chat.compactCancelled")
     if (event.tier_applied === 3 || event.description === "summarization_needed") {
       return t("chat.contextCompaction.summaryDone")
@@ -110,6 +119,17 @@ export default function ContextCompactedBanner({
           <span className="shrink-0 opacity-30">·</span>
           <span className="truncate opacity-70">{subtitle}</span>
         </>
+      )}
+      {isFailed && onRetry && (
+        <button
+          type="button"
+          disabled={compacting}
+          onClick={() => void onRetry().catch(() => undefined)}
+          className="ml-1 inline-flex h-5 shrink-0 items-center gap-1 rounded px-1.5 font-medium text-amber-800 transition-colors hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200"
+        >
+          <RefreshCw className={cn("h-3 w-3", compacting && "animate-spin")} />
+          {t("chat.contextCompactionRetry")}
+        </button>
       )}
     </div>
   )

@@ -45,7 +45,7 @@ The AI calls these tools **automatically** when needed; you usually don't trigge
 | Setting | Default | Effect |
 | --- | --- | --- |
 | Tool timeout | 0 (unlimited) | Timeout in seconds for a single tool execution |
-| Tool-result disk threshold | 50 KB | Beyond this, results are written to disk and only a head/tail preview is kept in context |
+| Tool-result disk threshold | 50 KB | Compatibility setting. Persistent ResultStore bodies are currently fail-closed: ordinary text keeps a bounded projection plus `lost` metadata, with no path or readable handle. Media continues through the managed attachment protocol |
 | Deferred tool loading | Recommended (on by default) | Defers a batch of low-frequency / large-schema tools by default, discovered on demand via tool_search (saves context) |
 | Max images / PDFs / vision pages | 10 / 5 / 10 | Per-call limits |
 

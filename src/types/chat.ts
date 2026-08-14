@@ -17,6 +17,11 @@ export type ChatTurnInterruptReason =
   | "crash_recovery"
   | "tool_cancel"
   | "runtime_cancel"
+  | "no_profile"
+  | "provider_failed"
+  | "current_tool_group_overflow"
+  | "dispatch_unknown"
+  | "compaction_failed"
   | "unknown"
 
 /** Structured media item emitted by tools (e.g. send_attachment) — richer than

@@ -1124,6 +1124,22 @@ impl SessionDB {
         )?;
         Self::ensure_stream_persistence_tables(&conn)?;
         Self::ensure_turn_message_queue_table(&conn)?;
+        // Result/payload/projection rows and guards are all scoped by
+        // `sessions.incognito`.
+        // Legacy databases do not have that column, so install it at this
+        // dependency boundary before any of those schemas read `sessions`.
+        let has_incognito = conn
+            .prepare("SELECT incognito FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_incognito {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        Self::ensure_result_store_tables(&conn)?;
+        Self::ensure_request_payload_store_tables(&conn)?;
+        Self::ensure_context_projection_tables(&conn)?;
+        Self::ensure_context_compaction_recovery_table(&conn)?;
         Self::recover_turn_message_queue(&conn)?;
         crate::goal::ensure_tables(&conn)?;
         crate::worktree::ensure_tables(&conn)?;
@@ -1301,17 +1317,6 @@ impl SessionDB {
             .is_ok();
         if !has_awareness_cfg {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;")?;
-        }
-
-        // Migration: per-session incognito mode for disabling passive memory /
-        // awareness features and automatic memory extraction.
-        let has_incognito = conn
-            .prepare("SELECT incognito FROM sessions LIMIT 1")
-            .is_ok();
-        if !has_incognito {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
-            )?;
         }
 
         // Migration: per-session working directory for directing the model's
@@ -8587,7 +8592,14 @@ mod tests {
         ])
         .to_string();
         let checkpoint_revision = db
-            .checkpoint_stream_context(run_id, 1, registration.context_revision, &checkpoint, 0)
+            .checkpoint_stream_context(
+                run_id,
+                1,
+                registration.context_revision,
+                &checkpoint,
+                0,
+                crate::session::Tier3RecoveryCommit::Unchanged,
+            )
             .expect("checkpoint user boundary");
         let final_context = serde_json::json!([
             {"role": "user", "content": "earlier prompt\n\nexpanded provider prompt"},
@@ -8606,6 +8618,8 @@ mod tests {
             turn_id: Some(turn_id.to_string()),
             usage: None,
             final_seq: 0,
+            tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+            request_plan: crate::session::RequestPlanCommit::None,
         })
         .expect("commit assistant turn");
         db.append_message(&session.id, &NewMessage::event("discarded trailing event"))

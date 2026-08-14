@@ -77,6 +77,8 @@ async fn commit_local_reply(
                 turn_id: Some(turn_id),
                 usage: None,
                 final_seq: 0,
+                tier3_recovery: session::Tier3RecoveryCommit::Unchanged,
+                request_plan: session::RequestPlanCommit::None,
             };
             db.commit_assistant_turn(&commit)
         })

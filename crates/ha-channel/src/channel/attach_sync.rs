@@ -40,10 +40,25 @@ use ha_core::channel::traits::ChannelPlugin;
 use ha_core::channel::types::{ChannelAccountConfig, ChatType, ImReplyMode};
 use ha_core::chat_engine::sink_registry::{sink_registry, SinkHandle};
 use ha_core::chat_engine::stream_seq::ChatSource;
-use ha_core::session::{ChatTurnStatus, MessageRole, SessionDB};
+use ha_core::session::{ChatTurnInterruptReason, ChatTurnStatus, MessageRole, SessionDB};
 
 const CATCHUP_WINDOW: u32 = 50;
 const ACTIVE_TURN_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+fn late_handover_failure_reason(
+    interrupt_reason: Option<ChatTurnInterruptReason>,
+    raw: Option<&str>,
+) -> Option<ha_core::failover::FailoverReason> {
+    match interrupt_reason {
+        Some(ChatTurnInterruptReason::CurrentToolGroupOverflow) => {
+            Some(ha_core::failover::FailoverReason::CurrentToolGroupOverflow)
+        }
+        Some(ChatTurnInterruptReason::DispatchUnknown) => {
+            Some(ha_core::failover::FailoverReason::DispatchUnknown)
+        }
+        _ => raw.map(ha_core::failover::classify_error),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AttachKind {
@@ -1111,23 +1126,22 @@ impl LateMirror {
 
         if let Some(turn) = turn {
             if matches!(turn.status, ChatTurnStatus::Failed) {
-                let body = turn
-                    .error
-                    .as_deref()
-                    .map(|raw| {
-                        let reason = ha_core::failover::classify_error(raw);
-                        ha_core::chat_engine::im_error_message::format_im_engine_error(
-                            ha_core::chat_engine::im_error_message::ImErrorContext {
-                                reason,
-                                raw,
-                                // A late-handover turn snapshot no longer carries the
-                                // exact provider chain. Keep the generic auth guidance;
-                                // never guess the Codex-specific re-authorization path.
-                                is_codex_auth: false,
-                            },
-                        )
-                    })
-                    .unwrap_or_else(|| "⚠️ **Something went wrong**.".to_string());
+                let raw = turn.error.as_deref().unwrap_or_default();
+                let body =
+                    late_handover_failure_reason(turn.interrupt_reason, turn.error.as_deref())
+                        .map(|reason| {
+                            ha_core::chat_engine::im_error_message::format_im_engine_error(
+                                ha_core::chat_engine::im_error_message::ImErrorContext {
+                                    reason,
+                                    raw,
+                                    // A late-handover turn snapshot no longer carries the
+                                    // exact provider chain. Keep the generic auth guidance;
+                                    // never guess the Codex-specific re-authorization path.
+                                    is_codex_auth: false,
+                                },
+                            )
+                        })
+                        .unwrap_or_else(|| "⚠️ **Something went wrong**.".to_string());
                 let report = crate::channel::worker::pipeline::deliver_error_reply(
                     &plugin, &target, &outcome, &body,
                 )
@@ -1620,6 +1634,46 @@ mod tests {
         );
         assert_eq!(injection_run(active.as_ref()), Some("run-a"));
         assert!(ended.is_none());
+    }
+
+    #[test]
+    fn late_handover_uses_persisted_current_group_terminal_without_string_classification() {
+        let raw = "display text intentionally has no classifier token";
+        assert_eq!(
+            ha_core::failover::classify_error(raw),
+            ha_core::failover::FailoverReason::Unknown
+        );
+        assert_eq!(
+            late_handover_failure_reason(
+                Some(ChatTurnInterruptReason::CurrentToolGroupOverflow),
+                Some(raw),
+            ),
+            Some(ha_core::failover::FailoverReason::CurrentToolGroupOverflow)
+        );
+        assert_eq!(
+            late_handover_failure_reason(
+                Some(ChatTurnInterruptReason::CurrentToolGroupOverflow),
+                None,
+            ),
+            Some(ha_core::failover::FailoverReason::CurrentToolGroupOverflow)
+        );
+    }
+
+    #[test]
+    fn late_handover_uses_persisted_dispatch_unknown_without_string_classification() {
+        let raw = "display text intentionally has no classifier token";
+        assert_eq!(
+            ha_core::failover::classify_error(raw),
+            ha_core::failover::FailoverReason::Unknown
+        );
+        assert_eq!(
+            late_handover_failure_reason(Some(ChatTurnInterruptReason::DispatchUnknown), Some(raw),),
+            Some(ha_core::failover::FailoverReason::DispatchUnknown)
+        );
+        assert_eq!(
+            late_handover_failure_reason(Some(ChatTurnInterruptReason::DispatchUnknown), None),
+            Some(ha_core::failover::FailoverReason::DispatchUnknown)
+        );
     }
 
     #[test]

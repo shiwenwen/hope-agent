@@ -629,7 +629,7 @@ Fork **不**复制 active Goal、Loop schedule、Workflow run、Task progress、
 | 旁路 | 风险 | 守卫 |
 |---|---|---|
 | 记忆提取 | 焚毁后尾随的 inline/idle/flush 提取把内容写进 memory.db | `is_session_incognito` fail-closed：行不存在按无痕跳过 |
-| 大工具结果落盘 | `tool_results/<sid>/` 留明文 | `maybe_persist_large_tool_result` 无痕走内存内联、不落盘；焚毁 watcher 递归删目录兜底 |
+| 工具结果 / 请求投影 | ResultStore、request plan 或媒体文件在焚毁后残留 | 普通文本正文能力当前全局 fail-closed；incognito 的 occurrence/projection/plan/recovery 仅在有界内存，媒体不写持久 ResultStore，焚毁 watcher 仍递归清遗留 `tool_results/<sid>/` 兜底 |
 | 异步任务落盘 | `background_jobs.db` 存明文 args + spool 文件留全量输出 | `record_running_job` 无痕 args 存占位 + `incognito` 列；结果只留 inline preview、绝不 spool；焚毁 watcher 删行 + spool 兜底 |
 | 持久 AllowAlways | 「始终允许」规则越过焚毁存活 | `GrantContext.incognito` → 强制 `AllowScope::Session`（内存态、随会话规则清除）；前端隐藏 AllowAlways 按钮 |
 
@@ -676,7 +676,7 @@ flowchart TD
 - **扇出跑在接收循环外 `tokio::spawn`**：`cleanup_session` 含多次 DB 查询 + 全局锁扫描，inline await 会让突发删除回压 broadcast buffer 触发 `Lagged`（丢后续清理）；off-loop 后每步 best-effort + per-subsystem 幂等，不同会话并发清理安全。
 - **`Lagged` 走 `app_error!`（运维信号非保证）**：丢一个生命周期事件 = 那个会话清理永不跑（审批挂死 / job 不取消 / 无痕产物不清）；它仍骑共享 EventBus，根治需专用 lifecycle channel / reconcile。
 - **从两处 tier-agnostic 后台任务 spawn**，刻意不放进 channel listener——server / ACP 无 channel registry 但同样删会话、需要此清理。
-- **`delete` vs `purge`**：普通 `delete` 不清盘（留给 age-based GC），只有 `purge`（无痕焚毁）立即清 `tool_results/<sid>/` 与 async-job 行 / spool。
+- **`delete` vs `purge`**：普通 `delete` 由 projection/payload/result 生命周期与有界 reconciler/GC 收敛；`purge`（无痕焚毁）还会立即清遗留 `tool_results/<sid>/` 与 async-job 行 / spool。任何 `send_unknown` hold 必须先保留歧义证据，不能被普通 journal GC 静默删除。
 
 **删除前必须快照的两样东西**（`SessionDB::capture_session_cleanup_context`）：`descendant_session_ids`（父→子映射，来自 `subagent_runs`）与 `im_chat`（IM attach 坐标，来自 `channel_conversations`）都随会话 FK 级联删除，emit 时已不可从 DB 恢复。后代子会话必须单独级联清理——一个后台 subagent 的内层工具审批 park 在**子会话** id 上，被删的父 id 匹配不到；IM 审批也必须按快照坐标兜底，因为 `channel_conversations` 行没了、session-keyed 查找解析不出 chat。
 

@@ -118,7 +118,7 @@ impl ContextEngine for DefaultContextEngine {
 /// Pluggable summarization provider for Tier 3 compaction.
 ///
 /// When configured, tried first for summarization; on failure the caller
-/// automatically falls back to the default side_query / direct HTTP path.
+/// falls back to an independent one-shot request using the conversation model.
 #[async_trait::async_trait]
 pub trait CompactionProvider: Send + Sync {
     /// Summarize conversation content into a concise summary.
@@ -126,4 +126,11 @@ pub trait CompactionProvider: Send + Sync {
 
     /// Human-readable name for logging.
     fn name(&self) -> &str;
+
+    /// Context window of the summarization model when known. The caller uses
+    /// the smallest applicable window to reject an oversized summary request
+    /// before network I/O. Third-party providers may leave this unknown.
+    fn context_window(&self) -> Option<u32> {
+        None
+    }
 }

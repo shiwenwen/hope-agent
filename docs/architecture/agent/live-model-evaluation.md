@@ -189,7 +189,8 @@ verifier 是代码级注册的固定集合，Manifest 只能按名字引用，�
 | `file_exists` / `file_contains_all` / `file_json_subset` | 文件存在 / 含全部子串 / JSON 子集 |
 | `git_changed_paths` | Git 变更路径集合 |
 | `signal_observed` / `trace_closed` | 观察到指定事件 / 根 trace 已闭合 |
-| `response_non_empty` / `response_contains_all` / `response_json_subset` | 回复非空 / 含全部子串 / JSON 子集 |
+| `tool_result_digest_sequence` | 按因果事件顺序精确匹配指定工具的成功结果摘要序列，不保存工具正文 |
+| `response_non_empty` / `response_contains_all` / `response_json_subset` / `response_json_exact` | 回复非空 / 含全部子串 / JSON 子集 / JSON 完全相等 |
 
 ### 4.4 结果分类与聚合
 
@@ -218,6 +219,7 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 - 每个故障场景同时保留 clean/control 与 chaos/faulted 两臂，避免把本来就失败的任务误判成"恢复失败"。
 - Model gateway、tool、scheduler、process、storage、user、environment 故障分开归因；重启从 durable row 恢复 trial 身份与剩余预算。
 - blocking 场景优先用 `scripted_fsm`，允许受审 `replay`；LLM User 只用于探索，固定模型 / Prompt / 预算并与 Agent 成本分开，**不得决定本地 required case 的 pass/fail**。
+- `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前只注册 `message` 与 `compact_context`。后者调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
 - 用户改需求、拒绝审批、取消等事件，执行前后都检查持久状态，确保事件确实命中预定阶段，而不是只在日志里出现。
 - infra retry 保留原 attempt、累计用量和独立 trace，**不能重置成本或覆盖失败证据**。
 
@@ -449,6 +451,7 @@ comparison        control/faulted、solo/team、baseline/candidate 配对
 | Async Jobs | `HA-AJ-001..006` | 乱序汇总、前台 busy 延迟注入、cancel/complete 竞态、重试分类、incognito purge、公平调度 |
 | Subagent / Team | `HA-ST-001..006` | 冲突资料研究、Planner/Executor/Verifier、worktree 合并、成员崩溃重分派、取消子树、origin/权限/KB/incognito |
 | 多模块 E2E | `HA-E2E-001..004` | Coding 发布修复、冻结语料 Research、Knowledge/File stale-write、Browser/Terminal incident |
+| 上下文压缩 | `HA-CTX-001..002` | 真实第 3 层摘要后的事实保真、只用 `read` 的 UTF-8 连续分页与结果摘要序列 |
 
 case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为准。业务域扩展沿用 Coding、Research、Knowledge、File、Browser、Terminal 六类终态契约；Pre-release 档位的 Research 使用**冻结语料**，实时 Web 必须单列 exploratory 基线并记录 URL、抓取时间和内容 hash。
 
@@ -488,7 +491,7 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 | Pre-release | 本地手动，可选精确 SHA | 发版关键 case | 默认 `k=3`，critical `k=5` | 人工发版判断，不阻断 release workflow |
 | Monthly | 本地手动 | 全部 28 场景 + 重型 / chaos 扩展 | `k=1`，选中 case 多 seed | 能力发现和长周期趋势 |
 
-具体 case / trial 数量由当前 `1.8.0` suite 与 `1.0.8` policy 展开的不可变计划决定，随资产版本变化——**以 `model plan` 输出为准，文档数字不是执行器输入**。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
+具体 case / trial 数量由当前主编排 suite `1.8.0`、上下文压缩 suite `1.0.0` 与各档 policy 展开的不可变计划决定；Nightly policy 当前为 `1.0.9`——**以 `model plan` 输出为准，文档数字不是执行器输入**。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
 
 ### 10.3 Quarantine 与基线治理
 

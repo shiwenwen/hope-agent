@@ -52,10 +52,33 @@ pub struct SummarizationSplit {
     pub boundary_warnings: Vec<String>,
 }
 
-/// Information about a tool result found in a message.
+/// Stable location of one provider-level tool result inside a message.
+///
+/// Anthropic can put several `tool_result` blocks in the same user message, so
+/// a message index alone is not enough to identify the result that a compaction
+/// policy inspected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolResultLocator {
+    OpenAiChatContent,
+    OpenAiResponsesOutput,
+    AnthropicBlock(usize),
+}
+
+/// Read-only snapshot of one provider-level tool result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ToolResultUnit {
+    pub(crate) locator: ToolResultLocator,
+    pub(crate) call_id: Option<String>,
+    pub(crate) direct_tool_name: Option<String>,
+    pub(crate) text: Option<String>,
+}
+
+/// Information about a tool result unit found in a message.
 pub(super) struct ToolResultInfo {
     /// Index in the messages array
     pub(super) msg_index: usize,
+    /// Provider-specific result location within the message.
+    pub(super) locator: ToolResultLocator,
     /// Tool name (if extractable)
     #[allow(dead_code)]
     pub(super) tool_name: Option<String>,

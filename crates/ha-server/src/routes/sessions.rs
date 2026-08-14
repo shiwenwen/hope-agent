@@ -1561,11 +1561,10 @@ pub async fn mark_all_sessions_read(
 
 /// `POST /api/sessions/:id/compact` — manual context compaction.
 ///
-/// In the Tauri desktop shell this runs against the live in-memory agent.
-/// The HTTP server is stateless (each `POST /api/chat` spins up a fresh
-/// agent), so there is no persistent conversation to compact here. Returns
-/// a zero-result so the settings UI can still display a value. The response
-/// uses camelCase to match `ha_core::context_compact::CompactResult`'s
+/// The HTTP shell rebuilds an agent from the session's durable canonical
+/// context, runs the same persisted manual-compaction path as the desktop
+/// shell, and returns the committed result. The response uses camelCase to
+/// match `ha_core::context_compact::CompactResult`'s
 /// `#[serde(rename_all = "camelCase")]`.
 pub async fn compact_context_now(
     State(ctx): State<Arc<AppContext>>,

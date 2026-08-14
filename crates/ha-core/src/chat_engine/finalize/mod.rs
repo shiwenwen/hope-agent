@@ -144,6 +144,14 @@ impl TerminationReason {
             Self::Shutdown => ChatTurnInterruptReason::Shutdown,
             Self::Crash => ChatTurnInterruptReason::CrashRecovery,
             Self::NoProfileAvailable => ChatTurnInterruptReason::NoProfile,
+            Self::ProviderFailed {
+                last_kind: FailoverReason::CurrentToolGroupOverflow,
+                ..
+            } => ChatTurnInterruptReason::CurrentToolGroupOverflow,
+            Self::ProviderFailed {
+                last_kind: FailoverReason::DispatchUnknown,
+                ..
+            } => ChatTurnInterruptReason::DispatchUnknown,
             Self::ProviderFailed { .. } => ChatTurnInterruptReason::ProviderFailed,
             Self::CompactionFailed { .. } => ChatTurnInterruptReason::CompactionFailed,
             Self::Other { .. } => ChatTurnInterruptReason::Unknown,
@@ -176,6 +184,10 @@ impl TerminationReason {
             Self::Shutdown => "shutdown",
             Self::Crash => "crash",
             Self::NoProfileAvailable => "no_profile",
+            Self::ProviderFailed {
+                last_kind: FailoverReason::DispatchUnknown,
+                ..
+            } => "dispatch_unknown",
             Self::ProviderFailed { .. } => "provider_failed",
             Self::CompactionFailed { .. } => "compaction_failed",
             Self::Other { .. } => "other",
@@ -899,6 +911,22 @@ mod tests {
         );
         assert!(!r.is_user_initiated());
         assert_eq!(r.to_error_text().as_deref(), Some("401 Unauthorized"));
+    }
+
+    #[test]
+    fn dispatch_unknown_maps_to_dedicated_failed_terminal() {
+        let r = TerminationReason::ProviderFailed {
+            last_kind: FailoverReason::DispatchUnknown,
+            last_message: "transport closed after dispatch claim".into(),
+            is_codex_auth: false,
+        };
+        assert_eq!(r.to_chat_turn_status(), ChatTurnStatus::Failed);
+        assert_eq!(
+            r.to_chat_turn_interrupt_reason(),
+            ChatTurnInterruptReason::DispatchUnknown
+        );
+        assert_eq!(r.category_label(), "dispatch_unknown");
+        assert!(!r.is_user_initiated());
     }
 
     #[test]
