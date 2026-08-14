@@ -88,7 +88,19 @@ describe("FilePreviewPane", () => {
   })
 
   test("toggles ordinary HTML between highlighted source and an offline preview", async () => {
-    const content = '<main id="preview">Hello</main><script>window.previewRan = true</script>'
+    const content = `<!doctype html>
+      <html>
+        <head><meta http-equiv="refresh" content="0;url=https://evil.test/refresh"></head>
+        <body>
+          <main id="preview">Hello</main>
+          <noscript><meta http-equiv="refresh" content="0;url=https://evil.test/noscript"></noscript>
+          <a href="https://evil.test/link" target="_top">Leave</a>
+          <form action="https://evil.test/form"><button formaction="https://evil.test/button">Send</button></form>
+          <img src="https://evil.test/image.png" onerror="window.previewRan = true">
+          <img alt="inline" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">
+          <script>window.location.href = "https://evil.test/script"</script>
+        </body>
+      </html>`
     const source = {
       name: "preview.html",
       mime: "text/html",
@@ -120,13 +132,18 @@ describe("FilePreviewPane", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "fileBrowser.rendered" }))
 
-    const frame = screen.getByTitle("preview.html")
+    const frame = await screen.findByTitle("preview.html")
     const srcDoc = frame.getAttribute("srcdoc") ?? ""
-    expect(srcDoc).toContain(content)
+    expect(srcDoc).toContain('<main id="preview">Hello</main>')
     expect(srcDoc).toContain("default-src 'none'")
     expect(srcDoc).toContain("script-src 'none'")
     expect(srcDoc).toContain("connect-src 'none'")
-    expect(srcDoc.indexOf("Content-Security-Policy")).toBeLessThan(srcDoc.indexOf(content))
+    expect(srcDoc).not.toContain("https://evil.test")
+    expect(srcDoc).not.toContain("<script")
+    expect(srcDoc).not.toContain('http-equiv="refresh"')
+    expect(srcDoc).not.toContain("onerror=")
+    expect(srcDoc).not.toContain("target=")
+    expect(srcDoc).toContain('alt="inline" src="data:image/gif;base64,')
     expect(frame.getAttribute("sandbox")).toBe("")
     expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer")
 

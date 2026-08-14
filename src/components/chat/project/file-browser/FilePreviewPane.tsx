@@ -24,6 +24,7 @@ import type { PreviewSource } from "@/components/chat/files/previewSource"
 import type { PendingFileQuote } from "@/types/chat"
 import { OfficeRichPreview } from "@/components/chat/files/office/OfficeRichPreview"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
+import { buildOfflineHtmlPreview } from "./offlineHtmlPreview"
 import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
 export type QuotePayload = PendingFileQuote
@@ -32,23 +33,6 @@ type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
   | { kind: "image" | "pdf" | "audio" | "video" | "managed_html"; url: string | null }
   | { kind: "office" }
-
-const OFFLINE_HTML_PREVIEW_CSP =
-  "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'none'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
-
-/**
- * Put the offline policy before any caller-controlled markup so the browser
- * applies it before discovering subresources. A leading doctype stays first;
- * the HTML parser places the following meta element in its generated head.
- * Keep this aligned with Canvas' static renderer; the iframe sandbox remains
- * the second boundary.
- */
-function buildOfflineHtmlPreview(source: string): string {
-  const policy = `<meta http-equiv="Content-Security-Policy" content="${OFFLINE_HTML_PREVIEW_CSP}">`
-  const doctype = /^\s*<!doctype[^>]*>/i.exec(source)
-  const offset = doctype?.[0].length ?? 0
-  return `${source.slice(0, offset)}${policy}${source.slice(offset)}`
-}
 
 export interface FilePreviewPaneProps {
   /** The file to preview (memoize this — it drives the load effect), or `null`. */
@@ -442,12 +426,10 @@ function PreviewBody({
     !viewSource
   ) {
     return (
-      <iframe
-        title={source.name}
-        srcDoc={buildOfflineHtmlPreview(loaded.data.content)}
-        sandbox=""
-        referrerPolicy="no-referrer"
-        className="h-full w-full border-0 bg-white dark:bg-surface-app"
+      <OfflineHtmlPreview
+        name={source.name}
+        sizeBytes={loaded.data.sizeBytes}
+        content={loaded.data.content}
       />
     )
   }
@@ -468,4 +450,63 @@ function PreviewBody({
   }
 
   return null
+}
+
+function OfflineHtmlPreview({
+  name,
+  sizeBytes,
+  content,
+}: {
+  name: string
+  sizeBytes: number
+  content: string
+}) {
+  const [result, setResult] = useState<{
+    content: string
+    html: string | null
+    error: string | null
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void buildOfflineHtmlPreview(content).then(
+      (html) => {
+        if (!cancelled) setResult({ content, html, error: null })
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setResult({
+            content,
+            html: null,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [content])
+
+  if (result?.content !== content) {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!result.html) {
+    return <BinaryPlaceholder name={name} sizeBytes={sizeBytes} note={result.error ?? undefined} />
+  }
+
+  return (
+    <iframe
+      title={name}
+      srcDoc={result.html}
+      sandbox=""
+      referrerPolicy="no-referrer"
+      className="h-full w-full border-0 bg-white dark:bg-surface-app"
+    />
+  )
 }
