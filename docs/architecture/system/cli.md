@@ -1,16 +1,16 @@
 # 命令行接口（CLI）
 
-> 返回 [文档索引](../../README.md) | 关联文档：[Transport 运行模式](transport-modes.md) · [前后端分离架构](backend-separation.md) · [进程与并发模型](process-model.md) · [可靠性与崩溃自愈](../infra/reliability.md) · [ACP 协议](../integration/acp.md) | 关联源码：[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)（分发） · [`src-tauri/src/cli_auth.rs`](../../../src-tauri/src/cli_auth.rs)（auth） · [`src-tauri/src/cli_onboarding/`](../../../src-tauri/src/cli_onboarding/)（向导） · [`crates/ha-base/src/platform/service.rs`](../../../crates/ha-base/src/platform/service.rs)（系统服务） · [`crates/ha-base/src/paths.rs`](../../../crates/ha-base/src/paths.rs)（数据目录）
+> 返回 [文档索引](../../README.md) | 关联文档：[Transport 运行模式](transport-modes.md) · [前后端分离架构](backend-separation.md) · [进程与并发模型](process-model.md) · [可靠性与崩溃自愈](../infra/reliability.md) · [ACP 协议](../integration/acp.md) | 关联源码：[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)（分发） · [`src-tauri/src/cli_auth.rs`](../../../src-tauri/src/cli_auth.rs)（auth） · [`crates/ha-pet/src/cli.rs`](../../../crates/ha-pet/src/cli.rs)（pet） · [`src-tauri/src/cli_onboarding/`](../../../src-tauri/src/cli_onboarding/)（向导） · [`crates/ha-base/src/platform/service.rs`](../../../crates/ha-base/src/platform/service.rs)（系统服务） · [`crates/ha-base/src/paths.rs`](../../../crates/ha-base/src/paths.rs)（数据目录）
 
 ## 核心思想：一个二进制，多种形态
 
-Hope Agent 只编译出一个可执行文件 `hope-agent`。它要同时扮演几种完全不同的角色：桌面 GUI、后台 HTTP/WS 守护进程、给 IDE 用的 ACP stdio 协议服务、给外部 AI host 用的 MCP stdio 服务，以及一次性的 OAuth 登录工具。CLI 层做的事情只有一件——**看第一个非全局参数，决定这次启动进入哪种形态**。
+Hope Agent 只编译出一个可执行文件 `hope-agent`。它要同时扮演几种完全不同的角色：桌面 GUI、后台 HTTP/WS 守护进程、给 IDE 用的 ACP stdio 协议服务、给外部 AI host 用的 MCP stdio 服务，以及一次性的 OAuth 登录与宠物包管理工具。CLI 层做的事情只有一件——**看第一个非全局参数，决定这次启动进入哪种形态**。
 
 这里有三条贯穿全文的设计取舍：
 
 - **手写解析、顺序敏感、首个命中即止。** 参数解析不用 clap，而是直接遍历 `std::env::args()`，按固定顺序逐个匹配子命令；匹配到就执行并 `return`，绝不继续往下走。好处是分发路径极短、可预测、零依赖；代价是没有 shell 补全、没有统一 `--help`，而且**未知子命令不会报错，会静默落到桌面启动路径**（`hope-agent typo` 会当成「开桌面」）。
 - **长驻模式共享同一个内核。** 桌面 / server / acp / mcp / knowledge-mcp 五种长驻形态跑的是同一套 `ha-core` 业务逻辑，都经过 `init_runtime(role)` 打开数据库、单例、`EventBus`、channel 插件。它们的区别只在三处：**前端入口**（Tauri WebView / axum / stdio 协议）、**背景任务集合**（完整集 vs 精简集）、**鉴权方式**。
-- **只有 `auth` 是纯一次性命令。** 它不进 `init_runtime`、不起后台 runtime、不开 `EventBus`，只为终端用户跑完 OAuth、写下凭据与 Provider 配置就退出。
+- **`auth` 与 `pet` 是纯一次性命令。** 两者都不进 `init_runtime`、不开 sessions.db 或长跑后台任务；`auth` 跑完 OAuth、写下凭据与 Provider 配置就退出，`pet` 只创建短期 async runtime，复用 ha-pet 的读取 / preview / commit 管线后退出。
 
 ```mermaid
 flowchart TD
@@ -21,10 +21,11 @@ flowchart TD
     M -->|"--tcc-probe ID"| R2["打印 TCC 探针 token"]
     M -->|"knowledge-mcp"| R3["run_knowledge_mcp"]
     M -->|"mcp"| R4["run_mcp"]
-    M -->|"acp"| R5["run_acp_server"]
-    M -->|"server"| R6["run_server"]
-    M -->|"auth"| R7["cli_auth::run"]
-    M -->|"无匹配 / 未知参数"| R8["桌面分派（默认）"]
+    M -->|"pet"| R5["run_pet_cli"]
+    M -->|"acp"| R6["run_acp_server"]
+    M -->|"server"| R7["run_server"]
+    M -->|"auth"| R8["cli_auth::run"]
+    M -->|"无匹配 / 未知参数"| R9["桌面分派（默认）"]
 ```
 
 ## 子命令总览
@@ -33,7 +34,7 @@ flowchart TD
 hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 ```
 
-分发顺序即上图从上到下：**全局 flag → `--version` → `--tcc-probe` → `knowledge-mcp` → `mcp` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。
+分发顺序即上图从上到下：**全局 flag → `--version` → `--tcc-probe` → `knowledge-mcp` → `mcp` → `pet` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。
 
 | 子命令 | 性质 | 触发 | 入口函数 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -41,10 +42,11 @@ hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 | **HTTP/WS 服务器** | 长驻进程 | `hope-agent server [...]` | `run_server` | axum 守护进程，内嵌 Web GUI；浏览器访问 `http://<bind>` 即得完整 React UI |
 | **Knowledge MCP stdio** | 长驻进程 | `hope-agent knowledge-mcp [...]` | `run_knowledge_mcp` | 把知识空间的模型侧访问 API 暴露为 stdio MCP 工具，供外部 AI host 调用 |
 | **平台 MCP stdio** | 长驻进程 | `hope-agent mcp [...]` | `run_mcp` | 平台级 MCP server（设计空间是首个 provider），把子系统暴露为 stdio MCP 工具；默认只读，`--allow-writes` 才开写。见 [mcp-server](../integration/mcp-server.md) |
+| **Pet 包管理** | 短命令 | `hope-agent pet <capabilities\|list\|preview\|import\|activate> [...]` | `run_pet_cli` | 探测导入协议、列出 Hope 宠物库、用 preview + expected package hash 两阶段导入本机 / HTTPS 宠物包，或经运行中桌面的鉴权 API 激活已安装宠物 |
 | **ACP stdio** | 长驻进程 | `hope-agent acp [...]` | `run_acp_server` | NDJSON over stdio，给 IDE / 外部客户端直连核心协议 |
 | **Auth 一次性命令** | 短命令 | `hope-agent auth <provider> [...]` | `cli_auth::run` | 终端环境下完成 OAuth（目前仅 Codex / ChatGPT），登录成功落 token、写 Provider 后退出 |
 
-四种长驻模式（桌面、server、acp、两类 mcp）共享 `ha-core` 业务逻辑、`init_runtime(role)` 初始化路径与 `EventBus`；`auth` 不进 `init_runtime`，只 touch 凭据与 Provider 配置。
+四种长驻模式（桌面、server、acp、两类 mcp）共享 `ha-core` 业务逻辑、`init_runtime(role)` 初始化路径与 `EventBus`；`auth` 与 `pet` 不进 `init_runtime`，只执行一次性业务后退出。
 
 ```mermaid
 flowchart TD
@@ -60,6 +62,7 @@ flowchart TD
     Mcp --> Init["init_runtime(role)<br/>打开 DB / OnceLock / EventBus / channel 插件"]
     Init --> Core["ha-core 业务内核"]
     Auth["auth（一次性）"] -. 绕过 init_runtime .-> Cred["只 touch credentials / provider config → 退出"]
+    Pet["pet（一次性）"] -. 短期 async runtime .-> PetCore["ha-pet preview / commit → 退出"]
 ```
 
 ## 全局参数
@@ -276,6 +279,26 @@ hope-agent mcp [--allow-writes]
 | `--help` / `-h` | flag | — | 打印帮助后退出 |
 
 启动序列 `ensure_dirs → set_app_version → init_runtime("mcp") → mcp_server::run_stdio(options, [DesignToolProvider])`。host 用 multi-thread runtime——设计生成工具内部会 `tokio::spawn`，需要在 `block_on` 之外存活。工具表 / active-context / 写门细节见 [mcp-server](../integration/mcp-server.md)。
+
+## `hope-agent pet` 子命令
+
+```text
+hope-agent pet capabilities [--json]
+hope-agent pet activate --pet-ref <PET_REF> [--json]
+hope-agent pet list [--json]
+hope-agent pet preview --source <PATH|URL> [--source <PATH> ...] [--display-name NAME] [--json]
+hope-agent pet import --source <PATH|URL> [--source <PATH> ...] --expected-package-hash <BLAKE3> [--display-name NAME] [--json]
+```
+
+Pet 是本机一次性资源管理入口，桌面与 headless binary 都接线；它不启动 GUI、HTTP listener、sessions.db 或后台任务。`capabilities --json` 输出带 `status=capabilities`、`schemaVersion` 与 `activateInstalled` 的稳定握手，调用方不得只凭退出码判断 CLI 存在。`list` 每次重扫 `~/.hope-agent/pets/`，`preview` / `import` 直接复用 [`ha-pet` 导入管线](../core/pet.md#导入管线preview--validate--commit)，支持本机目录、zip、manifest、PNG/WebP、deep link，以及任意公网 origin 上的直接 HTTPS zip / manifest / atlas；同目录的 loose manifest + sprite 可用重复 `--source` 作为一个包交付。普通网页须先解析出实际下载物，CLI 不执行站点安装器、不把 HTML 当包。
+
+`activate` 不在短进程里直接改 enabled：它从本机 0600 credential store 内部读取托管 Owner Token，按当前 `server.bindAddr` 的端口调用运行中桌面的 loopback `POST /api/pets/activate`，由 desktop runtime 原子校验并写入 `selectedPetRef + enabled=true`、再驱动 PetWindow。客户端禁用代理与重定向，非 loopback / unspecified bind fail closed；Token 不进 argv、stdout 或错误消息。桌面未运行、版本不支持、认证不匹配或 endpoint 属 headless 时命令非零退出，不以离线配置写伪造成功。
+
+Agent 的 bundled Pet skill 固定通过 `exec` 调 `hope-agent pet …`。exec 只在整条命令能解析为无 shell 运算/展开的 Pet CLI argv 时，才以参数数组直调当前运行实例的精确二进制；这条 sealed host-control handoff 仍先过普通 exec 审批，但不受会话 shell sandbox 的容器 PATH / 平台格式限制，也不把桌面二进制或 Owner Token 下放进容器。该旁路只接受前台、非 PTY、无自定义 env；其它命令继续按原 sandbox 语义执行。
+
+CLI 刻意不把 preview token 跨进程持久化。`preview` 输出 manifest、尺寸、校验问题、duplicate、`assetHash`、`packageHash` 与 `canCommit`，随后销毁自己的临时 token；调用方把这些信息展示给用户并等待明确确认。`import` 要求传回那个 `packageHash`，重新读取 / 下载同一来源、重新校验，hash 不一致则报 `pet_cli_source_changed`，绝不提交新字节。`--display-name` 参与 canonical package hash，故两步必须传相同值。
+
+成功提交只写 Hope 的内容寻址宠物库并返回 `petRef` / `imported`；它恒 `enable_after_import=false`，不会选择宠物、唤醒 overlay，也不会调用 `npx codex-pet-installer` 或写 `~/.codex/pets`。若桌面设置页已打开，独立 CLI 进程的 EventBus 不跨进程；下次 `pet list` / 打开或刷新 Pets 设置时会从磁盘权威目录重扫。需要即时进程内通知的客户端应使用 Bearer-auth HTTP preview / commit。
 
 ## `hope-agent auth` 子命令
 

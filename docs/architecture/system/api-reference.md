@@ -332,6 +332,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `get_pet_config_cmd` | `GET /api/pets/config` | ✅ |
 | `save_pet_config_cmd` | `PUT /api/pets/config` | ✅（HTTP 不允许改变 overlay enabled） |
 | `pet_set_enabled_cmd` | `POST /api/pets/enabled` | ✅（HTTP 返回 desktop-only） |
+| `pet_activate_cmd` | `POST /api/pets/activate` | ✅（`{petRef}` 原子选择并启用；仅 desktop runtime，headless 返回 desktop-only） |
 | `pet_list_cmd` | `GET /api/pets` | ✅ |
 | `pet_asset_path_cmd` | `GET /api/pets/asset?assetId=` | ✅（HTTP 返回同源 raw URL，不泄露主机路径） |
 | — | `GET /api/pets/sprite?assetId=` | HTTP raw bytes + ETag |
@@ -340,7 +341,7 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `pet_preview_thumbnail_cmd` | `GET /api/pets/import/previews/{previewToken}/thumbnail` | ✅（1536×208 idle 动画条） |
 | `pet_create_preview_cmd` | `POST /api/pets/create/preview` | ✅（显式 media generation） |
 | `pet_upgrade_v2_cmd` | `POST /api/pets/upgrade-v2` | ✅（保留 v1、安装 v2 副本；持久化成功后仅当 v1 仍被选中时切换到 v2） |
-| `pet_import_preview_cmd` | `POST /api/pets/import/preview` | ✅（HTTP 拒绝 LocalPath，只接受 upload/link/candidate capability） |
+| `pet_import_preview_cmd` | `POST /api/pets/import/preview` | ✅（HTTP 拒绝 LocalPath，只接受 upload/link/candidate capability；link 可来自任意公网 origin，支持直接 zip / JSON manifest / PNG·WebP、deep link，以及少量显式 page resolver；不解释任意 HTML） |
 | `pet_import_preview_cancel_cmd` | `POST /api/pets/import/preview/cancel` | ✅（token 只放 JSON body；幂等释放 preview cache 与其 upload leases） |
 | `pet_import_commit_cmd` | `POST /api/pets/import/commit` | ✅（HTTP 拒绝 `enableAfterImport=true`，不能启用桌面 overlay） |
 | `pet_delete_cmd` | `POST /api/pets/delete` | ✅（expected package hash） |
@@ -353,6 +354,8 @@ Artifact 创建或 show 仍复用 `canvas_show`，当前投影变化复用 `canv
 | `pet_focus_target_cmd` | `POST /api/pets/focus-target` | ✅（HTTP 明确返回 overlay unsupported） |
 
 Pet 的主对话身份由 chat 请求可选 `uiSurface` 传播并落 `chat_turns.ui_surface`；缺省值绝不推断为桌面主对话。HTTP 只有带浏览器不可由页面脚本伪造的 `Sec-Fetch-Mode: cors`、`Sec-Fetch-Dest: empty`，且 `Origin` 与 `Host` 同源或命中服务端显式 CORS allowlist 时才能进入 `/api/chat/ui`；普通 API、side-query 和 automation 一律走会清空字段的 `/api/chat`。详见 [Pet 架构](../core/pet.md)。
+
+本机 CLI 复用同一导入实现：先用 `hope-agent pet capabilities --json` 验证协议握手，再以 `hope-agent pet preview --source <PATH|URL> [--source <PATH> ...] --json` 返回待确认的 `packageHash`，随后 `hope-agent pet import` 用完全相同的来源列表和 `--expected-package-hash <HASH>` 重新读取来源、比对 hash 后提交。PATH 可指目录、zip、manifest 或 atlas；同目录 loose manifest + sprite 用重复 `--source`；URL 可指任意公网 origin 上的直接 zip / manifest / atlas。Import 恒只安装库包，不启用 overlay；显式启用另走 `hope-agent pet activate --pet-ref <REF>`，其内部安全调用 desktop-only Bearer API。远程调用仍使用上表 Bearer-auth HTTP preview / commit / activate，preview/commit token 只放 JSON body，模型侧不得为建立 HTTP 鉴权而读取 Owner Token。
 
 跨源 HTTP/WS GUI 只允许显式 origin：打包桌面 WebView 的 `tauri://localhost` / `http://tauri.localhost` 默认加入 allowlist；其他前端部署通过逗号分隔的 `HA_CORS_ORIGINS` 配置（例如 `https://ui.example`）。不接受 `*`，同源浏览器无需配置。Owner Token 仍只走 Bearer/登录请求体，禁止放 URL；WebSocket 与静态资源使用 15 分钟 scope ticket。
 

@@ -351,6 +351,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_pet_config_cmd: { method: "GET", path: "/api/pets/config" },
   save_pet_config_cmd: { method: "PUT", path: "/api/pets/config" },
   pet_set_enabled_cmd: { method: "POST", path: "/api/pets/enabled" },
+  pet_activate_cmd: { method: "POST", path: "/api/pets/activate" },
   pet_list_cmd: { method: "GET", path: "/api/pets" },
   pet_asset_path_cmd: { method: "GET", path: "/api/pets/asset" },
   pet_codex_candidates_cmd: { method: "GET", path: "/api/pets/codex-candidates" },

@@ -160,6 +160,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 详见 [pet](docs/architecture/core/pet.md)。
 
 - **主对话投影边界**：只接入显式携带第一方 `ChatUiSurface` 的主动多轮主对话；side query、automation、compact、Memory、Cron、IM、ACP、subagent 与后台 job 等额外 LLM 请求不得接入。Pet 点击气泡只发 typed navigation，**不得提前清未读**；必须由目标消息列表真实加载并渲染后的 read receipt 推进 watermark
+- **宠物包自动化导入唯一入口**：本机走 `hope-agent pet preview` → 用户确认 `packageHash` → `hope-agent pet import --expected-package-hash`，远程走 Bearer-auth HTTP preview / commit；来源域名不决定资格，但所有入口仍须走 `ha-pet` 的统一校验与原子安装，禁止技能或壳层直接写宠物目录、静默安装，或在用户仅请求导入时顺带启用 overlay。用户明确请求“导入并启用”时，commit 成功后只许以返回的 `petRef` 独立走 `hope-agent pet activate` / desktop-only `POST /api/pets/activate`；两者必须把选择 + enabled 原子交给当前 Tauri 进程驱动窗口生命周期，禁用 `enableAfterImport` 偷渡或离线改配置假成功
 
 ### 上下文压缩
 
