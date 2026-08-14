@@ -77,11 +77,10 @@ pub(crate) async fn activate_pet(
     source: &'static str,
 ) -> anyhow::Result<ha_pet::PetConfig> {
     let previous = ha_core::config::cached_config().pet.clone();
-    if !previous.enabled {
-        // Match the enabled switch's fail-closed ordering: prove the native
-        // overlay can be created before persisting enabled=true.
-        crate::pet_window::sync_enabled(app, true)?;
-    }
+    // Activation is also an explicit request to repair a missing native
+    // overlay. Prove the window exists on every call; the cached enabled bit
+    // cannot tell us whether a prior asynchronous lifecycle sync succeeded.
+    crate::pet_window::sync_enabled(app, true)?;
     match ha_pet::update_config(Some(true), Some(pet_ref), source).await {
         Ok(config) => Ok(config),
         Err(error) => {
