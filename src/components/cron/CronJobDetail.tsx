@@ -4,8 +4,10 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { requestChatFocus } from "@/components/chat/chatFocus"
 import {
   ArrowLeft,
+  ArrowUpRight,
   Play,
   Pause,
   Trash2,
@@ -80,7 +82,7 @@ export default function CronJobDetail({
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
-  // Run conversation shown read-only on the right (no jump to the main chat).
+  // Run conversation preview shown read-only on the right.
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   // Loop runs can share one session, so sessionId cannot identify the selected
   // history row. Keep the run-log id separately for a single visual selection.
@@ -644,7 +646,7 @@ export default function CronJobDetail({
                         type="button"
                         disabled={!log.sessionId}
                         className={cn(
-                          "block h-auto w-full self-start rounded-lg px-2.5 py-2 pr-10 text-left text-xs transition-colors disabled:cursor-default",
+                          "block h-auto w-full self-start rounded-lg px-2.5 py-2 pr-16 text-left text-xs transition-colors disabled:cursor-default",
                           log.sessionId && "cursor-pointer",
                           log.sessionId && selectedLogId === log.id
                             ? "bg-secondary"
@@ -724,6 +726,19 @@ export default function CronJobDetail({
                           </p>
                         )}
                       </button>
+                      {log.sessionId && !isLoop && (
+                        <IconTip label={t("subagent.openSession")}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-8 top-1 h-7 w-7 text-muted-foreground"
+                            onClick={() => requestChatFocus({ sessionId: log.sessionId })}
+                          >
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      )}
                       {log.sessionId && (
                         <IconTip label={t("chat.archiveSession")}>
                           <Button

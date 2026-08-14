@@ -1,6 +1,6 @@
 # Cron 定时任务架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-14
 
 ## 这个子系统解决什么问题
 
@@ -8,12 +8,12 @@
 
 1. **可靠**。App 可能重启、机器可能休眠、进程可能崩溃。到点该跑的任务不能因为「那一刻没人开着窗口」就永远丢失。
 2. **隔离**。每次触发是一轮完整的 Agent 对话（可以再起子代理、调工具），不能污染用户当前正在进行的会话，也不能被它污染。
-3. **自治但安全**。无人值守意味着没人能实时批准工具调用、没人能实时喊停跑飞的循环。系统必须自己兜住并发、超时、连续失败、以及被 prompt 注入的模型试图越权外发数据的风险。
+3. **自治但安全**。触发时不能假设用户在场批准或停止，系统必须自己兜住并发、超时、连续失败、以及被 prompt 注入的模型试图越权外发数据的风险；用户随后打开运行会话时，仍可沿用普通对话的 Stop 与输入能力。
 
 Cron 子系统就是围绕这三条约束建起来的。核心设计可以浓缩成几句话：
 
 - **持久调度**：任务、下次触发时间、运行日志全部落 SQLite（`cron.db`），进程重启后从库里恢复，不依赖任何内存态。
-- **每次运行开一个隔离会话**：`is_cron=1` 的独立 session，不进主对话列表、不进全局搜索，结果通过 `delivery_targets` 主动 fan-out 到 IM 渠道。
+- **调度只负责发起普通对话**：每个 `AgentTurn` occurrence 创建一个普通 Session，并以 durable ChatTurn 执行首轮 prompt；会话照常进入侧栏、搜索与未读，结果仍可通过 `delivery_targets` fan-out 到 IM 渠道。
 - **先抢槽再认领（slot-before-claim）**：全局并发上限之下，调度器先确认有空位再原子 claim 任务，避免「认领了却因没空位而白白跳过一次触发」。
 - **单 Primary 执行**：多实例部署时只有 Primary 进程跑调度，用 owner-token 把「本进程的在途运行」和「上次崩溃的残留」严格区分开。
 - **失败闭合（fail-closed）**：无人值守下的审批、沙箱写入、投递白名单，出错一律往「更安全」的方向退，而不是往「继续裸跑」退。
@@ -78,7 +78,7 @@ flowchart TB
 | `cron_hooks.rs` | kernel | cron 机器的反向钩子四槽 |
 | `loop_control.rs` | kernel | 托管 `/loop`（复用 cron 调度，见 [loop](../agent/loop.md)） |
 | `cron/scheduler.rs` | ha-cron | `start_scheduler`：独立 OS 线程 + tokio runtime、启动恢复、15s tick 循环 |
-| `cron/executor.rs` | ha-cron | `execute_job`：隔离会话、per-run 超时、成功/失败分支、failover、事件发射 |
+| `cron/executor.rs` | ha-cron | `execute_job`：普通 Session + durable ChatTurn、per-run 超时、成功/失败分支、failover、事件发射 |
 | `cron/delivery.rs` | ha-cron | `deliver_results`：白名单复检 + 有界退避重投 + `DeliveryReport` |
 | `cron/failure.rs` | ha-cron | `CronFailureClass`：纯函数失败分类（只做诊断，不改禁用策略） |
 | `cron/timeline.rs` | ha-cron | `cron_run_timeline`：`cron.db` 与 `sessions.db` 两库 Rust 层装配 |
@@ -106,7 +106,7 @@ serde 以 `type` 标签区分，有两种：
 
 | 类型 | 字段 | 说明 |
 |------|------|------|
-| `AgentTurn` | `prompt: String`, `agent_id: Option<String>` | 普通定时任务：以指定 prompt 起一轮 Agent 对话，在隔离会话里执行。`agent_id` 缺省解析到 `ha-main`（`DEFAULT_AGENT_ID`） |
+| `AgentTurn` | `prompt: String`, `agent_id: Option<String>` | 普通定时任务：每次 occurrence 创建普通可交互 Session，以指定 prompt 创建并执行一个持久化 ChatTurn。`agent_id` 缺省解析到 `ha-main`（`DEFAULT_AGENT_ID`） |
 | `SessionLoop` | `loop_id`, `session_id`, `prompt`, `agent_id?`, `goal_id?` | 托管 `/loop` 触发：复用 cron 的持久调度与恢复，但执行走**父会话注入管线**，因此保留对话上下文、Goal 关联、权限、Project/KB 访问与空闲门控。详见 [loop](../agent/loop.md) |
 
 `CronPayloadType`（`AgentTurn` / `SessionLoop`）是给不需要完整 payload 的摘要 DTO 用的稳定判别式，出现在 `CronTimelineRow` 与 `CalendarEvent` 里。
@@ -150,7 +150,7 @@ stateDiagram-v2
 | `max_failures` | `u32` | 最大允许连续失败数（默认 5）。超过后自动 `Disabled`；`0` = 永不自动禁用 |
 | `created_at` / `updated_at` | `String` | 时间戳 |
 | `notify_on_complete` | `bool` | 完成后是否发桌面通知（默认 `true`） |
-| `delivery_targets` | `Vec<CronDeliveryTarget>` | IM 渠道 fan-out 目标。空 = 仅落隔离会话不发送 |
+| `delivery_targets` | `Vec<CronDeliveryTarget>` | IM 渠道 fan-out 目标。空 = 仅保留普通运行会话、不向 IM 发送 |
 | `prefix_delivery_with_name` | `bool` | opt-in（默认 `false`）：成功投递加 `[Cron] {name}` 前缀 |
 | `job_timeout_secs` | `Option<u64>` | per-job 覆盖全局 per-run 超时预算。`None` = 用全局默认 |
 | `permission_mode_override` | `Option<SessionMode>` | owner 专属：覆盖本任务运行会话的权限模式。`None` = 跟随 Agent 默认 |
@@ -179,7 +179,7 @@ stateDiagram-v2
 |------|------|------|
 | `id` | `i64` | 自增主键 |
 | `job_id` | `String` | 关联任务（CASCADE 删除） |
-| `session_id` | `String` | 本次执行创建的隔离会话 ID |
+| `session_id` | `String` | 本次执行关联的会话 ID；`AgentTurn` 指向新建的普通 Session，`SessionLoop` 指向既有父会话 |
 | `status` | `String` | 自由文本状态（见下） |
 | `started_at` | `String` | 开始时间 |
 | `finished_at` | `Option<String>` | 完成时间。在途 run_log 为 NULL，终态由 `finalize_run_log` 写入；`recover_orphaned_runs` 据此判定崩溃留痕 |
@@ -218,7 +218,7 @@ stateDiagram-v2
 
 **`CalendarEvent`**（日历视图一个时间点）：`job_id`、`job_name`、`payload_type`、`project_id?`（API 暴露为 `projectId`）、`scheduled_at`、`status`、`run_log?`。`run_log` 用**前向匹配**归属：每条 log 归到「不晚于其 `started_at` 的最近 occurrence」，辅以 60s 反向 skew 容差吸收时钟偏移，每条 log 只归一个 occurrence——这样密集/秒级排程也不丢圆点。
 
-**`CronTimelineRow`**（跨任务运行时间线一行，见「运行历史时间线」）：`run_log_id`、`session_id`、`job_id`、`job_name`、`payload_type?`、`status`、`started_at`、`finished_at?`、`result_preview?`、`title?`、`unread_count`。**列表 key 与选中身份是 `run_log_id` 而非 `session_id`**——`SessionLoop` 的多次运行共享同一个父会话，`session_id` 不唯一。`title` / `unread_count` 由装配层从 `sessions.db` 注入，session 缺席（被 purge）时回退 `job_name` / `0`。
+**`CronTimelineRow`**（跨任务运行时间线一行，见「运行历史、普通会话与未读」）：`run_log_id`、`session_id`、`job_id`、`job_name`、`payload_type?`、`status`、`started_at`、`finished_at?`、`result_preview?`、`title?`、`unread_count`。**列表 key 与选中身份是 `run_log_id` 而非 `session_id`**——`SessionLoop` 的多次运行共享同一个父会话，`session_id` 不唯一。`title` / archive 状态由装配层从 `sessions.db` 注入；普通 AgentTurn Session 的未读归普通会话域，Scheduled 行不重复计数。session 缺席时回退 `job_name` / `0`。
 
 ### `manage_cron` 工具与 Project 语义
 
@@ -335,14 +335,19 @@ flowchart TD
     A[claim 成功 → ClaimedCronJob] --> RG["挂 RunningMarkerGuard<br/>+ cancel::register（任何 await 前完成）"]
     RG --> C["提取 prompt + agent_id<br/>解析 Project 与 Agent"]
     C --> C2{Project 存在?}
-    C2 -->|存在或未绑定| D["create_session_with_project<br/>隔离会话 + mark_session_cron"]
+    C2 -->|存在或未绑定| D["create_session_with_project<br/>普通 Session，不写 is_cron"]
     C2 -->|已删除| C3["clear_job_project 降级普通 cron"] --> D
     D -->|session 创建失败| INF["record_failure(count_toward_disable=false)<br/>推进 next_run_at、不计失败、不禁用"]
-    D -->|ok| DR["add_running_run_log<br/>status=running、finished_at=NULL（崩溃留痕）"]
-    DR --> E{有 per-run 超时?}
+    D -->|ok| AT["生成 turn_id + active_turn::try_acquire<br/>与 task cancel 共用 exact cancel flag"]
+    AT --> DR["add_running_run_log<br/>status=running、finished_at=NULL（崩溃留痕）"]
+    DR -->|失败| INF2["拒绝执行无审计 turn<br/>基础设施失败、不计禁用"]
+    DR --> PC["with_persistence_target<br/>原子写 user message + running ChatTurn"]
+    PC -->|Stop 赢得提交竞态| CAN0["不启动模型<br/>ChatTurn + run_log 收为 Cancelled"]
+    PC --> PRE["应用 permission / sandbox 覆盖<br/>失败则终结 ChatTurn 并 fail-closed"]
+    PRE --> E{有 per-run 超时?}
     E -->|否| ER[直接 await]
     E -->|是| ET["tokio::time::timeout<br/>job 覆盖 else 全局，正数钳 30-7200"]
-    ER --> F[build_and_run_agent → run_chat_engine]
+    ER --> F["build_and_run_agent → run_chat_engine<br/>携 exact turn_id"]
     ET --> F
     F --> CT{classify_cron_terminal}
     ET -->|超时| TO["置 cancel_flag + 5s 宽限<br/>宽限内非空 Ok 采纳，除非用户已先取消"] --> CT
@@ -359,6 +364,10 @@ flowchart TD
     Z -->|是| Z1["status=Disabled + 强制通知"]
     Z -->|否| Z2["next_run_at += 正常间隔 + backoff"]
 ```
+
+`AgentTurn` 不再调用 `mark_session_cron`，也不另建 Cron 会话状态机。`run_chat_engine` 获得上面已经持久化的 exact `turn_id`，stream journal 与 ChatTurn 终态沿用普通聊天的重连和崩溃恢复路径。Scheduled 的 `run_log.session_id` 只提供任务运行到普通会话的导航关系，不拥有另一份聊天正文。
+
+用户在 scheduled turn 运行时打开该会话，看到的是普通 `ChatScreen`：首轮 `ChatSource::Cron` 通过主 stream bus 直播；Stop 按 exact active turn 取消，且与任务页取消共用同一个 flag。此时发送消息默认进入 `queued_turn_user_messages`，当前 turn 释放后按 FIFO 发起普通人工 turn；若后端投影 `canForceInsert=true`，用户也可显式选择“插入”，在当前 turn 的下一个完整工具边界交付。队列、插入资格与停止后的收敛完全遵循 [Chat Engine 的忙时队列契约](../core/chat-engine.md)，Cron 不增加专用 queue / takeover API。
 
 ### 终态分类：一个隐藏的坑
 
@@ -432,7 +441,7 @@ delay = min(30_000ms * 2^min(consecutive_failures, 20), 3_600_000ms)
 
 `CronConfig.job_timeout_secs`（默认 `0` = 不加 cron 层超时；正数钳 `[30, 7200]`）。`CronJob.job_timeout_secs` 非空时优先，让一个合法的长任务声明自己的预算，而不必抬高全局对所有任务的上限。
 
-正数执行包在 `tokio::time::timeout` 里：超时先置 `cancel_flag` 给 `CRON_TIMEOUT_CANCEL_GRACE_SECS`（5s）让引擎协作收尾（flush session 行、停止 spawn），而不是在任意 await 点被硬 drop。宽限期的处理由纯函数 `resolve_after_timeout_grace` 裁决：
+正数执行包在 `tokio::time::timeout` 里：超时先置 `cancel_flag` 给 `CRON_TIMEOUT_CANCEL_GRACE_SECS`（5s）让引擎协作收尾（flush stream journal / ChatTurn、停止 spawn），而不是在任意 await 点被硬 drop。宽限期的处理由纯函数 `resolve_after_timeout_grace` 裁决：
 
 - **引擎在宽限期内跑完并返回非空 Ok → 采纳为 Success**。否则踩线完成的真实产出会被丢、误投 timeout 失败，连续踩线 `max_failures` 次会静默禁用一个本能跑完的健康任务。
 - **除非用户在超时触发前就已取消 → 宽限期产出丢弃、归 Cancelled**（用户既已喊停，停止后的产出无意义）。
@@ -457,7 +466,7 @@ delay = min(30_000ms * 2^min(consecutive_failures, 20), 3_600_000ms)
 
 ### 基础设施失败不计入禁用
 
-`record_failure` 有个 `count_toward_disable` 参数。session 创建失败这类**agent turn 从未起跑**的基础设施错误走 `reschedule_without_failure`（推进 `next_run_at`、不 bump `consecutive_failures`、不自动禁用），只有真正的 run 失败才计入 `max_failures`。否则连续几次瞬时 DB 抖动就把健康任务禁用。沙箱/权限 override 写入失败也归此档（下节）。
+`record_failure` 有个 `count_toward_disable` 参数。session 创建、run_log 打开或 permission / sandbox 预检失败这类**模型引擎从未起跑**的基础设施错误走 `reschedule_without_failure`（推进 `next_run_at`、不 bump `consecutive_failures`、不自动禁用），只有真正的 run 失败才计入 `max_failures`。若 prompt + ChatTurn 已持久化，预检失败还必须把该 ChatTurn 收为 Failed，不能给普通会话留下永久 Running 的空壳。
 
 ---
 
@@ -503,13 +512,13 @@ cron 投递携 IM 账号身份、可周期触发，且 `manage_cron` 标 `intern
 
 ### per-job 权限 / 沙箱覆盖（owner 专属）
 
-`CronJob.{permission_mode_override, sandbox_mode_override}` 让一个无人值守任务声明自己的权限强度与沙箱边界。`None` = 跟随 Agent 默认；非空时 executor 经 `update_session_{permission,sandbox}_mode` **回写会话行**（会话行是引擎/exec 读取权限与沙箱的唯一来源，不碰权限引擎、不改无人值守 fail-closed）。
+`CronJob.{permission_mode_override, sandbox_mode_override}` 让一个无人值守任务声明自己的权限强度与沙箱边界。`None` = 跟随 Agent 默认；非空时 executor 经 `update_session_{permission,sandbox}_mode` **回写会话行**（会话行是引擎/exec 读取权限与沙箱的唯一来源，不碰权限引擎、不改无人值守 fail-closed）。对 `AgentTurn`，这也是普通运行会话可见、可后续修改的初始配置，不在首轮结束后另做恢复。
 
 **只对面向用户本人的控制面开放**：模型能调用的 `manage_cron` 工具恒把这两个字段置 `None`、不进 schema，`update` 拒改带 owner 覆盖的 job——否则被注入的模型可排一个 `permission=yolo` 的无人值守任务自我提权、降沙箱，或改写现有特权 job 的 prompt 重置提权（单测 + `update` 双锁）。
 
 **写入/预检全 fail-closed**：
 
-- 沙箱与权限 override 写入失败**均 fail-closed 终止本次运行**（turn 未跑无副作用，与 `no_session` 同档、不计 `max_failures`）。沙箱写丢 = exec 读同一会话行 = 裸跑 host；权限写丢 = 按 Agent 默认跑，而 Agent 默认**可能比 override 更宽松**（owner 收紧场景，如通用 agent 是 yolo、但这个 cron 任务要求人值守）——静默回退即隐性提权，故两侧对称。
+- 沙箱与权限 override 写入失败**均 fail-closed 终止本次运行**（模型未跑、ChatTurn 明确收为 Failed，与 `no_session` 同档、不计 `max_failures`）。沙箱写丢 = exec 读同一会话行 = 裸跑 host；权限写丢 = 按 Agent 默认跑，而 Agent 默认**可能比 override 更宽松**（owner 收紧场景，如通用 agent 是 yolo、但这个 cron 任务要求人值守）——静默回退即隐性提权，故两侧对称。
 - Docker 预检读 `get_session_sandbox_mode`，读错回退到 **expected**（per-job override，否则 Agent 有效默认）而非 `Off`，避免读 blip 跳过应沙箱化任务的守卫。
 - 有效沙箱 `enabled()` 则 `ensure_sandbox_available()`，失败记 `error`「sandbox unavailable」+ return、**绝不回落宿主机**；因 turn 未跑、无副作用，**不计入禁用**，否则瞬时 Docker 抖动或根本不调 exec 的任务会被误禁用。
 - 前端 `CronJobForm` 选非 off 沙箱渲染 Docker 提示、`permission=yolo && sandbox=off` 渲染醒目警示。
@@ -538,10 +547,10 @@ scheduled run 在 `deliver_results` fan-out **之前**就 `clear_running` 释放
 
 一组并发与恢复锐边：
 
-- **崩溃留痕 + 实时「运行中」**：run 起跑（session 创建后）即 `add_running_run_log` 插入 `status='running'` / `finished_at=NULL` 的**在途** run_log，终态经 `finalize_run_log` 单次 UPDATE 收尾。这让 `recover_orphaned_runs`（启动期，`WHERE finished_at IS NULL`）真正生效——崩溃中途的 run 在下次启动被收为 `error`。同进程 panic 由 RAII 守卫兜底 finalize。开 run_log 自身失败时 `run_log_id` 为 `None`，四条终态路径统一经 `finalize_or_insert_run_log`——`Some(id)` finalize、`None` 直接 INSERT 一条完整终态行（否则 `UPDATE WHERE id=0` 匹配 0 行、审计行静默丢失）。
+- **两层持久留痕**：session 创建后先由 `add_running_run_log` 插入 `status='running'` / `finished_at=NULL` 的 Cron 审计行；打开失败就拒绝启动模型，不能执行一个无法审计的 occurrence。随后 user message + running ChatTurn 在一个 `sessions.db` 事务中提交，`run_chat_engine` 以同一个 `turn_id` 接管 stream journal 与终态。Cron run_log 由 `recover_orphaned_runs` / RAII 守卫收尾，ChatTurn 由普通 stream recovery 收尾；两者各守自己的台账。
 - **claim↔register 窗口**：`cancel::register` 提前到 claim 成功后、任何 await 之前（job.id 已知即注册），由 RAII 守卫在所有退出路径清理。`cancel.rs` 的 `PENDING_CANCELS`：`cancel()` 在 flag 未注册时（窗口内）落一个 pending 占位（`cancel_running_job` 已先验 `running_at.is_some()`，故占位只对真在飞的 run 成立），`register()` drain 占位使 run 起跑即取消，`remove()` 清未消费占位防泄漏。
 - **全路径 run-key**（红线）：`CANCELS` 的值是 `(claimed_at, flag)`，live-flag 分支与 pending 占位分支**同样按 `claimed_at` 比对**，`remove(job_id, claimed_at)` 亦 run-keyed。否则一个针对已结束 run A 的迟到取消（A 跑完、循环任务以同 job_id 重 claim 成 run B）会误翻 B 的 flag、取消用户从未针对的 B。回归测试 `live_flag_for_a_different_run_is_not_cancelled`。
-- **删运行中任务不空跑**：`delete_job` 删前先按 run-key 请求在途 run 取消，使其尽快 `Ok("")`→Cancelled 收尾、不再白跑完 + 投递到已删任务；在途 run_log 随 `ON DELETE CASCADE` 一并删。三条 delete 入口经单点 chokepoint 统一覆盖。
+- **Stop 与删运行中任务不空跑**：普通会话 Stop 按 exact `turn_id` 翻转 scheduled turn 的 active cancel flag；任务页取消 / delete 则按 cron run-key 找到同一个 flag。`delete_job` 删前请求在途 run 取消，使其尽快 `Ok("")`→Cancelled 收尾、不再白跑完 + 投递到已删任务；在途 run_log 随 `ON DELETE CASCADE` 一并删。三条 delete 入口经单点 chokepoint 统一覆盖。
 - **跨进程取消（取舍）**：cancel 注册表是**进程本地** static map，cron 调度仅在 Primary 进程跑。另一实例对 Primary 在跑的 run 发取消会查无 flag——若配置了正数 per-run timeout 则回落到该预算兜底释放，若为 `0` 则 cron 层不额外中断。不引入持久化 `cancel_requested` 列（cron 单 Primary、取消多为同进程）。
 - **Primary 崩溃可观测**：调度器每 tick UPSERT `cron_meta.scheduler_heartbeat`；启动时若上次心跳距今 ≥ `HEARTBEAT_STALE_WARN_SECS`（300s）则 `app_warn` 提示「调度器曾离线 ~Ns」。纯日志可观测——Primary 崩溃非丢任务（重启 catch-up 按 grace 补跑），故不做 Secondary 竞选接管。
 
@@ -571,15 +580,15 @@ cron 是 Primary-only。run-now 也补上这道门，并与调度机制正交：
 
 ## 运行身份与 KB 访问（ChatSource::Cron）
 
-cron 执行经 `run_chat_engine` 起一轮对话，其 `source` 是专属的 `ChatSource::Cron`。语义定位是**「后台、非交互，但面向用户本人的顶层会话」**：
+cron 执行经 `run_chat_engine` 发起普通会话的首个 turn，其 `source` 是专属的 `ChatSource::Cron`。它只表达**「由无人值守排程触发」**的首轮身份，不把整个 Session 变成 Cron 专用会话；用户后续输入按 Desktop / HTTP 等普通来源创建新 turn。
 
 | 维度 | Cron | 理由 |
 |------|------|------|
 | `holds_foreground_idle_guard` | 是 | 后台 job / subagent 完成注入必须让位于在跑的 cron turn，否则注入打在活跃 turn 上 |
 | `fires_user_lifecycle_hooks` | 是 | cron 是合法顶层会话（无 subagent 级联风险），`SessionStart` 等照常触发 |
-| `tracks_seq` | 是 | cron 会话真实可持久化、用户可见；注册进 stream_seq 还顺带拿到「同会话第二条流被拒」的并发流守卫 |
-| `broadcasts_to_user_ui` | 否 | 后台 turn，不上主 `chat:stream_delta` bus；结果走 `delivery_targets` fan-out |
-| `active_counts` 桶 | 不计 | cron 非交互会话，与 subagent / 父注入同属后台、不进状态条计数 |
+| `tracks_seq` | 是 | 普通运行会话真实可持久化、用户可见；注册进 stream_seq 还顺带拿到「同会话第二条流被拒」的并发流守卫 |
+| `broadcasts_to_user_ui` | 是 | 普通 Session 可在 scheduled turn 运行中打开，必须从主 `chat:stream_*` bus 直播并支持重连 |
+| `active_counts` 桶 | 不计 | 触发仍是后台调度，不因会话可打开就计入全局前台状态条；会话内运行态由 durable ChatTurn / stream 投影 |
 | `kb_access_source` | `KbAccessSource::Cron` | 非 IM owner 桶（见下） |
 
 **KB 访问**：`engine.rs::kb_access_source` 把 `ChatSource::Cron` 映射到 `KbAccessSource::Cron`。该桶 `is_im() == false`，故 `effective_kb_access` 的 IM 血缘拒绝不触发，cron turn 走 owner 的 `max(session_attach, project_attach)` 路径——与桌面/HTTP owner turn 同权，`note_*` / `[[note]]` / `knowledge_recall` 在 cron 会话 attach / 所属 project 的 KB 上正常可用。
@@ -670,30 +679,30 @@ Tauri 全局事件，任务执行完成后（无论成功或失败）发射。
 
 ### cron:unread_changed
 
-Tauri 全局事件，cron 未读聚合数变化时发射（当前在 `cron_mark_all_read` 一键清除后发 `{ total: 0 }`）。前端 `useCronUnreadStore` 收到后调 `cron_unread_total` 刷新侧边栏 cron 角标；`cron:run_completed` 同样触发刷新（让新结果实时增长角标）。
+Tauri 全局事件，只服务仍带 `is_cron=1` 的旧隐藏会话：`cron_mark_all_read` 后发 `{ total: 0 }`，前端据此刷新旧 Cron 角标。新的 `AgentTurn` Session 使用普通会话未读事件与聚合，不进入这个计数。
 
 ---
 
-## 运行历史时间线与未读聚合
+## 运行历史、普通会话与未读
 
-cron 每次运行新建一个独立会话（`is_cron=1`，标题=job 名）。这些会话**不进主会话列表、不进全局搜索**，集中收进 cron 面板的「历史」视图。
+每个 `AgentTurn` occurrence 新建一个普通 Session（`is_cron=0`，标题=job 名）。它与手动创建的会话一样进入主侧栏、全局搜索、普通未读、Dock / tray 聚合；Scheduled 页面只是按 `cron_run_logs.session_id` 提供同一会话的运行历史入口。session 创建并提交首个 user message + ChatTurn 后发 `session:list_changed`，让已打开的客户端及时刷新侧栏。
 
-**从主侧栏摘除**：`list_sessions_paged_for_sidebar` 传 `exclude_cron=true`（共享的内层查询加 `s.is_cron=0` 谓词；通用 `list_sessions_paged` 仍传 `false`，awareness / tray 等内部读取不受影响）。侧栏搜索（`search_sessions_cmd`）显式传 `types: ["regular","subagent","channel"]` 把 cron 排除在后端，避免固定 `SEARCH_LIMIT` 被隐藏的 cron 命中占满导致正常会话落选。
+`SessionLoop` 保持原语义：它不创建新的运行 Session，而是经父会话注入管线执行，所以多次 run 仍可共享同一个 `session_id`。本节的“新建普通 Session + 打开会话”只适用于 `AgentTurn`。
 
 **时间线（跨库装配）**：`cron.db`（run logs + jobs）与 `sessions.db`（title + unread）是两个独立 SQLite、无法单条 SQL JOIN，故在 `cron::timeline::cron_run_timeline` 里 Rust 层拼装：
 
 1. `CronDB::list_run_timeline(batch, offset)`——`cron_run_logs LEFT JOIN cron_jobs`，按 `started_at DESC, id DESC` 倒序取批次，job 被删时 `job_name` 回退 `(deleted job)`。
-2. `SessionDB::cron_session_read_state(session_ids)`——按批次 session id 取 `(title, 未读标记 0/1, archived)`；过滤归档项后再按可见行做 offset/limit，防止归档造成短页或漏页。session 被 purge 的 id 缺席，装配层回退 `title=job_name` / `unread_count=0`；`SessionLoop` 共享普通父会话，只参与归档判定、不并入 Cron 未读。
+2. `SessionDB::cron_session_read_state(session_ids)`——按批次 session id 取 `(title, Cron 未读标记 0/1, archived)`；过滤归档项后再按可见行做 offset/limit，防止归档造成短页或漏页。普通 AgentTurn Session 与 `SessionLoop` 父会话返回真实 title / archived，但在 Scheduled 时间线中的 `unread_count=0`，避免和普通侧栏重复计数；缺失 session 回退 `title=job_name` / `0`。
 
-返回 `CronTimelineRow`（其 `run_log_id` 是列表 key，因 `SessionLoop` 多次运行共享父会话）。前端 `CronConversationsPanel`（日历第三模式「历史」）做 master-detail：左栏时间线列表，右栏 `CronSessionViewer` 复用主聊天 `MessageList` 只读渲染（无 ChatInput）。视图模式经 `localStorage` 持久化。
+返回 `CronTimelineRow`（其 `run_log_id` 是列表 key，因 `SessionLoop` 多次运行共享父会话）。前端 `CronConversationsPanel` 与任务详情继续用 `CronSessionViewer` 做只读预览；`AgentTurn` 行另提供“打开会话”，通过普通 chat focus 导航到同一个 Session。完整输入框、实时 stream、Stop、默认排队与显式安全边界插入都由普通 `ChatScreen` 提供，Scheduled 预览不复制这些交互；预览成功渲染后可推进同一个普通 read watermark，不另建 Scheduled 未读域。
 
-**未读聚合 + 一键清除**：`cron_unread_total()` 聚合所有 `is_cron=1` 的未读运行 session 数，一个运行会话无论多少 assistant 行都只计 `1`；`mark_all_cron_sessions_read()` 复用 `last_read_message_id=MAX(id)`、scope `is_cron=1`。进入页面自动选中最新 run 只用于预览、**不清未读**；用户明确点击当前 run 时可立即标记，切换到另一条 run 则等待 `CronSessionViewer` 成功加载后再标记，避免加载失败却提前丢提醒。Cron 不并入普通对话、Dock 或 tray 聚合。
+普通 AgentTurn Session 的未读只由普通 read receipt 清除：主聊天或 Scheduled 只读预览成功加载并真实渲染消息后，才可推进同一 watermark。`cron_unread_total()` / `mark_all_cron_sessions_read()` 仍只覆盖 `is_cron=1` 的旧隐藏会话，不能直接批量读写普通会话的未读状态。
 
 命令 / 路由：`cron_run_timeline` ↔ `GET /api/cron/timeline`、`cron_unread_total` ↔ `GET /api/cron/unread`、`cron_mark_all_read` ↔ `POST /api/cron/read-all`。
 
-**删 job 连带删运行会话**：cron 运行会话从主侧栏/搜索摘除后，只经面板「历史」时间线可达。`delete_job` CASCADE 掉 `cron_run_logs` 后这些会话既不可达又在 `sessions.db` 永久 orphan。故三处 owner delete 入口（Tauri `cron_delete_job` / HTTP `delete_job` / `manage_cron` delete）统一走跨库编排 `cron::delete_job_and_sessions`：① CASCADE 前先收集 session_id；② 删 job（连带 CASCADE run_log）；③ 逐个 `delete_session` 清理，best-effort（单个失败 `app_warn` 但不阻断删 job）。
+**删 Task 保留普通聊天**：三处 owner delete 入口（Tauri `cron_delete_job` / HTTP `delete_job` / `manage_cron` delete）统一走 `cron::delete_job_and_legacy_sessions`。它先收集 run 的 session id，再删除 job；`cron_run_logs` 仍按外键 CASCADE 删除，但 `is_cron=0` 的普通 Session 全部保留在侧栏 / 搜索中。只有仍带 `is_cron=1`、删除 Task 后会不可达的旧隐藏 shell 才 best-effort 清理；读取 session 失败时选择保留，不能误删普通聊天。
 
-**单对话永久删除**：归档管理页可永久删除某次 Cron / SessionLoop 对话，但 `sessions.db` 的 CASCADE 触及不到独立 `cron.db`。Tauri / HTTP `delete_session_cmd` 统一经 `cron::delete_conversation_and_run_logs`：先 `delete_run_logs_for_session`，再 `delete_session`。顺序不可反转——时间线刻意保留缺失 Session 的历史审计行，若先删 Session 而 run log 清理失败，用户刚删的对话会立即以不可打开的空壳重现。
+**单对话永久删除**：用户从归档管理页永久删除运行会话时，Tauri / HTTP `delete_session_cmd` 仍经 `cron::delete_conversation_and_run_logs`：先删指向该 session 的 run logs，再删 session。顺序不可反转——否则 run log 清理失败会让用户刚删的对话以不可打开的时间线空壳重现。
 
 ---
 
@@ -751,9 +760,9 @@ stateDiagram-v2
 | `crates/ha-core/src/cron/cancel.rs` | run-keyed 取消注册表：`register` / `cancel`（内层 `cancel_with_pending`，占位分支带 `is_primary()` 门）/ `remove`，`CANCELS` 值为 `(claimed_at, flag)` + `PENDING_CANCELS` 占位 |
 | `crates/ha-core/src/cron/db.rs` | `CronDB`：schema 初始化 + 迁移 / CRUD / `get_due_jobs` / `claim_scheduled_job_for_execution` + `claim_immediate_job_for_execution` / `clear_running` + `clear_running_if_owner` / `add_running_run_log` + `finalize_run_log` / `toggle_job` / `update_after_run` / `get_calendar_events` / `recover_orphaned_runs` + `clear_stale_running` + `mark_missed_at_jobs` + `record_scheduler_heartbeat` |
 | `crates/ha-cron/src/cron/scheduler.rs` | `start_scheduler`：独立 OS 线程 + tokio runtime / 启动恢复 / 15s tick（每 tick 先 `mark_missed_at_jobs` 再 dispatch）+ tick_running 防重入 |
-| `crates/ha-cron/src/cron/executor.rs` | `execute_job`：隔离 session + 可配 per-run timeout + 成功/失败分支 / `build_and_run_agent` / `record_failure` / `emit_cron_event` |
+| `crates/ha-cron/src/cron/executor.rs` | `execute_job`：普通 Session + exact durable ChatTurn + 可配 per-run timeout + 成功/失败分支 / `build_and_run_agent` / `record_failure` / `emit_cron_event` |
 | `crates/ha-cron/src/cron/delivery.rs` | `deliver_results`（白名单复检 + 有界退避重投 + `DeliveryReport`）/ `deliver_injection_for_session`（注入 turn 也下发 delivery_targets） |
 | `crates/ha-cron/src/cron/failure.rs` | `CronFailureClass::{classify, run_log_status, key}`（诊断分类；`run_log_status` doc 锁定 dashboard 失败 denylist 口径） |
-| `crates/ha-cron/src/cron/timeline.rs` | `cron_run_timeline`：`list_run_timeline` + `cron_session_read_state` 跨库装配 |
+| `crates/ha-cron/src/cron/timeline.rs` | `cron_run_timeline` 跨库装配；`delete_job_and_legacy_sessions` 删除 Task 时保留普通运行会话 |
 | `crates/ha-cron/src/tools/cron.rs` | `manage_cron` 工具：`parse_schedule` / `validate_delivery_targets` + 各 action |
 | `crates/ha-config-schema/src/config.rs` | `CronConfig` 定义、默认与钳值（`effective_*` / `clamp_cron_job_timeout_secs`） |

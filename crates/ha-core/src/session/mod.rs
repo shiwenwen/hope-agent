@@ -64,12 +64,13 @@ pub use tasks::{
     create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
     set_task_status_and_snapshot, Task, TaskStatus,
 };
+pub(crate) use turn_queue::emit_turn_released;
 pub use turn_queue::{
     EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage, QueuedTurnMessageMode,
     QueuedTurnMessageRecord, QueuedTurnMessageSource, QueuedTurnMessageStatus,
     QueuedTurnMessageView, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
 };
-pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
+pub use turns::{new_chat_turn_id, ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
     build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
     ForkSessionResult, MessageRole, NewMessage, PendingCountdown, SessionDefaultsInput,

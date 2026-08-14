@@ -112,13 +112,11 @@ pub fn delete_conversation_and_run_logs(
     session_db.delete_session(session_id)
 }
 
-/// Delete a cron job AND its run conversations. Cron run sessions live in
-/// `sessions.db` but are hidden from the main sidebar / search, so once the job
-/// (and its CASCADE-deleted `cron_run_logs`) is gone they'd be both unreachable
-/// AND a permanent orphan leak. Collect the session ids first (before the
-/// cascade), delete the job, then purge those sessions. Session deletes are
-/// best-effort so a single failure can't block removing the job.
-pub fn delete_job_and_sessions(
+/// Delete a cron job while retaining its ordinary run conversations. Sessions
+/// carrying the legacy `is_cron` marker remain hidden and would become
+/// unreachable after the run-log cascade, so only those old shells are purged.
+/// Session inspection/deletion is best-effort so it cannot block task removal.
+pub fn delete_job_and_legacy_sessions(
     cron_db: &Arc<CronDB>,
     session_db: &Arc<SessionDB>,
     id: &str,
@@ -126,16 +124,125 @@ pub fn delete_job_and_sessions(
     let session_ids = cron_db.session_ids_for_job(id).unwrap_or_default();
     cron_db.delete_job(id)?;
     for sid in session_ids {
-        if let Err(e) = session_db.delete_session(&sid) {
-            app_warn!(
+        match session_db.get_session(&sid) {
+            Ok(Some(meta)) if meta.is_cron => {
+                if let Err(e) = session_db.delete_session(&sid) {
+                    app_warn!(
+                        "cron",
+                        "delete",
+                        "failed to delete legacy cron session {} of job {}: {:#}",
+                        sid,
+                        id,
+                        e
+                    );
+                }
+            }
+            Ok(_) => {}
+            Err(e) => app_warn!(
                 "cron",
                 "delete",
-                "failed to delete cron run session {} of job {}: {:#}",
+                "failed to inspect run session {} of job {}; preserving it: {:#}",
                 sid,
                 id,
                 e
-            );
+            ),
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ha_core::cron::{CronPayload, CronSchedule, NewCronJob};
+
+    #[test]
+    fn ordinary_run_sessions_keep_title_and_survive_task_delete() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cron_db = Arc::new(CronDB::open(&dir.path().join("cron.db")).expect("cron db"));
+        let session_db =
+            Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        let job = cron_db
+            .add_job(&NewCronJob {
+                name: "Scheduled chat".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "run".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+
+        let ordinary = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("ordinary session");
+        session_db
+            .update_session_title(&ordinary.id, "Ordinary run title")
+            .expect("title ordinary");
+        session_db
+            .append_message(
+                &ordinary.id,
+                &ha_core::session::NewMessage::assistant("done"),
+            )
+            .expect("ordinary assistant");
+
+        let legacy = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("legacy session");
+        session_db
+            .update_session_title(&legacy.id, "Legacy run title")
+            .expect("title legacy");
+        session_db
+            .mark_session_cron(&legacy.id)
+            .expect("mark legacy cron");
+        session_db
+            .append_message(
+                &legacy.id,
+                &ha_core::session::NewMessage::assistant("legacy done"),
+            )
+            .expect("legacy assistant");
+
+        cron_db
+            .add_running_run_log(&job.id, &ordinary.id, "2026-01-01T00:00:00Z")
+            .expect("ordinary run log");
+        cron_db
+            .add_running_run_log(&job.id, &legacy.id, "2026-01-01T00:01:00Z")
+            .expect("legacy run log");
+
+        let state = session_db
+            .cron_session_read_state(&[ordinary.id.clone(), legacy.id.clone()])
+            .expect("hydrate timeline state");
+        assert_eq!(
+            state.get(&ordinary.id),
+            Some(&(Some("Ordinary run title".to_string()), 0, false)),
+            "ordinary run title is visible but unread stays in the regular domain"
+        );
+        assert_eq!(
+            state.get(&legacy.id),
+            Some(&(Some("Legacy run title".to_string()), 1, false))
+        );
+
+        delete_job_and_legacy_sessions(&cron_db, &session_db, &job.id).expect("delete job");
+        assert!(cron_db.get_job(&job.id).expect("load job").is_none());
+        assert!(session_db
+            .get_session(&ordinary.id)
+            .expect("load ordinary")
+            .is_some());
+        assert!(session_db
+            .get_session(&legacy.id)
+            .expect("load legacy")
+            .is_none());
+    }
 }

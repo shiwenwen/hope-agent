@@ -73,6 +73,7 @@ import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 import { modelOverrideFromManualSelection } from "../modelSelection"
 import {
+  canClaimOwnerlessPendingReplay,
   hasSendableChatPayload,
   nextDispatchablePending,
   shouldApplyPendingQueueSnapshot,
@@ -1023,12 +1024,115 @@ export function useChatStream({
 
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)
+  const autoSendPendingReadyRef = useRef(false)
   const autoSendRef = useRef(false)
+  const [queuedReplaySignal, setQueuedReplaySignal] = useState(0)
   // Holds a programmatic queued send (Plan Mode approve, slash-skill expansion)
   // so the auto-send effect can replay it with the original options instead of
   // rerouting through the input box. User-typed drafts go via `setInput` and
   // leave this ref null.
   const queuedReplayRef = useRef<PendingSend | null>(null)
+  const ownerlessReplayInFlightRef = useRef(new Set<string>())
+  const ownerlessReplayWakeSessionRef = useRef<string | null>(null)
+
+  const claimOwnerlessPendingReplay = useCallback(
+    async (sessionId: string) => {
+      const canClaim = () =>
+        !queuedReplayRef.current &&
+        canClaimOwnerlessPendingReplay(
+          currentSessionIdRef.current,
+          sessionId,
+          chatRequestOwnerBySessionRef.current.has(sessionId),
+          loadingSessionsRef.current.has(sessionId),
+          lastTurnStatusBySessionRef.current.get(sessionId),
+        )
+      if (ownerlessReplayInFlightRef.current.has(sessionId) || !canClaim()) return
+      ownerlessReplayInFlightRef.current.add(sessionId)
+      try {
+        const queued = nextDispatchablePending(await syncPendingSends(sessionId))
+        if (
+          !queued ||
+          !canClaim() ||
+          !(
+            queued.isPlanTrigger ||
+            queued.goalTrigger ||
+            (autoSendPendingReadyRef.current && autoSendPendingRef.current)
+          )
+        ) {
+          return
+        }
+        queuedReplayRef.current = {
+          ...queued,
+          options: {
+            ...queued.options,
+            sessionIdOverride: sessionId,
+            queuedRequestId: queued.id,
+          },
+        }
+        autoSendRef.current = true
+        setQueuedReplaySignal((value) => value + 1)
+      } catch (error) {
+        logger.warn("chat", "useChatStream::ownerlessQueueReplay", "Failed to replay queue", error)
+      } finally {
+        ownerlessReplayInFlightRef.current.delete(sessionId)
+      }
+    },
+    [currentSessionIdRef, loadingSessionsRef, syncPendingSends],
+  )
+
+  const wakeOwnerlessPendingReplay = useCallback(
+    (sessionId: string) => {
+      if (
+        currentSessionIdRef.current !== sessionId ||
+        chatRequestOwnerBySessionRef.current.has(sessionId)
+      ) {
+        return
+      }
+      ownerlessReplayWakeSessionRef.current = sessionId
+      setQueuedReplaySignal((value) => value + 1)
+    },
+    [currentSessionIdRef],
+  )
+
+  const wakeOwnerlessPendingReplayIfIdle = useCallback(
+    async (sessionId: string) => {
+      if (
+        currentSessionIdRef.current !== sessionId ||
+        chatRequestOwnerBySessionRef.current.has(sessionId)
+      ) {
+        return
+      }
+      try {
+        const state = await getTransport().call<SessionStreamState>("get_session_stream_state", {
+          sessionId,
+        })
+        const status = state.status ?? state.lastTerminalStatus ?? null
+        const terminal =
+          status === "completed" || status === "interrupted" || status === "failed"
+        if (
+          state.active ||
+          state.admissionActive !== false ||
+          !terminal ||
+          state.interruptReason === "user_stop"
+        ) {
+          return
+        }
+        lastTurnStatusBySessionRef.current.set(sessionId, {
+          status,
+          interruptReason: state.interruptReason ?? null,
+        })
+        wakeOwnerlessPendingReplay(sessionId)
+      } catch (error) {
+        logger.warn(
+          "chat",
+          "useChatStream::ownerlessQueueIdleCheck",
+          "Failed to confirm queue admission is idle",
+          error,
+        )
+      }
+    },
+    [currentSessionIdRef, wakeOwnerlessPendingReplay],
+  )
 
   // Delta batch buffer
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
@@ -1043,9 +1147,10 @@ export function useChatStream({
       } | null
       const sid = payload?.sessionId
       if (!sid) return
+      const hadLocalRequestOwner = chatRequestOwnerBySessionRef.current.has(sid)
       const streamId = streamIdFromPayload(raw)
       const currentTurnId = activeTurnBySessionRef.current.get(sid)
-      if (payload.turnId && !currentTurnId && chatRequestOwnerBySessionRef.current.has(sid)) {
+      if (payload.turnId && !currentTurnId && hadLocalRequestOwner) {
         // A new request already owns the session but has not received its
         // turn_started yet. The backend guarantees started-before-terminal
         // for that request, so this terminal event can only belong to the old
@@ -1119,21 +1224,24 @@ export function useChatStream({
       return
     }
     updatePendingSends([])
-    void syncPendingSends(sid).catch((error) => {
-      logger.warn("chat", "useChatStream::queueSync", "Failed to load pending messages", error)
-    })
-  }, [currentSessionId, syncPendingSends, updatePendingSends])
+    void syncPendingSends(sid)
+      .then(() => wakeOwnerlessPendingReplayIfIdle(sid))
+      .catch((error) => {
+        logger.warn("chat", "useChatStream::queueSync", "Failed to load pending messages", error)
+      })
+  }, [currentSessionId, syncPendingSends, updatePendingSends, wakeOwnerlessPendingReplayIfIdle])
 
   useEffect(() => {
     return getTransport().listen("chat:turn_queue_changed", (raw) => {
-      const payload = raw as { sessionId?: unknown } | null
+      const payload = raw as { sessionId?: unknown; operation?: unknown } | null
       const sid = typeof payload?.sessionId === "string" ? payload.sessionId : null
       if (!sid || currentSessionIdRef.current !== sid) return
       void syncPendingSends(sid).catch((error) => {
         logger.warn("chat", "useChatStream::queueEvent", "Failed to reconcile queue", error)
       })
+      if (payload?.operation === "turn_released") wakeOwnerlessPendingReplay(sid)
     })
-  }, [currentSessionIdRef, syncPendingSends])
+  }, [currentSessionIdRef, syncPendingSends, wakeOwnerlessPendingReplay])
 
   // Compose sub-hooks
   const { approvalRequests, handleApprovalResponse } = useApprovals(currentSessionId)
@@ -1260,6 +1368,11 @@ export function useChatStream({
         autoSendPendingRef.current = normalizeAutoSendPendingPreference(cfg.autoSendPending)
       })
       .catch(() => {})
+      .finally(() => {
+        autoSendPendingReadyRef.current = true
+        const sid = currentSessionIdRef.current
+        if (sid) void wakeOwnerlessPendingReplayIfIdle(sid)
+      })
     loadNotificationConfig().catch(() => {})
 
     const handleAutoSendPendingChange = (event: Event) => {
@@ -1271,7 +1384,7 @@ export function useChatStream({
     return () => {
       window.removeEventListener(AUTO_SEND_PENDING_EVENT, handleAutoSendPendingChange)
     }
-  }, [])
+  }, [currentSessionIdRef, wakeOwnerlessPendingReplayIfIdle])
 
   async function handleStop() {
     const sid = currentSessionIdRef.current ?? currentSessionId ?? null
@@ -2498,14 +2611,20 @@ export function useChatStream({
   // Auto-send after React flushes loading=false. Durable queue replay always
   // carries queuedRequestId; the backend loads the authoritative payload.
   useEffect(() => {
-    if (!autoSendRef.current || loading) return
+    if (loading) return
     const replay = queuedReplayRef.current
-    if (replay) {
+    if (autoSendRef.current && replay) {
       autoSendRef.current = false
       queuedReplayRef.current = null
       void handleSend(replay.text, replay.options)
+      return
     }
-  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
+    const wakeSessionId = ownerlessReplayWakeSessionRef.current
+    if (wakeSessionId) {
+      ownerlessReplayWakeSessionRef.current = null
+      void claimOwnerlessPendingReplay(wakeSessionId)
+    }
+  }, [loading, queuedReplaySignal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const editPendingSend = useCallback(
     async (id: string, text: string): Promise<boolean> => {

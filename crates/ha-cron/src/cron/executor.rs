@@ -297,12 +297,13 @@ pub(crate) async fn execute_claimed_job(
         }
     };
 
-    // Create an isolated session for this cron run
+    // Each standalone scheduled run starts an ordinary conversation. The
+    // scheduling relationship lives in `cron_run_logs.session_id`; the Session
+    // itself must stay fully interactive after this first background turn.
     let session_id =
         match session_db.create_session_with_project(&agent_id, project_id.as_deref(), None) {
             Ok(meta) => {
                 let _ = session_db.update_session_title(&meta.id, &job.name);
-                let _ = session_db.mark_session_cron(&meta.id);
                 // Per-job permission/sandbox overrides are applied below, after the
                 // run log is open, so a failed *sandbox* write (which would leave the
                 // run unconfined) can fail-closed with a proper run-log entry.
@@ -333,54 +334,163 @@ pub(crate) async fn execute_claimed_job(
             }
         };
 
+    // Register the exact ordinary ChatTurn before the run log makes this
+    // Session navigable from Scheduled. This prevents a user who opens the run
+    // immediately from racing a second turn into the same conversation. Cron's
+    // task-level cancel registration and generic chat Stop intentionally share
+    // the same flag.
+    let turn_id = ha_core::session::new_chat_turn_id();
+    let active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire(
+        &session_id,
+        ha_core::chat_engine::ChatSource::Cron,
+        turn_id.clone(),
+        cancel_flag.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(error) => {
+            cancel_flag.store(true, Ordering::SeqCst);
+            app_warn!(
+                "cron",
+                "executor",
+                "Could not register scheduled turn {} for job '{}' ({}): {}",
+                turn_id,
+                job.name,
+                job.id,
+                error
+            );
+            record_cancelled(
+                cron_db,
+                &job,
+                &session_id,
+                &started_at,
+                &Utc::now().to_rfc3339(),
+                start_time.elapsed().as_millis() as u64,
+                None,
+                immediate,
+            );
+            delete_empty_run_session_best_effort(session_db, &session_id, &job);
+            return;
+        }
+    };
+
     // §9 (D2): open an in-progress run log now that the session exists. A crash
     // mid-run leaves this row open → recover_orphaned_runs closes it as error on
     // the next startup; the running guard finalizes it on a same-process panic;
     // the terminal paths below finalize it to success/error/cancelled.
-    // `None` if the in-progress row couldn't be opened (transient DB error). The
-    // terminal paths below then INSERT a complete row instead of UPDATE-ing a
-    // non-existent id, so a successful/failed/cancelled run is never left with no
-    // run-log at all (review fix — the old `unwrap_or(0)` silently lost the row).
+    // If the in-progress row cannot be opened, fail closed: executing a model
+    // turn without its audit row would make this occurrence unrecoverable and
+    // unaccountable. `record_failure` still attempts a terminal insert.
     let run_log_id = match cron_db.add_running_run_log(&job.id, &session_id, &started_at) {
-        Ok(id) => Some(id),
+        Ok(id) => id,
         Err(e) => {
             app_error!(
                 "cron",
                 "executor",
-                "Failed to open in-progress run log for job '{}' ({}): {} — terminal state will be inserted directly",
+                "Failed to open in-progress run log for job '{}' ({}): {} — refusing to execute an unaudited turn",
                 job.name,
                 job.id,
                 e
             );
-            None
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                "error",
+                &format!("failed to open scheduled run audit row: {e}"),
+                &session_id,
+                None,
+                None,
+                false,
+                immediate,
+            );
+            delete_empty_run_session_best_effort(session_db, &session_id, &job);
+            return;
         }
     };
-    running_guard
-        .run_log_id
-        .store(run_log_id.unwrap_or(0), Ordering::SeqCst);
+    running_guard.run_log_id.store(run_log_id, Ordering::SeqCst);
 
-    // Persist the cron prompt before execution so `run_chat_engine` can reuse
-    // the same DB contract as interactive chat without duplicating user rows.
-    let mut user_msg = ha_core::session::NewMessage::user(&prompt)
-        .with_source(ha_core::chat_engine::ChatSource::Cron);
-    user_msg.attachments_meta = Some(
-        serde_json::json!({
-            "cron_trigger": {
-                "job_id": &job.id,
-                "job_name": &job.name,
-            }
-        })
-        .to_string(),
-    );
-    let _ = session_db.append_message(&session_id, &user_msg);
+    // Persist the prompt and exact ChatTurn atomically behind the same Stop
+    // ordering point used by Desktop/HTTP. A committed prompt can therefore
+    // never exist without the turn that owns it.
+    let turn_persistence =
+        persist_agent_turn_prompt(session_db, &job, &session_id, &turn_id, &prompt);
+    match turn_persistence {
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(_)) => {
+            emit_session_list_changed(&session_id);
+        }
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
+            _,
+        )) => {
+            emit_session_list_changed(&session_id);
+            let release_decision = settle_classified_turn_before_release(
+                session_db,
+                &session_id,
+                &turn_id,
+                CronTerminal::Cancelled,
+                None,
+            );
+            record_cancelled(
+                cron_db,
+                &job,
+                &session_id,
+                &started_at,
+                &Utc::now().to_rfc3339(),
+                start_time.elapsed().as_millis() as u64,
+                Some(run_log_id),
+                immediate,
+            );
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
+            return;
+        }
+        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
+            record_cancelled(
+                cron_db,
+                &job,
+                &session_id,
+                &started_at,
+                &Utc::now().to_rfc3339(),
+                start_time.elapsed().as_millis() as u64,
+                Some(run_log_id),
+                immediate,
+            );
+            delete_empty_run_session_best_effort(session_db, &session_id, &job);
+            return;
+        }
+        Err(error) => {
+            let err_text = format!("failed to persist scheduled chat turn: {error:#}");
+            app_error!(
+                "cron",
+                "executor",
+                "Job '{}' ({}) {}",
+                job.name,
+                job.id,
+                err_text
+            );
+            record_failure(
+                cron_db,
+                &job,
+                &started_at,
+                start_time,
+                "error",
+                &err_text,
+                &session_id,
+                None,
+                Some(run_log_id),
+                false,
+                immediate,
+            );
+            delete_empty_run_session_best_effort(session_db, &session_id, &job);
+            return;
+        }
+    }
 
     // Record this run's pre-authorized intent (the cron prompt) so the Smart
     // judge can allow in-scope actions — including the deletions / outbound
     // sends the task explicitly asks for — and deny out-of-scope / injected
     // ones. Owner-internal and unattended; the guard clears it on every exit
     // path (success / failure / timeout / cancel / panic-unwind).
-    let _intent_guard =
-        ha_core::permission::task_intent::TaskIntentGuard::new(&session_id, &prompt);
+    let intent_guard = ha_core::permission::task_intent::TaskIntentGuard::new(&session_id, &prompt);
 
     // Apply per-job permission / sandbox overrides (owner-set; `None` = follow the
     // agent default already seeded at session creation). The session row is the
@@ -419,6 +529,13 @@ pub(crate) async fn execute_claimed_job(
                 job.id,
                 err_text
             );
+            let release_decision = settle_classified_turn_before_release(
+                session_db,
+                &session_id,
+                &turn_id,
+                CronTerminal::Failure,
+                Some(&err_text),
+            );
             persist_failure_message_if_missing(session_db, &session_id, &err_text);
             record_failure(
                 cron_db,
@@ -429,10 +546,12 @@ pub(crate) async fn execute_claimed_job(
                 &err_text,
                 &session_id,
                 None,
-                run_log_id,
+                Some(run_log_id),
                 false,
                 immediate,
             );
+            drop(intent_guard);
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
             return;
         }
     }
@@ -477,6 +596,13 @@ pub(crate) async fn execute_claimed_job(
                 job.id,
                 effective_sandbox.as_str()
             );
+            let release_decision = settle_classified_turn_before_release(
+                session_db,
+                &session_id,
+                &turn_id,
+                CronTerminal::Failure,
+                Some(&err_text),
+            );
             persist_failure_message_if_missing(session_db, &session_id, &err_text);
             record_failure(
                 cron_db,
@@ -487,10 +613,12 @@ pub(crate) async fn execute_claimed_job(
                 &err_text,
                 &session_id,
                 None,
-                run_log_id,
+                Some(run_log_id),
                 true,
                 immediate,
             );
+            drop(intent_guard);
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
             return;
         }
         if let Err(e) = ha_core::sandbox::ensure_sandbox_available_for_mode(effective_sandbox).await
@@ -504,6 +632,13 @@ pub(crate) async fn execute_claimed_job(
                 job.id,
                 effective_sandbox.as_str(),
                 e
+            );
+            let release_decision = settle_classified_turn_before_release(
+                session_db,
+                &session_id,
+                &turn_id,
+                CronTerminal::Failure,
+                Some(&err_text),
             );
             persist_failure_message_if_missing(session_db, &session_id, &err_text);
             // Docker-unavailable is an infra failure: the turn never ran (no side
@@ -521,10 +656,12 @@ pub(crate) async fn execute_claimed_job(
                 &err_text,
                 &session_id,
                 None,
-                run_log_id,
+                Some(run_log_id),
                 false,
                 immediate,
             );
+            drop(intent_guard);
+            apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
             return;
         }
     }
@@ -539,14 +676,14 @@ pub(crate) async fn execute_claimed_job(
             .cron
             .effective_job_timeout_secs(),
     };
-    let run_fut = build_and_run_agent_with_cancel(
+    let mut run_fut = Box::pin(build_and_run_agent_with_cancel(
         &agent_id,
         &prompt,
         &session_id,
+        &turn_id,
         session_db,
         cancel_flag.clone(),
-    );
-    tokio::pin!(run_fut);
+    ));
     let mut timed_out = false;
     // C08: whether the user had already cancelled BEFORE the outer timeout fired
     // (the engine was stuck and never reached a checkpoint). Only a pre-timeout
@@ -554,9 +691,13 @@ pub(crate) async fn execute_claimed_job(
     // Failure(timeout); our own grace-cancel below must not.
     let mut user_cancelled_pre_timeout = false;
     let result = if timeout_secs == 0 {
-        run_fut.await
+        run_fut.as_mut().await
     } else {
-        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), &mut run_fut).await
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            run_fut.as_mut(),
+        )
+        .await
         {
             Ok(r) => r,
             Err(_) => {
@@ -581,7 +722,7 @@ pub(crate) async fn execute_claimed_job(
                 // failure, and is silently auto-disabled after max_failures.
                 let grace_completed = tokio::time::timeout(
                     std::time::Duration::from_secs(CRON_TIMEOUT_CANCEL_GRACE_SECS),
-                    &mut run_fut,
+                    run_fut.as_mut(),
                 )
                 .await
                 .ok();
@@ -620,13 +761,48 @@ pub(crate) async fn execute_claimed_job(
         cancel_flag.load(Ordering::SeqCst),
     );
 
+    // Classify once so ChatTurn convergence and Cron delivery/accounting use
+    // the same terminal decision. In particular, a pre-stream engine error has
+    // no durable stream owner to finish the ChatTurn for us.
+    let terminal = classify_cron_terminal(&result, was_cancelled);
+    let failure_error = if terminal == CronTerminal::Failure {
+        Some(
+            result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "unknown error".to_string()),
+        )
+    } else {
+        None
+    };
+
+    // Drop the engine before deciding who owns terminalization. An unfinished
+    // future arms journal recovery from StreamLifecycle::Drop; a completed
+    // engine normally leaves a terminal stream row (or no stream row at all for
+    // a pre-stream error).
+    drop(run_fut);
+
+    let release_decision = settle_classified_turn_before_release(
+        session_db,
+        &session_id,
+        &turn_id,
+        terminal,
+        failure_error.as_deref(),
+    );
+    drop(intent_guard);
+    // Recovery (or, on an indeterminate DB failure, process restart) is the
+    // only later release owner for a handoff decision. `turn_released` therefore
+    // always stays behind durable terminal convergence.
+    apply_active_turn_release_decision(active_turn_guard, &turn_id, release_decision);
+
     // §9 (C4): classify the terminal outcome (pure, unit-tested — see
     // `classify_cron_terminal`). The subtlety: cron runs with
     // `abort_on_cancel = false`, so an interrupting cancel does NOT surface as
     // `Err` — the engine swallows it and returns `Ok("")`. So an empty `Ok` with
-    // the cancel flag set is a cancellation, while a non-empty `Ok` (including a
-    // cancel that landed only after real output) is a genuine success.
-    match classify_cron_terminal(&result, was_cancelled) {
+    // the cancel flag set is a cancellation, while a non-empty `Ok` is a genuine
+    // success.
+    match terminal {
         CronTerminal::Cancelled => {
             app_warn!(
                 "cron",
@@ -643,7 +819,7 @@ pub(crate) async fn execute_claimed_job(
                 &started_at,
                 &finished_at,
                 duration_ms,
-                run_log_id,
+                Some(run_log_id),
                 immediate,
             );
         }
@@ -682,7 +858,7 @@ pub(crate) async fn execute_claimed_job(
             // the same terminal finalize (§9 D2 — the row was opened at start).
             let report = deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
             let _ = cron_db.finalize_or_insert_run_log(
-                run_log_id,
+                Some(run_log_id),
                 &job.id,
                 &session_id,
                 &started_at,
@@ -727,7 +903,7 @@ pub(crate) async fn execute_claimed_job(
                 }
             }
             let _ = cron_db.finalize_or_insert_run_log(
-                run_log_id,
+                Some(run_log_id),
                 &job.id,
                 &session_id,
                 &started_at,
@@ -755,10 +931,7 @@ pub(crate) async fn execute_claimed_job(
         }
         CronTerminal::Failure => {
             // Classifier returns Failure only for `Err`.
-            let err_text = result
-                .err()
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "unknown error".to_string());
+            let err_text = failure_error.unwrap_or_else(|| "unknown error".to_string());
             let class = crate::cron::failure::CronFailureClass::classify(&err_text);
             app_error!(
                 "cron",
@@ -782,7 +955,7 @@ pub(crate) async fn execute_claimed_job(
                 &err_text,
                 &session_id,
                 report.run_log_status(),
-                run_log_id,
+                Some(run_log_id),
                 true, // genuine run failure — counts toward auto-disable
                 immediate,
             );
@@ -1136,7 +1309,7 @@ async fn execute_session_loop_payload(
 }
 
 /// §9 (C4) / §10: the terminal disposition of a cron run.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CronTerminal {
     Success,
     /// §10: ran fine but produced no (trimmed) text. Not a failure (schedule
@@ -1207,6 +1380,221 @@ fn compute_was_cancelled(timed_out: bool, user_cancelled_pre_timeout: bool, flag
         user_cancelled_pre_timeout
     } else {
         flag
+    }
+}
+
+fn persist_agent_turn_prompt(
+    session_db: &Arc<ha_core::session::SessionDB>,
+    job: &CronJob,
+    session_id: &str,
+    turn_id: &str,
+    prompt: &str,
+) -> Result<ha_core::chat_engine::active_turn::PersistenceTargetOutcome<ha_core::session::ChatTurn>>
+{
+    let mut user_msg = ha_core::session::NewMessage::user(prompt)
+        .with_source(ha_core::chat_engine::ChatSource::Cron);
+    user_msg.attachments_meta = Some(
+        serde_json::json!({
+            "cron_trigger": {
+                "job_id": &job.id,
+                "job_name": &job.name,
+            }
+        })
+        .to_string(),
+    );
+
+    ha_core::chat_engine::active_turn::with_persistence_target(session_id, turn_id, || {
+        session_db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                turn_id,
+                session_id,
+                ha_core::chat_engine::ChatSource::Cron.as_str(),
+                None,
+                &user_msg,
+                None,
+                None,
+                None,
+            )
+            .map(|(_, turn)| turn)
+    })
+}
+
+fn emit_session_list_changed(session_id: &str) {
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "session:list_changed",
+            serde_json::json!({
+                "sessionId": session_id,
+                "reason": "scheduled_turn_created",
+            }),
+        );
+    }
+}
+
+/// Remove the just-created Session when its prompt/turn transaction never
+/// committed. Verify emptiness so this best-effort cleanup can never erase
+/// user-visible history if a future caller changes the setup ordering.
+fn delete_empty_run_session_best_effort(
+    session_db: &Arc<ha_core::session::SessionDB>,
+    session_id: &str,
+    job: &CronJob,
+) {
+    match session_db.load_session_messages_latest(session_id, 1) {
+        Ok((messages, _, _)) if messages.is_empty() => {
+            if let Err(error) = session_db.delete_session(session_id) {
+                app_warn!(
+                    "cron",
+                    "empty_session_cleanup",
+                    "Failed to remove uncommitted empty session {} for job '{}' ({}): {}",
+                    session_id,
+                    job.name,
+                    job.id,
+                    error
+                );
+            }
+        }
+        Ok(_) => app_warn!(
+            "cron",
+            "empty_session_cleanup",
+            "Refusing to remove uncommitted session {} for job '{}' ({}) because it contains messages",
+            session_id,
+            job.name,
+            job.id
+        ),
+        Err(error) => app_warn!(
+            "cron",
+            "empty_session_cleanup",
+            "Could not verify uncommitted session {} for job '{}' ({}) is empty: {}",
+            session_id,
+            job.name,
+            job.id,
+            error
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveTurnReleaseDecision {
+    Release,
+    Handoff,
+}
+
+fn apply_active_turn_release_decision(
+    guard: ha_core::chat_engine::active_turn::ActiveTurnGuard,
+    turn_id: &str,
+    decision: ActiveTurnReleaseDecision,
+) {
+    match decision {
+        ActiveTurnReleaseDecision::Release => {
+            let _ = guard.release_exact_and_notify(turn_id);
+        }
+        ActiveTurnReleaseDecision::Handoff => guard.handoff_to_recovery(),
+    }
+}
+
+/// Converge the exact ChatTurn before allowing its admission guard to emit
+/// `turn_released`.
+///
+/// A live exact stream row owns recovery. Any read/write ambiguity also keeps
+/// admission fail-closed: leaking the in-process gate until recovery/restart is
+/// safer than waking a replacement turn while the old row may still be live.
+fn settle_classified_turn_before_release(
+    session_db: &Arc<ha_core::session::SessionDB>,
+    session_id: &str,
+    turn_id: &str,
+    terminal: CronTerminal,
+    failure_error: Option<&str>,
+) -> ActiveTurnReleaseDecision {
+    match session_db.latest_stream_run(session_id) {
+        Ok(Some(run)) if run.status == "running" && run.turn_id.as_deref() == Some(turn_id) => {
+            return ActiveTurnReleaseDecision::Handoff;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            app_warn!(
+                "cron",
+                "turn_release",
+                "Keeping scheduled turn {} admission fail-closed because its stream owner could not be read: {}",
+                turn_id,
+                error
+            );
+            return ActiveTurnReleaseDecision::Handoff;
+        }
+    }
+
+    let (status, interrupt_reason, error) = match terminal {
+        CronTerminal::Success | CronTerminal::Empty => {
+            (ha_core::session::ChatTurnStatus::Completed, None, None)
+        }
+        CronTerminal::Cancelled => (
+            ha_core::session::ChatTurnStatus::Interrupted,
+            Some(ha_core::session::ChatTurnInterruptReason::UserStop),
+            None,
+        ),
+        CronTerminal::Failure => (
+            ha_core::session::ChatTurnStatus::Failed,
+            Some(ha_core::session::ChatTurnInterruptReason::Unknown),
+            failure_error,
+        ),
+    };
+
+    match session_db.finish_chat_turn_once(turn_id, status, interrupt_reason, error, None) {
+        Ok(true) => {
+            ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
+                session_id,
+                None,
+                Some(turn_id),
+                Some(status),
+                interrupt_reason,
+                error,
+            );
+            ActiveTurnReleaseDecision::Release
+        }
+        Ok(false) => match session_db.get_chat_turn(turn_id) {
+            Ok(Some(turn)) if turn.session_id == session_id && turn.status.is_terminal() => {
+                ActiveTurnReleaseDecision::Release
+            }
+            Ok(Some(turn)) => {
+                app_warn!(
+                    "cron",
+                    "turn_release",
+                    "Keeping scheduled turn {} admission fail-closed because persisted status is {:?} in session {}",
+                    turn_id,
+                    turn.status,
+                    turn.session_id
+                );
+                ActiveTurnReleaseDecision::Handoff
+            }
+            Ok(None) => {
+                app_warn!(
+                    "cron",
+                    "turn_release",
+                    "Keeping scheduled turn {} admission fail-closed because its ChatTurn row is missing",
+                    turn_id
+                );
+                ActiveTurnReleaseDecision::Handoff
+            }
+            Err(error) => {
+                app_warn!(
+                    "cron",
+                    "turn_release",
+                    "Keeping scheduled turn {} admission fail-closed because terminal state could not be confirmed: {}",
+                    turn_id,
+                    error
+                );
+                ActiveTurnReleaseDecision::Handoff
+            }
+        },
+        Err(error) => {
+            app_warn!(
+                "cron",
+                "turn_release",
+                "Keeping scheduled turn {} admission fail-closed because terminalization failed: {}",
+                turn_id,
+                error
+            );
+            ActiveTurnReleaseDecision::Handoff
+        }
     }
 }
 
@@ -1294,6 +1682,7 @@ pub async fn build_and_run_agent_with_cancel(
     agent_id: &str,
     message: &str,
     session_id: &str,
+    turn_id: &str,
     session_db: &Arc<ha_core::session::SessionDB>,
     cancel: Arc<AtomicBool>,
 ) -> Result<String> {
@@ -1301,6 +1690,7 @@ pub async fn build_and_run_agent_with_cancel(
         agent_id,
         message,
         session_id,
+        turn_id,
         session_db,
         None,
         Some(cancel),
@@ -1314,6 +1704,7 @@ pub async fn build_and_run_agent_with_context(
     agent_id: &str,
     message: &str,
     session_id: &str,
+    turn_id: &str,
     session_db: &Arc<ha_core::session::SessionDB>,
     run_instruction_context: Option<&str>,
     cancel: Option<Arc<AtomicBool>>,
@@ -1354,7 +1745,7 @@ pub async fn build_and_run_agent_with_context(
     let engine_params = ha_core::chat_engine::ChatEngineParams {
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
-        turn_id: None,
+        turn_id: Some(turn_id.to_string()),
         message: message.to_string(),
         incoming_turn: None,
         display_text: None,
@@ -1764,6 +2155,124 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(format!("{}-wal", path.display()));
         let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    #[test]
+    fn standalone_prompt_is_an_exact_turn_in_an_ordinary_session() {
+        let cron_path = temp_db_path("ordinary-turn-cron");
+        let session_path = temp_db_path("ordinary-turn-session");
+        let cron_db = Arc::new(CronDB::open(&cron_path).expect("open cron db"));
+        let session_db =
+            Arc::new(ha_core::session::SessionDB::open(&session_path).expect("open session db"));
+        let job = cron_db
+            .add_job(&NewCronJob {
+                name: "Ordinary scheduled chat".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "inspect the workspace".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+        let session = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create ordinary session");
+        let turn_id = ha_core::session::new_chat_turn_id();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let guard = ha_core::chat_engine::active_turn::try_acquire(
+            &session.id,
+            ha_core::chat_engine::ChatSource::Cron,
+            turn_id.clone(),
+            cancel.clone(),
+        )
+        .expect("acquire exact turn");
+        let active =
+            ha_core::chat_engine::active_turn::current(&session.id).expect("turn is registered");
+        assert_eq!(active.turn_id, turn_id);
+        assert!(Arc::ptr_eq(&active.cancel, &cancel));
+
+        let outcome = persist_agent_turn_prompt(
+            &session_db,
+            &job,
+            &session.id,
+            &turn_id,
+            "inspect the workspace",
+        )
+        .expect("persist prompt and turn");
+        let turn = match outcome {
+            ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(turn) => turn,
+            other => panic!("unexpected persistence outcome: {other:?}"),
+        };
+        assert_eq!(turn.id, turn_id);
+        assert_eq!(turn.source, "cron");
+        assert!(turn.user_message_id.is_some());
+        assert_eq!(
+            session_db
+                .get_session(&session.id)
+                .expect("load session")
+                .expect("session exists")
+                .is_cron,
+            false,
+            "scheduled runs must create ordinary sessions"
+        );
+        let messages = session_db
+            .load_session_messages(&session.id)
+            .expect("load messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "inspect the workspace");
+        assert_eq!(
+            messages[0]
+                .attachments_meta
+                .as_deref()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                .and_then(|meta| meta["cron_trigger"]["job_id"].as_str().map(str::to_string)),
+            Some(job.id.clone())
+        );
+
+        // A pre-stream engine failure has no stream recovery owner. Its exact
+        // ChatTurn must become terminal while admission is still held; only the
+        // subsequent guard drop may emit `turn_released`.
+        assert_eq!(
+            settle_classified_turn_before_release(
+                &session_db,
+                &session.id,
+                &turn_id,
+                CronTerminal::Failure,
+                Some("provider unavailable"),
+            ),
+            ActiveTurnReleaseDecision::Release
+        );
+        assert_eq!(
+            session_db
+                .get_chat_turn(&turn_id)
+                .expect("load exact turn")
+                .expect("turn exists")
+                .status,
+            ha_core::session::ChatTurnStatus::Failed
+        );
+        assert!(
+            ha_core::chat_engine::active_turn::current(&session.id).is_some(),
+            "terminal convergence must precede admission release"
+        );
+
+        drop(guard);
+        assert!(ha_core::chat_engine::active_turn::current(&session.id).is_none());
+        drop(session_db);
+        drop(cron_db);
+        cleanup_db_files(&session_path);
+        cleanup_db_files(&cron_path);
     }
 
     #[test]

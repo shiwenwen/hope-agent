@@ -290,7 +290,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 gate_cron_delete(args, ctx, desc).await?;
                 match ha_core::get_session_db() {
                     Some(session_db) => {
-                        crate::cron::delete_job_and_sessions(cron_db, session_db, id)?
+                        crate::cron::delete_job_and_legacy_sessions(cron_db, session_db, id)?
                     }
                     // SessionDB should always be initialized when tools run; fall
                     // back to a job-only delete so the user's delete still lands.

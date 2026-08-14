@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Archive, Check, CheckCheck, Loader2, MessagesSquare } from "lucide-react"
+import { Archive, ArrowUpRight, Check, CheckCheck, Loader2, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { requestChatFocus } from "@/components/chat/chatFocus"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -317,7 +318,7 @@ export default function CronConversationsPanel({
                       type="button"
                       onClick={() => handleSelect(row)}
                       className={cn(
-                        "h-auto min-h-0 w-full rounded-xl px-3 py-3 pr-10 text-left transition-colors",
+                        "h-auto min-h-0 w-full rounded-xl px-3 py-3 pr-20 text-left transition-colors",
                         isActive ? "bg-secondary" : "hover:bg-secondary/40",
                       )}
                     >
@@ -357,6 +358,19 @@ export default function CronConversationsPanel({
                         </p>
                       )}
                     </button>
+                    {!isLoop && (
+                      <IconTip label={t("subagent.openSession")}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-9 top-1.5 h-7 w-7 text-muted-foreground"
+                          onClick={() => requestChatFocus({ sessionId: row.sessionId })}
+                        >
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
+                    )}
                     <IconTip label={t("chat.archiveSession")}>
                       <Button
                         type="button"

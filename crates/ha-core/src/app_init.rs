@@ -2437,7 +2437,7 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
         covered_sessions.insert(turn.session_id.clone());
     }
 
-    // IM / Cron / Subagent entry points run with `turn_id = None`, so
+    // IM / Subagent and legacy Cron entry points run with `turn_id = None`, so
     // they leave no `chat_turns` row for the sweep above to act on.
     // Their partial output still ends up in `messages` with
     // `stream_status='orphaned'` after the previous step's promotion,

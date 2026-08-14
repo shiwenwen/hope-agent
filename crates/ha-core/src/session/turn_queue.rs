@@ -275,6 +275,15 @@ pub(super) fn emit_changed(session_id: &str, request_id: Option<&str>, operation
     }
 }
 
+/// Notify queue consumers only after exact active-turn admission is gone.
+///
+/// Unlike ordinary queue mutations, this signal is emitted by the in-memory
+/// active-turn registry. Callers must release that registry's lock first so an
+/// event handler can immediately attempt the next durable FIFO claim.
+pub(crate) fn emit_turn_released(session_id: &str) {
+    emit_changed(session_id, None, "turn_released");
+}
+
 fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRecord> {
     let message: String = row.get(3)?;
     let attachments_json: String = row.get(5)?;

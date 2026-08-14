@@ -578,12 +578,12 @@ pub struct ChatEngineParams {
     // Basic
     pub session_id: String,
     pub agent_id: String,
-    /// Persisted chat turn id for user-facing desktop / HTTP turns.
+    /// Persisted chat turn id for user-facing desktop / HTTP turns and
+    /// standalone scheduled turns.
     ///
-    /// `None` is intentional for non-interactive sources such as cron,
-    /// subagent, parent injection, and IM channel worker turns: those entry
-    /// points already own their cancellation and delivery lifecycles, so they
-    /// must not be tied to the GUI/HTTP active-turn registry.
+    /// `None` is intentional for sources such as subagent, parent injection,
+    /// and IM channel worker turns that own separate cancellation/delivery
+    /// lifecycles.
     pub turn_id: Option<String>,
     pub message: String,
     /// Optional typed-composer sidecar bound to the exact canonical message.

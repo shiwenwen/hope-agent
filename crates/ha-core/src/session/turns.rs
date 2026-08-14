@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 use super::db::SessionDB;
 use super::types::NewMessage;
 
+/// Generate the opaque durable identity shared by chat entry points.
+pub fn new_chat_turn_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatTurnStatus {
@@ -250,7 +255,7 @@ impl SessionDB {
         stream_id: Option<&str>,
         user_message_id: Option<i64>,
     ) -> Result<ChatTurn> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_chat_turn_id();
         self.create_chat_turn_with_id(&id, session_id, source, stream_id, user_message_id)
     }
 

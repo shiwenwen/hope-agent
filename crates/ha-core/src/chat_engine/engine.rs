@@ -527,8 +527,9 @@ impl Drop for StreamLifecycle {
 /// Emit one stream event. Desktop / HTTP turns send through both the per-call
 /// sink and the main `chat:stream_delta` EventBus path with a shared `_oc_seq`
 /// for dedup. Parent-injection turns use the same bus so background-completion
-/// follow-up replies are visible while they stream. Channel / cron turns stay
-/// off the main chat bus; IM uses `ChannelStreamSink` to emit
+/// follow-up replies are visible while they stream. Cron turns also use the
+/// main bus because their ordinary Sessions can be opened mid-run. Channel and
+/// child Subagent turns stay off it; IM uses `ChannelStreamSink` to emit
 /// `channel:stream_delta` instead.
 fn emit_stream_event(
     db: &session::SessionDB,

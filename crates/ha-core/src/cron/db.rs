@@ -524,7 +524,7 @@ impl CronDB {
 
     /// Distinct run-session ids produced by a job. Must be read BEFORE
     /// `delete_job` (which CASCADE-removes `cron_run_logs`), so the caller can
-    /// clean up the now-orphaned cron sessions in `sessions.db`.
+    /// clean up hidden legacy Cron sessions while retaining ordinary run chats.
     pub fn session_ids_for_job(&self, job_id: &str) -> Result<Vec<String>> {
         let conn = self
             .conn

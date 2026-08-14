@@ -4483,7 +4483,7 @@ impl SessionDB {
 
     /// Session ids that still have at least one `messages` row in the
     /// `orphaned` stream_status. Used by the startup sweep to finalize
-    /// IM / Cron / subagent sessions whose orphaned partials don't
+    /// IM / legacy Cron / subagent sessions whose orphaned partials don't
     /// have a matching `chat_turns` row (those entry points run with
     /// `turn_id = None`).
     pub fn sessions_with_orphaned_rows(&self) -> Result<Vec<String>> {
@@ -6214,9 +6214,9 @@ impl SessionDB {
     /// ids — used to hydrate the cross-job run timeline (`cron_run_timeline`).
     /// Returns a map `session_id -> (title, unread, archived)`; ids whose
     /// session row is missing (purged) are simply absent, and the caller falls
-    /// back to the job name / 0. SessionLoop rows share a regular parent
-    /// session: they participate in archive filtering but keep title / unread
-    /// fallback semantics so the Cron domain never consumes regular unread.
+    /// back to the job name / 0. Ordinary scheduled-run Sessions and SessionLoop
+    /// parents return their real title/archive state, but keep Cron unread at 0:
+    /// their unread belongs exclusively to the regular conversation domain.
     pub fn cron_session_read_state(
         &self,
         session_ids: &[String],
@@ -6234,7 +6234,7 @@ impl SessionDB {
         let placeholders: Vec<String> = (1..=session_ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
             "SELECT s.id,
-                    CASE WHEN s.is_cron = 1 THEN s.title ELSE NULL END AS title,
+                    s.title,
                     CASE WHEN s.is_cron = 1 THEN EXISTS(
                       SELECT 1 FROM messages m
                        WHERE m.session_id = s.id

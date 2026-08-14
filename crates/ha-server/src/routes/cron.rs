@@ -56,7 +56,7 @@ pub async fn update_job(
 /// `DELETE /api/cron/jobs/{id}`
 pub async fn delete_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let (cdb, sdb) = (db()?, session_db()?);
-    run_blocking(move || ha_cron::cron::delete_job_and_sessions(cdb, sdb, &id)).await?;
+    run_blocking(move || ha_cron::cron::delete_job_and_legacy_sessions(cdb, sdb, &id)).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 

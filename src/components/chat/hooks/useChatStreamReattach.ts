@@ -68,6 +68,7 @@ export interface UseChatStreamReattachDeps {
 
 export interface SessionStreamState {
   active: boolean
+  admissionActive?: boolean
   lastSeq: number
   acceptedSeq: number
   durableSeq: number

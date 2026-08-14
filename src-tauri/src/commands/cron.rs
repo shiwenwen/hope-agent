@@ -53,7 +53,7 @@ pub async fn cron_delete_job(id: String, state: State<'_, AppState>) -> Result<(
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
     ha_core::blocking::run_blocking(move || {
-        ha_cron::cron::delete_job_and_sessions(&cron_db, &session_db, &id)
+        ha_cron::cron::delete_job_and_legacy_sessions(&cron_db, &session_db, &id)
     })
     .await
     .map_err(Into::into)

@@ -17,14 +17,13 @@ interface CronSessionViewerProps {
 }
 
 /**
- * Read-only viewer for a single cron run's conversation. Reuses the main
+ * Read-only preview for a single scheduled run's conversation. Reuses the main
  * chat `MessageList` renderer with every interaction callback omitted and no
- * `ChatInput` — mirroring how ChatScreen renders an `isCronSession` read-only.
+ * `ChatInput`; interactive follow-up happens in the linked ordinary session.
  * Mounted with `key={sessionId}` by the parent so a row switch fully remounts.
  *
- * Supports loading older messages (scroll-up) — cron sessions are no longer
- * reachable from the main chat list, so a tool-heavy run with > PAGE_SIZE stored
- * messages would otherwise have its earlier prompt/tool context inaccessible.
+ * Supports loading older messages (scroll-up) so a tool-heavy run with more than
+ * PAGE_SIZE stored messages keeps its earlier prompt/tool context accessible.
  */
 export default function CronSessionViewer({ sessionId, agents, onLoaded }: CronSessionViewerProps) {
   const { t } = useTranslation()

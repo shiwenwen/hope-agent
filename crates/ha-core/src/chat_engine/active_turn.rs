@@ -112,18 +112,56 @@ pub struct ActiveTurnGuard {
 }
 
 impl ActiveTurnGuard {
-    pub fn release(&mut self) {
+    fn remove_entry(&mut self, expected_turn_id: Option<&str>) -> bool {
         if self.released {
-            return;
+            return false;
         }
-        let mut map = registry_lock();
-        if map
-            .get(&self.session_id)
-            .map(|entry| entry.token.as_str() == self.token)
-            .unwrap_or(false)
-        {
-            map.remove(&self.session_id);
+        let removed = {
+            let mut map = registry_lock();
+            let matches = map
+                .get(&self.session_id)
+                .map(|entry| {
+                    entry.token.as_str() == self.token
+                        && expected_turn_id.is_none_or(|turn_id| entry.turn_id == turn_id)
+                })
+                .unwrap_or(false);
+            if matches {
+                map.remove(&self.session_id);
+            }
+            matches
+        };
+        self.released = true;
+        removed
+    }
+
+    /// Release admission silently.
+    ///
+    /// Generic Drop paths use this because an abnormal engine/future drop may
+    /// still need durable recovery before a queued turn can safely retry.
+    pub fn release(&mut self) {
+        let _ = self.remove_entry(None);
+    }
+
+    /// Release this guard only when it still owns `expected_turn_id`, then
+    /// notify durable queue consumers that admission is genuinely available.
+    ///
+    /// This is intentionally explicit rather than part of [`Drop`]. Callers
+    /// must first prove the exact ChatTurn reached durable terminal state.
+    pub fn release_exact_and_notify(mut self, expected_turn_id: &str) -> bool {
+        let removed = self.remove_entry(Some(expected_turn_id));
+        if removed {
+            crate::session::emit_turn_released(&self.session_id);
         }
+        removed
+    }
+
+    /// Transfer release ownership to exact durable-stream recovery.
+    ///
+    /// The caller must first drop the engine future so its `StreamLifecycle`
+    /// schedules recovery. The recovery path terminalizes the same `turn_id`
+    /// and calls [`force_release`]; keeping the registry entry until then closes
+    /// the replacement-turn window over journal convergence.
+    pub fn handoff_to_recovery(mut self) {
         self.released = true;
     }
 }
@@ -605,7 +643,10 @@ pub fn with_insertion_target<T>(
     operation: impl FnOnce() -> T,
 ) -> Result<T, &'static str> {
     with_insertion_target_for(session_id, turn_id, operation, |source| {
-        matches!(source, ChatSource::Desktop | ChatSource::Http)
+        matches!(
+            source,
+            ChatSource::Desktop | ChatSource::Http | ChatSource::Cron
+        )
     })
 }
 
@@ -770,15 +811,21 @@ pub fn all_current_turn_ids() -> Vec<String> {
 /// persistent state. The turn id guard prevents an old watchdog from clearing
 /// a newer turn that started in the same session.
 pub fn force_release(session_id: &str, turn_id: &str) -> bool {
-    let mut map = registry_lock();
-    let matches = map
-        .get(session_id)
-        .map(|entry| entry.turn_id == turn_id)
-        .unwrap_or(false);
-    if matches {
-        map.remove(session_id);
+    let removed = {
+        let mut map = registry_lock();
+        let matches = map
+            .get(session_id)
+            .map(|entry| entry.turn_id == turn_id)
+            .unwrap_or(false);
+        if matches {
+            map.remove(session_id);
+        }
+        matches
+    };
+    if removed {
+        crate::session::emit_turn_released(session_id);
     }
-    matches
+    removed
 }
 
 /// Clear all in-memory active turn entries.
@@ -1168,6 +1215,28 @@ mod tests {
     }
 
     #[test]
+    fn recovery_handoff_retains_exact_turn_until_force_release() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-recovery-handoff";
+        let guard = try_acquire(
+            sid,
+            ChatSource::Cron,
+            "turn-recovery".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        guard.handoff_to_recovery();
+        assert_eq!(
+            current(sid).map(|active| active.turn_id),
+            Some("turn-recovery".to_string())
+        );
+        assert!(!force_release(sid, "other-turn"));
+        assert!(force_release(sid, "turn-recovery"));
+        assert!(current(sid).is_none());
+    }
+
+    #[test]
     fn stop_cleanup_gate_blocks_only_until_old_snapshot_finishes() {
         let _lock = test_lock();
         let sid = "test-active-turn-stop-cleanup-gate";
@@ -1366,6 +1435,23 @@ mod tests {
             assert!(
                 with_channel_insertion_target(desktop_sid, "desktop-turn", || "channel").is_err()
             );
+        }
+
+        let cron_sid = "test-active-turn-cron-insertion-domain";
+        {
+            let _guard = try_acquire(
+                cron_sid,
+                ChatSource::Cron,
+                "cron-turn".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+
+            assert_eq!(
+                with_insertion_target(cron_sid, "cron-turn", || "owner"),
+                Ok("owner")
+            );
+            assert!(with_channel_insertion_target(cron_sid, "cron-turn", || "channel").is_err());
         }
 
         let channel_sid = "test-active-turn-channel-insertion-domain";
