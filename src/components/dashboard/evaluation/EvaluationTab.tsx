@@ -1904,7 +1904,7 @@ function ConsentButton({
       size="sm"
       aria-pressed={selected}
       onClick={onClick}
-      className={cn(!selected && "bg-secondary/30 hover:bg-secondary/40")}
+      className={cn(!selected && "hover:bg-secondary/40")}
     >
       <span className="mr-2">{selected ? "✓" : "○"}</span>
       {label}
