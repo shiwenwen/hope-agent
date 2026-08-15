@@ -329,6 +329,42 @@ impl CompactConfig {
     }
 }
 
+impl Default for CompactConfig {
+    fn default() -> Self {
+        Self {
+            enabled: crate::default_true(),
+            cache_ttl_secs: default_cache_ttl_secs(),
+            tool_policies: default_tool_policies(),
+            max_tool_result_context_share: default_max_tool_result_context_share(),
+            soft_trim_ratio: default_soft_trim_ratio(),
+            hard_clear_ratio: default_hard_clear_ratio(),
+            preserve_recent_rounds: default_preserve_recent_rounds(),
+            min_prunable_tool_chars: default_min_prunable_tool_chars(),
+            soft_trim_max_chars: default_soft_trim_max_chars(),
+            soft_trim_head_chars: default_soft_trim_head_chars(),
+            soft_trim_tail_chars: default_soft_trim_tail_chars(),
+            hard_clear_enabled: crate::default_true(),
+            hard_clear_placeholder: default_hard_clear_placeholder(),
+            summarization_model: None,
+            model_override: None,
+            summarization_threshold: default_summarization_threshold(),
+            identifier_policy: default_identifier_policy(),
+            identifier_instructions: None,
+            custom_instructions: None,
+            summarization_timeout_secs: default_summarization_timeout(),
+            summary_max_tokens: default_summary_max_tokens(),
+            max_history_share: default_max_history_share(),
+            max_compaction_summary_chars: default_max_compaction_summary_chars(),
+            max_compaction_injected_context_share: default_max_compaction_injected_context_share(),
+            reactive_microcompact_enabled: crate::default_true(),
+            reactive_trigger_ratio: default_reactive_trigger_ratio(),
+            recovery_enabled: crate::default_true(),
+            recovery_max_files: default_recovery_max_files(),
+            recovery_max_file_bytes: default_recovery_max_file_bytes(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,41 +404,5 @@ mod tests {
 
         assert_eq!(config.summarization_timeout_secs, 10);
         assert_eq!(config.summary_max_tokens, 32_768);
-    }
-}
-
-impl Default for CompactConfig {
-    fn default() -> Self {
-        Self {
-            enabled: crate::default_true(),
-            cache_ttl_secs: default_cache_ttl_secs(),
-            tool_policies: default_tool_policies(),
-            max_tool_result_context_share: default_max_tool_result_context_share(),
-            soft_trim_ratio: default_soft_trim_ratio(),
-            hard_clear_ratio: default_hard_clear_ratio(),
-            preserve_recent_rounds: default_preserve_recent_rounds(),
-            min_prunable_tool_chars: default_min_prunable_tool_chars(),
-            soft_trim_max_chars: default_soft_trim_max_chars(),
-            soft_trim_head_chars: default_soft_trim_head_chars(),
-            soft_trim_tail_chars: default_soft_trim_tail_chars(),
-            hard_clear_enabled: crate::default_true(),
-            hard_clear_placeholder: default_hard_clear_placeholder(),
-            summarization_model: None,
-            model_override: None,
-            summarization_threshold: default_summarization_threshold(),
-            identifier_policy: default_identifier_policy(),
-            identifier_instructions: None,
-            custom_instructions: None,
-            summarization_timeout_secs: default_summarization_timeout(),
-            summary_max_tokens: default_summary_max_tokens(),
-            max_history_share: default_max_history_share(),
-            max_compaction_summary_chars: default_max_compaction_summary_chars(),
-            max_compaction_injected_context_share: default_max_compaction_injected_context_share(),
-            reactive_microcompact_enabled: crate::default_true(),
-            reactive_trigger_ratio: default_reactive_trigger_ratio(),
-            recovery_enabled: crate::default_true(),
-            recovery_max_files: default_recovery_max_files(),
-            recovery_max_file_bytes: default_recovery_max_file_bytes(),
-        }
     }
 }
