@@ -150,7 +150,7 @@ The priority is "session setting > project setting > default workspace". A sessi
 
 The amount of conversation a model can remember is limited (the context window). As a conversation grows and approaches the limit, Hope Agent **compacts it automatically in layers**, so long conversations and long tasks can continue without suddenly "losing memory" or erroring out. Compaction happens automatically; you'll usually just see a compaction notice at the top.
 
-Compaction starts with "cleaning up stale tool results at zero cost" and works its way up to "summarizing old history"; after summarizing, it also automatically re-injects the current contents of recently edited files, so the AI doesn't forget the file it's working on.
+Compaction starts with deterministic projections that do not call another model, then works its way up to summarizing old history. Projection changes can still invalidate part of the prompt cache, so they are not literally free. A summary preserves known file touchpoints and managed references; file contents are re-injected only when the current session has a verified authorization binding. Otherwise Hope Agent safely skips the body and the model can use the normal file tools when needed—it never treats an old tool argument as permission to read a host path.
 
 **Manual commands**:
 

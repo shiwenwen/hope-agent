@@ -1,6 +1,6 @@
 {
   "schemaVersion": "model-campaign-policy.v1",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "mode": "advisory",
   "allowedAdapters": [
     "hope_core_scenario"
@@ -61,6 +61,14 @@
       "required": false,
       "caseTags": [
         "smoke_nightly"
+      ],
+      "repetitions": 1
+    },
+    {
+      "id": "context-compaction",
+      "required": false,
+      "caseTags": [
+        "context_compaction"
       ],
       "repetitions": 1
     }

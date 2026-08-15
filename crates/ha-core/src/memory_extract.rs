@@ -3,7 +3,10 @@
 //! After a chat completion, this module can extract valuable information
 //! (user facts, preferences, project context) and save them as memories.
 
-use std::sync::{Arc, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -19,8 +22,21 @@ used in the conversation — if the user wrote in Chinese, the memory must be in
 wrote in Japanese, write in Japanese; etc. Match the user's language, not the assistant's.";
 
 static EXTRACTION_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+#[derive(Default)]
+struct ExtractionRegistry {
+    active: HashMap<String, HashMap<u64, tokio::task::AbortHandle>>,
+    /// Session IDs are never reused. Once lifecycle cleanup starts, reject
+    /// every late registration so deleted Sessions cannot regain model work.
+    blocked_sessions: HashSet<String>,
+    registrations_disabled: bool,
+}
+
+static EXTRACTION_REGISTRY: LazyLock<Mutex<ExtractionRegistry>> =
+    LazyLock::new(|| Mutex::new(ExtractionRegistry::default()));
+static ACTIVE_EXTRACTION_ID: AtomicU64 = AtomicU64::new(1);
 const AUTO_EXTRACTION_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const FLUSH_EXTRACTION_LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_BLOCKED_EXTRACTION_SESSIONS: usize = 16_384;
 
 fn extraction_slots() -> &'static Arc<Semaphore> {
     EXTRACTION_SLOTS.get_or_init(|| {
@@ -37,6 +53,95 @@ async fn acquire_extraction_slot() -> OwnedSemaphorePermit {
         .acquire_owned()
         .await
         .expect("memory extraction semaphore is never closed")
+}
+
+struct ActiveExtractionLease {
+    session_id: String,
+    extraction_id: u64,
+}
+
+impl Drop for ActiveExtractionLease {
+    fn drop(&mut self) {
+        let mut registry = EXTRACTION_REGISTRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(session) = registry.active.get_mut(&self.session_id) {
+            session.remove(&self.extraction_id);
+            if session.is_empty() {
+                registry.active.remove(&self.session_id);
+            }
+        }
+    }
+}
+
+/// Spawn background extraction under a Session-scoped cancellation handle.
+/// A start barrier makes registration atomic from the lifecycle caller's
+/// perspective: cleanup can never miss a task that has begun model work.
+pub fn spawn_tracked_extraction<F>(session_id: String, future: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let extraction_id = ACTIVE_EXTRACTION_ID.fetch_add(1, Ordering::Relaxed);
+    let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+    let task_session_id = session_id.clone();
+    let task = tokio::spawn(async move {
+        let _lease = ActiveExtractionLease {
+            session_id: task_session_id,
+            extraction_id,
+        };
+        if start_rx.await.is_err() {
+            return;
+        }
+        future.await;
+    });
+    let registered = {
+        let mut registry = EXTRACTION_REGISTRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if registry.registrations_disabled || registry.blocked_sessions.contains(&session_id) {
+            false
+        } else {
+            registry
+                .active
+                .entry(session_id)
+                .or_default()
+                .insert(extraction_id, task.abort_handle());
+            true
+        }
+    };
+    if !registered {
+        task.abort();
+        return;
+    }
+    if start_tx.send(()).is_err() {
+        task.abort();
+    }
+}
+
+/// Abort all active, immediate memory-extraction work for one Session.
+pub fn cancel_active_extractions(session_id: &str) -> usize {
+    let handles = {
+        let mut registry = EXTRACTION_REGISTRY
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // The tombstone and active-handle removal share one critical section:
+        // registration either happens first and is aborted below, or observes
+        // the tombstone and never starts.
+        if registry.blocked_sessions.len() >= MAX_BLOCKED_EXTRACTION_SESSIONS {
+            // Never evict a tombstone while a late spawn may still be queued.
+            // Saturation disables optional extraction process-wide rather than
+            // letting deleted Sessions regain Provider work.
+            registry.registrations_disabled = true;
+        } else {
+            registry.blocked_sessions.insert(session_id.to_string());
+        }
+        registry.active.remove(session_id).unwrap_or_default()
+    };
+    let count = handles.len();
+    for handle in handles.into_values() {
+        handle.abort();
+    }
+    count
 }
 
 fn memory_extraction_instruction(prompt: &str) -> String {
@@ -1108,15 +1213,37 @@ fn decode_items(items: &[Value], force_profile_tag: bool, limit: usize) -> Vec<E
 
 // ── Idle Extraction ────────────────────────────────────────────
 
+struct IdleExtractionLease {
+    session_id: String,
+    expected_updated_at: String,
+}
+
+impl Drop for IdleExtractionLease {
+    fn drop(&mut self) {
+        if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
+            if let Ok(mut map) = handles.lock() {
+                if map
+                    .get(&self.session_id)
+                    .is_some_and(|entry| entry.2 == self.expected_updated_at)
+                {
+                    map.remove(&self.session_id);
+                }
+            }
+        }
+    }
+}
+
 /// Cancel a pending idle extraction for a session.
-pub fn cancel_idle_extraction(session_id: &str) {
+pub fn cancel_idle_extraction(session_id: &str) -> bool {
     if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
         if let Ok(mut map) = handles.lock() {
             if let Some((abort_handle, _, _)) = map.remove(session_id) {
                 abort_handle.abort();
+                return true;
             }
         }
     }
+    false
 }
 
 /// Register an idle extraction handle for a session.
@@ -1183,7 +1310,8 @@ pub fn flush_all_idle_extractions() {
     };
 
     for (session_id, agent_id, updated_at) in entries {
-        tokio::spawn(async move {
+        let tracked_session_id = session_id.clone();
+        spawn_tracked_extraction(tracked_session_id, async move {
             run_idle_extraction(&agent_id, &session_id, &updated_at).await;
         });
     }
@@ -1191,26 +1319,18 @@ pub fn flush_all_idle_extractions() {
 
 /// Execute idle extraction: load history from DB and run extraction without agent cache.
 async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_at: &str) {
-    // Admission must happen before removing the pending handle. If deletion
-    // wins the lifecycle gate, the extraction fails closed; if extraction wins,
-    // its guard remains visible until all memory writes finish.
+    // Keep the delayed task's abort handle registered through the model call,
+    // not merely through the idle timer. Session cleanup can then stop an
+    // extraction even after it has left the waiting phase.
+    let _idle_lease = IdleExtractionLease {
+        session_id: session_id.to_string(),
+        expected_updated_at: expected_updated_at.to_string(),
+    };
+    // Admission happens while the pending handle remains registered. If
+    // deletion wins the lifecycle gate the extraction fails closed; if the
+    // extraction wins, cleanup can still abort it during model or write work.
     let _agent_admission = crate::agent_lifecycle::begin_agent_run(agent_id).ok();
     let admitted = _agent_admission.is_some();
-
-    // Remove our handle entry — but only if it still matches the updated_at we
-    // were scheduled for. A concurrent `schedule_idle_extraction()` may have
-    // cancelled the old abort handle and registered a fresh one while this
-    // task was already running; blindly removing would drop the new entry and
-    // leak it from future `cancel_idle_extract()` paths.
-    if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
-        if let Ok(mut map) = handles.lock() {
-            if let Some(entry) = map.get(session_id) {
-                if entry.2 == expected_updated_at {
-                    map.remove(session_id);
-                }
-            }
-        }
-    }
 
     if !admitted {
         app_info!(

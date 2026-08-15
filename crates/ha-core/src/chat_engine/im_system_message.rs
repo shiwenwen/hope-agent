@@ -184,6 +184,8 @@ fn friendly_reason(reason: &str) -> &str {
         "billing" => "quota",
         "model_not_found" => "model unavailable",
         "context_overflow" => "context overflow",
+        "current_tool_group_overflow" => "current tool-result group too large",
+        "dispatch_unknown" => "dispatch outcome unknown",
         "unknown" => "error",
         other => other,
     }

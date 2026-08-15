@@ -600,6 +600,7 @@ async fn converge_abandoned_stream(
         interrupt_reason: Some(interrupt_reason.as_str().to_string()),
         error,
         recovery_event,
+        request_plan: crate::session::RequestPlanCommit::RecoverAllForRun,
     };
     let committed = db
         .clone()
@@ -878,9 +879,17 @@ pub fn spawn_user_stop_watchdog(
                     interrupt_reason: Some("user_stop".to_string()),
                     error: None,
                     recovery_event: None,
+                    request_plan: durability.interrupted_request_plan_commit(
+                        crate::session::RequestPlanResponseOutcome::CancelledAfterResponse,
+                    ),
                 };
                 db.clone()
                     .run(move |db| db.commit_interrupted_turn(&commit))
+                    .await?;
+                durability
+                    .finalize_interrupted_request_after_turn_commit(
+                        crate::session::RequestPlanResponseOutcome::CancelledAfterResponse,
+                    )
                     .await?;
                 Ok::<(), anyhow::Error>(())
             }

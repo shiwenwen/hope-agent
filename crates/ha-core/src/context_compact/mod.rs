@@ -10,12 +10,20 @@
 //  Reference: openclaw context-pruning + compaction systems + claude-code microcompact.
 
 mod boundary;
+mod cache_policy;
+mod capacity_pressure;
+#[cfg(test)]
+mod capacity_pressure_contract_tests;
 mod compact;
 mod config;
 pub mod engine;
 mod estimation;
+#[cfg(feature = "eval-runner")]
+pub mod eval;
+pub(crate) mod group_admission;
 mod ledger;
 mod manifest;
+pub(crate) mod projection;
 mod pruning;
 pub(crate) mod recovery;
 pub(crate) mod round_grouping;
@@ -62,17 +70,13 @@ const MAX_COMPACTION_SUMMARY_CHARS: usize = 16_000;
 /// Truncation suffix appended to truncated content
 const TRUNCATION_SUFFIX: &str =
     "\n\n\u{26a0}\u{fe0f} [Content truncated \u{2014} original was too large for context window. \
-     Use offset/limit to read smaller chunks.]";
+     Re-run the tool or use its bounded read/pagination handle when available.]";
 /// Marker inserted between head and tail in head+tail truncation
 const MIDDLE_OMISSION_MARKER: &str =
     "\n\n\u{26a0}\u{fe0f} [... middle content omitted \u{2014} showing head and tail ...]\n\n";
 /// Placeholder for removed images during pruning
 #[allow(dead_code)]
 const PRUNED_IMAGE_MARKER: &str = "[image removed during context pruning]";
-/// Marker appended when summary is too long
-#[allow(dead_code)]
-const SUMMARY_TRUNCATED_MARKER: &str = "\n\n[Compaction summary truncated to fit budget]";
-
 // ── Summarization prompts ──
 
 /// Identifier preservation instructions (strict policy)
@@ -101,6 +105,17 @@ pub use boundary::{
     boundary_snapshot, build_message_rounds, recent_boundary, BoundaryMode, BoundarySnapshot,
     MessageRound, RecentBoundary, RoundKind,
 };
+pub(crate) use boundary::{
+    latest_user_request_anchor, user_turn_start_for_message, LatestUserRequestAnchor,
+};
+pub use cache_policy::{
+    first_rewritten_item, plan_routine_compaction, projection_economics, CacheCompactionDecision,
+    CompactionSummaryReason, ProjectionEconomics, RelativeCacheCosts, RoutineCompactionPlan,
+};
+pub(crate) use capacity_pressure::{
+    apply_capacity_pressure_tier, replay_capacity_pressure_edits, CapacityPressureResult,
+    CapacityPressureTier,
+};
 pub use compact::{
     compact_if_needed, compact_if_needed_with_counter, emergency_compact, microcompact,
 };
@@ -113,6 +128,7 @@ pub use engine::{
 pub use estimation::{
     estimate_request_tokens, estimate_request_tokens_with_tools, estimate_tokens,
 };
+pub(crate) use estimation::{set_tool_result_unit_text, tool_result_units};
 pub use ledger::{
     build_runtime_ledger_message, render_runtime_ledger, JobLedgerItem, RuntimeLedgerSnapshot,
     SubagentLedgerItem,
@@ -123,6 +139,7 @@ pub use recovery::{
     build_recovery_message, FileOp, FileTouch, RecoveredFile, RecoveryContext, RecoveryResult,
     SkippedFile,
 };
+pub(crate) use types::ToolResultLocator;
 
 /// Index at which `apply_summary()` places the summary message. Post-compaction
 /// recovery inserts the file-contents message immediately after the summary, so
@@ -132,9 +149,11 @@ pub use round_grouping::{
     is_recovered_round, prepare_messages_for_api, push_and_stamp, recovered_round_id, stamp_round,
     RECOVERED_ROUND_PREFIX, SUBAGENT_DISPATCH_IDS_KEY,
 };
+pub(crate) use summarization::validate_summarization_output;
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
 pub use summarization::{
     apply_summary, build_summarization_prompt, peel_previous_summary, split_for_summarization,
+    split_for_summarization_with_boundary,
 };
 pub use truncation::truncate_tool_results;
-pub use types::CompactResult;
+pub use types::{CompactDetails, CompactResult};

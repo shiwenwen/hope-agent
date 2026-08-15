@@ -100,9 +100,9 @@ pub(crate) fn contains_media(value: &Value) -> bool {
 }
 
 fn string_contains_inline_image(value: &str) -> bool {
-    value.contains("__IMAGE_BASE64__")
-        || value.contains("__IMAGE_FILE__")
-        || value.contains("data:image/")
+    value.contains("data:image/")
+        || ((value.contains("__IMAGE_BASE64__") || value.contains("__IMAGE_FILE__"))
+            && crate::tools::image_markers::has_valid_image_markers(value))
 }
 
 fn media_tokens(
@@ -167,5 +167,19 @@ mod tests {
 
         assert_eq!(count_json(&value, &mut unknowns), IMAGE_TOKENS);
         assert_eq!(unknowns, vec![TokenCountUnknown::Image]);
+    }
+
+    #[test]
+    fn malformed_large_inline_image_marker_is_counted_as_text() {
+        let mut unknowns = Vec::new();
+        let marker = format!("__IMAGE_BASE64__image/png__{}", "A".repeat(100 * 1024));
+        let value = Value::String(marker.clone());
+
+        assert_eq!(
+            count_json(&value, &mut unknowns),
+            count_text(&marker).saturating_add(2)
+        );
+        assert!(unknowns.is_empty());
+        assert!(!contains_media(&value));
     }
 }

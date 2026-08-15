@@ -11,11 +11,11 @@ use super::super::{
     TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR,
     TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_READ_CONTEXT_RESOURCE, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_CREATE, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE,
-    TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
-    TOOL_WRITE,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RESULT_META, TOOL_RESULT_READ, TOOL_RUNTIME_CANCEL,
+    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_CREATE, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE,
+    TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -165,8 +165,14 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "integer",
                         "description": "Line number to start reading from (1-based). Defaults to 1"
                     },
+                    "byte_offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "UTF-8 byte offset within the selected line. Use only with the continuation cursor returned for an oversized line."
+                    },
                     "limit": {
                         "type": "integer",
+                        "minimum": 1,
                         "description": "Maximum number of lines to read. If omitted, reads up to the internal max size"
                     }
                 },
@@ -210,6 +216,59 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["resource_ref"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_RESULT_META.into(),
+            description: "Inspect bounded metadata for an opaque tool-result handle referenced by the current session. This never returns the stored body, digest, encryption material, or a filesystem path.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
+            internal: true,
+            concurrent_safe: true,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "result_id": {
+                        "type": "string",
+                        "description": "Opaque result_id from a tool-result preview."
+                    }
+                },
+                "required": ["result_id"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_RESULT_READ.into(),
+            description: "Read a bounded UTF-8 page from a stored effective tool result referenced by the current session. Continue only with the opaque cursor returned by this tool; do not infer or request filesystem paths.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
+            internal: true,
+            concurrent_safe: true,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "result_id": {
+                        "type": "string",
+                        "description": "Opaque result_id from a tool-result preview."
+                    },
+                    "cursor": {
+                        "type": "string",
+                        "description": "Opaque continuation cursor returned by an earlier tool_result_read call."
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "minimum": 4,
+                        "maximum": 51200,
+                        "description": "Maximum UTF-8 body bytes for this page (default 16384; hard maximum 51200)."
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["forward", "backward"],
+                        "description": "Read from the beginning/continuation cursor or backwards from the end. Defaults to forward."
+                    }
+                },
+                "required": ["result_id"],
                 "additionalProperties": false
             }),
         },

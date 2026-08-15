@@ -447,7 +447,7 @@ export default function ContextCompactPanel() {
                   label={t("settings.contextCompactTimeout")}
                   value={config.summarizationTimeoutSecs}
                   min={10}
-                  max={10000}
+                  max={600}
                   onChange={(v) => update({ summarizationTimeoutSecs: v })}
                 />
                 <NumberField

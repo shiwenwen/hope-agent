@@ -1,5 +1,6 @@
 // ── Token Estimation ──
 
+use super::types::{ToolResultLocator, ToolResultUnit};
 use super::IMAGE_CHAR_ESTIMATE;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -244,119 +245,180 @@ pub(super) fn build_tool_id_to_name_map(messages: &[Value]) -> HashMap<String, S
     id_to_name
 }
 
-/// Extract a tool result's tool name using the call-id map when needed.
-pub(super) fn get_tool_name_for_result(
-    msg: &Value,
-    id_to_name: &HashMap<String, String>,
-) -> Option<String> {
-    // OpenAI Chat may carry the tool name directly on role=tool messages.
-    if let Some(name) = msg.get("name").and_then(|n| n.as_str()) {
-        return Some(name.to_string());
-    }
-
-    if let Some(id) = first_tool_result_id(msg) {
-        return id_to_name.get(id).cloned();
-    }
-
-    // Anthropic: role=user content array with tool_result blocks.
-    if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
-        for block in content {
-            if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                if let Some(id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
-                    return id_to_name.get(id).cloned();
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Get the text content of a tool result message, format-agnostic.
-pub(super) fn get_tool_result_text(msg: &Value) -> Option<String> {
+/// Enumerate provider-level tool result units without collapsing an Anthropic
+/// user message that contains several parallel `tool_result` blocks.
+pub(crate) fn tool_result_units(msg: &Value) -> Vec<ToolResultUnit> {
     let role = message_role(msg);
     let msg_type = message_type(msg);
 
-    // OpenAI Chat: role=tool, content is string
     if role == Some("tool") {
-        return msg
-            .get("content")
-            .and_then(|c| c.as_str())
-            .map(|s| s.to_string());
+        return vec![ToolResultUnit {
+            locator: ToolResultLocator::OpenAiChatContent,
+            call_id: msg
+                .get("tool_call_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            direct_tool_name: msg.get("name").and_then(Value::as_str).map(str::to_string),
+            text: msg
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }];
     }
 
-    // OpenAI Responses: type=function_call_output, output is string
     if msg_type == Some("function_call_output") {
-        return msg
-            .get("output")
-            .and_then(|o| o.as_str())
-            .map(|s| s.to_string());
+        return vec![ToolResultUnit {
+            locator: ToolResultLocator::OpenAiResponsesOutput,
+            call_id: msg
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            direct_tool_name: None,
+            text: msg
+                .get("output")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }];
     }
 
-    // Anthropic: role=user with content array containing tool_result blocks
-    if role == Some("user") {
-        if let Some(Value::Array(blocks)) = msg.get("content") {
-            for block in blocks {
-                if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                    if let Some(content) = block.get("content") {
-                        match content {
-                            Value::String(s) => return Some(s.clone()),
-                            Value::Array(inner) => {
-                                // Array of content blocks — collect text
-                                let text: String = inner
-                                    .iter()
-                                    .filter_map(|b| {
-                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                            b.get("text").and_then(|t| t.as_str())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-                                if !text.is_empty() {
-                                    return Some(text);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+    if role != Some("user") {
+        return Vec::new();
+    }
+
+    msg.get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter(|(_, block)| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .map(|(block_index, block)| {
+            let text = match block.get("content") {
+                Some(Value::String(text)) => Some(text.clone()),
+                Some(Value::Array(content_blocks)) => {
+                    let text = content_blocks
+                        .iter()
+                        .filter(|content_block| {
+                            content_block.get("type").and_then(Value::as_str) == Some("text")
+                        })
+                        .filter_map(|content_block| {
+                            content_block.get("text").and_then(Value::as_str)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (!text.is_empty()).then_some(text)
                 }
+                _ => None,
+            };
+            ToolResultUnit {
+                locator: ToolResultLocator::AnthropicBlock(block_index),
+                call_id: block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                direct_tool_name: None,
+                text,
             }
-        }
-    }
-
-    None
+        })
+        .collect()
 }
 
-/// Set the text content of a tool result message, format-agnostic.
-pub(super) fn set_tool_result_text(msg: &mut Value, new_text: &str) {
-    let role = message_role(msg).map(str::to_string);
-    let msg_type = message_type(msg).map(str::to_string);
+/// Extract one result unit's tool name using the call-id map when needed.
+pub(super) fn get_tool_name_for_result_unit(
+    unit: &ToolResultUnit,
+    id_to_name: &HashMap<String, String>,
+) -> Option<String> {
+    unit.direct_tool_name.clone().or_else(|| {
+        unit.call_id
+            .as_ref()
+            .and_then(|id| id_to_name.get(id))
+            .cloned()
+    })
+}
 
-    // OpenAI Chat: role=tool
-    if role.as_deref() == Some("tool") {
-        msg["content"] = Value::String(new_text.to_string());
-        return;
-    }
+/// Read one result unit again from a message using its stable locator.
+pub(super) fn get_tool_result_unit_text(msg: &Value, locator: ToolResultLocator) -> Option<String> {
+    tool_result_units(msg)
+        .into_iter()
+        .find(|unit| unit.locator == locator)
+        .and_then(|unit| unit.text)
+}
 
-    // OpenAI Responses: type=function_call_output
-    if msg_type.as_deref() == Some("function_call_output") {
-        msg["output"] = Value::String(new_text.to_string());
-        return;
-    }
+/// Replace only the textual payload of one result unit. For Anthropic content
+/// arrays this preserves non-text blocks (images/media) and replaces text blocks
+/// in place instead of collapsing the complete `tool_result.content` value.
+pub(crate) fn set_tool_result_unit_text(
+    msg: &mut Value,
+    locator: ToolResultLocator,
+    new_text: &str,
+) -> bool {
+    match locator {
+        ToolResultLocator::OpenAiChatContent => {
+            if message_role(msg) == Some("tool") {
+                msg["content"] = Value::String(new_text.to_string());
+                true
+            } else {
+                false
+            }
+        }
+        ToolResultLocator::OpenAiResponsesOutput => {
+            if message_type(msg) == Some("function_call_output") {
+                msg["output"] = Value::String(new_text.to_string());
+                true
+            } else {
+                false
+            }
+        }
+        ToolResultLocator::AnthropicBlock(block_index) => {
+            let Some(block) = msg
+                .get_mut("content")
+                .and_then(Value::as_array_mut)
+                .and_then(|blocks| blocks.get_mut(block_index))
+            else {
+                return false;
+            };
+            if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                return false;
+            }
 
-    // Anthropic: role=user with tool_result blocks
-    if role.as_deref() == Some("user") {
-        if let Some(Value::Array(blocks)) = msg.get_mut("content") {
-            for block in blocks.iter_mut() {
-                if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                    block["content"] = Value::String(new_text.to_string());
-                    return;
+            let Some(content) = block.get_mut("content") else {
+                return false;
+            };
+            match content {
+                Value::String(text) => {
+                    *text = new_text.to_string();
+                    true
                 }
+                Value::Array(content_blocks) => {
+                    let text_indices = content_blocks
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, content_block)| {
+                            (content_block.get("type").and_then(Value::as_str) == Some("text"))
+                                .then_some(index)
+                        })
+                        .collect::<Vec<_>>();
+                    let Some(first_text_index) = text_indices.first().copied() else {
+                        return false;
+                    };
+                    content_blocks[first_text_index]["text"] = Value::String(new_text.to_string());
+                    for index in text_indices.into_iter().skip(1).rev() {
+                        content_blocks.remove(index);
+                    }
+                    true
+                }
+                _ => false,
             }
         }
     }
+}
+
+/// Compatibility reader for code that still renders a result container as one
+/// item. Tier 0/1/2 must use the unit API.
+#[cfg(test)]
+pub(super) fn get_tool_result_text(msg: &Value) -> Option<String> {
+    tool_result_units(msg)
+        .into_iter()
+        .find_map(|unit| unit.text)
 }
 
 /// Check if a message is a tool result (any format).
@@ -384,7 +446,7 @@ pub(super) fn is_tool_result(msg: &Value) -> bool {
 }
 
 /// Check if a message has role=user (and is NOT a tool_result container).
-pub(super) fn is_user_message(msg: &Value) -> bool {
+pub(crate) fn is_user_message(msg: &Value) -> bool {
     let role = message_role(msg);
     if role != Some("user") {
         return false;
@@ -411,4 +473,88 @@ pub(super) fn is_tool_denied(tool_name: &str, deny_list: &[String]) -> bool {
             lower == p
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn enumerates_each_provider_result_as_one_unit() {
+        let chat = json!({
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "name": "read_file",
+            "content": "chat result"
+        });
+        let responses = json!({
+            "type": "function_call_output",
+            "call_id": "fc_1",
+            "output": "responses result"
+        });
+        let anthropic = json!({
+            "role": "user",
+            "content": [
+                {"type":"tool_result","tool_use_id":"toolu_1","content":"first"},
+                {"type":"text","text":"container note"},
+                {"type":"tool_result","tool_use_id":"toolu_2","content":"second"}
+            ]
+        });
+
+        let chat_units = tool_result_units(&chat);
+        assert_eq!(chat_units.len(), 1);
+        assert_eq!(chat_units[0].call_id.as_deref(), Some("call_1"));
+        assert_eq!(chat_units[0].text.as_deref(), Some("chat result"));
+
+        let response_units = tool_result_units(&responses);
+        assert_eq!(response_units.len(), 1);
+        assert_eq!(response_units[0].call_id.as_deref(), Some("fc_1"));
+
+        let anthropic_units = tool_result_units(&anthropic);
+        assert_eq!(anthropic_units.len(), 2);
+        assert_eq!(
+            anthropic_units[0].locator,
+            ToolResultLocator::AnthropicBlock(0)
+        );
+        assert_eq!(
+            anthropic_units[1].locator,
+            ToolResultLocator::AnthropicBlock(2)
+        );
+        assert_eq!(anthropic_units[1].call_id.as_deref(), Some("toolu_2"));
+        assert_eq!(anthropic_units[1].text.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn anthropic_unit_write_preserves_other_results_and_media_blocks() {
+        let mut message = json!({
+            "role": "user",
+            "content": [
+                {
+                    "type":"tool_result",
+                    "tool_use_id":"toolu_1",
+                    "content":[
+                        {"type":"text","text":"old first"},
+                        {"type":"image","source":{"type":"base64","media_type":"image/png","data":"AA=="}},
+                        {"type":"text","text":"old second"}
+                    ]
+                },
+                {"type":"tool_result","tool_use_id":"toolu_2","content":"untouched"}
+            ]
+        });
+
+        assert!(set_tool_result_unit_text(
+            &mut message,
+            ToolResultLocator::AnthropicBlock(0),
+            "replacement"
+        ));
+
+        let blocks = message["content"].as_array().unwrap();
+        let first_content = blocks[0]["content"].as_array().unwrap();
+        assert_eq!(first_content.len(), 2);
+        assert_eq!(first_content[0]["text"], "replacement");
+        assert_eq!(first_content[1]["type"], "image");
+        assert_eq!(blocks[1]["content"], "untouched");
+        assert_eq!(blocks[0]["tool_use_id"], "toolu_1");
+    }
 }

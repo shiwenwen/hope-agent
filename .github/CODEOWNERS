@@ -37,6 +37,11 @@
 /crates/ha-base/src/security/     @shiwenwen
 /crates/ha-base/src/paths.rs      @shiwenwen
 /crates/ha-core/src/permission/   @shiwenwen
+# 上下文请求 WAL 与其正文生命周期：前者决定发送歧义/重放状态机，后者
+# 持有最终 Provider 请求密文、配额、删除 tombstone 和物理 scrub。改错任一
+# 文件都可能重复发送工具副作用、泄露 prompt/路径或让删除后正文复活。
+/crates/ha-core/src/session/context_projection.rs    @shiwenwen
+/crates/ha-core/src/session/request_payload_store.rs @shiwenwen
 # 工具契约层里的审批面（阶段 4「tools 类型归位」自 tools/ 迁入）：
 # context.rs 是 ApprovalOrigin（审批来源审计枚举）与 auto_approve_tools /
 # external_pre_approved / exec_pre_approved 三个旁路 flag 契约的唯一定义处

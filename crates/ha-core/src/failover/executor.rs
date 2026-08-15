@@ -32,8 +32,8 @@ use std::time::Duration;
 use crate::provider::{ApiType, AuthProfile, ProviderConfig};
 
 use super::{
-    classify_error, next_profile, retry_delay_ms, select_profile, FailoverReason,
-    PROFILE_COOLDOWNS, PROFILE_STICKY,
+    classify_error_with_evidence, next_profile, retry_delay_ms, select_profile,
+    ContextOverflowEvidence, FailoverReason, PROFILE_COOLDOWNS, PROFILE_STICKY,
 };
 
 /// Per-call-site failover behavior — different code paths want different
@@ -97,12 +97,11 @@ impl FailoverPolicy {
         }
     }
 
-    /// Tier 3 dedicated summarize default — fail fast (no profile rotation),
-    /// so the upper layer drops to the side_query fallback or emergency
-    /// compaction quickly. The caller's `DedicatedModelProvider` is bound to
-    /// one specific provider:model pair, and rotating through that pair's
-    /// profiles when a budget summary is in progress just adds latency to
-    /// the user's main turn.
+    /// Tier 3 summarization default: bounded transient retries, but no profile
+    /// rotation. A summary candidate is tied to one provider/model/profile
+    /// identity; silently changing credentials during the attempt complicates
+    /// cache, billing, and crash attribution. The upper layer can still fall
+    /// back from a dedicated summary model to the conversation model.
     pub fn summarize_default() -> Self {
         Self {
             max_retries: 2,
@@ -129,7 +128,10 @@ pub enum ExecutorError {
     /// `PROFILE_STICKY` before retry, ensuring retry lands on the same key
     /// (preserves the Anthropic prompt-cache prefix that the upcoming compact
     /// will not invalidate).
-    NeedsCompaction { last_profile: Option<AuthProfile> },
+    NeedsCompaction {
+        last_profile: Option<AuthProfile>,
+        evidence: ContextOverflowEvidence,
+    },
     /// All available retries / profile rotations exhausted. Last classification
     /// + raw error message preserved for the outer to log / surface.
     Exhausted {
@@ -290,12 +292,33 @@ where
                 }
 
                 let err_str = e.to_string();
-                let reason = classify_error(&err_str);
+                let (mut reason, overflow_evidence) = classify_error_with_evidence(&e);
+                if let Some(evidence) = overflow_evidence
+                    .as_ref()
+                    .filter(|evidence| !evidence.is_high_confidence())
+                {
+                    crate::app_info!(
+                        "provider",
+                        "context_overflow_hint",
+                        "Ignoring low-confidence context-overflow hint for provider {}: {:?}",
+                        provider.id,
+                        evidence
+                    );
+                }
 
                 if reason.needs_compaction() {
-                    return Err(ExecutorError::NeedsCompaction {
-                        last_profile: current_profile,
-                    });
+                    if let Some(evidence) =
+                        overflow_evidence.filter(ContextOverflowEvidence::is_high_confidence)
+                    {
+                        return Err(ExecutorError::NeedsCompaction {
+                            last_profile: current_profile,
+                            evidence,
+                        });
+                    }
+                    // Defense in depth: a future classifier bug must degrade to
+                    // ordinary bounded failover, never destructive compaction.
+                    debug_assert!(false, "ContextOverflow lacked high-confidence evidence");
+                    reason = FailoverReason::Unknown;
                 }
 
                 if reason.is_terminal() {
@@ -308,13 +331,7 @@ where
                 // Retry errors that may self-heal before rotating credentials.
                 // Unknown errors deliberately get a smaller budget; auth,
                 // billing and model-not-found never enter this branch.
-                let retry_budget = if provider.api_type == ApiType::Codex && reason.is_retryable() {
-                    // Codex reports each of its transport retries through the
-                    // streaming callback. Do not multiply that adapter-level
-                    // budget with another executor loop. Keep this check ahead
-                    // of Unknown so an opaque Codex response cannot bypass it.
-                    0
-                } else if reason == FailoverReason::Unknown {
+                let retry_budget = if reason == FailoverReason::Unknown {
                     policy.max_unknown_retries
                 } else if reason.is_retryable() {
                     policy.max_retries
@@ -588,17 +605,108 @@ mod tests {
             &session,
             FailoverPolicy::chat_engine_default(),
             None,
-            |_profile| async move { Err(anyhow::anyhow!("context_length_exceeded")) },
+            |_profile| async move {
+                Err(crate::failover::ProviderApiError::from_http_response(
+                    "OpenAI Responses",
+                    400,
+                    r#"{"error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"maximum context length exceeded"}}"#,
+                )
+                .into())
+            },
         )
         .await;
 
         match result {
-            Err(ExecutorError::NeedsCompaction { last_profile }) => {
+            Err(ExecutorError::NeedsCompaction {
+                last_profile,
+                evidence,
+            }) => {
                 assert!(last_profile.is_some());
                 assert_eq!(last_profile.unwrap().id, ids[0]);
+                assert!(evidence.is_high_confidence());
             }
             other => panic!("expected NeedsCompaction, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn current_tool_group_overflow_is_terminal_without_retry_or_profile_rotation() {
+        let (cfg, _ids) = make_provider(2);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempts = AtomicU32::new(0);
+        let rotations = AtomicU32::new(0);
+        let on_rotate = |_from: &AuthProfile, _to: &AuthProfile, _reason: &FailoverReason| {
+            rotations.fetch_add(1, Ordering::SeqCst);
+        };
+
+        let result: Result<String, _> = execute_with_failover(
+            &cfg,
+            &session,
+            FailoverPolicy::chat_engine_default(),
+            Some(&on_rotate),
+            |_profile| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    Err(anyhow::Error::from(
+                        crate::context_compact::group_admission::CurrentToolGroupEnvelopeOverflowError {
+                            capacity: crate::context_compact::group_admission::RequestCapacityCount::new(
+                                9_500, 1_000,
+                            ),
+                            context_window: 10_000,
+                            safety_headroom: 512,
+                        },
+                    ))
+                }
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::Exhausted {
+                last_reason: FailoverReason::CurrentToolGroupOverflow,
+                ..
+            })
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(rotations.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_unknown_is_terminal_without_retry_or_profile_rotation() {
+        let (cfg, _ids) = make_provider(2);
+        let session = format!("sess-{}", uuid::Uuid::new_v4());
+        let attempts = AtomicU32::new(0);
+        let rotations = AtomicU32::new(0);
+        let on_rotate = |_from: &AuthProfile, _to: &AuthProfile, _reason: &FailoverReason| {
+            rotations.fetch_add(1, Ordering::SeqCst);
+        };
+
+        let result: Result<String, _> = execute_with_failover(
+            &cfg,
+            &session,
+            FailoverPolicy::chat_engine_default(),
+            Some(&on_rotate),
+            |_profile| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    Err(anyhow::Error::from(crate::agent::ProviderDispatchUnknown(
+                        "transport closed after dispatch claim".to_string(),
+                    )))
+                }
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::Exhausted {
+                last_reason: FailoverReason::DispatchUnknown,
+                ..
+            })
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(rotations.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -1016,7 +1124,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_unknown_does_not_stack_outer_retries() {
+    async fn codex_unknown_uses_the_bounded_outer_retry_budget() {
         let (mut cfg, _ids) = make_provider(1);
         cfg.api_type = ApiType::Codex;
         let session = format!("sess-{}", uuid::Uuid::new_v4());
@@ -1041,7 +1149,10 @@ mod tests {
                 ..
             })
         ));
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        // `max_unknown_retries=2` counts retries after the initial send. Each
+        // outer retry prepares and claims a fresh exact request plan, so the
+        // bounded total is one initial attempt plus two retries.
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]

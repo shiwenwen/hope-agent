@@ -27,6 +27,7 @@
         "enum": [
           "coding_fixture_patch",
           "coding_gold_fixture_patch",
+          "context_compaction_contract",
           "domain_trace_fixture",
           "dreaming_golden",
           "memory_retrieval_scale"

@@ -1,7 +1,7 @@
 // ── Tier 1: Tool Result Truncation ──
 
 use super::config::CompactConfig;
-use super::estimation::{get_tool_result_text, is_tool_result, set_tool_result_text};
+use super::estimation::{set_tool_result_unit_text, tool_result_units};
 use super::{
     CHARS_PER_TOKEN, HARD_MAX_TOOL_RESULT_CHARS, MIDDLE_OMISSION_MARKER, MIN_KEEP_CHARS,
     TRUNCATION_SUFFIX,
@@ -117,9 +117,14 @@ pub(super) fn head_tail_truncate(text: &str, max_chars: usize) -> String {
     if text.len() <= max_chars {
         return text.to_string();
     }
-    let budget = max_chars
-        .saturating_sub(TRUNCATION_SUFFIX.len())
-        .max(MIN_KEEP_CHARS);
+
+    // Never make a result larger than the configured ceiling. The previous
+    // `max(MIN_KEEP_CHARS)` behavior expanded short results when a model had a
+    // tiny or missing context window, and could append the suffix repeatedly.
+    if max_chars <= TRUNCATION_SUFFIX.len() {
+        return crate::truncate_utf8(text, max_chars).to_string();
+    }
+    let budget = max_chars.saturating_sub(TRUNCATION_SUFFIX.len());
 
     if has_important_tail(text) && budget > MIN_KEEP_CHARS * 2 {
         // Head+Tail mode: tail gets 30% but max 4000 chars
@@ -161,29 +166,125 @@ pub fn truncate_tool_results(
     context_window: u32,
     config: &CompactConfig,
 ) -> usize {
+    // A zero window means the model configuration is unresolved. It is not a
+    // valid zero-byte result budget; fail closed here and let request capacity
+    // validation report the configuration error.
+    if context_window == 0 {
+        return 0;
+    }
     let max_chars = calculate_max_tool_result_chars(context_window, config);
     let mut truncated_count = 0;
 
     for msg in messages.iter_mut() {
-        if !is_tool_result(msg) {
-            continue;
-        }
-        if let Some(text) = get_tool_result_text(msg) {
-            if text.len() > max_chars {
-                if crate::tools::image_markers::contains_image_marker(&text) {
-                    if crate::tools::image_markers::has_valid_image_markers(&text) {
+        let units = tool_result_units(msg);
+        for unit in units {
+            if let Some(text) = unit.text {
+                if text.len() > max_chars {
+                    if crate::tools::image_markers::contains_image_marker(&text) {
+                        if crate::tools::image_markers::has_valid_image_markers(&text) {
+                            continue;
+                        }
+                        if set_tool_result_unit_text(
+                            msg,
+                            unit.locator,
+                            "[Invalid or truncated image tool result omitted]",
+                        ) {
+                            truncated_count += 1;
+                        }
                         continue;
                     }
-                    set_tool_result_text(msg, "[Invalid or truncated image tool result omitted]");
-                    truncated_count += 1;
-                    continue;
+                    let truncated = head_tail_truncate(&text, max_chars);
+                    if set_tool_result_unit_text(msg, unit.locator, &truncated) {
+                        truncated_count += 1;
+                    }
                 }
-                let truncated = head_tail_truncate(&text, max_chars);
-                set_tool_result_text(msg, &truncated);
-                truncated_count += 1;
             }
         }
     }
 
     truncated_count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn truncates_every_oversized_anthropic_result_unit_independently() {
+        let mut messages = vec![json!({
+            "role": "user",
+            "content": [
+                {"type":"tool_result","tool_use_id":"toolu_1","content":"a".repeat(5_000)},
+                {"type":"text","text":"container note"},
+                {
+                    "type":"tool_result",
+                    "tool_use_id":"toolu_2",
+                    "content":[
+                        {"type":"text","text":"b".repeat(5_000)},
+                        {"type":"image","source":{"type":"base64","media_type":"image/png","data":"AA=="}}
+                    ]
+                }
+            ]
+        })];
+        let config = CompactConfig {
+            max_tool_result_context_share: 0.1,
+            ..CompactConfig::default()
+        };
+
+        let count = truncate_tool_results(&mut messages, 1_000, &config);
+
+        assert_eq!(count, 2);
+        let blocks = messages[0]["content"].as_array().unwrap();
+        assert!(blocks[0]["content"].as_str().unwrap().len() < 5_000);
+        assert_eq!(blocks[1]["text"], "container note");
+        let second_content = blocks[2]["content"].as_array().unwrap();
+        assert!(second_content[0]["text"].as_str().unwrap().len() < 5_000);
+        assert_eq!(second_content[1]["type"], "image");
+    }
+
+    #[test]
+    fn truncates_openai_chat_and_responses_result_units() {
+        let mut messages = vec![
+            json!({"role":"tool","tool_call_id":"call_1","content":"a".repeat(5_000)}),
+            json!({"type":"function_call_output","call_id":"fc_1","output":"b".repeat(5_000)}),
+        ];
+        let config = CompactConfig {
+            max_tool_result_context_share: 0.1,
+            ..CompactConfig::default()
+        };
+
+        let count = truncate_tool_results(&mut messages, 1_000, &config);
+
+        assert_eq!(count, 2);
+        assert!(messages[0]["content"].as_str().unwrap().len() < 5_000);
+        assert!(messages[1]["output"].as_str().unwrap().len() < 5_000);
+        assert_eq!(messages[0]["tool_call_id"], "call_1");
+        assert_eq!(messages[1]["call_id"], "fc_1");
+    }
+
+    #[test]
+    fn tiny_budget_never_expands_a_tool_result() {
+        let original = "0123456789".repeat(100);
+        let tiny_budget = TRUNCATION_SUFFIX.len().saturating_sub(1);
+
+        let truncated = head_tail_truncate(&original, tiny_budget);
+
+        assert!(truncated.len() <= tiny_budget);
+        assert!(truncated.len() < original.len());
+    }
+
+    #[test]
+    fn unresolved_zero_context_window_does_not_mutate_results() {
+        let mut messages = vec![
+            json!({"role":"tool","tool_call_id":"call_1","content":"a".repeat(5_000)}),
+            json!({"type":"function_call_output","call_id":"fc_1","output":"b".repeat(5_000)}),
+        ];
+        let original = messages.clone();
+
+        let count = truncate_tool_results(&mut messages, 0, &CompactConfig::default());
+
+        assert_eq!(count, 0);
+        assert_eq!(messages, original);
+    }
 }

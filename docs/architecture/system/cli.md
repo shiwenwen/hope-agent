@@ -394,7 +394,7 @@ CLI 直接消费或路径相关的环境变量。完整跨子系统列表分散�
 | `bundled-skills/<hash>/` | 二进制内嵌技能的解压缓存（可删，下次启动重建） |
 | `extension/browser/` | Chrome 扩展稳定镜像（Load unpacked 指向此处；`extension/.browser-synced` marker 记录源指纹） |
 | `plans/<agent_id>/<session_id>/` | Plan Mode 设计契约文件，按 agent、session 两级隔离（根目录可经 `plansDirectory` 配置覆盖；详见 [Plan Mode](../agent/plan-mode.md)） |
-| `tool_results/<session_id>/` | 大工具结果落盘 |
+| `tool_results/<session_id>/` | 受管媒体与遗留大结果目录；新普通文本 ResultStore 正文能力当前关闭，不再向模型发布这里的路径 |
 | `attachments/<session_id>/` | IM / 多模态附件归档 |
 | `background_jobs/` + `background_jobs.db` | 后台异步工具任务的结果 spool 与状态库（纯可重建缓存；模块 / 日志仍叫 `async_jobs`，磁盘与 DB 是 `background_jobs`） |
 | `local_model_jobs.db` | 本地模型后台任务（Ollama 安装、模型拉取） |

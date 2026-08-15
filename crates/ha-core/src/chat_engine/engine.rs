@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 
-use crate::agent::AssistantAgent;
+use crate::agent::{AssistantAgent, CurrentUserMessageState};
 use crate::failover::{
     self,
     executor::{execute_with_failover_observed, ExecutorError, FailoverPolicy, RetryProgress},
@@ -90,11 +90,27 @@ fn chain_reason_after_missing_provider(
     previous: Option<failover::FailoverReason>,
 ) -> failover::FailoverReason {
     match previous {
-        Some(reason @ (failover::FailoverReason::Timeout | failover::FailoverReason::Unknown)) => {
+        Some(reason)
+            if matches!(
+                reason,
+                failover::FailoverReason::Timeout
+                    | failover::FailoverReason::Unknown
+                    | failover::FailoverReason::ContextOverflow
+            ) =>
+        {
             reason
         }
         _ => failover::FailoverReason::ModelNotFound,
     }
+}
+
+fn fallback_event_reason(
+    typed_reason: Option<failover::FailoverReason>,
+    display_error: Option<&str>,
+) -> failover::FailoverReason {
+    typed_reason
+        .or_else(|| display_error.map(failover::classify_error))
+        .unwrap_or(failover::FailoverReason::Unknown)
 }
 
 fn has_resolvable_fallback(
@@ -325,6 +341,20 @@ fn mirror_reason_from_terminal_state(
                 is_codex_auth: false,
             }
         }
+        Some(session::ChatTurnInterruptReason::CurrentToolGroupOverflow) => {
+            TerminationReason::ProviderFailed {
+                last_kind: failover::FailoverReason::CurrentToolGroupOverflow,
+                last_message: detail,
+                is_codex_auth: false,
+            }
+        }
+        Some(session::ChatTurnInterruptReason::DispatchUnknown) => {
+            TerminationReason::ProviderFailed {
+                last_kind: failover::FailoverReason::DispatchUnknown,
+                last_message: detail,
+                is_codex_auth: false,
+            }
+        }
         Some(session::ChatTurnInterruptReason::CompactionFailed) => {
             TerminationReason::CompactionFailed { detail }
         }
@@ -366,15 +396,21 @@ struct ChatRoundOk {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ChatEngineFailureKind {
+pub enum ChatEngineFailureKind {
     ProviderExhausted,
+    /// Application-level terminal outcome. Retrying the provider chain cannot
+    /// make the same logical request legal (for example, a current tool-result
+    /// group whose protocol-minimal envelope still exceeds capacity).
+    Terminal,
     Cancelled,
     Infrastructure,
 }
 
 #[derive(Debug)]
-pub(crate) struct ChatEngineFailure {
-    pub kind: ChatEngineFailureKind,
+pub struct ChatEngineFailure {
+    pub(crate) kind: ChatEngineFailureKind,
+    reason: Option<failover::FailoverReason>,
+    is_codex_auth: bool,
     message: String,
 }
 
@@ -382,8 +418,39 @@ impl ChatEngineFailure {
     fn new(kind: ChatEngineFailureKind, message: impl Into<String>) -> Self {
         Self {
             kind,
+            reason: None,
+            is_codex_auth: false,
             message: message.into(),
         }
+    }
+
+    fn classified(
+        kind: ChatEngineFailureKind,
+        reason: Option<failover::FailoverReason>,
+        is_codex_auth: bool,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            reason,
+            is_codex_auth,
+            message: message.into(),
+        }
+    }
+
+    pub fn kind(&self) -> ChatEngineFailureKind {
+        self.kind
+    }
+
+    /// Typed reason from the final engine attempt. Callers must prefer this
+    /// over re-classifying `to_string()`, which is intentionally only
+    /// display text and may omit the evidence that established the verdict.
+    pub fn reason(&self) -> Option<failover::FailoverReason> {
+        self.reason
+    }
+
+    pub fn is_codex_auth(&self) -> bool {
+        self.is_codex_auth
     }
 
     pub(crate) fn cancelled(message: impl Into<String>) -> Self {
@@ -408,6 +475,8 @@ impl std::fmt::Display for ChatEngineFailure {
         formatter.write_str(&self.message)
     }
 }
+
+impl std::error::Error for ChatEngineFailure {}
 
 /// Drop-guarded scope for a session's visible stream lifecycle. Ensures
 /// `stream_seq::end` fires on every `run_chat_engine` return path (including
@@ -768,23 +837,39 @@ pub async fn compact_session_now(
         let _ = emit_stream_event(&session_db, &event_sink, &session_id, source, None, delta);
     };
     let compact_result = agent.compact_conversation_now(&emit).await;
+    let summary_applied =
+        compact_result.tier_applied >= 3 && compact_result.description == "summarized";
 
     let compacted_context_json = serde_json::to_string(&agent.get_conversation_history())
         .map_err(|e| persist_failed(format!("Cannot serialize compacted context: {e}")))?;
     if original_context_json.as_deref() != Some(compacted_context_json.as_str()) {
-        let saved = session_db
-            .save_context_if_unchanged(
+        let saved = if summary_applied {
+            session_db.save_context_if_unchanged_and_clear_tier3_recovery(
                 &session_id,
                 original_context_json.as_deref(),
                 &compacted_context_json,
             )
-            .map_err(|e| persist_failed(format!("Cannot save compacted context: {e}")))?;
+        } else {
+            session_db.save_context_if_unchanged(
+                &session_id,
+                original_context_json.as_deref(),
+                &compacted_context_json,
+            )
+        }
+        .map_err(|e| persist_failed(format!("Cannot save compacted context: {e}")))?;
         if !saved {
             return Err(persist_failed(
                 "Session context changed during manual compaction; skipped stale compacted snapshot"
                     .to_string(),
             ));
         }
+    } else if summary_applied {
+        session_db
+            .clear_tier3_recovery_after_summary(&session_id)
+            .map_err(|e| persist_failed(format!("Cannot finalize compaction recovery: {e}")))?;
+    }
+    if summary_applied && crate::session::is_session_incognito(Some(&session_id)) {
+        crate::session::clear_incognito_tier3_recovery(&session_id);
     }
     persist_manual_context_compacted(&session_db, &session_id, source, &compact_result);
     app_info!(
@@ -920,7 +1005,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         .map_err(|failure| failure.to_string())
 }
 
-pub(crate) async fn run_chat_engine_classified(
+/// Structured sibling of [`run_chat_engine`] for callers that make recovery
+/// or user-notice decisions. Display strings are intentionally not a stable
+/// failure-classification protocol.
+pub async fn run_chat_engine_classified(
     params: ChatEngineParams,
 ) -> Result<ChatEngineResult, ChatEngineFailure> {
     let ChatEngineParams {
@@ -1179,26 +1267,6 @@ pub(crate) async fn run_chat_engine_classified(
         return Err("No model configured for chat execution".to_string().into());
     }
 
-    {
-        // `maybe_schedule_autonomous_start` runs synchronous SessionDB reads
-        // (title classification + goal-fallback repair) before spawning the
-        // title task; route it through the blocking pool so it never pins the
-        // async worker on the per-turn hot path (see `crate::blocking`).
-        let title_db = db.clone();
-        let title_session_id = session_id.clone();
-        let title_agent_id = agent_id.clone();
-        let title_model = model_chain[0].clone();
-        crate::blocking::run_blocking(move || {
-            crate::session_title::maybe_schedule_autonomous_start(
-                title_db,
-                title_session_id,
-                title_agent_id,
-                title_model,
-            )
-        })
-        .await;
-    }
-
     // Resolve the Plan-mode bundle once at turn start. Spawn-supplied
     // overrides win (their child sessions have backend `plan_mode = Off`
     // even though they're meant to run as PlanAgent); otherwise read this
@@ -1214,27 +1282,6 @@ pub(crate) async fn run_chat_engine_classified(
         Some(o) => o,
         None => crate::chat_engine::resolve_plan_context_for_session(&session_id).await,
     };
-
-    // Codex OAuth token lives on disk; it's the single source of truth for
-    // desktop / HTTP / IM channel entry points. Callers may pass None — when
-    // the chain actually needs Codex we hydrate from disk here so all three
-    // runtimes behave identically without threading AppState through.
-    let chain_needs_codex = model_chain.iter().any(|m| {
-        providers
-            .iter()
-            .any(|p| p.id == m.provider_id && p.api_type == ApiType::Codex)
-    });
-    let mut codex_token = codex_token;
-    if chain_needs_codex {
-        let current = codex_token.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
-        // Refresh on-disk token if stale; if a refresh produced a new pair,
-        // also update the in-memory hint we thread down to the agent builder
-        // — the disk write inside refresh may have failed, but the new token
-        // is still valid in this process.
-        if let Some(pair) = crate::oauth::ensure_fresh_codex_token(current).await {
-            codex_token = Some(pair);
-        }
-    }
 
     let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source, turn_id.clone())?;
 
@@ -1283,6 +1330,48 @@ pub(crate) async fn run_chat_engine_classified(
     };
     stream_lifecycle
         .arm_abandoned_recovery(db.clone(), durability.persistence_run_id().to_string());
+
+    // Codex OAuth refresh can perform network I/O. Admit the durable run and
+    // atomically resolve any prior SendUnknown request first, so an explicit
+    // foreground retry cannot emit even an authentication request before its
+    // ambiguous predecessor is terminalized as a brand-new manual request.
+    // Callers may pass None; the on-disk token remains the shared source of
+    // truth for desktop / HTTP / IM channel entry points.
+    let chain_needs_codex = model_chain.iter().any(|m| {
+        providers
+            .iter()
+            .any(|p| p.id == m.provider_id && p.api_type == ApiType::Codex)
+    });
+    let mut codex_token = codex_token;
+    if chain_needs_codex {
+        let current = codex_token.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+        // Refresh on-disk token if stale; if a refresh produced a new pair,
+        // also update the in-memory hint we thread down to the agent builder
+        // — the disk write inside refresh may have failed, but the new token
+        // is still valid in this process.
+        if let Some(pair) = crate::oauth::ensure_fresh_codex_token(current).await {
+            codex_token = Some(pair);
+        }
+    }
+
+    {
+        // Title generation may spawn a one-shot model request. Keep it after
+        // durable foreground admission/manual-retry convergence, while its
+        // synchronous classification reads still use the blocking pool.
+        let title_db = db.clone();
+        let title_session_id = session_id.clone();
+        let title_agent_id = agent_id.clone();
+        let title_model = model_chain[0].clone();
+        crate::blocking::run_blocking(move || {
+            crate::session_title::maybe_schedule_autonomous_start(
+                title_db,
+                title_session_id,
+                title_agent_id,
+                title_model,
+            )
+        })
+        .await;
+    }
 
     // Durable basenames are owned by the already-persisted stream run. Crash
     // recovery reconciles this exact backend UUID prefix against every
@@ -1731,6 +1820,11 @@ pub(crate) async fn run_chat_engine_classified(
     const MODEL_CHAIN_RETRY_MAX_MS: u64 = 10_000;
     let mut model_chain_round = 1_u32;
     let mut model_index = 0_usize;
+    // The initial attempt base is the pre-turn session context. A successful
+    // Tier-4 recovery adopts a compacted post-user checkpoint instead; from
+    // that point every retry and fallback model must preserve, not re-append,
+    // the current user item.
+    let mut current_user_message_state = CurrentUserMessageState::MissingFromHistory;
 
     loop {
         if model_index >= model_chain.len() {
@@ -1832,10 +1926,11 @@ pub(crate) async fn run_chat_engine_classified(
         // output during replay/materialization.
         let fallback_event_json = if idx > 0 {
             let display = format!("{} / {}", prov.name, model_ref.model_id);
-            let reason_str = last_error
-                .as_deref()
-                .map(failover::classify_error)
-                .unwrap_or(failover::FailoverReason::Unknown);
+            // `last_reason` is the executor's typed verdict. Display text is a
+            // lossy fallback only for legacy paths that do not provide one;
+            // in particular, typed ContextOverflow must not become Unknown
+            // merely because free-text overflow matching is intentionally off.
+            let reason_str = fallback_event_reason(last_reason, last_error.as_deref());
             crate::eval_context::record_model_retry(&session_id, true, reason_str.as_str(), 0);
             let event = serde_json::json!({
                 "type": "model_fallback",
@@ -1967,6 +2062,7 @@ pub(crate) async fn run_chat_engine_classified(
             let frozen_resource_mentions_ref = frozen_resource_mentions.clone();
             let snapshot_refs_committed_ref = snapshot_refs_committed.clone();
             let fallback_event_ref = fallback_event_json.as_deref();
+            let current_user_message_state_for_attempt = current_user_message_state;
 
             let exec_result = execute_with_failover_observed(
                 prov,
@@ -2028,6 +2124,13 @@ pub(crate) async fn run_chat_engine_classified(
                                 Some(provider_shape),
                             )
                             .await?;
+                        let current_user_message_state_for_op = if durability_owned
+                            .attempt_base_contains_current_user()
+                        {
+                            CurrentUserMessageState::AlreadyInHistory
+                        } else {
+                            current_user_message_state_for_attempt
+                        };
                         // Attempts are separate recovery prefixes. Re-commit a
                         // reference to the exact same frozen revision in every
                         // attempt so superseding attempt 1 cannot orphan the
@@ -2147,9 +2250,10 @@ pub(crate) async fn run_chat_engine_classified(
                         let allow_hard_cancel = Arc::new(std::sync::atomic::AtomicBool::new(true));
                         let allow_hard_cancel_for_cb = allow_hard_cancel.clone();
 
-                        let mut chat_future = Box::pin(agent.chat(
+                        let mut chat_future = Box::pin(agent.chat_with_user_message_state(
                             &message_owned,
                             &attachments_owned,
+                            current_user_message_state_for_op,
                             effort_owned.as_deref(),
                             cancel_for_op,
                             move |delta| {
@@ -2295,10 +2399,19 @@ pub(crate) async fn run_chat_engine_classified(
                                         interrupt_reason: Some(interrupt.as_str().to_string()),
                                         error: turn.error.clone(),
                                         recovery_event: None,
+                                        request_plan: durability.interrupted_request_plan_commit(
+                                            session::RequestPlanResponseOutcome::ResponseIncomplete,
+                                        ),
                                     };
                                     let db_for_commit = db.clone();
                                     db_for_commit
                                         .run(move |db| db.commit_interrupted_turn(&commit))
+                                        .await
+                                        .map_err(|error| error.to_string())?;
+                                    durability
+                                        .finalize_interrupted_request_after_turn_commit(
+                                            session::RequestPlanResponseOutcome::ResponseIncomplete,
+                                        )
                                         .await
                                         .map_err(|error| error.to_string())?;
                                     Ok(())
@@ -2577,6 +2690,12 @@ pub(crate) async fn run_chat_engine_classified(
                         turn_id: turn_id.clone(),
                         usage: Some(ledger_event),
                         final_seq,
+                        tier3_recovery: if agent.tier3_summary_applied_this_turn() {
+                            session::Tier3RecoveryCommit::ClearAfterSummary
+                        } else {
+                            session::Tier3RecoveryCommit::Unchanged
+                        },
+                        request_plan: durability.successful_request_plan_commit()?,
                     };
                     let committed = {
                         let db = db.clone();
@@ -2617,6 +2736,9 @@ pub(crate) async fn run_chat_engine_classified(
                             return Err(message.into());
                         }
                     };
+                    durability
+                        .finalize_successful_request_after_turn_commit()
+                        .await?;
                     let assistant_id = Some(committed.assistant_message_id);
                     durability.mark_committed(committed.committed_seq);
 
@@ -2778,7 +2900,48 @@ pub(crate) async fn run_chat_engine_classified(
                     });
                 }
 
-                Err(ExecutorError::NeedsCompaction { last_profile }) => {
+                Err(ExecutorError::NeedsCompaction {
+                    last_profile,
+                    evidence,
+                }) => {
+                    if !evidence.is_high_confidence() {
+                        let msg = format!(
+                            "Refusing emergency compaction without high-confidence overflow evidence: {evidence:?}"
+                        );
+                        app_warn!("context", "compact_evidence", "{}", msg);
+                        last_reason = Some(failover::FailoverReason::Unknown);
+                        last_error = Some(msg);
+                        break;
+                    }
+                    let capacity_proof = match &evidence {
+                        failover::ContextOverflowEvidence::LocalPreflight {
+                            input_tokens,
+                            max_input_tokens,
+                            capacity_proof: Some(proof),
+                            ..
+                        } if proof.original_local_upper_bound == *input_tokens
+                            && proof.max_input_tokens == *max_input_tokens =>
+                        {
+                            proof.clone()
+                        }
+                        failover::ContextOverflowEvidence::LocalPreflight { .. }
+                        | failover::ContextOverflowEvidence::StructuredProvider { .. }
+                        | failover::ContextOverflowEvidence::TextHint { .. } => {
+                            let msg = format!(
+                                "Refusing emergency compaction on {}::{} without an immutable complete-request capacity proof",
+                                model_ref.provider_id, model_ref.model_id,
+                            );
+                            app_warn!("context", "compact_capacity_unproven", "{}", msg);
+                            last_reason = Some(failover::FailoverReason::ContextOverflow);
+                            last_error = Some(msg.clone());
+                            compaction_failed.get_or_insert(msg);
+                            break;
+                        }
+                    };
+                    // From this point onward the initiating failure is a typed,
+                    // high-confidence overflow. Recovery-step display errors
+                    // may add detail, but must not erase that verdict.
+                    last_reason = Some(failover::FailoverReason::ContextOverflow);
                     if let Some((status, interrupt, error)) =
                         terminal_turn_state(&db, turn_id.as_deref())
                     {
@@ -2800,9 +2963,9 @@ pub(crate) async fn run_chat_engine_classified(
                         });
                     }
 
-                    if durability.had_tool_activity() {
+                    if durability.had_non_replayable_tool_activity() {
                         let msg = format!(
-                            "Context overflow on {}::{} after tool activity; refusing to replay the turn",
+                            "Context overflow on {}::{} after non-replayable tool activity; refusing to replay the turn",
                             model_ref.provider_id, model_ref.model_id
                         );
                         app_warn!("provider", "recovery_blocked", "{}", msg);
@@ -2823,7 +2986,7 @@ pub(crate) async fn run_chat_engine_classified(
                             "Context overflow on {}::{} after emergency compaction",
                             model_ref.provider_id, model_ref.model_id
                         );
-                        last_reason = Some(failover::classify_error(&msg));
+                        last_reason = Some(failover::FailoverReason::ContextOverflow);
                         last_error = Some(msg.clone());
                         compaction_failed.get_or_insert(msg);
                         break;
@@ -2833,9 +2996,10 @@ pub(crate) async fn run_chat_engine_classified(
                     app_info!(
                         "context",
                         "compact",
-                        "Context overflow on {}::{}, attempting emergency compaction",
+                        "Context overflow on {}::{}, attempting emergency compaction (evidence={:?})",
                         model_ref.provider_id,
-                        model_ref.model_id
+                        model_ref.model_id,
+                        evidence
                     );
 
                     let mut progress_extra = serde_json::Map::new();
@@ -2898,7 +3062,7 @@ pub(crate) async fn run_chat_engine_classified(
                                 "Cannot build agent for emergency compaction on {}::{}: {}",
                                 model_ref.provider_id, model_ref.model_id, e
                             );
-                            last_reason = Some(failover::classify_error(&msg));
+                            last_reason = Some(failover::FailoverReason::ContextOverflow);
                             last_error = Some(msg);
                             break;
                         }
@@ -2930,6 +3094,14 @@ pub(crate) async fn run_chat_engine_classified(
                     restore_agent_context(&db, &session_id, &compact_agent);
 
                     let mut history = compact_agent.get_conversation_history();
+                    let original_history_for_capacity =
+                        crate::context_compact::prepare_messages_for_api(&history);
+                    // Capture the exact provider-native item before destructive
+                    // projection. A text comparison is insufficient here because
+                    // attachments and provider metadata are part of the request.
+                    let current_user_anchor: Option<
+                        crate::context_compact::LatestUserRequestAnchor,
+                    > = crate::context_compact::latest_user_request_anchor(&history);
                     // Incognito parity with the Tier-3 path (agent/context.rs): an
                     // incognito session must NOT have its runtime ledger (job /
                     // subagent ids) built or injected into history — that history is
@@ -2947,6 +3119,97 @@ pub(crate) async fn run_chat_engine_classified(
                     let compact_result = compact_agent
                         .context_engine()
                         .emergency_compact(&mut history, &emergency_ctx);
+                    if !current_user_anchor
+                        .as_ref()
+                        .is_some_and(|anchor| anchor.is_preserved_exactly_once(&history))
+                    {
+                        let msg = format!(
+                            "Emergency compaction could not preserve the current user request exactly once on {}::{}; refusing to publish or retry",
+                            model_ref.provider_id, model_ref.model_id,
+                        );
+                        app_warn!("context", "compact_user_anchor_lost", "{}", msg);
+                        let _ = emit_context_compaction_progress(
+                            &db,
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            "failed",
+                            "emergency",
+                            None,
+                        );
+                        last_reason = Some(failover::FailoverReason::ContextOverflow);
+                        last_error = Some(msg.clone());
+                        compaction_failed.get_or_insert(msg);
+                        break;
+                    }
+                    if compact_result.messages_affected == 0
+                        || compact_result.tokens_after >= compact_result.tokens_before
+                    {
+                        let msg = format!(
+                            "Emergency compaction made no measurable progress on {}::{} (before={}, after={}, affected={}); refusing to publish or retry the same oversized request",
+                            model_ref.provider_id,
+                            model_ref.model_id,
+                            compact_result.tokens_before,
+                            compact_result.tokens_after,
+                            compact_result.messages_affected,
+                        );
+                        app_warn!("context", "compact_no_progress", "{}", msg);
+                        let _ = emit_context_compaction_progress(
+                            &db,
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            "failed",
+                            "emergency",
+                            None,
+                        );
+                        last_reason = Some(failover::FailoverReason::ContextOverflow);
+                        last_error = Some(msg.clone());
+                        compaction_failed.get_or_insert(msg);
+                        break;
+                    }
+                    let compacted_history_for_capacity =
+                        crate::context_compact::prepare_messages_for_api(&history);
+                    let projected_input_upper = match crate::token_accounting::service()
+                        .verify_compacted_capacity(
+                            &capacity_proof,
+                            &original_history_for_capacity,
+                            &compacted_history_for_capacity,
+                        ) {
+                        Ok(projected_input_upper) => projected_input_upper,
+                        Err(error) => {
+                            let msg = format!(
+                                "Emergency compaction capacity proof failed on {}::{}: {}; refusing to publish or retry",
+                                model_ref.provider_id, model_ref.model_id, error,
+                            );
+                            app_warn!("context", "compact_capacity_unproven", "{}", msg);
+                            let _ = emit_context_compaction_progress(
+                                &db,
+                                &event_sink,
+                                &session_id,
+                                source,
+                                turn_id.as_deref(),
+                                "failed",
+                                "emergency",
+                                None,
+                            );
+                            last_reason = Some(failover::FailoverReason::ContextOverflow);
+                            last_error = Some(msg.clone());
+                            compaction_failed.get_or_insert(msg);
+                            break;
+                        }
+                    };
+                    app_info!(
+                        "context",
+                        "compact_capacity_proven",
+                        "Emergency compaction complete-request capacity proven on {}::{}: input_upper={} max_input={}",
+                        model_ref.provider_id,
+                        model_ref.model_id,
+                        projected_input_upper,
+                        capacity_proof.max_input_tokens,
+                    );
                     compact_agent.set_conversation_history(history);
                     if let Some((status, interrupt, error)) =
                         terminal_turn_state(&db, turn_id.as_deref())
@@ -2970,7 +3233,10 @@ pub(crate) async fn run_chat_engine_classified(
                     }
                     let compact_history = compact_agent.get_conversation_history();
                     if let Err(error) = durability
-                        .checkpoint_context(&compact_history, durability.context_revision())
+                        .checkpoint_emergency_context(
+                            &compact_history,
+                            durability.context_revision(),
+                        )
                         .await
                     {
                         let _ = emit_context_compaction_progress(
@@ -2992,6 +3258,7 @@ pub(crate) async fn run_chat_engine_classified(
                             Some(format!("Emergency compaction retry base failed: {error}"));
                         break;
                     }
+                    current_user_message_state = CurrentUserMessageState::AlreadyInHistory;
 
                     let mut progress_extra = serde_json::Map::new();
                     progress_extra.insert(
@@ -3316,10 +3583,26 @@ pub(crate) async fn run_chat_engine_classified(
                 (terminal_status == session::ChatTurnStatus::Failed).then(|| final_error.clone())
             }),
             recovery_event,
+            request_plan: durability.interrupted_request_plan_commit(
+                if terminal_interrupt == session::ChatTurnInterruptReason::UserStop {
+                    session::RequestPlanResponseOutcome::CancelledAfterResponse
+                } else {
+                    session::RequestPlanResponseOutcome::ResponseIncomplete
+                },
+            ),
         };
         let db_for_commit = db.clone();
         db_for_commit
             .run(move |db| db.commit_interrupted_turn(&commit))
+            .await?;
+        durability
+            .finalize_interrupted_request_after_turn_commit(
+                if terminal_interrupt == session::ChatTurnInterruptReason::UserStop {
+                    session::RequestPlanResponseOutcome::CancelledAfterResponse
+                } else {
+                    session::RequestPlanResponseOutcome::ResponseIncomplete
+                },
+            )
             .await?;
         durability.mark_interrupted(terminal_status.as_str());
         Ok(())
@@ -3358,19 +3641,14 @@ pub(crate) async fn run_chat_engine_classified(
 
     schedule_browser_turn_finalize(source, &session_id);
     stream_lifecycle.finish();
-    let failure_kind = match &reason {
-        TerminationReason::UserStop | TerminationReason::RuntimeCancel => {
-            ChatEngineFailureKind::Cancelled
-        }
-        TerminationReason::ProviderFailed { .. } | TerminationReason::NoProfileAvailable => {
-            ChatEngineFailureKind::ProviderExhausted
-        }
-        TerminationReason::CompactionFailed { .. }
-        | TerminationReason::Other { .. }
-        | TerminationReason::Shutdown
-        | TerminationReason::Crash => ChatEngineFailureKind::Infrastructure,
-    };
-    Err(ChatEngineFailure::new(failure_kind, final_error))
+    let (failure_kind, failure_reason, failure_is_codex_auth) =
+        classify_chat_engine_failure(&reason);
+    Err(ChatEngineFailure::classified(
+        failure_kind,
+        failure_reason,
+        failure_is_codex_auth,
+        final_error,
+    ))
 }
 
 fn build_durable_assistant_message(
@@ -3402,6 +3680,47 @@ fn build_durable_assistant_message(
 }
 
 // ── Termination reason derivation ────────────────────────────────────
+
+fn classify_chat_engine_failure(
+    reason: &TerminationReason,
+) -> (
+    ChatEngineFailureKind,
+    Option<failover::FailoverReason>,
+    bool,
+) {
+    match reason {
+        TerminationReason::UserStop | TerminationReason::RuntimeCancel => {
+            (ChatEngineFailureKind::Cancelled, None, false)
+        }
+        TerminationReason::ProviderFailed {
+            last_kind,
+            is_codex_auth,
+            ..
+        } => (
+            if last_kind.is_terminal() {
+                ChatEngineFailureKind::Terminal
+            } else {
+                ChatEngineFailureKind::ProviderExhausted
+            },
+            Some(*last_kind),
+            *is_codex_auth,
+        ),
+        TerminationReason::NoProfileAvailable => {
+            (ChatEngineFailureKind::ProviderExhausted, None, false)
+        }
+        // Preserve the typed overflow class for structured consumers even
+        // though a failed recovery operation remains an infrastructure-class
+        // engine outcome rather than a provider-chain exhaustion.
+        TerminationReason::CompactionFailed { .. } => (
+            ChatEngineFailureKind::Infrastructure,
+            Some(failover::FailoverReason::ContextOverflow),
+            false,
+        ),
+        TerminationReason::Other { .. }
+        | TerminationReason::Shutdown
+        | TerminationReason::Crash => (ChatEngineFailureKind::Infrastructure, None, false),
+    }
+}
 
 /// Map runtime convergence state to a [`TerminationReason`].
 ///
@@ -3808,6 +4127,98 @@ mod stream_lifecycle_tests {
                 ..
             }
         ));
+
+        let current_group = mirror_reason_from_terminal_state(
+            session::ChatTurnStatus::Failed,
+            Some(session::ChatTurnInterruptReason::CurrentToolGroupOverflow),
+            Some("display text intentionally has no classifier token"),
+        );
+        assert!(matches!(
+            current_group,
+            TerminationReason::ProviderFailed {
+                last_kind: failover::FailoverReason::CurrentToolGroupOverflow,
+                is_codex_auth: false,
+                ..
+            }
+        ));
+
+        let dispatch_unknown = mirror_reason_from_terminal_state(
+            session::ChatTurnStatus::Failed,
+            Some(session::ChatTurnInterruptReason::DispatchUnknown),
+            Some("display text intentionally has no classifier token"),
+        );
+        assert!(matches!(
+            dispatch_unknown,
+            TerminationReason::ProviderFailed {
+                last_kind: failover::FailoverReason::DispatchUnknown,
+                is_codex_auth: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn current_tool_group_overflow_survives_as_typed_terminal_failure() {
+        let termination = TerminationReason::ProviderFailed {
+            last_kind: failover::FailoverReason::CurrentToolGroupOverflow,
+            last_message: "display text intentionally has no classifier token".to_string(),
+            is_codex_auth: false,
+        };
+        assert_eq!(
+            termination.to_chat_turn_interrupt_reason(),
+            session::ChatTurnInterruptReason::CurrentToolGroupOverflow
+        );
+        let (kind, reason, is_codex_auth) = classify_chat_engine_failure(&termination);
+        let failure = ChatEngineFailure::classified(
+            kind,
+            reason,
+            is_codex_auth,
+            "display text intentionally has no classifier token",
+        );
+
+        assert_eq!(failure.kind(), ChatEngineFailureKind::Terminal);
+        assert_eq!(
+            failure.reason(),
+            Some(failover::FailoverReason::CurrentToolGroupOverflow)
+        );
+        assert!(!failure.is_codex_auth());
+        assert_eq!(
+            failover::classify_error(&failure.to_string()),
+            failover::FailoverReason::Unknown,
+            "the typed outcome must not depend on classifying display text"
+        );
+    }
+
+    #[test]
+    fn dispatch_unknown_survives_as_typed_terminal_failure() {
+        let termination = TerminationReason::ProviderFailed {
+            last_kind: failover::FailoverReason::DispatchUnknown,
+            last_message: "display text intentionally has no classifier token".to_string(),
+            is_codex_auth: false,
+        };
+        assert_eq!(
+            termination.to_chat_turn_interrupt_reason(),
+            session::ChatTurnInterruptReason::DispatchUnknown
+        );
+        let (kind, reason, is_codex_auth) = classify_chat_engine_failure(&termination);
+        let failure = ChatEngineFailure::classified(
+            kind,
+            reason,
+            is_codex_auth,
+            "display text intentionally has no classifier token",
+        );
+
+        assert_eq!(failure.kind(), ChatEngineFailureKind::Terminal);
+        assert_eq!(
+            failure.reason(),
+            Some(failover::FailoverReason::DispatchUnknown)
+        );
+        assert!(!failure.is_codex_auth());
+        assert_eq!(
+            failover::classify_error(&failure.to_string()),
+            failover::FailoverReason::Unknown,
+            "the typed outcome must not depend on classifying display text"
+        );
     }
 
     #[test]
@@ -3887,6 +4298,25 @@ mod stream_lifecycle_tests {
         assert_eq!(
             chain_reason_after_missing_provider(None),
             failover::FailoverReason::ModelNotFound
+        );
+        assert_eq!(
+            chain_reason_after_missing_provider(Some(failover::FailoverReason::ContextOverflow)),
+            failover::FailoverReason::ContextOverflow,
+        );
+    }
+
+    #[test]
+    fn fallback_event_prefers_typed_context_overflow_over_display_text() {
+        assert_eq!(
+            fallback_event_reason(
+                Some(failover::FailoverReason::ContextOverflow),
+                Some("Context overflow after emergency compaction"),
+            ),
+            failover::FailoverReason::ContextOverflow,
+        );
+        assert_eq!(
+            fallback_event_reason(None, Some("429 rate limit")),
+            failover::FailoverReason::RateLimit,
         );
     }
 
@@ -4128,10 +4558,25 @@ mod stream_lifecycle_tests {
     }
 
     fn sse_text_then_done(text: &str) -> String {
+        let delta = serde_json::to_string(text).expect("serialize SSE text delta");
         format!(
-            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":{}}}\n\n\
              data: {{\"type\":\"response.completed\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n\n",
-            text
+            delta
+        )
+    }
+
+    fn valid_compaction_summary() -> &'static str {
+        concat!(
+            "## Primary Request and Success Criteria\nsummary ok\n\n",
+            "## Current Execution State\nsummary ok\n\n",
+            "## Decisions and Rationale\nsummary ok\n\n",
+            "## Files, Symbols, and Artifacts\nsummary ok\n\n",
+            "## Tool Results Worth Preserving\nsummary ok\n\n",
+            "## Errors, Failed Attempts, and Fixes\nsummary ok\n\n",
+            "## User Feedback and Constraints\nsummary ok\n\n",
+            "## Pending Work and Next Action\nsummary ok\n\n",
+            "## Trust Boundaries and Security Notes\nsummary ok",
         )
     }
 
@@ -4170,6 +4615,31 @@ mod stream_lifecycle_tests {
 
     fn sse_failed_without_output() -> String {
         "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"upstream failed\",\"code\":\"bad_response_status_code\",\"type\":\"server_error\"}}}\n\n".to_string()
+    }
+
+    fn current_user_occurrences_in_responses_body(body: &serde_json::Value, prompt: &str) -> usize {
+        fn content_occurrences(content: &serde_json::Value, prompt: &str) -> usize {
+            match content {
+                serde_json::Value::String(text) => text.matches(prompt).count(),
+                serde_json::Value::Array(parts) => parts
+                    .iter()
+                    .map(|part| content_occurrences(part, prompt))
+                    .sum(),
+                serde_json::Value::Object(fields) => fields
+                    .get("text")
+                    .map(|text| content_occurrences(text, prompt))
+                    .unwrap_or(0),
+                _ => 0,
+            }
+        }
+
+        body.get("input")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|item| item.get("role").and_then(serde_json::Value::as_str) == Some("user"))
+            .map(|item| content_occurrences(&item["content"], prompt))
+            .sum()
     }
 
     fn sse_tool_call_then_done(text: &str, path: &str) -> String {
@@ -4920,6 +5390,213 @@ mod stream_lifecycle_tests {
         assert_eq!(assistants.len(), 1);
         assert_eq!(assistants[0].content, "final answer");
         assert!(!messages.iter().any(|msg| msg.content == "failed partial"));
+    }
+
+    #[tokio::test]
+    async fn local_preflight_emergency_retry_sends_current_user_exactly_once() {
+        let (_lock, _dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let prompt = "TIER4_CURRENT_USER_SENTINEL_73f2";
+        db.append_message(&session.id, &NewMessage::user(prompt))
+            .unwrap();
+        db.save_context(
+            &session.id,
+            &serde_json::json!([
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "old request"}]
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "x".repeat(120_000)
+                    }]
+                }
+            ])
+            .to_string(),
+        )
+        .unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_text_then_done("recovered answer")),
+            )
+            .mount(&server)
+            .await;
+
+        let mut provider = openai_provider(server.uri(), "m1");
+        provider.models[0].context_window = 32_000;
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let mut chat_params = params(db.clone(), session.id.clone(), vec![model], vec![provider]);
+        chat_params.message = prompt.to_string();
+        // Keep this contract focused on the reactive Tier 4 path. The old
+        // history intentionally exceeds the local complete-request capacity;
+        // proactive Tier 3 is disabled so the immutable preflight certificate
+        // drives the recovery.
+        chat_params.compact_config.enabled = false;
+
+        let result = run_chat_engine(chat_params)
+            .await
+            .expect("Tier-4 retry should recover");
+        assert_eq!(result.response, "recovered answer");
+
+        let requests = server.received_requests().await.unwrap();
+        let provider_bodies = requests
+            .iter()
+            .filter(|request| request.url.path() == "/v1/responses")
+            .map(|request| {
+                serde_json::from_slice::<serde_json::Value>(&request.body)
+                    .expect("Responses request body")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            provider_bodies.len(),
+            1,
+            "the oversized first attempt is rejected locally; only the proven retry reaches the Provider"
+        );
+        assert_eq!(
+            provider_bodies
+                .iter()
+                .map(|body| current_user_occurrences_in_responses_body(body, prompt))
+                .collect::<Vec<_>>(),
+            vec![1],
+            "the retry base already contains the current user and must not append it again"
+        );
+        let final_history = serde_json::json!({
+            "input": result
+                .agent
+                .as_ref()
+                .expect("successful retry agent")
+                .get_conversation_history()
+        });
+        assert_eq!(
+            current_user_occurrences_in_responses_body(&final_history, prompt),
+            1,
+            "the successful retry must keep a single canonical user item"
+        );
+        assert_eq!(
+            db.tier3_recovery_state(&session.id).unwrap(),
+            Some(crate::session::Tier3RecoveryState::Required),
+            "the same-turn Tier-4 retry must leave forced Tier 3 for the next user turn"
+        );
+
+        server.reset().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "application/json")
+                    .set_body_json(serde_json::json!({
+                        "output": [{
+                            "type": "message",
+                            "content": [{
+                                "type": "output_text",
+                                "text": valid_compaction_summary(),
+                            }],
+                        }],
+                        "usage": {
+                            "input_tokens": 1,
+                            "output_tokens": 1,
+                        },
+                    })),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_text_then_done("answer after forced summary")),
+            )
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        let next_prompt = "NEXT_USER_TURN_SENTINEL_96c1";
+        db.append_message(&session.id, &NewMessage::user(next_prompt))
+            .unwrap();
+        let mut next_provider = openai_provider(server.uri(), "m1");
+        next_provider.models[0].context_window = 32_000;
+        let next_model = ActiveModel {
+            provider_id: next_provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let mut next_params = params(
+            db.clone(),
+            session.id.clone(),
+            vec![next_model],
+            vec![next_provider],
+        );
+        next_params.message = next_prompt.to_string();
+        next_params.compact_config.enabled = false;
+
+        let next_result = run_chat_engine(next_params)
+            .await
+            .expect("the next user turn should publish forced Tier 3 before its main request");
+        assert_eq!(next_result.response, "answer after forced summary");
+
+        let next_requests = server.received_requests().await.unwrap();
+        let next_provider_bodies = next_requests
+            .iter()
+            .filter(|request| request.url.path() == "/v1/responses")
+            .map(|request| {
+                serde_json::from_slice::<serde_json::Value>(&request.body)
+                    .expect("Responses request body")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            next_provider_bodies.len(),
+            2,
+            "the next turn must send exactly one forced summary and one main request"
+        );
+        assert_eq!(
+            next_provider_bodies
+                .iter()
+                .filter(|body| {
+                    body.get("instructions")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|instructions| {
+                            instructions.contains("context compaction assistant")
+                        })
+                })
+                .count(),
+            1,
+            "the durable recovery marker authorizes one forced summary attempt"
+        );
+        assert_eq!(
+            next_provider_bodies
+                .iter()
+                .map(|body| current_user_occurrences_in_responses_body(body, next_prompt))
+                .sum::<usize>(),
+            1,
+            "only the main request may contain the next turn's current user"
+        );
+        assert_eq!(
+            db.tier3_recovery_state(&session.id).unwrap(),
+            None,
+            "publishing the winning Tier 3 summary must atomically clear the marker"
+        );
+        assert!(
+            db.load_context(&session.id)
+                .unwrap()
+                .is_some_and(|context| context.contains("summary ok")),
+            "the cleared marker must have a durable summarized context winner"
+        );
     }
 
     #[tokio::test]

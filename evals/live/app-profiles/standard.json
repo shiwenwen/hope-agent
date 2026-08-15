@@ -1,20 +1,21 @@
 {
   "schemaVersion": "eval-app-profile.v1",
   "id": "standard",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "title": "Standard core",
-  "description": "One clean/control trial for every weekly Hope Core case.",
+  "description": "One clean/control trial for every weekly Hope Core case. The user controls the total budget and its per-case allocation.",
   "baseTier": "weekly",
-  "suites": [
-    { "suiteId": "hope-core-orchestration", "caseTags": ["smoke_weekly"] }
-  ],
+  "suites": [{ "suiteId": "hope-core-orchestration", "caseTags": ["smoke_weekly"] }],
   "allowedArms": ["control", "team_full_control", "single_agent_compute_matched_control"],
   "armMode": "one_control_per_case",
   "defaultRepetitions": 1,
   "useSuiteRepetitions": false,
   "maxTrials": 100,
   "maxModels": 4,
-  "maxConcurrency": 100,
+  "maxConcurrency": 500,
+  "defaultConcurrency": 4,
   "maxCostUsd": 1000000,
+  "defaultCostUsd": 100,
+  "budgetMode": "user_configurable",
   "allowCustom": true
 }

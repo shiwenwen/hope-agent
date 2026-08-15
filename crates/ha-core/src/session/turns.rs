@@ -101,6 +101,14 @@ pub enum ChatTurnInterruptReason {
     /// All `model_chain` attempts failed at the provider layer.
     /// `chat_turns.error` carries the raw last-attempt message.
     ProviderFailed,
+    /// The current tool-result group's cheapest protocol-legal envelope still
+    /// exceeded capacity after the bounded recovery ladder. This terminal
+    /// application verdict must survive independently of display/error text.
+    CurrentToolGroupOverflow,
+    /// The exact Provider request crossed the dispatch claim, but no response
+    /// proof was observed. This verdict must remain typed across reconnect and
+    /// crash recovery so no caller silently turns it into an automatic retry.
+    DispatchUnknown,
     /// Emergency context compaction ran but the history still exceeds
     /// the hard threshold; the turn cannot continue.
     CompactionFailed,
@@ -117,6 +125,8 @@ impl ChatTurnInterruptReason {
             Self::RuntimeCancel => "runtime_cancel",
             Self::NoProfile => "no_profile",
             Self::ProviderFailed => "provider_failed",
+            Self::CurrentToolGroupOverflow => "current_tool_group_overflow",
+            Self::DispatchUnknown => "dispatch_unknown",
             Self::CompactionFailed => "compaction_failed",
             Self::Unknown => "unknown",
         }
@@ -131,6 +141,8 @@ impl ChatTurnInterruptReason {
             "runtime_cancel" => Some(Self::RuntimeCancel),
             "no_profile" => Some(Self::NoProfile),
             "provider_failed" => Some(Self::ProviderFailed),
+            "current_tool_group_overflow" => Some(Self::CurrentToolGroupOverflow),
+            "dispatch_unknown" => Some(Self::DispatchUnknown),
             "compaction_failed" => Some(Self::CompactionFailed),
             "unknown" => Some(Self::Unknown),
             _ => None,
@@ -1157,6 +1169,37 @@ mod tests {
     }
 
     #[test]
+    fn current_tool_group_terminal_reason_survives_chat_turn_storage() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-c0"), Some(1))
+            .unwrap();
+
+        assert!(db
+            .finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(ChatTurnInterruptReason::CurrentToolGroupOverflow),
+                Some("display text intentionally has no classifier token"),
+                None,
+            )
+            .unwrap());
+
+        let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+        assert_eq!(
+            persisted.interrupt_reason,
+            Some(ChatTurnInterruptReason::CurrentToolGroupOverflow)
+        );
+        assert_eq!(
+            persisted.error.as_deref(),
+            Some("display text intentionally has no classifier token")
+        );
+    }
+
+    #[test]
     fn regular_turn_rejects_an_active_session_tool_turn_across_database_handles() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
@@ -1299,6 +1342,37 @@ mod tests {
             .get_chat_turn("delegated-after-incognito")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn dispatch_unknown_terminal_reason_survives_chat_turn_storage() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-send-unknown"), Some(1))
+            .unwrap();
+
+        assert!(db
+            .finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(ChatTurnInterruptReason::DispatchUnknown),
+                Some("display text intentionally has no classifier token"),
+                None,
+            )
+            .unwrap());
+
+        let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+        assert_eq!(
+            persisted.interrupt_reason,
+            Some(ChatTurnInterruptReason::DispatchUnknown)
+        );
+        assert_eq!(
+            persisted.error.as_deref(),
+            Some("display text intentionally has no classifier token")
+        );
     }
 
     #[test]

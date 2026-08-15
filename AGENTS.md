@@ -48,6 +48,10 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 前端 / UI 见 [src/AGENTS.md](src/AGENTS.md)（`src/` 嵌套 AGENTS.md，改前端时自动生效）。
 
+### 文档（中文为主）
+
+- **新增或修改中文文档时统一使用中文主术语**：标题、正文、表格和 Mermaid 可见标签都以中文为主；技术概念首次出现可写成“中文（English）”，后续只用中文。品牌、协议名、标准缩写，以及代码中的类型、函数、字段、枚举值、配置键、命令和路径可以保留英文；代码标识须用反引号。禁止无必要的中英夹写或给同一概念反复换译名，例如首次定义“权威会话历史（canonical history）”“请求投影视图（request projection）”后，后文只写中文。中英文用户指南仍须保持语义对齐。
+
 ### 后端（Rust）
 
 - **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-base/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/system/process-model.md) Layer C′）

@@ -1827,6 +1827,8 @@ function MessageBubbleInner({
       return (
         <ContextCompactedBanner
           event={data as ContextCompactedEvent & ContextCompactionProgressEvent}
+          compacting={compacting}
+          onRetry={onCompactContext}
         />
       )
     }

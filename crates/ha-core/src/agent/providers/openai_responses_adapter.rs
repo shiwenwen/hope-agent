@@ -12,7 +12,7 @@
 //! The SSE parser ([`parse_openai_sse`]) is shared with the Codex adapter
 //! since they speak the same protocol — only auth header and endpoint differ.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -23,9 +23,13 @@ use super::super::api_types::{FunctionCallItem, ResponsesRequest, SseEvent};
 use super::super::config::build_api_url;
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, expand_responses_image_markers_for_api,
+    project_responses_image_markers_for_token_count,
 };
 use super::super::streaming_adapter::{
-    ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
+    observe_before_send, observe_response_started, ExecutedTool, PreparedProviderRequest,
+    PreparedRequestVariant, ProviderAccountingInput, ProviderDispatchObserver,
+    ProviderDispatchUnknown, ProviderEndpointKind, ProviderRequestShape, RoundOutcome,
+    RoundRequest, StreamingChatAdapter,
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tool_defs::ToolProvider;
@@ -287,9 +291,15 @@ fn log_sse_decode_error(request_id: &str, raw_data: &str, err: &serde_json::Erro
     );
 }
 
-fn take_next_sse_event_block(buffer: &mut String) -> Option<String> {
-    let lf = buffer.find("\n\n").map(|idx| (idx, 2));
-    let crlf = buffer.find("\r\n\r\n").map(|idx| (idx, 4));
+fn take_next_sse_event_block(buffer: &mut Vec<u8>) -> Result<Option<String>> {
+    let lf = buffer
+        .windows(b"\n\n".len())
+        .position(|window| window == b"\n\n")
+        .map(|idx| (idx, 2));
+    let crlf = buffer
+        .windows(b"\r\n\r\n".len())
+        .position(|window| window == b"\r\n\r\n")
+        .map(|idx| (idx, 4));
     let (idx, delim_len) = match (lf, crlf) {
         (Some(a), Some(b)) => {
             if a.0 <= b.0 {
@@ -300,31 +310,56 @@ fn take_next_sse_event_block(buffer: &mut String) -> Option<String> {
         }
         (Some(a), None) => a,
         (None, Some(b)) => b,
-        (None, None) => return None,
+        (None, None) => return Ok(None),
     };
 
-    let event_block = buffer[..idx].to_string();
-    *buffer = buffer[idx + delim_len..].to_string();
-    Some(event_block)
+    let mut consumed: Vec<u8> = buffer.drain(..idx + delim_len).collect();
+    consumed.truncate(idx);
+    let event_block = String::from_utf8(consumed)
+        .map_err(|_| anyhow::anyhow!("Responses SSE event contained invalid UTF-8"))?;
+    Ok(Some(event_block))
 }
 
-fn has_complete_stream_output(collected_text: &str, tool_calls: &[FunctionCallItem]) -> bool {
-    !collected_text.is_empty() || !tool_calls.is_empty()
+fn validate_responses_sse_eof_tail(cancelled: bool, buffer: &[u8]) -> Result<()> {
+    if cancelled || buffer.is_empty() {
+        return Ok(());
+    }
+    std::str::from_utf8(buffer)
+        .map_err(|_| anyhow::anyhow!("Responses SSE ended with invalid UTF-8"))?;
+    anyhow::bail!("Responses SSE ended with an incomplete event")
 }
 
-fn finalize_pending_tool_calls(
-    pending_calls: std::collections::HashMap<String, FunctionCallItem>,
-    tool_calls: &mut Vec<FunctionCallItem>,
-    saw_stream_error: bool,
-) -> usize {
-    if saw_stream_error {
-        return pending_calls.len();
+fn validate_completed_response_stream(
+    cancelled: bool,
+    saw_response_completed: bool,
+    pending_calls: &std::collections::HashMap<String, FunctionCallItem>,
+    tool_calls: &[FunctionCallItem],
+) -> Result<()> {
+    if cancelled {
+        return Ok(());
     }
-
-    for (_, tc) in pending_calls {
-        tool_calls.push(tc);
+    if !saw_response_completed {
+        anyhow::bail!("Responses SSE ended before response.completed")
     }
-    0
+    if !pending_calls.is_empty() {
+        anyhow::bail!(
+            "Responses SSE completed with {} unfinished function call(s)",
+            pending_calls.len()
+        )
+    }
+    for call in tool_calls {
+        if call.call_id.is_empty() || call.name.is_empty() {
+            anyhow::bail!("Responses SSE completed with an invalid function call")
+        }
+        serde_json::from_str::<Value>(&call.arguments).map_err(|err| {
+            anyhow::anyhow!(
+                "Responses SSE completed with invalid function arguments for {}: {}",
+                call.name,
+                err
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn push_provider_history_item(items: &mut Vec<Value>, item: Value) {
@@ -352,6 +387,42 @@ fn output_item_arguments(item: &super::super::api_types::SseOutputItem) -> Strin
         .unwrap_or_default()
 }
 
+fn merge_completed_function_call(
+    item: &super::super::api_types::SseOutputItem,
+    pending_calls: &mut std::collections::HashMap<String, FunctionCallItem>,
+    tool_calls: &mut Vec<FunctionCallItem>,
+) {
+    let call_id = item
+        .id
+        .clone()
+        .or_else(|| item.call_id.clone())
+        .unwrap_or_default();
+    let mut completed = pending_calls
+        .remove(&call_id)
+        .unwrap_or_else(|| FunctionCallItem {
+            call_id: call_id.clone(),
+            name: String::new(),
+            arguments: String::new(),
+        });
+    completed.call_id = call_id;
+    if let Some(name) = item.name.as_ref() {
+        completed.name = name.clone();
+    }
+    let arguments = output_item_arguments(item);
+    if !arguments.is_empty() {
+        completed.arguments = arguments;
+    }
+
+    if let Some(existing) = tool_calls
+        .iter_mut()
+        .find(|existing| existing.call_id == completed.call_id)
+    {
+        *existing = completed;
+    } else {
+        tool_calls.push(completed);
+    }
+}
+
 fn handle_openai_sse_event_block(
     request_id: &str,
     event_block: &str,
@@ -364,6 +435,7 @@ fn handle_openai_sse_event_block(
     pending_calls: &mut std::collections::HashMap<String, FunctionCallItem>,
     usage: &mut ChatUsage,
     first_token_time: &mut Option<u64>,
+    saw_response_completed: &mut bool,
 ) -> Result<()> {
     let data_lines: Vec<&str> = event_block
         .lines()
@@ -447,23 +519,7 @@ fn handle_openai_sse_event_block(
                 "response.function_call_arguments.done" | "response.output_item.done" => {
                     if let Some(item) = &event.item {
                         if item.item_type.as_deref() == Some("function_call") {
-                            let call_id = item
-                                .id
-                                .clone()
-                                .or_else(|| item.call_id.clone())
-                                .unwrap_or_default();
-                            if let Some(mut tc) = pending_calls.remove(&call_id) {
-                                if let Some(args) = item.arguments.as_ref().and_then(Value::as_str)
-                                {
-                                    if !args.is_empty() {
-                                        tc.arguments = args.to_string();
-                                    }
-                                }
-                                if item.name.is_some() {
-                                    tc.name = item.name.clone().unwrap_or_default();
-                                }
-                                tool_calls.push(tc);
-                            }
+                            merge_completed_function_call(item, pending_calls, tool_calls);
                         }
                         if let Some(raw_item) =
                             raw_event.as_ref().and_then(|raw| raw.get("item")).cloned()
@@ -487,7 +543,14 @@ fn handle_openai_sse_event_block(
                         "agent::parse_openai_sse::event_error",
                     );
                     let msg = sse_event_error_message(&event).unwrap_or("Unknown error");
-                    return Err(anyhow::anyhow!("Codex error: {}", msg));
+                    return Err(crate::failover::ProviderApiError::from_stream_event(
+                        "OpenAI Responses/Codex",
+                        sse_event_error_code(&event),
+                        sse_event_error_type(&event),
+                        Some(msg),
+                        format!("Codex error: {msg}"),
+                    )
+                    .into());
                 }
                 "response.failed" => {
                     log_sse_error_event(
@@ -498,9 +561,19 @@ fn handle_openai_sse_event_block(
                         "agent::parse_openai_sse::response_failed",
                     );
                     let msg = sse_event_error_message(&event).unwrap_or("Codex response failed");
-                    return Err(anyhow::anyhow!("{}", msg));
+                    return Err(crate::failover::ProviderApiError::from_stream_event(
+                        "OpenAI Responses/Codex",
+                        sse_event_error_code(&event),
+                        sse_event_error_type(&event),
+                        Some(msg),
+                        msg.to_string(),
+                    )
+                    .into());
                 }
-                "response.completed" | "response.done" => {
+                "response.completed" => {
+                    let Some(resp_obj) = event.response.as_ref() else {
+                        anyhow::bail!("response.completed event omitted the response object")
+                    };
                     if let Some(raw_outputs) = raw_event
                         .as_ref()
                         .and_then(|raw| raw.pointer("/response/output"))
@@ -510,88 +583,78 @@ fn handle_openai_sse_event_block(
                             push_provider_history_item(provider_history_items, item.clone());
                         }
                     }
-                    if let Some(resp_obj) = &event.response {
-                        if let Some(u) = &resp_obj.usage {
-                            if let Some(it) = u.input_tokens {
-                                usage.input_tokens = it;
-                                usage.input_coverage =
-                                    crate::token_accounting::UsageCoverage::Complete;
-                            }
-                            if let Some(ot) = u.output_tokens {
-                                usage.output_tokens = ot;
-                                usage.output_coverage =
-                                    crate::token_accounting::UsageCoverage::Complete;
-                            }
-                            if let Some(cr) = u.cache_read_input_tokens {
-                                usage.cache_read_input_tokens = cr;
-                            }
-                            if let Some(cc) = u.cache_creation_input_tokens {
-                                usage.cache_creation_input_tokens = cc;
-                            }
-                            if usage.cache_read_input_tokens == 0 {
-                                usage.cache_read_input_tokens = u
-                                    .input_tokens_details
-                                    .as_ref()
-                                    .and_then(|d| d.cached_tokens)
-                                    .or_else(|| {
-                                        u.prompt_tokens_details
-                                            .as_ref()
-                                            .and_then(|d| d.cached_tokens)
-                                    })
-                                    .unwrap_or(0);
-                            }
-                            if usage.cache_creation_input_tokens == 0 {
-                                usage.cache_creation_input_tokens = u
-                                    .input_tokens_details
-                                    .as_ref()
-                                    .and_then(|d| d.cache_write_tokens)
-                                    .or_else(|| {
-                                        u.prompt_tokens_details
-                                            .as_ref()
-                                            .and_then(|d| d.cache_write_tokens)
-                                    })
-                                    .unwrap_or(0);
-                            }
+                    if let Some(u) = &resp_obj.usage {
+                        if let Some(it) = u.input_tokens {
+                            usage.input_tokens = it;
+                            usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
+                        }
+                        if let Some(ot) = u.output_tokens {
+                            usage.output_tokens = ot;
+                            usage.output_coverage =
+                                crate::token_accounting::UsageCoverage::Complete;
+                        }
+                        if let Some(cr) = u.cache_read_input_tokens {
+                            usage.cache_read_input_tokens = cr;
+                        }
+                        if let Some(cc) = u.cache_creation_input_tokens {
+                            usage.cache_creation_input_tokens = cc;
+                        }
+                        if usage.cache_read_input_tokens == 0 {
+                            usage.cache_read_input_tokens = u
+                                .input_tokens_details
+                                .as_ref()
+                                .and_then(|d| d.cached_tokens)
+                                .or_else(|| {
+                                    u.prompt_tokens_details
+                                        .as_ref()
+                                        .and_then(|d| d.cached_tokens)
+                                })
+                                .unwrap_or(0);
+                        }
+                        if usage.cache_creation_input_tokens == 0 {
+                            usage.cache_creation_input_tokens = u
+                                .input_tokens_details
+                                .as_ref()
+                                .and_then(|d| d.cache_write_tokens)
+                                .or_else(|| {
+                                    u.prompt_tokens_details
+                                        .as_ref()
+                                        .and_then(|d| d.cache_write_tokens)
+                                })
+                                .unwrap_or(0);
                         }
                     }
-                    if collected_text.is_empty() && tool_calls.is_empty() {
-                        if let Some(resp_obj) = &event.response {
-                            if let Some(outputs) = &resp_obj.output {
-                                for item in outputs {
-                                    if item.item_type.as_deref() == Some("message") {
-                                        if let Some(parts) = &item.content {
-                                            for part in parts {
-                                                if part.part_type.as_deref() == Some("output_text")
-                                                {
-                                                    if let Some(text) = &part.text {
-                                                        collected_text.push_str(text);
-                                                    }
-                                                }
+                    if let Some(outputs) = &resp_obj.output {
+                        for item in outputs {
+                            if collected_text.is_empty()
+                                && item.item_type.as_deref() == Some("message")
+                            {
+                                if let Some(parts) = &item.content {
+                                    for part in parts {
+                                        if part.part_type.as_deref() == Some("output_text") {
+                                            if let Some(text) = &part.text {
+                                                collected_text.push_str(text);
                                             }
                                         }
                                     }
-                                    if item.item_type.as_deref() == Some("function_call") {
-                                        let call_id = item
-                                            .id
-                                            .clone()
-                                            .or_else(|| item.call_id.clone())
-                                            .unwrap_or_default();
-                                        tool_calls.push(FunctionCallItem {
-                                            call_id,
-                                            name: item.name.clone().unwrap_or_default(),
-                                            arguments: output_item_arguments(item),
-                                        });
-                                    }
                                 }
+                            }
+                            if item.item_type.as_deref() == Some("function_call") {
+                                merge_completed_function_call(item, pending_calls, tool_calls);
                             }
                         }
                     }
+                    *saw_response_completed = true;
                 }
                 _ => {}
             }
         }
         Err(err) => {
             log_sse_decode_error(request_id, &data, &err);
+            return Err(anyhow::anyhow!(
+                "Responses SSE event could not be decoded: {}",
+                err
+            ));
         }
     }
 
@@ -723,6 +786,48 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         }
     }
 
+    fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
+        project_responses_image_markers_for_token_count(history)
+    }
+
+    fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
+        expand_responses_image_markers_for_api(history)
+    }
+
+    fn token_count_input_for(&self, req: &RoundRequest<'_>) -> ProviderAccountingInput {
+        let mut dynamic_items: Vec<Value> =
+            super::super::streaming_adapter::dynamic_instruction_suffixes(req)
+                .into_iter()
+                .map(|content| json!({ "role": "developer", "content": content }))
+                .collect();
+        if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+            dynamic_items.push(json!({ "role": "user", "content": content }));
+        }
+
+        let explicit_prompt_cache = supports_explicit_prompt_cache(self.base_url, self.model);
+        let stable_prompt = if explicit_prompt_cache {
+            serde_json::to_string(&json!({
+                "input": [{
+                    "type": "message",
+                    "role": "developer",
+                    "content": [{
+                        "type": "input_text",
+                        "text": req.system_prompt,
+                        "prompt_cache_breakpoint": { "mode": "explicit" }
+                    }]
+                }]
+            }))
+            .unwrap_or_default()
+        } else {
+            serde_json::to_string(&json!({ "instructions": req.system_prompt })).unwrap_or_default()
+        };
+        ProviderAccountingInput {
+            stable_prompt,
+            dynamic_prompt: serde_json::to_string(&dynamic_items).unwrap_or_default(),
+            history: self.token_count_history_for(req.history_for_api),
+        }
+    }
+
     async fn count_input_tokens(
         &self,
         client: &reqwest::Client,
@@ -791,32 +896,28 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         Ok(count)
     }
 
-    async fn chat_round(
-        &self,
-        client: &reqwest::Client,
-        req: RoundRequest<'_>,
-        cancel: &Arc<AtomicBool>,
-        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
-    ) -> Result<RoundOutcome> {
+    fn prepare_round_request(&self, req: &RoundRequest<'_>) -> Result<PreparedProviderRequest> {
         let (request, api_input, _explicit_prompt_cache, native_deferred) =
-            build_responses_request(self.base_url, self.model, self.reasoning.clone(), &req);
-
-        let api_url = build_api_url(self.base_url, "/v1/responses");
-
-        // ── Log API request.
-        // Measure with a temporary serialization; retaining it beside
-        // reqwest's request body would duplicate every inline image payload.
-        let body_size = serde_json::to_string(&request)
-            .map(|serialized| serialized.len())
-            .unwrap_or(0);
+            build_responses_request(self.base_url, self.model, self.reasoning.clone(), req);
         let request_tool_count = request.tools.as_ref().map_or(0, Vec::len);
+        let prepared = PreparedProviderRequest::from_json(
+            ProviderEndpointKind::OpenAIResponses,
+            ProviderRequestShape::OpenAIResponses,
+            self.model,
+            req.round,
+            req.session_id,
+            req.reasoning_effort,
+            req.vision_bridge_available,
+            PreparedRequestVariant::OpenAIResponses,
+            &request,
+        )?;
         super::super::token_manifest::log_round_manifest(
             "OpenAIResponses",
             self.model,
             "responses",
-            &req,
+            req,
             request.tools.as_deref().unwrap_or(&[]),
-            body_size,
+            prepared.identity.body_len as usize,
             native_deferred,
         );
         if let Some(logger) = crate::get_logger() {
@@ -829,16 +930,17 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                     req.round,
                     api_input.len(),
                     request_tool_count,
-                    body_size
+                    prepared.identity.body_len
                 ),
                 Some(
                     json!({
                         "round": req.round,
-                        "api_url": &api_url,
+                        "endpoint_kind": "openai_responses",
                         "model": self.model,
                         "input_count": api_input.len(),
                         "tool_count": request_tool_count,
-                        "body_size_bytes": body_size,
+                        "body_size_bytes": prepared.identity.body_len,
+                        "body_fingerprint": &prepared.identity.body_keyed_fingerprint,
                         "reasoning": self.reasoning.as_ref().map(|r| r.effort.as_str()),
                     })
                     .to_string(),
@@ -847,8 +949,23 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 None,
             );
         }
+        Ok(prepared)
+    }
 
+    async fn dispatch_prepared(
+        &self,
+        client: &reqwest::Client,
+        prepared: &PreparedProviderRequest,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+        observer: &dyn ProviderDispatchObserver,
+    ) -> Result<RoundOutcome> {
+        let api_url = build_api_url(self.base_url, "/v1/responses");
         // ── Send.
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
+        observe_before_send(observer, prepared).await?;
         let mut http_req = client
             .post(&api_url)
             .header("Content-Type", "application/json");
@@ -856,16 +973,20 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             http_req = http_req.header("Authorization", format!("Bearer {}", self.api_key));
         }
         let request_start = std::time::Instant::now();
-        let resp = match super::cancel::send_with_cancel(http_req.json(&request), cancel).await {
-            Ok(Some(resp)) => resp,
-            Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "OpenAI Responses API request failed: {}",
-                    e
-                ));
-            }
-        };
+        let resp =
+            match super::cancel::send_with_cancel(http_req.body(prepared.body().to_vec()), cancel)
+                .await
+            {
+                Ok(Some(resp)) => resp,
+                Ok(None) => {
+                    return Err(ProviderDispatchUnknown(
+                        "cancelled after dispatch claim and before response headers".to_string(),
+                    )
+                    .into())
+                }
+                Err(e) => return Err(ProviderDispatchUnknown(e.to_string()).into()),
+            };
+        observe_response_started(observer, prepared, 1, &resp).await?;
 
         if let Some(logger) = crate::get_logger() {
             let status = resp.status().as_u16();
@@ -903,7 +1024,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                         "status": status,
                         "request_id": request_id,
                         "ttfb_ms": ttfb_ms,
-                        "round": req.round,
+                        "round": prepared.identity.round,
                         "response_headers": response_headers,
                     })
                     .to_string(),
@@ -935,7 +1056,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                             "status": status,
                             "error_bytes": error_text.len(),
                             "error_fingerprint": error_fingerprint,
-                            "round": req.round
+                            "round": prepared.identity.round
                         })
                         .to_string(),
                     ),
@@ -943,15 +1064,19 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                     None,
                 );
             }
-            return Err(anyhow::anyhow!(
-                "OpenAI Responses API error ({}): {}",
+            return Err(crate::failover::ProviderApiError::from_http_response(
+                "OpenAI Responses",
                 status,
-                error_text
-            ));
+                &error_text,
+            )
+            .into());
         }
 
         let (text, tool_calls, provider_history_items, mut usage, thinking_text, ttft_ms) =
             parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -962,13 +1087,13 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                     "agent::chat_openai_responses::tool_loop",
                     &format!(
                         "Tool loop round {}: executing {} tools: {:?}",
-                        req.round,
+                        prepared.identity.round,
                         tool_calls.len(),
                         tool_names
                     ),
                     Some(
                         json!({
-                            "round": req.round,
+                            "round": prepared.identity.round,
                             "tool_count": tool_calls.len(),
                             "tools": tool_names,
                         })
@@ -984,8 +1109,8 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         super::super::token_manifest::log_round_usage(
             "OpenAIResponses",
             self.model,
-            req.round,
-            req.session_id,
+            prepared.identity.round,
+            prepared.session_id.as_deref(),
             &usage,
             ttft_ms,
         );
@@ -1094,13 +1219,18 @@ pub(in crate::agent) async fn parse_openai_sse(
     let mut first_token_time: Option<u64> = None;
 
     let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
-    let mut saw_stream_error = false;
+    let mut buffer = Vec::new();
+    let mut saw_response_completed = false;
 
-    while let Some(chunk) = super::cancel::next_chunk_or_cancel_flag(&mut stream, cancel).await {
+    'response_stream: while let Some(chunk) =
+        super::cancel::next_chunk_or_cancel_flag(&mut stream, cancel).await
+    {
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(err) => {
+                if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
                 if let Some(logger) = crate::get_logger() {
                     logger.log(
                         "error",
@@ -1121,41 +1251,12 @@ pub(in crate::agent) async fn parse_openai_sse(
                         None,
                     );
                 }
-                let has_partial_output = has_complete_stream_output(&collected_text, &tool_calls);
-                if has_partial_output {
-                    saw_stream_error = true;
-                    if let Some(logger) = crate::get_logger() {
-                        logger.log(
-                            "warn",
-                            "agent",
-                            "agent::parse_openai_sse::stream_error_tolerated",
-                            &format!(
-                                "Responses SSE stream read error after partial output; salvaging collected events: request_id={}, error={}",
-                                request_id, err
-                            ),
-                            Some(
-                                json!({
-                                    "request_id": request_id,
-                                    "error": err.to_string(),
-                                    "text_length": collected_text.len(),
-                                    "thinking_length": collected_thinking.len(),
-                                    "tool_call_count": tool_calls.len(),
-                                    "pending_tool_call_count": pending_calls.len(),
-                                })
-                                .to_string(),
-                            ),
-                            None,
-                            None,
-                        );
-                    }
-                    break;
-                }
                 return Err(err.into());
             }
         };
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        buffer.extend_from_slice(&chunk);
 
-        while let Some(event_block) = take_next_sse_event_block(&mut buffer) {
+        while let Some(event_block) = take_next_sse_event_block(&mut buffer)? {
             handle_openai_sse_event_block(
                 &request_id,
                 &event_block,
@@ -1168,59 +1269,27 @@ pub(in crate::agent) async fn parse_openai_sse(
                 &mut pending_calls,
                 &mut usage,
                 &mut first_token_time,
+                &mut saw_response_completed,
             )?;
+            if saw_response_completed {
+                break 'response_stream;
+            }
         }
     }
 
     let cancelled = cancel.load(std::sync::atomic::Ordering::SeqCst);
-    if !cancelled && !buffer.trim().is_empty() {
-        handle_openai_sse_event_block(
-            &request_id,
-            buffer.trim(),
-            request_start,
-            on_delta,
-            &mut collected_text,
-            &mut collected_thinking,
-            &mut tool_calls,
-            &mut provider_history_items,
-            &mut pending_calls,
-            &mut usage,
-            &mut first_token_time,
-        )?;
-    }
+    validate_responses_sse_eof_tail(cancelled, &buffer)?;
 
-    // Drain remaining pending calls.
     if cancelled {
         pending_calls.clear();
         tool_calls.clear();
     }
-    let dropped_pending_calls = finalize_pending_tool_calls(
-        pending_calls,
-        &mut tool_calls,
-        saw_stream_error || cancelled,
-    );
-    if dropped_pending_calls > 0 {
-        if let Some(logger) = crate::get_logger() {
-            logger.log(
-                "warn",
-                "agent",
-                "agent::parse_openai_sse::drop_incomplete_tool_calls",
-                &format!(
-                    "Dropping incomplete pending tool calls after tolerated stream error: request_id={}, dropped={}",
-                    request_id, dropped_pending_calls
-                ),
-                Some(
-                    json!({
-                        "request_id": request_id,
-                        "dropped_pending_tool_call_count": dropped_pending_calls,
-                    })
-                    .to_string(),
-                ),
-                None,
-                None,
-            );
-        }
-    }
+    validate_completed_response_stream(
+        cancelled,
+        saw_response_completed,
+        &pending_calls,
+        &tool_calls,
+    )?;
 
     if let Some(logger) = crate::get_logger() {
         let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -1245,7 +1314,7 @@ pub(in crate::agent) async fn parse_openai_sse(
                         "cache_creation": usage.cache_creation_input_tokens,
                         "cache_read": usage.cache_read_input_tokens,
                     },
-                    "stream_error_tolerated": saw_stream_error,
+                    "response_completed": saw_response_completed,
                 })
                 .to_string(),
             ),
@@ -1268,10 +1337,11 @@ pub(in crate::agent) async fn parse_openai_sse(
 mod tests {
     use super::{
         build_responses_count_body, build_responses_request, extract_request_id_from_message,
-        finalize_pending_tool_calls, handle_openai_sse_event_block, has_complete_stream_output,
-        sse_event_error_code, sse_event_error_message, sse_event_error_type,
-        supports_explicit_prompt_cache, supports_native_tool_search, take_next_sse_event_block,
-        FunctionCallItem, OpenAIResponsesStreamingAdapter, SseEvent,
+        handle_openai_sse_event_block, sse_event_error_code, sse_event_error_message,
+        sse_event_error_type, supports_explicit_prompt_cache, supports_native_tool_search,
+        take_next_sse_event_block, validate_completed_response_stream,
+        validate_responses_sse_eof_tail, FunctionCallItem, OpenAIResponsesStreamingAdapter,
+        SseEvent,
     };
     use crate::agent::streaming_adapter::{
         ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
@@ -1346,7 +1416,7 @@ mod tests {
             build_responses_request("https://api.openai.com", "gpt-5.6", None, &req);
         assert!(explicit);
         assert!(native_deferred);
-        let body = serde_json::to_value(request).unwrap();
+        let body = serde_json::to_value(&request).unwrap();
         let count_body =
             build_responses_count_body("https://api.openai.com", "gpt-5.6", None, &req);
         for field in ["model", "instructions", "input", "reasoning", "tools"] {
@@ -1374,15 +1444,42 @@ mod tests {
         assert_eq!(request_tools[1]["defer_loading"], true);
         assert_eq!(request_tools[2]["type"], "tool_search");
         let adapter = OpenAIResponsesStreamingAdapter {
-            api_key: "",
+            api_key: "sk-responses-test-must-stay-in-header",
             base_url: "https://api.openai.com",
             model: "gpt-5.6",
             reasoning: None,
         };
+        let accounting = adapter.token_count_input_for(&req);
+        let counted_stable: serde_json::Value =
+            serde_json::from_str(&accounting.stable_prompt).unwrap();
+        let counted_dynamic: Vec<serde_json::Value> =
+            serde_json::from_str(&accounting.dynamic_prompt).unwrap();
+        assert_eq!(counted_stable["input"][0], input[0]);
+        assert_eq!(
+            counted_dynamic,
+            vec![input[1].clone(), input[2].clone(), input[4].clone()]
+        );
+        assert_eq!(accounting.history, history);
         assert_eq!(
             adapter.token_count_tool_schemas(&req),
             request_tools.clone()
         );
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        assert_eq!(
+            prepared.body_bytes_for_test(),
+            serde_json::to_vec(&request).unwrap()
+        );
+        assert!(!String::from_utf8_lossy(prepared.body_bytes_for_test())
+            .contains("sk-responses-test-must-stay-in-header"));
+        assert!(!prepared
+            .identity
+            .body_keyed_fingerprint
+            .contains("sk-responses"));
+        let prepared_json: serde_json::Value =
+            serde_json::from_slice(prepared.body_bytes_for_test()).unwrap();
+        for transport_field in ["authorization", "api_key", "access_token", "account_id"] {
+            assert!(prepared_json.get(transport_field).is_none());
+        }
         req.is_final_round = true;
         assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }
@@ -1438,39 +1535,77 @@ mod tests {
     #[test]
     fn take_next_sse_event_block_supports_lf_delimiter() {
         let mut buffer =
-            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\nrest".to_string();
-        let block = take_next_sse_event_block(&mut buffer).expect("event block");
+            b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\nrest".to_vec();
+        let block = take_next_sse_event_block(&mut buffer)
+            .expect("valid UTF-8")
+            .expect("event block");
         assert_eq!(
             block,
             "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}"
         );
-        assert_eq!(buffer, "rest");
+        assert_eq!(buffer, b"rest");
     }
 
     #[test]
     fn take_next_sse_event_block_supports_crlf_delimiter() {
         let mut buffer =
-            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\r\n\r\nrest"
-                .to_string();
-        let block = take_next_sse_event_block(&mut buffer).expect("event block");
+            b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\r\n\r\nrest"
+                .to_vec();
+        let block = take_next_sse_event_block(&mut buffer)
+            .expect("valid UTF-8")
+            .expect("event block");
         assert_eq!(
             block,
             "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}"
         );
-        assert_eq!(buffer, "rest");
+        assert_eq!(buffer, b"rest");
     }
 
     #[test]
-    fn complete_stream_output_requires_text_or_completed_tool_call() {
-        let tool_call = FunctionCallItem {
-            call_id: "call_1".into(),
-            name: "exec".into(),
-            arguments: "{}".into(),
-        };
+    fn responses_sse_framing_preserves_unicode_split_inside_scalar() {
+        let payload = serde_json::json!({
+            "type": "response.output_text.delta",
+            "delta": "中文🙂"
+        });
+        let wire = format!("data: {payload}\n\n").into_bytes();
+        let scalar_start = wire
+            .windows("🙂".len())
+            .position(|window| window == "🙂".as_bytes())
+            .expect("emoji scalar in fixture");
+        let split = scalar_start + 1;
+        let mut buffer = wire[..split].to_vec();
+        assert!(take_next_sse_event_block(&mut buffer).unwrap().is_none());
+        buffer.extend_from_slice(&wire[split..]);
+        let block = take_next_sse_event_block(&mut buffer)
+            .unwrap()
+            .expect("complete SSE frame");
+        let data = block
+            .lines()
+            .find_map(|line| line.strip_prefix("data:"))
+            .expect("data line")
+            .trim();
+        let decoded: serde_json::Value =
+            serde_json::from_str(data).expect("valid Unicode JSON event");
+        assert_eq!(decoded["delta"], "中文🙂");
+        assert!(buffer.is_empty());
+    }
 
-        assert!(!has_complete_stream_output("", &[]));
-        assert!(has_complete_stream_output("hello", &[]));
-        assert!(has_complete_stream_output("", &[tool_call]));
+    #[test]
+    fn responses_sse_eof_and_invalid_utf8_fail_closed() {
+        assert!(validate_responses_sse_eof_tail(false, b"data: partial").is_err());
+        assert!(validate_responses_sse_eof_tail(false, &[0xff]).is_err());
+        assert!(validate_responses_sse_eof_tail(false, b"").is_ok());
+        let mut invalid_frame = b"data: ".to_vec();
+        invalid_frame.push(0xff);
+        invalid_frame.extend_from_slice(b"\n\n");
+        assert!(take_next_sse_event_block(&mut invalid_frame).is_err());
+    }
+
+    #[test]
+    fn responses_stream_requires_response_completed_proof() {
+        assert!(validate_completed_response_stream(false, false, &HashMap::new(), &[]).is_err());
+        assert!(validate_completed_response_stream(false, true, &HashMap::new(), &[]).is_ok());
+        assert!(validate_completed_response_stream(true, false, &HashMap::new(), &[]).is_ok());
     }
 
     #[test]
@@ -1495,10 +1630,12 @@ mod tests {
             stop_reason: None,
         };
         let executed = vec![ExecutedTool {
+            model_call_ordinal: 0,
             call_id: "call_1".to_string(),
             name: "read".to_string(),
             arguments: r#"{"path":"scripts/a.py"}"#.to_string(),
             clean_result: "file contents".to_string(),
+            result_admission: None,
         }];
 
         let mut history = Vec::new();
@@ -1533,7 +1670,7 @@ mod tests {
     }
 
     #[test]
-    fn tolerated_stream_error_drops_incomplete_pending_tool_calls() {
+    fn response_completed_rejects_incomplete_pending_tool_calls() {
         let mut pending = HashMap::new();
         pending.insert(
             "call_1".into(),
@@ -1543,12 +1680,7 @@ mod tests {
                 arguments: "{\"command\":\"dat".into(),
             },
         );
-        let mut tool_calls = Vec::new();
-
-        let dropped = finalize_pending_tool_calls(pending, &mut tool_calls, true);
-
-        assert_eq!(dropped, 1);
-        assert!(tool_calls.is_empty());
+        assert!(validate_completed_response_stream(false, true, &pending, &[]).is_err());
     }
 
     // SSE event blocks must put the entire JSON payload on a single `data:`
@@ -1556,6 +1688,48 @@ mod tests {
     // so multi-line `r#"data: {...}"#` literals get truncated to just `{`.
     fn sse_event_block(payload: serde_json::Value) -> String {
         format!("data: {}", payload)
+    }
+
+    fn observe_response_terminal_event(event_block: &str) -> anyhow::Result<bool> {
+        let mut text = String::new();
+        let mut thinking = String::new();
+        let mut tool_calls = Vec::new();
+        let mut provider_history_items = Vec::new();
+        let mut pending = HashMap::new();
+        let mut usage = ChatUsage::default();
+        let mut first_token_time = None;
+        let mut saw_response_completed = false;
+        handle_openai_sse_event_block(
+            "-",
+            event_block,
+            std::time::Instant::now(),
+            &|_s: &str| {},
+            &mut text,
+            &mut thinking,
+            &mut tool_calls,
+            &mut provider_history_items,
+            &mut pending,
+            &mut usage,
+            &mut first_token_time,
+            &mut saw_response_completed,
+        )?;
+        Ok(saw_response_completed)
+    }
+
+    #[test]
+    fn responses_terminal_proof_is_response_completed_only() {
+        let legacy_done = sse_event_block(serde_json::json!({
+            "type": "response.done",
+            "response": { "output": [] }
+        }));
+        assert!(!observe_response_terminal_event(&legacy_done).unwrap());
+
+        let completed = sse_event_block(serde_json::json!({
+            "type": "response.completed",
+            "response": { "output": [] }
+        }));
+        assert!(observe_response_terminal_event(&completed).unwrap());
+        assert!(observe_response_terminal_event("data: {").is_err());
     }
 
     // Reasoning-item replay was deleted as part of the `store: false`
@@ -1606,6 +1780,7 @@ mod tests {
         let mut pending = HashMap::new();
         let mut usage = ChatUsage::default();
         let mut first_token_time = None;
+        let mut saw_response_completed = false;
         let on_delta = |_s: &str| {};
 
         handle_openai_sse_event_block(
@@ -1620,9 +1795,11 @@ mod tests {
             &mut pending,
             &mut usage,
             &mut first_token_time,
+            &mut saw_response_completed,
         )
         .expect("handle event");
 
+        assert!(saw_response_completed);
         assert_eq!(text, "done");
         assert_eq!(provider_history_items.len(), 3);
         assert_eq!(provider_history_items[0]["type"], "tool_search_call");

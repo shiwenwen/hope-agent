@@ -3,14 +3,9 @@
 //! Same wire protocol as OpenAI Responses (uses [`ResponsesRequest`] body and
 //! [`super::openai_responses_adapter::parse_openai_sse`] for streaming) — the
 //! difference is the endpoint ([`CODEX_API_URL`]), the auth scheme (OAuth
-//! `access_token` + `chatgpt-account-id` header + special user agent), and an
-//! internal retry-with-backoff loop for transient 5xx / network errors.
-//!
-//! The retry loop's `is_retryable_error` predicate is intentionally limited to
-//! transient failures (network errors, gateway 5xx). Semantic errors
-//! (RateLimit / Auth / Billing / Timeout) bubble up so the upcoming Phase 3
-//! `execute_with_failover` executor can rotate auth profiles uniformly across
-//! all providers (no double-retry).
+//! `access_token` + `chatgpt-account-id` header + special user agent). One
+//! prepared request performs exactly one network send; retries are owned by
+//! the request-plan/failover layer so dispatch ambiguity remains explicit.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -20,11 +15,16 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use super::super::api_types::ResponsesRequest;
-use super::super::config::{BASE_DELAY_MS, CODEX_API_URL, MAX_RETRIES};
-use super::super::errors::{is_retryable_error, os_version, parse_error_response};
-use super::super::events::expand_responses_image_markers_for_api;
+use super::super::config::CODEX_API_URL;
+use super::super::errors::{os_version, parse_error_response};
+use super::super::events::{
+    expand_responses_image_markers_for_api, project_responses_image_markers_for_token_count,
+};
 use super::super::streaming_adapter::{
-    ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
+    observe_before_send, observe_response_started, ExecutedTool, PreparedProviderRequest,
+    PreparedRequestVariant, ProviderAccountingInput, ProviderDispatchObserver,
+    ProviderDispatchUnknown, ProviderEndpointKind, ProviderRequestShape, RoundOutcome,
+    RoundRequest, StreamingChatAdapter,
 };
 use super::super::types::{AssistantAgent, ProviderFormat};
 use super::openai_responses_adapter::{parse_openai_sse, push_responses_assistant_message};
@@ -113,27 +113,56 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         *history = AssistantAgent::normalize_history_for_responses(history);
     }
 
-    async fn chat_round(
-        &self,
-        client: &reqwest::Client,
-        req: RoundRequest<'_>,
-        cancel: &Arc<AtomicBool>,
-        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
-    ) -> Result<RoundOutcome> {
-        let (request, api_input) = build_codex_request(self.model, self.reasoning.clone(), &req);
+    fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
+        project_responses_image_markers_for_token_count(history)
+    }
 
-        let body_json = serde_json::to_string(&request)?;
-        let body_size = body_json.len();
+    fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
+        expand_responses_image_markers_for_api(history)
+    }
+
+    fn token_count_input_for(&self, req: &RoundRequest<'_>) -> ProviderAccountingInput {
+        let mut dynamic_items: Vec<Value> =
+            super::super::streaming_adapter::dynamic_instruction_suffixes(req)
+                .into_iter()
+                .map(|content| json!({ "role": "system", "content": content }))
+                .collect();
+        if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+            dynamic_items.push(json!({ "role": "user", "content": content }));
+        }
+        ProviderAccountingInput {
+            stable_prompt: serde_json::to_string(&json!({
+                "instructions": req.system_prompt
+            }))
+            .unwrap_or_default(),
+            dynamic_prompt: serde_json::to_string(&dynamic_items).unwrap_or_default(),
+            history: self.token_count_history_for(req.history_for_api),
+        }
+    }
+
+    fn prepare_round_request(&self, req: &RoundRequest<'_>) -> Result<PreparedProviderRequest> {
+        let (request, api_input) = build_codex_request(self.model, self.reasoning.clone(), req);
+        let tool_count = request.tools.as_ref().map_or(0, Vec::len);
+        let prepared = PreparedProviderRequest::from_json(
+            ProviderEndpointKind::CodexResponses,
+            ProviderRequestShape::CodexResponses,
+            self.model,
+            req.round,
+            req.session_id,
+            req.reasoning_effort,
+            req.vision_bridge_available,
+            PreparedRequestVariant::Codex,
+            &request,
+        )?;
         super::super::token_manifest::log_round_manifest(
             "Codex",
             self.model,
             "codex_responses",
-            &req,
+            req,
             request.tools.as_deref().unwrap_or(&[]),
-            body_size,
+            prepared.identity.body_len as usize,
             false,
         );
-
         if let Some(logger) = crate::get_logger() {
             logger.log(
                 "debug",
@@ -143,17 +172,18 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                     "Codex API request round {}: {} input items, {} tools, body {}B",
                     req.round,
                     api_input.len(),
-                    req.tool_schemas.len(),
-                    body_size
+                    tool_count,
+                    prepared.identity.body_len
                 ),
                 Some(
                     json!({
                         "round": req.round,
-                        "api_url": CODEX_API_URL,
+                        "endpoint_kind": "codex_responses",
                         "model": self.model,
                         "input_count": api_input.len(),
-                        "tool_count": req.tool_schemas.len(),
-                        "body_size_bytes": body_size,
+                        "tool_count": tool_count,
+                        "body_size_bytes": prepared.identity.body_len,
+                        "body_fingerprint": &prepared.identity.body_keyed_fingerprint,
                         "reasoning": self.reasoning.as_ref().map(|r| r.effort.as_str()),
                     })
                     .to_string(),
@@ -162,35 +192,49 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 None,
             );
         }
+        Ok(prepared)
+    }
 
-        // ── Send with internal retry loop (transient 5xx + network errors only).
-        let mut last_error: Option<String> = None;
-        let mut resp_opt: Option<reqwest::Response> = None;
+    async fn dispatch_prepared(
+        &self,
+        client: &reqwest::Client,
+        prepared: &PreparedProviderRequest,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+        observer: &dyn ProviderDispatchObserver,
+    ) -> Result<RoundOutcome> {
+        // One claimed plan performs at most one network send. Every retry,
+        // including a retry after a received 5xx, requires a new plan/claim.
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
         let request_start = std::time::Instant::now();
+        observe_before_send(observer, prepared).await?;
 
-        for attempt in 0..=MAX_RETRIES {
-            let builder = apply_codex_headers(
-                client.post(CODEX_API_URL),
-                self.access_token,
-                self.account_id,
-                codex_user_agent(),
-            );
-            let response =
-                super::cancel::send_with_cancel(builder.body(body_json.clone()), cancel).await;
+        let attempt = 0_u32;
+        let builder = apply_codex_headers(
+            client.post(CODEX_API_URL),
+            self.access_token,
+            self.account_id,
+            codex_user_agent(),
+        );
+        let response =
+            super::cancel::send_with_cancel(builder.body(prepared.body().to_vec()), cancel).await;
 
-            match response {
-                Ok(Some(resp)) => {
-                    if resp.status().is_success() {
-                        if let Some(logger) = crate::get_logger() {
-                            let ttfb_ms = request_start.elapsed().as_millis() as u64;
-                            let headers = resp.headers();
-                            let request_id = headers
-                                .get("x-request-id")
-                                .or_else(|| headers.get("request-id"))
-                                .and_then(|v| v.to_str().ok())
-                                .unwrap_or("-")
-                                .to_string();
-                            let response_headers = json!({
+        let resp = match response {
+            Ok(Some(resp)) => {
+                observe_response_started(observer, prepared, attempt + 1, &resp).await?;
+                if resp.status().is_success() {
+                    if let Some(logger) = crate::get_logger() {
+                        let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                        let headers = resp.headers();
+                        let request_id = headers
+                            .get("x-request-id")
+                            .or_else(|| headers.get("request-id"))
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("-")
+                            .to_string();
+                        let response_headers = json!({
                                 "x-request-id": request_id,
                                 "x-ratelimit-limit-requests": headers.get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()),
                                 "x-ratelimit-limit-tokens": headers.get("x-ratelimit-limit-tokens").and_then(|v| v.to_str().ok()),
@@ -198,22 +242,20 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                                 "x-ratelimit-remaining-tokens": headers.get("x-ratelimit-remaining-tokens").and_then(|v| v.to_str().ok()),
                                 "openai-model": headers.get("openai-model").and_then(|v| v.to_str().ok()),
                                 "retry-after": headers.get("retry-after").and_then(|v| v.to_str().ok()),
-                            });
-                            logger.log("debug", "agent", "agent::chat_codex::response",
+                        });
+                        logger.log("debug", "agent", "agent::chat_codex::response",
                                 &format!("Codex API response: status=200, request_id={}, ttfb={}ms, attempt={}", request_id, ttfb_ms, attempt + 1),
                                 Some(json!({
                                     "status": 200,
                                     "ttfb_ms": ttfb_ms,
                                     "attempt": attempt + 1,
-                                    "round": req.round,
+                                    "round": prepared.identity.round,
                                     "response_headers": response_headers,
                                 }).to_string()),
                                 None, None);
-                        }
-                        resp_opt = Some(resp);
-                        break;
                     }
-
+                    resp
+                } else {
                     let status = resp.status().as_u16();
                     let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await
                     {
@@ -221,84 +263,6 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                         Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
                         Err(_) => String::new(),
                     };
-
-                    if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
-                        let delay = BASE_DELAY_MS * 2u64.pow(attempt);
-                        let reason = crate::failover::classify_error(&format!(
-                            "Codex API error {status}: {error_text}"
-                        ));
-                        let recovery_wait = req.session_id.map(crate::recovery_control::register);
-                        on_delta(
-                            &serde_json::json!({
-                                "type": "model_retry",
-                                "model_id": self.model,
-                                "model": self.model,
-                                "reason": reason,
-                                "attempt": attempt + 1,
-                                "total": MAX_RETRIES,
-                                "delay_ms": delay,
-                                "recovery_id": recovery_wait.as_ref().map(|wait| wait.id()),
-                                "can_switch_model": false,
-                            })
-                            .to_string(),
-                        );
-                        app_warn!(
-                            "agent",
-                            "codex",
-                            "Codex API error {} (attempt {}/{}), retrying in {}ms",
-                            status,
-                            attempt + 1,
-                            MAX_RETRIES,
-                            delay
-                        );
-                        if let Some(logger) = crate::get_logger() {
-                            let error_fingerprint = crate::cache_routing::audit_fingerprint(
-                                "codex-error",
-                                error_text.as_bytes(),
-                            );
-                            logger.log(
-                                "warn",
-                                "agent",
-                                "agent::chat_codex::retry",
-                                &format!(
-                                    "Codex API error {}, retrying (attempt {}/{})",
-                                    status,
-                                    attempt + 1,
-                                    MAX_RETRIES
-                                ),
-                                Some(
-                                    json!({
-                                        "status": status,
-                                        "attempt": attempt + 1,
-                                        "delay_ms": delay,
-                                        "error_bytes": error_text.len(),
-                                        "error_fingerprint": error_fingerprint
-                                    })
-                                    .to_string(),
-                                ),
-                                None,
-                                None,
-                            );
-                        }
-                        let cancelled = if let Some(wait) = recovery_wait {
-                            matches!(
-                                wait.wait(std::time::Duration::from_millis(delay), Some(cancel),)
-                                    .await,
-                                crate::recovery_control::RecoveryWaitOutcome::Cancelled
-                            )
-                        } else {
-                            super::cancel::sleep_or_cancel(
-                                std::time::Duration::from_millis(delay),
-                                cancel,
-                            )
-                            .await
-                        };
-                        if cancelled {
-                            return Ok(super::cancel::cancelled_round_outcome());
-                        }
-                        last_error = Some(error_text);
-                        continue;
-                    }
 
                     if let Some(logger) = crate::get_logger() {
                         let error_fingerprint = crate::cache_routing::audit_fingerprint(
@@ -315,7 +279,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                                     "status": status,
                                     "error_bytes": error_text.len(),
                                     "error_fingerprint": error_fingerprint,
-                                    "round": req.round
+                                    "round": prepared.identity.round
                                 })
                                 .to_string(),
                             ),
@@ -324,91 +288,36 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                         );
                     }
                     let friendly = parse_error_response(status, &error_text);
-                    return Err(anyhow::anyhow!("{}", friendly));
-                }
-                Ok(None) => {
-                    return Ok(super::cancel::cancelled_round_outcome());
-                }
-                Err(e) => {
-                    if attempt < MAX_RETRIES {
-                        let delay = BASE_DELAY_MS * 2u64.pow(attempt);
-                        let recovery_wait = req.session_id.map(crate::recovery_control::register);
-                        on_delta(
-                            &serde_json::json!({
-                                "type": "model_retry",
-                                "model_id": self.model,
-                                "model": self.model,
-                                "reason": crate::failover::FailoverReason::Timeout,
-                                "attempt": attempt + 1,
-                                "total": MAX_RETRIES,
-                                "delay_ms": delay,
-                                "recovery_id": recovery_wait.as_ref().map(|wait| wait.id()),
-                                "can_switch_model": false,
-                            })
-                            .to_string(),
-                        );
-                        app_warn!(
-                            "agent",
-                            "codex",
-                            "Codex API network error (attempt {}/{}): {}, retrying in {}ms",
-                            attempt + 1,
-                            MAX_RETRIES,
-                            e,
-                            delay
-                        );
-                        if let Some(logger) = crate::get_logger() {
-                            logger.log("warn", "agent", "agent::chat_codex::retry",
-                                &format!("Codex API network error, retrying (attempt {}/{}): {}", attempt + 1, MAX_RETRIES, e),
-                                Some(json!({"attempt": attempt + 1, "delay_ms": delay, "error": e.to_string()}).to_string()),
-                                None, None);
-                        }
-                        let cancelled = if let Some(wait) = recovery_wait {
-                            matches!(
-                                wait.wait(std::time::Duration::from_millis(delay), Some(cancel),)
-                                    .await,
-                                crate::recovery_control::RecoveryWaitOutcome::Cancelled
-                            )
-                        } else {
-                            super::cancel::sleep_or_cancel(
-                                std::time::Duration::from_millis(delay),
-                                cancel,
-                            )
-                            .await
-                        };
-                        if cancelled {
-                            return Ok(super::cancel::cancelled_round_outcome());
-                        }
-                        last_error = Some(e.to_string());
-                        continue;
-                    }
-                    return Err(anyhow::anyhow!("Codex API request failed: {}", e));
+                    return Err(crate::failover::ProviderApiError::from_http_response(
+                        "Codex",
+                        status,
+                        &error_text,
+                    )
+                    .with_display(friendly)
+                    .into());
                 }
             }
-        }
-
-        let resp = resp_opt.ok_or_else(|| {
-            anyhow::anyhow!(
-                "Codex API failed after {} retries: {}",
-                MAX_RETRIES,
-                last_error.unwrap_or_default()
-            )
-        })?;
+            Ok(None) => {
+                return Err(ProviderDispatchUnknown(
+                    "cancelled after dispatch claim and before response headers".to_string(),
+                )
+                .into());
+            }
+            Err(e) => {
+                return Err(ProviderDispatchUnknown(e.to_string()).into());
+            }
+        };
 
         // Cancel check before SSE parse begins.
         if cancel.load(Ordering::SeqCst) {
-            return Ok(RoundOutcome {
-                text: String::new(),
-                thinking: String::new(),
-                tool_calls: Vec::new(),
-                provider_history_items: Vec::new(),
-                usage: Default::default(),
-                ttft_ms: None,
-                stop_reason: None,
-            });
+            return Ok(super::cancel::cancelled_round_outcome());
         }
 
         let (text, tool_calls, provider_history_items, mut usage, thinking_text, ttft_ms) =
             parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -419,13 +328,13 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                     "agent::chat_codex::tool_loop",
                     &format!(
                         "Tool loop round {}: executing {} tools: {:?}",
-                        req.round,
+                        prepared.identity.round,
                         tool_calls.len(),
                         tool_names
                     ),
                     Some(
                         json!({
-                            "round": req.round,
+                            "round": prepared.identity.round,
                             "tool_count": tool_calls.len(),
                             "tools": tool_names,
                         })
@@ -441,8 +350,8 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         super::super::token_manifest::log_round_usage(
             "Codex",
             self.model,
-            req.round,
-            req.session_id,
+            prepared.identity.round,
+            prepared.session_id.as_deref(),
             &usage,
             ttft_ms,
         );
@@ -516,8 +425,8 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::build_codex_request;
-    use crate::agent::streaming_adapter::RoundRequest;
+    use super::{build_codex_request, CodexStreamingAdapter};
+    use crate::agent::streaming_adapter::{RoundRequest, StreamingChatAdapter};
 
     #[test]
     fn codex_request_golden_uses_client_deferred_and_no_cache_assumptions() {
@@ -556,7 +465,7 @@ mod tests {
             round: 0,
         };
         let (request, input) = build_codex_request("gpt-5.4-codex", None, &req);
-        let body = serde_json::to_value(request).unwrap();
+        let body = serde_json::to_value(&request).unwrap();
         assert_eq!(body["instructions"], "stable");
         assert!(body.get("prompt_cache_key").is_none());
         assert!(body.get("prompt_cache_options").is_none());
@@ -572,5 +481,40 @@ mod tests {
         assert!(contents[3].contains("source=\"active_memory\""));
         assert!(contents[3].contains("source=\"legacy_memory\""));
         assert!(contents[3].contains("source=\"related_notes\""));
+        let adapter = CodexStreamingAdapter {
+            access_token: "oauth-test-must-stay-in-header",
+            account_id: "account-test-must-stay-in-header",
+            model: "gpt-5.4-codex",
+            reasoning: None,
+        };
+        let accounting = adapter.token_count_input_for(&req);
+        let counted_stable: serde_json::Value =
+            serde_json::from_str(&accounting.stable_prompt).unwrap();
+        let counted_dynamic: Vec<serde_json::Value> =
+            serde_json::from_str(&accounting.dynamic_prompt).unwrap();
+        assert_eq!(counted_stable["instructions"], body["instructions"]);
+        assert_eq!(
+            counted_dynamic,
+            vec![input[0].clone(), input[1].clone(), input[3].clone()]
+        );
+        assert_eq!(accounting.history, history);
+        assert_eq!(adapter.token_count_tool_schemas(&req), tools);
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        assert_eq!(
+            prepared.body_bytes_for_test(),
+            serde_json::to_vec(&request).unwrap()
+        );
+        let wire = String::from_utf8_lossy(prepared.body_bytes_for_test());
+        assert!(!wire.contains("oauth-test-must-stay-in-header"));
+        assert!(!wire.contains("account-test-must-stay-in-header"));
+        assert!(!prepared
+            .identity
+            .body_keyed_fingerprint
+            .contains("oauth-test"));
+        let prepared_json: serde_json::Value =
+            serde_json::from_slice(prepared.body_bytes_for_test()).unwrap();
+        for transport_field in ["authorization", "api_key", "access_token", "account_id"] {
+            assert!(prepared_json.get(transport_field).is_none());
+        }
     }
 }

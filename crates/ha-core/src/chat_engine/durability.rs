@@ -6,7 +6,10 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use crate::session::{CreateStreamRun, JournalBatch, JournalEvent, SessionDB};
-use crate::turn_durability::{FlushReason, StreamSnapshot, TurnDurabilitySink};
+use crate::turn_durability::{
+    DispatchClaim, DurableRequestRole, FlushReason, PrepareRequestPlan, RequestTerminalOutcome,
+    ResponseStarted, StreamSnapshot, TurnDurabilitySink,
+};
 
 use super::sink_registry;
 use super::stream_broadcast;
@@ -107,6 +110,65 @@ struct CoordinatorState {
     last_merge_role: Option<MergeRole>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeRequestPlanState {
+    ContextCommitted,
+    Dispatching,
+    ResponseStarted,
+    SendUnknown,
+    Terminal,
+    Superseded,
+}
+
+impl RuntimeRequestPlanState {
+    fn possibly_sent(self) -> bool {
+        matches!(
+            self,
+            Self::Dispatching | Self::ResponseStarted | Self::SendUnknown
+        )
+    }
+}
+
+impl From<RuntimeRequestPlanState> for crate::session::InterruptedRequestPlanState {
+    fn from(value: RuntimeRequestPlanState) -> Self {
+        match value {
+            RuntimeRequestPlanState::ContextCommitted => Self::Unsent,
+            RuntimeRequestPlanState::Dispatching => Self::Dispatching,
+            RuntimeRequestPlanState::ResponseStarted => Self::ResponseStarted,
+            RuntimeRequestPlanState::SendUnknown => Self::SendUnknown,
+            RuntimeRequestPlanState::Terminal | RuntimeRequestPlanState::Superseded => {
+                unreachable!("active request snapshot cannot contain a terminal plan")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveRequestPlanSnapshot {
+    pub request_plan_id: String,
+    pub role: DurableRequestRole,
+    pub attempt_no: u32,
+    pub state: RuntimeRequestPlanState,
+}
+
+struct RuntimeRequestPlan {
+    role: DurableRequestRole,
+    attempt_no: u32,
+    sequence: u64,
+    state: RuntimeRequestPlanState,
+    body_keyed_fingerprint: String,
+    body_len: u64,
+    endpoint_kind: String,
+    content_type: String,
+    exact_payload_id: Option<String>,
+}
+
+#[derive(Default)]
+struct RuntimeRequestPlans {
+    next_sequence: u64,
+    plans: HashMap<String, RuntimeRequestPlan>,
+}
+
 impl Default for CoordinatorState {
     fn default() -> Self {
         Self {
@@ -130,6 +192,44 @@ fn lock_state(mutex: &Mutex<CoordinatorState>) -> MutexGuard<'_, CoordinatorStat
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn request_projection_role(
+    role: DurableRequestRole,
+) -> crate::session::context_projection::RequestProjectionRole {
+    use crate::session::context_projection::RequestProjectionRole as StoredRole;
+    match role {
+        DurableRequestRole::MainContinuation => StoredRole::MainContinuation,
+        DurableRequestRole::Tier3SummaryInput => StoredRole::Tier3SummaryInput,
+        DurableRequestRole::SideQuery => StoredRole::SideQuery,
+    }
+}
+
+fn projection_action(action: &str) -> Result<crate::session::context_projection::ProjectionAction> {
+    use crate::session::context_projection::ProjectionAction as StoredAction;
+    match action {
+        "tier0_omit" => Ok(StoredAction::Tier0Omit),
+        "tier2_soft" => Ok(StoredAction::Tier2Soft),
+        "tier2_minimal" => Ok(StoredAction::Tier2Minimal),
+        other => anyhow::bail!("unknown durable projection action: {other}"),
+    }
+}
+
+fn verify_exact_body(input: &PrepareRequestPlan, exact_body: &[u8]) -> Result<()> {
+    let actual_len = u64::try_from(exact_body.len())
+        .map_err(|_| anyhow::anyhow!("prepared request body length exceeds u64"))?;
+    if actual_len != input.body_len {
+        anyhow::bail!(
+            "prepared request body length changed: planned {}, actual {actual_len}",
+            input.body_len
+        );
+    }
+    let actual_fingerprint =
+        crate::cache_routing::audit_fingerprint("prepared-provider-request-body-v1", exact_body);
+    if actual_fingerprint != input.body_keyed_fingerprint {
+        anyhow::bail!("prepared request body fingerprint changed before staging");
+    }
+    Ok(())
+}
+
 pub struct StreamCoordinator {
     db: Arc<SessionDB>,
     session_id: String,
@@ -151,6 +251,7 @@ pub struct StreamCoordinator {
     committed_seq: AtomicU64,
     context_revision: AtomicI64,
     attempt_base_context_json: Mutex<Option<String>>,
+    attempt_base_contains_current_user: AtomicBool,
     attempt_no: AtomicU32,
     provider_shape: Mutex<Option<String>>,
     closed: AtomicBool,
@@ -159,6 +260,8 @@ pub struct StreamCoordinator {
     had_text: AtomicBool,
     had_tool_activity: AtomicBool,
     had_non_replayable_tool_activity: AtomicBool,
+    request_plans: Mutex<RuntimeRequestPlans>,
+    incognito_payloads: Mutex<crate::session::request_payload_store::IncognitoExactPayloadStore>,
 }
 
 static REGISTRY: OnceLock<Mutex<HashMap<String, Weak<StreamCoordinator>>>> = OnceLock::new();
@@ -229,6 +332,7 @@ impl StreamCoordinator {
             committed_seq: AtomicU64::new(0),
             context_revision: AtomicI64::new(registration.context_revision),
             attempt_base_context_json: Mutex::new(registration.initial_context_json),
+            attempt_base_contains_current_user: AtomicBool::new(false),
             attempt_no: AtomicU32::new(0),
             provider_shape: Mutex::new(None),
             closed: AtomicBool::new(false),
@@ -237,6 +341,13 @@ impl StreamCoordinator {
             had_text: AtomicBool::new(false),
             had_tool_activity: AtomicBool::new(false),
             had_non_replayable_tool_activity: AtomicBool::new(false),
+            request_plans: Mutex::new(RuntimeRequestPlans::default()),
+            incognito_payloads: Mutex::new(
+                crate::session::request_payload_store::IncognitoExactPayloadStore::new(
+                    session_id.clone(),
+                    None,
+                )?,
+            ),
         });
         let registered = {
             let mut map = registry()
@@ -272,6 +383,56 @@ impl StreamCoordinator {
             anyhow::bail!(
                 "another durability coordinator is already active for session {session_id}"
             );
+        }
+        if registration.persistent && source.carries_foreground_user_intent() {
+            let resolution_db = coordinator.db.clone();
+            let resolution_session_id = session_id.clone();
+            let new_run_id = coordinator.run_id.clone();
+            let resolution = resolution_db
+                .run(move |db| {
+                    db.resolve_send_unknown_for_manual_foreground_run(
+                        &resolution_session_id,
+                        &new_run_id,
+                    )
+                })
+                .await;
+            match resolution {
+                Ok(0) => {}
+                Ok(count) => app_info!(
+                    "provider",
+                    "manual_retry_as_new",
+                    "foreground run {} resolved {} ambiguous prior request plan(s)",
+                    coordinator.run_id,
+                    count
+                ),
+                Err(error) => {
+                    // Admission of the new foreground run is the only manual
+                    // retry authority. If its atomic WAL convergence fails,
+                    // stop before any Provider body can be prepared/sent.
+                    Self::unregister(&session_id, &coordinator.run_id);
+                    let cleanup_db = coordinator.db.clone();
+                    let cleanup_run_id = coordinator.run_id.clone();
+                    let _ = cleanup_db
+                        .run(move |db| {
+                            db.interrupt_stream_run(
+                                &cleanup_run_id,
+                                0,
+                                crate::session::ChatTurnStatus::Failed,
+                                Some("manual_retry_resolution_failed"),
+                                Some("ambiguous request WAL convergence failed"),
+                            )
+                        })
+                        .await;
+                    return Err(error.context(
+                        "cannot begin foreground turn until ambiguous prior request state converges",
+                    ));
+                }
+            }
+        } else if !registration.persistent {
+            // Incognito has no cross-turn request WAL by design. Its
+            // SendUnknown plan/body live only in this coordinator's bounded
+            // memory store and are zeroized when the turn owner is dropped;
+            // a later foreground turn is necessarily a brand-new request.
         }
         if let Err(error) = Self::spawn_global_writer() {
             Self::unregister(&session_id, &coordinator.run_id);
@@ -661,6 +822,248 @@ impl StreamCoordinator {
             .clone()
     }
 
+    /// Latest nonterminal main request owned by the current attempt. Final
+    /// turn committers use this to bind the assistant/context transaction to
+    /// the response-started plan instead of terminalizing it early in the
+    /// streaming loop.
+    pub(crate) fn active_main_request_plan(&self) -> Option<ActiveRequestPlanSnapshot> {
+        let attempt_no = self.current_attempt_no();
+        let plans = self
+            .request_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        plans
+            .plans
+            .iter()
+            .filter(|(_, plan)| {
+                plan.attempt_no == attempt_no
+                    && plan.role == DurableRequestRole::MainContinuation
+                    && !matches!(
+                        plan.state,
+                        RuntimeRequestPlanState::Terminal | RuntimeRequestPlanState::Superseded
+                    )
+            })
+            .max_by_key(|(_, plan)| plan.sequence)
+            .map(|(request_plan_id, plan)| ActiveRequestPlanSnapshot {
+                request_plan_id: request_plan_id.clone(),
+                role: plan.role,
+                attempt_no: plan.attempt_no,
+                state: plan.state,
+            })
+    }
+
+    /// Bind the live request-plan state to an interrupted turn transaction.
+    /// Persistent callers must pass this value into `CommitInterruptedTurn`;
+    /// the DB re-validates every identity/state field under its transaction.
+    pub fn interrupted_request_plan_commit(
+        &self,
+        response_outcome: crate::session::RequestPlanResponseOutcome,
+    ) -> crate::session::RequestPlanCommit {
+        if !self.persistent {
+            return crate::session::RequestPlanCommit::None;
+        }
+        let Some(plan) = self.active_main_request_plan() else {
+            return crate::session::RequestPlanCommit::None;
+        };
+        crate::session::RequestPlanCommit::ConvergeInterrupted {
+            request_plan_id: plan.request_plan_id,
+            attempt_no: plan.attempt_no,
+            expected_state: plan.state.into(),
+            response_outcome,
+        }
+    }
+
+    /// Bind the final assistant/context commit to its response-started plan.
+    /// The DB refuses success for an unsent, ambiguous, or unrelated request.
+    pub fn successful_request_plan_commit(&self) -> Result<crate::session::RequestPlanCommit> {
+        let plan = self.active_main_request_plan().ok_or_else(|| {
+            anyhow::anyhow!("successful Provider turn has no active main request plan")
+        })?;
+        if plan.state != RuntimeRequestPlanState::ResponseStarted {
+            anyhow::bail!(
+                "successful Provider turn requires response-start proof; found {:?}",
+                plan.state
+            );
+        }
+        if !self.persistent {
+            return Ok(crate::session::RequestPlanCommit::None);
+        }
+        Ok(crate::session::RequestPlanCommit::CompleteResponseStarted {
+            request_plan_id: plan.request_plan_id,
+            attempt_no: plan.attempt_no,
+        })
+    }
+
+    /// Synchronize the coordinator after the assistant/request-plan
+    /// transaction wins. Persistent payload cleanup is best-effort because
+    /// the durable scrub-pending claim was already part of that transaction;
+    /// startup reconciliation remains its crash-safe backstop.
+    pub async fn finalize_successful_request_after_turn_commit(&self) -> Result<()> {
+        let Some(plan) = self.active_main_request_plan() else {
+            return Ok(());
+        };
+        if plan.state != RuntimeRequestPlanState::ResponseStarted {
+            anyhow::bail!(
+                "successful turn requires response-start proof; found {:?}",
+                plan.state
+            );
+        }
+        if !self.persistent {
+            return self
+                .mark_request_terminal(&plan.request_plan_id, RequestTerminalOutcome::Success)
+                .await;
+        }
+        let payload_id = {
+            let mut plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let runtime = plans
+                .plans
+                .get_mut(&plan.request_plan_id)
+                .ok_or_else(|| anyhow::anyhow!("request plan disappeared after turn commit"))?;
+            if runtime.state != RuntimeRequestPlanState::ResponseStarted {
+                anyhow::bail!("request plan changed while finalizing successful turn");
+            }
+            runtime.state = RuntimeRequestPlanState::Terminal;
+            runtime.exact_payload_id.clone()
+        };
+        if let Some(payload_id) = payload_id {
+            let db = self.db.clone();
+            let owner_id = plan.request_plan_id;
+            if let Err(error) = db
+                .run(move |db| {
+                    db.request_exact_payload_scrub(
+                        &owner_id,
+                        &payload_id,
+                        crate::session::request_payload_store::ExactPayloadScrubReason::RequestTerminal,
+                    )?;
+                    db.scrub_exact_request_payload(&owner_id, &payload_id)
+                })
+                .await
+            {
+                app_warn!(
+                    "request_payload",
+                    "terminal_cleanup",
+                    "deferred exact request payload cleanup after successful turn: {error:#}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Synchronize the coordinator after an interrupted turn transaction.
+    /// Ambiguous sends remain held as `SendUnknown`; they are never replayed.
+    pub async fn finalize_interrupted_request_after_turn_commit(
+        &self,
+        response_outcome: crate::session::RequestPlanResponseOutcome,
+    ) -> Result<()> {
+        let Some(plan) = self.active_main_request_plan() else {
+            return Ok(());
+        };
+        if self.persistent {
+            enum PayloadAction {
+                Scrub(
+                    String,
+                    crate::session::request_payload_store::ExactPayloadScrubReason,
+                ),
+                Hold(String),
+                None,
+            }
+            let action = {
+                let mut plans = self
+                    .request_plans
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let runtime = plans
+                    .plans
+                    .get_mut(&plan.request_plan_id)
+                    .ok_or_else(|| anyhow::anyhow!("request plan disappeared after turn commit"))?;
+                match runtime.state {
+                    RuntimeRequestPlanState::ContextCommitted => {
+                        runtime.state = RuntimeRequestPlanState::Superseded;
+                        runtime.exact_payload_id.clone().map_or(PayloadAction::None, |id| {
+                            PayloadAction::Scrub(
+                                id,
+                                crate::session::request_payload_store::ExactPayloadScrubReason::RequestSuperseded,
+                            )
+                        })
+                    }
+                    RuntimeRequestPlanState::Dispatching => {
+                        runtime.state = RuntimeRequestPlanState::SendUnknown;
+                        runtime
+                            .exact_payload_id
+                            .clone()
+                            .map_or(PayloadAction::None, PayloadAction::Hold)
+                    }
+                    RuntimeRequestPlanState::ResponseStarted => {
+                        runtime.state = RuntimeRequestPlanState::Terminal;
+                        runtime.exact_payload_id.clone().map_or(PayloadAction::None, |id| {
+                            PayloadAction::Scrub(
+                                id,
+                                crate::session::request_payload_store::ExactPayloadScrubReason::RequestTerminal,
+                            )
+                        })
+                    }
+                    RuntimeRequestPlanState::SendUnknown => PayloadAction::None,
+                    RuntimeRequestPlanState::Terminal | RuntimeRequestPlanState::Superseded => {
+                        PayloadAction::None
+                    }
+                }
+            };
+            let db = self.db.clone();
+            let owner_id = plan.request_plan_id;
+            let cleanup = match action {
+                PayloadAction::Scrub(payload_id, reason) => db
+                    .run(move |db| {
+                        db.request_exact_payload_scrub(&owner_id, &payload_id, reason)?;
+                        db.scrub_exact_request_payload(&owner_id, &payload_id)
+                    })
+                    .await
+                    .map(|_| ()),
+                PayloadAction::Hold(payload_id) => db
+                    .run(move |db| db.hold_exact_payload_for_send_unknown(&owner_id, &payload_id))
+                    .await
+                    .map(|_| ()),
+                PayloadAction::None => Ok(()),
+            };
+            if let Err(error) = cleanup {
+                app_warn!(
+                    "request_payload",
+                    "terminal_cleanup",
+                    "deferred exact request payload cleanup after interrupted turn: {error:#}"
+                );
+            }
+            return Ok(());
+        }
+        match plan.state {
+            RuntimeRequestPlanState::ContextCommitted => {
+                self.supersede_request_plan(&plan.request_plan_id).await
+            }
+            RuntimeRequestPlanState::Dispatching => {
+                self.mark_request_send_unknown(
+                    &plan.request_plan_id,
+                    Some("incognito_turn_ended_after_dispatch_claim"),
+                )
+                .await
+            }
+            RuntimeRequestPlanState::ResponseStarted => {
+                let outcome = match response_outcome {
+                    crate::session::RequestPlanResponseOutcome::CancelledAfterResponse => {
+                        RequestTerminalOutcome::CancelledAfterResponse
+                    }
+                    crate::session::RequestPlanResponseOutcome::ResponseIncomplete => {
+                        RequestTerminalOutcome::ResponseIncomplete
+                    }
+                };
+                self.mark_request_terminal(&plan.request_plan_id, outcome)
+                    .await
+            }
+            RuntimeRequestPlanState::SendUnknown => Ok(()),
+            RuntimeRequestPlanState::Terminal | RuntimeRequestPlanState::Superseded => Ok(()),
+        }
+    }
+
     pub fn trailing_text(&self) -> String {
         let state = lock_state(&self.state);
         let mut text = String::new();
@@ -705,7 +1108,18 @@ impl StreamCoordinator {
             .attempt_base_context_json
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(json);
+        self.attempt_base_contains_current_user
+            .store(true, Ordering::Release);
         Ok(())
+    }
+
+    /// Whether the currently adopted retry base already contains this turn's
+    /// canonical user item. This state travels with the base so failover never
+    /// re-appends the user after Tier 3 or Tier 4 has published a post-user
+    /// checkpoint.
+    pub fn attempt_base_contains_current_user(&self) -> bool {
+        self.attempt_base_contains_current_user
+            .load(Ordering::Acquire)
     }
 }
 
@@ -869,6 +1283,7 @@ impl TurnDurabilitySink for StreamCoordinator {
                     expected_revision,
                     &context_json,
                     through_seq,
+                    crate::session::Tier3RecoveryCommit::Unchanged,
                 )
             })
             .await?;
@@ -876,13 +1291,656 @@ impl TurnDurabilitySink for StreamCoordinator {
         Ok(revision)
     }
 
+    async fn checkpoint_emergency_context(
+        &self,
+        history: &[serde_json::Value],
+        expected_revision: i64,
+    ) -> Result<i64> {
+        let through_seq = self.flush(FlushReason::RoundEnd).await?;
+        if !self.persistent {
+            crate::session::require_incognito_tier3_recovery(&self.session_id);
+            return Ok(expected_revision);
+        }
+        self.reconcile_spool_to_sqlite().await?;
+        let context_json = serde_json::to_string(history)?;
+        let run_id = self.run_id.clone();
+        let attempt_no = self.current_attempt_no();
+        let db = self.db.clone();
+        let revision = db
+            .run(move |db| {
+                db.checkpoint_stream_context(
+                    &run_id,
+                    attempt_no,
+                    expected_revision,
+                    &context_json,
+                    through_seq,
+                    crate::session::Tier3RecoveryCommit::RequireAfterEmergency,
+                )
+            })
+            .await?;
+        self.context_revision.store(revision, Ordering::SeqCst);
+        Ok(revision)
+    }
+
+    async fn checkpoint_summarized_context(
+        &self,
+        history: &[serde_json::Value],
+        expected_revision: i64,
+    ) -> Result<i64> {
+        let through_seq = self.flush(FlushReason::RoundEnd).await?;
+        let context_json = serde_json::to_string(history)?;
+        if !self.persistent {
+            // Incognito has no durable row; publication is the in-memory
+            // history assignment owned by the agent. Still promote the exact
+            // summary to the failover base before clearing the recovery mark.
+            *self
+                .attempt_base_context_json
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(context_json);
+            self.attempt_base_contains_current_user
+                .store(true, Ordering::Release);
+            crate::session::clear_incognito_tier3_recovery(&self.session_id);
+            return Ok(expected_revision);
+        }
+        self.reconcile_spool_to_sqlite().await?;
+        let published_context_json = context_json.clone();
+        let run_id = self.run_id.clone();
+        let attempt_no = self.current_attempt_no();
+        let db = self.db.clone();
+        let revision = db
+            .run(move |db| {
+                db.checkpoint_stream_context(
+                    &run_id,
+                    attempt_no,
+                    expected_revision,
+                    &context_json,
+                    through_seq,
+                    crate::session::Tier3RecoveryCommit::ClearAfterSummary,
+                )
+            })
+            .await?;
+        self.context_revision.store(revision, Ordering::SeqCst);
+        // Only after the durable summary+marker transaction wins may a later
+        // provider/profile failover roll back to this new canonical boundary.
+        // Ordinary round checkpoints intentionally never update this base.
+        *self
+            .attempt_base_context_json
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(published_context_json);
+        self.attempt_base_contains_current_user
+            .store(true, Ordering::Release);
+        Ok(revision)
+    }
+
+    async fn prepare_request_plan(
+        &self,
+        input: &PrepareRequestPlan,
+        exact_body: Arc<[u8]>,
+    ) -> Result<()> {
+        verify_exact_body(input, exact_body.as_ref())?;
+        let attempt_no = self.current_attempt_no();
+        if attempt_no == 0 {
+            anyhow::bail!("cannot prepare a Provider request before the stream attempt begins");
+        }
+        {
+            let plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if plans.plans.contains_key(&input.request_plan_id) {
+                anyhow::bail!("request plan already exists: {}", input.request_plan_id);
+            }
+            if plans.plans.values().any(|plan| {
+                plan.attempt_no == attempt_no
+                    && plan.role == DurableRequestRole::MainContinuation
+                    && input.role == DurableRequestRole::MainContinuation
+                    && !matches!(
+                        plan.state,
+                        RuntimeRequestPlanState::Terminal | RuntimeRequestPlanState::Superseded
+                    )
+            }) {
+                anyhow::bail!("another main Provider request plan is still active");
+            }
+        }
+
+        let (sequence, exact_payload_id) = if self.persistent {
+            let db = self.db.clone();
+            let session_id = self.session_id.clone();
+            let run_id = self.run_id.clone();
+            let input = input.clone();
+            let body = exact_body;
+            db.run(move |db| {
+                use crate::session::context_projection::{
+                    ExactPayloadAvailability as PlanPayloadAvailability, NewProjectionEpoch,
+                    NewProjectionItem, NewRequestProjectionPlan, ProjectionEpochScope,
+                    ProjectionReplayability, ProjectionTrigger,
+                };
+                use crate::session::request_payload_store::{
+                    ExactPayloadAvailability as StorePayloadAvailability, StageExactPayloadOutcome,
+                };
+
+                let version = db.get_request_projection_version(&session_id)?;
+                let staged = db.stage_exact_request_payload(
+                    &session_id,
+                    &input.request_plan_id,
+                    body.as_ref(),
+                    None,
+                )?;
+                let (
+                    payload_availability,
+                    exact_payload_id,
+                    exact_payload_reservation_id,
+                    exact_payload_keyed_digest,
+                    exact_payload_storage_kind,
+                    exact_payload_stored_bytes,
+                ) = match staged {
+                    StageExactPayloadOutcome::Stored(hold) => {
+                        debug_assert_eq!(hold.availability, StorePayloadAvailability::Stored);
+                        (
+                            PlanPayloadAvailability::Stored,
+                            Some(hold.payload_id),
+                            Some(hold.reservation_id),
+                            Some(hold.keyed_digest),
+                            Some(hold.storage_kind.as_str().to_string()),
+                            Some(hold.plaintext_bytes),
+                        )
+                    }
+                    StageExactPayloadOutcome::Unavailable(_) => (
+                        PlanPayloadAvailability::Unavailable,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                    StageExactPayloadOutcome::Lost(_) => {
+                        (PlanPayloadAvailability::Lost, None, None, None, None, None)
+                    }
+                };
+
+                let projection_json = serde_json::to_vec(&input.projection)?;
+                let projection_bytes = u64::try_from(projection_json.len())
+                    .map_err(|_| anyhow::anyhow!("projection manifest exceeds u64"))?;
+                let policy_fingerprint = crate::cache_routing::audit_fingerprint(
+                    "request-projection-policy-v1",
+                    b"request-projection-policy-v1",
+                );
+                let action_digest = crate::cache_routing::audit_fingerprint(
+                    "request-projection-actions-v1",
+                    &projection_json,
+                );
+                let projection_epoch_id =
+                    (!input.projection.is_empty()).then(|| uuid::Uuid::new_v4().to_string());
+                let plan = NewRequestProjectionPlan {
+                    request_plan_id: input.request_plan_id.clone(),
+                    session_id: session_id.clone(),
+                    // The current conversation branch is represented by its
+                    // session row. Forked sessions receive independent ids.
+                    branch_id: session_id.clone(),
+                    run_id: run_id.clone(),
+                    attempt_no,
+                    request_role: request_projection_role(input.role),
+                    expected_canonical_generation: version.canonical_generation,
+                    expected_context_revision: version.context_revision,
+                    projection_epoch_id: projection_epoch_id.clone(),
+                    cache_identity_hash: input.cache_identity_hash.clone(),
+                    provider_id: input.provider_id.clone(),
+                    provider_profile_id: input.provider_profile_id.clone(),
+                    model_id: input.model_id.clone(),
+                    request_shape: input.request_shape.clone(),
+                    writer_version: 1,
+                    renderer_version: 1,
+                    policy_fingerprint: policy_fingerprint.clone(),
+                    counter_profile: "final-capacity-count-v1".to_string(),
+                    exact_payload_id: exact_payload_id.clone(),
+                    exact_payload_reservation_id,
+                    exact_payload_keyed_digest,
+                    exact_payload_storage_kind,
+                    exact_payload_stored_bytes,
+                    payload_availability,
+                    projection_bytes,
+                    expires_at: None,
+                    final_capacity_count_json: input.final_capacity_count_json.clone(),
+                    prepared_body_fingerprint: input.body_keyed_fingerprint.clone(),
+                    prepared_body_bytes: input.body_len,
+                    endpoint_kind: input.endpoint_kind.clone(),
+                    content_type: input.content_type.clone(),
+                };
+
+                let record = if let Some(epoch_id) = projection_epoch_id {
+                    let items = input
+                        .projection
+                        .iter()
+                        .map(|item| {
+                            Ok(NewProjectionItem {
+                                projection_item_key: item.projection_item_key.clone(),
+                                result_id: item.result_id.clone(),
+                                stable_ordinal: item.stable_ordinal,
+                                action: projection_action(&item.action)?,
+                                source_guard: item.source_guard.clone(),
+                                replacement_fingerprint: item.replacement_fingerprint.clone(),
+                                replayability: if item.result_id.is_some() {
+                                    ProjectionReplayability::ManagedResult
+                                } else {
+                                    ProjectionReplayability::ExactPlanOnly
+                                },
+                                renderer_profile: "request-projection-v1".to_string(),
+                                target_variant: item.action.clone(),
+                                source_plan_id: item
+                                    .result_id
+                                    .is_none()
+                                    .then(|| input.request_plan_id.clone()),
+                                source_projection_item_key: None,
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let earliest_changed_item_key = input
+                        .projection
+                        .iter()
+                        .min_by_key(|item| item.stable_ordinal)
+                        .map(|item| item.projection_item_key.clone());
+                    let max_tier = if input
+                        .projection
+                        .iter()
+                        .any(|item| item.action.starts_with("tier2_"))
+                    {
+                        2
+                    } else {
+                        0
+                    };
+                    let epoch = NewProjectionEpoch {
+                        epoch_id,
+                        session_id: session_id.clone(),
+                        branch_id: session_id.clone(),
+                        scope: ProjectionEpochScope::RequestLocal,
+                        owner_request_plan_id: Some(input.request_plan_id.clone()),
+                        cache_identity_hash: input.cache_identity_hash.clone(),
+                        parent_epoch_id: None,
+                        canonical_generation: version.canonical_generation,
+                        created_at_revision: version.context_revision,
+                        provider_request_shape: input.request_shape.clone(),
+                        policy_fingerprint,
+                        renderer_version: 1,
+                        counter_profile: "final-capacity-count-v1".to_string(),
+                        trigger: if input.round == 0 {
+                            ProjectionTrigger::TurnStart
+                        } else {
+                            ProjectionTrigger::ToolLoop
+                        },
+                        max_tier,
+                        earliest_changed_item_key,
+                        action_digest,
+                    };
+                    db.create_context_committed_request_local_projection_plan_with_followup(
+                        &epoch,
+                        &items,
+                        &plan,
+                        input.tier3_followup_after_capacity_projection,
+                    )?
+                } else {
+                    db.create_context_committed_request_projection_plan_with_followup(
+                        &plan,
+                        input.tier3_followup_after_capacity_projection,
+                    )?
+                };
+                Ok::<(u64, Option<String>), anyhow::Error>((
+                    record.request_sequence,
+                    exact_payload_id,
+                ))
+            })
+            .await?
+        } else {
+            let staged = self
+                .incognito_payloads
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .stage(
+                    &self.session_id,
+                    &input.request_plan_id,
+                    exact_body.as_ref(),
+                )?;
+            let payload_id = match staged {
+                crate::session::request_payload_store::StageExactPayloadOutcome::Stored(hold) => {
+                    Some(hold.payload_id)
+                }
+                crate::session::request_payload_store::StageExactPayloadOutcome::Unavailable(_)
+                | crate::session::request_payload_store::StageExactPayloadOutcome::Lost(_) => None,
+            };
+            let plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (plans.next_sequence.saturating_add(1), payload_id)
+        };
+
+        let mut plans = self
+            .request_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if plans.plans.contains_key(&input.request_plan_id) {
+            anyhow::bail!("request plan was concurrently prepared");
+        }
+        plans.next_sequence = plans.next_sequence.max(sequence);
+        plans.plans.insert(
+            input.request_plan_id.clone(),
+            RuntimeRequestPlan {
+                role: input.role,
+                attempt_no,
+                sequence,
+                state: RuntimeRequestPlanState::ContextCommitted,
+                body_keyed_fingerprint: input.body_keyed_fingerprint.clone(),
+                body_len: input.body_len,
+                endpoint_kind: input.endpoint_kind.clone(),
+                content_type: input.content_type.clone(),
+                exact_payload_id,
+            },
+        );
+        if !self.persistent && input.tier3_followup_after_capacity_projection {
+            crate::session::require_incognito_tier3_after_capacity_projection(
+                &self.session_id,
+                &input.request_plan_id,
+            );
+        }
+        Ok(())
+    }
+
+    async fn claim_request_dispatch(
+        &self,
+        request_plan_id: &str,
+        claim: &DispatchClaim,
+    ) -> Result<()> {
+        let body = crate::session::context_projection::PreparedRequestBodyIdentity {
+            fingerprint: claim.body_keyed_fingerprint.clone(),
+            bytes: claim.body_len,
+            endpoint_kind: claim.endpoint_kind.clone(),
+            content_type: claim.content_type.clone(),
+        };
+        if self.persistent {
+            let db = self.db.clone();
+            let session_id = self.session_id.clone();
+            let request_plan_id = request_plan_id.to_string();
+            let claim = claim.clone();
+            let changed = db
+                .run(move |db| {
+                    db.claim_request_dispatch(
+                        &session_id,
+                        &request_plan_id,
+                        &claim.request_attempt_id,
+                        claim.provider_idempotency_key.as_deref(),
+                        &body,
+                    )
+                })
+                .await?;
+            if !changed {
+                anyhow::bail!("request dispatch claim lost its state/version/body CAS");
+            }
+        }
+        let mut plans = self
+            .request_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let plan = plans
+            .plans
+            .get_mut(request_plan_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown request plan: {request_plan_id}"))?;
+        if plan.state != RuntimeRequestPlanState::ContextCommitted
+            || plan.body_keyed_fingerprint != claim.body_keyed_fingerprint
+            || plan.body_len != claim.body_len
+            || plan.endpoint_kind != claim.endpoint_kind
+            || plan.content_type != claim.content_type
+        {
+            anyhow::bail!("request dispatch claim does not match the prepared body/state");
+        }
+        plan.state = RuntimeRequestPlanState::Dispatching;
+        Ok(())
+    }
+
+    async fn mark_request_response_started(
+        &self,
+        request_plan_id: &str,
+        response: &ResponseStarted,
+    ) -> Result<()> {
+        if self.persistent {
+            let db = self.db.clone();
+            let session_id = self.session_id.clone();
+            let request_plan_id = request_plan_id.to_string();
+            let provider_request_id = response.provider_request_id.clone();
+            let provider_attempt = response.provider_attempt;
+            let status = response.status;
+            let changed = db
+                .run(move |db| {
+                    db.mark_request_response_started(
+                        &session_id,
+                        &request_plan_id,
+                        provider_attempt,
+                        status,
+                        provider_request_id.as_deref(),
+                    )
+                })
+                .await?;
+            if !changed {
+                anyhow::bail!("request response-start transition lost its dispatch CAS");
+            }
+        }
+        let mut plans = self
+            .request_plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let plan = plans
+            .plans
+            .get_mut(request_plan_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown request plan: {request_plan_id}"))?;
+        if plan.state != RuntimeRequestPlanState::Dispatching {
+            anyhow::bail!("request response started from an invalid state");
+        }
+        plan.state = RuntimeRequestPlanState::ResponseStarted;
+        Ok(())
+    }
+
+    async fn mark_request_send_unknown(
+        &self,
+        request_plan_id: &str,
+        diagnostic: Option<&str>,
+    ) -> Result<()> {
+        let reason = diagnostic.unwrap_or("transport_interrupted_before_response_proof");
+        if self.persistent {
+            let db = self.db.clone();
+            let session_id = self.session_id.clone();
+            let request_plan_id = request_plan_id.to_string();
+            let reason = reason.to_string();
+            let changed = db
+                .run(move |db| db.mark_request_send_unknown(&session_id, &request_plan_id, &reason))
+                .await?;
+            if !changed {
+                anyhow::bail!("request send-unknown transition lost its dispatch CAS");
+            }
+        }
+        let payload_id = {
+            let mut plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let plan = plans
+                .plans
+                .get_mut(request_plan_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown request plan: {request_plan_id}"))?;
+            if plan.state != RuntimeRequestPlanState::Dispatching {
+                anyhow::bail!("request send became unknown from an invalid state");
+            }
+            plan.state = RuntimeRequestPlanState::SendUnknown;
+            plan.exact_payload_id.clone()
+        };
+        if let Some(payload_id) = payload_id {
+            if !self.persistent {
+                let held = self
+                    .incognito_payloads
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .hold_send_unknown(request_plan_id, &payload_id);
+                if !held {
+                    anyhow::bail!("incognito send-unknown payload hold was lost");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn mark_request_terminal(
+        &self,
+        request_plan_id: &str,
+        outcome: RequestTerminalOutcome,
+    ) -> Result<()> {
+        if outcome == RequestTerminalOutcome::CancelledBeforeSend {
+            anyhow::bail!("pre-send cancellation must supersede the unsent request plan");
+        }
+        let outcome_label = match outcome {
+            RequestTerminalOutcome::Success => "success",
+            RequestTerminalOutcome::ProviderRejected => "provider_rejected",
+            RequestTerminalOutcome::CancelledBeforeSend => unreachable!(),
+            RequestTerminalOutcome::CancelledAfterResponse => "cancelled_after_response",
+            RequestTerminalOutcome::ResponseIncomplete => "response_incomplete",
+        };
+        if self.persistent {
+            let db = self.db.clone();
+            let session_id = self.session_id.clone();
+            let request_plan_id = request_plan_id.to_string();
+            let changed = db
+                .run(move |db| {
+                    db.complete_response_started_request(
+                        &session_id,
+                        &request_plan_id,
+                        outcome_label,
+                    )
+                })
+                .await?;
+            if !changed {
+                anyhow::bail!("request terminal transition requires response-start proof");
+            }
+        }
+        let payload_id = {
+            let mut plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let plan = plans
+                .plans
+                .get_mut(request_plan_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown request plan: {request_plan_id}"))?;
+            if plan.state != RuntimeRequestPlanState::ResponseStarted {
+                anyhow::bail!("request terminal transition requires response-start proof");
+            }
+            plan.state = RuntimeRequestPlanState::Terminal;
+            plan.exact_payload_id.clone()
+        };
+        if let Some(payload_id) = payload_id {
+            if self.persistent {
+                let db = self.db.clone();
+                let owner_id = request_plan_id.to_string();
+                db.run(move |db| {
+                    db.request_exact_payload_scrub(
+                        &owner_id,
+                        &payload_id,
+                        crate::session::request_payload_store::ExactPayloadScrubReason::RequestTerminal,
+                    )?;
+                    db.scrub_exact_request_payload(&owner_id, &payload_id)
+                })
+                .await?;
+            } else {
+                let _ = self
+                    .incognito_payloads
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .scrub(request_plan_id, &payload_id, false);
+            }
+        }
+        Ok(())
+    }
+
+    async fn supersede_request_plan(&self, request_plan_id: &str) -> Result<()> {
+        if self.persistent {
+            let db = self.db.clone();
+            let session_id = self.session_id.clone();
+            let request_plan_id = request_plan_id.to_string();
+            let changed = db
+                .run(move |db| {
+                    db.supersede_unsent_request(
+                        &session_id,
+                        &request_plan_id,
+                        "superseded_before_dispatch",
+                    )
+                })
+                .await?;
+            if !changed {
+                anyhow::bail!("request plan is not provably unsent");
+            }
+        }
+        let payload_id = {
+            let mut plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let plan = plans
+                .plans
+                .get_mut(request_plan_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown request plan: {request_plan_id}"))?;
+            if !matches!(plan.state, RuntimeRequestPlanState::ContextCommitted) {
+                anyhow::bail!("request plan is not provably unsent");
+            }
+            plan.state = RuntimeRequestPlanState::Superseded;
+            plan.exact_payload_id.clone()
+        };
+        if !self.persistent {
+            crate::session::clear_incognito_capacity_projection_recovery(
+                &self.session_id,
+                request_plan_id,
+            );
+        }
+        if let Some(payload_id) = payload_id {
+            if self.persistent {
+                let db = self.db.clone();
+                let owner_id = request_plan_id.to_string();
+                db.run(move |db| {
+                    db.request_exact_payload_scrub(
+                        &owner_id,
+                        &payload_id,
+                        crate::session::request_payload_store::ExactPayloadScrubReason::RequestSuperseded,
+                    )?;
+                    db.scrub_exact_request_payload(&owner_id, &payload_id)
+                })
+                .await?;
+            } else {
+                let _ = self
+                    .incognito_payloads
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .scrub(request_plan_id, &payload_id, false);
+            }
+        }
+        Ok(())
+    }
+
     async fn supersede_attempt(&self, error: Option<&str>) -> Result<()> {
         self.flush(FlushReason::RoundEnd).await?;
+        let attempt_no = self.attempt_no.load(Ordering::SeqCst);
+        if !self.persistent {
+            let plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if plans
+                .plans
+                .values()
+                .any(|plan| plan.attempt_no == attempt_no && plan.state.possibly_sent())
+            {
+                anyhow::bail!(
+                    "cannot supersede stream attempt {attempt_no}: a Provider request may have been sent"
+                );
+            }
+        }
         if self.persistent {
             self.reconcile_spool_to_sqlite().await?;
             let db = self.db.clone();
             let run_id = self.run_id.clone();
-            let attempt_no = self.attempt_no.load(Ordering::SeqCst);
             let expected_revision = self.context_revision();
             let base_context_json = self
                 .attempt_base_context_json
@@ -902,6 +1960,45 @@ impl TurnDurabilitySink for StreamCoordinator {
                 })
                 .await?;
             self.context_revision.store(revision, Ordering::SeqCst);
+        }
+        let payloads = {
+            let mut plans = self
+                .request_plans
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut payloads = Vec::new();
+            for (request_plan_id, plan) in &mut plans.plans {
+                if plan.attempt_no != attempt_no {
+                    continue;
+                }
+                if matches!(plan.state, RuntimeRequestPlanState::ContextCommitted) {
+                    plan.state = RuntimeRequestPlanState::Superseded;
+                    if let Some(payload_id) = plan.exact_payload_id.clone() {
+                        payloads.push((request_plan_id.clone(), payload_id));
+                    }
+                }
+            }
+            payloads
+        };
+        for (request_plan_id, payload_id) in payloads {
+            if self.persistent {
+                let db = self.db.clone();
+                db.run(move |db| {
+                    db.request_exact_payload_scrub(
+                        &request_plan_id,
+                        &payload_id,
+                        crate::session::request_payload_store::ExactPayloadScrubReason::RequestSuperseded,
+                    )?;
+                    db.scrub_exact_request_payload(&request_plan_id, &payload_id)
+                })
+                .await?;
+            } else {
+                let _ = self
+                    .incognito_payloads
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .scrub(&request_plan_id, &payload_id, false);
+            }
         }
         lock_state(&self.state).durable_events.clear();
         Ok(())
@@ -1248,6 +2345,74 @@ mod tests {
             .expect("run");
         assert_eq!(checkpointed.run.checkpoint_seq, 3);
         assert_eq!(checkpointed.attempts[0].checkpoint_seq, 3);
+
+        db.interrupt_stream_run(
+            coordinator.persistence_run_id(),
+            coordinator.current_attempt_no(),
+            crate::session::ChatTurnStatus::Interrupted,
+            Some("test"),
+            None,
+        )
+        .expect("close run");
+        coordinator.mark_interrupted("interrupted");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn summarized_context_is_the_failover_base_without_adopting_later_tail() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(SessionDB::open(&dir.path().join("summary-base.db")).expect("db"));
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("session");
+        let coordinator = StreamCoordinator::create(
+            db.clone(),
+            session.id.clone(),
+            ChatSource::Desktop,
+            None,
+            None,
+            Arc::new(crate::chat_engine::NoopEventSink),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await
+        .expect("coordinator");
+        coordinator
+            .begin_attempt(Some("primary"), Some("model-a"), Some("openai_chat"))
+            .await
+            .expect("first attempt");
+
+        let summary = vec![serde_json::json!({
+            "role": "user",
+            "content": "validated compact summary with current request"
+        })];
+        let summary_revision = coordinator
+            .checkpoint_summarized_context(&summary, coordinator.context_revision())
+            .await
+            .expect("publish summary");
+        assert!(coordinator.attempt_base_contains_current_user());
+
+        let mut failed_attempt_tail = summary.clone();
+        failed_attempt_tail.push(serde_json::json!({
+            "role": "assistant",
+            "content": "uncommitted provider tail"
+        }));
+        coordinator
+            .checkpoint_context(&failed_attempt_tail, summary_revision)
+            .await
+            .expect("ordinary round checkpoint");
+
+        coordinator
+            .begin_attempt(Some("fallback"), Some("model-b"), Some("anthropic"))
+            .await
+            .expect("fallback attempt");
+
+        let (stored, _) = db
+            .load_context_with_revision(&session.id)
+            .expect("load context");
+        let restored: Vec<serde_json::Value> =
+            serde_json::from_str(stored.as_deref().expect("stored summary"))
+                .expect("parse context");
+        assert_eq!(restored, summary);
+        assert!(coordinator.attempt_base_contains_current_user());
 
         db.interrupt_stream_run(
             coordinator.persistence_run_id(),

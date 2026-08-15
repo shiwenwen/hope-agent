@@ -61,7 +61,7 @@ flowchart TB
         direction LR
         sch["schema/"]
         pol["policy/（weekly·release）"]
-        suites["suites/（5 个）"]
+        suites["suites/（6 个）"]
         lock["version-lock.json"]
     end
 
@@ -86,23 +86,24 @@ flowchart TB
 | `crates/ha-eval` | `hope-agent-eval` CLI：生成计划、稳定分片、逐 case 子进程隔离、聚合与证据校验。`adapters` 模块（`full-runner` feature）把每个 case 派发给对应能力机器 |
 | `crates/ha-eval-runtime` | Coding 能力机器 `coding_eval`（确定性 Coding adapter 驱动它）；同时承载真实模型评测 runtime |
 | `crates/ha-improve` | 领域评测机器 `domain_eval`、`domain_quality` 与学习闭环 `coding_improvement` |
-| `crates/ha-core` | Dreaming 黄金回放与记忆检索规模评测的确定性实现（`memory::dreaming`；记忆检索按 case 分派 `agent::run_source_fusion_scale_eval` 与 `memory::retrieval_scale_eval::run_retrieval_scale_eval`） |
+| `crates/ha-core` | Dreaming 黄金回放、记忆检索规模评测与上下文压缩安全契约的确定性实现（`memory::dreaming`、记忆检索及 `context_compact::eval`） |
 | `evals/` | JSON Schema、policy、suite manifest、fixture 与 `version-lock.json` 的单一真相源；`evals/live/` 存真实模型资产 |
 | 桌面 Evaluation Center | `src/components/dashboard/evaluation/` 面板 + 随包 Sidecar（`scripts/prepare-eval-sidecar.mjs` 以 `eval-sidecar` profile 构建 `ha-eval`），显式运行本地真实模型评测并保存进度、结果、历史、对比与趋势 |
 
-## 五个 suite 与它们的 adapter
+## 六个 suite 与它们的适配器
 
-v1 只承认五种确定性 adapter，每种恰好对应一个 suite。计划器会拒绝任何策略未列出的 adapter，`validate_suite` 也会拒绝非确定性 adapter。
+v1 只承认六种确定性适配器，每种恰好对应一个 suite。计划器会拒绝任何策略未列出的适配器，`validate_suite` 也会拒绝非确定性适配器。
 
 | adapter | suite | 能力域 | 分片数 | 机器所在 crate |
 | --- | --- | --- | --- | --- |
 | `coding_fixture_patch` | `coding-control-plane` | coding | 2 | `ha-eval-runtime` |
 | `coding_gold_fixture_patch` | `coding-gold` | coding | 4 | `ha-eval-runtime` |
+| `context_compaction_contract` | `context-compaction-safety` | context_compaction | 2 | `ha-core` |
 | `domain_trace_fixture` | `domain-trace` | domain | 3 | `ha-improve` |
 | `dreaming_golden` | `memory-dreaming` | memory | 2 | `ha-core` |
 | `memory_retrieval_scale` | `memory-retrieval-scale` | memory | 1 | `ha-core` |
 
-`weekly` 与 `release` 两个 policy 目前都声明这五个 suite、`minPassRate=1.0`、`mode=advisory`、`performanceBlocking=false`——即质量断言必须全过，但耗时/性能只作提示、不阻断。
+`weekly` 与 `release` 两个策略目前都声明这六个 suite、`minPassRate=1.0`、`mode=advisory`、`performanceBlocking=false`——即质量断言必须全过，但耗时/性能只作提示、不阻断。
 
 ## 流水线：从计划到证据
 
@@ -188,7 +189,7 @@ flowchart TB
 
 逐条说明：
 
-- **只认五种 adapter**：`coding_fixture_patch`、`coding_gold_fixture_patch`、`domain_trace_fixture`、`dreaming_golden`、`memory_retrieval_scale`。
+- **只认六种适配器**：`coding_fixture_patch`、`coding_gold_fixture_patch`、`context_compaction_contract`、`domain_trace_fixture`、`dreaming_golden`、`memory_retrieval_scale`。
 - **manifest 不能携带任意 shell 命令**：suite 与 case 的类型里根本没有「命令」字段，且开启 `deny_unknown_fields`——多写字段直接反序列化失败。这是「无任意执行」的结构性保证，而非运行时黑名单。
 - **fixture 路径受限**：只能是 suite 目录内的普通相对路径；`resolve_contained` 拒绝空路径、绝对路径、任何 `..` / 根组件，并对 base 与拼接后路径都 canonicalize，结果必须仍在 base 之内，从而挡掉 symlink 逃逸。
 - **adapter 层再挡一次**：Coding fixture 在解析前过 `reject_model_configuration`，一旦出现 provider / providers / providerId / model / model chain / API key / endpoint 等字段，或 `mode` / `executionMode` 取 `agent`、`external_model`、`mock_provider` 这类值，就 fail-fast；领域 fixture 若意外带上 provider / model chain 也会 bail。
