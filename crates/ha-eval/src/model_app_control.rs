@@ -837,6 +837,32 @@ fn deterministic_aggregate(cases: &[CaseResult]) -> EvalStatus {
     }
 }
 
+fn experiment_phase_total_from_counts(
+    deterministic_suite_count: usize,
+    active_campaign_shard_jobs: impl IntoIterator<Item = u32>,
+) -> Result<u32> {
+    let deterministic = u32::try_from(deterministic_suite_count)?;
+    active_campaign_shard_jobs
+        .into_iter()
+        .try_fold(deterministic, |total, active_shards| {
+            let campaign_phases = active_shards
+                .checked_add(1)
+                .ok_or_else(|| anyhow!("App campaign phase count overflow"))?;
+            total
+                .checked_add(campaign_phases)
+                .ok_or_else(|| anyhow!("App experiment phase count overflow"))
+        })
+}
+
+fn experiment_phase_total(plan: &EvalAppPlan) -> Result<u32> {
+    experiment_phase_total_from_counts(
+        plan.deterministic_suites.len(),
+        plan.campaigns
+            .iter()
+            .map(|campaign| super::model::active_model_shard_job_count(&campaign.resolved_plan)),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_experiment(
     root: &Path,
@@ -863,13 +889,7 @@ async fn run_experiment(
         .map(|campaign| campaign.resolved_plan.trials.len())
         .sum::<usize>();
     let total_trials = u32::try_from(deterministic_trial_count + live_trial_count)?;
-    let total = u32::try_from(plan.deterministic_suites.len())?
-        + plan
-            .campaigns
-            .iter()
-            .flat_map(|campaign| &campaign.resolved_plan.suites)
-            .map(|suite| u32::from(suite.shards) + 1)
-            .sum::<u32>();
+    let total = experiment_phase_total(&plan)?;
     let mut completed = 0u32;
     let mut completed_trials = 0u32;
     let mut evidence_paths = Vec::new();
@@ -1761,6 +1781,12 @@ fn safe_error(error: &anyhow::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phase_total_counts_only_scheduled_shards_and_one_aggregation_per_campaign() {
+        assert_eq!(experiment_phase_total_from_counts(0, [1]).unwrap(), 2);
+        assert_eq!(experiment_phase_total_from_counts(2, [1, 3]).unwrap(), 8);
+    }
 
     #[test]
     fn tokens_are_high_entropy_and_header_safe() {
