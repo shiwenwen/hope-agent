@@ -124,8 +124,10 @@ fn old_tool_history(tool: &str, call_id: &str, body: String) -> Vec<Value> {
 }
 
 fn eval_tier0_request_projection() -> Result<ContextCompactionEvalReport> {
-    let mut config = CompactConfig::default();
-    config.preserve_recent_rounds = 1;
+    let config = CompactConfig {
+        preserve_recent_rounds: 1,
+        ..CompactConfig::default()
+    };
     let canonical = old_tool_history("grep", "grep-old", "match\n".repeat(8_000));
     let mut request_projection = canonical.clone();
     let changed = microcompact(&mut request_projection, &config);
@@ -715,8 +717,10 @@ fn eval_dispatch_ambiguity_terminal() -> Result<ContextCompactionEvalReport> {
 }
 
 fn eval_cross_tier_boundaries() -> Result<ContextCompactionEvalReport> {
-    let mut config = CompactConfig::default();
-    config.preserve_recent_rounds = 1;
+    let config = CompactConfig {
+        preserve_recent_rounds: 1,
+        ..CompactConfig::default()
+    };
     let canonical = old_tool_history("grep", "cross-call", "z".repeat(32_000));
     let mut projected = canonical.clone();
     let tier0 = microcompact(&mut projected, &config);

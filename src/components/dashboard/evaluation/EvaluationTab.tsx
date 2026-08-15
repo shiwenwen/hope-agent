@@ -1408,7 +1408,7 @@ export default function EvaluationTab() {
                             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                               {t(
                                 "dashboard.evaluation.scenarioBudgetDescription",
-                                "每个场景每次运行可使用的上限；场景费用合计不能超过整场最高费用。",
+                                "除费用外，其余资源上限按单次运行生效；费用是场景跨全部所选模型、实验分支和重复运行的总额度。",
                               )}
                             </p>
                           </div>
@@ -1436,7 +1436,7 @@ export default function EvaluationTab() {
                                     label={t("dashboard.evaluation.cost", "费用（USD）")}
                                     description={t(
                                       "dashboard.evaluation.budgetDescriptions.scenarioCost",
-                                      "这个场景每次运行最多允许产生的模型费用。",
+                                      "这个场景在全部所选模型、实验分支和重复运行中的模型费用总额度。",
                                     )}
                                     value={caseCostBudgets[key] ?? 0.01}
                                     min={0.01}

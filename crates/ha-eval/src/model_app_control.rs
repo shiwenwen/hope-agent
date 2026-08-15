@@ -624,6 +624,7 @@ struct AppShardJob {
     shard_total: u16,
     output: PathBuf,
     trial_ids: Vec<String>,
+    agent_budget: Option<u32>,
 }
 
 struct AppShardCompletion {
@@ -1078,6 +1079,26 @@ async fn run_experiment(
         let child_plan_path = campaign_root.join("model-campaign-plan.v1.json");
         write_json(&child_plan_path, &campaign.resolved_plan)?;
         let mut pending_shards = VecDeque::new();
+        let shard_job_count = campaign
+            .resolved_plan
+            .suites
+            .iter()
+            .map(|suite| u32::from(suite.shards))
+            .sum::<u32>();
+        let campaign_agents = match plan.budget_enforcement {
+            ha_eval_spec::app::AppBudgetEnforcement::Enforced => Some(
+                campaign
+                    .resolved_plan
+                    .campaign_budget
+                    .max_agents
+                    .ok_or_else(|| anyhow!("enforced App campaign has no Agent budget"))?,
+            ),
+            ha_eval_spec::app::AppBudgetEnforcement::Unlimited => None,
+        };
+        if campaign_agents.is_some_and(|agents| agents < shard_job_count) {
+            bail!("App campaign Agent budget cannot cover its {shard_job_count} model shard jobs");
+        }
+        let mut shard_job_index = 0u32;
         for suite in &campaign.resolved_plan.suites {
             for shard in 1..=suite.shards {
                 let shard_path = campaign_root
@@ -1100,7 +1121,13 @@ async fn run_experiment(
                     shard_total: suite.shards,
                     output: shard_path,
                     trial_ids,
+                    agent_budget: campaign_agents.map(|agents| {
+                        let base = agents / shard_job_count.max(1);
+                        let remainder = agents % shard_job_count.max(1);
+                        base + u32::from(shard_job_index < remainder)
+                    }),
                 });
+                shard_job_index = shard_job_index.saturating_add(1);
             }
         }
         let mut running = tokio::task::JoinSet::new();
@@ -1161,6 +1188,12 @@ async fn run_experiment(
                     .stdout(Stdio::null())
                     .stderr(Stdio::piped())
                     .stdin(Stdio::null());
+                if let Some(agent_budget) = job.agent_budget {
+                    command.env(
+                        "HA_MODEL_EVAL_APP_SHARD_AGENT_BUDGET",
+                        agent_budget.to_string(),
+                    );
+                }
                 let mut job_cancel = cancel.clone();
                 running.spawn(async move {
                     let output = run_cancellable_capturing_stderr(command, &mut job_cancel).await?;

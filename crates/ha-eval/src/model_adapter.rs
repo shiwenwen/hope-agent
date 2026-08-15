@@ -1990,15 +1990,15 @@ fn tool_result_digest_sequence_check(
         .iter()
         .filter(|event| event.event == event_name)
         .collect::<Vec<_>>();
-    let unexpected_tool_events = only_target_tool
-        .then(|| {
-            telemetry
-                .events
-                .iter()
-                .filter(|event| event.event.starts_with("tool.") && event.event != event_name)
-                .count()
-        })
-        .unwrap_or(0);
+    let unexpected_tool_events = if only_target_tool {
+        telemetry
+            .events
+            .iter()
+            .filter(|event| event.event.starts_with("tool.") && event.event != event_name)
+            .count()
+    } else {
+        0
+    };
     let first_mismatch = (0..expected.len().max(observed.len())).find(|index| {
         let Some(expected) = expected.get(*index) else {
             return true;

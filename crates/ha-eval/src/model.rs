@@ -47,8 +47,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 const RUNTIME_CONFIG_DIGEST_ENV: &str = "HA_MODEL_EVAL_RUNTIME_CONFIG_DIGEST";
 const APP_CONTROL_ENV: &str = "HA_MODEL_EVAL_APP_CONTROL";
 const APP_PLAN_ENV: &str = "HA_MODEL_EVAL_APP_PLAN";
-const RETRY_BUDGET_ENV: &str = "HA_MODEL_EVAL_RETRY_BUDGET_JSON";
-const RETRY_TIMEOUT_ENV: &str = "HA_MODEL_EVAL_RETRY_TIMEOUT_SECONDS";
+const EFFECTIVE_BUDGET_ENV: &str = "HA_MODEL_EVAL_EFFECTIVE_BUDGET_JSON";
+const EFFECTIVE_TIMEOUT_ENV: &str = "HA_MODEL_EVAL_EFFECTIVE_TIMEOUT_SECONDS";
+const APP_SHARD_AGENT_BUDGET_ENV: &str = "HA_MODEL_EVAL_APP_SHARD_AGENT_BUDGET";
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommands {
@@ -1156,14 +1157,14 @@ pub(crate) fn build_app_plan(
         .asset_root_digest
         .clone_from(&asset_root_digest);
 
-    let child_budget = match request.budget_enforcement {
-        AppBudgetEnforcement::Enforced => {
-            partition_budget(&request.campaign_budget, resolved_models.len())?
-        }
-        AppBudgetEnforcement::Unlimited => CampaignBudget::default(),
-    };
     let mut campaigns = Vec::with_capacity(resolved_models.len());
-    for binding in resolved_models {
+    for (model_index, binding) in resolved_models.iter().enumerate() {
+        let child_budget = match request.budget_enforcement {
+            AppBudgetEnforcement::Enforced => {
+                partition_budget(&request.campaign_budget, resolved_models.len(), model_index)?
+            }
+            AppBudgetEnforcement::Unlimited => CampaignBudget::default(),
+        };
         validate_sha256(
             &binding.provider_config_digest,
             "App Provider config digest",
@@ -1192,6 +1193,7 @@ pub(crate) fn build_app_plan(
             }
             AppBudgetEnforcement::Unlimited => apply_app_unlimited_budgets(&mut child),
         }
+        validate_app_child_agent_partition(&child, request.budget_enforcement)?;
         child.plan_digest = immutable_plan_digest(&child)?;
         child.campaign_id = campaign_id_from_digest(&child.plan_digest);
         for trial in &mut child.trials {
@@ -1802,9 +1804,16 @@ fn apply_app_trial_timeout_limits(
     Ok(())
 }
 
-fn partition_budget(budget: &CampaignBudget, parts: usize) -> Result<CampaignBudget> {
+fn partition_budget(
+    budget: &CampaignBudget,
+    parts: usize,
+    part_index: usize,
+) -> Result<CampaignBudget> {
+    if part_index >= parts.max(1) {
+        bail!("App budget partition index is out of range");
+    }
     let parts_u64 = parts.max(1) as u64;
-    let divide = |dimension: &str, value: Option<u64>| -> Result<Option<u64>> {
+    let divide_u64 = |dimension: &str, value: Option<u64>| -> Result<Option<u64>> {
         value
             .map(|value| {
                 if value < parts_u64 {
@@ -1812,20 +1821,62 @@ fn partition_budget(budget: &CampaignBudget, parts: usize) -> Result<CampaignBud
                         "App {dimension} budget must be at least the selected model count ({parts})"
                     );
                 }
-                Ok(value / parts_u64)
+                Ok(value / parts_u64 + u64::from((part_index as u64) < value % parts_u64))
             })
             .transpose()
     };
+    let divide_u32 = |dimension: &str, value: Option<u32>| -> Result<Option<u32>> {
+        value
+            .map(|value| {
+                let parts_u32 = u32::try_from(parts.max(1))?;
+                if value < parts_u32 {
+                    bail!(
+                        "App {dimension} budget must be at least the selected model count ({parts})"
+                    );
+                }
+                Ok(value / parts_u32 + u32::from((part_index as u32) < value % parts_u32))
+            })
+            .transpose()
+    };
+    let max_agents = divide_u32("agent", budget.max_agents)?;
+    let max_concurrency = match (budget.max_concurrency, max_agents) {
+        (Some(concurrency), Some(agents)) => Some(concurrency.min(agents)),
+        (concurrency, _) => concurrency,
+    };
     Ok(CampaignBudget {
         max_wall_seconds: budget.max_wall_seconds,
-        max_model_calls: divide("model-call", budget.max_model_calls)?,
-        max_input_tokens: divide("input-token", budget.max_input_tokens)?,
-        max_output_tokens: divide("output-token", budget.max_output_tokens)?,
+        max_model_calls: divide_u64("model-call", budget.max_model_calls)?,
+        max_input_tokens: divide_u64("input-token", budget.max_input_tokens)?,
+        max_output_tokens: divide_u64("output-token", budget.max_output_tokens)?,
         max_cost_usd: budget.max_cost_usd.map(|value| value / parts.max(1) as f64),
-        max_tool_calls: divide("tool-call", budget.max_tool_calls)?,
-        max_agents: budget.max_agents,
-        max_concurrency: budget.max_concurrency,
+        max_tool_calls: divide_u64("tool-call", budget.max_tool_calls)?,
+        max_agents,
+        max_concurrency,
     })
+}
+
+fn validate_app_child_agent_partition(
+    plan: &ModelCampaignPlan,
+    enforcement: AppBudgetEnforcement,
+) -> Result<()> {
+    if enforcement == AppBudgetEnforcement::Unlimited {
+        return Ok(());
+    }
+    let shard_jobs = plan
+        .suites
+        .iter()
+        .map(|suite| u32::from(suite.shards))
+        .sum::<u32>();
+    if plan
+        .campaign_budget
+        .max_agents
+        .is_some_and(|agents| agents < shard_jobs)
+    {
+        bail!(
+            "App agent budget must allocate at least one Agent to each of the {shard_jobs} model shard jobs"
+        );
+    }
+    Ok(())
 }
 
 fn digest_tree(root: &Path) -> Result<String> {
@@ -3078,8 +3129,31 @@ fn command_run(
             trial.suite_id == suite.id && stable_shard(&trial.id, shard_total) == shard_index
         })
         .collect::<Vec<_>>();
-    let shard_budget =
-        scale_campaign_budget(&plan.campaign_budget, selected.len(), plan.trials.len());
+    let allocated_agents = if unlimited_budget {
+        None
+    } else if std::env::var(APP_CONTROL_ENV).as_deref() == Ok("1") {
+        let value = std::env::var(APP_SHARD_AGENT_BUDGET_ENV)
+            .context("App model shard is missing its Agent allocation")?
+            .parse::<u32>()
+            .context("parsing App model shard Agent allocation")?;
+        if value == 0
+            || plan
+                .campaign_budget
+                .max_agents
+                .is_some_and(|limit| value > limit)
+        {
+            bail!("App model shard Agent allocation is outside its campaign ceiling");
+        }
+        Some(value)
+    } else {
+        plan.campaign_budget.max_agents
+    };
+    let shard_budget = scale_campaign_budget(
+        &plan.campaign_budget,
+        selected.len(),
+        plan.trials.len(),
+        allocated_agents,
+    );
     let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let mut results = Vec::with_capacity(selected.len());
     let mut stop_reason: Option<String> = None;
@@ -3103,8 +3177,20 @@ fn command_run(
             .iter()
             .find(|case| case.id == trial.case_id)
             .ok_or_else(|| anyhow!("planned trial references a missing case"))?;
-        let mut result =
-            run_trial_subprocess(root, &plan_path, trial, planned_case, 1, unlimited_budget)?;
+        let effective_case = if unlimited_budget {
+            planned_case.clone()
+        } else {
+            case_with_remaining_shard_agents(planned_case, &shard_budget, &results)
+                .ok_or_else(|| anyhow!("model shard has no proven residual Agent budget"))?
+        };
+        let mut result = run_trial_subprocess(
+            root,
+            &plan_path,
+            trial,
+            &effective_case,
+            1,
+            unlimited_budget,
+        )?;
         if matches!(
             result.outcome,
             ModelCampaignOutcome::InfraError | ModelCampaignOutcome::SimulatorError
@@ -3126,9 +3212,12 @@ fn command_run(
                 merge_retry_usage(&mut result, &first_attempt)?;
                 result.prior_attempts.push(first_attempt);
             } else if campaign_budget_stop_reason(&shard_budget, &consumed, 0.90).is_none() {
-                if let Some(retry_case) =
-                    retry_case_with_remaining_budget(planned_case, &shard_budget, &results, &result)
-                {
+                if let Some(retry_case) = retry_case_with_remaining_budget(
+                    &effective_case,
+                    &shard_budget,
+                    &results,
+                    &result,
+                ) {
                     let first_attempt = result.as_attempt_record();
                     result = run_trial_subprocess(
                         root,
@@ -3569,6 +3658,36 @@ fn remaining_retry_budget(
     })
 }
 
+fn case_with_remaining_shard_agents(
+    planned_case: &PlannedModelCase,
+    shard_budget: &CampaignBudget,
+    completed: &[ModelTrialResult],
+) -> Option<PlannedModelCase> {
+    let Some(limit) = shard_budget.max_agents else {
+        return Some(planned_case.clone());
+    };
+    let used = completed
+        .iter()
+        .map(|result| result.orchestration.spawned_agents)
+        .fold(0u64, u64::saturating_add);
+    if used >= u64::from(limit) {
+        return None;
+    }
+    let remaining = limit - used as u32;
+    let mut effective = planned_case.clone();
+    effective.budget.max_agents = Some(
+        effective
+            .budget
+            .max_agents
+            .map_or(remaining, |case_limit| case_limit.min(remaining)),
+    );
+    effective.budget.max_concurrency = effective
+        .budget
+        .max_concurrency
+        .map(|concurrency| concurrency.min(remaining));
+    Some(effective)
+}
+
 fn retry_case_with_remaining_budget(
     planned_case: &PlannedModelCase,
     shard_budget: &CampaignBudget,
@@ -3584,7 +3703,7 @@ fn retry_case_with_remaining_budget(
         campaign_usage.add(result);
     }
     campaign_usage.add(first_attempt);
-    let campaign_remaining = remaining_retry_budget(shard_budget, &campaign_usage, false)?;
+    let campaign_remaining = remaining_retry_budget(shard_budget, &campaign_usage, true)?;
     let budget = strictest_budget(&[&case_remaining, &campaign_remaining]);
     validate_campaign_budget(&budget, "model retry residual").ok()?;
 
@@ -3605,6 +3724,7 @@ fn scale_campaign_budget(
     budget: &CampaignBudget,
     selected_trials: usize,
     all_trials: usize,
+    allocated_agents: Option<u32>,
 ) -> CampaignBudget {
     if selected_trials == 0 || all_trials == 0 {
         return CampaignBudget::default();
@@ -3627,10 +3747,15 @@ fn scale_campaign_budget(
         max_output_tokens: scale_u64(budget.max_output_tokens),
         max_cost_usd: budget.max_cost_usd.map(|value| value * ratio),
         max_tool_calls: scale_u64(budget.max_tool_calls),
-        // Agent/concurrency limits are instantaneous ceilings, not additive
-        // campaign consumption, so do not divide them by shard size.
-        max_agents: budget.max_agents,
-        max_concurrency: budget.max_concurrency,
+        // The App supervisor apportions the experiment-wide consumptive Agent
+        // allowance across model campaigns and concurrently runnable shards.
+        // CLI plans without that supervisor retain their registered shard
+        // ceiling through `allocated_agents`.
+        max_agents: allocated_agents,
+        max_concurrency: match (budget.max_concurrency, allocated_agents) {
+            (Some(concurrency), Some(agents)) => Some(concurrency.min(agents)),
+            (concurrency, _) => concurrency,
+        },
     }
 }
 
@@ -3679,6 +3804,10 @@ fn campaign_budget_violations(
         .iter()
         .map(|result| result.tools.attempted)
         .fold(0u64, u64::saturating_add);
+    let spawned_agents = results
+        .iter()
+        .map(|result| result.orchestration.spawned_agents)
+        .fold(0u64, u64::saturating_add);
     let cost = results
         .iter()
         .filter_map(|result| result.cost.total_usd)
@@ -3704,6 +3833,9 @@ fn campaign_budget_violations(
     }
     if reached_u64(tool_calls, budget.max_tool_calls) {
         violations.push("tool_calls".to_string());
+    }
+    if reached_u64(spawned_agents, budget.max_agents.map(u64::from)) {
+        violations.push("agents".to_string());
     }
     if reached_f64(cost, budget.max_cost_usd) {
         violations.push("cost".to_string());
@@ -3782,14 +3914,17 @@ fn run_trial_subprocess(
         .env("TEMP", &trial_tmp)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    if attempt == 2 && !unlimited_budget {
+    if !unlimited_budget {
         command
             .env(
-                RETRY_BUDGET_ENV,
+                EFFECTIVE_BUDGET_ENV,
                 serde_json::to_string(&planned_case.budget)
-                    .context("serializing residual model retry budget")?,
+                    .context("serializing effective model trial budget")?,
             )
-            .env(RETRY_TIMEOUT_ENV, planned_case.timeout_seconds.to_string());
+            .env(
+                EFFECTIVE_TIMEOUT_ENV,
+                planned_case.timeout_seconds.to_string(),
+            );
     }
     // The runner talks to a separately provisioned Hope process. Provider and
     // personal-service credentials must not leak into this harness subprocess.
@@ -3894,22 +4029,22 @@ async fn command_run_trial(
         .and_then(|value| value.parse::<u8>().ok())
         .filter(|value| (1..=2).contains(value))
         .unwrap_or(1);
-    let effective_case = if attempt == 2 && !unlimited_budget {
+    let effective_case = if !unlimited_budget {
         let budget: CampaignBudget = serde_json::from_str(
-            &std::env::var(RETRY_BUDGET_ENV)
-                .context("model retry worker is missing its residual budget")?,
+            &std::env::var(EFFECTIVE_BUDGET_ENV)
+                .context("model trial worker is missing its effective budget")?,
         )
-        .context("parsing residual model retry budget")?;
-        validate_campaign_budget(&budget, "model retry residual")?;
-        let timeout_seconds = std::env::var(RETRY_TIMEOUT_ENV)
-            .context("model retry worker is missing its residual timeout")?
+        .context("parsing effective model trial budget")?;
+        validate_campaign_budget(&budget, "effective model trial")?;
+        let timeout_seconds = std::env::var(EFFECTIVE_TIMEOUT_ENV)
+            .context("model trial worker is missing its effective timeout")?
             .parse::<u64>()
-            .context("parsing residual model retry timeout")?;
+            .context("parsing effective model trial timeout")?;
         if timeout_seconds == 0 || timeout_seconds > planned_case.timeout_seconds {
-            bail!("model retry residual timeout is outside the planned case ceiling");
+            bail!("effective model trial timeout is outside the planned case ceiling");
         }
         if !budget_is_narrower_or_equal(&budget, &planned_case.budget) {
-            bail!("model retry residual budget expands the planned case ceiling");
+            bail!("effective model trial budget expands the planned case ceiling");
         }
         let mut effective = planned_case.clone();
         effective.timeout_seconds = timeout_seconds;
@@ -5325,19 +5460,30 @@ mod tests {
             max_input_tokens: Some(80),
             max_output_tokens: Some(40),
             max_tool_calls: Some(12),
+            max_agents: Some(10),
+            max_concurrency: Some(4),
             max_cost_usd: Some(4.0),
             ..CampaignBudget::default()
         };
-        let child = partition_budget(&budget, 4).unwrap();
+        let child = partition_budget(&budget, 4, 0).unwrap();
         assert_eq!(child.max_model_calls, Some(2));
         assert_eq!(child.max_tool_calls, Some(3));
         assert_eq!(child.max_cost_usd, Some(1.0));
+        assert_eq!(child.max_agents, Some(3));
+        assert_eq!(child.max_concurrency, Some(3));
+        let last_child = partition_budget(&budget, 4, 3).unwrap();
+        assert_eq!(last_child.max_agents, Some(2));
 
         let impossible = CampaignBudget {
             max_model_calls: Some(1),
             ..CampaignBudget::default()
         };
-        assert!(partition_budget(&impossible, 2).is_err());
+        assert!(partition_budget(&impossible, 2, 0).is_err());
+        let impossible_agents = CampaignBudget {
+            max_agents: Some(1),
+            ..CampaignBudget::default()
+        };
+        assert!(partition_budget(&impossible_agents, 2, 0).is_err());
     }
 
     #[test]
