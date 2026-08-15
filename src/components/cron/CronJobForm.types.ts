@@ -102,6 +102,20 @@ export interface CronJob {
   permissionModeOverride?: "default" | "smart" | "yolo" | null
   /** Per-job sandbox-mode override; null/undefined = follow the agent default. */
   sandboxModeOverride?: "off" | "standard" | "isolated" | "workspace" | "trusted" | null
+  /** Most recent occurrence, attached by `cron_list_jobs` for list surfaces. */
+  lastRun?: CronLastRunSummary | null
+}
+
+/** Compact outcome of a task's most recent occurrence (list rows + search). */
+export interface CronLastRunSummary {
+  runLogId: number
+  sessionId: string
+  status: string
+  startedAt: string
+  finishedAt?: string | null
+  error?: string | null
+  resultPreview?: string | null
+  deliveryStatus?: string | null
 }
 
 /**
@@ -173,6 +187,29 @@ export interface CronRunCancelResult {
   code?: string | null
 }
 
+/** Where the occurrence lands — the decisive fact to confirm before saving. */
+export type CronConversationPreview =
+  | { kind: "newSession" }
+  | { kind: "existingSession"; sessionId: string; title?: string | null }
+
+/** One delivery target with its own blocking reason, if any. */
+export interface CronDeliveryPreview {
+  channelId: string
+  accountId: string
+  chatId: string
+  threadId?: string | null
+  label?: string | null
+  problem?: string | null
+}
+
+export interface CronSchedulerPreview {
+  /** Only the Primary process executes tasks. */
+  primary: boolean
+  runningTasks: number
+  /** 0 = unlimited. */
+  maxConcurrent: number
+}
+
 export interface CronPreflightReport {
   checkedRevision?: number | null
   canProceed: boolean
@@ -190,6 +227,11 @@ export interface CronPreflightReport {
     effectivePermissionMode?: string | null
     effectiveSandboxMode?: string | null
     primaryModel?: ActiveModel | null
+    conversation?: CronConversationPreview | null
+    deliveryTargets?: CronDeliveryPreview[]
+    scheduler?: CronSchedulerPreview
+    taskRunning?: boolean
+    taskRunningSince?: string | null
   }
 }
 

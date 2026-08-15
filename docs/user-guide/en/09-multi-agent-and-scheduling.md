@@ -117,7 +117,7 @@ For an existing-chat task, the system reads the chat's **live** Agent, model, pr
 
 ### Checks before saving or running now
 
-A preflight appears before you create, edit, or choose "Run now." It shows the next three run times and the actual Agent, primary model, project, workspace mode / base ref, number of dirty workspace files, permissions, and sandbox, while also validating the delivery targets.
+A preflight appears before you create, edit, or choose "Run now." It leads with the conversation this task will run in — a new chat, or the specific existing chat and its current title — then shows the next three run times and the actual Agent, primary model, project, workspace mode / base ref, number of dirty workspace files, permissions, and sandbox. Delivery targets are listed one by one with their individual problems, and the footer shows whether this process is the scheduler's primary, how many tasks are running, and whether this task itself is running right now.
 
 - A **blocker** cannot be forced through. Common causes include an unavailable target chat, an archived or missing managed project, an invalid base ref, a busy or conflicted Persistent Worktree, an unconfigured model, an invalid IM account / chat, or disabled remote writes.
 - A **warning** can be confirmed after you understand its impact.
@@ -152,6 +152,7 @@ A Scheduled message in an existing chat has a timer badge and is managed by the 
 ### History, badges, and unread
 
 - Scheduled Tasks provides task-list, calendar, and cross-task run-history views. History addresses a **specific occurrence** and shows its status, duration, result, delivery, and Worktree information.
+- List search matches the task name, its description, and the last run's error or result summary, and the status filter has a **Needs attention** entry that keeps only the tasks still waiting on you. A troubled task states its reason on the row itself — auto-disabled after consecutive failures, last run failed, missed occurrence, stale delivery target — with the matching entry point: resume an auto-disabled task in one click, jump straight to editing a stale delivery target, or open the run history for the rest.
 - A new-chat occurrence opens its ordinary chat. An existing-chat occurrence opens the exact target message for that run, rather than pretending the latest turn in that shared chat is the requested history.
 - The timer card on a message shows the task name, can expand the original creation prompt, and links back to the task; the title bar also shows the source task. If the task was deleted, a "Task deleted" tombstone preserves the history.
 - When the model creates a task, the chat keeps a task card: while the task exists it shows the status and next run and opens the task details; if the last run failed, **Run Again** starts another occurrence right from the card; once the task is deleted the card is marked as deleted and offers **Copy as New Task**, which opens a new-task draft with the original configuration.

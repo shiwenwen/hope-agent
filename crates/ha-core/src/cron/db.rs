@@ -1073,6 +1073,47 @@ impl CronDB {
         }
     }
 
+    /// Most recent occurrence per task, keyed by job id. One query for the whole
+    /// list: the task list needs every row's last outcome at once, and per-row
+    /// lookups would turn one panel render into N round trips.
+    pub fn latest_run_summaries(
+        &self,
+    ) -> Result<std::collections::HashMap<String, CronLastRunSummary>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        // Order by the autoincrement id, not `started_at`: two runs can share a
+        // second, and only the id is a total order.
+        let mut stmt = conn.prepare(
+            "SELECT job_id, id, session_id, status, started_at, finished_at, error,
+                    result_preview, delivery_status
+               FROM cron_run_logs l
+              WHERE l.id = (SELECT MAX(id) FROM cron_run_logs WHERE job_id = l.job_id)",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CronLastRunSummary {
+                    run_log_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    status: row.get(3)?,
+                    started_at: row.get(4)?,
+                    finished_at: row.get(5)?,
+                    error: row.get(6)?,
+                    result_preview: row.get(7)?,
+                    delivery_status: row.get(8)?,
+                },
+            ))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for row in rows {
+            let (job_id, summary) = row?;
+            out.insert(job_id, summary);
+        }
+        Ok(out)
+    }
+
     /// Owner-facing read of one task and its tombstone flag. Deleting only
     /// stops future occurrences, so retained history (a chat task card, a run
     /// log) still resolves the task it names — and can seed a copy of it —

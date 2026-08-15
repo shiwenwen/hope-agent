@@ -1492,6 +1492,17 @@
     "everyMonthOn": "Her ay",
     "failures": "Başarısızlık",
     "filterAll": "Tümü",
+    "filterAttention": "İlgi gerekiyor",
+    "schedulerPrimary": "Zamanlayıcı: birincil süreç",
+    "schedulerSecondary": "Zamanlayıcı: ikincil süreç (görev çalıştıramaz)",
+    "schedulerRunning": "Çalışan {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "Art arda {{failures}}/{{max}} hatadan sonra otomatik devre dışı bırakıldı",
+      "runFailed": "Son çalıştırma başarısız oldu",
+      "missed": "Zamanlanmış çalıştırmayı kaçırdı",
+      "deliveryStale": "Bir teslimat hedefi artık geçerli değil",
+      "failing": "Art arda {{failures}}/{{max}} hata"
+    },
     "freq_custom": "Özel",
     "freq_daily": "Günlük",
     "freq_hourly": "Saatlik",

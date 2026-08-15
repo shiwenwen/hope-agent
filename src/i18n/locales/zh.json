@@ -1492,6 +1492,17 @@
     "everyMonthOn": "每月",
     "failures": "失败次数",
     "filterAll": "全部",
+    "filterAttention": "需要处理",
+    "schedulerPrimary": "调度器：主进程",
+    "schedulerSecondary": "调度器：副进程（无法执行任务）",
+    "schedulerRunning": "正在运行 {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "连续失败 {{failures}}/{{max}} 次，已自动禁用",
+      "runFailed": "最近一次运行失败",
+      "missed": "已错过计划运行",
+      "deliveryStale": "投递目标已失效",
+      "failing": "连续失败 {{failures}}/{{max}} 次"
+    },
     "freq_custom": "自定义",
     "freq_daily": "每天",
     "freq_hourly": "每小时",

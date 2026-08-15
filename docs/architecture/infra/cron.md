@@ -254,6 +254,15 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 - 「复制为新任务」经 `cronNavigation` 的 `hope:cron-task-draft` 把保留的 `CronJob` 交给 Scheduled 面板，`CronJobForm` 以 `seedJob` **只初始化字段**：不带 id / revision，恒走 create，绝不把 tombstone 重新推回排程或 CAS 更新。删除的 Worktree 定制、投递目标等配置随草稿一并带出，用户改完再存。
 - live 任务的最近一次运行为 `error` / `timeout` 时，卡片给「再次运行」；它与详情页 run-now 共用同一条 `cron_preflight` → `cron_run_now`（带 `expectedRevision`）链路，不新开执行入口。
 
+### 任务列表的异常入口
+
+「10 秒内找到最近一次失败及修复入口」是这个列表的验收线，因此列表行本身要能回答「哪出问题了、怎么修」：
+
+- `cron_list_jobs` 的 `CronJobView` 带 `lastRun`（`CronDB::latest_run_summaries` 一次查询取每个任务的最近 occurrence，按自增 id 定序而非 `started_at`——同秒两次运行只有 id 是全序），列表因此不必逐行拉运行日志。
+- 搜索匹配名称 + 描述 + 最近一次运行的错误 / 结果摘要（`cronSearchHaystack`）：按错误文案找任务是常见路径，而任务名里通常没有它。
+- 唯一判定 `cronAttention`，按「漏掉的代价」排序：`autoDisabled`（`disabled` 只由连续失败触顶产生，用户暂停是 `paused`）＞ `runFailed` ＞ `missed` ＞ `deliveryStale` ＞ `failing`。状态筛选多一项「需要处理」直接过滤它。
+- 行内直接给修复入口：自动禁用给「恢复」（`cron_toggle_job`），投递目标失效给「编辑」，其余打开运行历史。
+
 ### Owner 表单的对话目标
 
 `CronJobForm` 的目标与模型工具的 `conversation_target` 同语义、同不可变性：
@@ -597,6 +606,7 @@ scheduled run 在 `deliver_results` fan-out **之前**就 `clear_running` 释放
 cron 是 Primary-only。run-now 也补上这道门，并与调度机制正交：
 
 - **统一只读 Preflight**：`evaluate_cron_preflight` 只读 SQLite / 配置 / Git / 本机沙箱状态，不联网、不创建 Worktree、不写 DB；create/update owner 壳在临写前重跑并拒绝 blocker，warning 只由 GUI 二次确认。读取失败 fail-closed 为稳定 issue，不伪装成功。
+- **`CronExecutionPreview` 必须说清「这次会发到哪」**：除 Agent / Project / Worktree / 权限 / 沙箱 / 模型外，还带 `conversation`（`newSession` 或 `existingSession` + live 读取的标题，读不到降级为 id）、`deliveryTargets`（逐条带 `problem`，问题归属到具体目标而不是只抛一条匿名 issue）、`scheduler`（`primary` / `runningTasks` / `maxConcurrent`）与 `taskRunning` + `taskRunningSince`。任务可绑定任意已有会话之后，「保存前看清目标会话」是这份报告最贵的一项——选错目标只有等它发出去才会被发现。
 - **run-now 精确启动**：owner 三入口共用 `start_cron_run_now`，按 `expected_revision` 重跑 live preflight，再在 lifecycle gate 内原子 claim；只有 running lease 已落库才返回 `started`，否则返回带最新报告的 `rejected`。GUI 的预览/确认不能绕过 blocker；`SessionLoop` 仍由原 Loop owner 路径运行。
 - **取消占位也带 `is_primary()` 门**：非 Primary 取消一个本进程没有 live flag 的 run（run 在 Primary 内存里）返回 false、不留永不排空的占位，回落 job-timeout。
 - **`immediate` 与调度/禁用正交**：run-now 只记 run_log + 投递 + clear_running + emit，绝不动 status / schedule / consecutive_failures——run-now 一个 disabled 任务成功不复活成 active，run-now 失败不 bump 失败计数 / 不自动禁用你的计划任务，也不推进 next_run_at / 不终态化一次性 At。

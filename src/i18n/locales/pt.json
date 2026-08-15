@@ -1492,6 +1492,17 @@
     "everyMonthOn": "Todo mês no dia",
     "failures": "Falhas",
     "filterAll": "Tudo",
+    "filterAttention": "Requer atenção",
+    "schedulerPrimary": "Agendador: processo principal",
+    "schedulerSecondary": "Agendador: processo secundário (não executa tarefas)",
+    "schedulerRunning": "Em execução {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "Desativada automaticamente após {{failures}}/{{max}} falhas seguidas",
+      "runFailed": "A última execução falhou",
+      "missed": "Perdeu a execução agendada",
+      "deliveryStale": "Um destino de entrega já não é válido",
+      "failing": "{{failures}}/{{max}} falhas consecutivas"
+    },
     "freq_custom": "Personalizado",
     "freq_daily": "Diariamente",
     "freq_hourly": "A cada hora",

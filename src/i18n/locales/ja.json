@@ -1492,6 +1492,17 @@
     "everyMonthOn": "毎月",
     "failures": "失敗回数",
     "filterAll": "すべて",
+    "filterAttention": "要対応",
+    "schedulerPrimary": "スケジューラー: プライマリプロセス",
+    "schedulerSecondary": "スケジューラー: セカンダリプロセス（タスクを実行できません）",
+    "schedulerRunning": "実行中 {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "{{failures}}/{{max}} 回連続で失敗し自動的に無効化されました",
+      "runFailed": "直近の実行が失敗しました",
+      "missed": "予定された実行を逃しました",
+      "deliveryStale": "配信先が無効になっています",
+      "failing": "{{failures}}/{{max}} 回連続で失敗"
+    },
     "freq_custom": "カスタム",
     "freq_daily": "毎日",
     "freq_hourly": "毎時",

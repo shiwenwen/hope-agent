@@ -1492,6 +1492,17 @@
     "everyMonthOn": "Mỗi tháng vào ngày",
     "failures": "Thất bại",
     "filterAll": "Tất cả",
+    "filterAttention": "Cần xử lý",
+    "schedulerPrimary": "Bộ lập lịch: tiến trình chính",
+    "schedulerSecondary": "Bộ lập lịch: tiến trình phụ (không chạy được tác vụ)",
+    "schedulerRunning": "Đang chạy {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "Tự động tắt sau {{failures}}/{{max}} lần thất bại liên tiếp",
+      "runFailed": "Lần chạy gần nhất thất bại",
+      "missed": "Đã bỏ lỡ lần chạy theo lịch",
+      "deliveryStale": "Một đích gửi không còn hợp lệ",
+      "failing": "{{failures}}/{{max}} lần thất bại liên tiếp"
+    },
     "freq_custom": "Tùy chỉnh",
     "freq_daily": "Hàng ngày",
     "freq_hourly": "Hàng giờ",

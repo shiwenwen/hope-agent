@@ -228,6 +228,22 @@ pub struct CronJob {
     pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
 }
 
+/// Compact "what happened last time" for a task list row. Deliberately not the
+/// full [`CronRunLog`]: the list only needs enough to show — and search — the
+/// most recent outcome and to link into that exact occurrence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronLastRunSummary {
+    pub run_log_id: i64,
+    pub session_id: String,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub error: Option<String>,
+    pub result_preview: Option<String>,
+    pub delivery_status: Option<String>,
+}
+
 /// Read-only view of one task **including its tombstone**. Deleting a task only
 /// stops future occurrences: the ledger row is retained so retained history (a
 /// chat card, a run log) can still name what ran and seed a copy of it. Never

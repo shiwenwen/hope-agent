@@ -1492,6 +1492,17 @@
     "everyMonthOn": "Setiap bulan pada hari",
     "failures": "Kegagalan",
     "filterAll": "Semua",
+    "filterAttention": "Perlu tindakan",
+    "schedulerPrimary": "Penjadual: proses utama",
+    "schedulerSecondary": "Penjadual: proses sekunder (tidak boleh menjalankan tugasan)",
+    "schedulerRunning": "Sedang berjalan {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "Dilumpuhkan automatik selepas {{failures}}/{{max}} kegagalan berturut-turut",
+      "runFailed": "Larian terakhir gagal",
+      "missed": "Terlepas larian berjadual",
+      "deliveryStale": "Sasaran penghantaran tidak lagi sah",
+      "failing": "{{failures}}/{{max}} kegagalan berturut-turut"
+    },
     "freq_custom": "Tersuai",
     "freq_daily": "Setiap hari",
     "freq_hourly": "Setiap jam",

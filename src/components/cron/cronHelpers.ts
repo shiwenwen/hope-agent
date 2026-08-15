@@ -34,6 +34,69 @@ export function cronDisplayStatus(job: CronJob): CronJob["status"] {
   }
 }
 
+/** Run-log statuses that end an occurrence without producing its result. */
+export function isFailedRunStatus(status: string | null | undefined): boolean {
+  return status === "error" || status === "timeout"
+}
+
+export type CronAttentionKind =
+  | "autoDisabled"
+  | "runFailed"
+  | "missed"
+  | "deliveryStale"
+  | "failing"
+
+/** Why a task needs the user, and what evidence to show for it. */
+export interface CronAttention {
+  kind: CronAttentionKind
+  failures: number
+  maxFailures: number
+  /** Error text of the most recent occurrence, when it failed. */
+  error?: string | null
+  runLogId?: number | null
+  sessionId?: string | null
+}
+
+/**
+ * Single source for "this task needs you". Ordered by how much it costs to miss:
+ * an auto-disabled task stopped running entirely (`disabled` is only ever
+ * reached by consecutive failures — a user pause is `paused`), a failed last run
+ * produced nothing, a missed one never fired, a stale delivery target silently
+ * drops output, and a non-zero failure streak is the early warning before the
+ * task disables itself.
+ */
+export function cronAttention(job: CronJob): CronAttention | null {
+  const failures = job.consecutiveFailures
+  const base = {
+    failures,
+    maxFailures: job.maxFailures,
+    error: job.lastRun?.error ?? null,
+    runLogId: job.lastRun?.runLogId ?? null,
+    sessionId: job.lastRun?.sessionId ?? null,
+  }
+  if (job.status === "disabled") return { kind: "autoDisabled", ...base }
+  if (isFailedRunStatus(job.lastRun?.status)) return { kind: "runFailed", ...base }
+  if (job.status === "missed") return { kind: "missed", ...base }
+  if (job.deliveryTargets.some((target) => target.stale)) {
+    return { kind: "deliveryStale", ...base }
+  }
+  if (failures > 0) return { kind: "failing", ...base }
+  return null
+}
+
+/** Free-text haystack for task search: name, description, last outcome. */
+export function cronSearchHaystack(job: CronJob): string {
+  return [
+    job.name,
+    job.description ?? "",
+    job.lastRun?.error ?? "",
+    job.lastRun?.resultPreview ?? "",
+    job.lastRun?.status ?? "",
+  ]
+    .join("\n")
+    .toLowerCase()
+}
+
 /**
  * Human-readable label for a delivery target. Uses the cached `label` computed
  * when the target was picked (e.g. `telegram / 张三`); falls back to the raw

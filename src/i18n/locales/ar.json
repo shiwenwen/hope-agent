@@ -1492,6 +1492,17 @@
     "everyMonthOn": "كل شهر في",
     "failures": "الإخفاقات",
     "filterAll": "الكل",
+    "filterAttention": "يحتاج إلى معالجة",
+    "schedulerPrimary": "المجدول: العملية الأساسية",
+    "schedulerSecondary": "المجدول: عملية ثانوية (لا يمكنها تنفيذ المهام)",
+    "schedulerRunning": "قيد التشغيل {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "تم التعطيل تلقائيًا بعد {{failures}}/{{max}} إخفاقات متتالية",
+      "runFailed": "فشل آخر تشغيل",
+      "missed": "فاتها التشغيل المجدول",
+      "deliveryStale": "أحد أهداف التسليم لم يعد صالحًا",
+      "failing": "{{failures}}/{{max}} إخفاقات متتالية"
+    },
     "freq_custom": "مخصص",
     "freq_daily": "يومياً",
     "freq_hourly": "كل ساعة",

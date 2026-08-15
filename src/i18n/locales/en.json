@@ -1492,6 +1492,17 @@
     "everyMonthOn": "Every month on the",
     "failures": "Failures",
     "filterAll": "All",
+    "filterAttention": "Needs attention",
+    "schedulerPrimary": "Scheduler: primary process",
+    "schedulerSecondary": "Scheduler: secondary process (cannot run tasks)",
+    "schedulerRunning": "Running {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "Auto-disabled after {{failures}}/{{max}} consecutive failures",
+      "runFailed": "Last run failed",
+      "missed": "Missed its scheduled run",
+      "deliveryStale": "A delivery target is no longer valid",
+      "failing": "{{failures}}/{{max}} consecutive failures"
+    },
     "freq_custom": "Custom",
     "freq_daily": "Daily",
     "freq_hourly": "Hourly",

@@ -56,8 +56,10 @@ import {
   runStatusDisplay,
   formatSchedule,
   deliveryStatusColor,
+  cronAttention,
   cronDisplayTitle,
   cronDisplayStatus,
+  cronSearchHaystack,
 } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
@@ -70,6 +72,9 @@ const VIEW_MODE_STORAGE_KEY = "cron_view_mode"
 // List mode renders jobs client-side (search + status filter run on the full
 // set), so paginate the *rendered* rows: show this many, "load more" adds more.
 const JOBS_PAGE = 100
+
+/** Pseudo status filter: every task the user still has to deal with. */
+const ATTENTION_FILTER = "attention"
 
 function readStoredViewMode(): ViewMode {
   try {
@@ -316,11 +321,18 @@ export default function CronCalendarView({
   const filteredJobs = useMemo(
     () =>
       jobs.filter((job) => {
-        if (search && !job.name.toLowerCase().includes(search.toLowerCase())) return false
+        // Search covers the last outcome too: hunting a failure by its error
+        // text is the common case, and the task name rarely contains it.
+        if (search && !cronSearchHaystack(job).includes(search.toLowerCase().trim())) return false
+        if (statusFilter === ATTENTION_FILTER) return cronAttention(job) !== null
         if (statusFilter !== "all" && cronDisplayStatus(job) !== statusFilter) return false
         return true
       }),
     [jobs, search, statusFilter],
+  )
+  const attentionCount = useMemo(
+    () => jobs.filter((job) => cronAttention(job) !== null).length,
+    [jobs],
   )
   const visibleJobs = filteredJobs.slice(0, visibleJobsCount)
 
@@ -360,6 +372,16 @@ export default function CronCalendarView({
 
   function handleCreateWithModel() {
     onCreateWithModel(t("cron.createWithModelPrompt"))
+  }
+
+  /** One-click fix for an auto-disabled task: re-enable and refresh in place. */
+  async function handleResumeJob(job: CronJob) {
+    try {
+      await getTransport().call("cron_toggle_job", { id: job.id, enabled: true })
+      refreshAll()
+    } catch (error) {
+      toast.error(t("cron.resume"), { description: String(error) })
+    }
   }
 
   function handleEditJob(job: CronJob) {
@@ -782,6 +804,10 @@ export default function CronCalendarView({
                   <SelectItem value="all" className="text-xs">
                     {t("cron.filterAll")}
                   </SelectItem>
+                  <SelectItem value={ATTENTION_FILTER} className="text-xs">
+                    {t("cron.filterAttention")}
+                    {attentionCount > 0 ? ` (${attentionCount})` : ""}
+                  </SelectItem>
                   <SelectItem value="active" className="text-xs">
                     {t("cron.active")}
                   </SelectItem>
@@ -813,60 +839,120 @@ export default function CronCalendarView({
                     const isLoop = job.payload.type === "sessionLoop"
                     const title = cronDisplayTitle(job.name, job.payload.type)
                     const displayStatus = cronDisplayStatus(job)
+                    const attention = cronAttention(job)
                     return (
-                      <button
+                      <div
                         key={job.id}
-                        onClick={() => setSelectedListJobId(job.id)}
                         className={cn(
-                          "w-full rounded-xl px-3 py-3 text-left transition-colors",
+                          "rounded-xl transition-colors",
                           isActive ? "bg-secondary" : "hover:bg-secondary/40",
                         )}
                       >
-                        <div className="flex items-center gap-2">
-                          <IconTip label={statusLabel(displayStatus, t)}>
-                            <span
-                              className={cn(
-                                "inline-block h-2 w-2 shrink-0 rounded-full",
-                                statusColor(displayStatus),
-                              )}
-                            />
-                          </IconTip>
-                          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
-                            {isLoop && <CronLoopBadge />}
-                            <span className="truncate">{title}</span>
-                          </span>
-                        </div>
-                        <div className="mt-1.5 truncate pl-4 text-[10px] text-muted-foreground">
-                          {formatSchedule(job.schedule, t)}
-                          {` · ${projectLabel(job.projectId)}`}
-                        </div>
-                        {job.nextRunAt && (
-                          <div className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground">
-                            {t("cron.nextRun")}: {new Date(job.nextRunAt).toLocaleString()}
-                          </div>
-                        )}
-                        {(job.deliveryTargets.length > 0 || job.consecutiveFailures > 0) && (
-                          <div className="mt-1 flex items-center gap-2 pl-4 text-[10px] text-muted-foreground">
-                            {job.deliveryTargets.length > 0 && (
+                        <button
+                          onClick={() => setSelectedListJobId(job.id)}
+                          className="w-full px-3 py-3 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <IconTip label={statusLabel(displayStatus, t)}>
                               <span
                                 className={cn(
-                                  "inline-flex items-center gap-1",
-                                  job.deliveryTargets.some((tg) => tg.stale) && "text-red-500",
+                                  "inline-block h-2 w-2 shrink-0 rounded-full",
+                                  statusColor(displayStatus),
                                 )}
+                              />
+                            </IconTip>
+                            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
+                              {isLoop && <CronLoopBadge />}
+                              <span className="truncate">{title}</span>
+                            </span>
+                          </div>
+                          <div className="mt-1.5 truncate pl-4 text-[10px] text-muted-foreground">
+                            {formatSchedule(job.schedule, t)}
+                            {` · ${projectLabel(job.projectId)}`}
+                          </div>
+                          {job.nextRunAt && (
+                            <div className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground">
+                              {t("cron.nextRun")}: {new Date(job.nextRunAt).toLocaleString()}
+                            </div>
+                          )}
+                          {(job.deliveryTargets.length > 0 || job.consecutiveFailures > 0) && (
+                            <div className="mt-1 flex items-center gap-2 pl-4 text-[10px] text-muted-foreground">
+                              {job.deliveryTargets.length > 0 && (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1",
+                                    job.deliveryTargets.some((tg) => tg.stale) && "text-red-500",
+                                  )}
+                                >
+                                  <Send className="h-3 w-3" />
+                                  {job.deliveryTargets.length}
+                                </span>
+                              )}
+                              {job.consecutiveFailures > 0 && (
+                                <span className="inline-flex items-center gap-1 text-amber-500">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {job.consecutiveFailures}/{job.maxFailures}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </button>
+                        {/* The failure and its fix live on the row itself: an
+                          auto-disabled task has stopped running entirely, and
+                          finding that out should not require opening details. */}
+                        {attention && (
+                          <div className="flex items-start gap-2 px-3 pb-2.5 pl-7">
+                            <div
+                              className={cn(
+                                "min-w-0 flex-1 text-[10px] leading-4",
+                                attention.kind === "autoDisabled"
+                                  ? "text-destructive"
+                                  : "text-amber-600 dark:text-amber-400",
+                              )}
+                            >
+                              <div className="truncate font-medium">
+                                {t(`cron.attention.${attention.kind}`, {
+                                  failures: attention.failures,
+                                  max: attention.maxFailures,
+                                })}
+                              </div>
+                              {attention.error && (
+                                <div className="truncate text-muted-foreground">
+                                  {attention.error}
+                                </div>
+                              )}
+                            </div>
+                            {attention.kind === "autoDisabled" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => void handleResumeJob(job)}
                               >
-                                <Send className="h-3 w-3" />
-                                {job.deliveryTargets.length}
-                              </span>
-                            )}
-                            {job.consecutiveFailures > 0 && (
-                              <span className="inline-flex items-center gap-1 text-amber-500">
-                                <AlertTriangle className="h-3 w-3" />
-                                {job.consecutiveFailures}/{job.maxFailures}
-                              </span>
+                                {t("cron.resume")}
+                              </Button>
+                            ) : attention.kind === "deliveryStale" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => handleEditJob(job)}
+                              >
+                                {t("common.edit")}
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => setSelectedListJobId(job.id)}
+                              >
+                                {t("cron.runHistory")}
+                              </Button>
                             )}
                           </div>
                         )}
-                      </button>
+                      </div>
                     )
                   })}
                   {filteredJobs.length > visibleJobs.length && (

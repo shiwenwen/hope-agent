@@ -98,6 +98,55 @@ pub struct CronPreflightIssue {
     pub severity: CronPreflightSeverity,
 }
 
+/// Where the occurrence will actually land. Since a task may target any
+/// existing chat, "which conversation receives this" is the single most
+/// consequential thing to show before saving — a wrong pick is otherwise only
+/// discovered once the task has posted into a stranger's conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum CronConversationPreview {
+    /// Each run opens its own ordinary chat titled after the task.
+    NewSession,
+    /// Every run appends to this existing ordinary chat.
+    ExistingSession {
+        session_id: String,
+        /// `None` when the chat is missing or unreadable (see the issue list).
+        title: Option<String>,
+    },
+}
+
+/// One resolved delivery target, with the blocking problem (if any) already
+/// attributed to it so the dialog can point at the offending row instead of
+/// showing one anonymous "delivery invalid" line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronDeliveryPreview {
+    pub channel_id: String,
+    pub account_id: String,
+    pub chat_id: String,
+    pub thread_id: Option<String>,
+    /// Owner-facing label captured when the target was picked, when present.
+    pub label: Option<String>,
+    pub problem: Option<CronPreflightIssueCode>,
+}
+
+/// Runtime posture of the scheduler in this process.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronSchedulerPreview {
+    /// Only the Primary process executes tasks; a Secondary can configure them
+    /// but cannot run one now.
+    pub primary: bool,
+    /// Tasks currently holding a running marker, across all tasks.
+    pub running_tasks: u32,
+    /// `0` = unlimited (mirrors `CronConfig.max_concurrent`).
+    pub max_concurrent: u32,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CronExecutionPreview {
@@ -109,6 +158,18 @@ pub struct CronExecutionPreview {
     pub effective_permission_mode: Option<SessionMode>,
     pub effective_sandbox_mode: Option<SandboxMode>,
     pub primary_model: Option<ActiveModel>,
+    /// Absent only for a report that never resolved a candidate at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<CronConversationPreview>,
+    /// Empty = no fan-out; the run only lands in its own conversation.
+    #[serde(default)]
+    pub delivery_targets: Vec<CronDeliveryPreview>,
+    pub scheduler: CronSchedulerPreview,
+    /// This task is executing right now (owner-visible before an edit/run-now).
+    pub task_running: bool,
+    /// When the in-flight occurrence claimed the task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_running_since: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,7 +332,13 @@ fn evaluate_sync(
 ) -> Result<CronPreflightReport> {
     let operation = request.operation();
     let mut report = CronPreflightReport::new(operation);
-    if operation == CronPreflightOperation::RunNow && !ha_core::runtime_lock::is_primary() {
+    let primary = ha_core::runtime_lock::is_primary();
+    report.execution.scheduler = CronSchedulerPreview {
+        primary,
+        running_tasks: cron_db.count_running().unwrap_or_default() as u32,
+        max_concurrent: ha_core::config::cached_config().cron.max_concurrent,
+    };
+    if operation == CronPreflightOperation::RunNow && !primary {
         report.block(CronPreflightIssueCode::NotPrimary);
     }
     let candidate = match request {
@@ -296,6 +363,7 @@ fn evaluate_sync(
         return Ok(report);
     };
 
+    report.execution.conversation = preview_conversation(&candidate.payload, session_db);
     report.execution.workspace_mode = candidate.workspace.mode;
     report.execution.base_ref =
         (candidate.workspace.mode != CronWorkspaceMode::Project).then(|| {
@@ -325,6 +393,30 @@ fn evaluate_sync(
     Ok(report)
 }
 
+/// Resolve the conversation the occurrence lands in. The title is read live so
+/// a renamed chat shows its current name, and an unreadable one degrades to the
+/// bare id rather than silently claiming a target that no longer exists.
+fn preview_conversation(
+    payload: &CronPayload,
+    session_db: &SessionDB,
+) -> Option<CronConversationPreview> {
+    match payload {
+        CronPayload::AgentTurn { .. } => Some(CronConversationPreview::NewSession),
+        CronPayload::SessionTurn { session_id, .. }
+        | CronPayload::SessionLoop { session_id, .. } => {
+            let title = session_db
+                .get_session(session_id)
+                .ok()
+                .flatten()
+                .and_then(|session| session.title);
+            Some(CronConversationPreview::ExistingSession {
+                session_id: session_id.clone(),
+                title,
+            })
+        }
+    }
+}
+
 fn check_live(
     cron_db: &CronDB,
     id: &str,
@@ -344,7 +436,9 @@ fn check_live(
     if job.revision != expected_revision {
         report.block(CronPreflightIssueCode::RevisionConflict);
     }
-    if job.running_at.is_some() {
+    if let Some(claimed_at) = job.running_at.as_deref() {
+        report.execution.task_running = true;
+        report.execution.task_running_since = Some(claimed_at.to_string());
         let severity = if update {
             CronPreflightSeverity::Warning
         } else {
@@ -586,21 +680,46 @@ fn inspect_workspace(
 }
 
 fn inspect_delivery(targets: &[CronDeliveryTarget], report: &mut CronPreflightReport) {
+    report.execution.delivery_targets = targets
+        .iter()
+        .map(|target| CronDeliveryPreview {
+            channel_id: target.channel_id.clone(),
+            account_id: target.account_id.clone(),
+            chat_id: target.chat_id.clone(),
+            thread_id: target.thread_id.clone(),
+            label: target.label.clone(),
+            problem: None,
+        })
+        .collect();
     if targets.is_empty() {
         return;
     }
+    // Attribute each problem to its row as well as raising it as an issue, so
+    // the dialog can show *which* target is broken instead of one anonymous line.
+    let mut attribute = |index: usize, code: CronPreflightIssueCode| {
+        if let Some(preview) = report.execution.delivery_targets.get_mut(index) {
+            if preview.problem.is_none() {
+                preview.problem = Some(code);
+            }
+        }
+        report.block(code);
+    };
     let Some(db) = ha_core::get_channel_db() else {
-        report.block(CronPreflightIssueCode::DeliveryUnavailable);
+        for index in 0..targets.len() {
+            attribute(index, CronPreflightIssueCode::DeliveryUnavailable);
+        }
         return;
     };
     let Some(registry) = ha_core::get_channel_registry() else {
-        report.block(CronPreflightIssueCode::DeliveryUnavailable);
+        for index in 0..targets.len() {
+            attribute(index, CronPreflightIssueCode::DeliveryUnavailable);
+        }
         return;
     };
     let config = ha_core::config::cached_config();
-    for target in targets {
+    for (index, target) in targets.iter().enumerate() {
         if target.stale {
-            report.block(CronPreflightIssueCode::DeliveryTargetStale);
+            attribute(index, CronPreflightIssueCode::DeliveryTargetStale);
         }
         match db.conversation_exists(
             &target.channel_id,
@@ -609,27 +728,27 @@ fn inspect_delivery(targets: &[CronDeliveryTarget], report: &mut CronPreflightRe
             target.thread_id.as_deref(),
         ) {
             Err(_) => {
-                report.block(CronPreflightIssueCode::DeliveryUnavailable);
+                attribute(index, CronPreflightIssueCode::DeliveryUnavailable);
                 continue;
             }
             Ok(false) => {
-                report.block(CronPreflightIssueCode::DeliveryTargetInvalid);
+                attribute(index, CronPreflightIssueCode::DeliveryTargetInvalid);
                 continue;
             }
             Ok(true) => {}
         }
         let Some(account) = config.channels.find_account(&target.account_id) else {
-            report.block(CronPreflightIssueCode::DeliveryAccountMissing);
+            attribute(index, CronPreflightIssueCode::DeliveryAccountMissing);
             continue;
         };
         if !account.enabled {
-            report.block(CronPreflightIssueCode::DeliveryAccountDisabled);
+            attribute(index, CronPreflightIssueCode::DeliveryAccountDisabled);
         }
         if account.channel_id.to_string() != target.channel_id {
-            report.block(CronPreflightIssueCode::DeliveryChannelMismatch);
+            attribute(index, CronPreflightIssueCode::DeliveryChannelMismatch);
         }
         if registry.get_plugin(&account.channel_id).is_none() {
-            report.block(CronPreflightIssueCode::DeliveryUnavailable);
+            attribute(index, CronPreflightIssueCode::DeliveryUnavailable);
         }
     }
 }
@@ -764,5 +883,52 @@ mod tests {
             serde_json::to_value(&report.issues[1]).unwrap()["code"],
             "revision_conflict"
         );
+    }
+
+    #[test]
+    fn execution_preview_names_its_conversation_target() {
+        let session_wire = serde_json::to_value(CronConversationPreview::ExistingSession {
+            session_id: "chat-1".into(),
+            title: Some("Roadmap review".into()),
+        })
+        .unwrap();
+        assert_eq!(session_wire["kind"], "existingSession");
+        assert_eq!(session_wire["sessionId"], "chat-1");
+        assert_eq!(session_wire["title"], "Roadmap review");
+        assert_eq!(
+            serde_json::to_value(CronConversationPreview::NewSession).unwrap()["kind"],
+            "newSession"
+        );
+    }
+
+    #[test]
+    fn delivery_preview_attributes_the_problem_to_its_own_target() {
+        let mut report = CronPreflightReport::new(CronPreflightOperation::Create);
+        // No channel DB is wired in unit tests, so every target is unresolvable —
+        // the point here is that the row itself carries the reason.
+        inspect_delivery(
+            &[CronDeliveryTarget {
+                channel_id: "telegram".into(),
+                account_id: "acct-1".into(),
+                chat_id: "chat-9".into(),
+                thread_id: None,
+                label: Some("telegram / ops".into()),
+                stale: false,
+            }],
+            &mut report,
+        );
+        assert_eq!(report.execution.delivery_targets.len(), 1);
+        let preview = &report.execution.delivery_targets[0];
+        assert_eq!(preview.label.as_deref(), Some("telegram / ops"));
+        assert_eq!(
+            preview.problem,
+            Some(CronPreflightIssueCode::DeliveryUnavailable)
+        );
+        assert!(!report.can_proceed);
+
+        let mut empty = CronPreflightReport::new(CronPreflightOperation::Create);
+        inspect_delivery(&[], &mut empty);
+        assert!(empty.execution.delivery_targets.is_empty());
+        assert!(empty.can_proceed, "no targets is not a delivery problem");
     }
 }

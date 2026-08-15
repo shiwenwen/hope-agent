@@ -1228,7 +1228,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `cron_list_jobs` | `GET /api/cron/jobs` | ✅ |
+| `cron_list_jobs` | `GET /api/cron/jobs` | ✅（每行附 `lastRun` 最近一次运行摘要，供列表搜索与异常入口，无需逐行拉运行日志） |
 | `cron_get_job` | `GET /api/cron/jobs/{id}` | ✅ |
 | `cron_get_job_snapshot` | `GET /api/cron/jobs/{id}/snapshot` | ✅（返回 `{ job, deleted }`；逻辑删除的 Task 仍可读，供保留历史展示与「复制为新任务」草稿，绝不重新进入排程面） |
 | `cron_preflight` | `POST /api/cron/preflight` | ✅（只读；body `{ request }`，支持 create/update/runNow，返回下三次触发、实际执行摘要和 blocker/warning/info） |

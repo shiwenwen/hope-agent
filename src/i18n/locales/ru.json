@@ -1492,6 +1492,17 @@
     "everyMonthOn": "Каждый месяц",
     "failures": "Сбои",
     "filterAll": "Все",
+    "filterAttention": "Требует внимания",
+    "schedulerPrimary": "Планировщик: основной процесс",
+    "schedulerSecondary": "Планировщик: вторичный процесс (не выполняет задачи)",
+    "schedulerRunning": "Выполняется {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "Отключена автоматически после {{failures}}/{{max}} сбоев подряд",
+      "runFailed": "Последний запуск завершился ошибкой",
+      "missed": "Запланированный запуск пропущен",
+      "deliveryStale": "Цель доставки больше не действительна",
+      "failing": "{{failures}}/{{max}} сбоев подряд"
+    },
     "freq_custom": "Пользовательская",
     "freq_daily": "Ежедневно",
     "freq_hourly": "Ежечасно",

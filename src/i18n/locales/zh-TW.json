@@ -1492,6 +1492,17 @@
     "everyMonthOn": "每月",
     "failures": "失敗次數",
     "filterAll": "全部",
+    "filterAttention": "需要處理",
+    "schedulerPrimary": "排程器：主行程",
+    "schedulerSecondary": "排程器：副行程（無法執行任務）",
+    "schedulerRunning": "正在執行 {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "連續失敗 {{failures}}/{{max}} 次，已自動停用",
+      "runFailed": "最近一次執行失敗",
+      "missed": "已錯過排定的執行",
+      "deliveryStale": "投遞目標已失效",
+      "failing": "連續失敗 {{failures}}/{{max}} 次"
+    },
     "freq_custom": "自定義",
     "freq_daily": "每天",
     "freq_hourly": "每小時",

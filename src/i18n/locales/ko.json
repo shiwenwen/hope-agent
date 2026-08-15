@@ -1492,6 +1492,17 @@
     "everyMonthOn": "매월",
     "failures": "실패",
     "filterAll": "전체",
+    "filterAttention": "조치 필요",
+    "schedulerPrimary": "스케줄러: 기본 프로세스",
+    "schedulerSecondary": "스케줄러: 보조 프로세스(작업 실행 불가)",
+    "schedulerRunning": "실행 중 {{running}} / {{max}}",
+    "attention": {
+      "autoDisabled": "연속 {{failures}}/{{max}}회 실패로 자동 비활성화됨",
+      "runFailed": "최근 실행이 실패했습니다",
+      "missed": "예정된 실행을 놓쳤습니다",
+      "deliveryStale": "전달 대상이 더 이상 유효하지 않습니다",
+      "failing": "연속 {{failures}}/{{max}}회 실패"
+    },
     "freq_custom": "사용자 지정",
     "freq_daily": "매일",
     "freq_hourly": "매시간",

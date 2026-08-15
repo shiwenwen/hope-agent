@@ -49,6 +49,24 @@ export default function CronPreflightDialog({
     environment,
   ].filter(Boolean)
   const retry = blockers.length > 0 && onRetry
+  const conversation = execution.conversation ?? null
+  const conversationText =
+    conversation?.kind === "existingSession"
+      ? `${t("cron.conversationTargetExisting")}: ${conversation.title || conversation.sessionId}`
+      : conversation
+        ? t("cron.conversationTargetNew")
+        : null
+  const deliveryTargets = execution.deliveryTargets ?? []
+  const scheduler = execution.scheduler
+  const schedulerText = scheduler
+    ? [
+        scheduler.primary ? t("cron.schedulerPrimary") : t("cron.schedulerSecondary"),
+        t("cron.schedulerRunning", {
+          running: scheduler.runningTasks,
+          max: scheduler.maxConcurrent > 0 ? scheduler.maxConcurrent : "∞",
+        }),
+      ].join(" · ")
+    : null
   const issueText = (code: string) => {
     if (code === "remote_workspace_writes_disabled") return t("fileEditor.remoteWritesTitle")
     if (code === "session_unavailable") return t("pet.navigation.unavailable")
@@ -80,8 +98,50 @@ export default function CronPreflightDialog({
           <AlertDialogDescription>{t("cron.preflightDescription")}</AlertDialogDescription>
         </AlertDialogHeader>
         <div className="max-h-[50vh] space-y-2 overflow-y-auto text-xs">
+          {/* Destination first: a wrong conversation is the costliest mistake
+              this dialog can still catch. */}
+          {conversationText && (
+            <p className="rounded-md bg-primary/10 px-3 py-2 font-medium text-foreground">
+              {conversationText}
+            </p>
+          )}
           {summary.length > 0 && (
             <p className="rounded-md bg-muted/30 px-3 py-2">{summary.join(" · ")}</p>
+          )}
+          {deliveryTargets.length > 0 && (
+            <div className="rounded-md bg-muted/30 px-3 py-2">
+              <p className="text-muted-foreground">{t("cron.deliveryTargets")}</p>
+              <ul className="mt-1 space-y-0.5">
+                {deliveryTargets.map((target) => (
+                  <li
+                    key={`${target.channelId}:${target.accountId}:${target.chatId}:${target.threadId ?? ""}`}
+                    className={target.problem ? "text-destructive" : undefined}
+                  >
+                    {target.label || `${target.channelId} / ${target.chatId}`}
+                    {target.problem ? ` — ${target.problem.replaceAll("_", " ")}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {execution.taskRunning && (
+            <p className="rounded-md bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+              {t("cron.runStatusRunning")}
+              {execution.taskRunningSince
+                ? ` · ${new Date(execution.taskRunningSince).toLocaleString()}`
+                : ""}
+            </p>
+          )}
+          {schedulerText && (
+            <p
+              className={
+                scheduler?.primary
+                  ? "rounded-md bg-muted/30 px-3 py-2 text-muted-foreground"
+                  : "rounded-md bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300"
+              }
+            >
+              {schedulerText}
+            </p>
           )}
           {report.nextRuns.length > 0 && (
             <p className="rounded-md bg-muted/30 px-3 py-2">
