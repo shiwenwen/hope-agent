@@ -1862,11 +1862,7 @@ fn validate_app_child_agent_partition(
     if enforcement == AppBudgetEnforcement::Unlimited {
         return Ok(());
     }
-    let shard_jobs = plan
-        .suites
-        .iter()
-        .map(|suite| u32::from(suite.shards))
-        .sum::<u32>();
+    let shard_jobs = active_model_shard_job_count(plan);
     if plan
         .campaign_budget
         .max_agents
@@ -1877,6 +1873,26 @@ fn validate_app_child_agent_partition(
         );
     }
     Ok(())
+}
+
+fn active_model_shard_job_count_for(
+    suites: &[PlannedModelSuite],
+    trials: &[PlannedModelTrial],
+) -> u32 {
+    trials
+        .iter()
+        .filter_map(|trial| {
+            let suite = suites.iter().find(|suite| suite.id == trial.suite_id)?;
+            (suite.shards > 0).then(|| (suite.id.as_str(), stable_shard(&trial.id, suite.shards)))
+        })
+        .collect::<BTreeSet<_>>()
+        .len()
+        .try_into()
+        .unwrap_or(u32::MAX)
+}
+
+pub(crate) fn active_model_shard_job_count(plan: &ModelCampaignPlan) -> u32 {
+    active_model_shard_job_count_for(&plan.suites, &plan.trials)
 }
 
 fn digest_tree(root: &Path) -> Result<String> {
@@ -5484,6 +5500,38 @@ mod tests {
             ..CampaignBudget::default()
         };
         assert!(partition_budget(&impossible_agents, 2, 0).is_err());
+    }
+
+    #[test]
+    fn app_agent_partition_counts_only_shards_with_selected_trials() {
+        let suites = vec![PlannedModelSuite {
+            id: "suite".to_string(),
+            version: "1.0.0".to_string(),
+            capability: "test".to_string(),
+            adapter: ModelCampaignAdapter::HopeCoreScenario,
+            digest: "a".repeat(64),
+            runner_class: RunnerClass::HostedLinux,
+            network_policy: NetworkPolicy::ProviderOnly,
+            execution_mode: ExecutionMode::NativeProvider,
+            shards: 4,
+            cases: Vec::new(),
+        }];
+        let first = planned_trial();
+        let first_shard = stable_shard(&first.id, 4);
+        assert_eq!(
+            active_model_shard_job_count_for(&suites, std::slice::from_ref(&first)),
+            1
+        );
+
+        let mut second = first.clone();
+        second.id = (0..10_000)
+            .map(|index| format!("mtrial_other_{index}"))
+            .find(|id| stable_shard(id, 4) != first_shard)
+            .expect("a trial id assigned to a different shard");
+        assert_eq!(
+            active_model_shard_job_count_for(&suites, &[first, second]),
+            2
+        );
     }
 
     #[test]

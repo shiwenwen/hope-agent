@@ -1079,12 +1079,7 @@ async fn run_experiment(
         let child_plan_path = campaign_root.join("model-campaign-plan.v1.json");
         write_json(&child_plan_path, &campaign.resolved_plan)?;
         let mut pending_shards = VecDeque::new();
-        let shard_job_count = campaign
-            .resolved_plan
-            .suites
-            .iter()
-            .map(|suite| u32::from(suite.shards))
-            .sum::<u32>();
+        let shard_job_count = super::model::active_model_shard_job_count(&campaign.resolved_plan);
         let campaign_agents = match plan.budget_enforcement {
             ha_eval_spec::app::AppBudgetEnforcement::Enforced => Some(
                 campaign
@@ -1098,7 +1093,6 @@ async fn run_experiment(
         if campaign_agents.is_some_and(|agents| agents < shard_job_count) {
             bail!("App campaign Agent budget cannot cover its {shard_job_count} model shard jobs");
         }
-        let mut shard_job_index = 0u32;
         for suite in &campaign.resolved_plan.suites {
             for shard in 1..=suite.shards {
                 let shard_path = campaign_root
@@ -1114,6 +1108,9 @@ async fn run_experiment(
                     })
                     .map(|trial| trial.id.clone())
                     .collect::<Vec<_>>();
+                if trial_ids.is_empty() {
+                    continue;
+                }
                 pending_shards.push_back(AppShardJob {
                     suite_id: suite.id.clone(),
                     network_policy: suite.network_policy,
@@ -1121,14 +1118,16 @@ async fn run_experiment(
                     shard_total: suite.shards,
                     output: shard_path,
                     trial_ids,
-                    agent_budget: campaign_agents.map(|agents| {
-                        let base = agents / shard_job_count.max(1);
-                        let remainder = agents % shard_job_count.max(1);
-                        base + u32::from(shard_job_index < remainder)
-                    }),
+                    agent_budget: None,
                 });
-                shard_job_index = shard_job_index.saturating_add(1);
             }
+        }
+        for (shard_job_index, job) in pending_shards.iter_mut().enumerate() {
+            job.agent_budget = campaign_agents.map(|agents| {
+                let base = agents / shard_job_count.max(1);
+                let remainder = agents % shard_job_count.max(1);
+                base + u32::from((shard_job_index as u32) < remainder)
+            });
         }
         let mut running = tokio::task::JoinSet::new();
         let mut shard_paths = Vec::new();
