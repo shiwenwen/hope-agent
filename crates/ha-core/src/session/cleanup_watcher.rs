@@ -132,6 +132,9 @@ async fn cleanup_session(
     descendant_session_ids: Vec<String>,
     im_chat: Option<(String, String)>,
 ) {
+    crate::session_title::cancel_generation(session_id);
+    crate::memory_extract::cancel_idle_extraction(session_id);
+    crate::memory_extract::cancel_active_extractions(session_id);
     crate::ask_user::cancel_owner_question_timeouts_for_session(session_id);
     crate::ask_user::cancel_pending_ask_user_questions_for_session(session_id, "session_deleted")
         .await;
@@ -177,6 +180,9 @@ async fn cleanup_session(
     // it owns, so deleting the parent doesn't strand an orphan approval dialog
     // (or a child-session job) with no way to resolve it.
     for child_sid in &descendant_session_ids {
+        crate::session_title::cancel_generation(child_sid);
+        crate::memory_extract::cancel_idle_extraction(child_sid);
+        crate::memory_extract::cancel_active_extractions(child_sid);
         crate::ask_user::cancel_owner_question_timeouts_for_session(child_sid);
         crate::ask_user::cancel_pending_ask_user_questions_for_session(
             child_sid,

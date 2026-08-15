@@ -752,6 +752,16 @@ mod tests {
             output_coverage,
             reserved_output_tokens,
             has_media: false,
+            cache_compaction_decision: None,
+            cache_identity_hash: None,
+            projection_action_count: 0,
+            reclaimed_tokens_upper: 0,
+            invalidated_suffix_tokens_upper: None,
+            cache_read_input_tokens: None,
+            cache_creation_input_tokens: None,
+            break_even_turns: None,
+            prefix_rewrite_count: 0,
+            summary_reason: None,
         }
     }
 

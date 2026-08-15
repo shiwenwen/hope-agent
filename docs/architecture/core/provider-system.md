@@ -782,13 +782,13 @@ sequenceDiagram
 
 Provider 系统作为压缩的**消费方**，只需保证两件事：消息格式标准化（§6）与 Token 计量准确。压缩本身是一套 **5 层渐进式**结构（详见 [context-compact.md](context-compact.md)）：
 
-- **Tier 0** 反应式微压缩（turn-start + tool-loop checkpoint 清理 eager 旧工具结果；不调额外模型，但修改点之后的动态 cache 可能失效）
-- **Tier 1** 工具结果截断
-- **Tier 2** 上下文裁剪（软/硬）
-- **Tier 3** LLM 摘要
+- **Tier 0** 容量救援中的短命旧工具结果清理（不调额外模型，但会改写分歧点后的缓存前缀）
+- **Tier 1** 当前工具组 C0/整组接纳与兼容单结果截断
+- **Tier 2** 容量救援中的旧结果软/硬降档
+- **Tier 3** 日常高水位 LLM 摘要；摘要输入过大时，第 0/2 层只处理一次性摘要输入副本
 - **Tier 4** ContextOverflow 应急恢复
 
-触发条件、cache-TTL 节流、mid-loop 频率地板、runtime ledger / recovery 注入等全部由 `agent/context.rs` + `context_compact` 模块负责。摘要构建时会正确处理所有 Provider 格式的消息（`context_compact/summarization.rs`）：reasoning item 跳过、function_call 转 `[tool_call]`、Anthropic thinking 块截断预览等。
+日常低于摘要高水位时保持旧前缀不变；只有完整请求容量救援会发布第 0/2 层投影。若本次精确请求依靠该投影才适配，摘要要求会与请求计划的 `context_committed` 转换在同一事务登记，下一安全主请求在发送前执行一次第 3 层。触发、频率地板、运行时台账与恢复注入由 `agent/context.rs` + `context_compact` 负责。摘要构建会正确处理所有模型服务商格式的消息（`context_compact/summarization.rs`）：推理项跳过、函数调用转为 `[tool_call]`、Anthropic 思考块使用有界预览等。
 
 ---
 

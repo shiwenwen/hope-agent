@@ -10,6 +10,7 @@
 //  Reference: openclaw context-pruning + compaction systems + claude-code microcompact.
 
 mod boundary;
+mod cache_policy;
 mod capacity_pressure;
 #[cfg(test)]
 mod capacity_pressure_contract_tests;
@@ -17,6 +18,8 @@ mod compact;
 mod config;
 pub mod engine;
 mod estimation;
+#[cfg(feature = "eval-runner")]
+pub mod eval;
 pub(crate) mod group_admission;
 mod ledger;
 mod manifest;
@@ -105,6 +108,10 @@ pub use boundary::{
 pub(crate) use boundary::{
     latest_user_request_anchor, user_turn_start_for_message, LatestUserRequestAnchor,
 };
+pub use cache_policy::{
+    first_rewritten_item, plan_routine_compaction, projection_economics, CacheCompactionDecision,
+    CompactionSummaryReason, ProjectionEconomics, RelativeCacheCosts, RoutineCompactionPlan,
+};
 pub(crate) use capacity_pressure::{
     apply_capacity_pressure_tier, replay_capacity_pressure_edits, CapacityPressureResult,
     CapacityPressureTier,
@@ -149,4 +156,4 @@ pub use summarization::{
     split_for_summarization_with_boundary,
 };
 pub use truncation::truncate_tool_results;
-pub use types::CompactResult;
+pub use types::{CompactDetails, CompactResult};

@@ -1,28 +1,27 @@
 {
   "schemaVersion": "eval-app-profile.v1",
   "id": "context-compaction",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "title": "上下文压缩专项",
-  "description": "用一个模型、一个对照臂和一次重复验证第 3 层语义摘要与 UTF-8 文件分页，总费用上限为 5 美元。",
+  "description": "一次运行先执行 10 个零网络安全用例，再执行 2 个付费真实模型场景，完整覆盖第 0～4 层协议边界、第 3 层语义摘要与 UTF-8 文件连续分页。预算可在预览前自行调整。",
   "baseTier": "nightly",
   "suites": [
     {
       "suiteId": "context-compaction",
-      "caseTags": [
-        "context_compaction"
-      ]
+      "caseTags": ["context_compaction"]
     }
   ],
-  "allowedArms": [
-    "control"
-  ],
+  "deterministicSuites": ["context-compaction-safety"],
+  "allowedArms": ["control"],
   "armMode": "one_control_per_case",
   "defaultRepetitions": 1,
   "useSuiteRepetitions": false,
-  "maxTrials": 2,
+  "maxTrials": 12,
   "maxModels": 1,
-  "maxConcurrency": 1,
-  "maxCostUsd": 5,
-  "maxTrialSeconds": 900,
+  "maxConcurrency": 500,
+  "defaultConcurrency": 1,
+  "maxCostUsd": 1000000,
+  "defaultCostUsd": 5,
+  "budgetMode": "user_configurable",
   "allowCustom": false
 }

@@ -7,8 +7,9 @@ use super::types::{
 use anyhow::{anyhow, bail, Result};
 use chrono::{Duration, SecondsFormat, Utc};
 use ha_eval_spec::app::{
-    evidence_trust_key_fingerprint, AppDebugRetention, EvalAppPlan, EvalAppRunRequest,
-    EvidenceKeyStatus, EvidenceTrustRegistry,
+    deterministic_campaign_id, deterministic_trial_id, evidence_trust_key_fingerprint,
+    validate_app_deterministic_evidence, AppDebugRetention, AppDeterministicEvidence, EvalAppPlan,
+    EvalAppRunRequest, EvidenceKeyStatus, EvidenceTrustRegistry,
 };
 use ha_eval_spec::model::{
     ModelCampaignEvidence, ModelCampaignOutcome, ModelCampaignSource, ModelCampaignTier,
@@ -280,6 +281,11 @@ impl EvalRepository {
                         .iter()
                         .map(|campaign| campaign.resolved_plan.trials.len())
                         .sum::<usize>()
+                        + plan
+                            .deterministic_suites
+                            .iter()
+                            .map(|suite| suite.cases.len())
+                            .sum::<usize>()
                 )?,
                 plan.campaign_budget.max_cost_usd,
             ],
@@ -295,6 +301,20 @@ impl EvalRepository {
                     campaign.model_digest,
                     campaign.provider_config_digest,
                     i64::try_from(campaign.resolved_plan.trials.len())?,
+                ],
+            )?;
+        }
+        for suite in &plan.deterministic_suites {
+            let campaign_id = deterministic_campaign_id(suite);
+            connection.execute(
+                "INSERT INTO eval_campaigns(
+                   experiment_id,id,model_digest,provider_config_digest,status,total_trials
+                 ) VALUES(?1,?2,?3,?3,'queued',?4)",
+                params![
+                    run_id,
+                    campaign_id,
+                    suite.digest,
+                    i64::try_from(suite.cases.len())?,
                 ],
             )?;
         }
@@ -520,6 +540,121 @@ impl EvalRepository {
                         .and_then(|value| i64::try_from(value).ok()),
                     trial.cost.total_usd,
                     trial.failure_class,
+                ],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE eval_experiments SET
+               completed_trials=(SELECT COALESCE(SUM(total_trials),0) FROM eval_campaigns WHERE experiment_id=?1 AND status='completed'),
+               passed_trials=(SELECT COALESCE(SUM(passed_trials),0) FROM eval_campaigns WHERE experiment_id=?1),
+               failed_trials=(SELECT COALESCE(SUM(failed_trials),0) FROM eval_campaigns WHERE experiment_id=?1),
+               infra_error_trials=(SELECT COALESCE(SUM(infra_error_trials),0) FROM eval_campaigns WHERE experiment_id=?1),
+               observed_cost_usd=(SELECT CASE WHEN COUNT(cost_usd)=COUNT(*) THEN SUM(cost_usd) END FROM eval_campaigns WHERE experiment_id=?1)
+             WHERE id=?1",
+            [run_id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn index_deterministic_evidence(
+        &self,
+        run_id: &str,
+        evidence: &AppDeterministicEvidence,
+        artifact: &StoredEvalArtifact,
+    ) -> Result<()> {
+        validate_app_deterministic_evidence(evidence)?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        let stored_suite_digest: Option<String> = transaction
+            .query_row(
+                "SELECT model_digest FROM eval_campaigns
+                 WHERE experiment_id=?1 AND id=?2",
+                params![run_id, evidence.campaign_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if stored_suite_digest.as_deref() != Some(evidence.suite.digest.as_str()) {
+            bail!("deterministic evidence does not match the planned suite");
+        }
+        transaction.execute(
+            "INSERT OR IGNORE INTO eval_artifacts(
+               sha256,size_bytes,media_type,created_at,pinned,protected
+             ) VALUES(?1,?2,'application/json',?3,0,0)",
+            params![artifact.sha256, i64::try_from(artifact.size_bytes)?, now()],
+        )?;
+        transaction.execute(
+            "INSERT OR REPLACE INTO eval_artifact_refs(
+               owner_kind,owner_id,artifact_kind,sha256,retention_until
+             ) VALUES('campaign',?1,'deterministic_evidence',?2,?3)",
+            params![
+                format!("{run_id}:{}", evidence.campaign_id),
+                artifact.sha256,
+                retention_at(90),
+            ],
+        )?;
+        let passed = evidence
+            .cases
+            .iter()
+            .filter(|case| case.status == ha_eval_spec::EvalStatus::Passed)
+            .count();
+        let infra = evidence
+            .cases
+            .iter()
+            .filter(|case| case.status == ha_eval_spec::EvalStatus::InfraError)
+            .count();
+        let failed = evidence.cases.len().saturating_sub(passed + infra);
+        transaction.execute(
+            "UPDATE eval_campaigns SET status='completed',evidence_artifact_sha256=?3,
+               aggregate_status=?4,total_trials=?5,passed_trials=?6,failed_trials=?7,
+               infra_error_trials=?8,duration_ms=?9,cost_usd=0
+             WHERE experiment_id=?1 AND id=?2",
+            params![
+                run_id,
+                evidence.campaign_id,
+                artifact.sha256,
+                match evidence.aggregate_status {
+                    ha_eval_spec::EvalStatus::Passed => "passed",
+                    ha_eval_spec::EvalStatus::Failed => "failed",
+                    ha_eval_spec::EvalStatus::InfraError => "infra_error",
+                },
+                i64::try_from(evidence.cases.len())?,
+                i64::try_from(passed)?,
+                i64::try_from(failed)?,
+                i64::try_from(infra)?,
+                i64::try_from(evidence.duration_ms)?,
+            ],
+        )?;
+        transaction.execute(
+            "DELETE FROM eval_trials WHERE experiment_id=?1 AND campaign_id=?2",
+            params![run_id, evidence.campaign_id],
+        )?;
+        for case in &evidence.cases {
+            let (outcome, failure_class) = match case.status {
+                ha_eval_spec::EvalStatus::Passed => ("passed", None),
+                ha_eval_spec::EvalStatus::Failed => {
+                    ("task_failed", Some("deterministic_contract_failed"))
+                }
+                ha_eval_spec::EvalStatus::InfraError => {
+                    ("infra_error", Some("deterministic_infrastructure_error"))
+                }
+            };
+            transaction.execute(
+                "INSERT INTO eval_trials(
+                   experiment_id,campaign_id,id,suite_id,case_id,arm,outcome,attempt,
+                   duration_ms,model_calls,tool_calls,input_tokens,output_tokens,cost_usd,
+                   trace_artifact_sha256,failure_class
+                 ) VALUES(?1,?2,?3,?4,?5,'deterministic',?6,?7,?8,0,0,NULL,NULL,0,NULL,?9)",
+                params![
+                    run_id,
+                    evidence.campaign_id,
+                    deterministic_trial_id(&case.case_id),
+                    case.suite_id,
+                    case.case_id,
+                    outcome,
+                    i64::from(case.attempt),
+                    i64::try_from(case.duration_ms)?,
+                    failure_class,
                 ],
             )?;
         }

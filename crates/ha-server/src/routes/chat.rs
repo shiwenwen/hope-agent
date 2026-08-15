@@ -2068,6 +2068,15 @@ pub async fn cleanup_model_eval_trial(
     let session_ids = ha_core::eval_context::session_ids_for_trial(&trial_id)
         .ok_or_else(|| AppError::not_found("model evaluation trial was not found"))?;
     let count = session_ids.len();
+    let mut cancelled_background_tasks = 0usize;
+    for session_id in &session_ids {
+        cancelled_background_tasks +=
+            usize::from(ha_core::session_title::cancel_generation(session_id));
+        cancelled_background_tasks +=
+            usize::from(ha_core::memory_extract::cancel_idle_extraction(session_id));
+        cancelled_background_tasks +=
+            ha_core::memory_extract::cancel_active_extractions(session_id);
+    }
     ctx.session_db
         .run(move |db| {
             for session_id in session_ids {
@@ -2076,7 +2085,10 @@ pub async fn cleanup_model_eval_trial(
             anyhow::Ok(())
         })
         .await?;
-    Ok(Json(json!({ "cleanedSessions": count })))
+    Ok(Json(json!({
+        "cleanedSessions": count,
+        "cancelledBackgroundTasks": cancelled_background_tasks,
+    })))
 }
 
 /// Mark the final scripted/replay user turn complete without deleting state,

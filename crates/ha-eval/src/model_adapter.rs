@@ -28,6 +28,11 @@ const SERVER_TOKEN_ENV: &str = "HA_MODEL_EVAL_SERVER_TOKEN";
 const SUPERVISOR_URL_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_URL";
 const SUPERVISOR_TOKEN_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_TOKEN";
 const TRIAL_CLEANUP_GRACE_SECONDS: u64 = 10;
+// This is an infrastructure deadlock fuse, not a campaign budget. Unlimited
+// evaluations bypass user budget dimensions but must still terminate if the
+// isolated Hope process cannot converge after explicit cancellation.
+const TRIAL_CLEANUP_SAFETY_FUSE_SECONDS: u64 = 75;
+pub(crate) const CLEANUP_INCOMPLETE_FAILURE_CLASS: &str = "cleanup_incomplete_after_evidence";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,6 +132,7 @@ pub async fn run_registered_trial(
     trial: &PlannedModelTrial,
     model: &ModelProfile,
     attempt: u8,
+    unlimited_budget: bool,
 ) -> ModelTrialResult {
     let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let started = Instant::now();
@@ -166,7 +172,17 @@ pub async fn run_registered_trial(
     }
     let execution = match adapter {
         ModelCampaignAdapter::HopeCoreScenario => {
-            run_hope_core_scenario(root, scenario_path, scenario, planned_case, trial, model).await
+            run_hope_core_scenario(
+                root,
+                scenario_path,
+                scenario,
+                planned_case,
+                trial,
+                model,
+                attempt,
+                unlimited_budget,
+            )
+            .await
         }
         other => Err(anyhow!(
             "registered adapter {other:?} has no installed harness implementation"
@@ -383,15 +399,16 @@ async fn timed_out_chat_result(
     server_url: &str,
     token: Option<&str>,
     trial: &PlannedModelTrial,
+    product_trial_id: &str,
     stage: &str,
 ) -> ObservedTrial {
     let telemetry = match tokio::time::timeout(
         Duration::from_secs(TRIAL_CLEANUP_GRACE_SECONDS.saturating_sub(2).max(1)),
-        cleanup_after_failed_chat(client, server_url, token, trial),
+        cleanup_after_failed_chat(client, server_url, token, trial, product_trial_id),
     )
     .await
     {
-        Ok(Ok(telemetry)) => telemetry,
+        Ok((telemetry, _)) => telemetry,
         _ => fallback_telemetry(trial, 0),
     };
     ObservedTrial {
@@ -412,10 +429,16 @@ async fn run_hope_core_scenario(
     planned_case: &PlannedModelCase,
     trial: &PlannedModelTrial,
     model: &ModelProfile,
+    attempt: u8,
+    unlimited_budget: bool,
 ) -> Result<ObservedTrial> {
     let server_url = std::env::var(SERVER_URL_ENV)
         .with_context(|| format!("{SERVER_URL_ENV} is required for hope_core_scenario"))?;
     let server_url = server_url.trim_end_matches('/');
+    // A runner retry is a new product execution attempt. The evidence model
+    // keeps the stable planned trial ID, while the in-process product registry
+    // must not reuse an earlier attempt's root Session or still-closing work.
+    let product_trial_id = format!("{}-attempt-{attempt}", trial.id);
     if !server_url.starts_with("http://127.0.0.1:")
         && !server_url.starts_with("http://localhost:")
         && !server_url.starts_with("https://")
@@ -452,12 +475,15 @@ async fn run_hope_core_scenario(
         _ => {}
     }
 
-    let request_timeout_seconds = planned_case
-        .timeout_seconds
-        .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS)
-        .max(1);
-    let client = Client::builder()
-        .timeout(Duration::from_secs(request_timeout_seconds))
+    let mut client_builder = Client::builder();
+    if !unlimited_budget {
+        let request_timeout_seconds = planned_case
+            .timeout_seconds
+            .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS)
+            .max(1);
+        client_builder = client_builder.timeout(Duration::from_secs(request_timeout_seconds));
+    }
+    let client = client_builder
         .build()
         .context("building model eval HTTP client")?;
     let mut required_signals = vec!["model".to_string()];
@@ -516,10 +542,13 @@ async fn run_hope_core_scenario(
         "suiteDigest": trial.suite_digest,
         "caseId": trial.case_id,
         "caseDigest": trial.case_digest,
-        "trialId": trial.id,
+        "trialId": product_trial_id.clone(),
         "trialIndex": trial.trial_index,
-        "traceId": format!("trace_{}", trial.id),
-        "rootSpanId": format!("span_{}", &trial.id[trial.id.len().saturating_sub(16)..]),
+        "traceId": format!("trace_{product_trial_id}"),
+        "rootSpanId": format!(
+            "span_{}",
+            &product_trial_id[product_trial_id.len().saturating_sub(16)..]
+        ),
         "modelRole": trial.model_role,
         "arm": trial.arm,
         "faultProfile": trial.fault_profile,
@@ -574,7 +603,7 @@ async fn run_hope_core_scenario(
     });
     let mut request = client
         .post(format!("{server_url}/api/chat"))
-        .header("x-hope-eval-trial", &trial.id)
+        .header("x-hope-eval-trial", &product_trial_id)
         .header("x-hope-eval-case", &trial.case_id)
         .json(&body);
     if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
@@ -589,6 +618,7 @@ async fn run_hope_core_scenario(
                 server_url,
                 token.as_deref(),
                 trial,
+                &product_trial_id,
                 "Hope chat",
             )
             .await);
@@ -610,16 +640,26 @@ async fn run_hope_core_scenario(
                     "invalid_harness_request",
                 )
             };
+        let (telemetry, cleanup_error) = cleanup_after_failed_chat(
+            &client,
+            server_url,
+            token.as_deref(),
+            trial,
+            &product_trial_id,
+        )
+        .await;
         return Ok(ObservedTrial {
             outcome,
             failure_class: Some(classification.to_string()),
-            telemetry: cleanup_after_failed_chat(&client, server_url, token.as_deref(), trial)
-                .await?,
+            telemetry,
             artifacts: Vec::new(),
-            error: Some(format!(
-                "Hope server returned HTTP {}; body sha256:{}",
-                status,
-                sha256_bytes(&bytes)
+            error: Some(format_failure_with_cleanup(
+                format!(
+                    "Hope server returned HTTP {}; body sha256:{}",
+                    status,
+                    sha256_bytes(&bytes)
+                ),
+                cleanup_error,
             )),
         });
     }
@@ -645,7 +685,7 @@ async fn run_hope_core_scenario(
                 Vec::new()
             };
         if let Some(trigger) = user_event_trigger {
-            let before = fetch_telemetry(&client, server_url, token.as_deref(), trial)
+            let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
                 .await
                 .ok_or_else(|| anyhow!("pre-user-event Hope telemetry is unavailable"))?;
             user_event_precondition_check = Some(user_event_precondition_observed(
@@ -653,7 +693,7 @@ async fn run_hope_core_scenario(
             ));
         }
         if process_restart_fault {
-            let before = fetch_telemetry(&client, server_url, token.as_deref(), trial)
+            let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
                 .await
                 .ok_or_else(|| anyhow!("pre-restart Hope telemetry is unavailable"))?;
             let trigger = process_restart_trigger
@@ -697,7 +737,7 @@ async fn run_hope_core_scenario(
                     });
                     let mut request = client
                         .post(format!("{server_url}/api/chat"))
-                        .header("x-hope-eval-trial", &trial.id)
+                        .header("x-hope-eval-trial", &product_trial_id)
                         .header("x-hope-eval-case", &trial.case_id)
                         .json(&body);
                     if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
@@ -711,6 +751,7 @@ async fn run_hope_core_scenario(
                                 server_url,
                                 token.as_deref(),
                                 trial,
+                                &product_trial_id,
                                 "Hope scripted user turn",
                             )
                             .await);
@@ -723,9 +764,14 @@ async fn run_hope_core_scenario(
                         .await
                         .context("reading Hope scripted user turn response")?;
                     if !status.is_success() {
-                        let telemetry =
-                            cleanup_after_failed_chat(&client, server_url, token.as_deref(), trial)
-                                .await?;
+                        let (telemetry, cleanup_error) = cleanup_after_failed_chat(
+                            &client,
+                            server_url,
+                            token.as_deref(),
+                            trial,
+                            &product_trial_id,
+                        )
+                        .await;
                         return Ok(ObservedTrial {
                             outcome: if status == StatusCode::TOO_MANY_REQUESTS
                                 || status.is_server_error()
@@ -741,9 +787,12 @@ async fn run_hope_core_scenario(
                             }),
                             telemetry,
                             artifacts: Vec::new(),
-                            error: Some(format!(
-                                "Hope scripted turn returned HTTP {status}; body sha256:{}",
-                                sha256_bytes(&bytes)
+                            error: Some(format_failure_with_cleanup(
+                                format!(
+                                    "Hope scripted turn returned HTTP {status}; body sha256:{}",
+                                    sha256_bytes(&bytes)
+                                ),
+                                cleanup_error,
                             )),
                         });
                     }
@@ -762,7 +811,7 @@ async fn run_hope_core_scenario(
                             "{server_url}/api/sessions/{}/compact",
                             chat.session_id
                         ))
-                        .header("x-hope-eval-trial", &trial.id)
+                        .header("x-hope-eval-trial", &product_trial_id)
                         .header("x-hope-eval-case", &trial.case_id);
                     if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
                         request = request.bearer_auth(token);
@@ -775,6 +824,7 @@ async fn run_hope_core_scenario(
                                 server_url,
                                 token.as_deref(),
                                 trial,
+                                &product_trial_id,
                                 "Hope scripted compact_context action",
                             )
                             .await);
@@ -831,13 +881,13 @@ async fn run_hope_core_scenario(
             }
         }
     }
-    finish_trial_for_scoring(&client, server_url, token.as_deref(), trial).await?;
+    finish_trial_for_scoring(&client, server_url, token.as_deref(), &product_trial_id).await?;
     let agent_wall_ms = elapsed_ms(agent_started);
     let response_hash = response_hashes
         .last()
         .cloned()
         .unwrap_or_else(|| sha256_bytes(b""));
-    let mut telemetry = fetch_telemetry(&client, server_url, token.as_deref(), trial)
+    let mut telemetry = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
         .await
         .ok_or_else(|| anyhow!("Hope model-eval telemetry endpoint is unavailable"))?;
     let active_work_at_response =
@@ -894,8 +944,19 @@ async fn run_hope_core_scenario(
         }
     }
     let cleanup_started = Instant::now();
-    let final_telemetry =
-        cleanup_and_wait_for_trial(&client, server_url, token.as_deref(), trial).await?;
+    let (final_telemetry, cleanup_error) =
+        match cleanup_and_wait_for_trial(&client, server_url, token.as_deref(), &product_trial_id)
+            .await
+        {
+            Ok(final_telemetry) => (final_telemetry, None),
+            Err(error) => {
+                let detail = format!("{error:#}");
+                telemetry
+                    .warnings
+                    .push(format!("trial cleanup remained incomplete: {detail}"));
+                (telemetry, Some(detail))
+            }
+        };
     let environment_cleanup_ms = elapsed_ms(cleanup_started);
     // Use the post-cleanup snapshot for complete usage/terminal metrics, while
     // retaining checks observed at the assistant response boundary. Active
@@ -983,7 +1044,12 @@ async fn run_hope_core_scenario(
         .iter()
         .chain(&telemetry.invariants)
         .any(|check| check.blocking && !check.passed);
-    let (mut outcome, mut failure_class) = if request_blocked {
+    let (mut outcome, mut failure_class) = if cleanup_error.is_some() {
+        (
+            ModelCampaignOutcome::InfraError,
+            Some(CLEANUP_INCOMPLETE_FAILURE_CLASS.to_string()),
+        )
+    } else if request_blocked {
         (
             ModelCampaignOutcome::PolicyFailed,
             Some("request_blocked".to_string()),
@@ -1018,7 +1084,7 @@ async fn run_hope_core_scenario(
         failure_class,
         telemetry,
         artifacts,
-        error: None,
+        error: cleanup_error,
     })
 }
 
@@ -1351,9 +1417,11 @@ async fn fetch_telemetry(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
-    trial: &PlannedModelTrial,
+    product_trial_id: &str,
 ) -> Option<TelemetrySnapshot> {
-    let mut request = client.get(format!("{server_url}/api/eval/model/trials/{}", trial.id));
+    let mut request = client.get(format!(
+        "{server_url}/api/eval/model/trials/{product_trial_id}"
+    ));
     if let Some(token) = token.filter(|value| !value.is_empty()) {
         request = request.bearer_auth(token);
     }
@@ -1758,11 +1826,10 @@ async fn finish_trial_for_scoring(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
-    trial: &PlannedModelTrial,
+    product_trial_id: &str,
 ) -> Result<()> {
     let mut request = client.post(format!(
-        "{server_url}/api/eval/model/trials/{}/finish",
-        trial.id
+        "{server_url}/api/eval/model/trials/{product_trial_id}/finish"
     ));
     if let Some(token) = token.filter(|value| !value.is_empty()) {
         request = request.bearer_auth(token);
@@ -1790,25 +1857,33 @@ async fn cleanup_after_failed_chat(
     server_url: &str,
     token: Option<&str>,
     trial: &PlannedModelTrial,
-) -> Result<TelemetrySnapshot> {
-    if fetch_telemetry(client, server_url, token, trial)
-        .await
-        .is_none()
-    {
-        return Ok(fallback_telemetry(trial, 0));
+    product_trial_id: &str,
+) -> (TelemetrySnapshot, Option<String>) {
+    let before_cleanup = fetch_telemetry(client, server_url, token, product_trial_id).await;
+    let Some(before_cleanup) = before_cleanup else {
+        return (fallback_telemetry(trial, 0), None);
+    };
+    match cleanup_and_wait_for_trial(client, server_url, token, product_trial_id).await {
+        Ok(telemetry) => (telemetry, None),
+        Err(error) => {
+            let detail = format!("{error:#}");
+            let mut telemetry = before_cleanup;
+            telemetry
+                .warnings
+                .push(format!("trial cleanup remained incomplete: {detail}"));
+            (telemetry, Some(detail))
+        }
     }
-    cleanup_and_wait_for_trial(client, server_url, token, trial).await
 }
 
 async fn cleanup_and_wait_for_trial(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
-    trial: &PlannedModelTrial,
+    product_trial_id: &str,
 ) -> Result<TelemetrySnapshot> {
     let mut request = client.post(format!(
-        "{server_url}/api/eval/model/trials/{}/cleanup",
-        trial.id
+        "{server_url}/api/eval/model/trials/{product_trial_id}/cleanup"
     ));
     if let Some(token) = token.filter(|value| !value.is_empty()) {
         request = request.bearer_auth(token);
@@ -1829,17 +1904,40 @@ async fn cleanup_and_wait_for_trial(
         );
     }
 
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
+    let deadline =
+        Instant::now() + std::time::Duration::from_secs(TRIAL_CLEANUP_SAFETY_FUSE_SECONDS);
+    let mut last_snapshot = None;
     loop {
-        if let Some(snapshot) = fetch_telemetry(client, server_url, token, trial).await {
+        if let Some(snapshot) = fetch_telemetry(client, server_url, token, product_trial_id).await {
             if snapshot.trace.closed && snapshot.trace.orphan_span_count == 0 {
                 return Ok(snapshot);
             }
+            last_snapshot = Some(snapshot);
         }
         if Instant::now() >= deadline {
-            bail!("Hope model-eval cleanup did not close all trial work within 15 seconds");
+            if let Some(snapshot) = last_snapshot {
+                bail!(
+                    "Hope model-eval cleanup did not close all trial work within {} seconds (traceClosed={}, orphanSpans={}, activeChildren={}, backgroundModelWork={})",
+                    TRIAL_CLEANUP_SAFETY_FUSE_SECONDS,
+                    snapshot.trace.closed,
+                    snapshot.trace.orphan_span_count,
+                    snapshot.active_children,
+                    snapshot.background_model_work,
+                );
+            }
+            bail!(
+                "Hope model-eval cleanup did not close all trial work within {} seconds and no final telemetry snapshot was available",
+                TRIAL_CLEANUP_SAFETY_FUSE_SECONDS,
+            );
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+fn format_failure_with_cleanup(primary: String, cleanup_error: Option<String>) -> String {
+    match cleanup_error {
+        Some(cleanup_error) => format!("{primary}; cleanup also failed: {cleanup_error}"),
+        None => primary,
     }
 }
 
@@ -2208,12 +2306,16 @@ async fn evaluate_registered_verifier(
         }
         (VerifierKind::HttpAssertion, "response_json_exact") => {
             let expected = read_verifier_config(verifier, scenario_dir)?;
-            match serde_json::from_str::<Value>(&chat.response) {
+            match parse_semantically_exact_json_response(&chat.response) {
                 Ok(actual) => (
                     json_exact(&expected, &actual),
                     "assistant JSON must exactly match the configured value".to_string(),
                 ),
-                Err(_) => (false, "assistant response is not valid JSON".to_string()),
+                Err(_) => (
+                    false,
+                    "assistant response is neither raw JSON nor a single JSON code fence"
+                        .to_string(),
+                ),
             }
         }
         (_, other) => bail!(
@@ -2437,6 +2539,27 @@ fn json_subset(expected: &Value, actual: &Value) -> bool {
 
 fn json_exact(expected: &Value, actual: &Value) -> bool {
     expected == actual
+}
+
+/// Parse one semantically exact JSON document while tolerating the common
+/// presentation-only Markdown wrapper produced by otherwise-correct models.
+/// Prose before/after the fence, multiple fences, extra object keys and array
+/// reordering remain failures; only the outer `json` fence is ignored.
+fn parse_semantically_exact_json_response(response: &str) -> Result<Value> {
+    let trimmed = response.trim();
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Ok(value);
+    }
+    let fenced = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```JSON"))
+        .and_then(|value| value.strip_suffix("```"))
+        .ok_or_else(|| anyhow!("response is not a single JSON document"))?
+        .trim();
+    if fenced.contains("```") {
+        bail!("response contains more than one code fence");
+    }
+    serde_json::from_str(fenced).context("parsing fenced assistant JSON")
 }
 
 fn fallback_telemetry(trial: &PlannedModelTrial, span_count: u64) -> TelemetrySnapshot {

@@ -80,6 +80,10 @@ pub struct PrepareRequestPlan {
     pub round: u32,
     pub final_capacity_count_json: String,
     pub projection: Vec<DurableProjectionItem>,
+    /// Set only when this exact request needed deterministic old-history
+    /// projection to fit. The durability sink publishes the follow-up marker
+    /// with the request plan's `ContextCommitted` transition.
+    pub tier3_followup_after_capacity_projection: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

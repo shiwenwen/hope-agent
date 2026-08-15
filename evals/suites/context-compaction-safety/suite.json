@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "eval-suite.v1",
+  "id": "context-compaction-safety",
+  "version": "1.0.0",
+  "capability": "context_compaction",
+  "adapter": "context_compaction_contract",
+  "tiers": ["weekly", "release"],
+  "runnerClass": "hosted_linux",
+  "networkPolicy": "deny",
+  "shards": 2,
+  "timeoutSeconds": 180,
+  "thresholds": { "minPassRate": 1.0 },
+  "cases": [
+    { "id": "tier0-request-projection", "tags": ["tier0", "projection"] },
+    { "id": "tier1-group-admission", "tags": ["tier1", "protocol"] },
+    { "id": "tier2-capacity-projection", "tags": ["tier2", "projection"] },
+    { "id": "tier3-summary-protocol", "tags": ["tier3", "provider-shape"] },
+    { "id": "tier3-recovery-transaction", "tags": ["tier3", "durability"] },
+    { "id": "tier4-capacity-certificate", "tags": ["tier4", "capacity-proof"] },
+    { "id": "tier4-emergency-user-anchor", "tags": ["tier4", "exactly-once"] },
+    { "id": "overflow-evidence-gate", "tags": ["tier4", "classification"] },
+    { "id": "dispatch-ambiguity-terminal", "tags": ["tier4", "dispatch-wal"] },
+    { "id": "cross-tier-boundaries", "tags": ["tier0", "tier1", "tier2", "tier3", "tier4"] }
+  ]
+}

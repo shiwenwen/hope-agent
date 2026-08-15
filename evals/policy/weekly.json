@@ -1,12 +1,13 @@
 {
   "schemaVersion": "eval-policy.v1",
   "id": "hope-agent-weekly-deterministic",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "tier": "weekly",
   "mode": "advisory",
   "allowedAdapters": [
     "coding_fixture_patch",
     "coding_gold_fixture_patch",
+    "context_compaction_contract",
     "domain_trace_fixture",
     "dreaming_golden",
     "memory_retrieval_scale"
@@ -14,6 +15,7 @@
   "suites": [
     { "id": "coding-control-plane", "minPassRate": 1.0 },
     { "id": "coding-gold", "minPassRate": 1.0 },
+    { "id": "context-compaction-safety", "minPassRate": 1.0 },
     { "id": "domain-trace", "minPassRate": 1.0 },
     { "id": "memory-dreaming", "minPassRate": 1.0 },
     { "id": "memory-retrieval-scale", "minPassRate": 1.0 }

@@ -31,11 +31,14 @@ mod types;
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
 pub use autonomy_pause::{SessionAutonomyPause, SessionAutonomyResumeOutcome};
 pub(crate) use context_compaction_recovery::{
-    claim_incognito_tier3_recovery, clear_incognito_tier3_recovery,
-    exhaust_incognito_tier3_recovery, incognito_tier3_recovery_state,
-    purge_incognito_tier3_recovery, require_incognito_tier3_recovery,
+    claim_incognito_tier3_recovery, clear_incognito_capacity_projection_recovery,
+    clear_incognito_tier3_recovery, exhaust_incognito_tier3_recovery,
+    incognito_tier3_recovery_requirement, purge_incognito_tier3_recovery,
+    require_incognito_tier3_after_capacity_projection, require_incognito_tier3_recovery,
 };
-pub use context_compaction_recovery::{Tier3RecoveryCommit, Tier3RecoveryState};
+pub use context_compaction_recovery::{
+    Tier3RecoveryCommit, Tier3RecoveryRequirement, Tier3RecoveryRequirementKind, Tier3RecoveryState,
+};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, PinnedSessionFilter,

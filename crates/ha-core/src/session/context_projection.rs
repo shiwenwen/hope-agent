@@ -842,6 +842,14 @@ impl SessionDB {
         &self,
         plan: &NewRequestProjectionPlan,
     ) -> Result<RequestProjectionPlanRecord> {
+        self.create_context_committed_request_projection_plan_with_followup(plan, false)
+    }
+
+    pub(crate) fn create_context_committed_request_projection_plan_with_followup(
+        &self,
+        plan: &NewRequestProjectionPlan,
+        require_tier3_after_capacity_projection: bool,
+    ) -> Result<RequestProjectionPlanRecord> {
         validate_plan(plan)?;
         if plan.projection_epoch_id.is_some() {
             bail!("projection epochs require their typed atomic constructor");
@@ -850,6 +858,14 @@ impl SessionDB {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         insert_request_projection_plan_in_tx(&tx, plan)?;
         commit_new_plan_context_in_tx(&tx, &plan.session_id, &plan.request_plan_id)?;
+        if require_tier3_after_capacity_projection {
+            Self::require_tier3_after_capacity_projection_in_tx(
+                &tx,
+                &plan.session_id,
+                &plan.request_plan_id,
+                plan.expected_canonical_generation,
+            )?;
+        }
         let record = tx.query_row(
             &format!("{PLAN_SELECT} WHERE request_plan_id = ?1"),
             params![plan.request_plan_id],
@@ -902,6 +918,18 @@ impl SessionDB {
         items: &[NewProjectionItem],
         plan: &NewRequestProjectionPlan,
     ) -> Result<RequestProjectionPlanRecord> {
+        self.create_context_committed_request_local_projection_plan_with_followup(
+            epoch, items, plan, false,
+        )
+    }
+
+    pub(crate) fn create_context_committed_request_local_projection_plan_with_followup(
+        &self,
+        epoch: &NewProjectionEpoch,
+        items: &[NewProjectionItem],
+        plan: &NewRequestProjectionPlan,
+        require_tier3_after_capacity_projection: bool,
+    ) -> Result<RequestProjectionPlanRecord> {
         validate_epoch(epoch, items)?;
         validate_plan(plan)?;
         if epoch.scope != ProjectionEpochScope::RequestLocal
@@ -923,6 +951,14 @@ impl SessionDB {
         require_plan_epoch(&tx, plan, &epoch.epoch_id)?;
         insert_request_projection_plan_in_tx(&tx, plan)?;
         commit_new_plan_context_in_tx(&tx, &plan.session_id, &plan.request_plan_id)?;
+        if require_tier3_after_capacity_projection {
+            Self::require_tier3_after_capacity_projection_in_tx(
+                &tx,
+                &plan.session_id,
+                &plan.request_plan_id,
+                plan.expected_canonical_generation,
+            )?;
+        }
         let record = tx.query_row(
             &format!("{PLAN_SELECT} WHERE request_plan_id = ?1"),
             params![plan.request_plan_id],
@@ -1304,6 +1340,11 @@ impl SessionDB {
             params![reason, now, session_id, request_plan_id],
         )?;
         if changed == 1 {
+            Self::clear_capacity_projection_requirement_for_unsent_plan_in_tx(
+                &tx,
+                session_id,
+                request_plan_id,
+            )?;
             revoke_request_local_epoch(&tx, session_id, request_plan_id)?;
             tx.execute(
                 "UPDATE request_payload_objects
@@ -1340,6 +1381,11 @@ impl SessionDB {
             params![reason, now, session_id, request_plan_id],
         )?;
         if changed == 1 {
+            Self::clear_capacity_projection_requirement_for_unsent_plan_in_tx(
+                &tx,
+                session_id,
+                request_plan_id,
+            )?;
             revoke_request_local_epoch(&tx, session_id, request_plan_id)?;
         }
         tx.commit()?;
@@ -1384,6 +1430,18 @@ pub(super) fn supersede_unsent_run_attempt_in_tx(
             SET state = 'revoked'
           WHERE session_id = ?1 AND scope = 'request_local' AND state = 'active'
             AND owner_request_plan_id IN (
+                SELECT request_plan_id FROM request_projection_plans
+                 WHERE session_id = ?1 AND run_id = ?2 AND attempt_no = ?3
+                   AND state = 'superseded'
+            )",
+        params![session_id, run_id, i64::from(attempt_no)],
+    )?;
+    tx.execute(
+        "DELETE FROM session_context_compaction_recovery
+          WHERE session_id = ?1
+            AND requirement_kind = 'capacity_projection'
+            AND automatic_attempt_in_progress = 0
+            AND source_request_plan_id IN (
                 SELECT request_plan_id FROM request_projection_plans
                  WHERE session_id = ?1 AND run_id = ?2 AND attempt_no = ?3
                    AND state = 'superseded'

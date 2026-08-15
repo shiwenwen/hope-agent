@@ -42,6 +42,7 @@ pub(super) struct CompactionRunOptions {
     pub allow_memory_flush: bool,
     pub allow_summarization: bool,
     pub force_summary: bool,
+    pub summary_reason: crate::context_compact::CompactionSummaryReason,
     /// Capacity recovery is a summary-only operation. The index names the
     /// earliest canonical message that must remain verbatim (the user turn
     /// owning the pending current tool group). Ordinary ratio-driven Tier 0/2
@@ -60,6 +61,7 @@ impl CompactionRunOptions {
             allow_memory_flush: true,
             allow_summarization: true,
             force_summary: false,
+            summary_reason: crate::context_compact::CompactionSummaryReason::HighWatermark,
             summary_hard_protected_start: None,
             cancel,
             tool_schemas: Vec::new(),
@@ -74,6 +76,7 @@ impl CompactionRunOptions {
             allow_memory_flush: true,
             allow_summarization: true,
             force_summary: true,
+            summary_reason: crate::context_compact::CompactionSummaryReason::Manual,
             summary_hard_protected_start: None,
             cancel: None,
             tool_schemas: Vec::new(),
@@ -92,6 +95,8 @@ pub(super) struct CompactionRunOutcome {
     pub changed_history: bool,
     pub summary_applied: bool,
     pub summary_timed_out: bool,
+    pub summary_reason: Option<crate::context_compact::CompactionSummaryReason>,
+    pub cache_decision: Option<crate::context_compact::CacheCompactionDecision>,
     pub tokens_after: u32,
     pub cancelled: bool,
     /// A recovery-state read/claim failure is a correctness barrier, not an
@@ -244,14 +249,33 @@ fn record_manual_recovered_tool_cleanup(
 }
 
 impl AssistantAgent {
-    async fn pending_tier3_recovery_state(
+    fn refresh_awareness_after_prefix_rewrite(&self) {
+        let should_piggyback = self
+            .awareness
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .map(|awareness| {
+                awareness
+                    .cfg
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .refresh_on_compaction
+            })
+            .unwrap_or(true);
+        if should_piggyback {
+            self.force_refresh_awareness();
+        }
+    }
+
+    async fn pending_tier3_recovery_requirement(
         &self,
-    ) -> Result<Option<crate::session::Tier3RecoveryState>> {
+    ) -> Result<Option<crate::session::Tier3RecoveryRequirement>> {
         if self.session_is_incognito() {
             return Ok(self
                 .session_id
                 .as_deref()
-                .and_then(crate::session::incognito_tier3_recovery_state));
+                .and_then(crate::session::incognito_tier3_recovery_requirement));
         }
         let Some(session_id) = self.session_id.clone().filter(|id| !id.is_empty()) else {
             return Ok(None);
@@ -261,7 +285,8 @@ impl AssistantAgent {
             .clone()
             .or_else(|| crate::get_session_db().cloned())
             .ok_or_else(|| anyhow::anyhow!("Tier 3 recovery state DB unavailable"))?;
-        db.run(move |db| db.tier3_recovery_state(&session_id)).await
+        db.run(move |db| db.tier3_recovery_requirement(&session_id))
+            .await
     }
 
     /// Claim the one automatic post-Tier-4 summary before starting its model
@@ -515,7 +540,7 @@ impl AssistantAgent {
         tool_schemas: &[serde_json::Value],
         model: &str,
         max_tokens: u32,
-        defer_pending_tier3_recovery: bool,
+        restored_attempt_base_contains_current_user: bool,
         cancel: Option<Arc<AtomicBool>>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> CompactionRunOutcome {
@@ -524,23 +549,37 @@ impl AssistantAgent {
         // retry already carries the exact current user in its adopted base and
         // must not consume the marker it just created; the next user turn is
         // the first safe boundary for the forced Tier 3 summary.
-        let recovery_state = if defer_pending_tier3_recovery {
-            None
-        } else {
-            match self.pending_tier3_recovery_state().await {
-                Ok(state) => state,
-                Err(error) => {
-                    return CompactionRunOutcome {
-                        fatal_error: Some(format!(
-                            "cannot verify pending Tier 3 recovery state: {error}"
-                        )),
-                        ..CompactionRunOutcome::default()
-                    };
-                }
+        let recovery_state = match self.pending_tier3_recovery_requirement().await {
+            Ok(state) => state,
+            Err(error) => {
+                return CompactionRunOutcome {
+                    fatal_error: Some(format!(
+                        "cannot verify pending Tier 3 recovery state: {error}"
+                    )),
+                    ..CompactionRunOutcome::default()
+                };
             }
         };
+        if restored_attempt_base_contains_current_user
+            && matches!(
+                recovery_state.map(|requirement| requirement.state),
+                Some(crate::session::Tier3RecoveryState::Required)
+            )
+        {
+            // Same-turn Tier 4 retry: preserve the newly published debt and
+            // do not let the ordinary high-watermark path consume it early.
+            return CompactionRunOutcome {
+                cache_decision: Some(match recovery_state.map(|requirement| requirement.kind) {
+                    Some(crate::session::Tier3RecoveryRequirementKind::CapacityProjection) => {
+                        crate::context_compact::CacheCompactionDecision::CapacityRecovery
+                    }
+                    _ => crate::context_compact::CacheCompactionDecision::Emergency,
+                }),
+                ..CompactionRunOutcome::default()
+            };
+        }
         if matches!(
-            recovery_state,
+            recovery_state.map(|requirement| requirement.state),
             Some(crate::session::Tier3RecoveryState::InProgress)
         ) {
             return CompactionRunOutcome {
@@ -551,8 +590,21 @@ impl AssistantAgent {
                 ..CompactionRunOutcome::default()
             };
         }
+        if restored_attempt_base_contains_current_user {
+            // A promoted failover base has already crossed this turn's
+            // compaction boundary: either Tier 3 published a validated
+            // summary, or Tier 4 published an emergency projection together
+            // with the Required marker handled above. Re-running routine
+            // compaction on a fallback model would pay for another summary
+            // and rewrite an otherwise stable cache prefix. Exact request
+            // accounting and the in-loop capacity ladder still run later.
+            return CompactionRunOutcome {
+                cache_decision: Some(crate::context_compact::CacheCompactionDecision::KeepPrefix),
+                ..CompactionRunOutcome::default()
+            };
+        }
         let force_tier3_recovery = matches!(
-            recovery_state,
+            recovery_state.map(|requirement| requirement.state),
             Some(crate::session::Tier3RecoveryState::Required)
         );
         if force_tier3_recovery {
@@ -579,13 +631,18 @@ impl AssistantAgent {
         }
         let mut options = CompactionRunOptions::turn_start(cancel).with_tool_schemas(tool_schemas);
         if force_tier3_recovery {
-            // Tier 4 proved that deterministic emergency projection alone is
-            // not a healthy long-term history. The next safe request gets one
-            // forced Tier 3 attempt, bypassing ordinary watermarks and cache
-            // TTL; failure is durably exhausted below to prevent per-turn
-            // retry charges.
+            // An emergency or capacity-only projection is not a healthy
+            // long-term history. The next safe request gets one forced Tier 3
+            // attempt, bypassing ordinary watermarks and cache TTL; failure is
+            // durably exhausted below to prevent per-turn retry charges.
             options.bypass_cache_ttl = true;
             options.force_summary = true;
+            options.summary_reason = match recovery_state.map(|requirement| requirement.kind) {
+                Some(crate::session::Tier3RecoveryRequirementKind::CapacityProjection) => {
+                    crate::context_compact::CompactionSummaryReason::RequiredAfterRecovery
+                }
+                _ => crate::context_compact::CompactionSummaryReason::EmergencyFollowup,
+            };
         }
         let outcome = self
             .run_compaction_with_options(
@@ -743,13 +800,15 @@ impl AssistantAgent {
         ) {
             let tokens_now = estimate_request(request_projection);
             let usage_now = tokens_now as f64 / self.context_window.max(1) as f64;
-            // `run_compaction` runs every turn but is a no-op far below the
-            // reactive trigger — only consult the PreCompact hook when a
+            // `run_compaction` runs every turn but is a no-op below the
+            // summary high watermark — only consult the PreCompact hook when a
             // compaction is actually plausible, so it precedes a real
             // compaction instead of firing every idle turn.
             let sid = self.session_id.clone().unwrap_or_default();
-            if usage_now >= compact_config.reactive_trigger_ratio
+            if usage_now >= compact_config.summarization_threshold
                 || matches!(options.trigger, CompactionRunTrigger::Manual)
+                || options.force_summary
+                || options.summary_hard_protected_start.is_some()
             {
                 let input = crate::hooks::HookInput::PreCompact {
                     common: self.hook_common_input("PreCompact"),
@@ -831,17 +890,42 @@ impl AssistantAgent {
             // legacy combined Tier0/1/2 path and over-degrade the protected
             // request projection.
             let tokens = estimate_request(request_projection);
+            let details = crate::context_compact::CompactDetails {
+                tool_results_truncated: 0,
+                tool_results_soft_trimmed: 0,
+                tool_results_hard_cleared: 0,
+                messages_summarized: 0,
+                summary_tokens: None,
+            };
+            let boundary = crate::context_compact::boundary_snapshot(
+                request_projection,
+                compact_config.preserve_recent_rounds,
+            )
+            .boundary(
+                request_projection,
+                crate::context_compact::BoundaryMode::SummarizeUnderPressure,
+            );
+            let mut manifest = crate::context_compact::CompactionManifest::for_result_with_boundary(
+                3,
+                options.trigger.manifest_trigger(),
+                tokens,
+                tokens,
+                Some(&details),
+                &boundary,
+            );
+            manifest.protected_start_index = options.summary_hard_protected_start;
             crate::context_compact::CompactResult {
                 tier_applied: 3,
                 tokens_before: tokens,
                 tokens_after: tokens,
                 messages_affected: 0,
                 description: "summarization_needed".to_string(),
-                details: None,
-                manifest: None,
+                details: Some(details),
+                manifest: Some(manifest),
             }
         } else {
-            self.context_engine.compact_sync(request_projection, &ctx)
+            self.context_engine
+                .compact_routine(request_projection, &ctx)
         };
         if let Some(manifest) = compact_result.manifest.as_mut() {
             manifest.trigger = options.trigger.manifest_trigger().to_string();
@@ -851,15 +935,23 @@ impl AssistantAgent {
             return CompactionRunOutcome {
                 changed_history: compact_result.messages_affected > 0,
                 tokens_after: compact_result.tokens_after,
+                cache_decision: Some(crate::context_compact::CacheCompactionDecision::KeepPrefix),
                 compact_result: Some(compact_result),
                 ..CompactionRunOutcome::default()
             };
         }
+        let cache_decision = match compact_result.tier_applied {
+            3 => crate::context_compact::CacheCompactionDecision::SummaryOnce,
+            4 => crate::context_compact::CacheCompactionDecision::Emergency,
+            _ => crate::context_compact::CacheCompactionDecision::CompatibilityProjection,
+        };
         let mut run_outcome = CompactionRunOutcome {
             tier_applied: compact_result.tier_applied,
             changed_history: compact_result.messages_affected > 0,
             summary_applied: false,
             summary_timed_out: false,
+            summary_reason: None,
+            cache_decision: Some(cache_decision),
             tokens_after: compact_result.tokens_after,
             cancelled: false,
             fatal_error: None,
@@ -872,25 +964,11 @@ impl AssistantAgent {
             self.touch_compaction_timer();
         }
 
-        // Tier 2+ already invalidated the prompt cache; piggyback and force
-        // an awareness suffix rebuild on the next turn at zero extra cost.
-        // Respect the per-session `refresh_on_compaction` flag.
-        if compact_result.tier_applied >= 2 {
-            let should_piggyback = self
-                .awareness
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .map(|a| {
-                    a.cfg
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .refresh_on_compaction
-                })
-                .unwrap_or(true);
-            if should_piggyback {
-                self.force_refresh_awareness();
-            }
+        // A compatibility Tier-2 projection has already changed the request
+        // prefix. Tier 3 is only a signal at this point; defer its refresh
+        // boundary until a validated summary is actually installed.
+        if compact_result.tier_applied == 2 {
+            self.refresh_awareness_after_prefix_rewrite();
         }
 
         // Log compaction
@@ -1106,14 +1184,6 @@ impl AssistantAgent {
                         );
                     }
 
-                    let (prompt_messages, previous_summary) =
-                        context_compact::peel_previous_summary(&split.summarizable);
-                    let prompt = context_compact::build_summarization_prompt(
-                        &prompt_messages,
-                        previous_summary.as_deref(),
-                        compact_config,
-                    );
-
                     // The summarization request has its own capacity boundary. It
                     // must fit both the optional dedicated model and the
                     // conversation-model fallback; otherwise a history overflow
@@ -1134,19 +1204,85 @@ impl AssistantAgent {
                         (None, Some(dedicated)) => dedicated,
                         (None, None) => 0,
                     };
-                    let summary_capacity_text = format!(
-                        "{}\n\n{}",
-                        context_compact::SUMMARIZATION_SYSTEM_PROMPT,
-                        prompt
-                    );
-                    let summary_input_upper = crate::token_accounting::service()
-                        .count_text(
-                            crate::token_accounting::ProviderFamily::Unknown,
-                            "tier3-summary-input",
-                            &summary_capacity_text,
-                        )
-                        .upper_bound;
                     let summary_safety_headroom = u64::from(summary_context_window / 50).max(1_024);
+                    let summary_target_input_upper = u64::from(summary_context_window)
+                        .saturating_sub(u64::from(compact_config.summary_max_tokens))
+                        .saturating_sub(summary_safety_headroom);
+                    let build_summary_request = |messages: &[serde_json::Value]| {
+                        let (prompt_messages, previous_summary) =
+                            context_compact::peel_previous_summary(messages);
+                        let prompt = context_compact::build_summarization_prompt(
+                            &prompt_messages,
+                            previous_summary.as_deref(),
+                            compact_config,
+                        );
+                        let capacity_text = format!(
+                            "{}\n\n{}",
+                            context_compact::SUMMARIZATION_SYSTEM_PROMPT,
+                            prompt
+                        );
+                        let upper = crate::token_accounting::service()
+                            .count_text(
+                                crate::token_accounting::ProviderFamily::Unknown,
+                                "tier3-summary-input",
+                                &capacity_text,
+                            )
+                            .upper_bound;
+                        (prompt, upper)
+                    };
+
+                    // Prepare only the one-shot summary input. These
+                    // deterministic Tier 0/2 edits are never published to the
+                    // canonical history or the main request projection, so
+                    // they cannot churn the conversation's prompt-cache
+                    // prefix. If they are insufficient, the summary attempt
+                    // still fails closed before network I/O.
+                    let mut summary_input_messages = split.summarizable.clone();
+                    let (_, summary_input_before) = build_summary_request(&summary_input_messages);
+                    let mut summary_input_projection_used = false;
+                    if summary_context_window > 0
+                        && summary_input_before > summary_target_input_upper
+                    {
+                        let protected_start = summary_input_messages.len();
+                        for tier in [
+                            context_compact::CapacityPressureTier::Tier0,
+                            context_compact::CapacityPressureTier::Tier2,
+                        ] {
+                            let pressure = context_compact::apply_capacity_pressure_tier(
+                                &mut summary_input_messages,
+                                protected_start,
+                                compact_config,
+                                tier,
+                                summary_target_input_upper,
+                                |candidate| Ok(build_summary_request(candidate).1),
+                            );
+                            match pressure {
+                                Ok(result) => {
+                                    summary_input_projection_used |= !result.edits.is_empty();
+                                    if result.reached_target {
+                                        break;
+                                    }
+                                }
+                                Err(error) => {
+                                    if let Some(manifest) = compact_result.manifest.as_mut() {
+                                        manifest.warnings.push(format!(
+                                            "summary_input_projection_failed:{error}"
+                                        ));
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if summary_input_projection_used {
+                        if let Some(manifest) = compact_result.manifest.as_mut() {
+                            manifest
+                                .warnings
+                                .push("summary_input_projection_only".to_string());
+                        }
+                    }
+                    let (prompt, summary_input_upper) =
+                        build_summary_request(&summary_input_messages);
                     let summary_total_upper = summary_input_upper
                         .saturating_add(u64::from(compact_config.summary_max_tokens))
                         .saturating_add(summary_safety_headroom);
@@ -1254,6 +1390,7 @@ impl AssistantAgent {
                                     details.summary_tokens = Some(summary_tokens);
                                 }
                                 run_outcome.summary_applied = true;
+                                run_outcome.summary_reason = Some(options.summary_reason);
                                 self.tier3_summary_applied_this_turn
                                     .store(true, std::sync::atomic::Ordering::Release);
                                 self.tier3_summary_publication_pending
@@ -1265,6 +1402,7 @@ impl AssistantAgent {
                                 // A successful Tier 3 summary is an explicit refresh
                                 // boundary, so the next turn captures current files.
                                 self.invalidate_core_memory_snapshot();
+                                self.refresh_awareness_after_prefix_rewrite();
                                 // Record the summarized range in the manifest ONLY after the
                                 // summary actually applied — on failure/timeout (arms below)
                                 // the messages are untouched, so the manifest must not claim
@@ -1488,7 +1626,14 @@ impl AssistantAgent {
         if compact_result.description == "summarization_needed" && !run_outcome.summary_applied {
             let sync_tier = sync_tier_from_compact_result(&compact_result);
             compact_result.tier_applied = sync_tier;
-            compact_result.description = if run_outcome.summary_timed_out {
+            let summary_skipped_by_policy = !options.allow_summarization;
+            compact_result.description = if summary_skipped_by_policy {
+                if sync_tier > 0 {
+                    "summarization_skipped_by_policy_sync_compaction_only".to_string()
+                } else {
+                    "summarization_skipped_by_policy".to_string()
+                }
+            } else if run_outcome.summary_timed_out {
                 if sync_tier > 0 {
                     "summarization_timed_out_sync_compaction_only".to_string()
                 } else {
@@ -1501,14 +1646,16 @@ impl AssistantAgent {
             };
             if let Some(manifest) = compact_result.manifest.as_mut() {
                 manifest.tier = sync_tier;
-                manifest.warnings.push(
-                    if run_outcome.summary_timed_out {
-                        "tier3_summary_timed_out"
-                    } else {
-                        "tier3_summary_not_applied"
-                    }
-                    .to_string(),
-                );
+                if !summary_skipped_by_policy {
+                    manifest.warnings.push(
+                        if run_outcome.summary_timed_out {
+                            "tier3_summary_timed_out"
+                        } else {
+                            "tier3_summary_not_applied"
+                        }
+                        .to_string(),
+                    );
+                }
             }
             run_outcome.tier_applied = sync_tier;
             run_outcome.changed_history = sync_tier > 0 && compact_result.messages_affected > 0;
@@ -1547,6 +1694,7 @@ impl AssistantAgent {
                     "tokens_after": tokens_after,
                     "messages_affected": compact_result.messages_affected,
                     "description": compact_result.description,
+                    "summary_reason": run_outcome.summary_reason.map(|reason| reason.as_str()),
                     "manifest": compact_result.manifest.clone(),
                 }
         })) {
@@ -1628,8 +1776,6 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
         hard_protected_start: Option<usize>,
     ) -> Result<CompactionRunOutcome> {
-        let mut changed_history = false;
-
         if hard_protected_start.is_some() {
             // The just-settled current group is still awaiting exact Tier-1
             // admission. Persist its C0 canonical skeleton now, but defer all
@@ -1640,65 +1786,30 @@ impl AssistantAgent {
             return Ok(CompactionRunOutcome::default());
         }
 
-        changed_history |= crate::context_compact::truncate_tool_results(
-            request_projection,
-            self.context_window,
-            &self.compact_config,
-        ) > 0;
-
-        let used_after_t1 = crate::context_compact::estimate_request_tokens_with_tools(
+        // Current-group Tier 1 admission already ran at PostToolUse. Routine
+        // checkpoints must not re-truncate settled history or publish Tier 0/2
+        // just because a low compatibility watermark was crossed: doing so
+        // rewrites the Provider prefix and churns prompt-cache entries. Count
+        // the unchanged request view and proceed directly to the high-watermark
+        // Tier 3 decision. Exact capacity recovery owns deterministic Tier 0/2.
+        let tokens_before_summary = crate::context_compact::estimate_request_tokens_with_tools(
             system_prompt_for_budget,
             request_projection,
             request_tool_schemas,
             max_tokens,
         );
-        let ratio_after_t1 = if self.context_window > 0 {
-            used_after_t1 as f64 / self.context_window as f64
+        let usage_before_summary = if self.context_window > 0 {
+            tokens_before_summary as f64 / self.context_window as f64
         } else {
             0.0
         };
-
-        let mut tokens_after_cheap_cleanup = used_after_t1;
-
-        if self.compact_config.enabled
-            && self.compact_config.reactive_microcompact_enabled
-            && ratio_after_t1 >= self.compact_config.reactive_trigger_ratio
-        {
-            let cleared =
-                crate::context_compact::microcompact(request_projection, &self.compact_config);
-            if cleared > 0 {
-                changed_history = true;
-                app_info!(
-                    "agent",
-                    "reactive_microcompact",
-                    "cleared {} ephemeral tool_results at ratio={:.2} (threshold={:.2})",
-                    cleared,
-                    ratio_after_t1,
-                    self.compact_config.reactive_trigger_ratio
-                );
-                tokens_after_cheap_cleanup =
-                    crate::context_compact::estimate_request_tokens_with_tools(
-                        system_prompt_for_budget,
-                        request_projection,
-                        request_tool_schemas,
-                        max_tokens,
-                    );
-            }
-        }
-
-        let usage_after_cheap_cleanup = if self.context_window > 0 {
-            tokens_after_cheap_cleanup as f64 / self.context_window as f64
-        } else {
-            0.0
-        };
-
         if !self.compact_config.enabled
-            || usage_after_cheap_cleanup < self.compact_config.summarization_threshold
+            || usage_before_summary < self.compact_config.summarization_threshold
         {
             self.persist_round_context(canonical_history).await?;
             return Ok(CompactionRunOutcome {
-                changed_history,
-                tokens_after: tokens_after_cheap_cleanup,
+                changed_history: false,
+                tokens_after: tokens_before_summary,
                 ..CompactionRunOutcome::default()
             });
         }
@@ -1726,6 +1837,7 @@ impl AssistantAgent {
                     allow_memory_flush: false,
                     allow_summarization,
                     force_summary: false,
+                    summary_reason: crate::context_compact::CompactionSummaryReason::HighWatermark,
                     summary_hard_protected_start: None,
                     cancel: Some(cancel),
                     tool_schemas: request_tool_schemas.to_vec(),
@@ -1801,6 +1913,8 @@ impl AssistantAgent {
                     allow_memory_flush: false,
                     allow_summarization: true,
                     force_summary: false,
+                    summary_reason:
+                        crate::context_compact::CompactionSummaryReason::RequiredAfterRecovery,
                     summary_hard_protected_start: Some(hard_protected_start),
                     cancel: Some(cancel),
                     tool_schemas: provider_tool_schemas.to_vec(),

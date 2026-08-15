@@ -1571,11 +1571,17 @@ impl TurnDurabilitySink for StreamCoordinator {
                         earliest_changed_item_key,
                         action_digest,
                     };
-                    db.create_context_committed_request_local_projection_plan(
-                        &epoch, &items, &plan,
+                    db.create_context_committed_request_local_projection_plan_with_followup(
+                        &epoch,
+                        &items,
+                        &plan,
+                        input.tier3_followup_after_capacity_projection,
                     )?
                 } else {
-                    db.create_context_committed_request_projection_plan(&plan)?
+                    db.create_context_committed_request_projection_plan_with_followup(
+                        &plan,
+                        input.tier3_followup_after_capacity_projection,
+                    )?
                 };
                 Ok::<(u64, Option<String>), anyhow::Error>((
                     record.request_sequence,
@@ -1629,6 +1635,12 @@ impl TurnDurabilitySink for StreamCoordinator {
                 exact_payload_id,
             },
         );
+        if !self.persistent && input.tier3_followup_after_capacity_projection {
+            crate::session::require_incognito_tier3_after_capacity_projection(
+                &self.session_id,
+                &input.request_plan_id,
+            );
+        }
         Ok(())
     }
 
@@ -1877,6 +1889,12 @@ impl TurnDurabilitySink for StreamCoordinator {
             plan.state = RuntimeRequestPlanState::Superseded;
             plan.exact_payload_id.clone()
         };
+        if !self.persistent {
+            crate::session::clear_incognito_capacity_projection_recovery(
+                &self.session_id,
+                request_plan_id,
+            );
+        }
         if let Some(payload_id) = payload_id {
             if self.persistent {
                 let db = self.db.clone();

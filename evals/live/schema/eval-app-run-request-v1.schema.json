@@ -3,10 +3,20 @@
   "$id": "https://hope-agent.local/evals/eval-app-run-request-v1.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "profileId", "suiteSelections", "models", "campaignBudget", "debugRetention", "consent"],
+  "required": [
+    "schemaVersion",
+    "profileId",
+    "budgetEnforcement",
+    "suiteSelections",
+    "models",
+    "campaignBudget",
+    "debugRetention",
+    "consent"
+  ],
   "properties": {
     "schemaVersion": { "const": "eval-app-run-request.v1" },
     "profileId": { "$ref": "#/$defs/identifier" },
+    "budgetEnforcement": { "enum": ["enforced", "unlimited"] },
     "suiteSelections": {
       "type": "array",
       "maxItems": 32,
@@ -16,9 +26,69 @@
         "required": ["suiteId", "caseIds", "arms"],
         "properties": {
           "suiteId": { "$ref": "#/$defs/identifier" },
-          "caseIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
-          "arms": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
+          "caseIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/identifier" }
+          },
+          "arms": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/identifier" }
+          },
           "repetitions": { "type": "integer", "minimum": 1, "maximum": 5 }
+        }
+      }
+    },
+    "caseCostBudgets": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["suiteId", "caseId", "maxCostUsd"],
+        "properties": {
+          "suiteId": {
+            "$ref": "#/$defs/identifier"
+          },
+          "caseId": {
+            "$ref": "#/$defs/identifier"
+          },
+          "maxCostUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000
+          }
+        }
+      }
+    },
+    "caseResourceBudgets": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["suiteId", "caseId", "budget"],
+        "properties": {
+          "suiteId": { "$ref": "#/$defs/identifier" },
+          "caseId": { "$ref": "#/$defs/identifier" },
+          "budget": {
+            "allOf": [
+              { "$ref": "#/$defs/budget" },
+              {
+                "required": [
+                  "maxWallSeconds",
+                  "maxModelCalls",
+                  "maxInputTokens",
+                  "maxOutputTokens",
+                  "maxToolCalls",
+                  "maxAgents",
+                  "maxConcurrency"
+                ],
+                "not": { "required": ["maxCostUsd"] }
+              }
+            ]
+          }
         }
       }
     },
@@ -44,10 +114,11 @@
     "consent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["modelCosts", "syntheticToolExecution"],
+      "required": ["modelCosts", "syntheticToolExecution", "unlimitedBudgetRisk"],
       "properties": {
         "modelCosts": { "const": true },
-        "syntheticToolExecution": { "const": true }
+        "syntheticToolExecution": { "const": true },
+        "unlimitedBudgetRisk": { "type": "boolean" }
       }
     }
   },
@@ -65,12 +136,25 @@
         "maxToolCalls": { "type": "integer", "minimum": 1 },
         "maxAgents": { "type": "integer", "minimum": 1 },
         "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 500 }
-      },
-      "anyOf": [
-        { "required": ["maxCostUsd"] },
-        { "required": ["maxInputTokens"] },
-        { "required": ["maxModelCalls"] }
-      ]
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "budgetEnforcement": { "const": "unlimited" } },
+        "required": ["budgetEnforcement"]
+      },
+      "then": {
+        "properties": {
+          "campaignBudget": { "maxProperties": 0 },
+          "caseCostBudgets": { "maxItems": 0 },
+          "caseResourceBudgets": { "maxItems": 0 },
+          "consent": {
+            "properties": { "unlimitedBudgetRisk": { "const": true } }
+          }
+        }
+      }
+    }
+  ]
 }

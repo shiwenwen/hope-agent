@@ -155,6 +155,28 @@ pub struct TokenAccountingObservation {
     #[serde(default)]
     pub reserved_output_tokens: u64,
     pub has_media: bool,
+    /// Shadow-only cache/compaction diagnostics. These fields contain counts,
+    /// typed decisions and keyed identities only; never prompt or tool text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_compaction_decision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_identity_hash: Option<String>,
+    #[serde(default)]
+    pub projection_action_count: u64,
+    #[serde(default)]
+    pub reclaimed_tokens_upper: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalidated_suffix_tokens_upper: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_even_turns: Option<u64>,
+    #[serde(default)]
+    pub prefix_rewrite_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_reason: Option<String>,
 }
 
 impl TokenCount {

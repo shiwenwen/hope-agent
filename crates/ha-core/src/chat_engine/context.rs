@@ -233,7 +233,7 @@ pub(super) async fn schedule_memory_extraction_after_turn(
                 return idle_timeout;
             }
         };
-        tokio::spawn(async move {
+        crate::memory_extract::spawn_tracked_extraction(session_id.clone(), async move {
             let _eval_model_guard = eval_model_guard;
             crate::memory_extract::run_extraction(
                 &history,

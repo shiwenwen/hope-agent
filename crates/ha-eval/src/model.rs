@@ -4,33 +4,34 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use clap::{Subcommand, ValueEnum};
 use ha_eval_spec::app::{
     app_profile_digest, validate_app_control_envelope, validate_app_plan, validate_app_profile,
-    validate_app_request, validate_trust_registry, AppArmMode, AppControlCommand,
-    AppControlEnvelope, AppControlEvent, AppDebugRetention, AppEvalCaseCatalog, AppEvalConsent,
-    AppEvalSuiteCatalog, AppExecutionProfile, AppModelSelection, AppResolvedCampaign,
-    AppResolvedModelBinding, AppSuiteRequest, EvalAppPlan, EvalAppProfile, EvalAppRunRequest,
-    EvidenceTrustRegistry, NetworkEnforcement, RuntimeEnvironmentSnapshot,
-    APP_CONTROL_PROTOCOL_VERSION, APP_MAX_TRIALS, APP_PLAN_SCHEMA_VERSION,
-    APP_REQUEST_SCHEMA_VERSION,
+    validate_app_request, validate_trust_registry, AppArmMode, AppBudgetEnforcement, AppBudgetMode,
+    AppCaseCostBudget, AppCaseResourceBudget, AppControlCommand, AppControlEnvelope,
+    AppControlEvent, AppDebugRetention, AppEvalCaseCatalog, AppEvalConsent, AppEvalSuiteCatalog,
+    AppExecutionProfile, AppModelSelection, AppResolvedCampaign, AppResolvedModelBinding,
+    AppSuiteRequest, EvalAppPlan, EvalAppProfile, EvalAppRunRequest, EvidenceTrustRegistry,
+    NetworkEnforcement, RuntimeEnvironmentSnapshot, APP_CONTROL_PROTOCOL_VERSION, APP_MAX_TRIALS,
+    APP_PLAN_SCHEMA_VERSION, APP_REQUEST_SCHEMA_VERSION,
 };
 use ha_eval_spec::model::{
     aggregate_counts, aggregate_metrics, aggregate_model_status, digest_model_profile,
     model_case_digest, model_runner_digest, model_suite_digest, read_json_or_yaml,
     reject_embedded_secrets, scenario_component_digests, scenario_digest, stable_trial_id,
-    stable_trial_seed, strictest_budget, validate_evidence_shape, validate_model_policy,
-    validate_model_suite, validate_model_trace, validate_scenario, AttributionCompleteness,
-    CampaignBudget, CostMetrics, ExecutionMode, FaultProfile, LiveAgentScenario,
-    ModelCampaignAdapter, ModelCampaignCaseSpec, ModelCampaignEvidence, ModelCampaignOutcome,
-    ModelCampaignPlan, ModelCampaignPolicy, ModelCampaignSource, ModelCampaignSuite,
-    ModelCampaignTier, ModelCampaignWaiver, ModelPolicySuite, ModelProfile, ModelShardResult,
-    ModelTrialResult, NetworkPolicy, OrchestrationMetrics, PlannedModelCase, PlannedModelSuite,
-    PlannedModelTrial, RunnerClass, TimingMetrics, TokenMetrics, ToolMetrics, TraceSummary,
-    UserSimulatorKind, EVIDENCE_SCHEMA_VERSION, PLAN_SCHEMA_VERSION, POLICY_SCHEMA_VERSION,
-    SCENARIO_SCHEMA_VERSION, SHARD_SCHEMA_VERSION, SUITE_SCHEMA_VERSION, TRIAL_SCHEMA_VERSION,
-    WAIVER_SCHEMA_VERSION,
+    stable_trial_seed, strictest_budget, validate_campaign_budget, validate_evidence_shape,
+    validate_model_policy, validate_model_suite, validate_model_trace, validate_scenario,
+    AttributionCompleteness, CampaignBudget, CostMetrics, ExecutionMode, FaultProfile,
+    LiveAgentScenario, ModelCampaignAdapter, ModelCampaignCaseSpec, ModelCampaignEvidence,
+    ModelCampaignOutcome, ModelCampaignPlan, ModelCampaignPolicy, ModelCampaignSource,
+    ModelCampaignSuite, ModelCampaignTier, ModelCampaignWaiver, ModelPolicySuite, ModelProfile,
+    ModelShardResult, ModelTrialResult, NetworkPolicy, OrchestrationMetrics, PlannedModelCase,
+    PlannedModelSuite, PlannedModelTrial, RunnerClass, TimingMetrics, TokenMetrics, ToolMetrics,
+    TraceSummary, UserSimulatorKind, EVIDENCE_SCHEMA_VERSION, PLAN_SCHEMA_VERSION,
+    POLICY_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION, SHARD_SCHEMA_VERSION, SUITE_SCHEMA_VERSION,
+    TRIAL_SCHEMA_VERSION, WAIVER_SCHEMA_VERSION,
 };
 use ha_eval_spec::{
-    digest_file, digest_serializable, read_json, resolve_contained, sha256_bytes, stable_shard,
-    validate_json_schema, write_json, ArtifactDigest, EvalStatus, PolicyMode,
+    case_digest, digest_file, digest_serializable, read_json, resolve_contained, sha256_bytes,
+    stable_shard, suite_digest, validate_json_schema, write_json, ArtifactDigest, EvalAdapter,
+    EvalStatus, PlannedCase, PlannedSuite, PolicyMode,
 };
 use ring::signature::Ed25519KeyPair;
 use serde_json::Value;
@@ -46,6 +47,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 const RUNTIME_CONFIG_DIGEST_ENV: &str = "HA_MODEL_EVAL_RUNTIME_CONFIG_DIGEST";
 const APP_CONTROL_ENV: &str = "HA_MODEL_EVAL_APP_CONTROL";
 const APP_PLAN_ENV: &str = "HA_MODEL_EVAL_APP_PLAN";
+const RETRY_BUDGET_ENV: &str = "HA_MODEL_EVAL_RETRY_BUDGET_JSON";
+const RETRY_TIMEOUT_ENV: &str = "HA_MODEL_EVAL_RETRY_TIMEOUT_SECONDS";
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommands {
@@ -1016,6 +1019,14 @@ pub(crate) fn list_app_catalog(root: &Path) -> Result<Vec<AppEvalSuiteCatalog>> 
         let mut cases = Vec::with_capacity(suite.cases.len());
         for case in &suite.cases {
             let (_, scenario) = load_scenario(root, &case.scenario_path)?;
+            let registered_budget = strictest_budget(&[&suite.budget, &scenario.budgets]);
+            let registered_cost = registered_budget.max_cost_usd.ok_or_else(|| {
+                anyhow!(
+                    "App catalog case {}/{} has no registered cost budget",
+                    suite.id,
+                    case.id
+                )
+            })?;
             cases.push(AppEvalCaseCatalog {
                 id: case.id.clone(),
                 title: scenario.title,
@@ -1025,6 +1036,9 @@ pub(crate) fn list_app_catalog(root: &Path) -> Result<Vec<AppEvalSuiteCatalog>> 
                     .timeout_seconds
                     .unwrap_or(suite.timeout_seconds)
                     .min(suite.timeout_seconds),
+                registered_cost_micros: cost_usd_to_micros(registered_cost)?,
+                repetitions: case.repetitions.unwrap_or(1),
+                registered_budget,
             });
         }
         catalog.push(AppEvalSuiteCatalog {
@@ -1054,6 +1068,50 @@ fn load_app_profile(root: &Path, id: &str) -> Result<EvalAppProfile> {
         bail!("app profile filename and id differ");
     }
     Ok(profile)
+}
+
+fn resolve_app_deterministic_suites(
+    root: &Path,
+    profile: &EvalAppProfile,
+) -> Result<Vec<PlannedSuite>> {
+    profile
+        .deterministic_suites
+        .iter()
+        .map(|id| {
+            let manifest = crate::load_suite(root, id)?;
+            let dir = crate::suite_dir(root, id);
+            if manifest.adapter != EvalAdapter::ContextCompactionContract
+                || manifest.network_policy != "deny"
+            {
+                bail!(
+                    "App deterministic suite {id} must use the context-compaction contract with network denied"
+                );
+            }
+            let cases = manifest
+                .cases
+                .iter()
+                .map(|case| {
+                    Ok(PlannedCase {
+                        id: case.id.clone(),
+                        path: case.path.clone(),
+                        digest: case_digest(case, &dir)?,
+                        timeout_seconds: case
+                            .timeout_seconds
+                            .unwrap_or(manifest.timeout_seconds),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(PlannedSuite {
+                id: manifest.id.clone(),
+                version: manifest.version.clone(),
+                capability: manifest.capability.clone(),
+                adapter: manifest.adapter,
+                digest: suite_digest(&manifest, &dir)?,
+                shards: manifest.shards,
+                cases,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn build_app_plan(
@@ -1098,7 +1156,12 @@ pub(crate) fn build_app_plan(
         .asset_root_digest
         .clone_from(&asset_root_digest);
 
-    let child_budget = partition_budget(&request.campaign_budget, resolved_models.len())?;
+    let child_budget = match request.budget_enforcement {
+        AppBudgetEnforcement::Enforced => {
+            partition_budget(&request.campaign_budget, resolved_models.len())?
+        }
+        AppBudgetEnforcement::Unlimited => CampaignBudget::default(),
+    };
     let mut campaigns = Vec::with_capacity(resolved_models.len());
     for binding in resolved_models {
         validate_sha256(
@@ -1116,6 +1179,19 @@ pub(crate) fn build_app_plan(
         let mut child =
             build_plan_with_policy(root, reference, application_version.to_string(), policy)?;
         filter_app_child_plan(&mut child, request, &profile)?;
+        match request.budget_enforcement {
+            AppBudgetEnforcement::Enforced => {
+                apply_app_user_resource_budgets(&mut child, &request.case_resource_budgets)?;
+                apply_app_user_cost_budget(
+                    &mut child,
+                    profile.budget_mode,
+                    child_budget.max_cost_usd,
+                    &request.case_cost_budgets,
+                    resolved_models.len(),
+                )?;
+            }
+            AppBudgetEnforcement::Unlimited => apply_app_unlimited_budgets(&mut child),
+        }
         child.plan_digest = immutable_plan_digest(&child)?;
         child.campaign_id = campaign_id_from_digest(&child.plan_digest);
         for trial in &mut child.trials {
@@ -1133,10 +1209,17 @@ pub(crate) fn build_app_plan(
         });
     }
 
-    let total_trials = campaigns
+    let deterministic_suites = resolve_app_deterministic_suites(root, &profile)?;
+    let live_trial_count = campaigns
         .iter()
         .map(|campaign| campaign.resolved_plan.trials.len())
         .sum::<usize>();
+    let total_trials = live_trial_count.saturating_add(
+        deterministic_suites
+            .iter()
+            .map(|suite| suite.cases.len())
+            .sum::<usize>(),
+    );
     if total_trials == 0
         || total_trials > usize::from(profile.max_trials)
         || total_trials > APP_MAX_TRIALS
@@ -1147,7 +1230,7 @@ pub(crate) fn build_app_plan(
         &mut campaigns,
         profile.max_trial_seconds,
         request.campaign_budget.max_wall_seconds,
-        total_trials,
+        live_trial_count,
     )?;
 
     let profile_digest = app_profile_digest(&profile)?;
@@ -1168,7 +1251,9 @@ pub(crate) fn build_app_plan(
         asset_root_digest,
         runtime_environment,
         debug_retention: request.debug_retention,
+        budget_enforcement: request.budget_enforcement,
         campaign_budget: request.campaign_budget.clone(),
+        deterministic_suites,
         campaigns,
     };
     plan.plan_digest = immutable_app_plan_digest(&plan)?;
@@ -1182,6 +1267,17 @@ fn validate_app_request_against_profile(
     request: &EvalAppRunRequest,
     profile: &EvalAppProfile,
 ) -> Result<()> {
+    if !request.case_cost_budgets.is_empty()
+        && profile.budget_mode != AppBudgetMode::UserConfigurable
+    {
+        bail!("selected App profile does not allow per-case cost budgets");
+    }
+    if request.budget_enforcement == AppBudgetEnforcement::Enforced
+        && profile.budget_mode == AppBudgetMode::UserConfigurable
+        && request.case_resource_budgets.is_empty()
+    {
+        bail!("local App requests must provide per-case resource budgets");
+    }
     if request
         .campaign_budget
         .max_cost_usd
@@ -1400,6 +1496,250 @@ fn preferred_control_arm(arms: &[String]) -> Option<String> {
     .into_iter()
     .find_map(|preferred| arms.iter().find(|arm| arm.as_str() == preferred).cloned())
     .or_else(|| arms.iter().find(|arm| arm.ends_with("_control")).cloned())
+}
+
+fn apply_app_user_resource_budgets(
+    plan: &mut ModelCampaignPlan,
+    requested_resources: &[AppCaseResourceBudget],
+) -> Result<()> {
+    let requested = requested_resources
+        .iter()
+        .map(|resource| {
+            (
+                (resource.suite_id.clone(), resource.case_id.clone()),
+                resource.budget.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let selected_keys = plan
+        .suites
+        .iter()
+        .flat_map(|suite| {
+            suite
+                .cases
+                .iter()
+                .map(move |case| (suite.id.clone(), case.id.clone()))
+        })
+        .collect::<BTreeSet<_>>();
+    if requested.keys().cloned().collect::<BTreeSet<_>>() != selected_keys {
+        bail!("App case resource budgets must cover exactly the selected cases");
+    }
+    for suite in &mut plan.suites {
+        for case in &mut suite.cases {
+            let key = (suite.id.clone(), case.id.clone());
+            let resource = requested.get(&key).ok_or_else(|| {
+                anyhow!(
+                    "App resource budget omitted selected case {}/{}",
+                    suite.id,
+                    case.id
+                )
+            })?;
+            let registered_cost = case.budget.max_cost_usd;
+            case.budget.clone_from(resource);
+            case.budget.max_cost_usd = registered_cost;
+            case.timeout_seconds = resource
+                .max_wall_seconds
+                .ok_or_else(|| anyhow!("App case resource budget has no wall-time ceiling"))?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_app_unlimited_budgets(plan: &mut ModelCampaignPlan) {
+    plan.campaign_budget = CampaignBudget::default();
+    for suite in &mut plan.suites {
+        for case in &mut suite.cases {
+            case.budget = CampaignBudget::default();
+        }
+    }
+}
+
+/// Local diagnostics may let the owner choose a larger or smaller aggregate
+/// spend than the registered standard budget. Preserve the registered case
+/// costs as relative weights, allocate the chosen child-campaign ceiling over
+/// the selected trials, and write the resulting per-trial limits into the
+/// immutable child plan. Release/CLI plans never call this App-only path.
+fn apply_app_user_cost_budget(
+    plan: &mut ModelCampaignPlan,
+    mode: AppBudgetMode,
+    user_cost_usd: Option<f64>,
+    requested_case_budgets: &[AppCaseCostBudget],
+    selected_model_count: usize,
+) -> Result<()> {
+    if mode == AppBudgetMode::RegisteredCeiling {
+        return Ok(());
+    }
+    let user_cost_usd = user_cost_usd.ok_or_else(|| {
+        anyhow!("user-configurable App profile requires an explicit cost ceiling")
+    })?;
+
+    let mut trial_counts = BTreeMap::<(String, String), u64>::new();
+    for trial in &plan.trials {
+        *trial_counts
+            .entry((trial.suite_id.clone(), trial.case_id.clone()))
+            .or_default() += 1;
+    }
+
+    if !requested_case_budgets.is_empty() {
+        let requested = requested_case_budgets
+            .iter()
+            .map(|budget| {
+                Ok((
+                    (budget.suite_id.clone(), budget.case_id.clone()),
+                    cost_usd_to_micros(budget.max_cost_usd)?,
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let selected_keys = plan
+            .suites
+            .iter()
+            .flat_map(|suite| {
+                suite
+                    .cases
+                    .iter()
+                    .map(move |case| (suite.id.clone(), case.id.clone()))
+            })
+            .collect::<BTreeSet<_>>();
+        if requested.keys().cloned().collect::<BTreeSet<_>>() != selected_keys {
+            bail!("App case cost budgets must cover exactly the selected cases");
+        }
+        let model_count = u64::try_from(selected_model_count.max(1))?;
+        for suite in &mut plan.suites {
+            for case in &mut suite.cases {
+                let key = (suite.id.clone(), case.id.clone());
+                let trial_count = trial_counts.get(&key).copied().ok_or_else(|| {
+                    anyhow!(
+                        "selected App case {}/{} has no planned trial",
+                        suite.id,
+                        case.id
+                    )
+                })?;
+                let aggregate_micros = requested[&key];
+                let per_trial_micros = aggregate_micros / model_count / trial_count;
+                if per_trial_micros == 0 {
+                    bail!(
+                        "App case budget for {}/{} is too small for its models and repetitions",
+                        suite.id,
+                        case.id
+                    );
+                }
+                case.budget.max_cost_usd = Some(per_trial_micros as f64 / 1_000_000.0);
+            }
+        }
+        validate_planned_cost_ceiling(plan, user_cost_usd)?;
+        return Ok(());
+    }
+
+    let mut registrations = Vec::new();
+    for suite in &plan.suites {
+        for case in &suite.cases {
+            let key = (suite.id.clone(), case.id.clone());
+            let count = trial_counts.get(&key).copied().ok_or_else(|| {
+                anyhow!(
+                    "selected App case {}/{} has no planned trial",
+                    suite.id,
+                    case.id
+                )
+            })?;
+            let registered = case.budget.max_cost_usd.ok_or_else(|| {
+                anyhow!(
+                    "user-configurable App case {}/{} has no registered cost weight",
+                    suite.id,
+                    case.id
+                )
+            })?;
+            registrations.push((key, cost_usd_to_micros(registered)?, count));
+        }
+    }
+
+    let allocations = allocate_user_cost_micros(&registrations, user_cost_usd)?;
+    for suite in &mut plan.suites {
+        for case in &mut suite.cases {
+            let key = (suite.id.clone(), case.id.clone());
+            let micros = allocations.get(&key).copied().ok_or_else(|| {
+                anyhow!(
+                    "user-configurable App budget omitted selected case {}/{}",
+                    suite.id,
+                    case.id
+                )
+            })?;
+            case.budget.max_cost_usd = Some(micros as f64 / 1_000_000.0);
+        }
+    }
+    validate_planned_cost_ceiling(plan, user_cost_usd)?;
+    Ok(())
+}
+
+fn validate_planned_cost_ceiling(plan: &ModelCampaignPlan, user_cost_usd: f64) -> Result<()> {
+    let mut trial_counts = BTreeMap::<(String, String), u64>::new();
+    for trial in &plan.trials {
+        *trial_counts
+            .entry((trial.suite_id.clone(), trial.case_id.clone()))
+            .or_default() += 1;
+    }
+    let total = plan.suites.iter().try_fold(0u128, |total, suite| {
+        suite.cases.iter().try_fold(total, |total, case| {
+            let key = (suite.id.clone(), case.id.clone());
+            let count = trial_counts
+                .get(&key)
+                .copied()
+                .ok_or_else(|| anyhow!("App child cost allocation references an unplanned case"))?;
+            let per_trial = case
+                .budget
+                .max_cost_usd
+                .ok_or_else(|| anyhow!("App child cost allocation is incomplete"))?;
+            total
+                .checked_add(u128::from(cost_usd_to_micros(per_trial)?) * u128::from(count))
+                .ok_or_else(|| anyhow!("App child cost allocation overflow"))
+        })
+    })?;
+    if total > u128::from(cost_usd_to_micros(user_cost_usd)?) {
+        bail!("App child cost allocation exceeds its campaign cost ceiling");
+    }
+    Ok(())
+}
+
+fn allocate_user_cost_micros(
+    registrations: &[((String, String), u64, u64)],
+    user_cost_usd: f64,
+) -> Result<BTreeMap<(String, String), u64>> {
+    if registrations.is_empty() {
+        bail!("user-configurable App budget has no selected cases");
+    }
+    let total_micros = cost_usd_to_micros(user_cost_usd)?;
+    let total_weight = registrations
+        .iter()
+        .try_fold(0u128, |total, (_, cost, count)| {
+            total
+                .checked_add(u128::from(*cost) * u128::from(*count))
+                .ok_or_else(|| anyhow!("user-configurable App budget weight overflow"))
+        })?;
+    if total_weight == 0 {
+        bail!("user-configurable App budget has zero registered weight");
+    }
+
+    let mut allocations = BTreeMap::new();
+    for (key, registered_micros, _) in registrations {
+        let allocated =
+            (u128::from(total_micros) * u128::from(*registered_micros) / total_weight) as u64;
+        if allocated == 0 {
+            bail!("user-selected cost ceiling is too small for the selected trial matrix");
+        }
+        allocations.insert(key.clone(), allocated);
+    }
+    Ok(allocations)
+}
+
+fn cost_usd_to_micros(value: f64) -> Result<u64> {
+    let scaled = value * 1_000_000.0;
+    if !value.is_finite() || value <= 0.0 || !scaled.is_finite() || scaled > u64::MAX as f64 {
+        bail!("invalid App cost ceiling");
+    }
+    let micros = scaled.round() as u64;
+    if micros == 0 {
+        bail!("App cost ceiling is below one micro-dollar");
+    }
+    Ok(micros)
 }
 
 /// Keep one slow Provider call from consuming the entire desktop experiment.
@@ -1697,13 +2037,28 @@ fn validate_local_child_plan(
     {
         bail!("App child plan identity or model binding is invalid");
     }
-    validate_local_child_assets(root, child)?;
+    validate_local_child_assets(
+        root,
+        child,
+        profile.budget_mode,
+        app_plan.budget_enforcement,
+    )?;
     Ok(())
 }
 
-fn validate_local_child_assets(root: &Path, plan: &ModelCampaignPlan) -> Result<()> {
+fn validate_local_child_assets(
+    root: &Path,
+    plan: &ModelCampaignPlan,
+    budget_mode: AppBudgetMode,
+    budget_enforcement: AppBudgetEnforcement,
+) -> Result<()> {
     if plan.schema_version != PLAN_SCHEMA_VERSION || plan.tier == ModelCampaignTier::Release {
         bail!("App child plan uses an unsupported schema or release tier");
+    }
+    if budget_enforcement == AppBudgetEnforcement::Unlimited
+        && plan.campaign_budget != CampaignBudget::default()
+    {
+        bail!("unlimited App child contains a hidden campaign budget");
     }
     if plan.models.len() != 1 || plan.models[0].role != "anchor" {
         bail!("App child plan must bind exactly one anchor model");
@@ -1782,15 +2137,54 @@ fn validate_local_child_assets(root: &Path, plan: &ModelCampaignPlan) -> Result<
                     case.id
                 );
             }
-            let registered_budget = strictest_budget(&[&suite.budget, &scenario.budgets]);
-            if !budget_is_narrower_or_equal(&planned_case.budget, &registered_budget) {
-                bail!("App child case {} expands its registered budget", case.id);
+            match budget_enforcement {
+                AppBudgetEnforcement::Unlimited => {
+                    if budget_mode != AppBudgetMode::UserConfigurable
+                        || planned_case.budget != CampaignBudget::default()
+                    {
+                        bail!("unlimited App child contains a hidden trial budget");
+                    }
+                }
+                AppBudgetEnforcement::Enforced => {
+                    let registered_budget = strictest_budget(&[&suite.budget, &scenario.budgets]);
+                    match budget_mode {
+                        AppBudgetMode::RegisteredCeiling => {
+                            if !budget_is_narrower_or_equal(
+                                &planned_case.budget,
+                                &registered_budget,
+                            ) {
+                                bail!("App child case {} expands its registered budget", case.id);
+                            }
+                        }
+                        AppBudgetMode::UserConfigurable => {
+                            validate_campaign_budget(
+                                &planned_case.budget,
+                                "user-configurable App case",
+                            )?;
+                            if planned_case.budget.max_wall_seconds.is_none()
+                                || planned_case.budget.max_model_calls.is_none()
+                                || planned_case.budget.max_input_tokens.is_none()
+                                || planned_case.budget.max_output_tokens.is_none()
+                                || planned_case.budget.max_cost_usd.is_none()
+                                || planned_case.budget.max_tool_calls.is_none()
+                                || planned_case.budget.max_agents.is_none()
+                                || planned_case.budget.max_concurrency.is_none()
+                            {
+                                bail!(
+                                    "user-configurable App case must bind every budget dimension"
+                                );
+                            }
+                        }
+                    }
+                }
             }
-            if planned_case.timeout_seconds > suite.timeout_seconds
-                || scenario
-                    .budgets
-                    .max_wall_seconds
-                    .is_some_and(|limit| planned_case.timeout_seconds > limit)
+            if budget_enforcement == AppBudgetEnforcement::Enforced
+                && budget_mode == AppBudgetMode::RegisteredCeiling
+                && (planned_case.timeout_seconds > suite.timeout_seconds
+                    || scenario
+                        .budgets
+                        .max_wall_seconds
+                        .is_some_and(|limit| planned_case.timeout_seconds > limit))
             {
                 bail!("App child case {} expands its timeout", case.id);
             }
@@ -1854,10 +2248,22 @@ fn validate_local_child_assets(root: &Path, plan: &ModelCampaignPlan) -> Result<
     if actual_trials != expected_trials {
         bail!("App child trials do not exactly match the narrowed registered cases");
     }
+    if budget_enforcement == AppBudgetEnforcement::Enforced
+        && budget_mode == AppBudgetMode::UserConfigurable
+    {
+        let user_cost_usd = plan
+            .campaign_budget
+            .max_cost_usd
+            .ok_or_else(|| anyhow!("user-configurable App plan has no campaign cost ceiling"))?;
+        validate_planned_cost_ceiling(plan, user_cost_usd)?;
+    }
     Ok(())
 }
 
-fn budget_is_narrower_or_equal(actual: &CampaignBudget, ceiling: &CampaignBudget) -> bool {
+fn budget_is_narrower_or_equal_except_cost(
+    actual: &CampaignBudget,
+    ceiling: &CampaignBudget,
+) -> bool {
     fn within_u64(actual: Option<u64>, ceiling: Option<u64>) -> bool {
         match (actual, ceiling) {
             (_, None) => true,
@@ -1879,11 +2285,19 @@ fn budget_is_narrower_or_equal(actual: &CampaignBudget, ceiling: &CampaignBudget
         && within_u64(actual.max_tool_calls, ceiling.max_tool_calls)
         && within_u32(actual.max_agents, ceiling.max_agents)
         && within_u32(actual.max_concurrency, ceiling.max_concurrency)
-        && match (actual.max_cost_usd, ceiling.max_cost_usd) {
-            (_, None) => true,
-            (Some(actual), Some(ceiling)) => actual <= ceiling,
-            (None, Some(_)) => false,
-        }
+}
+
+fn cost_budget_is_narrower_or_equal(actual: Option<f64>, ceiling: Option<f64>) -> bool {
+    match (actual, ceiling) {
+        (_, None) => true,
+        (Some(actual), Some(ceiling)) => actual <= ceiling,
+        (None, Some(_)) => false,
+    }
+}
+
+fn budget_is_narrower_or_equal(actual: &CampaignBudget, ceiling: &CampaignBudget) -> bool {
+    budget_is_narrower_or_equal_except_cost(actual, ceiling)
+        && cost_budget_is_narrower_or_equal(actual.max_cost_usd, ceiling.max_cost_usd)
 }
 
 fn parse_model_shard(value: &str) -> Result<(u16, u16)> {
@@ -1970,6 +2384,7 @@ async fn command_smoke(root: &Path, server_bin: Option<&Path>, output: &Path) ->
         &trial,
         &model,
         1,
+        false,
     )
     .await;
     drop(scoped_env);
@@ -2080,9 +2495,12 @@ async fn command_app_control_smoke(
             "providerId": provider.id,
         }))?,
     }];
+    let mut smoke_resource_budget = smoke_case.budget.clone();
+    smoke_resource_budget.max_cost_usd = None;
     let request = EvalAppRunRequest {
         schema_version: APP_REQUEST_SCHEMA_VERSION.to_string(),
         profile_id: "custom".to_string(),
+        budget_enforcement: AppBudgetEnforcement::Enforced,
         suite_selections: vec![AppSuiteRequest {
             suite_id: smoke_suite.id.clone(),
             case_ids: vec![smoke_case.id.clone()],
@@ -2091,6 +2509,12 @@ async fn command_app_control_smoke(
             // together proves that the App concurrency control schedules real trial work rather
             // than merely accepting and persisting `maxConcurrency`.
             repetitions: Some(2),
+        }],
+        case_cost_budgets: vec![],
+        case_resource_budgets: vec![AppCaseResourceBudget {
+            suite_id: smoke_suite.id.clone(),
+            case_id: smoke_case.id.clone(),
+            budget: smoke_resource_budget,
         }],
         models: vec![AppModelSelection {
             provider_id: provider.id.clone(),
@@ -2113,6 +2537,7 @@ async fn command_app_control_smoke(
         consent: AppEvalConsent {
             model_costs: true,
             synthetic_tool_execution: true,
+            unlimited_budget_risk: false,
         },
     };
     let runtime_environment = RuntimeEnvironmentSnapshot {
@@ -2631,7 +3056,8 @@ fn command_run(
         .canonicalize()
         .with_context(|| format!("canonicalizing model plan {}", plan_path.display()))?;
     let plan: ModelCampaignPlan = read_json(&plan_path)?;
-    validate_execution_plan(root, &plan)?;
+    let unlimited_budget = validate_execution_plan(root, &plan)?
+        .is_some_and(|app| app.budget_enforcement == AppBudgetEnforcement::Unlimited);
     let suite = plan
         .suites
         .iter()
@@ -2677,15 +3103,55 @@ fn command_run(
             .iter()
             .find(|case| case.id == trial.case_id)
             .ok_or_else(|| anyhow!("planned trial references a missing case"))?;
-        let mut result = run_trial_subprocess(root, &plan_path, trial, planned_case, 1)?;
+        let mut result =
+            run_trial_subprocess(root, &plan_path, trial, planned_case, 1, unlimited_budget)?;
         if matches!(
             result.outcome,
             ModelCampaignOutcome::InfraError | ModelCampaignOutcome::SimulatorError
-        ) {
-            let first_attempt = result.as_attempt_record();
-            result = run_trial_subprocess(root, &plan_path, trial, planned_case, 2)?;
-            merge_retry_usage(&mut result, &first_attempt)?;
-            result.prior_attempts.push(first_attempt);
+        ) && result.failure_class.as_deref()
+            != Some(crate::model_adapter::CLEANUP_INCOMPLETE_FAILURE_CLASS)
+        {
+            let mut consumed = results.clone();
+            consumed.push(result.clone());
+            if unlimited_budget {
+                let first_attempt = result.as_attempt_record();
+                result = run_trial_subprocess(
+                    root,
+                    &plan_path,
+                    trial,
+                    planned_case,
+                    2,
+                    unlimited_budget,
+                )?;
+                merge_retry_usage(&mut result, &first_attempt)?;
+                result.prior_attempts.push(first_attempt);
+            } else if campaign_budget_stop_reason(&shard_budget, &consumed, 0.90).is_none() {
+                if let Some(retry_case) =
+                    retry_case_with_remaining_budget(planned_case, &shard_budget, &results, &result)
+                {
+                    let first_attempt = result.as_attempt_record();
+                    result = run_trial_subprocess(
+                        root,
+                        &plan_path,
+                        trial,
+                        &retry_case,
+                        2,
+                        unlimited_budget,
+                    )?;
+                    merge_retry_usage(&mut result, &first_attempt)?;
+                    result.prior_attempts.push(first_attempt);
+                } else {
+                    result.warnings.push(
+                        "runner retry skipped because no proven residual trial/campaign budget remained"
+                            .to_string(),
+                    );
+                }
+            } else {
+                result.warnings.push(
+                    "runner retry skipped because the shard campaign stop threshold was reached"
+                        .to_string(),
+                );
+            }
         }
         validate_trial_result(trial, &result)?;
         results.push(result);
@@ -2980,6 +3446,161 @@ fn merge_price_digests(previous: Option<&str>, current: Option<&str>) -> Option<
     }
 }
 
+#[derive(Debug)]
+struct RetryBudgetUsage {
+    wall_seconds: u64,
+    model_calls: u64,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    cost_usd: Option<f64>,
+    tool_calls: u64,
+    spawned_agents: u64,
+}
+
+impl Default for RetryBudgetUsage {
+    fn default() -> Self {
+        Self {
+            wall_seconds: 0,
+            model_calls: 0,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            cost_usd: Some(0.0),
+            tool_calls: 0,
+            spawned_agents: 0,
+        }
+    }
+}
+
+impl RetryBudgetUsage {
+    fn add(&mut self, result: &ModelTrialResult) {
+        self.wall_seconds = self
+            .wall_seconds
+            .saturating_add(result.timings.wall_ms.div_ceil(1_000));
+        self.model_calls = self
+            .model_calls
+            .saturating_add(result.orchestration.model_calls);
+        self.tool_calls = self.tool_calls.saturating_add(result.tools.attempted);
+        self.spawned_agents = self
+            .spawned_agents
+            .saturating_add(result.orchestration.spawned_agents);
+        Self::add_exact(
+            &mut self.input_tokens,
+            result.tokens.input,
+            result.orchestration.model_calls,
+        );
+        Self::add_exact(
+            &mut self.output_tokens,
+            result.tokens.output,
+            result.orchestration.model_calls,
+        );
+        Self::add_exact_f64(
+            &mut self.cost_usd,
+            result.cost.total_usd,
+            result.orchestration.model_calls,
+        );
+    }
+
+    fn add_exact(target: &mut Option<u64>, observed: Option<u64>, model_calls: u64) {
+        if target.is_none() {
+            return;
+        }
+        *target = match (*target, observed, model_calls) {
+            (Some(current), Some(value), _) => Some(current.saturating_add(value)),
+            (Some(current), None, 0) => Some(current),
+            _ => None,
+        };
+    }
+
+    fn add_exact_f64(target: &mut Option<f64>, observed: Option<f64>, model_calls: u64) {
+        if target.is_none() {
+            return;
+        }
+        *target = match (*target, observed, model_calls) {
+            (Some(current), Some(value), _) => Some(current + value),
+            (Some(current), None, 0) => Some(current),
+            _ => None,
+        };
+    }
+}
+
+fn remaining_retry_budget(
+    budget: &CampaignBudget,
+    usage: &RetryBudgetUsage,
+    subtract_agents: bool,
+) -> Option<CampaignBudget> {
+    let remaining_u64 = |limit: Option<u64>, used: u64| match limit {
+        Some(limit) if used < limit => Some(Some(limit - used)),
+        Some(_) => None,
+        None => Some(None),
+    };
+    let remaining_exact = |limit: Option<u64>, used: Option<u64>| match (limit, used) {
+        (Some(limit), Some(used)) if used < limit => Some(Some(limit - used)),
+        (Some(_), _) => None,
+        (None, _) => Some(None),
+    };
+    let remaining_cost = match (budget.max_cost_usd, usage.cost_usd) {
+        (Some(limit), Some(used)) if used.is_finite() && used < limit => Some(Some(limit - used)),
+        (Some(_), _) => None,
+        (None, _) => Some(None),
+    }?;
+    let max_agents = if subtract_agents {
+        match budget.max_agents {
+            Some(limit) if usage.spawned_agents < u64::from(limit) => {
+                Some(limit - usage.spawned_agents as u32)
+            }
+            Some(_) => return None,
+            None => None,
+        }
+    } else {
+        budget.max_agents
+    };
+    let max_concurrency = budget
+        .max_concurrency
+        .map(|limit| max_agents.map_or(limit, |agents| limit.min(agents)));
+    Some(CampaignBudget {
+        max_wall_seconds: remaining_u64(budget.max_wall_seconds, usage.wall_seconds)?,
+        max_model_calls: remaining_u64(budget.max_model_calls, usage.model_calls)?,
+        max_input_tokens: remaining_exact(budget.max_input_tokens, usage.input_tokens)?,
+        max_output_tokens: remaining_exact(budget.max_output_tokens, usage.output_tokens)?,
+        max_cost_usd: remaining_cost,
+        max_tool_calls: remaining_u64(budget.max_tool_calls, usage.tool_calls)?,
+        max_agents,
+        max_concurrency,
+    })
+}
+
+fn retry_case_with_remaining_budget(
+    planned_case: &PlannedModelCase,
+    shard_budget: &CampaignBudget,
+    completed: &[ModelTrialResult],
+    first_attempt: &ModelTrialResult,
+) -> Option<PlannedModelCase> {
+    let mut case_usage = RetryBudgetUsage::default();
+    case_usage.add(first_attempt);
+    let case_remaining = remaining_retry_budget(&planned_case.budget, &case_usage, true)?;
+
+    let mut campaign_usage = RetryBudgetUsage::default();
+    for result in completed {
+        campaign_usage.add(result);
+    }
+    campaign_usage.add(first_attempt);
+    let campaign_remaining = remaining_retry_budget(shard_budget, &campaign_usage, false)?;
+    let budget = strictest_budget(&[&case_remaining, &campaign_remaining]);
+    validate_campaign_budget(&budget, "model retry residual").ok()?;
+
+    let mut retry_case = planned_case.clone();
+    retry_case.timeout_seconds = retry_case.timeout_seconds.min(
+        budget
+            .max_wall_seconds
+            .unwrap_or(retry_case.timeout_seconds),
+    );
+    if retry_case.timeout_seconds == 0 {
+        return None;
+    }
+    retry_case.budget = budget;
+    Some(retry_case)
+}
+
 fn scale_campaign_budget(
     budget: &CampaignBudget,
     selected_trials: usize,
@@ -3117,6 +3738,7 @@ fn run_trial_subprocess(
     trial: &PlannedModelTrial,
     planned_case: &PlannedModelCase,
     attempt: u8,
+    unlimited_budget: bool,
 ) -> Result<ModelTrialResult> {
     let temp = tempfile::tempdir().context("creating model trial subprocess directory")?;
     let result_path = temp.path().join("trial-result.json");
@@ -3160,6 +3782,15 @@ fn run_trial_subprocess(
         .env("TEMP", &trial_tmp)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
+    if attempt == 2 && !unlimited_budget {
+        command
+            .env(
+                RETRY_BUDGET_ENV,
+                serde_json::to_string(&planned_case.budget)
+                    .context("serializing residual model retry budget")?,
+            )
+            .env(RETRY_TIMEOUT_ENV, planned_case.timeout_seconds.to_string());
+    }
     // The runner talks to a separately provisioned Hope process. Provider and
     // personal-service credentials must not leak into this harness subprocess.
     for (key, _) in std::env::vars() {
@@ -3179,12 +3810,12 @@ fn run_trial_subprocess(
     let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let started = Instant::now();
     let mut child = command.spawn().context("spawning isolated model trial")?;
-    let deadline = Duration::from_secs(planned_case.timeout_seconds);
+    let deadline = (!unlimited_budget).then(|| Duration::from_secs(planned_case.timeout_seconds));
     let process_status = loop {
         if let Some(status) = child.try_wait().context("polling model trial")? {
             break Some(status);
         }
-        if started.elapsed() >= deadline {
+        if deadline.is_some_and(|deadline| started.elapsed() >= deadline) {
             let _ = child.kill();
             let _ = child.wait();
             break None;
@@ -3235,7 +3866,8 @@ async fn command_run_trial(
         bail!("model trial worker may only run inside the isolated runner subprocess");
     }
     let plan: ModelCampaignPlan = read_json(plan_path)?;
-    validate_execution_plan(root, &plan)?;
+    let unlimited_budget = validate_execution_plan(root, &plan)?
+        .is_some_and(|app| app.budget_enforcement == AppBudgetEnforcement::Unlimited);
     let trial = plan
         .trials
         .iter()
@@ -3262,15 +3894,40 @@ async fn command_run_trial(
         .and_then(|value| value.parse::<u8>().ok())
         .filter(|value| (1..=2).contains(value))
         .unwrap_or(1);
+    let effective_case = if attempt == 2 && !unlimited_budget {
+        let budget: CampaignBudget = serde_json::from_str(
+            &std::env::var(RETRY_BUDGET_ENV)
+                .context("model retry worker is missing its residual budget")?,
+        )
+        .context("parsing residual model retry budget")?;
+        validate_campaign_budget(&budget, "model retry residual")?;
+        let timeout_seconds = std::env::var(RETRY_TIMEOUT_ENV)
+            .context("model retry worker is missing its residual timeout")?
+            .parse::<u64>()
+            .context("parsing residual model retry timeout")?;
+        if timeout_seconds == 0 || timeout_seconds > planned_case.timeout_seconds {
+            bail!("model retry residual timeout is outside the planned case ceiling");
+        }
+        if !budget_is_narrower_or_equal(&budget, &planned_case.budget) {
+            bail!("model retry residual budget expands the planned case ceiling");
+        }
+        let mut effective = planned_case.clone();
+        effective.timeout_seconds = timeout_seconds;
+        effective.budget = budget;
+        effective
+    } else {
+        planned_case.clone()
+    };
     let result = crate::model_adapter::run_registered_trial(
         root,
         suite.adapter,
         &scenario_path,
         &scenario,
-        planned_case,
+        &effective_case,
         trial,
         model,
         attempt,
+        unlimited_budget,
     )
     .await;
     validate_trial_attempt_result(trial, &result)?;
@@ -4681,5 +5338,36 @@ mod tests {
             ..CampaignBudget::default()
         };
         assert!(partition_budget(&impossible, 2).is_err());
+    }
+
+    #[test]
+    fn user_cost_budget_scales_registered_case_weights_without_exceeding_total() {
+        let registrations = vec![
+            (("suite".to_string(), "summary".to_string()), 2_000_000, 1),
+            (("suite".to_string(), "paging".to_string()), 3_000_000, 1),
+        ];
+        let allocations = allocate_user_cost_micros(&registrations, 10.0).unwrap();
+        assert_eq!(
+            allocations[&("suite".to_string(), "summary".to_string())],
+            4_000_000
+        );
+        assert_eq!(
+            allocations[&("suite".to_string(), "paging".to_string())],
+            6_000_000
+        );
+    }
+
+    #[test]
+    fn user_cost_budget_accounts_for_repeated_trials() {
+        let registrations = vec![
+            (("suite".to_string(), "summary".to_string()), 2_000_000, 2),
+            (("suite".to_string(), "paging".to_string()), 3_000_000, 1),
+        ];
+        let allocations = allocate_user_cost_micros(&registrations, 14.0).unwrap();
+        let summary = allocations[&("suite".to_string(), "summary".to_string())];
+        let paging = allocations[&("suite".to_string(), "paging".to_string())];
+        assert_eq!(summary, 4_000_000);
+        assert_eq!(paging, 6_000_000);
+        assert_eq!(summary * 2 + paging, 14_000_000);
     }
 }

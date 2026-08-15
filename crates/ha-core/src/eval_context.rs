@@ -986,8 +986,6 @@ pub fn retain_session(session_id: &str) -> Option<EvalSessionGuard> {
 /// accounting, but they are reported separately from durable async jobs so a
 /// cosmetic background call cannot masquerade as unfinished task work.
 pub fn retain_model_automation(session_id: &str) -> Result<Option<EvalSessionGuard>> {
-    ensure_model_budget(Some(session_id))?;
-    ensure_background_work_budget(Some(session_id))?;
     let mut state = registry()
         .lock()
         .map_err(|_| anyhow::anyhow!("eval context registry is poisoned"))?;
@@ -995,9 +993,25 @@ pub fn retain_model_automation(session_id: &str) -> Result<Option<EvalSessionGua
         return Ok(None);
     };
     let trial_id = entry.context.trial_id.clone();
-    let Some(trial) = state.trials.get_mut(&trial_id) else {
-        return Ok(None);
-    };
+    let trial = state.trials.get_mut(&trial_id).ok_or_else(|| {
+        anyhow::anyhow!(
+            "evaluation model automation denied: Session is bound to missing trial {trial_id}"
+        )
+    })?;
+    // `None` is reserved for ordinary, non-evaluation Sessions. Evaluation
+    // callers use an error as a typed admission denial and must not launch the
+    // optional Provider request without a retained guard.
+    if let Some(reason) = model_budget_exhaustion_reason(trial) {
+        bail!("evaluation model automation denied: {reason} budget exhausted");
+    }
+    if trial
+        .context
+        .budget
+        .max_concurrency
+        .is_some_and(|limit| trial.active_work >= limit)
+    {
+        bail!("evaluation model automation denied: concurrency budget exhausted");
+    }
     let parent_span_id = trial.context.root_span_id.clone();
     trial.active_work = trial.active_work.saturating_add(1);
     trial.background_model_work = trial.background_model_work.saturating_add(1);
@@ -1062,42 +1076,46 @@ pub fn ensure_model_budget(session_id: Option<&str>) -> Result<()> {
         return Ok(());
     };
     with_budget_check(session_id, "model", |trial| {
-        let budget = &trial.context.budget;
-        if budget
-            .max_wall_ms
-            .is_some_and(|limit| elapsed_ms(trial) >= limit)
-        {
-            return Some("wall_time".to_string());
-        }
-        if budget
-            .max_model_calls
-            .is_some_and(|limit| trial.model_calls >= limit)
-        {
-            return Some("model_calls".to_string());
-        }
-        if exact_limit_reached(
-            trial.input_tokens,
-            budget.max_input_tokens,
-            trial.model_calls,
-        ) {
-            return Some("input_tokens".to_string());
-        }
-        if exact_limit_reached(
-            trial.output_tokens,
-            budget.max_output_tokens,
-            trial.model_calls,
-        ) {
-            return Some("output_tokens".to_string());
-        }
-        if let Some(limit) = budget.max_cost_micros {
-            match trial.cost_usd {
-                Some(cost) if usd_to_micros(cost) >= limit => return Some("cost".to_string()),
-                None if trial.model_calls > 0 => return Some("cost_unknown".to_string()),
-                _ => {}
-            }
-        }
-        None
+        model_budget_exhaustion_reason(trial).map(str::to_string)
     })
+}
+
+fn model_budget_exhaustion_reason(trial: &TrialAccumulator) -> Option<&'static str> {
+    let budget = &trial.context.budget;
+    if budget
+        .max_wall_ms
+        .is_some_and(|limit| elapsed_ms(trial) >= limit)
+    {
+        return Some("wall_time");
+    }
+    if budget
+        .max_model_calls
+        .is_some_and(|limit| trial.model_calls >= limit)
+    {
+        return Some("model_calls");
+    }
+    if exact_limit_reached(
+        trial.input_tokens,
+        budget.max_input_tokens,
+        trial.model_calls,
+    ) {
+        return Some("input_tokens");
+    }
+    if exact_limit_reached(
+        trial.output_tokens,
+        budget.max_output_tokens,
+        trial.model_calls,
+    ) {
+        return Some("output_tokens");
+    }
+    if let Some(limit) = budget.max_cost_micros {
+        match trial.cost_usd {
+            Some(cost) if usd_to_micros(cost) >= limit => return Some("cost"),
+            None if trial.model_calls > 0 => return Some("cost_unknown"),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Remaining exact Provider output-token allowance for the next main round.

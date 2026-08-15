@@ -2083,6 +2083,7 @@ async fn prepare_durable_provider_plan(
     capacity: &crate::token_accounting::TokenCount,
     reserved_output: u32,
     projection: &[crate::context_compact::projection::ProjectionDraftManifestItem],
+    tier3_followup_after_capacity_projection: bool,
 ) -> Result<Option<(String, DurableProviderDispatchObserver)>> {
     let Some(sink) = agent.turn_durability.as_ref() else {
         return Ok(None);
@@ -2133,6 +2134,7 @@ async fn prepare_durable_provider_plan(
         round: prepared.identity.round,
         final_capacity_count_json,
         projection,
+        tier3_followup_after_capacity_projection,
     };
     sink.prepare_request_plan(&input, prepared.body()).await?;
     Ok(Some((
@@ -2670,6 +2672,10 @@ impl AssistantAgent {
             deferred_tool_schemas = tool_inventory.deferred_schemas;
             tool_schemas = tool_inventory.schemas;
         }
+        let mut latest_compaction_summary_reason = compaction.summary_reason;
+        let mut latest_cache_compaction_decision = compaction
+            .cache_decision
+            .unwrap_or(crate::context_compact::CacheCompactionDecision::KeepPrefix);
 
         let mut round_count: u32 = 0;
         let mut natural_exit = false;
@@ -2687,7 +2693,15 @@ impl AssistantAgent {
         let mut last_round_thinking = String::new();
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
-        let mut mid_loop_compaction_state = MidLoopCompactionState::default();
+        let mut mid_loop_compaction_state = MidLoopCompactionState {
+            // A successful turn-start summary is the routine rewrite for this
+            // turn. Capacity recovery remains independent, but ordinary tool
+            // checkpoints must not immediately pay for and publish a second
+            // summary merely because the preserved suffix is still near the
+            // high watermark.
+            suppress_tier3_for_turn: compaction.summary_applied,
+            ..MidLoopCompactionState::default()
+        };
 
         // Coerce the generic `&F` to a `&dyn` once for trait method calls.
         // Generic emit_* helpers continue to use `on_delta` directly (zero
@@ -3093,6 +3107,8 @@ impl AssistantAgent {
             let mut pending = pending_tool_group_admission.take();
             let mut recovery = C0RecoveryCursor::Tier0;
             let mut force_c0 = false;
+            let mut capacity_projection_used = false;
+            let mut capacity_reclaimed_tokens_upper = 0u64;
             // Materialize marker/file payloads once for this request
             // projection. Deterministic Tier0/2 edits and current-group text
             // upgrades replay onto this frozen provider view, avoiding a
@@ -3219,6 +3235,13 @@ impl AssistantAgent {
                             result.input_upper_after,
                             result.reached_target
                         );
+                        capacity_projection_used |= !result.edits.is_empty();
+                        capacity_reclaimed_tokens_upper = capacity_reclaimed_tokens_upper
+                            .saturating_add(
+                                result
+                                    .input_upper_before
+                                    .saturating_sub(result.input_upper_after),
+                            );
                         crate::context_compact::replay_capacity_pressure_edits(
                             &mut api_messages,
                             &result.edits,
@@ -3329,6 +3352,15 @@ impl AssistantAgent {
                             outcome.summary_applied
                         );
                         if outcome.summary_applied {
+                            // Tier 3 has already replaced the degraded prefix
+                            // with a durable semantic winner. This exact
+                            // request no longer owes a follow-up summary.
+                            capacity_projection_used = false;
+                            capacity_reclaimed_tokens_upper = 0;
+                            latest_compaction_summary_reason = outcome.summary_reason;
+                            latest_cache_compaction_decision =
+                                crate::context_compact::CacheCompactionDecision::SummaryOnce;
+                            mid_loop_compaction_state.suppress_tier3_for_turn = true;
                             api_messages = rebuild_request_history(
                                 &messages,
                                 adapter,
@@ -3517,6 +3549,7 @@ impl AssistantAgent {
                         &effective_token_count,
                         eval_max_tokens,
                         &request_projection_manifest,
+                        capacity_projection_used,
                     )
                     .await?
                     .context("durable provider plan missing for durable turn")?;
@@ -3772,6 +3805,42 @@ impl AssistantAgent {
                             crate::token_accounting::TokenCountUnknown::TokenizerUnavailable
                         )
                     }),
+                    cache_compaction_decision: Some(
+                        if capacity_projection_used {
+                            crate::context_compact::CacheCompactionDecision::CapacityRecovery
+                        } else {
+                            latest_cache_compaction_decision
+                        }
+                        .as_str()
+                        .to_string(),
+                    ),
+                    cache_identity_hash: Some(round_prompt_cache_key.clone()),
+                    projection_action_count: u64::try_from(request_projection_manifest.len())
+                        .unwrap_or(u64::MAX),
+                    reclaimed_tokens_upper: capacity_reclaimed_tokens_upper,
+                    // Exact suffix invalidation needs a byte-identical
+                    // canonical Provider projection. Do not invent a value
+                    // when media/provider shaping prevents that proof.
+                    invalidated_suffix_tokens_upper: None,
+                    cache_read_input_tokens: outcome
+                        .usage
+                        .input_coverage
+                        .is_present()
+                        .then_some(outcome.usage.cache_read_input_tokens),
+                    cache_creation_input_tokens: outcome
+                        .usage
+                        .input_coverage
+                        .is_present()
+                        .then_some(outcome.usage.cache_creation_input_tokens),
+                    // Provider-specific prices are intentionally not inferred
+                    // from model names. Unknown economics never authorize a
+                    // proactive prefix rewrite.
+                    break_even_turns: None,
+                    prefix_rewrite_count: u32::from(
+                        capacity_projection_used || self.tier3_summary_applied_this_turn(),
+                    ),
+                    summary_reason: latest_compaction_summary_reason
+                        .map(|reason| reason.as_str().to_string()),
                 },
             );
 
@@ -4369,20 +4438,26 @@ impl AssistantAgent {
                 .as_ref()
                 .map(|pending| pending.hard_protected_start);
 
-            self.maybe_compact_between_tool_rounds(
-                &mut messages,
-                &mut canonical_history,
-                &system_prompt_for_budget,
-                &next_request_tool_schemas,
-                model,
-                MAX_OUTPUT_TOKENS,
-                cancel.clone(),
-                &mut mid_loop_compaction_state,
-                round,
-                on_delta,
-                current_group_hard_start,
-            )
-            .await?;
+            let mid_loop_compaction = self
+                .maybe_compact_between_tool_rounds(
+                    &mut messages,
+                    &mut canonical_history,
+                    &system_prompt_for_budget,
+                    &next_request_tool_schemas,
+                    model,
+                    MAX_OUTPUT_TOKENS,
+                    cancel.clone(),
+                    &mut mid_loop_compaction_state,
+                    round,
+                    on_delta,
+                    current_group_hard_start,
+                )
+                .await?;
+            if mid_loop_compaction.summary_applied {
+                latest_compaction_summary_reason = mid_loop_compaction.summary_reason;
+                latest_cache_compaction_decision =
+                    crate::context_compact::CacheCompactionDecision::SummaryOnce;
+            }
             let will_start_another_provider_round = post_batch_stop.is_none()
                 && !cancel.load(Ordering::SeqCst)
                 && round.saturating_add(1) < effective_max_rounds;

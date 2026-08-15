@@ -1,5 +1,9 @@
 use super::{EvalArtifactStore, EvalIntegrity, EvalLocalExportResult, EvalRepository};
 use anyhow::{anyhow, bail, Context, Result};
+use ha_eval_spec::app::{
+    validate_app_deterministic_evidence, AppDeterministicEvidence,
+    APP_DETERMINISTIC_EVIDENCE_SCHEMA_VERSION,
+};
 use ha_eval_spec::model::{
     reject_embedded_secrets, validate_evidence_shape, ModelCampaignEvidence, ModelCampaignSource,
 };
@@ -75,10 +79,22 @@ pub fn export_local_evidence_bundle(
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .with_context(|| format!("decoding evidence for campaign {campaign_id}"))?;
         reject_embedded_secrets(&value, "$.evidence")?;
-        let evidence: ModelCampaignEvidence = serde_json::from_value(value)?;
-        validate_evidence_shape(&evidence)?;
-        if evidence.source != ModelCampaignSource::LocalApp || evidence.campaign_id != campaign_id {
-            bail!("local evaluation evidence identity does not match its database record");
+        if value.get("schemaVersion").and_then(|value| value.as_str())
+            == Some(APP_DETERMINISTIC_EVIDENCE_SCHEMA_VERSION)
+        {
+            let evidence: AppDeterministicEvidence = serde_json::from_value(value)?;
+            validate_app_deterministic_evidence(&evidence)?;
+            if evidence.campaign_id != campaign_id {
+                bail!("local deterministic evidence identity does not match its database record");
+            }
+        } else {
+            let evidence: ModelCampaignEvidence = serde_json::from_value(value)?;
+            validate_evidence_shape(&evidence)?;
+            if evidence.source != ModelCampaignSource::LocalApp
+                || evidence.campaign_id != campaign_id
+            {
+                bail!("local evaluation evidence identity does not match its database record");
+            }
         }
         let path = format!("campaigns/{index:04}/evidence.json");
         manifest_campaigns.push(LocalBundleCampaign {
