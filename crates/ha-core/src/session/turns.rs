@@ -894,6 +894,21 @@ mod tests {
         SessionDB::open_ephemeral_for_test(&path).unwrap()
     }
 
+    /// A Desktop/HTTP turn only persists after it owns a durable admission —
+    /// both shells reserve one before calling the append helper, and the append
+    /// consumes it in the same transaction. Mirror that here so these tests run
+    /// the same FIFO path production does instead of a shape that cannot occur.
+    fn admit_direct_turn(
+        db: &SessionDB,
+        session_id: &str,
+        turn_id: &str,
+        source: super::super::QueuedTurnMessageSource,
+    ) -> super::super::DirectTurnAdmission {
+        db.reserve_direct_turn_admission(session_id, turn_id, source, None)
+            .expect("reserve direct admission")
+            .expect("direct admission granted")
+    }
+
     #[test]
     fn terminal_status_is_written_once() {
         let db = temp_db();
@@ -940,6 +955,12 @@ mod tests {
             .unwrap();
         let mut message = NewMessage::user("@README.md");
         message.attachments_meta = Some(r#"{"plan_trigger":true}"#.into());
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "typed-turn",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "typed-turn",
@@ -981,6 +1002,12 @@ mod tests {
             .create_session_with_project("ha-main", None, None)
             .unwrap();
         let persisted_message = NewMessage::user("@README.md rewritten by hook");
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "typed-turn-rewritten",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "typed-turn-rewritten",
@@ -1018,6 +1045,12 @@ mod tests {
         let session = db
             .create_session_with_project("ha-main", None, None)
             .unwrap();
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "typed-turn-invalid-span",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "typed-turn-invalid-span",
@@ -1051,6 +1084,12 @@ mod tests {
         let session = db
             .create_session_with_project("ha-main", None, Some(true))
             .unwrap();
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "incognito-typed-turn",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "incognito-typed-turn",
@@ -1111,6 +1150,12 @@ mod tests {
                 .create_session_with_project("ha-main", None, None)
                 .unwrap();
             session_id = session.id.clone();
+            let _admission = admit_direct_turn(
+                &db,
+                &session.id,
+                "turn-1",
+                super::super::QueuedTurnMessageSource::Http,
+            );
             let (message_id, turn) = db
                 .append_message_and_create_chat_turn_with_id_surface_dispatch(
                     "turn-1",
@@ -1125,6 +1170,11 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(turn.user_message_id, Some(message_id));
+            // A second admission is only grantable once the first turn settles;
+            // the duplicate below must fail on the request id, not on the fence.
+            assert!(db
+                .finish_chat_turn_once(&turn.id, ChatTurnStatus::Completed, None, None, None)
+                .unwrap());
         }
 
         let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
@@ -1136,6 +1186,12 @@ mod tests {
                 turn_id: "turn-1".to_string(),
                 queue_request_id: None,
             })
+        );
+        let _duplicate_admission = admit_direct_turn(
+            &db,
+            &session_id,
+            "turn-2",
+            super::super::QueuedTurnMessageSource::Http,
         );
         let duplicate = db.append_message_and_create_chat_turn_with_id_surface_dispatch(
             "turn-2",

@@ -1208,17 +1208,18 @@ impl SessionDB {
     ) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // Classify the row itself — deliberately WITHOUT the head-of-queue
+        // restriction. A sidecar-incapable row (typed mentions, skill tools)
+        // must still be marked `fallback_after_reply` even when it sits behind
+        // another queued message; gating the lookup on MIN(id) left it silently
+        // `queued`. The FIFO fence lives on the force-insert UPDATE below, which
+        // is what must never jump the queue.
         let record = tx
             .query_row(
                 &format!(
                     "{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2
                      AND source IN ('desktop','http')
-                     AND status IN ('queued', 'fallback_after_reply')
-                     AND id = (
-                         SELECT MIN(id) FROM queued_turn_user_messages
-                         WHERE session_id = ?1
-                           AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
-                     )"
+                     AND status IN ('queued', 'fallback_after_reply')"
                 ),
                 params![session_id, request_id],
                 parse_record,
@@ -2846,6 +2847,9 @@ mod tests {
         assert!(desktop.incoming_turn.is_some());
         db.remove_claimed_turn_message(&session_id, "desktop-typed")
             .unwrap();
+        // A claimed record owns the session's single-dispatch process lock until
+        // the dispatcher drops it; the next claim can only proceed after that.
+        drop(desktop);
         let http = db
             .claim_queued_turn_message_for_dispatch(
                 &session_id,
@@ -3156,6 +3160,10 @@ mod tests {
             db.append_message(&session_id, &message).unwrap();
             db.reconcile_failed_turn_message_dispatch(&session_id, "persisted", "turn-a")
                 .unwrap();
+            // The failed dispatch's record still owns the session's
+            // single-dispatch process lock; release it as the dispatcher would
+            // before the scheduled occurrence claims the session.
+            drop(persisted);
             db.claim_scheduled_turn_message_for_dispatch("retry", "13", "turn-b")
                 .unwrap()
                 .unwrap();
@@ -3301,6 +3309,9 @@ mod tests {
         assert!(!db
             .channel_dispatch_claim_is_active(&session_id, "channel-first", "channel-turn-a")
             .unwrap());
+        // The claimed record owns the session's single-dispatch process lock
+        // until the worker drops it, so release it before claiming the next one.
+        drop(first);
         let second = db
             .claim_next_channel_turn_message_for_dispatch(&session_id, "channel-turn-b")
             .unwrap()

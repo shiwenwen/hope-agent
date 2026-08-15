@@ -8734,6 +8734,27 @@ mod tests {
         db.append_message(&session.id, &NewMessage::event("discarded trailing event"))
             .expect("append trailing event");
 
+        // Edit-resend enters the durable FIFO as a fresh direct turn: the shell
+        // settles the previous turn and reserves an admission before replacing
+        // the message, and the replacement consumes it in the same transaction.
+        db.finish_chat_turn_once(
+            turn_id,
+            crate::session::ChatTurnStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .expect("settle the replaced turn");
+        let _admission = db
+            .reserve_direct_turn_admission(
+                &session.id,
+                "replacement-turn",
+                crate::session::QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .expect("reserve direct admission")
+            .expect("direct admission granted");
+
         let replacement_id = db
             .replace_last_user_message_for_edit(
                 &session.id,
@@ -8804,6 +8825,18 @@ mod tests {
             .expect("first user");
         db.append_message(&session.id, &NewMessage::user("second"))
             .expect("second user");
+
+        // Hold a valid admission so the rejection below proves the not-latest
+        // guard, not the FIFO fence in front of it.
+        let _admission = db
+            .reserve_direct_turn_admission(
+                &session.id,
+                "replacement-turn",
+                crate::session::QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .expect("reserve direct admission")
+            .expect("direct admission granted");
 
         let error = db
             .replace_last_user_message_for_edit(

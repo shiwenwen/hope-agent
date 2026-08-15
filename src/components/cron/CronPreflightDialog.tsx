@@ -108,7 +108,8 @@ export default function CronPreflightDialog({
             disabled={busy || (!retry && !report.canProceed)}
             onClick={(event) => {
               event.preventDefault()
-              retry ? retry() : onConfirm()
+              if (retry) retry()
+              else onConfirm()
             }}
           >
             {retry ? t("common.retry") : confirmLabel}

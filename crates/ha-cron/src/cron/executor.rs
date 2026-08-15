@@ -3805,6 +3805,34 @@ mod tests {
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
 
+    /// The regular-session scope joins `channel_conversations`, but that table is
+    /// created by the channel subsystem at startup rather than by the Session
+    /// schema. A bare fixture DB therefore needs it before any session read.
+    fn ensure_channel_conversations_table(db: &ha_core::session::SessionDB) {
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )?;
+            Ok(())
+        })
+        .expect("create channel conversations table");
+    }
+
     #[test]
     fn classify_cron_terminal_decision_table() {
         // Genuine success.
@@ -4319,7 +4347,9 @@ mod tests {
                 project_id: None,
                 workspace_policy: Default::default(),
                 schedule: CronSchedule::Every {
-                    interval_ms: 1,
+                    // Occurrences are claimed with `claim_immediate_job_for_execution`,
+                    // so the interval only has to clear the validator's 1-minute floor.
+                    interval_ms: 60_000,
                     start_at: None,
                 },
                 payload: CronPayload::AgentTurn {
@@ -4379,6 +4409,7 @@ mod tests {
         let cron_db = Arc::new(CronDB::open(&cron_path).expect("open cron db"));
         let session_db =
             Arc::new(ha_core::session::SessionDB::open(&session_path).expect("open session db"));
+        ensure_channel_conversations_table(&session_db);
         let job = cron_db
             .add_job(&NewCronJob {
                 name: "Ordinary scheduled chat".into(),
@@ -4435,13 +4466,12 @@ mod tests {
         assert_eq!(turn.id, turn_id);
         assert_eq!(turn.source, "cron");
         assert!(turn.user_message_id.is_some());
-        assert_eq!(
-            session_db
+        assert!(
+            !session_db
                 .get_session(&session.id)
                 .expect("load session")
                 .expect("session exists")
                 .is_cron,
-            false,
             "scheduled runs must create ordinary sessions"
         );
         let messages = session_db

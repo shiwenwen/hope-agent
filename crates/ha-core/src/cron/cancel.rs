@@ -187,14 +187,15 @@ mod tests {
     #[test]
     fn stale_pending_for_a_finished_run_does_not_cancel_a_later_run() {
         // Regression guard for the §9 review finding: a cancel that lands after
-        // run "ts-1" already finished (its remove() ran) leaves a placeholder
-        // keyed to "ts-1"; the NEXT run "ts-2" of a recurring job must NOT be
-        // cancelled by it.
+        // run "ts-1" already finished (its remove() ran) must never reach the
+        // NEXT run "ts-2" of a recurring job. The retained `Closed` marker now
+        // rejects that cancel outright instead of recording a placeholder, so
+        // there is nothing left for a later run to drain either.
         let job = "job-recurring";
-        remove(job, "ts-1"); // run ts-1 finished, cleared its state
+        remove(job, "ts-1"); // run ts-1 finished, closed its state
         assert!(
-            cancel_with_pending(job, "ts-1", true),
-            "delayed cancel records ts-1 placeholder"
+            !cancel_with_pending(job, "ts-1", true),
+            "post-settlement cancel is rejected, not recorded as pending"
         );
         let flag = register(job, "ts-2"); // a different, later run starts
         assert!(

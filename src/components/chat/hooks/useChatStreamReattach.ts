@@ -424,6 +424,26 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           if (handshakeRegistry.get(sid) === handshake) {
             handshakeRegistry.delete(sid)
           }
+          // Delta flushes only append into a trailing, not-yet-persisted
+          // assistant bubble. A cold reattach has no send-side placeholder, and
+          // this branch has no journal snapshot to build one from — without it
+          // every frame of a still-running stream is silently dropped (the
+          // reattached scheduled/exact turn renders nothing until it ends).
+          if (state.active) {
+            updateSessionMessages(sid, (prev) => {
+              const last = prev[prev.length - 1]
+              if (last?.role === "assistant" && typeof last.dbId !== "number") return prev
+              return [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: "",
+                  timestamp: new Date().toISOString(),
+                  _clientId: `live-stream:${streamId || sid}`,
+                },
+              ]
+            })
+          }
           handshake.deltas.sort((a, b) => a.seq - b.seq).forEach(applyStreamPayload)
         }
         if (!state.active) return

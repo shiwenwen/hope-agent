@@ -162,12 +162,41 @@ mod tests {
     use super::*;
     use ha_core::cron::{CronPayload, CronSchedule, NewCronJob};
 
+    /// The regular-session scope joins `channel_conversations`, but that table is
+    /// created by the channel subsystem at startup rather than by the Session
+    /// schema. A bare fixture DB therefore needs it before any session read.
+    fn ensure_channel_conversations_table(db: &SessionDB) {
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )?;
+            Ok(())
+        })
+        .expect("create channel conversations table");
+    }
+
     #[tokio::test]
     async fn ordinary_run_sessions_keep_title_and_survive_task_delete() {
         let dir = tempfile::tempdir().expect("tempdir");
         let cron_db = Arc::new(CronDB::open(&dir.path().join("cron.db")).expect("cron db"));
         let session_db =
             Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        ensure_channel_conversations_table(&session_db);
         let job = cron_db
             .add_job(&NewCronJob {
                 name: "Scheduled chat".into(),
