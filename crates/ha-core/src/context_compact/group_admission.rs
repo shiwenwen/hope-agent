@@ -744,8 +744,7 @@ where
     let selections = results
         .iter()
         .zip(selected)
-        .enumerate()
-        .map(|(_result_index, (result, candidate_index))| {
+        .map(|(result, candidate_index)| {
             let candidate = &result.candidates[candidate_index];
             ResultAdmissionSelection {
                 result_key: result.result_key.clone(),
@@ -1175,7 +1174,9 @@ mod tests {
             32,
             CandidateTokenCount::new(4, 4, 4),
         );
-        let plan = plan_group_admission(&[exact.clone()], budget(100), &mut always_fits).unwrap();
+        let plan =
+            plan_group_admission(std::slice::from_ref(&exact), budget(100), &mut always_fits)
+                .unwrap();
         assert!(plan.canonical_upgrades.is_empty());
         assert_eq!(plan.selections[0].candidate_stable_id, "exact");
 

@@ -62,11 +62,7 @@ pub(crate) async fn tool_result_read(args: &Value, ctx: &ToolExecContext) -> Res
         .as_deref()
         .ok_or_else(|| anyhow!("tool_result_read requires a session"))?
         .to_string();
-    if !ctx
-        .turn_id
-        .as_deref()
-        .is_some_and(|value| !value.is_empty())
-    {
+    if ctx.turn_id.as_deref().is_none_or(|value| value.is_empty()) {
         return Err(anyhow!("tool_result_read requires a durable turn"));
     }
     let result_id = required_string(args, "result_id")?.to_string();

@@ -355,7 +355,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             build_anthropic_body(self.base_url, self.model, req);
         let prepared = PreparedProviderRequest::from_json(
             ProviderEndpointKind::AnthropicMessages,
-            ProviderRequestShape::AnthropicMessagesJson,
+            ProviderRequestShape::AnthropicMessages,
             self.model,
             req.round,
             req.session_id,

@@ -3866,7 +3866,9 @@ mod tests {
             source_plan_id: Some("plan-local".into()),
             source_projection_item_key: None,
         };
-        assert!(db.insert_projection_epoch(&epoch, &[item.clone()]).is_err());
+        assert!(db
+            .insert_projection_epoch(&epoch, std::slice::from_ref(&item))
+            .is_err());
         let record = db
             .create_request_local_projection_plan(
                 &epoch,

@@ -902,7 +902,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         let request_tool_count = request.tools.as_ref().map_or(0, Vec::len);
         let prepared = PreparedProviderRequest::from_json(
             ProviderEndpointKind::OpenAIResponses,
-            ProviderRequestShape::OpenAIResponsesJson,
+            ProviderRequestShape::OpenAIResponses,
             self.model,
             req.round,
             req.session_id,

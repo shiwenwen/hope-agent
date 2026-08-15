@@ -145,7 +145,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         let tool_count = request.tools.as_ref().map_or(0, Vec::len);
         let prepared = PreparedProviderRequest::from_json(
             ProviderEndpointKind::CodexResponses,
-            ProviderRequestShape::CodexResponsesJson,
+            ProviderRequestShape::CodexResponses,
             self.model,
             req.round,
             req.session_id,

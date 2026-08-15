@@ -980,9 +980,8 @@ impl SessionDB {
         result_id: &str,
     ) -> Result<ModelResultMetadataAccess> {
         let conn = self.read_conn()?;
-        match persistent_result_session_denial(&conn, session_id)? {
-            Some(denial) => return Ok(ModelResultMetadataAccess::Denied(denial)),
-            None => {}
+        if let Some(denial) = persistent_result_session_denial(&conn, session_id)? {
+            return Ok(ModelResultMetadataAccess::Denied(denial));
         }
         let row = conn
             .query_row(
@@ -1063,9 +1062,8 @@ impl SessionDB {
         direction: ResultTextReadDirection,
     ) -> Result<ModelResultTextRead> {
         let conn = self.read_conn()?;
-        match persistent_result_session_denial(&conn, session_id)? {
-            Some(denial) => return Ok(ModelResultTextRead::Denied(denial)),
-            None => {}
+        if let Some(denial) = persistent_result_session_denial(&conn, session_id)? {
+            return Ok(ModelResultTextRead::Denied(denial));
         }
         let candidate = conn
             .query_row(

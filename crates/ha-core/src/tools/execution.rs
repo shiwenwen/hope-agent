@@ -1818,13 +1818,13 @@ pub fn purge_tool_results_for_session(session_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_persisted_large_result_preview, canonical_mcp_execution_name_from,
-        decide_async_path_with_config, exec_process_background_mode, execute_tool_with_context,
-        is_bound_context_resource_read, maybe_persist_large_tool_result,
-        migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
-        resolve_tool_permission, should_migrate_exec_process_mode_to_async_job_with_config,
-        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
-        AsyncDecision, JobOrigin, ToolExecContext,
+        canonical_mcp_execution_name_from, decide_async_path_with_config,
+        exec_process_background_mode, execute_tool_with_context, is_bound_context_resource_read,
+        maybe_persist_large_tool_result, migrate_exec_process_mode_to_async_job_args,
+        needs_permission_engine, resolve_tool_permission,
+        should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
+        tool_timeout, validate_async_background_contract, AsyncDecision, JobOrigin,
+        ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};

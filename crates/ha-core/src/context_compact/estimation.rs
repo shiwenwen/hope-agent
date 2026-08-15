@@ -290,34 +290,34 @@ pub(crate) fn tool_result_units(msg: &Value) -> Vec<ToolResultUnit> {
         .into_iter()
         .flatten()
         .enumerate()
-        .filter_map(|(block_index, block)| {
-            (block.get("type").and_then(Value::as_str) == Some("tool_result")).then(|| {
-                let text = match block.get("content") {
-                    Some(Value::String(text)) => Some(text.clone()),
-                    Some(Value::Array(content_blocks)) => {
-                        let text = content_blocks
-                            .iter()
-                            .filter_map(|content_block| {
-                                (content_block.get("type").and_then(Value::as_str) == Some("text"))
-                                    .then(|| content_block.get("text").and_then(Value::as_str))
-                                    .flatten()
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        (!text.is_empty()).then_some(text)
-                    }
-                    _ => None,
-                };
-                ToolResultUnit {
-                    locator: ToolResultLocator::AnthropicBlock(block_index),
-                    call_id: block
-                        .get("tool_use_id")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    direct_tool_name: None,
-                    text,
+        .filter(|(_, block)| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .map(|(block_index, block)| {
+            let text = match block.get("content") {
+                Some(Value::String(text)) => Some(text.clone()),
+                Some(Value::Array(content_blocks)) => {
+                    let text = content_blocks
+                        .iter()
+                        .filter(|content_block| {
+                            content_block.get("type").and_then(Value::as_str) == Some("text")
+                        })
+                        .filter_map(|content_block| {
+                            content_block.get("text").and_then(Value::as_str)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (!text.is_empty()).then_some(text)
                 }
-            })
+                _ => None,
+            };
+            ToolResultUnit {
+                locator: ToolResultLocator::AnthropicBlock(block_index),
+                call_id: block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                direct_tool_name: None,
+                text,
+            }
         })
         .collect()
 }

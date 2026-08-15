@@ -197,19 +197,19 @@ impl ProviderEndpointKind {
 /// Provider wire shape of the exact serialized request body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderRequestShape {
-    AnthropicMessagesJson,
-    OpenAIChatCompletionsJson,
-    OpenAIResponsesJson,
-    CodexResponsesJson,
+    AnthropicMessages,
+    OpenAIChatCompletions,
+    OpenAIResponses,
+    CodexResponses,
 }
 
 impl ProviderRequestShape {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
-            Self::AnthropicMessagesJson => "anthropic_messages_json",
-            Self::OpenAIChatCompletionsJson => "openai_chat_completions_json",
-            Self::OpenAIResponsesJson => "openai_responses_json",
-            Self::CodexResponsesJson => "codex_responses_json",
+            Self::AnthropicMessages => "anthropic_messages_json",
+            Self::OpenAIChatCompletions => "openai_chat_completions_json",
+            Self::OpenAIResponses => "openai_responses_json",
+            Self::CodexResponses => "codex_responses_json",
         }
     }
 }
@@ -328,9 +328,9 @@ impl PreparedProviderRequest {
 /// rejection. The already-sent body is never mutated or silently replaced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderReprepareReason {
-    PromptCacheKeyUnsupported,
-    ThinkingUnsupported,
-    VisionUnsupported,
+    PromptCacheKey,
+    Thinking,
+    Vision,
 }
 
 #[derive(Debug)]

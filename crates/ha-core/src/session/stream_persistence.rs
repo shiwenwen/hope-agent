@@ -221,10 +221,11 @@ pub enum InterruptedRequestPlanState {
 }
 
 /// Typed request-plan work folded into a turn terminal transaction.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum RequestPlanCommit {
     /// Valid only when the run owns no nonterminal main request plan. Used by
     /// local/synthetic replies and compatibility runs which never dispatched.
+    #[default]
     None,
     /// Successful assistant materialization. The named main plan must be the
     /// response-started plan for the selected attempt.
@@ -244,12 +245,6 @@ pub enum RequestPlanCommit {
     /// Startup recovery scans the entire run, including attempts other than
     /// the journal prefix chosen for visible recovery.
     RecoverAllForRun,
-}
-
-impl Default for RequestPlanCommit {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -97,7 +97,7 @@ impl OpenAIChatStreamingAdapter<'_> {
                 || openai_chat_history_has_images(req.history_for_api));
         let prepared = PreparedProviderRequest::from_json(
             ProviderEndpointKind::OpenAIChatCompletions,
-            ProviderRequestShape::OpenAIChatCompletionsJson,
+            ProviderRequestShape::OpenAIChatCompletions,
             self.model,
             req.round,
             req.session_id,
@@ -636,8 +636,8 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         };
         self.prepare_chat_variant(
             req,
-            thinking_disabled || reason == ProviderReprepareReason::ThinkingUnsupported,
-            model_supports_vision && reason != ProviderReprepareReason::VisionUnsupported,
+            thinking_disabled || reason == ProviderReprepareReason::Thinking,
+            model_supports_vision && reason != ProviderReprepareReason::Vision,
         )
     }
 
@@ -693,7 +693,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             {
                 mark_prompt_cache_key_unsupported(self.base_url);
                 return Err(ReprepareRequired {
-                    reason: ProviderReprepareReason::PromptCacheKeyUnsupported,
+                    reason: ProviderReprepareReason::PromptCacheKey,
                 }
                 .into());
             }
@@ -708,7 +708,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                 ) {
                     on_delta(&autofix.payload.to_string());
                     return Err(ReprepareRequired {
-                        reason: ProviderReprepareReason::ThinkingUnsupported,
+                        reason: ProviderReprepareReason::Thinking,
                     }
                     .into());
                 }
@@ -723,7 +723,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                     emit_vision_auto_disabled(on_delta, self.provider_config, self.model);
                 }
                 return Err(ReprepareRequired {
-                    reason: ProviderReprepareReason::VisionUnsupported,
+                    reason: ProviderReprepareReason::Vision,
                 }
                 .into());
             }

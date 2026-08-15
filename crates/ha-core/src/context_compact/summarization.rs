@@ -691,8 +691,10 @@ mod tests {
     use serde_json::json;
 
     fn provider_shape_prompt(messages: &[Value]) -> String {
-        let mut config = CompactConfig::default();
-        config.identifier_policy = "off".to_string();
+        let config = CompactConfig {
+            identifier_policy: "off".to_string(),
+            ..CompactConfig::default()
+        };
         build_summarization_prompt(messages, None, &config)
     }
 
