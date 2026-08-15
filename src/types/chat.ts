@@ -159,11 +159,27 @@ export interface BrowserActivityMetadata {
   at?: number | null
 }
 
+/** Durable card attached to a successful model-created scheduled task. */
+export interface ScheduleEntityMetadata {
+  kind: "schedule_entity"
+  entityType: "cronTask"
+  entityId: string
+  sessionId?: string | null
+  title?: string | null
+  state?: string | null
+  nextRunAt?: string | null
+  schedule?: import("@/components/cron/CronJobForm.types").CronSchedule | null
+  projectId?: string | null
+  workspaceMode?: import("@/components/cron/CronJobForm.types").CronWorkspaceMode | null
+  workspaceBaseRef?: string | null
+}
+
 export type ToolMetadata =
   | FileChangeMetadata
   | FileChangesMetadata
   | FileReadMetadata
   | BrowserActivityMetadata
+  | ScheduleEntityMetadata
 
 export interface ToolCall {
   callId: string

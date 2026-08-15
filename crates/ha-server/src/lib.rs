@@ -2013,6 +2013,10 @@ fn build_router_with_cors(
         .route("/cron/jobs", post(routes::cron::create_job))
         .route("/cron/preflight", post(routes::cron::preflight))
         .route("/cron/jobs/{id}", get(routes::cron::get_job))
+        .route(
+            "/cron/jobs/{id}/snapshot",
+            get(routes::cron::get_job_snapshot),
+        )
         .route("/cron/jobs/{id}", put(routes::cron::update_job))
         .route("/cron/jobs/{id}", delete(routes::cron::delete_job))
         .route("/cron/jobs/{id}/toggle", post(routes::cron::toggle_job))

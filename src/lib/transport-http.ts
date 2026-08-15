@@ -1254,6 +1254,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Cron --
   cron_list_jobs: { method: "GET", path: "/api/cron/jobs" },
   cron_get_job: { method: "GET", path: "/api/cron/jobs/{id}" },
+  cron_get_job_snapshot: { method: "GET", path: "/api/cron/jobs/{id}/snapshot" },
   cron_preflight: { method: "POST", path: "/api/cron/preflight" },
   cron_create_job: { method: "POST", path: "/api/cron/jobs" },
   cron_update_job: { method: "PUT", path: "/api/cron/jobs/{id}" },

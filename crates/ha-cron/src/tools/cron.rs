@@ -3,9 +3,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
 
-use ha_core::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJob};
+use ha_core::cron::{
+    self, CronDeliveryTarget, CronPayload, CronSchedule, CronWorkspaceMode, CronWorkspacePolicy,
+    NewCronJob,
+};
 
 use crate::cron::{
     evaluate_cron_preflight, start_cron_run_now, CronPreflightRequest, CronRunNowResult,
@@ -48,11 +51,6 @@ pub(crate) fn tool_manage_cron<'a>(
 
                 let schedule = parse_schedule(args)?;
 
-                let agent_id = args
-                    .get("agent_id")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-
                 let description = args
                     .get("description")
                     .and_then(|v| v.as_str())
@@ -60,7 +58,68 @@ pub(crate) fn tool_manage_cron<'a>(
 
                 let (delivery_targets, inferred) =
                     resolve_delivery_targets_for_create(args, session_id.as_deref())?;
-                let project_id = resolve_project_id_for_create(args, session_id.as_deref())?;
+                let conversation_target = parse_conversation_target(args)?;
+                let (payload, project_id, workspace_policy) = match conversation_target {
+                    CronConversationTarget::New => {
+                        anyhow::ensure!(
+                            args.get("target_session_id").is_none(),
+                            "target_session_id is only valid with conversation_target=existing_session"
+                        );
+                        let agent_id = args
+                            .get("agent_id")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        (
+                            CronPayload::AgentTurn {
+                                prompt: prompt.to_string(),
+                                agent_id,
+                            },
+                            resolve_project_id_for_create(args, session_id.as_deref())?,
+                            resolve_workspace_policy(args, None)?,
+                        )
+                    }
+                    CronConversationTarget::Current => {
+                        reject_existing_session_context_overrides(args)?;
+                        anyhow::ensure!(
+                            args.get("target_session_id").is_none(),
+                            "target_session_id is only valid with conversation_target=existing_session"
+                        );
+                        let target_session_id = session_id.clone().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "conversation_target=current_session requires a current chat"
+                            )
+                        })?;
+                        (
+                            CronPayload::SessionTurn {
+                                session_id: target_session_id,
+                                prompt: prompt.to_string(),
+                            },
+                            None,
+                            CronWorkspacePolicy::default(),
+                        )
+                    }
+                    CronConversationTarget::Existing => {
+                        reject_existing_session_context_overrides(args)?;
+                        let target_session_id = args
+                            .get("target_session_id")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "conversation_target=existing_session requires target_session_id from sessions_list"
+                                )
+                            })?;
+                        (
+                            CronPayload::SessionTurn {
+                                session_id: target_session_id.to_string(),
+                                prompt: prompt.to_string(),
+                            },
+                            None,
+                            CronWorkspacePolicy::default(),
+                        )
+                    }
+                };
 
                 let job_timeout_secs = match resolve_cron_job_timeout_secs_arg(args, ctx).await {
                     CronTimeoutArg::Set(value) => value,
@@ -72,10 +131,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     description,
                     project_id,
                     schedule,
-                    payload: CronPayload::AgentTurn {
-                        prompt: prompt.to_string(),
-                        agent_id,
-                    },
+                    payload,
                     max_failures: args
                         .get("max_failures")
                         .and_then(|v| v.as_u64())
@@ -93,7 +149,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     // None here = follow the agent default.
                     permission_mode_override: None,
                     sandbox_mode_override: None,
-                    workspace_policy: Default::default(),
+                    workspace_policy,
                 };
 
                 require_cron_preflight(
@@ -103,6 +159,20 @@ pub(crate) fn tool_manage_cron<'a>(
                 .await?;
                 let db = cron_db.clone();
                 let job = ha_core::blocking::run_blocking(move || db.add_job(&input)).await?;
+                ctx.emit_metadata(json!({
+                    "kind": "schedule_entity",
+                    "entityType": "cronTask",
+                    "entityId": job.id.clone(),
+                    "sessionId": session_id.clone(),
+                    "title": job.name.clone(),
+                    "schedule": job.schedule.clone(),
+                    "state": job.status.as_str(),
+                    "nextRunAt": job.next_run_at.clone(),
+                    "projectId": job.project_id.clone(),
+                    "workspaceMode": job.workspace_policy.mode,
+                    "workspaceBaseRef": job.workspace_policy.base_ref.clone(),
+                }))
+                .await;
                 let mut out = format!(
                     "Created scheduled task '{}' (id: {}). Next run: {}",
                     job.name,
@@ -124,10 +194,40 @@ pub(crate) fn tool_manage_cron<'a>(
                 if let Some(project_id) = job.project_id.as_deref() {
                     out.push_str(&format!("\nProject: {}", project_label(project_id)));
                 }
+                out.push_str(&format!(
+                    "\nWorkspace: {}{}",
+                    workspace_mode_label(job.workspace_policy.mode),
+                    job.workspace_policy
+                        .base_ref
+                        .as_deref()
+                        .map(|base_ref| format!(" (base_ref={base_ref})"))
+                        .unwrap_or_default()
+                ));
+                if let CronPayload::SessionTurn {
+                    session_id: target_session_id,
+                    ..
+                } = &job.payload
+                {
+                    let target = if session_id.as_deref() == Some(target_session_id.as_str()) {
+                        "current session".to_string()
+                    } else {
+                        format!("existing session {target_session_id}")
+                    };
+                    out.push_str(&format!(
+                        "\nConversation target: {target} (shared history and live context)"
+                    ));
+                }
                 Ok(out)
             }
 
             "update" => {
+                if args.get("conversation_target").is_some()
+                    || args.get("target_session_id").is_some()
+                {
+                    anyhow::bail!(
+                        "conversation_target and target_session_id are create-only and cannot change an existing task's target"
+                    );
+                }
                 let id = args
                     .get("id")
                     .and_then(|v| v.as_str())
@@ -173,7 +273,13 @@ pub(crate) fn tool_manage_cron<'a>(
                             *agent_id = v.as_str().map(String::from);
                         }
                     }
-                    CronPayload::SessionLoop { .. } | CronPayload::SessionTurn { .. } => {
+                    CronPayload::SessionTurn { ref mut prompt, .. } => {
+                        reject_existing_session_context_overrides(args)?;
+                        if let Some(p) = args.get("prompt").and_then(|v| v.as_str()) {
+                            *prompt = p.to_string();
+                        }
+                    }
+                    CronPayload::SessionLoop { .. } => {
                         anyhow::bail!(
                             "Scheduled task '{}' is owner-managed and can only be edited from its app control plane.",
                             id
@@ -204,6 +310,11 @@ pub(crate) fn tool_manage_cron<'a>(
                     job.project_id = parse_project_id_value(v)?;
                     validate_project_id(job.project_id.as_deref())?;
                 }
+                if args.get("workspace_mode").is_some() || args.get("workspace_base_ref").is_some()
+                {
+                    job.workspace_policy =
+                        resolve_workspace_policy(args, Some(&job.workspace_policy))?;
+                }
                 // delivery_targets tri-state on update (no inference — never silently
                 // clobber what the user set in the GUI).
                 if let Some(v) = args.get("delivery_targets") {
@@ -226,7 +337,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 let draft = job.clone();
                 ha_core::blocking::run_blocking(move || db.update_job(&draft)).await?;
                 Ok(format!(
-                    "Updated scheduled task '{}' (id: {}). Next run: {} | Project: {} | Targets: {}",
+                    "Updated scheduled task '{}' (id: {}). Next run: {} | Project: {} | Workspace: {}{} | Targets: {}",
                     job.name,
                     job.id,
                     job.next_run_at.as_deref().unwrap_or("none"),
@@ -234,6 +345,12 @@ pub(crate) fn tool_manage_cron<'a>(
                         .as_deref()
                         .map(project_label)
                         .unwrap_or_else(|| "none".to_string()),
+                    workspace_mode_label(job.workspace_policy.mode),
+                    job.workspace_policy
+                        .base_ref
+                        .as_deref()
+                        .map(|base_ref| format!(" ({base_ref})"))
+                        .unwrap_or_default(),
                     if job.delivery_targets.is_empty() {
                         "none".to_string()
                     } else {
@@ -264,14 +381,24 @@ pub(crate) fn tool_manage_cron<'a>(
                         .as_deref()
                         .map(|pid| format!(" | Project: {}", project_label(pid)))
                         .unwrap_or_default();
+                    let workspace = format!(
+                        " | Workspace: {}{}",
+                        workspace_mode_label(job.workspace_policy.mode),
+                        job.workspace_policy
+                            .base_ref
+                            .as_deref()
+                            .map(|base_ref| format!(" ({base_ref})"))
+                            .unwrap_or_default()
+                    );
                     lines.push(format!(
-                        "  - [{}] {} ({}) | Next: {} | Status: {}{}{}",
+                        "  - [{}] {} ({}) | Next: {} | Status: {}{}{}{}",
                         ha_core::truncate_utf8(&job.id, 8),
                         job.name,
                         schedule_summary(&job.schedule),
                         next,
                         job.status.as_str(),
                         project,
+                        workspace,
                         targets,
                     ));
                 }
@@ -287,6 +414,35 @@ pub(crate) fn tool_manage_cron<'a>(
                     Some(job) => Ok(serde_json::to_string_pretty(&job)?),
                     None => Ok(format!("Job '{}' not found.", id)),
                 }
+            }
+
+            "workspace_status" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let job = cron_db
+                    .get_job(id)?
+                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+                reject_loop_managed_job(&job, id, "inspected")?;
+                let session_db = cron_session_db().await?;
+                let db = cron_db.clone();
+                let session_db_for_query = session_db.clone();
+                let id_for_query = id.to_string();
+                let resources = ha_core::blocking::run_blocking(move || {
+                    crate::cron::workspace_resources(
+                        &db,
+                        &session_db_for_query,
+                        Some(&id_for_query),
+                    )
+                })
+                .await?;
+                Ok(serde_json::to_string_pretty(&serde_json::json!({
+                    "jobId": job.id,
+                    "workspacePolicy": job.workspace_policy,
+                    "lifecycle": workspace_lifecycle(job.workspace_policy.mode),
+                    "resources": resources,
+                }))?)
             }
 
             "delete" => {
@@ -418,7 +574,7 @@ pub(crate) fn tool_manage_cron<'a>(
 
             _ => Err(anyhow::anyhow!(
                 "Unknown action: '{}'. Valid actions: create, update, list, get, delete, \
-                 pause, resume, run_now, list_channel_targets, list_projects",
+                 pause, resume, run_now, workspace_status, list_channel_targets, list_projects",
                 action
             )),
         }
@@ -520,6 +676,48 @@ enum CronTimeoutArg {
     Absent,
     Set(Option<u64>),
     Ignored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CronConversationTarget {
+    New,
+    Current,
+    Existing,
+}
+
+fn parse_conversation_target(args: &Value) -> Result<CronConversationTarget> {
+    let target = match args.get("conversation_target") {
+        None => "new_session",
+        Some(Value::String(target)) => target.as_str(),
+        Some(_) => anyhow::bail!("conversation_target must be a string"),
+    };
+    match target {
+        "new_session" => Ok(CronConversationTarget::New),
+        "current_session" => Ok(CronConversationTarget::Current),
+        "existing_session" => Ok(CronConversationTarget::Existing),
+        other => anyhow::bail!(
+            "Invalid conversation_target: '{}'. Use 'new_session', 'current_session', or 'existing_session'",
+            other
+        ),
+    }
+}
+
+fn reject_existing_session_context_overrides(args: &Value) -> Result<()> {
+    let supplied = [
+        "agent_id",
+        "project_id",
+        "workspace_mode",
+        "workspace_base_ref",
+    ]
+    .into_iter()
+    .filter(|key| args.get(*key).is_some())
+    .collect::<Vec<_>>();
+    anyhow::ensure!(
+        supplied.is_empty(),
+        "existing-session tasks use the chat's live context; omit {}",
+        supplied.join(", ")
+    );
+    Ok(())
 }
 
 async fn resolve_cron_job_timeout_secs_arg(
@@ -664,6 +862,92 @@ fn project_label(project_id: &str) -> String {
         .and_then(|db| db.get(project_id).ok().flatten())
         .map(|project| format!("{} ({})", project.display_label(), project.id))
         .unwrap_or_else(|| format!("{} (missing)", project_id))
+}
+
+fn resolve_workspace_policy(
+    args: &Value,
+    current: Option<&CronWorkspacePolicy>,
+) -> Result<CronWorkspacePolicy> {
+    let mut policy = current.cloned().unwrap_or_default().normalized();
+
+    if let Some(value) = args.get("workspace_mode") {
+        let raw = value.as_str().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid 'workspace_mode': expected project, fresh_worktree, or persistent_worktree"
+            )
+        })?;
+        policy.mode = match raw.trim() {
+            "project" => CronWorkspaceMode::Project,
+            "fresh_worktree" | "freshWorktree" | "fresh" => CronWorkspaceMode::Fresh,
+            "persistent_worktree" | "persistentWorktree" | "persistent" => {
+                CronWorkspaceMode::Persistent
+            }
+            other => {
+                anyhow::bail!(
+                    "Invalid workspace_mode: '{}'. Use 'project', 'fresh_worktree', or 'persistent_worktree'",
+                    other
+                )
+            }
+        };
+    }
+
+    let supplied_base_ref = args
+        .get("workspace_base_ref")
+        .map(parse_workspace_base_ref)
+        .transpose()?;
+    if let Some(base_ref) = supplied_base_ref.clone() {
+        policy.base_ref = base_ref;
+    }
+
+    if policy.mode == CronWorkspaceMode::Project {
+        if matches!(supplied_base_ref, Some(Some(_))) {
+            anyhow::bail!(
+                "workspace_base_ref is only valid for fresh_worktree or persistent_worktree"
+            );
+        }
+        policy.base_ref = None;
+    }
+
+    Ok(policy.normalized())
+}
+
+fn parse_workspace_base_ref(value: &Value) -> Result<Option<String>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let raw = value.as_str().ok_or_else(|| {
+        anyhow::anyhow!("Invalid 'workspace_base_ref': expected string, null, or omitted")
+    })?;
+    let trimmed = raw.trim();
+    Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
+}
+
+fn workspace_mode_label(mode: CronWorkspaceMode) -> &'static str {
+    match mode {
+        CronWorkspaceMode::Project => "project",
+        CronWorkspaceMode::Fresh => "fresh_worktree",
+        CronWorkspaceMode::Persistent => "persistent_worktree",
+    }
+}
+
+fn workspace_lifecycle(mode: CronWorkspaceMode) -> Value {
+    match mode {
+        CronWorkspaceMode::Project => serde_json::json!({
+            "afterRun": "project_directory_unchanged",
+            "automaticCleanup": false,
+            "meaning": "No managed Worktree is created in Project mode."
+        }),
+        CronWorkspaceMode::Fresh => serde_json::json!({
+            "afterRun": "retained",
+            "automaticCleanup": false,
+            "meaning": "Each run creates a separate Worktree that remains available until the user explicitly archives or discards it."
+        }),
+        CronWorkspaceMode::Persistent => serde_json::json!({
+            "afterRun": "ready_for_next_run",
+            "automaticCleanup": false,
+            "meaning": "The task-owned Worktree is retained and reused by later runs until the user explicitly discards it."
+        }),
+    }
 }
 
 /// Parse schedule from tool arguments.
@@ -943,8 +1227,48 @@ fn list_projects_text(include_archived: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_project_id_value;
-    use serde_json::json;
+    use super::{
+        parse_conversation_target, parse_project_id_value,
+        reject_existing_session_context_overrides, resolve_workspace_policy, workspace_lifecycle,
+        CronConversationTarget,
+    };
+    use ha_core::cron::{CronWorkspaceMode, CronWorkspacePolicy};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn conversation_target_defaults_to_new_session_and_accepts_current() {
+        assert_eq!(
+            parse_conversation_target(&json!({})).unwrap(),
+            CronConversationTarget::New
+        );
+        assert_eq!(
+            parse_conversation_target(&json!({"conversation_target": "current_session"})).unwrap(),
+            CronConversationTarget::Current
+        );
+        assert_eq!(
+            parse_conversation_target(&json!({"conversation_target": "existing_session"})).unwrap(),
+            CronConversationTarget::Existing
+        );
+        assert!(parse_conversation_target(&json!({"conversation_target": null})).is_err());
+        assert!(
+            parse_conversation_target(&json!({"conversation_target": "another_session"})).is_err()
+        );
+    }
+
+    #[test]
+    fn existing_session_target_rejects_task_context_copies() {
+        reject_existing_session_context_overrides(&json!({})).unwrap();
+        for key in [
+            "agent_id",
+            "project_id",
+            "workspace_mode",
+            "workspace_base_ref",
+        ] {
+            let mut args = serde_json::Map::new();
+            args.insert(key.to_string(), Value::Null);
+            assert!(reject_existing_session_context_overrides(&Value::Object(args)).is_err());
+        }
+    }
 
     #[test]
     fn parse_project_id_value_clears_null_and_empty_string() {
@@ -966,5 +1290,70 @@ mod tests {
     #[test]
     fn parse_project_id_value_rejects_non_string() {
         assert!(parse_project_id_value(&json!(123)).is_err());
+    }
+
+    #[test]
+    fn workspace_policy_defaults_to_project() {
+        let policy = resolve_workspace_policy(&json!({}), None).unwrap();
+        assert_eq!(policy, CronWorkspacePolicy::default());
+    }
+
+    #[test]
+    fn workspace_policy_parses_worktree_mode_and_trimmed_base_ref() {
+        let policy = resolve_workspace_policy(
+            &json!({
+                "workspace_mode": "fresh_worktree",
+                "workspace_base_ref": " main "
+            }),
+            None,
+        )
+        .unwrap();
+        assert_eq!(policy.mode, CronWorkspaceMode::Fresh);
+        assert_eq!(policy.base_ref.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn workspace_policy_update_can_switch_to_project_and_clear_base_ref() {
+        let current = CronWorkspacePolicy {
+            mode: CronWorkspaceMode::Persistent,
+            base_ref: Some("release".to_string()),
+        };
+        let policy =
+            resolve_workspace_policy(&json!({ "workspace_mode": "project" }), Some(&current))
+                .unwrap();
+        assert_eq!(policy, CronWorkspacePolicy::default());
+    }
+
+    #[test]
+    fn workspace_policy_update_can_clear_worktree_base_ref() {
+        let current = CronWorkspacePolicy {
+            mode: CronWorkspaceMode::Fresh,
+            base_ref: Some("release".to_string()),
+        };
+        let policy =
+            resolve_workspace_policy(&json!({ "workspace_base_ref": null }), Some(&current))
+                .unwrap();
+        assert_eq!(policy.mode, CronWorkspaceMode::Fresh);
+        assert_eq!(policy.base_ref, None);
+    }
+
+    #[test]
+    fn workspace_policy_rejects_base_ref_in_project_mode() {
+        let error = resolve_workspace_policy(
+            &json!({ "workspace_base_ref": "main" }),
+            Some(&CronWorkspacePolicy::default()),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("only valid"));
+    }
+
+    #[test]
+    fn fresh_workspace_lifecycle_never_claims_automatic_cleanup() {
+        let lifecycle = workspace_lifecycle(CronWorkspaceMode::Fresh);
+        assert_eq!(lifecycle["afterRun"], "retained");
+        assert_eq!(lifecycle["automaticCleanup"], false);
+        assert!(lifecycle["meaning"]
+            .as_str()
+            .is_some_and(|value| value.contains("explicitly archives or discards")));
     }
 }

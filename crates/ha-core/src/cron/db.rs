@@ -1073,6 +1073,16 @@ impl CronDB {
         }
     }
 
+    /// Owner-facing read of one task and its tombstone flag. Deleting only
+    /// stops future occurrences, so retained history (a chat task card, a run
+    /// log) still resolves the task it names — and can seed a copy of it —
+    /// without any live scheduling surface listing the deleted task again.
+    pub fn get_job_snapshot(&self, id: &str) -> Result<Option<CronJobSnapshot>> {
+        Ok(self
+            .get_job_including_deleted(id)?
+            .map(|(job, deleted)| CronJobSnapshot { job, deleted }))
+    }
+
     /// Find the cron job that owns a run session (the most recent run log for
     /// that session). Used by background-job injection delivery (G2): a
     /// background job spawned during a cron run completes later, and its injected
@@ -3900,6 +3910,45 @@ mod tests {
             db.get_job(&original.id).unwrap().unwrap().name,
             "fresh edit"
         );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn snapshot_reads_a_deleted_task_that_live_lookup_hides() {
+        let path = temp_db_path("snapshot-tombstone");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("retained config", Vec::new(), None))
+            .expect("add job");
+
+        let live = db
+            .get_job_snapshot(&job.id)
+            .expect("snapshot live task")
+            .expect("live task exists");
+        assert!(!live.deleted);
+        assert_eq!(live.job.name, "retained config");
+
+        db.delete_job(&job.id).expect("soft delete");
+        assert!(db.get_job(&job.id).unwrap().is_none());
+
+        // Deleting only stops future occurrences: retained history still resolves
+        // the task, and the full configuration remains available to copy.
+        let tombstone = db
+            .get_job_snapshot(&job.id)
+            .expect("snapshot deleted task")
+            .expect("tombstone exists");
+        assert!(tombstone.deleted);
+        assert_eq!(tombstone.job.name, "retained config");
+        assert!(matches!(
+            tombstone.job.payload,
+            CronPayload::AgentTurn { .. }
+        ));
+        assert!(tombstone.job.next_run_at.is_none());
+        assert!(db
+            .get_job_snapshot("missing-task")
+            .expect("no row")
+            .is_none());
 
         cleanup_db_files(&path);
     }

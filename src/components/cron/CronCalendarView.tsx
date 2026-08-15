@@ -7,6 +7,12 @@ import { SearchInput } from "@/components/ui/search-input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { IconTip } from "@/components/ui/tooltip"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -28,18 +34,19 @@ import {
   Plus,
   CalendarDays,
   List as ListIcon,
-  MessagesSquare,
   Loader2,
   Search,
   Send,
   AlertTriangle,
   Settings,
   FolderGit2,
+  ChevronDown,
+  MessageCircle,
+  Pencil,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
-import CronConversationsPanel from "./CronConversationsPanel"
 import CronLoopBadge from "./CronLoopBadge"
 import type { CronJob, CalendarEvent, CronWorkspaceResource } from "./CronJobForm.types"
 import {
@@ -55,9 +62,8 @@ import {
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { SettingsSection } from "@/components/settings/types"
-import { useReadableSurface } from "@/hooks/useReadableSurface"
 
-type ViewMode = "calendar" | "list" | "conversations"
+type ViewMode = "calendar" | "list"
 
 const VIEW_MODE_STORAGE_KEY = "cron_view_mode"
 
@@ -68,7 +74,7 @@ const JOBS_PAGE = 100
 function readStoredViewMode(): ViewMode {
   try {
     const v = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    if (v === "list" || v === "conversations" || v === "calendar") return v
+    if (v === "list" || v === "calendar") return v
   } catch {
     // localStorage may be unavailable (private mode) — fall through.
   }
@@ -81,18 +87,26 @@ interface CronCalendarViewProps {
   defaultProjectId?: string | null
   /** Cross-surface request to open one scheduled task. */
   taskFocus?: { jobId: string; nonce: number } | null
+  /**
+   * Cross-surface request to open a new-task draft seeded from a retained task
+   * (typically a deleted one, copied from the chat card that outlived it).
+   */
+  taskDraft?: { seed: CronJob; nonce: number } | null
   /** Open the main Settings page deep-linked to a section (e.g. "cron"). */
   onOpenSettings?: (section: SettingsSection) => void
+  /** Open the ordinary chat surface with a conversational task-creation prompt. */
+  onCreateWithModel: (prompt: string) => void
 }
 
 export default function CronCalendarView({
   isViewVisible,
   defaultProjectId,
   taskFocus,
+  taskDraft,
   onOpenSettings,
+  onCreateWithModel,
 }: CronCalendarViewProps) {
   const { t } = useTranslation()
-  const isSurfaceReadable = useReadableSurface(isViewVisible)
   // Remember the last mode the user left the cron panel in across re-entries.
   const [mode, setMode] = useState<ViewMode>(readStoredViewMode)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -100,6 +114,8 @@ export default function CronCalendarView({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
+  // Copy-as-new-task seed. Never an edit target: it may be a deleted task.
+  const [seedJob, setSeedJob] = useState<CronJob | null>(null)
   const [detailJobId, setDetailJobId] = useState<string | null>(null)
   const [pendingWorkspaces, setPendingWorkspaces] = useState<CronWorkspaceResource[] | null>([])
 
@@ -117,9 +133,8 @@ export default function CronCalendarView({
   // rendered as an embedded CronJobDetail on the right (separate from the
   // calendar's full-screen detailJobId).
   const [selectedListJobId, setSelectedListJobId] = useState<string | null>(null)
-  // Agents power message-bubble identities inside CronJobDetail. Fetched once
-  // here (job-independent) and passed down, so re-selecting list rows — which
-  // remounts CronJobDetail via key — doesn't refetch the roster on every click.
+  // CronJobDetail resolves its configured Agent label from this shared roster.
+  // Keep it job-independent so row selection doesn't refetch the same list.
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
 
   const year = currentDate.getFullYear()
@@ -188,14 +203,22 @@ export default function CronCalendarView({
         return
       }
       // A retained conversation may outlive its deleted task. Never navigate
-      // to an unresolvable detail surface; keep run history reachable.
+      // to an unresolvable detail surface; keep the remaining task list visible.
       setDetailJobId(null)
-      setMode("conversations")
+      setMode("list")
     })
     return () => {
       cancelled = true
     }
   }, [fetchJobs, isViewVisible, taskFocus])
+
+  useEffect(() => {
+    const seed = taskDraft?.seed
+    if (!isViewVisible || !seed) return
+    setEditingJob(null)
+    setSeedJob(seed)
+    setShowForm(true)
+  }, [isViewVisible, taskDraft])
 
   const refreshAll = useCallback(() => {
     fetchEvents()
@@ -331,11 +354,17 @@ export default function CronCalendarView({
 
   function handleNewJob() {
     setEditingJob(null)
+    setSeedJob(null)
     setShowForm(true)
+  }
+
+  function handleCreateWithModel() {
+    onCreateWithModel(t("cron.createWithModelPrompt"))
   }
 
   function handleEditJob(job: CronJob) {
     setEditingJob(job)
+    setSeedJob(null)
     setShowForm(true)
     setDetailJobId(null)
   }
@@ -343,6 +372,7 @@ export default function CronCalendarView({
   function handleFormClose() {
     setShowForm(false)
     setEditingJob(null)
+    setSeedJob(null)
     refreshAll()
   }
 
@@ -415,7 +445,6 @@ export default function CronCalendarView({
             jobId={detailJobId}
             agents={agents}
             isViewVisible={isViewVisible}
-            isSurfaceReadable={isSurfaceReadable}
             onBack={() => setDetailJobId(null)}
             onEdit={handleEditJob}
             onDelete={handleDelete}
@@ -424,12 +453,14 @@ export default function CronCalendarView({
           {showForm && (
             <CronJobForm
               job={editingJob}
+              seedJob={seedJob}
               defaultDate={mode === "calendar" ? selectedDate : null}
               defaultProjectId={defaultProjectId}
               onSave={handleFormClose}
               onCancel={() => {
                 setShowForm(false)
                 setEditingJob(null)
+                setSeedJob(null)
               }}
             />
           )}
@@ -462,10 +493,6 @@ export default function CronCalendarView({
             <ListIcon className="h-3.5 w-3.5" />
             {t("cron.viewList")}
           </TabsTrigger>
-          <TabsTrigger value="conversations" className="h-7 gap-1.5 px-2.5 text-xs">
-            <MessagesSquare className="h-3.5 w-3.5" />
-            {t("cron.viewConversations")}
-          </TabsTrigger>
         </TabsList>
 
         <div className="flex-1" />
@@ -482,7 +509,7 @@ export default function CronCalendarView({
               variant="ghost"
               size="sm"
               className="h-7 gap-1.5 text-xs"
-              onClick={() => setMode("conversations")}
+              onClick={() => setMode("list")}
             >
               {pendingWorkspaces === null ? (
                 <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
@@ -538,20 +565,38 @@ export default function CronCalendarView({
           </IconTip>
         )}
 
-        <Button size="sm" className="h-8 gap-1.5 rounded-lg px-3 text-xs" onClick={handleNewJob}>
-          <Plus className="h-3.5 w-3.5" />
-          {t("cron.newJob")}
-        </Button>
+        <div className="inline-flex">
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 rounded-l-lg rounded-r-none px-3 text-xs"
+            onClick={handleCreateWithModel}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("cron.newJob")}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                className="h-8 w-8 rounded-l-none rounded-r-lg border-l border-primary-foreground/20"
+                aria-label={t("cron.createWithModel")}
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" variant="floating" className="w-48">
+              <DropdownMenuItem onSelect={handleCreateWithModel} className="gap-2">
+                <MessageCircle className="h-4 w-4" />
+                {t("cron.createWithModel")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleNewJob} className="gap-2">
+                <Pencil className="h-4 w-4" />
+                {t("cron.manualSetup")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-
-      <TabsContent value="conversations" className="mt-0 min-h-0 flex-1">
-        <CronConversationsPanel
-          isViewVisible={isViewVisible}
-          isSurfaceReadable={isSurfaceReadable}
-          pendingWorkspaces={pendingWorkspaces}
-          onRefreshPendingWorkspaces={fetchPendingWorkspaces}
-        />
-      </TabsContent>
 
       <TabsContent value="calendar" className="mt-0 min-h-0 flex-1">
         <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -849,7 +894,6 @@ export default function CronCalendarView({
                 jobId={selectedListJobId}
                 agents={agents}
                 isViewVisible={isViewVisible}
-                isSurfaceReadable={isSurfaceReadable}
                 embedded
                 onBack={() => setSelectedListJobId(null)}
                 onEdit={handleEditJob}
@@ -876,12 +920,14 @@ export default function CronCalendarView({
       {showForm && (
         <CronJobForm
           job={editingJob}
+          seedJob={seedJob}
           defaultDate={mode === "calendar" ? selectedDate : null}
           defaultProjectId={defaultProjectId}
           onSave={handleFormClose}
           onCancel={() => {
             setShowForm(false)
             setEditingJob(null)
+            setSeedJob(null)
           }}
         />
       )}

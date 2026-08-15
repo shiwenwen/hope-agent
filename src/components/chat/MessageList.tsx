@@ -27,6 +27,7 @@ import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import { collapseWhitespaceWithTypedMentions } from "./mentions/typedMentions"
 import MessageBubble from "./MessageBubble"
+import ScheduleEntityCard from "./message/ScheduleEntityCard"
 import { assistantTurnHasFileMutations, editableLastUserMessageIndex } from "./message/messageEdit"
 import {
   goalCompletionReportFromMessage,
@@ -46,6 +47,8 @@ import type {
   Message,
   AgentSummaryForSidebar,
   PendingMessageQuote,
+  ScheduleEntityMetadata,
+  ToolCall,
 } from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
@@ -175,6 +178,7 @@ interface CompletedTurnCollapseRow {
   assistantCount: number
   elapsedMs?: number
   expanded: boolean
+  scheduleCards: Array<{ key: string; metadata: ScheduleEntityMetadata }>
 }
 
 type MessageRenderRow = { kind: "message"; item: MessageRenderItem } | CompletedTurnCollapseRow
@@ -305,6 +309,44 @@ function hideFooterFilesOnItems(items: MessageRenderItem[]): MessageRenderItem[]
       ? { ...item, hideOwnFooterFiles: true }
       : item,
   )
+}
+
+function messageTools(msg: Message): ToolCall[] {
+  if (msg.contentBlocks) {
+    return msg.contentBlocks.flatMap((block) => (block.type === "tool_call" ? [block.tool] : []))
+  }
+  return msg.toolCalls ?? []
+}
+
+function scheduleCardsFromItems(
+  items: MessageRenderItem[],
+): Array<{ key: string; metadata: ScheduleEntityMetadata }> {
+  const cards = new Map<string, { key: string; metadata: ScheduleEntityMetadata }>()
+  for (const item of items) {
+    for (const tool of messageTools(item.msg)) {
+      const metadata = tool.metadata
+      if (metadata?.kind !== "schedule_entity") continue
+      const key = `${metadata.entityType}:${metadata.entityId}`
+      if (!cards.has(key)) cards.set(key, { key, metadata })
+    }
+  }
+  return [...cards.values()]
+}
+
+function hideScheduleCardsOnItems(items: MessageRenderItem[]): MessageRenderItem[] {
+  return items.map((item) => {
+    let changed = false
+    const hideMetadata = (tool: ToolCall): ToolCall => {
+      if (tool.metadata?.kind !== "schedule_entity") return tool
+      changed = true
+      return { ...tool, metadata: undefined }
+    }
+    const contentBlocks = item.msg.contentBlocks?.map((block) =>
+      block.type === "tool_call" ? { ...block, tool: hideMetadata(block.tool) } : block,
+    )
+    const toolCalls = item.msg.toolCalls?.map(hideMetadata)
+    return changed ? { ...item, msg: { ...item.msg, contentBlocks, toolCalls } } : item
+  })
 }
 
 function assistantProcessBlockCount(blocks: NonNullable<Message["contentBlocks"]>): number {
@@ -582,7 +624,8 @@ function buildMessageRenderRows(
       ...rawCollapsedItems.map(filesFromRenderItem),
       ...rawCollapsedItems.map((collapsedItem) => collapsedItem.footerFiles),
     )
-    const collapsedItems = hideFooterFilesOnItems(rawCollapsedItems)
+    const scheduleCards = scheduleCardsFromItems(rawCollapsedItems)
+    const collapsedItems = hideScheduleCardsOnItems(hideFooterFilesOnItems(rawCollapsedItems))
     const finalAssistantWithHoistedFiles: MessageRenderItem =
       hoistedFiles.length > 0
         ? {
@@ -615,6 +658,7 @@ function buildMessageRenderRows(
         finalAssistantItem,
       ),
       expanded,
+      scheduleCards,
     })
     const tailItems = turnItems.slice(finalAssistantPos)
     if (finalAssistantSplit) {
@@ -1819,6 +1863,9 @@ export default function MessageList({
               {row.items.map(renderMessageItem)}
             </div>
           </AnimatedCollapse>
+          {row.scheduleCards.map((card) => (
+            <ScheduleEntityCard key={card.key} metadata={card.metadata} />
+          ))}
         </div>
       )
     }

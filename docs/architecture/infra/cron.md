@@ -142,7 +142,7 @@ stateDiagram-v2
 | `revision` | `u64` | owner/config edit generation（初始 1）；纯 claim、排程推进、运行终态等 runtime bookkeeping 不递增 |
 | `name` / `description` | `String` / `Option<String>` | 名称与描述 |
 | `project_id` | `Option<String>` | 可选 Project 关联。执行时创建 Project 会话并注入 Project 上下文；Project 已删除时自愈清空、降级为普通 cron |
-| `workspace_policy` | `CronWorkspacePolicy` | `project` 直接使用 Project 目录；`fresh` 每次运行创建并由普通 run chat 持有；`persistent` 由 Task 长期持有并按 occurrence 精确绑定。Worktree 准备失败不回退 Project |
+| `workspace_policy` | `CronWorkspacePolicy` | `project` 直接使用 Project 目录；`fresh` 每次运行创建并由普通 run chat 持有；`persistent` 由 Task 长期持有并按 occurrence 精确绑定，同时让每个运行会话持续保留该 Worktree 工作目录。Worktree 准备失败不回退 Project |
 | `schedule` | `CronSchedule` | 调度配置 |
 | `payload` | `CronPayload` | 执行内容 |
 | `status` | `CronJobStatus` | 五态状态 |
@@ -214,7 +214,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 |------|------|------|
 | `name` / `description` | `String` / `Option<String>` | 名称与描述 |
 | `project_id` | `Option<String>` | `None` = 普通 cron。模型工具 `create` 缺省继承当前会话 Project，显式 `null`/空串表示不关联 |
-| `workspace_policy` | `CronWorkspacePolicy` | Owner 控制面可选 Project / Fresh / Persistent 与 base ref；模型工具保持默认 Project |
+| `workspace_policy` | `CronWorkspacePolicy` | Owner 控制面直接使用结构化字段；模型 `manage_cron` 通过 `workspace_mode` / `workspace_base_ref` 选择 Project / Fresh / Persistent 与 base ref |
 | `schedule` / `payload` | `CronSchedule` / `CronPayload` | 调度与执行内容 |
 | `max_failures` | `Option<u32>` | 默认 5 |
 | `notify_on_complete` | `Option<bool>` | 默认 true |
@@ -231,12 +231,36 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 
 ### `manage_cron` 工具与 Project 语义
 
-模型侧 `manage_cron` 支持 `create` / `update` / `list` / `delete` / `run_now` / `list_channel_targets` / `list_projects`。Project 相关语义：
+模型侧 `manage_cron` 支持 `create` / `update` / `list` / `get` / `delete` / `pause` / `resume` / `run_now` / `workspace_status` / `list_channel_targets` / `list_projects`。Project 与 Worktree 相关语义：
 
+- `create` 的 `conversation_target` 缺省为 `new_session`；`current_session` 只从 `ToolExecContext.session_id` 取当前会话，`existing_session` 则要求模型先调 `sessions_list`，再把用户指定的 exact id 传入 `target_session_id`。两者均构造同一 `SessionTurn`，「安排当前会话」只是已有会话排程的快捷入口，不是独立执行类型。
+- current / existing session target 不接受 `agent_id` / `project_id` / `workspace_mode` / `workspace_base_ref`；这些执行上下文恒从目标会话 live 读取。创建仍经共享 preflight，非 regular、incognito、已归档、Channel 绑定或缺失的目标会话均 fail closed。模型可按 job id 修改排程、prompt 等非上下文字段，但 target id 创建后不可变更。
 - `list_projects` 枚举可传给 `project_id` 的 Project（`include_archived=true` 含归档）。
 - `create`：省略 `project_id` 且当前会话在 Project 内则自动继承；传 `null`/空串显式不关联。
 - `update`：省略保持原值；传 id 切换；传 `null`/空串清空。
 - 工具层校验显式传入的 Project id 必须存在；执行层仍保留 Project 删除后的降级自愈兜底。
+- `workspace_mode` 接受 `project` / `fresh_worktree` / `persistent_worktree`；创建时省略默认 `project`，更新时省略保持原策略。
+- `workspace_base_ref` 只对 Worktree 模式有效；`null`/空串表示创建时解析 Project HEAD。Worktree 模式必须关联 Git Project，创建和更新都执行与 owner 控制面相同的 live preflight。
+- `workspace_status` 返回任务的 workspace policy、现存受管 Worktree 及后端判定的安全动作；模型只读这些动作，不获得接管、归还、归档、恢复或丢弃 Worktree 的 owner 权限。
+- Project、mode 或 base ref 的变更继续受 revision CAS、运行中锁与 Persistent 资源锁保护；模型不能用陈旧草稿或工具调用绕过。
+- 模型仍不能设置 `permission_mode_override` / `sandbox_mode_override`；这两个字段不进工具 schema，且带 owner 覆盖的任务拒绝模型修改。
+- 模型成功创建任务后通过既有 `tool_metadata` 写入 `schedule_entity`；`MessageContent` 必须把它提升到工具折叠之外，`MessageList` 还必须在整轮「已处理」折叠时再次 hoist，不能只放在 `ToolCallBlock` 或 assistant prefix 内。聊天历史与实时流统一渲染可点击的任务卡片，卡片按 id 读取 live 状态并跳转 Scheduled 详情，不复制任务正文或另建投影表。
+
+### 任务卡片与删除后的可复制历史
+
+任务卡片按 id 读 `cron_get_job_snapshot`（`{ job, deleted }`，底层 `CronDB::get_job_snapshot`），**不是 live-only 的 `cron_get_job`**——删除只停未来排程、台账行保留，卡片因此在删除后仍能命名它所指的任务：
+
+- 卡片状态三分：live（状态 / 下次运行 / 打开详情）、`deleted=true`（划线 + 已删除态 + 「复制为新任务」，不再轮询运行日志、不提供打开详情）、台账无行（只显示「任务不存在」，无可复制草稿）。
+- 「复制为新任务」经 `cronNavigation` 的 `hope:cron-task-draft` 把保留的 `CronJob` 交给 Scheduled 面板，`CronJobForm` 以 `seedJob` **只初始化字段**：不带 id / revision，恒走 create，绝不把 tombstone 重新推回排程或 CAS 更新。删除的 Worktree 定制、投递目标等配置随草稿一并带出，用户改完再存。
+- live 任务的最近一次运行为 `error` / `timeout` 时，卡片给「再次运行」；它与详情页 run-now 共用同一条 `cron_preflight` → `cron_run_now`（带 `expectedRevision`）链路，不新开执行入口。
+
+### Owner 表单的对话目标
+
+`CronJobForm` 的目标与模型工具的 `conversation_target` 同语义、同不可变性：
+
+- 从聊天标题栏进入（`sessionTarget`）或编辑既有任务时目标锁定、不出选择器——目标创建后不可变。
+- 从 Scheduled 面板新建时出「运行位置」选择：`new_session`（默认，每次新建会话）或已有会话；后者用 `CronSessionTargetPicker` 搜索任意普通会话（空查询列最近会话，查询走 `search_sessions_cmd types=["regular"]`），选中前后端各自把关——前端按 `is_regular_chat` 的镜像过滤 cron / 子会话 / IM / 无痕 / 已归档 / 非 regular kind，**真正的裁决仍是共享 preflight**。
+- 选到已有会话即构造 `SessionTurn`，与模型侧一样不带 `project_id` / `workspace_policy` / 权限沙箱覆盖：执行上下文恒从目标会话 live 读。
 
 ---
 

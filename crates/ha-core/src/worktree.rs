@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::session::{effective_working_dir_for_meta, SessionDB};
+use crate::session::{effective_working_dir_for_meta, SessionDB, SessionOrigin};
 use crate::util::now_rfc3339;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -980,13 +980,25 @@ impl SessionDB {
         session_id: &str,
     ) -> Result<Vec<ManagedWorktree>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let scheduled_task_id = conn
+            .query_row(
+                "SELECT origin_json FROM sessions WHERE id=?1",
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .and_then(|raw| serde_json::from_str::<SessionOrigin>(&raw).ok())
+            .filter(|origin| origin.kind == "cron")
+            .map(|origin| origin.id);
         let mut stmt = conn.prepare(&format!(
             "{MANAGED_WORKTREE_SELECT}
              WHERE owner_session_id = ?1 OR child_session_id = ?1
                 OR runtime_session_id = ?1 OR handoff_session_id = ?1
+                OR (purpose='scheduled_task' AND scheduled_task_id=?2)
              ORDER BY updated_at DESC, created_at DESC"
         ))?;
-        let rows = stmt.query_map(params![session_id], row_to_worktree)?;
+        let rows = stmt.query_map(params![session_id, scheduled_task_id], row_to_worktree)?;
         collect_rows(rows)
     }
 
@@ -1172,6 +1184,9 @@ impl SessionDB {
         self.scheduled_owner_update_result(id, 1, "acquire scheduled runtime")
     }
 
+    /// Release the scheduler's exact runtime lease while keeping the run
+    /// conversation bound to the Worktree it used. A reopened scheduled
+    /// conversation therefore behaves like any ordinary Worktree-backed chat.
     pub fn release_scheduled_runtime(
         &self,
         row: &ManagedWorktree,
@@ -1206,19 +1221,8 @@ impl SessionDB {
         if changed != 1 {
             bail!("workspace_busy");
         }
-        let cwd_cleared = if row.purpose == ManagedWorktreePurpose::ScheduledTask {
-            tx.execute(
-                "UPDATE sessions SET working_dir=NULL WHERE id=?1 AND working_dir=?2",
-                params![session_id, row.path],
-            )?
-        } else {
-            0
-        };
         tx.commit()?;
         drop(conn);
-        if cwd_cleared > 0 {
-            crate::hooks::fire_cwd_changed(session_id, Some(&row.path), None);
-        }
         self.scheduled_owner_update_result(&row.id, changed, "release scheduled runtime")
     }
 
@@ -2372,6 +2376,103 @@ mod tests {
             repo,
             &["worktree", "remove", "--force", path_arg(&worktree)],
         );
+    }
+
+    #[test]
+    fn persistent_scheduled_release_keeps_run_chat_mounted() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&root.path().join("sessions.db"))
+            .expect("open sessions db");
+        // Session reads join `channel_conversations`, which the channel
+        // subsystem creates at startup rather than the Session schema.
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )?;
+            Ok(())
+        })
+        .expect("create channel conversations table");
+        let task_id = "scheduled-task";
+        let session = db
+            .create_session_with_project_and_origin(
+                "ha-main",
+                None,
+                Some(false),
+                &SessionOrigin {
+                    kind: "cron".to_string(),
+                    id: task_id.to_string(),
+                    label: "Scheduled task".to_string(),
+                },
+            )
+            .expect("create scheduled run chat");
+        let worktree_path = root.path().join("persistent-worktree");
+        fs::create_dir_all(&worktree_path).expect("create worktree dir");
+        // The working-dir writer canonicalizes; compare against the same form
+        // (macOS temp dirs resolve through the /private symlink).
+        let worktree_path = fs::canonicalize(&worktree_path).expect("canonical worktree path");
+        let worktree_path = worktree_path.to_string_lossy().to_string();
+        db.update_session_working_dir(&session.id, Some(worktree_path.clone()))
+            .expect("mount worktree");
+        let now = now_rfc3339();
+        {
+            let conn = db.conn.lock().expect("lock db");
+            conn.execute(
+                "INSERT INTO managed_worktrees (
+                    id, session_id, purpose, state, label, repo_root, source_working_dir,
+                    path, created_at, updated_at, path_source, owner_session_id,
+                    owner_scheduled_task_id, scheduled_task_id, runtime_session_id,
+                    runtime_run_id
+                 ) VALUES (
+                    'persistent-worktree', ?1, 'scheduled_task', 'active', 'Scheduled task',
+                    ?2, ?2, ?2, ?3, ?3, 'builtin', NULL, ?4, ?4, ?1, '42'
+                 )",
+                params![session.id, worktree_path, now, task_id],
+            )
+            .expect("insert persistent worktree");
+        }
+        let row = db
+            .get_managed_worktree("persistent-worktree")
+            .expect("read worktree")
+            .expect("worktree exists");
+
+        db.release_scheduled_runtime(&row, 42, &session.id, None)
+            .expect("release runtime lease");
+
+        assert_eq!(
+            db.get_session(&session.id)
+                .expect("read run chat")
+                .expect("run chat exists")
+                .working_dir
+                .as_deref(),
+            Some(worktree_path.as_str()),
+            "finishing the scheduled run must not unmount its Worktree",
+        );
+        let released = db
+            .get_managed_worktree("persistent-worktree")
+            .expect("read released worktree")
+            .expect("released worktree exists");
+        assert!(released.runtime_session_id.is_none());
+        assert!(released.runtime_run_id.is_none());
+        assert!(db
+            .list_managed_worktrees_for_session(&session.id)
+            .expect("list mounted worktrees")
+            .iter()
+            .any(|worktree| worktree.id == released.id));
     }
 
     #[test]

@@ -88,20 +88,24 @@ Have the AI automatically run a conversation on a schedule. Each occurrence can 
 
 ### Ways to create
 
-- **Natural language**: just tell the AI "remind me to drink water at 9 a.m. every day" and it will create the task for you.
-- **New-task form**: Scheduled Tasks panel → New, then fill in the name, schedule, message, Agent, workspace, delivery targets, and so on. By default, each occurrence creates a new ordinary chat.
+- **Create with Model**: in Scheduled Tasks, click the main New Task button or choose **Create with Model** from its arrow menu. The app returns to an ordinary chat and prefills a conversational starter; finish the time and action, then send it to the model. The model can create either a new-chat task or, when you explicitly ask, arrange the current chat.
+- **Set Up Manually**: choose **Set Up Manually** from the New Task arrow menu, then fill in the name, schedule, message, Agent, workspace, delivery targets, and so on. By default, each occurrence creates a new ordinary chat; switch **Run in** to an existing chat to search for and pick any ordinary chat as the target.
 - **Schedule the current chat**: click the timer icon, "Schedule this chat," in an ordinary chat's title bar. The target is locked to that chat, so you do not have to select its Agent or project again.
+
+You can also tell the model, "In one minute, remind me in this chat to continue testing," or "Every day at 9 AM, summarize progress in the chat named 'Website redesign'." The first binds the current chat directly. For another chat, the model first discovers existing sessions and then uses the exact requested chat id rather than guessing from a title. A generic "remind me" still defaults to a separate new-chat task.
 
 ### Choose where it runs
 
 | Destination | How it runs | Best for |
 | --- | --- | --- |
 | New chat | Each occurrence creates an ordinary chat titled after the task | Standalone reports, checks, and tasks where every full run should remain separate |
-| Current chat | The occurrence enters that chat as a read-only Scheduled message | Work that should continue the same context, project, knowledge spaces, or working directory |
+| Existing chat | Every occurrence enters the same chat as a read-only Scheduled message; **Schedule this chat** is the shortcut for the current one, and manual setup can search for another chat | Work that should continuously share the same history, project, knowledge spaces, Worktree, or working directory |
+
+The destination is fixed once the task exists; create a new task to run in a different chat.
 
 New run chats appear normally in the main sidebar, search, pins, archives, and ordinary unread. They are not hidden Cron-only sessions. A scheduled-trigger badge connects the message to its source task.
 
-For a current-chat task, the system reads the chat's **live** Agent, model, project, knowledge spaces, working directory, permission mode, and sandbox mode when the occurrence actually reaches the front of the queue. The task neither copies nor temporarily overrides these settings. If you change the chat later, the next occurrence follows the new configuration.
+For an existing-chat task, the system reads the chat's **live** Agent, model, project, knowledge spaces, working directory, permission mode, and sandbox mode when the occurrence actually reaches the front of the queue. The task neither copies nor temporarily overrides these settings. If you change the chat later, the next occurrence follows the new configuration.
 
 ### Schedule types and time zones
 
@@ -127,21 +131,30 @@ Only new-chat tasks have a task-level workspace choice. Current-chat tasks alway
 | --- | --- | --- |
 | Project | Runs directly in the project's working directory | Simplest; it also sees existing changes in that directory |
 | Fresh | Creates an isolated Git Worktree from an optional base ref for every occurrence | Each result is retained separately; archive, restore, or discard it when those actions are offered |
-| Persistent | Keeps one task-owned Git Worktree and reuses it across occurrences | Suits ongoing maintenance; take it over in an ordinary chat, return it, return and resume the task, or discard it |
+| Persistent | Keeps one task-owned Git Worktree and reuses it across occurrences | Every run chat keeps that Worktree mounted and can be reopened like an ordinary chat; take it over to pause the task for exclusive manual work |
 
 Fresh and Persistent require a Git project. A blank base ref means `HEAD`; preflight verifies that it resolves to a commit. The backend decides which actions are safe from the Worktree's real ownership, run state, conflicts, and chat custody, and fails closed if that state cannot be read. Unresolved Persistent or retained Worktrees remain discoverable in Scheduled Tasks even after their task is deleted.
 
+Finishing a run does not unmount its Worktree from the conversation. Reopening that chat from the message list or run history keeps the same Worktree path in the title bar, file panel, and tool runtime, just like an ordinary Worktree-backed chat.
+
+Natural-language creation supports all three modes too. For example, ask: "In project X, create a Fresh Worktree from `main` and check dependencies every day," or "Give project X a Persistent Worktree and continue fixing tests every hour." The AI resolves the Project, stores the workspace mode and base ref, and runs the same preflight as the form. An invalid ref, a non-Git Project, or a busy / conflicted Persistent resource is a blocker. You can also ask the AI to inspect a scheduled task's workspace status or change its mode and base ref while no run or retained Persistent resource owns that policy.
+
+After a successful AI-created task, the reply includes a Scheduled Task card. It shows the live status, schedule, next run, and Worktree mode; choose **Open** to jump directly to task details. The card is persisted with chat history and remains usable after reopening the chat.
+
+Conversation control covers the task's Project, workspace mode, and base ref. Permission-mode and sandbox overrides remain user-only UI settings: the AI cannot relax permissions, lower the sandbox, or modify a task that already carries owner-configured permission overrides.
+
 ### Chat experience while a run is active
 
-The run preview in Scheduled Tasks is intentionally **read-only** and does not embed a live composer. Choose "Open chat" to enter the ordinary chat UI, where the full composer, live streaming output, and follow-up conversation are available.
+Task details do not embed a message list. Select any **run history** row to enter its ordinary chat directly and focus that occurrence, where the full composer, live streaming output, and follow-up conversation are available.
 
 A Scheduled message in an existing chat has a timer badge and is managed by the system: it cannot be edited, deleted, or force-inserted. It shares one durable FIFO with ordinary messages from the desktop, web, and IM. Earlier messages run first; a later Scheduled occurrence shows as queued / waiting and never jumps ahead of an active turn or user-owned queued content. Ordinary messages may still offer "send after reply" or explicit insertion on supported surfaces, subject to the current dispatchable-head rules.
 
 ### History, badges, and unread
 
 - Scheduled Tasks provides task-list, calendar, and cross-task run-history views. History addresses a **specific occurrence** and shows its status, duration, result, delivery, and Worktree information.
-- A new-chat occurrence opens its ordinary chat. A current-chat occurrence opens the exact target message for that run, rather than pretending the latest turn in that shared chat is the requested history.
+- A new-chat occurrence opens its ordinary chat. An existing-chat occurrence opens the exact target message for that run, rather than pretending the latest turn in that shared chat is the requested history.
 - The timer card on a message shows the task name, can expand the original creation prompt, and links back to the task; the title bar also shows the source task. If the task was deleted, a "Task deleted" tombstone preserves the history.
+- When the model creates a task, the chat keeps a task card: while the task exists it shows the status and next run and opens the task details; if the last run failed, **Run Again** starts another occurrence right from the card; once the task is deleted the card is marked as deleted and offers **Copy as New Task**, which opens a new-task draft with the original configuration.
 - The Scheduled badge is a projection of the ordinary chat read state, not a second unread system. Rendering the Scheduled preview or ordinary chat advances the same watermark. Archived chats do not count, multiple runs in one chat count as one unread chat, and Dock / tray unread follows the same ordinary-chat rules.
 
 ### Stop, cancel, and delete
@@ -149,9 +162,9 @@ A Scheduled message in an existing chat has a timer badge and is managed by the 
 - **Queued**: canceling from run history removes that exact Scheduled message without affecting other occurrences or ordinary messages.
 - **Running**: cancel from history or choose Stop in the ordinary chat to stop only this occurrence. It does not pause future schedules and does not require Continue before the next occurrence.
 - **Global Stop**: a global stop durably holds Scheduled messages that have not begun. They return to the queue only after the corresponding exact Continue, and an app restart cannot bypass the fence.
-- **Delete task**: deletion is soft. The task no longer triggers or delivers, but run logs and already-created ordinary / legacy sessions remain. An active occurrence is precisely canceled first, or deletion fails closed.
+- **Delete task**: deletion is soft. The task no longer triggers or delivers, but run logs and already-created ordinary / legacy sessions remain. An active occurrence is precisely canceled first, or deletion fails closed. After deletion you can still use **Copy as New Task** on the chat's task card to rebuild it from the original configuration.
 
-Compatibility note: legacy `SessionLoop` runs do not have a durable `turnId`, so they do not show Stop while running; deleting their task is also safely refused until they finish. New ordinary-chat and current-chat runs both support exact cancellation.
+Compatibility note: legacy `SessionLoop` runs do not have a durable `turnId`, so they do not show Stop while running; deleting their task is also safely refused until they finish. New ordinary-chat and existing-chat runs both support exact cancellation.
 
 ### Delivering results to IM
 
@@ -165,7 +178,7 @@ The final text of a task's result can be sent to one or more IM chats—first pi
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| Agent / project | Auto / none | Available only for new-chat tasks; a current-chat task follows the target chat's live configuration |
+| Agent / project | Auto / none | Available only for new-chat tasks; an existing-chat task follows the target chat's live configuration |
 | Permission-mode override | Follow the Agent | Use Default / Smart Approval / YOLO for this task; **can only be set in the UI—AI tools cannot change it** (to prevent privilege escalation) |
 | Sandbox-mode override | Follow the Agent | Choosing anything other than "Off" requires Docker; if it is unavailable the run is aborted and never runs unsandboxed |
 | Timeout override | Use the global value | Lets a long task declare its own budget without raising the global value |
@@ -184,7 +197,7 @@ When a task reaches the consecutive-failure limit it is **auto-disabled and rais
 | Paused / Needs attention | The target chat, project, Worktree, or delivery setup needs action; fix it and explicitly resume the task |
 | Task deleted | The task no longer triggers, but its history and retained resources remain available for review / cleanup |
 
-An invalid or archived current-chat target pauses a recurring task instead of generating the same error every period. Infrastructure failures do not count toward the consecutive-failure limit. A one-off task that hits infrastructure trouble before model execution follows the safe retry rules, while cancellation is not misclassified as failure.
+An invalid or archived existing-chat target pauses a recurring task instead of generating the same error every period. Infrastructure failures do not count toward the consecutive-failure limit. A one-off task that hits infrastructure trouble before model execution follows the safe retry rules, while cancellation is not misclassified as failure.
 
 ### Global settings (Settings → Scheduled Tasks, medium risk)
 

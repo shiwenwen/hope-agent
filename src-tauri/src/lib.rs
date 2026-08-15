@@ -935,6 +935,7 @@ pub fn run() {
             // Cron management
             commands::cron::cron_list_jobs,
             commands::cron::cron_get_job,
+            commands::cron::cron_get_job_snapshot,
             commands::cron::cron_preflight,
             commands::cron::cron_create_job,
             commands::cron::cron_update_job,

@@ -26,6 +26,20 @@ pub async fn cron_get_job(
         .map_err(Into::into)
 }
 
+/// Read a task and whether it is a tombstone. Retained history keeps naming a
+/// deleted task, so its card resolves through this instead of `cron_get_job`
+/// (live-only) — a deleted task stays readable and copyable, never schedulable.
+#[tauri::command]
+pub async fn cron_get_job_snapshot(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<cron::CronJobSnapshot>, CmdError> {
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.get_job_snapshot(&id))
+        .await
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn cron_preflight(
     request: ha_cron::cron::CronPreflightRequest,

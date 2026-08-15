@@ -30,11 +30,9 @@ import {
   Send,
   Loader2,
   CircleSlash,
-  MessagesSquare,
   Bot,
   Check,
   Minus,
-  ChevronDown,
   Square,
   Archive,
   FolderGit2,
@@ -65,7 +63,6 @@ import {
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { LoopSnapshot, LoopState } from "@/components/chat/workspace/useLoopSchedules"
-import CronSessionViewer from "./CronSessionViewer"
 import CronLoopBadge from "./CronLoopBadge"
 import CronPreflightDialog from "./CronPreflightDialog"
 
@@ -154,7 +151,7 @@ export function CronWorkspaceResourceCard({
   )
   const summary = resource.worktree.dirtySnapshot
   return (
-    <div className="rounded-lg border border-border/55 bg-muted/20 px-2.5 py-2 text-[11px]">
+    <div className="rounded-xl border border-border/60 bg-card px-3.5 py-3 text-xs">
       <div className="flex min-w-0 items-center gap-2">
         <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate font-medium">
@@ -187,7 +184,7 @@ export function CronWorkspaceResourceCard({
           {t("workspace.worktree.changed", { count: summary.changedFiles })}
         </p>
       )}
-      <div className="mt-1 flex flex-wrap justify-end gap-1">
+      <div className="mt-2 flex flex-wrap justify-end gap-1">
         {resource.mode === "persistent" &&
           !resource.worktree.handoffSessionId &&
           actionButton("takeover", resource.actions.takeOver, <Hand className="h-3 w-3" />)}
@@ -239,15 +236,39 @@ export function CronWorkspaceResourceCard({
   )
 }
 
+function JobDetailRow({
+  label,
+  icon,
+  children,
+  className,
+}: {
+  label: ReactNode
+  icon?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-11 items-center justify-between gap-4 border-b border-border/45 px-4 py-2.5 last:border-b-0",
+        className,
+      )}
+    >
+      <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </span>
+      <span className="min-w-0 text-right text-xs font-medium">{children}</span>
+    </div>
+  )
+}
+
 interface CronJobDetailProps {
   jobId: string
-  /** Agent roster for message-bubble identities, fetched once by the parent
-   *  (job-independent) so row-switch remounts don't refetch it. */
+  /** Agent roster used to resolve the task's configured Agent label. */
   agents: AgentSummaryForSidebar[]
   /** App-level visibility; returning to the persistent view refreshes run data. */
   isViewVisible?: boolean
-  /** True only while this transcript is actually visible in the focused app window. */
-  isSurfaceReadable?: boolean
   onBack: () => void
   onEdit: (job: CronJob) => void
   onDelete: (job: CronJob) => void
@@ -261,7 +282,6 @@ export default function CronJobDetail({
   jobId,
   agents,
   isViewVisible = true,
-  isSurfaceReadable = true,
   onBack,
   onEdit,
   onDelete,
@@ -275,87 +295,35 @@ export default function CronJobDetail({
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
-  // Run conversation preview shown read-only on the right.
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  // Loop runs can share one session, so sessionId cannot identify the selected
-  // history row. Keep the run-log id separately for a single visual selection.
-  const [selectedLogId, setSelectedLogId] = useState<number | null>(null)
   const [logsOffset, setLogsOffset] = useState(0)
   const [logsHasMore, setLogsHasMore] = useState(false)
   const [loadingMoreLogs, setLoadingMoreLogs] = useState(false)
   const [runNowBusy, setRunNowBusy] = useState(false)
   const [runPreflight, setRunPreflight] = useState<CronPreflightReport | null>(null)
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null)
-  const [detailsOpen, setDetailsOpen] = useState(false)
   const [loopState, setLoopState] = useState<LoopState | null>(null)
-  const [viewerRefreshKey, setViewerRefreshKey] = useState(0)
-  const pendingReadRef = useRef<{
-    runLogId: number
-    sessionId: string
-    targetMessageId?: number | null
-  } | null>(null)
-  const loadedRunLogIdRef = useRef<number | null>(null)
   const wasViewVisibleRef = useRef(isViewVisible)
-  const surfaceReadableRef = useRef(isSurfaceReadable)
-  surfaceReadableRef.current = isSurfaceReadable
-  const markingRunLogIdsRef = useRef(new Set<number>())
 
-  const markRunRead = useCallback((target: NonNullable<typeof pendingReadRef.current>) => {
-    if (markingRunLogIdsRef.current.has(target.runLogId)) return
-    markingRunLogIdsRef.current.add(target.runLogId)
-    void markCronSessionRead(target.sessionId, target.targetMessageId)
-      .catch((error) => {
+  const openRunConversation = useCallback(
+    (log: CronRunLog) => {
+      if (!log.sessionId) return
+      // A SessionTurn must retain its exact message anchor; never guess the
+      // latest message in a shared conversation when an old row is incomplete.
+      if (job?.payload.type === "sessionTurn" && log.targetMessageId == null) return
+      void markCronSessionRead(log.sessionId, log.targetMessageId).catch((error) => {
         logger.warn(
           "cron",
-          "CronJobDetail::markRunRead",
-          "Failed to mark viewed cron run as read",
+          "CronJobDetail::openRunConversation",
+          "Failed to mark cron run as read before navigation",
           error,
         )
       })
-      .finally(() => markingRunLogIdsRef.current.delete(target.runLogId))
-  }, [])
-
-  const markPendingRunReadIfReady = useCallback(() => {
-    const pending = pendingReadRef.current
-    if (!surfaceReadableRef.current || !pending || loadedRunLogIdRef.current !== pending.runLogId) {
-      return
-    }
-    pendingReadRef.current = null
-    markRunRead(pending)
-  }, [markRunRead])
-
-  useEffect(() => {
-    markPendingRunReadIfReady()
-  }, [isSurfaceReadable, markPendingRunReadIfReady])
-
-  const handleRunSelect = useCallback(
-    (log: CronRunLog) => {
-      if (!log.sessionId) return
-      setSelectedLogId(log.id)
-      pendingReadRef.current =
-        job?.payload.type === "sessionTurn" && log.targetMessageId == null
-          ? null
-          : {
-              runLogId: log.id,
-              sessionId: log.sessionId,
-              targetMessageId: log.targetMessageId,
-            }
-      if (loadedRunLogIdRef.current === log.id) {
-        markPendingRunReadIfReady()
-        return
-      }
-      loadedRunLogIdRef.current = null
-      setSelectedSessionId(log.sessionId)
+      requestChatFocus({
+        sessionId: log.sessionId,
+        targetMessageId: log.targetMessageId ?? undefined,
+      })
     },
-    [job, markPendingRunReadIfReady],
-  )
-
-  const handleViewerLoaded = useCallback(
-    (runLogId: number) => {
-      loadedRunLogIdRef.current = runLogId
-      markPendingRunReadIfReady()
-    },
-    [markPendingRunReadIfReady],
+    [job?.payload.type],
   )
 
   const handleArchiveRun = useCallback(
@@ -371,11 +339,6 @@ export default function CronJobDetail({
         const removedCount = logs.length - remaining.length
         setLogs(remaining)
         setLogsOffset((current) => Math.max(0, current - removedCount))
-        if (selectedSessionId === log.sessionId) {
-          const next = remaining[0]
-          setSelectedSessionId(next?.sessionId ?? null)
-          setSelectedLogId(next?.id ?? null)
-        }
         window.dispatchEvent(
           new CustomEvent("hope:session-archive-changed", {
             detail: { sessionId: log.sessionId, archived: true },
@@ -391,7 +354,7 @@ export default function CronJobDetail({
         setArchivingSessionId(null)
       }
     },
-    [archivingSessionId, job?.name, logs, selectedSessionId, t],
+    [archivingSessionId, job?.name, logs, t],
   )
 
   async function fetchData() {
@@ -432,11 +395,6 @@ export default function CronJobDetail({
   }
 
   useEffect(() => {
-    setSelectedSessionId(null)
-    setSelectedLogId(null)
-    pendingReadRef.current = null
-    loadedRunLogIdRef.current = null
-    setDetailsOpen(false)
     setLoopState(null)
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -445,9 +403,7 @@ export default function CronJobDetail({
   useEffect(() => {
     const becameVisible = isViewVisible && !wasViewVisibleRef.current
     wasViewVisibleRef.current = isViewVisible
-    if (!becameVisible) return
-    setViewerRefreshKey((current) => current + 1)
-    void fetchData()
+    if (becameVisible) void fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewVisible])
 
@@ -462,17 +418,6 @@ export default function CronJobDetail({
     return () => unlisten.forEach((stop) => stop())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewVisible, jobId])
-
-  // Default to the most recent run that has a session, so opening the detail
-  // immediately shows its conversation; never overrides an explicit selection.
-  useEffect(() => {
-    if (selectedLogId !== null && logs.some((log) => log.id === selectedLogId)) return
-    const first = logs.find((l) => l.sessionId)
-    if (first?.sessionId) {
-      setSelectedLogId(first.id)
-      setSelectedSessionId(first.sessionId)
-    }
-  }, [logs, selectedLogId])
 
   async function handleToggle() {
     if (!job) return
@@ -647,7 +592,8 @@ export default function CronJobDetail({
               : t("workspace.loop.stateBlocked", "已阻塞")
       : statusLabel(job.status, t)
   const title = cronDisplayTitle(job.name, job.payload.type)
-  const selectedLog = logs.find((log) => log.id === selectedLogId) ?? null
+  const canOpenRunConversation = (log: CronRunLog) =>
+    Boolean(log.sessionId) && (!isSessionTurn || log.targetMessageId != null)
 
   return (
     <div className="flex h-full flex-col">
@@ -666,9 +612,10 @@ export default function CronJobDetail({
             {isLoop && <CronLoopBadge />}
             <h3 className="truncate text-[15px] font-semibold tracking-tight">{title}</h3>
           </div>
-          {job.description && (
-            <p className="mt-0.5 truncate pl-4 text-xs text-muted-foreground">{job.description}</p>
-          )}
+          <p className="mt-0.5 truncate pl-4 text-xs text-muted-foreground">
+            {displayStatusLabel}
+            {job.description ? ` · ${job.description}` : ""}
+          </p>
         </div>
         <div className="flex items-center gap-0.5">
           {(!isLoop || isLoopActive) && (
@@ -756,81 +703,66 @@ export default function CronJobDetail({
         </div>
       </div>
 
-      {/* Body: left column (info + run history) · right read-only conversation */}
-      <div className="flex min-h-0 flex-1 px-3 pb-3">
-        <div className="flex w-[20rem] shrink-0 flex-col pr-3">
-          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            {/* The schedule is the primary fact; secondary configuration stays
-                collapsed until requested so run history remains easy to scan. */}
-            <section className="rounded-2xl bg-sky-500/[0.055] px-3.5 py-3">
-              <div className="flex items-start gap-2.5">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300">
-                  <Clock className="h-3.5 w-3.5" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {t("cron.schedule")}
-                  </p>
-                  <p className="mt-0.5 text-xs font-medium leading-5">
-                    {formatSchedule(job.schedule, t)}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 pl-0.5 text-[11px]">
-                <div className="min-w-0">
-                  <p className="text-muted-foreground">{t("cron.nextRun")}</p>
-                  <p className="mt-0.5 truncate font-medium">
-                    {job.nextRunAt ? new Date(job.nextRunAt).toLocaleString() : "-"}
-                  </p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-muted-foreground">{t("cron.lastRun")}</p>
-                  <p className="mt-0.5 truncate font-medium">
-                    {job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "-"}
-                  </p>
-                </div>
-              </div>
-            </section>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
+        <div className="mx-auto w-full max-w-5xl">
+          <section className="border-b border-border/55 pb-5 pt-1">
+            {job.description && (
+              <p className="mb-2 text-sm leading-6 text-muted-foreground">{job.description}</p>
+            )}
+            <div className="rounded-xl border border-border/60 bg-card px-4 py-3.5 shadow-sm shadow-black/[0.02]">
+              <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                {job.payload.prompt}
+              </p>
+            </div>
+          </section>
 
-            {isSessionTurn ? (
-              <div className="mt-3 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
-                <p className="flex items-center gap-1.5 font-medium">
-                  <Timer className="h-3.5 w-3.5 text-primary" />
-                  {t("cron.sessionTurnTarget")}: {sessionTurnPayload?.sessionId}
-                </p>
-                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  {t("cron.sessionTurnLiveHint")}
-                </p>
+          <section className="mt-5">
+            <h4 className="mb-2 text-xs font-semibold">{t("chat.details")}</h4>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
+                <JobDetailRow label={t("cron.schedule")} icon={<Clock className="h-3.5 w-3.5" />}>
+                  {formatSchedule(job.schedule, t)}
+                </JobDetailRow>
+                <JobDetailRow label={t("cron.nextRun")}>
+                  {job.nextRunAt ? new Date(job.nextRunAt).toLocaleString() : "-"}
+                </JobDetailRow>
+                <JobDetailRow label={t("cron.lastRun")}>
+                  {job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "-"}
+                </JobDetailRow>
               </div>
-            ) : (
-              <div className="mt-3 space-y-2 px-1 text-xs">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{t("cron.project")}</span>
-                  <span className="flex min-w-0 items-center gap-1.5 text-right">
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
+
+              <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
+                {isSessionTurn ? (
+                  <>
+                    <JobDetailRow
+                      label={t("cron.sessionTurnTarget")}
+                      icon={<Timer className="h-3.5 w-3.5" />}
+                    >
+                      <span className="break-all">{sessionTurnPayload?.sessionId}</span>
+                    </JobDetailRow>
+                    <div className="px-4 py-3 text-xs leading-5 text-muted-foreground">
+                      {t("cron.sessionTurnLiveHint")}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <JobDetailRow
+                      label={t("cron.project")}
+                      icon={<FolderOpen className="h-3.5 w-3.5" />}
+                    >
                       {job.projectId
                         ? project
                           ? project.name
                           : t("cron.missingProject")
                         : t("cron.noProject")}
-                    </span>
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{t("cron.agent")}</span>
-                  <span className="flex min-w-0 items-center gap-1.5 text-right">
-                    <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{agentLabel}</span>
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">
-                    {t("workspace.environment.worktree")}
-                  </span>
-                  <span className="flex min-w-0 items-center gap-1.5 text-right">
-                    <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
+                    </JobDetailRow>
+                    <JobDetailRow label={t("cron.agent")} icon={<Bot className="h-3.5 w-3.5" />}>
+                      {agentLabel}
+                    </JobDetailRow>
+                    <JobDetailRow
+                      label={t("workspace.environment.worktree")}
+                      icon={<FolderGit2 className="h-3.5 w-3.5" />}
+                    >
                       {job.workspacePolicy.mode === "project"
                         ? t("cron.project")
                         : t(
@@ -839,160 +771,145 @@ export default function CronJobDetail({
                               : "cron.workspaceModePersistent",
                           )}
                       {job.workspacePolicy.baseRef ? ` · ${job.workspacePolicy.baseRef}` : ""}
-                    </span>
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              aria-expanded={detailsOpen}
-              onClick={() => setDetailsOpen((open) => !open)}
-              className="mt-2 flex h-8 w-full items-center justify-between rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
-            >
-              <span>{t("chat.details")}</span>
-              <ChevronDown
-                className={cn("h-3.5 w-3.5 transition-transform", detailsOpen && "rotate-180")}
-              />
-            </button>
-
-            {detailsOpen && (
-              <div className="space-y-2 px-2 pb-1 pt-1 text-xs">
-                {job.runningAt && (
-                  <div className="flex justify-between gap-3">
-                    <span className="text-muted-foreground">{t("subagent.status.running")}</span>
-                    <span className="text-right">{new Date(job.runningAt).toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">{t("cron.failures")}</span>
-                  <span>
-                    {job.consecutiveFailures} / {job.maxFailures}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">{t("cron.jobTimeoutOverride")}</span>
-                  <span>
-                    {job.jobTimeoutSecs != null
-                      ? `${job.jobTimeoutSecs}s`
-                      : t("cron.timeoutGlobalDefault")}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{t("notification.cronNotify")}</span>
-                  {job.notifyOnComplete ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-500" />
-                  ) : (
-                    <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-                  )}
-                </div>
-                {job.deliveryTargets.length > 0 && (
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">
-                      {t("cron.prefixDeliveryWithName")}
-                    </span>
-                    {job.prefixDeliveryWithName ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-500" />
-                    ) : (
-                      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                  </div>
-                )}
-                <div className="pt-1">
-                  <span className="text-muted-foreground">{t("cron.deliveryTargets")}</span>
-                  {job.deliveryTargets.length === 0 ? (
-                    <p className="mt-1 text-muted-foreground/80">{t("cron.noDeliveryTargets")}</p>
-                  ) : (
-                    <div className="mt-1.5 flex flex-col gap-1.5">
-                      {job.deliveryTargets.map((tg, i) => (
-                        <div
-                          key={i}
-                          className={cn("flex items-center gap-1.5", tg.stale && "text-red-500")}
-                        >
-                          <Send className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{deliveryTargetLabel(tg)}</span>
-                          {tg.stale && (
-                            <span className="ml-auto shrink-0 text-[10px]">
-                              {t("cron.deliveryTargetStale")}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="pt-1">
-                  <span className="text-muted-foreground">{t("cron.message")}</span>
-                  <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-muted/35 px-2.5 py-2 leading-5">
-                    {job.payload.prompt}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {workspaceResources === null ? (
-              <p className="mt-4 px-1 text-xs text-destructive">
-                {t("workspace.environment.unavailable")}
-              </p>
-            ) : workspaceResources.length > 0 ? (
-              <section className="mt-4 space-y-1.5">
-                <h4 className="px-1 text-xs font-medium">{t("workspace.goal.detailWorktrees")}</h4>
-                {workspaceResources.map((resource) => (
-                  <CronWorkspaceResourceCard
-                    key={resource.worktree.id}
-                    resource={resource}
-                    onChanged={() => void fetchData()}
-                  />
-                ))}
-              </section>
-            ) : null}
-            {/* Run History */}
-            <section className="mt-4">
-              <div className="mb-2 flex items-center justify-between px-1">
-                <h4 className="text-xs font-medium">{t("cron.runHistory")}</h4>
-                {logs.length > 0 && (
-                  <span className="px-1 text-[10px] tabular-nums text-muted-foreground">
-                    {logs.length}
-                  </span>
+                    </JobDetailRow>
+                  </>
                 )}
               </div>
-              {logs.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">{t("cron.noRuns")}</p>
-              ) : (
-                <div className="grid auto-rows-max gap-1">
-                  {logs.map((log) => (
+            </div>
+
+            <div className="mt-3 grid overflow-hidden rounded-xl border border-border/60 bg-card md:grid-cols-2">
+              {job.runningAt && (
+                <JobDetailRow label={t("subagent.status.running")}>
+                  {new Date(job.runningAt).toLocaleString()}
+                </JobDetailRow>
+              )}
+              <JobDetailRow label={t("cron.failures")}>
+                {job.consecutiveFailures} / {job.maxFailures}
+              </JobDetailRow>
+              <JobDetailRow label={t("cron.jobTimeoutOverride")}>
+                {job.jobTimeoutSecs != null
+                  ? `${job.jobTimeoutSecs}s`
+                  : t("cron.timeoutGlobalDefault")}
+              </JobDetailRow>
+              <JobDetailRow label={t("notification.cronNotify")}>
+                {job.notifyOnComplete ? (
+                  <Check className="ml-auto h-3.5 w-3.5 text-emerald-500" />
+                ) : (
+                  <Minus className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </JobDetailRow>
+              <JobDetailRow label={t("cron.prefixDeliveryWithName")}>
+                {job.prefixDeliveryWithName ? (
+                  <Check className="ml-auto h-3.5 w-3.5 text-emerald-500" />
+                ) : (
+                  <Minus className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </JobDetailRow>
+              <JobDetailRow label={t("cron.deliveryTargets")} className="md:col-span-2">
+                {job.deliveryTargets.length === 0 ? (
+                  <span className="font-normal text-muted-foreground">
+                    {t("cron.noDeliveryTargets")}
+                  </span>
+                ) : (
+                  <span className="flex flex-wrap justify-end gap-1.5">
+                    {job.deliveryTargets.map((target, index) => (
+                      <span
+                        key={index}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md bg-muted/65 px-2 py-1 text-[11px] font-normal",
+                          target.stale && "text-red-500",
+                        )}
+                      >
+                        <Send className="h-3 w-3" />
+                        {deliveryTargetLabel(target)}
+                        {target.stale && ` · ${t("cron.deliveryTargetStale")}`}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </JobDetailRow>
+            </div>
+          </section>
+
+          {workspaceResources === null ? (
+            <p className="mt-5 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+              {t("workspace.environment.unavailable")}
+            </p>
+          ) : workspaceResources.length > 0 ? (
+            <section className="mt-5 space-y-2">
+              <h4 className="text-xs font-semibold">{t("workspace.goal.detailWorktrees")}</h4>
+              {workspaceResources.map((resource) => (
+                <CronWorkspaceResourceCard
+                  key={resource.worktree.id}
+                  resource={resource}
+                  onChanged={() => void fetchData()}
+                />
+              ))}
+            </section>
+          ) : null}
+
+          <section className="mt-6">
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="text-xs font-semibold">{t("cron.runHistory")}</h4>
+              {logs.length > 0 && (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {logs.length}
+                </span>
+              )}
+            </div>
+            {logs.length === 0 ? (
+              <div className="py-8 text-center text-xs text-muted-foreground">
+                {t("cron.noRuns")}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {logs.map((log) => {
+                  const canOpen = canOpenRunConversation(log)
+                  return (
                     <div key={log.id} className="group/row relative">
                       <button
                         type="button"
-                        disabled={!log.sessionId}
+                        disabled={!canOpen}
                         className={cn(
-                          "block h-auto w-full self-start rounded-lg px-2.5 py-2 pr-16 text-left text-xs transition-colors disabled:cursor-default",
-                          log.sessionId && "cursor-pointer",
-                          log.sessionId && selectedLogId === log.id
-                            ? "bg-secondary"
-                            : "hover:bg-secondary/40",
+                          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-start gap-x-3 rounded-xl py-3 pr-12 text-left transition-colors",
+                          canOpen
+                            ? "cursor-pointer hover:bg-secondary/40"
+                            : "cursor-default opacity-80",
                         )}
-                        onClick={() => handleRunSelect(log)}
+                        onClick={() => openRunConversation(log)}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            {log.status === "success" ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                            ) : log.status === "queued" ? (
-                              <Clock className="h-3.5 w-3.5 text-amber-500" />
-                            ) : log.status === "running" || log.status === "completing" ? (
-                              <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-                            ) : log.status === "cancelling" ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
-                            ) : log.status === "empty" ? (
-                              <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
-                            ) : log.status === "cancelled" ? (
-                              <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                            ) : (
-                              <XCircle className="h-3.5 w-3.5 text-red-500" />
-                            )}
-                            <span className="font-medium">
+                        <span className="mt-0.5 shrink-0">
+                          {log.status === "success" ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                          ) : log.status === "queued" ? (
+                            <Clock className="h-4 w-4 text-amber-500" />
+                          ) : log.status === "running" || log.status === "completing" ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                          ) : log.status === "cancelling" ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+                          ) : log.status === "empty" ? (
+                            <CircleSlash className="h-4 w-4 text-muted-foreground" />
+                          ) : log.status === "cancelled" ? (
+                            <XCircle className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{title}</span>
+                          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                            <span
+                              className={cn(
+                                "font-medium",
+                                log.status === "success" &&
+                                  "text-emerald-600 dark:text-emerald-400",
+                                (log.status === "queued" || log.status === "cancelling") &&
+                                  "text-amber-600 dark:text-amber-400",
+                                (log.status === "running" || log.status === "completing") &&
+                                  "text-blue-600 dark:text-blue-400",
+                                log.status === "error" && "text-red-500",
+                              )}
+                            >
                               {log.status === "success"
                                 ? t("cron.runStatusSuccess")
                                 : log.status === "queued"
@@ -1007,85 +924,61 @@ export default function CronJobDetail({
                                           ? t("common.cancel")
                                           : t("cron.runStatusError")}
                             </span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <Clock className="h-3 w-3" />
-                              <span>
-                                {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-muted-foreground mt-1">
-                          {new Date(log.startedAt).toLocaleString()}
-                        </div>
-                        {log.workspaceStatus && (
-                          <div className="mt-1 inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            <FolderGit2 className="h-3 w-3" />
-                            {log.workspaceStatus}
-                          </div>
-                        )}
-                        {log.deliveryStatus && (
-                          <div className="mt-1 flex items-center gap-1">
-                            <Send
-                              className={`h-3 w-3 ${
-                                log.deliveryStatus === "delivered"
-                                  ? "text-emerald-500"
-                                  : log.deliveryStatus === "partial"
-                                    ? "text-amber-500"
-                                    : "text-red-500"
-                              }`}
-                            />
-                            <span
-                              className={
-                                log.deliveryStatus === "delivered"
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : log.deliveryStatus === "partial"
-                                    ? "text-amber-600 dark:text-amber-400"
-                                    : "text-red-500"
-                              }
-                            >
-                              {t(`cron.deliveryStatus.${log.deliveryStatus}`)}
+                            <span className="md:hidden">
+                              {new Date(log.startedAt).toLocaleString()}
                             </span>
-                          </div>
-                        )}
-                        {log.error && (
-                          <p className="mt-1.5 line-clamp-2 break-words text-red-500">
-                            {log.error}
-                          </p>
-                        )}
-                        {log.resultPreview && (
-                          <p className="mt-1.5 line-clamp-2 break-words text-muted-foreground">
-                            {log.resultPreview}
-                          </p>
+                            <span className="inline-flex items-center gap-1 md:hidden">
+                              <Clock className="h-3 w-3" />
+                              {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}
+                            </span>
+                            {log.workspaceStatus && (
+                              <span className="inline-flex items-center gap-1">
+                                <FolderGit2 className="h-3 w-3" />
+                                {log.workspaceStatus}
+                              </span>
+                            )}
+                            {log.deliveryStatus && (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1",
+                                  log.deliveryStatus === "delivered"
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : log.deliveryStatus === "partial"
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-red-500",
+                                )}
+                              >
+                                <Send className="h-3 w-3" />
+                                {t(`cron.deliveryStatus.${log.deliveryStatus}`)}
+                              </span>
+                            )}
+                            {log.error ? (
+                              <span className="min-w-0 truncate text-red-500">{log.error}</span>
+                            ) : log.resultPreview ? (
+                              <span className="min-w-0 truncate">{log.resultPreview}</span>
+                            ) : null}
+                          </span>
+                        </span>
+                        <span className="hidden shrink-0 text-right text-[11px] text-muted-foreground md:block">
+                          <span className="block">{new Date(log.startedAt).toLocaleString()}</span>
+                          <span className="mt-1 inline-flex items-center justify-end gap-1">
+                            <Clock className="h-3 w-3" />
+                            {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}
+                          </span>
+                        </span>
+                        {canOpen ? (
+                          <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <span className="h-3.5 w-3.5" />
                         )}
                       </button>
-                      {log.sessionId && !isLoop && (
-                        <IconTip label={t("subagent.openSession")}>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-8 top-1 h-7 w-7 text-muted-foreground"
-                            onClick={() =>
-                              requestChatFocus({
-                                sessionId: log.sessionId,
-                                targetMessageId: log.targetMessageId ?? undefined,
-                              })
-                            }
-                          >
-                            <ArrowUpRight className="h-3.5 w-3.5" />
-                          </Button>
-                        </IconTip>
-                      )}
                       {log.sessionId && (
                         <IconTip label={t("chat.archiveSession")}>
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="absolute right-1 top-1 h-7 w-7 opacity-0 transition-opacity group-hover/row:opacity-100"
+                            className="absolute right-0 top-1/2 h-7 w-7 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100"
                             disabled={archivingSessionId === log.sessionId}
                             onClick={() => void handleArchiveRun(log)}
                           >
@@ -1098,49 +991,28 @@ export default function CronJobDetail({
                         </IconTip>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-              {logsHasMore && (
-                <div className="pt-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-full rounded-lg text-xs text-muted-foreground"
-                    disabled={loadingMoreLogs}
-                    onClick={() => void loadMoreLogs()}
-                  >
-                    {loadingMoreLogs ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      t("cron.loadMore")
-                    )}
-                  </Button>
-                </div>
-              )}
-            </section>
-          </div>
-        </div>
-
-        {/* Right — read-only conversation of the selected run */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background">
-          {selectedSessionId && selectedLog ? (
-            <CronSessionViewer
-              key={`${selectedLog.id}:${viewerRefreshKey}`}
-              runLogId={selectedLog.id}
-              sessionId={selectedSessionId}
-              requiresExactTarget={job.payload.type === "sessionTurn"}
-              targetMessageId={selectedLog.targetMessageId}
-              expectedTurnId={selectedLog.turnId}
-              agents={agents}
-              onLoaded={handleViewerLoaded}
-            />
-          ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
-              <MessagesSquare className="h-10 w-10 opacity-40" />
-              <p className="text-sm">{t("cron.conversationsSelectHint")}</p>
-            </div>
-          )}
+                  )
+                })}
+              </div>
+            )}
+            {logsHasMore && (
+              <div className="pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-full rounded-lg text-xs text-muted-foreground"
+                  disabled={loadingMoreLogs}
+                  onClick={() => void loadMoreLogs()}
+                >
+                  {loadingMoreLogs ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    t("cron.loadMore")
+                  )}
+                </Button>
+              </div>
+            )}
+          </section>
         </div>
       </div>
       <CronPreflightDialog

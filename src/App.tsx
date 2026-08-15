@@ -41,7 +41,8 @@ import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/Con
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
 import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
-import { subscribeCronTaskFocus } from "@/components/cron/cronNavigation"
+import { subscribeCronTaskDraft, subscribeCronTaskFocus } from "@/components/cron/cronNavigation"
+import type { CronJob } from "@/components/cron/CronJobForm.types"
 import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
 import {
   clearMemoryFocusUrl,
@@ -157,6 +158,12 @@ interface PendingCronTaskFocus {
   nonce: number
 }
 
+/** Copy-as-new-task handoff: a retained (possibly deleted) task seeds a draft. */
+interface PendingCronTaskDraft {
+  seed: CronJob
+  nonce: number
+}
+
 type PendingKnowledgePetFocus = {
   target: Extract<PetNavigationTarget, { kind: "knowledge" }>
   nonce: number
@@ -205,8 +212,12 @@ export default function App() {
     { sessionId: string; message: string; nonce: number } | undefined
   >(undefined)
   const [pendingChatFocus, setPendingChatFocus] = useState<PendingChatFocus | null>(null)
-  const [pendingCronTaskFocus, setPendingCronTaskFocus] =
-    useState<PendingCronTaskFocus | null>(null)
+  const [pendingCronTaskFocus, setPendingCronTaskFocus] = useState<PendingCronTaskFocus | null>(
+    null,
+  )
+  const [pendingCronTaskDraft, setPendingCronTaskDraft] = useState<PendingCronTaskDraft | null>(
+    null,
+  )
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [pendingKnowledgePetFocus, setPendingKnowledgePetFocus] =
     useState<PendingKnowledgePetFocus | null>(null)
@@ -245,6 +256,7 @@ export default function App() {
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
   const chatFocusNonceRef = useRef(0)
   const cronTaskFocusNonceRef = useRef(0)
+  const cronTaskDraftNonceRef = useRef(0)
   const projectFocusNonceRef = useRef(0)
   const petFocusNonceRef = useRef(0)
   const knowledgeFocusNonceRef = useRef(0)
@@ -598,6 +610,17 @@ export default function App() {
         if (keepConfigRecoveryView()) return
         const nonce = ++cronTaskFocusNonceRef.current
         setPendingCronTaskFocus({ jobId, nonce })
+        setView("calendar")
+      }),
+    [keepConfigRecoveryView],
+  )
+
+  useEffect(
+    () =>
+      subscribeCronTaskDraft((seed) => {
+        if (keepConfigRecoveryView()) return
+        const nonce = ++cronTaskDraftNonceRef.current
+        setPendingCronTaskDraft({ seed, nonce })
         setView("calendar")
       }),
     [keepConfigRecoveryView],
@@ -1257,7 +1280,12 @@ export default function App() {
                       isViewVisible={view === "calendar"}
                       defaultProjectId={currentChatProjectId}
                       taskFocus={pendingCronTaskFocus}
+                      taskDraft={pendingCronTaskDraft}
                       onOpenSettings={handleOpenSettings}
+                      onCreateWithModel={(prompt) => {
+                        setPendingChatInsert({ token: prompt })
+                        setView("chat")
+                      }}
                     />
                   </Suspense>
                 </PersistentViewSurface>

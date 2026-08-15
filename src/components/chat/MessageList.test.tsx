@@ -49,6 +49,12 @@ vi.mock("./MessageBubble", () => ({
   ),
 }))
 
+vi.mock("./message/ScheduleEntityCard", () => ({
+  default: ({ metadata }: { metadata: { entityId: string } }) => (
+    <div data-testid="schedule-card">{metadata.entityId}</div>
+  ),
+}))
+
 vi.mock("./ask-user/AskUserQuestionBlock", () => ({
   default: ({ group }: { group: AskUserQuestionGroup }) => (
     <div data-testid="ask-user-block">{group.requestId}</div>
@@ -465,6 +471,49 @@ describe("MessageList", () => {
         .getAllByTestId("message-bubble")
         .some((bubble) => bubble.getAttribute("data-suppress-goal-footer") === "true"),
     ).toBe(true)
+  })
+
+  test("keeps scheduled-task cards visible when the completed turn is collapsed", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "create a task", dbId: 1 }),
+          baseMessage({
+            role: "assistant",
+            content: "created",
+            dbId: 2,
+            contentBlocks: [
+              { type: "thinking", content: "creating" },
+              {
+                type: "tool_call",
+                tool: {
+                  callId: "cron-create-1",
+                  name: "manage_cron",
+                  arguments: '{"action":"create"}',
+                  result: "created",
+                  metadata: {
+                    kind: "schedule_entity",
+                    entityType: "cronTask",
+                    entityId: "job-1",
+                  },
+                },
+              },
+              { type: "text", content: "created" },
+            ],
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    expect(screen.getByRole("button", { expanded: false })).toBeTruthy()
+    expect(screen.getByTestId("schedule-card").textContent).toBe("job-1")
+    expect(screen.queryByTestId("completed-turn-details")).toBeNull()
   })
 
   test("expands collapsed historical prefix when search targets text inside it", async () => {

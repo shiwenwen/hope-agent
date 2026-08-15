@@ -228,6 +228,19 @@ pub struct CronJob {
     pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
 }
 
+/// Read-only view of one task **including its tombstone**. Deleting a task only
+/// stops future occurrences: the ledger row is retained so retained history (a
+/// chat card, a run log) can still name what ran and seed a copy of it. Never
+/// feed a `deleted` snapshot back into a live scheduling surface — it is a
+/// display + draft source, not an editable job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronJobSnapshot {
+    pub job: CronJob,
+    /// `true` when the task has been logically deleted (no future occurrences).
+    pub deleted: bool,
+}
+
 /// A cron job execution lease. Constructed only after the DB atomically marks
 /// a job as running, so executors do not need to claim it again.
 #[derive(Debug, Clone)]

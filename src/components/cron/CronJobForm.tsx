@@ -29,6 +29,7 @@ import type { CronFrequency } from "./CronJobForm.types"
 import { parseCronToVisual, buildCronFromVisual, toLocalDatetimeString } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
 import CronPreflightDialog from "./CronPreflightDialog"
+import CronSessionTargetPicker, { type CronSessionTargetOption } from "./CronSessionTargetPicker"
 import { DockerSetupHint } from "@/components/settings/DockerSetupHint"
 import { useDockerStatus } from "@/hooks/useDockerStatus"
 import type { AgentInfo, SandboxMode, SessionMeta, SessionMode } from "@/types/chat"
@@ -59,12 +60,20 @@ type PendingSave =
 
 interface CronJobFormProps {
   job?: CronJob | null
+  /**
+   * Retained task (possibly a tombstone) whose configuration seeds a brand-new
+   * draft. Copy-as-new-task, never an edit: no id, no revision, no CAS.
+   */
+  seedJob?: CronJob | null
   sessionTarget?: { id: string; title?: string | null }
   defaultDate?: Date | null
   defaultProjectId?: string | null
   onSave: () => void
   onCancel: () => void
 }
+
+/** Where occurrences run: a fresh isolated chat, or one existing ordinary chat. */
+type CronTargetMode = "new" | "existing"
 
 const AUTO_AGENT_VALUE = "__auto__"
 const NO_PROJECT_VALUE = "__none__"
@@ -75,6 +84,7 @@ const SANDBOX_MODE_OPTIONS: SandboxMode[] = ["off", "standard", "isolated", "wor
 
 export default function CronJobForm({
   job,
+  seedJob,
   sessionTarget,
   defaultDate,
   defaultProjectId,
@@ -83,22 +93,38 @@ export default function CronJobForm({
 }: CronJobFormProps) {
   const { t } = useTranslation()
   const isEditing = !!job
-  const sessionTurnId =
+  // Configuration source for the initial field values. `job` also drives CAS and
+  // edit-only branches; `seedJob` only ever seeds a fresh draft.
+  const seed = job ?? seedJob ?? null
+  // A target is immutable once a task exists, and pinned when the form was
+  // opened from a chat. Otherwise the user picks new-chat vs. an existing chat.
+  const lockedSessionId =
     job?.payload.type === "sessionTurn" ? job.payload.sessionId : sessionTarget?.id
+  const targetLocked = !!lockedSessionId || isEditing
+  const [pickedSession, setPickedSession] = useState<CronSessionTargetOption | null>(() =>
+    !targetLocked && seedJob?.payload.type === "sessionTurn"
+      ? { id: seedJob.payload.sessionId }
+      : null,
+  )
+  const [targetMode, setTargetMode] = useState<CronTargetMode>(() =>
+    !targetLocked && seedJob?.payload.type === "sessionTurn" ? "existing" : "new",
+  )
+  const sessionTurnId =
+    lockedSessionId ?? (targetMode === "existing" ? pickedSession?.id : undefined)
   const isSessionTurn = !!sessionTurnId
   const [baselineJob, setBaselineJob] = useState<CronJob | null>(job ?? null)
   const [expectedRevision, setExpectedRevision] = useState(job?.revision ?? 1)
   const [conflictJob, setConflictJob] = useState<CronJob | null>(null)
 
   // Form state
-  const [name, setName] = useState(job?.name ?? sessionTarget?.title ?? "")
-  const [description, setDescription] = useState(job?.description ?? "")
+  const [name, setName] = useState(seed?.name ?? sessionTarget?.title ?? "")
+  const [description, setDescription] = useState(seed?.description ?? "")
   const [scheduleType, setScheduleType] = useState<"at" | "every" | "cron">(
-    job?.schedule.type ?? "cron",
+    seed?.schedule.type ?? "cron",
   )
   const [timestamp, setTimestamp] = useState(() => {
-    if (job?.schedule.type === "at" && job.schedule.timestamp) {
-      return toLocalDatetimeString(job.schedule.timestamp)
+    if (seed?.schedule.type === "at" && seed.schedule.timestamp) {
+      return toLocalDatetimeString(seed.schedule.timestamp)
     }
     if (defaultDate) {
       return toLocalDatetimeString(defaultDate.toISOString())
@@ -112,7 +138,9 @@ export default function CronJobForm({
   // shown → switched to "hour" → 120 hours).
   const initialEvery = (() => {
     const ms =
-      job?.schedule.type === "every" ? (job.schedule.intervalMs ?? job.schedule.interval_ms) : null
+      seed?.schedule.type === "every"
+        ? (seed.schedule.intervalMs ?? seed.schedule.interval_ms)
+        : null
     if (!ms) return { value: "60", unit: "min" as const }
     if (ms % 86_400_000 === 0) return { value: String(ms / 86_400_000), unit: "day" as const }
     if (ms % 3_600_000 === 0) return { value: String(ms / 3_600_000), unit: "hour" as const }
@@ -125,7 +153,7 @@ export default function CronJobForm({
   const initVisual = useMemo(
     () =>
       parseCronToVisual(
-        job?.schedule.type === "cron" ? (job.schedule.expression ?? "") : "0 0 9 * * *",
+        seed?.schedule.type === "cron" ? (seed.schedule.expression ?? "") : "0 0 9 * * *",
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -136,7 +164,7 @@ export default function CronJobForm({
   const [cronWeekdays, setCronWeekdays] = useState<boolean[]>(initVisual.weekdays)
   const [cronMonthDay, setCronMonthDay] = useState(initVisual.monthDay)
   const [cronRawExpr, setCronRawExpr] = useState(
-    job?.schedule.type === "cron" ? (job.schedule.expression ?? "0 0 9 * * *") : "0 0 9 * * *",
+    seed?.schedule.type === "cron" ? (seed.schedule.expression ?? "0 0 9 * * *") : "0 0 9 * * *",
   )
 
   // Sync visual -> raw expression (for preview and saving)
@@ -156,8 +184,8 @@ export default function CronJobForm({
     // delivery target) would rewrite the zone to the browser's on save and shift
     // every fire's wall-clock by the local UTC offset. null normalizes to "UTC"
     // (semantically identical for the backend; just an explicit, visible value).
-    if (job?.schedule.type === "cron") {
-      return job.schedule.timezone || "UTC"
+    if (seed?.schedule.type === "cron") {
+      return seed.schedule.timezone || "UTC"
     }
     // New job (or converting a non-cron schedule): default to the browser's zone
     // so "9am" means the user's 9am, not UTC.
@@ -193,34 +221,34 @@ export default function CronJobForm({
     [baseTimezones, timezone],
   )
 
-  const [message, setMessage] = useState(job?.payload.prompt ?? "")
+  const [message, setMessage] = useState(seed?.payload.prompt ?? "")
   const [agentId, setAgentId] = useState(
-    job?.payload.type !== "sessionTurn"
-      ? (job?.payload.agentId ?? AUTO_AGENT_VALUE)
+    seed?.payload.type !== "sessionTurn"
+      ? (seed?.payload.agentId ?? AUTO_AGENT_VALUE)
       : AUTO_AGENT_VALUE,
   )
   const [projectId, setProjectId] = useState(
-    job ? (job.projectId ?? NO_PROJECT_VALUE) : (defaultProjectId ?? NO_PROJECT_VALUE),
+    seed ? (seed.projectId ?? NO_PROJECT_VALUE) : (defaultProjectId ?? NO_PROJECT_VALUE),
   )
   const [workspaceMode, setWorkspaceMode] = useState<CronWorkspaceMode>(
-    job?.workspacePolicy?.mode ?? "project",
+    seed?.workspacePolicy?.mode ?? "project",
   )
-  const [workspaceBaseRef, setWorkspaceBaseRef] = useState(job?.workspacePolicy?.baseRef ?? "")
-  const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
-  const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
+  const [workspaceBaseRef, setWorkspaceBaseRef] = useState(seed?.workspacePolicy?.baseRef ?? "")
+  const [maxFailures, setMaxFailures] = useState(String(seed?.maxFailures ?? 5))
+  const [notifyOnComplete, setNotifyOnComplete] = useState(seed?.notifyOnComplete ?? true)
   const [prefixDeliveryWithName, setPrefixDeliveryWithName] = useState(
-    job?.prefixDeliveryWithName ?? false,
+    seed?.prefixDeliveryWithName ?? false,
   )
   // C19: per-job timeout override; blank string = use the global default.
   const [jobTimeoutSecs, setJobTimeoutSecs] = useState(
-    job?.jobTimeoutSecs != null ? String(job.jobTimeoutSecs) : "",
+    seed?.jobTimeoutSecs != null ? String(seed.jobTimeoutSecs) : "",
   )
   // Per-job permission / sandbox overrides; FOLLOW sentinel = follow agent default.
   const [permissionModeOverride, setPermissionModeOverride] = useState<string>(
-    job?.permissionModeOverride ?? FOLLOW_MODE_VALUE,
+    seed?.permissionModeOverride ?? FOLLOW_MODE_VALUE,
   )
   const [sandboxModeOverride, setSandboxModeOverride] = useState<string>(
-    job?.sandboxModeOverride ?? FOLLOW_MODE_VALUE,
+    seed?.sandboxModeOverride ?? FOLLOW_MODE_VALUE,
   )
   const {
     status: dockerStatus,
@@ -238,7 +266,7 @@ export default function CronJobForm({
     if (sandboxNeedsDocker) void checkDocker()
   }, [sandboxNeedsDocker, checkDocker])
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
-    () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
+    () => seed?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
   )
   const [accounts, setAccounts] = useState<ChannelAccountConfig[]>([])
   const [projects, setProjects] = useState<ProjectMeta[]>([])
@@ -329,13 +357,26 @@ export default function CronJobForm({
       .catch(() => {})
   }, [isSessionTurn])
 
+  // Resolve the target chat's title for display. The picker already knows it;
+  // a target restored from a job payload or a chat handoff does not.
+  const knownTargetTitle = sessionTarget?.title ?? pickedSession?.title ?? null
   useEffect(() => {
-    if (!sessionTurnId || sessionTarget?.title) return
+    if (!sessionTurnId) return
+    if (knownTargetTitle) {
+      setSessionTurnTitle(knownTargetTitle)
+      return
+    }
+    let cancelled = false
     getTransport()
       .call<SessionMeta | null>("get_session_cmd", { sessionId: sessionTurnId })
-      .then((session) => setSessionTurnTitle(session?.title ?? null))
+      .then((session) => {
+        if (!cancelled) setSessionTurnTitle(session?.title ?? null)
+      })
       .catch(() => {})
-  }, [sessionTarget?.title, sessionTurnId])
+    return () => {
+      cancelled = true
+    }
+  }, [knownTargetTitle, sessionTurnId])
 
   // Prefetch conversations for accounts already used in existing targets.
   useEffect(() => {
@@ -430,6 +471,10 @@ export default function CronJobForm({
     }
     if (!message.trim()) {
       setError(t("cron.errorMessageRequired"))
+      return
+    }
+    if (!targetLocked && targetMode === "existing" && !pickedSession) {
+      setError(t("cron.errorSessionTargetRequired"))
       return
     }
     if (scheduleType === "at" && !timestamp.trim()) {
@@ -575,15 +620,17 @@ export default function CronJobForm({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="text-base font-medium">
             {isEditing
               ? t("cron.editJob")
-              : isSessionTurn
-                ? t("cron.scheduleSession")
-                : t("cron.newJob")}
+              : seedJob
+                ? t("cron.copyAsNewTask")
+                : lockedSessionId
+                  ? t("cron.scheduleSession")
+                  : t("cron.newJob")}
           </h3>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
             <X className="h-4 w-4" />
@@ -736,16 +783,47 @@ export default function CronJobForm({
             />
           </div>
 
-          {isSessionTurn ? (
-            <div className="rounded-md border border-border/50 bg-muted/20 p-3">
-              <p className="flex items-center gap-1.5 text-xs font-medium">
-                <Timer className="h-3.5 w-3.5 text-primary" />
-                {t("cron.sessionTurnTarget")}: {sessionTurnTitle || sessionTurnId}
-              </p>
-              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                {t("cron.sessionTurnLiveHint")}
-              </p>
+          {/* Conversation target — immutable once the task exists, so it is only
+              editable while creating a task outside a chat handoff. */}
+          {!targetLocked && (
+            <div className="space-y-2 rounded-md border border-border/50 p-3">
+              <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Timer className="h-3.5 w-3.5" />
+                {t("cron.conversationTarget")}
+              </label>
+              <RadioPills<CronTargetMode>
+                value={targetMode}
+                onChange={setTargetMode}
+                cols="grid-cols-2"
+                ariaLabel={t("cron.conversationTarget")}
+                options={[
+                  { value: "new", label: t("cron.conversationTargetNew") },
+                  { value: "existing", label: t("cron.conversationTargetExisting") },
+                ]}
+              />
+              {targetMode === "existing" && (
+                <>
+                  <CronSessionTargetPicker value={pickedSession} onChange={setPickedSession} />
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    {t("cron.sessionTurnLiveHint")}
+                  </p>
+                </>
+              )}
             </div>
+          )}
+
+          {isSessionTurn ? (
+            targetLocked && (
+              <div className="rounded-md border border-border/50 bg-muted/20 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-medium">
+                  <Timer className="h-3.5 w-3.5 text-primary" />
+                  {t("cron.sessionTurnTarget")}: {sessionTurnTitle || sessionTurnId}
+                </p>
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                  {t("cron.sessionTurnLiveHint")}
+                </p>
+              </div>
+            )
           ) : (
             <>
               {/* Project */}

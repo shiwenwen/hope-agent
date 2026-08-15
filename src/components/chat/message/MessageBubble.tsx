@@ -399,7 +399,7 @@ function getAsyncResultTone(status: string): {
 }
 
 function CronTriggerBubble({ msg, t }: { msg: Message; t: TFunction }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   return (
     <div className="flex max-w-[80%] flex-col items-center gap-1">
       <div className="flex items-center gap-1">
