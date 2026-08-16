@@ -84,7 +84,8 @@ import { projectSourceFoldersForSession } from "@/components/chat/project/projec
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
-import MessageList from "@/components/chat/MessageList"
+import MessageList, { CHAT_CONTENT_MAX_WIDTH_PX } from "@/components/chat/MessageList"
+import { environmentInsetWidth } from "@/components/chat/environmentInset"
 import { ChatWelcomeHero } from "@/components/chat/ChatWelcomeHero"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
@@ -163,7 +164,11 @@ import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { WorkbenchResizeHandle } from "./workbench/WorkbenchResizeHandle"
 import { WorkbenchSurface } from "./workbench/WorkbenchSurface"
-import { useWorkbenchSizing, WORKBENCH_STAGE_THRESHOLD } from "./workbench/useWorkbenchSizing"
+import {
+  CHAT_INITIAL_RESERVE,
+  useWorkbenchSizing,
+  workbenchCollapseThreshold,
+} from "./workbench/useWorkbenchSizing"
 import type { WorkbenchPanelId, WorkbenchTabItem } from "./workbench/types"
 import { TerminalPanel } from "./terminal/TerminalPanel"
 import { useProjects } from "./project/hooks/useProjects"
@@ -364,6 +369,8 @@ const PERSISTENT_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
 ]
 
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
+/** From the column's right edge: 316 card + 16 card offset + 16 gutter. */
+const ENVIRONMENT_CARD_LANE_PX = 348
 const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
 const RESPONSIVE_PANEL_HYSTERESIS = 120
 
@@ -682,6 +689,10 @@ export default function ChatScreen({
   const autoCollapsedSidebarRef = useRef(false)
   const manualSidebarExpandedOverrideRef = useRef(false)
   const userSidebarCollapsedPreferenceRef = useRef(sidebarCollapsed)
+  // Only an auto-collapse may be auto-undone, and re-opening the workbench by
+  // hand at a narrow width must survive the next resize tick.
+  const autoCollapsedRightPanelRef = useRef(false)
+  const manualRightPanelExpandedOverrideRef = useRef(false)
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -3286,6 +3297,10 @@ export default function ChatScreen({
     [openExclusiveRightPanels, rightPanelVisibility, storedWorkbenchOrder],
   )
   const workbenchOpen = hasOpenExclusiveRightPanel && !rightPanelCollapsed
+  // The environment card floats over the conversation's right edge, so while it
+  // is open the conversation's ideal minimum has to cover it too.
+  const chatIdealMinWidth =
+    CHAT_INITIAL_RESERVE + (environmentPopoverOpen ? ENVIRONMENT_CARD_LANE_PX : 0)
   const {
     containerRef: workbenchContainerRef,
     availableWidth: workbenchAvailableWidth,
@@ -3294,7 +3309,7 @@ export default function ChatScreen({
     setManualWidth: setRightPanelWidth,
     commitManualWidth: commitRightPanelWidth,
     resetAutomaticWidth: resetRightPanelWidth,
-  } = useWorkbenchSizing(workbenchOpen)
+  } = useWorkbenchSizing(workbenchOpen, chatIdealMinWidth)
   const previousHasOpenRightPanelRef = useRef(false)
   const animateRightPanelOnMount =
     hasOpenExclusiveRightPanel && !previousHasOpenRightPanelRef.current
@@ -3308,11 +3323,13 @@ export default function ChatScreen({
   const handleSelectRightPanel = useCallback((panelId: string) => {
     if (!isExclusiveRightPanel(panelId)) return
     setActiveExclusiveRightPanel(panelId)
+    manualRightPanelExpandedOverrideRef.current = true
     setRightPanelCollapsed(false)
   }, [])
 
   const showRightPanelByUser = useCallback((panel: ExclusiveRightPanel) => {
     setActiveExclusiveRightPanel(panel)
+    manualRightPanelExpandedOverrideRef.current = true
     setRightPanelCollapsed(false)
   }, [])
 
@@ -3585,14 +3602,61 @@ export default function ChatScreen({
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
-  const sidebarCollapseAt =
-    panelWidth +
-    (hasOpenExclusiveRightPanel
-      ? WORKBENCH_STAGE_THRESHOLD
-      : CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER)
-  const sidebarExpandAt = sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  // Responsive give-up order, each step measured on the space that step owns:
+  //   1. conversation + workbench shrink together (useWorkbenchSizing)
+  //   2. both past their ideal minimum  → collapse the workbench
+  //   3. the conversation alone can no longer host the card → close the card
+  //   4. the conversation is at its floor → squeeze, then collapse, the sidebar
+  const workbenchCollapseAt = workbenchCollapseThreshold(chatIdealMinWidth)
+  const shouldAutoCollapseWorkbench =
+    hasOpenExclusiveRightPanel && workbenchAvailableWidth < workbenchCollapseAt
+  const shouldAutoExpandWorkbench =
+    workbenchAvailableWidth >= workbenchCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+
+  useEffect(() => {
+    if (!hasOpenExclusiveRightPanel) {
+      autoCollapsedRightPanelRef.current = false
+      manualRightPanelExpandedOverrideRef.current = false
+      return
+    }
+    if (shouldAutoExpandWorkbench) manualRightPanelExpandedOverrideRef.current = false
+    if (
+      shouldAutoCollapseWorkbench &&
+      !rightPanelCollapsed &&
+      !manualRightPanelExpandedOverrideRef.current
+    ) {
+      autoCollapsedRightPanelRef.current = true
+      setRightPanelCollapsed(true)
+    } else if (
+      shouldAutoExpandWorkbench &&
+      rightPanelCollapsed &&
+      autoCollapsedRightPanelRef.current
+    ) {
+      autoCollapsedRightPanelRef.current = false
+      setRightPanelCollapsed(false)
+    }
+  }, [
+    hasOpenExclusiveRightPanel,
+    rightPanelCollapsed,
+    shouldAutoCollapseWorkbench,
+    shouldAutoExpandWorkbench,
+  ])
+
+  // Even with the workbench gone the conversation may not fit content + card.
+  const environmentCardFits = workbenchAvailableWidth >= chatIdealMinWidth
+  const suppressEnvironmentCard = environmentPopoverOpen && !environmentCardFits
+
+  const sidebarCollapseAt = CHAT_SIDEBAR_MIN_WIDTH + CHAT_MAIN_MIN_INTERACTIVE_WIDTH
+  const sidebarExpandAt =
+    panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
   const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
-  const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
+  const shouldAutoExpandSidebar = useViewportMediaQuery(
+    `(min-width: ${sidebarExpandAt + RESPONSIVE_PANEL_HYSTERESIS}px)`,
+  )
+  // Squeeze the sidebar toward its minimum before giving up on it entirely.
+  const sidebarSqueezedWidth = useViewportMediaQuery(`(max-width: ${sidebarExpandAt}px)`)
+    ? CHAT_SIDEBAR_MIN_WIDTH
+    : panelWidth
 
   useEffect(() => {
     if (shouldAutoExpandSidebar) {
@@ -4292,6 +4356,8 @@ export default function ChatScreen({
 
   const handleCollapseWorkbench = useCallback(() => {
     setWorkbenchMaximized(false)
+    autoCollapsedRightPanelRef.current = false
+    manualRightPanelExpandedOverrideRef.current = false
     setRightPanelCollapsed(true)
   }, [])
 
@@ -4302,6 +4368,7 @@ export default function ChatScreen({
 
   const handleExpandWorkbench = useCallback(() => {
     if (hasOpenExclusiveRightPanel) {
+      manualRightPanelExpandedOverrideRef.current = true
       setRightPanelCollapsed(false)
       if (!renderedExclusiveRightPanel) {
         setActiveExclusiveRightPanel(orderedOpenExclusiveRightPanels[0] ?? null)
@@ -4322,7 +4389,18 @@ export default function ChatScreen({
     workbenchOpen && workbenchLayoutMode === "docked"
       ? workbenchAvailableWidth - rightPanelWidth
       : workbenchAvailableWidth
-  const environmentReserved = environmentPopoverOpen && conversationAvailableWidth >= 964
+  // The environment card floats over the right edge of the conversation. Shift
+  // the transcript + composer out from under it only when the centred column
+  // would actually collide, and stop once the remaining lane gets too narrow to
+  // read in — from there the card is allowed to overlap.
+  const environmentInsetPx = environmentPopoverOpen
+    ? environmentInsetWidth({
+        available: conversationAvailableWidth,
+        lane: ENVIRONMENT_CARD_LANE_PX,
+        contentMaxWidth: CHAT_CONTENT_MAX_WIDTH_PX,
+        minContentWidth: CHAT_MAIN_MIN_INTERACTIVE_WIDTH,
+      })
+    : 0
   const activeWorkbenchTabId =
     renderedExclusiveRightPanel === "preview"
       ? filePreview.activeId
@@ -4357,7 +4435,7 @@ export default function ChatScreen({
         loadingSessionIds={session.loadingSessionIds}
         sessionsLoading={session.sessionsLoading}
         totalUnreadCount={session.totalUnreadCount}
-        panelWidth={panelWidth}
+        panelWidth={sidebarSqueezedWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
         onSidebarCollapsedChange={handleSidebarCollapsedChange}
@@ -4599,6 +4677,7 @@ export default function ChatScreen({
             onCollapseWorkbench={handleCollapseWorkbench}
             onExpandWorkbench={handleExpandWorkbench}
             onStatusOpenChange={setEnvironmentPopoverOpen}
+            suppressStatus={suppressEnvironmentCard}
             onOpenWorkspace={openWorkspacePanel}
             terminalOpen={terminalOpen}
             onToggleTerminal={() => setTerminalOpen((value) => !value)}
@@ -4724,7 +4803,7 @@ export default function ChatScreen({
                   displayMode={displayMode}
                   autoCollapseCompletedTurns={autoCollapseCompletedTurns}
                   onAtBottomChange={setMessageTailVisible}
-                  environmentInset={environmentReserved}
+                  environmentInsetPx={environmentInsetPx}
                 />
 
                 {/* Memory extraction toast — absolute-positioned above ChatInput
@@ -4737,6 +4816,13 @@ export default function ChatScreen({
                       emptySessionInputHero &&
                         "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
                     )}
+                    // Same box as the transcript scroller (its `px-4` left) so
+                    // both centre on the identical axis while inset.
+                    style={
+                      environmentInsetPx
+                        ? { paddingLeft: 16, paddingRight: environmentInsetPx }
+                        : undefined
+                    }
                   >
                     {(activeMemoryToast || memoryToast) && (
                       <div
@@ -4795,7 +4881,6 @@ export default function ChatScreen({
                     <div
                       className={cn(
                         "mx-auto w-full max-w-[880px]",
-                        environmentReserved && "mr-[332px] max-w-[calc(100%-332px)]",
                         emptySessionInputHero && "flex flex-col",
                       )}
                     >

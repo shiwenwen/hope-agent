@@ -140,12 +140,13 @@ interface MessageListProps {
   autoCollapseCompletedTurns?: boolean
   /** Reports whether the latest transcript tail is inside the reading window. */
   onAtBottomChange?: (atBottom: boolean) => void
-  /** Reserve a compact lane on the right for the conversation-owned environment card. */
-  environmentInset?: boolean
+  /** Right lane, in px, to keep clear for the conversation-owned environment card. */
+  environmentInsetPx?: number
 }
 
 const AT_BOTTOM_THRESHOLD_PX = 48
 const LOAD_MORE_THRESHOLD_PX = 200
+export const CHAT_CONTENT_MAX_WIDTH_PX = 880
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "max-w-[880px]"
 // Windowed view: cap simultaneously-rendered messages so a long-running
 // session that's been Load-More'd many times doesn't accumulate thousands of
@@ -767,7 +768,7 @@ export default function MessageList({
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
   onAtBottomChange,
-  environmentInset = false,
+  environmentInsetPx = 0,
 }: MessageListProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -2065,10 +2066,10 @@ export default function MessageList({
           className={cn(
             "h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]",
             isTimelineMode && "px-5 sm:px-6",
-            // Must stay after every `px-*` — `cn` drops it otherwise.
-            environmentInset && "pr-[332px]",
             scrollFade && PANEL_SCROLL_FADE,
           )}
+          // Inline so no `px-*` in the list above can win the merge.
+          style={environmentInsetPx ? { paddingRight: environmentInsetPx } : undefined}
         >
           <div
             ref={contentRef}

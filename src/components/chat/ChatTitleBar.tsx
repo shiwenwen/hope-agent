@@ -144,6 +144,8 @@ interface ChatTitleBarProps {
   onCollapseWorkbench?: () => void
   onExpandWorkbench?: () => void
   onStatusOpenChange?: (open: boolean) => void
+  /** No room left for the session-status card; close it. */
+  suppressStatus?: boolean
   /** Opens the complete Workspace from the compact environment projection. */
   onOpenWorkspace?: () => void
   /** Bottom embedded terminal state and toggle. */
@@ -200,6 +202,7 @@ export default function ChatTitleBar({
   onCollapseWorkbench,
   onExpandWorkbench,
   onStatusOpenChange,
+  suppressStatus = false,
   onOpenWorkspace,
   terminalOpen = false,
   onToggleTerminal,
@@ -348,6 +351,10 @@ export default function ChatTitleBar({
   useEffect(() => {
     onStatusOpenChange?.(showStatus)
   }, [onStatusOpenChange, showStatus])
+
+  useEffect(() => {
+    if (suppressStatus) setShowStatus(false)
+  }, [suppressStatus])
 
   useEffect(() => {
     return () => {

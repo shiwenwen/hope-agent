@@ -559,11 +559,12 @@ export default function ChatSidebar({
             )}
           >
             {/* Title bar */}
-            <div className="h-12 flex items-end px-3.5 shrink-0" data-tauri-drag-region>
-              <h2 className="text-sm font-semibold text-foreground pb-2">
+            {/* Both sides are h-7 boxes so the title centers on the icon row. */}
+            <div className="h-12 flex items-end px-3.5 pb-2 shrink-0" data-tauri-drag-region>
+              <h2 className="flex h-7 items-center text-sm font-semibold text-foreground">
                 {t("chat.conversations")}
               </h2>
-              <div className="ml-auto flex items-center gap-1 pb-2">
+              <div className="ml-auto flex h-7 items-center gap-1">
                 <IconTip label={t("chat.collapseSidebar")}>
                   <button
                     className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-surface-subtle"

@@ -273,11 +273,11 @@ describe("MessageList", () => {
         onLoadMore={vi.fn()}
         sessionId="s1"
         displayMode={displayMode}
-        environmentInset
+        environmentInsetPx={348}
       />,
     )
 
-    expect(getScroller().className).toContain("pr-[332px]")
+    expect(getScroller().style.paddingRight).toBe("348px")
   })
 
   test("renders non-meta messages and hides isMeta entries", () => {

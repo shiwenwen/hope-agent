@@ -105,121 +105,104 @@ export interface FilePreviewScopeSwitchOptions {
   cacheCurrent?: boolean
 }
 
+interface FilePreviewState {
+  entries: FilePreviewEntry[]
+  activeId: string | null
+}
+
+const EMPTY_STATE: FilePreviewState = { entries: [], activeId: null }
+
 /**
  * Session-local file preview tabs. Reopening the same logical file refreshes its
  * target (including reveal lines / object URL nonce) instead of duplicating it.
+ * Entries and the active id share one state object so closing and scope
+ * switching always derive a consistent pair.
  */
 export function useFilePreview(): UseFilePreview {
-  const [entries, setEntries] = useState<FilePreviewEntry[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [state, setState] = useState<FilePreviewState>(EMPTY_STATE)
   const [openNonce, setOpenNonce] = useState(0)
-  const entriesRef = useRef(entries)
-  const activeIdRef = useRef(activeId)
   const scopeRef = useRef("__draft__")
-  const scopeCacheRef = useRef(
-    new Map<string, { entries: FilePreviewEntry[]; activeId: string | null }>(),
-  )
-  entriesRef.current = entries
-  activeIdRef.current = activeId
+  const scopeCacheRef = useRef(new Map<string, FilePreviewState>())
 
   const openPreview = useCallback((next: PreviewTarget) => {
     const entry = toEntry(next)
-    setEntries((current) => {
-      const index = current.findIndex((item) => item.id === entry.id)
-      if (index < 0) return [...current, entry]
-      const updated = [...current]
-      updated[index] = entry
-      return updated
+    setState((current) => {
+      const index = current.entries.findIndex((item) => item.id === entry.id)
+      if (index < 0) return { entries: [...current.entries, entry], activeId: entry.id }
+      const entries = [...current.entries]
+      entries[index] = entry
+      return { entries, activeId: entry.id }
     })
-    setActiveId(entry.id)
     setOpenNonce((n) => n + 1)
   }, [])
 
   const selectPreview = useCallback((id: string) => {
-    setActiveId((current) => (current === id ? current : id))
+    setState((current) => (current.activeId === id ? current : { ...current, activeId: id }))
   }, [])
 
-  const closePreview = useCallback(
-    (id?: string) => {
-      const closingId = id ?? activeId
-      const closingIndex = entries.findIndex((entry) => entry.id === closingId)
-      if (closingIndex < 0) return
-      const next = entries.filter((entry) => entry.id !== closingId)
-      setEntries(next)
-      setActiveId((selected) =>
-        selected === closingId
-          ? (next[Math.min(closingIndex, next.length - 1)]?.id ?? null)
-          : selected,
-      )
-    },
-    [activeId, entries],
-  )
-
-  const closeAllPreviews = useCallback(() => {
-    setEntries([])
-    setActiveId(null)
+  const closePreview = useCallback((id?: string) => {
+    setState((current) => {
+      const closingId = id ?? current.activeId
+      const closingIndex = current.entries.findIndex((entry) => entry.id === closingId)
+      if (closingIndex < 0) return current
+      const entries = current.entries.filter((entry) => entry.id !== closingId)
+      return {
+        entries,
+        activeId:
+          current.activeId === closingId
+            ? (entries[Math.min(closingIndex, entries.length - 1)]?.id ?? null)
+            : current.activeId,
+      }
+    })
   }, [])
+
+  const closeAllPreviews = useCallback(() => setState(EMPTY_STATE), [])
 
   const reorderPreviews = useCallback((source: string, target: string) => {
-    setEntries((current) => {
-      const sourceIndex = current.findIndex((entry) => entry.id === source)
-      const targetIndex = current.findIndex((entry) => entry.id === target)
+    setState((current) => {
+      const sourceIndex = current.entries.findIndex((entry) => entry.id === source)
+      const targetIndex = current.entries.findIndex((entry) => entry.id === target)
       if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
-      const next = [...current]
-      const [moved] = next.splice(sourceIndex, 1)
-      next.splice(targetIndex, 0, moved)
-      return next
+      const entries = [...current.entries]
+      const [moved] = entries.splice(sourceIndex, 1)
+      entries.splice(targetIndex, 0, moved)
+      return { ...current, entries }
     })
   }, [])
 
   const switchScope = useCallback(
     (scopeKey: string, options: FilePreviewScopeSwitchOptions = {}) => {
       const { restore = true, cacheCurrent = true } = options
-      const currentScope = scopeRef.current
-
-      if (currentScope === scopeKey) {
-        if (restore && cacheCurrent) return
-        if (!cacheCurrent || !restore) scopeCacheRef.current.delete(scopeKey)
-        if (!restore) {
-          entriesRef.current = []
-          activeIdRef.current = null
-          setEntries([])
-          setActiveId(null)
-        }
-        return
-      }
-
-      if (cacheCurrent) {
-        scopeCacheRef.current.set(currentScope, {
-          entries: entriesRef.current,
-          activeId: activeIdRef.current,
-        })
-      } else {
-        scopeCacheRef.current.delete(currentScope)
-      }
-
-      const saved = restore ? scopeCacheRef.current.get(scopeKey) : undefined
-      if (!restore) scopeCacheRef.current.delete(scopeKey)
-      const nextEntries = saved?.entries ?? []
-      const nextActiveId = saved?.activeId ?? null
+      const previousScope = scopeRef.current
       scopeRef.current = scopeKey
-      entriesRef.current = nextEntries
-      activeIdRef.current = nextActiveId
-      setEntries(nextEntries)
-      setActiveId(nextActiveId)
+      setState((current) => {
+        // Cache writes are idempotent, so a repeated updater call is safe.
+        if (previousScope === scopeKey) {
+          if (restore && cacheCurrent) return current
+          if (!cacheCurrent || !restore) scopeCacheRef.current.delete(scopeKey)
+          return restore ? current : EMPTY_STATE
+        }
+        if (cacheCurrent) scopeCacheRef.current.set(previousScope, current)
+        else scopeCacheRef.current.delete(previousScope)
+        if (!restore) {
+          scopeCacheRef.current.delete(scopeKey)
+          return EMPTY_STATE
+        }
+        return scopeCacheRef.current.get(scopeKey) ?? EMPTY_STATE
+      })
     },
     [],
   )
 
   const target = useMemo(
-    () => entries.find((entry) => entry.id === activeId)?.target ?? null,
-    [activeId, entries],
+    () => state.entries.find((entry) => entry.id === state.activeId)?.target ?? null,
+    [state],
   )
 
   return {
-    showPanel: entries.length > 0,
-    entries,
-    activeId,
+    showPanel: state.entries.length > 0,
+    entries: state.entries,
+    activeId: state.activeId,
     target,
     openNonce,
     openPreview,

@@ -7,6 +7,9 @@ import {
   manualWorkbenchWidth,
   nextWorkbenchLayoutMode,
   useWorkbenchSizing,
+  workbenchCollapseThreshold,
+  CHAT_INITIAL_RESERVE,
+  WORKBENCH_MIN,
 } from "./useWorkbenchSizing"
 
 const storageValues = new Map<string, string>()
@@ -46,6 +49,16 @@ describe("workbench sizing", () => {
     expect(nextWorkbenchLayoutMode("stage", true, 840)).toBe("stage")
     expect(nextWorkbenchLayoutMode("stage", true, 860)).toBe("docked")
     expect(nextWorkbenchLayoutMode("stage", false, 600)).toBe("docked")
+  })
+
+  it("hands the environment card's lane to the chat reserve", () => {
+    expect(automaticWorkbenchWidth(1600)).toBeGreaterThan(automaticWorkbenchWidth(1600, 908))
+    expect(1600 - automaticWorkbenchWidth(1600, 908)).toBeGreaterThanOrEqual(908)
+  })
+
+  it("collapses only once both columns are past their ideal minimum", () => {
+    expect(workbenchCollapseThreshold()).toBe(CHAT_INITIAL_RESERVE + WORKBENCH_MIN)
+    expect(workbenchCollapseThreshold(908) - workbenchCollapseThreshold()).toBe(348)
   })
 
   it("persists a manual width only when the resize is committed", () => {

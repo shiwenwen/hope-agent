@@ -23,13 +23,21 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
 }
 
-export function automaticWorkbenchWidth(availableWidth: number): number {
+export function automaticWorkbenchWidth(
+  availableWidth: number,
+  chatReserve: number = CHAT_INITIAL_RESERVE,
+): number {
   const preferred = Math.min(
     WORKBENCH_MAX,
     Math.floor(availableWidth * WORKBENCH_INITIAL_RATIO),
-    availableWidth - CHAT_INITIAL_RESERVE,
+    availableWidth - chatReserve,
   )
   return clamp(preferred, WORKBENCH_MIN, availableWidth - CHAT_HARD_MIN)
+}
+
+/** Below this both columns are past their ideal minimum; the caller collapses. */
+export function workbenchCollapseThreshold(chatReserve: number = CHAT_INITIAL_RESERVE): number {
+  return chatReserve + WORKBENCH_MIN
 }
 
 export function manualWorkbenchWidth(availableWidth: number, requestedWidth: number): number {
@@ -68,7 +76,10 @@ interface WorkbenchSizing {
   resetAutomaticWidth: () => void
 }
 
-export function useWorkbenchSizing(open: boolean): WorkbenchSizing {
+export function useWorkbenchSizing(
+  open: boolean,
+  chatReserve: number = CHAT_INITIAL_RESERVE,
+): WorkbenchSizing {
   const containerRef = useRef<HTMLDivElement>(null)
   const [availableWidth, setAvailableWidth] = useState(() =>
     typeof window === "undefined" ? 1200 : window.innerWidth,
@@ -100,15 +111,17 @@ export function useWorkbenchSizing(open: boolean): WorkbenchSizing {
     return () => observer.disconnect()
   }, [])
 
-  const layoutModeRef = useRef<WorkbenchLayoutMode>("docked")
-  layoutModeRef.current = nextWorkbenchLayoutMode(layoutModeRef.current, open, availableWidth)
-  const layoutMode = layoutModeRef.current
+  // Hysteresis makes the layout mode depend on its own previous value, so it is
+  // state adjusted during render rather than a plain derivation.
+  const [storedLayoutMode, setStoredLayoutMode] = useState<WorkbenchLayoutMode>("docked")
+  const layoutMode = nextWorkbenchLayoutMode(storedLayoutMode, open, availableWidth)
+  if (layoutMode !== storedLayoutMode) setStoredLayoutMode(layoutMode)
   const width = useMemo(() => {
     if (layoutMode === "stage") return availableWidth
     return widthMode === "manual"
       ? manualWorkbenchWidth(availableWidth, requestedManualWidth)
-      : automaticWorkbenchWidth(availableWidth)
-  }, [availableWidth, layoutMode, requestedManualWidth, widthMode])
+      : automaticWorkbenchWidth(availableWidth, chatReserve)
+  }, [availableWidth, chatReserve, layoutMode, requestedManualWidth, widthMode])
 
   const setManualWidth = useCallback((nextWidth: number) => {
     setWidthMode("manual")

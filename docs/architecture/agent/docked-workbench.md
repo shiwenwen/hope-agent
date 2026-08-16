@@ -158,9 +158,21 @@ width = clamp(
 
 `widthMode` 和手动像素宽度保存在窗口级 localStorage，不进入 `AppConfig`。窗口缩小时会钳位，重新变大只恢复用户请求宽度；auto 模式才持续按空间重算。
 
+### 收缩让位顺序
+
+窗口变窄时按固定顺序放弃空间，每一步只在自己那层的实测宽度上判定：
+
+1. **两栏同时缩**：auto 模式的对话列与工作台按比例一起变窄。
+2. **谁先到理想下限谁先冻结**，另一栏继续吸收。对话列的理想下限是 `CHAT_INITIAL_RESERVE`；**会话信息卡片打开时要额外加上它的通道宽度**（卡片浮在对话列右缘，不算进去等于把对话挤成不可读）。
+3. **两栏都到下限**（`L < chatReserve + WORKBENCH_MIN`）→ **自动收起工作台**，不是进 stage。
+4. 再窄到对话列自己也放不下正文 + 卡片（`L < chatReserve`）→ **自动关掉会话信息卡片**。
+5. 再窄 → 先把侧栏压到 `CHAT_SIDEBAR_MIN_WIDTH`，压不动了再自动收起侧栏。
+
+自动与手动必须分开记账：只有自动收起的才允许自动展开（`autoCollapsedRightPanelRef`），窄屏下用户手动展开工作台要能扛住下一次 resize（`manualRightPanelExpandedOverrideRef`），此时由 stage 负责呈现。每一级都带 `RESPONSIVE_PANEL_HYSTERESIS` 回滞，避免在阈值上抖动。
+
 ### Stage
 
-当 `L < WORKBENCH_MIN + CHAT_HARD_MIN` 时进入 `stage`：工作台占满会话内容舞台，对话节点保持挂载但隐藏并 `inert`。关闭 / 收起工作台即返回对话。退出 stage 需要比进入阈值多 80 px，避免窗口动画和滚动条变化导致来回抖动。
+自动收起之后用户仍可手动展开工作台。此时 `L < WORKBENCH_MIN + CHAT_HARD_MIN` 就进入 `stage`：工作台占满会话内容舞台，对话节点保持挂载但隐藏并 `inert`。关闭 / 收起工作台即返回对话。退出 stage 需要比进入阈值多 80 px，避免窗口动画和滚动条变化导致来回抖动。
 
 ### 工作台最大化
 
