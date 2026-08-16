@@ -122,8 +122,7 @@ export function WorkbenchHeader({
         className="flex h-9 min-w-0 flex-1 items-end gap-0.5 overflow-x-auto px-1 pb-1"
         role="tablist"
         aria-label={t("chat.rightPanel.dock")}
-        // The strip fills the title-bar row, so it must stay a drag region or
-        // the empty space beside the tabs stops moving the desktop window.
+        // The strip fills the title-bar row, so it needs its own drag region.
         data-tauri-drag-region
       >
         {tabs.map((tab) => {

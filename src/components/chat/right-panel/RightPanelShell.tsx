@@ -205,8 +205,7 @@ export function RightPanelShell({
         fullscreenSurface
           ? "fixed inset-0 z-50"
           : integrated
-            ? // Docked in the workbench: share the conversation column's ground.
-              "absolute inset-0 h-full w-full min-w-0 bg-background"
+            ? "absolute inset-0 h-full w-full min-w-0 bg-background"
             : "relative h-full shrink-0 bg-transparent",
         !fullscreenSurface &&
           !integrated &&
@@ -226,11 +225,8 @@ export function RightPanelShell({
           "animate-in fade-in-0 slide-in-from-right-2 duration-[250ms] motion-reduce:animate-none",
         surfaceClassName,
         visuallyCollapsed && "pointer-events-none",
-        // Integrated shells are absolutely-positioned siblings inside the
-        // workbench, so a collapsed one keeps painting its opaque surface over
-        // whichever panel sits earlier in DOM order — that panel then renders
-        // as a blank sheet. The body already fades out; drop the fill too.
-        // Must stay last: `cn` resolves conflicting `bg-*` by source order.
+        // Integrated shells stack absolutely: a collapsed one still paints over
+        // the active panel. Must stay last so `cn` keeps it.
         integrated && visuallyCollapsed && "bg-transparent",
       )}
       style={fullscreenSurface ? undefined : panelStyle}
@@ -277,8 +273,7 @@ export function RightPanelShell({
           <div
             className={cn(
               "pointer-events-none absolute inset-0 z-20 transition-opacity ease-out motion-reduce:hidden",
-              // Must match the shell it veils, or a tab switch flashes a
-              // different tone for the length of the crossfade.
+              // Must match the shell it veils, or a tab switch flashes.
               integrated ? "bg-background" : "bg-surface-panel",
               transitionVeilVisible ? "opacity-100" : "opacity-0",
             )}

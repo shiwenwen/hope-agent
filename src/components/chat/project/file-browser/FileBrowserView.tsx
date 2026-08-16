@@ -381,8 +381,7 @@ export function FileBrowserView({
     ["code", "text", "markdown"].includes(selectedKind) &&
     (selected.size === null || selected.size <= filesystemConfig.maxTextEditMb * MEBIBYTE_BYTES) &&
     selectedActions.capabilities.edit.state !== "disabled"
-  // Report the picked file up so a host tab can title itself after it. Only
-  // files count — a selected directory leaves the host on its generic title.
+  // Lets a host tab title itself after the picked file.
   const reportedSelectionRef = useRef<string | null>(null)
   useEffect(() => {
     if (!onSelectionChange) return
@@ -445,8 +444,7 @@ export function FileBrowserView({
     setRevealLines(null)
   }
 
-  // Breadcrumb directory jump. Same render-phase shape as the file reveal: the
-  // tree expands the chain (including the target itself) off `selectedPath`.
+  // Breadcrumb directory jump; the tree expands the chain off `selectedPath`.
   const [trackedRevealDirNonce, setTrackedRevealDirNonce] = useState<number | null>(null)
   if (revealDirectory && revealDirectory.nonce !== trackedRevealDirNonce) {
     setTrackedRevealDirNonce(revealDirectory.nonce)
@@ -1086,8 +1084,7 @@ export function FileBrowserView({
     <>
       <div className={cn("flex h-full min-h-0", className)}>
         {treeCollapsed ? (
-          // Collapsed: a rail keeps the reopen affordance on screen — the
-          // toolbar toggle goes away with the column it lives in.
+          // A rail keeps the reopen affordance on screen once the column goes.
           <div className="flex w-9 shrink-0 flex-col items-center border-r border-border-soft py-1">
             <IconTip label={t("fileBrowser.expandTree", "Show file list")}>
               <Button
@@ -1107,8 +1104,7 @@ export function FileBrowserView({
               {tree}
             </div>
             <div
-              // Structural 1px rule, like every other column boundary; the glow
-              // on top of it is the drag affordance, not the separator itself.
+              // Structural rule; the glow on top is the drag affordance.
               className="group relative w-px shrink-0 cursor-col-resize bg-border-soft"
               onMouseDown={onDragDivider}
               role="separator"

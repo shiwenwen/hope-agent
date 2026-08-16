@@ -709,11 +709,9 @@ export default function ChatScreen({
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
 
-  // File browser tabs (tree + preview). Files inside a browsable root open here;
-  // a new tab is created only on explicit request, never by picking a file.
+  // Tabs are created only on explicit request, never by picking a file.
   const fileTabs = useFileTabs()
-  // Bare preview tabs, for resources the tree cannot address (chat attachments,
-  // Canvas artifacts, knowledge notes, composer drafts).
+  // Bare previews, for resources the tree cannot address.
   const filePreview = useFilePreview()
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
@@ -3350,11 +3348,7 @@ export default function ChatScreen({
   const fileBrowserScopeId =
     !session.currentSessionId && currentProject ? currentProject.id : session.currentSessionId
 
-  /**
-   * Map an absolute path onto a root the file browser can list. Longest match
-   * wins so a source folder nested inside the primary root resolves to itself
-   * rather than to a path the primary cannot address. `null` = not browsable.
-   */
+  /** Absolute path → a browsable root. Longest match wins; `null` = outside. */
   const resolveBrowsablePath = useCallback(
     (absPath: string): { relPath: string; projectRoot: ProjectFolderIdentity | null } | null => {
       const path = absPath.replace(/\\/g, "/").replace(/\/+$/, "")
@@ -3403,12 +3397,7 @@ export default function ChatScreen({
     [fileBrowserScope, fileBrowserScopeId, resolveBrowsablePath],
   )
 
-  /**
-   * Single entry point for "show me this file". Anything the tree can address
-   * lands in the active browser tab (so picking files never spawns tabs); the
-   * rest — attachments, artifacts, notes, composer drafts — keeps its own bare
-   * preview tab, since there is no tree row to select for it.
-   */
+  /** Tree-addressable files go to the active browser tab; the rest get a preview tab. */
   const openFileTarget = useCallback(
     (target: PreviewTarget) => {
       const browsable = resolveBrowsableTarget(target)
@@ -3422,8 +3411,7 @@ export default function ChatScreen({
     [fileTabs, filePreview, resolveBrowsableTarget, showRightPanelByUser],
   )
 
-  // Declared here (not beside the other memos) so it can close over the router
-  // above — every chat-side "open this file" affordance goes through it.
+  // Placed after `openFileTarget` so it can close over it.
   const fileActionsValue = useMemo<FileActionsContextValue>(
     () => ({
       sessionId: currentSessionId,
@@ -4006,8 +3994,7 @@ export default function ChatScreen({
       if (item) unordered.push(item)
     }
     for (const item of titleBarRightPanels) {
-      // Both of these expand into per-resource tabs above; the singleton entry
-      // from the launcher list would otherwise duplicate them.
+      // Both expand into per-resource tabs above.
       if (item.panelId === "preview" || item.panelId === "files") continue
       if (item.open && !unordered.some((tab) => tab.id === item.id)) unordered.push(item)
     }
@@ -4137,8 +4124,7 @@ export default function ChatScreen({
         return
       }
       if (panel === "files") {
-        // The `+` menu always means "give me another browser", so this opens a
-        // fresh tab rather than re-focusing whichever one already exists.
+        // The `+` menu always means "another browser", never re-focus.
         fileTabs.openTab()
         showRightPanelByUser("files")
         return
@@ -4551,10 +4537,9 @@ export default function ChatScreen({
         ref={workbenchContainerRef}
         className="relative flex min-w-0 flex-1 flex-col bg-background"
       >
-        {/* Positioning context for the workbench divider. It deliberately stops
-            above the Terminal dock: the dock spans the full width, so a
-            container-height divider would draw a line straight through it. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Divider anchor — excludes the Terminal dock so the line stops above
+            it. No `overflow-hidden`: the split row below already clips. */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
           {workbenchOpen && workbenchLayoutMode === "docked" && !workbenchMaximized && (
             <WorkbenchResizeHandle
               width={rightPanelWidth}
@@ -5093,8 +5078,6 @@ export default function ChatScreen({
                 {/* File browser panel — permanently mounted (like CanvasPanel) and
               toggled via `visible`, so a popped-out window survives panel
               switches / collapses. */}
-                {/* One browser per file tab. Picking a file updates that tab's
-                own preview — new tabs only come from an explicit request. */}
                 {fileTabs.tabs.map((tab) => (
                   <FileBrowserPanel
                     key={tab.id}

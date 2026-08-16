@@ -1,9 +1,7 @@
 /**
- * Clickable path breadcrumb for the file preview header (mirrors the editor
- * breadcrumb people expect from an IDE). Directory segments jump to that folder
- * in the Files panel — but only when the host can resolve them inside a
- * browsable root, so a segment never renders as a dead click. The trailing file
- * segment copies the full path instead.
+ * Clickable path breadcrumb for the preview header. Directory segments jump to
+ * that folder in the Files panel (only when the host can resolve them, so a
+ * segment is never a dead click); the trailing file segment copies the path.
  */
 
 import { Fragment, useCallback, useMemo } from "react"

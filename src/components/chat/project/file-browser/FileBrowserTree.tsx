@@ -180,8 +180,7 @@ export function FileBrowserTree({
   useEffect(() => {
     if (!selectedPath) return
     const parts = selectedPath.split("/").filter(Boolean)
-    // Ancestors only — unless the target is itself a directory (a breadcrumb
-    // jump), which should open to show what it contains.
+    // Ancestors only, unless the target is itself a directory.
     if (!selectedIsDir) parts.pop()
     let dir = ""
     for (const part of parts) {

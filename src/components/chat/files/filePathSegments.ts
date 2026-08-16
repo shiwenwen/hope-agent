@@ -9,11 +9,7 @@ export interface FilePathSegment {
   isDir: boolean
 }
 
-/**
- * Split a POSIX or Windows path into cumulative segments. The original
- * separator is preserved so a segment path can be handed straight back to a
- * platform API; a Windows drive (`C:`) stays its own leading segment.
- */
+/** Cumulative segments of a POSIX or Windows path, original separator kept. */
 export function splitPathSegments(path: string): FilePathSegment[] {
   const separator = path.includes("\\") && !path.includes("/") ? "\\" : "/"
   const trimmed = path.replace(/[\\/]+$/, "")
@@ -32,11 +28,7 @@ export function splitPathSegments(path: string): FilePathSegment[] {
   return segments
 }
 
-/**
- * URLs and other opaque identifiers must not be rendered as a path. The scheme
- * is required to be at least two characters so a Windows drive (`C:\…`) is
- * still treated as a path.
- */
+/** Rejects URLs and opaque schemes; a 2+ char scheme keeps `C:\…` a path. */
 export function isBreadcrumbablePath(path: string): boolean {
   if (/^[a-z][a-z0-9+.-]+:/i.test(path)) return false
   return splitPathSegments(path).length > 1

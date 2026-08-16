@@ -255,6 +255,16 @@ describe("ChatTitleBar workbench", () => {
     expect(onToggleWorkbenchMaximize).toHaveBeenCalledOnce()
   })
 
+  test("never clips the title row, so its drop-down surfaces stay visible", () => {
+    const { container } = renderTitleBar({})
+
+    const row = container.firstElementChild as HTMLElement
+    expect(row.className).toContain("h-10")
+    expect(row.className.split(" ")).not.toContain("overflow-hidden")
+    const wrapper = row.firstElementChild as HTMLElement
+    expect(wrapper.className.split(" ")).not.toContain("overflow-hidden")
+  })
+
   test("still shows the localized working-directory chip", () => {
     renderTitleBar({
       sessions: [sessionMeta({ workingDir: "/Users/me/repo" })],

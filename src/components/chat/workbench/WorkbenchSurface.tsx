@@ -23,12 +23,8 @@ export function WorkbenchSurface({
   return (
     <section
       className={cn(
-        // Same ground as the conversation column (and the shared title bar):
-        // the workbench is one half of the same window, not a floating panel,
-        // so it must not carry the cooler `surface-app` tint beside it.
-        // `border-t` closes the tab strip against its content: with the tab row
-        // and the panel sharing one ground, nothing else marks where the tab
-        // ends and the panel begins.
+        // Same ground as the conversation column; `border-t` closes the tab
+        // strip against its content.
         "relative flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-t border-border-soft bg-background",
         !resizing && "transition-[width,opacity,border-color] motion-reduce:transition-none",
         layoutMode === "stage" && "border-l-0",

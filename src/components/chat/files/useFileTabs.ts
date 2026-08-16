@@ -107,13 +107,10 @@ function withRevealInActiveTab(
 }
 
 /**
- * Session-local file browser tabs. Every tab is a full browser (tree + preview),
- * so selecting a file happens *inside* a tab — new tabs are only created when
- * the user explicitly asks for one ("open in new tab" / the workbench `+` menu).
- *
- * Tabs and the active id share one state object: closing and scope switching
- * both need a consistent pair, and deriving it inside a single updater keeps
- * them from being read stale.
+ * Session-local file browser tabs. Each tab is a full browser (tree + preview);
+ * new tabs come only from an explicit request, never from picking a file.
+ * Tabs and the active id share one state object so closing and scope switching
+ * always derive a consistent pair.
  */
 export function useFileTabs(): UseFileTabs {
   const [state, setState] = useState<FileTabsState>(EMPTY_STATE)
@@ -217,8 +214,7 @@ export function useFileTabs(): UseFileTabs {
     const previousScope = scopeRef.current
     scopeRef.current = scopeKey
     setState((current) => {
-      // Cache writes here are idempotent (same key, same value), so a repeated
-      // updater invocation cannot corrupt the retained sets.
+      // Cache writes are idempotent, so a repeated updater call is safe.
       if (previousScope === scopeKey) {
         if (restore && cacheCurrent) return current
         if (!cacheCurrent || !restore) scopeCacheRef.current.delete(scopeKey)

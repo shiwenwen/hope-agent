@@ -259,6 +259,27 @@ describe("MessageList", () => {
     expect(screen.queryByText("chat.messageQuote.addToChat")).toBeNull()
   })
 
+  test.each([
+    ["default", undefined],
+    ["timeline", "timeline" as const],
+  ])("reserves the environment lane in %s mode", (_label, displayMode) => {
+    render(
+      <MessageList
+        messages={[baseMessage({ role: "user", content: "hello", dbId: 1 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        displayMode={displayMode}
+        environmentInset
+      />,
+    )
+
+    expect(getScroller().className).toContain("pr-[332px]")
+  })
+
   test("renders non-meta messages and hides isMeta entries", () => {
     render(
       <MessageList

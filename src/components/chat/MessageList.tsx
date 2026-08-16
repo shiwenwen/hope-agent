@@ -2064,8 +2064,9 @@ export default function MessageList({
           // blank viewport even after the messages had committed to the DOM.
           className={cn(
             "h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]",
-            environmentInset && "pr-[332px]",
             isTimelineMode && "px-5 sm:px-6",
+            // Must stay after every `px-*` — `cn` drops it otherwise.
+            environmentInset && "pr-[332px]",
             scrollFade && PANEL_SCROLL_FADE,
           )}
         >

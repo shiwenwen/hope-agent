@@ -43,9 +43,6 @@ describe("RightPanelShell", () => {
   })
 
   it("stops painting a surface when an integrated shell is collapsed", () => {
-    // Integrated shells stack as absolute siblings inside the workbench, so a
-    // collapsed one would otherwise cover whichever panel is active before it
-    // in DOM order — the active panel then renders as a blank sheet.
     const { container: active } = render(
       <RightPanelShell width={520} resizeLabel="Resize panel" integrated>
         <div>Active panel</div>

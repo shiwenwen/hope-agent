@@ -421,17 +421,18 @@ export default function ChatTitleBar({
   ) : null
   const shouldShowWorkingDirChip = !project || workingDirSource === "session"
   return (
-    <div className="flex h-10 shrink-0 overflow-hidden bg-background" data-tauri-drag-region>
+    // No `overflow-hidden` here or on the wrapper: the drop-downs below open
+    // outside this 40px row and would be clipped away.
+    <div className="flex h-10 shrink-0 bg-background" data-tauri-drag-region>
       <div
         className={cn(
-          "min-w-0 flex-1 items-end justify-between overflow-hidden px-4 [container-type:inline-size]",
+          "min-w-0 flex-1 items-end justify-between px-4 [container-type:inline-size]",
           workbenchLayoutMode === "stage" && !workbenchCollapsed && workbenchTabs.length > 0
             ? "hidden"
             : "flex",
         )}
-        // This wrapper covers the whole left side of the title-bar row; without
-        // its own drag region the gap between the title and the actions stops
-        // dragging (and double-click-zooming) the desktop window.
+        // Tauri only drags from the element under the cursor, so this wrapper
+        // needs its own region.
         data-tauri-drag-region
       >
         <div className="flex items-end gap-2 min-w-0 pb-1.5">
@@ -525,7 +526,9 @@ export default function ChatTitleBar({
             </>
           )}
         </div>
-        <div className="flex shrink-0 items-end gap-1">
+        {/* Anchors the drop-downs to the group's right edge, matching the lane
+            the conversation reserves for them. */}
+        <div className="relative flex shrink-0 items-end gap-1">
           {showIncognitoToggle && (
             <IncognitoToggle
               sessionId={null}
@@ -551,8 +554,8 @@ export default function ChatTitleBar({
               </button>
             </IconTip>
           )}
-          {/* Session Status Button */}
-          <div className="relative" ref={statusRef}>
+          {/* Not `relative` — the menus position against the action group. */}
+          <div ref={statusRef}>
             <IconTip label={t("chat.sessionStatus")}>
               <button
                 className={cn(

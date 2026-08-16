@@ -146,8 +146,7 @@ export function FileBrowserPanel({
         params.set("linkedRootPaths", JSON.stringify(linkedRootPaths))
       }
       if (sessionId) params.set("sessionId", sessionId)
-      // Tauri window labels are global: sibling file tabs must not collide, or
-      // the second detach silently fails against the first tab's window.
+      // Tauri window labels are global — sibling tabs must not collide.
       const label = instanceKey
         ? `files-window-${instanceKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`
         : "files-window"
