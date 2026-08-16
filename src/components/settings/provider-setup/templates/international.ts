@@ -33,6 +33,16 @@ export const internationalTemplates: ProviderTemplate[] = [
         costOutput: 50.0,
       },
       {
+        id: "claude-opus-5",
+        name: "Claude Opus 5",
+        inputTypes: ["text", "image"],
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        costInput: 5.0,
+        costOutput: 25.0,
+      },
+      {
         id: "claude-sonnet-5",
         name: "Claude Sonnet 5",
         inputTypes: ["text", "image"],
@@ -126,6 +136,16 @@ export const internationalTemplates: ProviderTemplate[] = [
         costOutput: 50.0,
       },
       {
+        id: "claude-opus-5",
+        name: "Claude Opus 5",
+        inputTypes: ["text", "image"],
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        costInput: 5.0,
+        costOutput: 25.0,
+      },
+      {
         id: "claude-sonnet-5",
         name: "Claude Sonnet 5",
         inputTypes: ["text", "image"],
@@ -215,8 +235,8 @@ export const internationalTemplates: ProviderTemplate[] = [
         contextWindow: 1050000,
         maxTokens: 128000,
         reasoning: true,
-        costInput: 2.5,
-        costOutput: 15.0,
+        costInput: 2.0,
+        costOutput: 12.0,
       },
       {
         id: "gpt-5.6-luna",
@@ -225,8 +245,8 @@ export const internationalTemplates: ProviderTemplate[] = [
         contextWindow: 1050000,
         maxTokens: 128000,
         reasoning: true,
-        costInput: 1.0,
-        costOutput: 6.0,
+        costInput: 0.2,
+        costOutput: 1.2,
       },
       {
         id: "gpt-5.5",
@@ -427,8 +447,8 @@ export const internationalTemplates: ProviderTemplate[] = [
         contextWindow: 1050000,
         maxTokens: 128000,
         reasoning: true,
-        costInput: 2.5,
-        costOutput: 15.0,
+        costInput: 2.0,
+        costOutput: 12.0,
       },
       {
         id: "gpt-5.6-luna",
@@ -437,8 +457,8 @@ export const internationalTemplates: ProviderTemplate[] = [
         contextWindow: 1050000,
         maxTokens: 128000,
         reasoning: true,
-        costInput: 1.0,
-        costOutput: 6.0,
+        costInput: 0.2,
+        costOutput: 1.2,
       },
       {
         id: "gpt-5.5-pro",
@@ -664,9 +684,41 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "AIza...",
     requiresApiKey: true,
     models: [
+      // 3.7 / 3.6 Flash 现价均为促销价（3.7 为发布促销，3.6 促销至 2026-12-31 后回到
+      // $1.5/$7.5）。这里录当期实付价，促销结束需回来改。
+      {
+        id: "gemini-3.7-flash",
+        name: "Gemini 3.7 Flash",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0.75,
+        costOutput: 3.75,
+      },
+      {
+        id: "gemini-3.6-flash",
+        name: "Gemini 3.6 Flash",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0.75,
+        costOutput: 3.75,
+      },
       {
         id: "gemini-3.5-flash",
         name: "Gemini 3.5 Flash",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: null,
+        costOutput: null,
+      },
+      {
+        id: "gemini-3.5-flash-lite",
+        name: "Gemini 3.5 Flash Lite",
         inputTypes: ["text", "image"],
         contextWindow: 1048576,
         maxTokens: 65536,
@@ -746,6 +798,17 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "xai-...",
     requiresApiKey: true,
     models: [
+      // 4.6 / 4.5 存的是短上下文价；xAI 在 200K 输入阈值以上按整请求翻倍计费。
+      {
+        id: "grok-4.6",
+        name: "Grok 4.6",
+        inputTypes: ["text", "image"],
+        contextWindow: 500000,
+        maxTokens: 64000,
+        reasoning: true,
+        costInput: 2.0,
+        costOutput: 6.0,
+      },
       {
         id: "grok-4.5",
         name: "Grok 4.5",

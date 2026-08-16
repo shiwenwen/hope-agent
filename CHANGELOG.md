@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **项目可以关联多个源文件夹**：一个主文件夹继续负责默认工作目录、相对路径和项目指令，同时可添加、切换、搜索并编辑多个辅助文件夹；会话单独切换工作目录时仍保留项目主文件夹。 (#652)
 - **桌面宠物可从任意兼容来源安全导入并按需启用**：新增 `hope-agent pet` 两阶段预览与确认命令，以及内置导入技能；模型可分析任意下载网页，再把本地目录、zip、manifest + sprite、atlas 或任意公网来源的直接 HTTPS 产物统一交给 Hope 校验并原子安装。CLI 提供 capability 握手、支持一次交付多个 loose 文件，技能优先调用当前运行实例而不会误命中 PATH 中的旧版，也不会为 HTTP fallback 暴露 Server Owner Token；用户明确要求时，`pet activate` / desktop-only Pet API 会按唯一已安装 `petRef` 原子选择并启用当前 Tauri 宠物窗口，仅请求导入时保持关闭状态不变。
+- **预设 Provider 补齐当前一代模型**：Claude Opus 5、Grok 4.6、GLM-5.3、Gemini 3.7/3.6 Flash 与 3.5 Flash-Lite、豆包 Seed 2.1 系列、文心 ERNIE 5.1/5.0、小米 MiMo V2.5、Qwen3.8/3.7 Max、Kimi K3（Coding）等新模型现已出现在对应 Provider 的预设列表中，新建 Provider 无需再手工填写。
+
+### Fixed
+
+- **GPT-5.6 Terra / Luna 按新价计费**：两档已于 2026-07-30 降价（Terra $2/$12、Luna $0.20/$1.20），预设单价同步更正。已添加过该 Provider 的用户需在「设置 → 模型」里手动改这两个模型的单价，否则大盘仍按旧价（Luna 高估约 5 倍）统计。
 
 ## [0.32.0] - 2026-08-12
 
