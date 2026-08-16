@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "Önizleme",
-    "resizePanel": "Önizleme panelini yeniden boyutlandır"
+    "resizePanel": "Önizleme panelini yeniden boyutlandır",
+    "pathBreadcrumb": "Dosya yolu",
+    "revealFolder": "Klasörü Dosyalar panelinde göster",
+    "copyPath": "Tam yolu kopyala"
   },
   "fileBrowser": {
     "panelTitle": "Dosyalar",
@@ -2732,7 +2735,10 @@
     "zoomOut": "Uzaklaştır",
     "zoomIn": "Yakınlaştır",
     "fitWidth": "Genişliğe sığdır",
-    "officeNoContent": "Bu dosyadan içerik çıkarılamadı."
+    "officeNoContent": "Bu dosyadan içerik çıkarılamadı.",
+    "openInNewTab": "Yeni sekmede aç",
+    "collapseTree": "Dosya listesini gizle",
+    "expandTree": "Dosya listesini göster"
   },
   "diffPanel": {
     "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",

@@ -3,6 +3,7 @@ import { flushSync } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { SearchInput } from "@/components/ui/search-input"
 import { cn } from "@/lib/utils"
 import {
@@ -341,7 +342,6 @@ export default function ChatSidebar({
   // Drag handler for resizable panel
   const isDragging = useRef(false)
   const [isResizing, setIsResizing] = useState(false)
-  const [isResizeHandleHovered, setIsResizeHandleHovered] = useState(false)
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault()
     isDragging.current = true
@@ -550,12 +550,7 @@ export default function ChatSidebar({
             onPointerDownCapture={enableSidebarMotion}
             onKeyDownCapture={enableSidebarMotion}
             className={cn(
-              "h-full border-r bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
-              isResizing
-                ? "border-r-primary/50"
-                : isResizeHandleHovered
-                  ? "border-r-primary/35"
-                  : "border-r-border-soft",
+              "h-full border-r border-r-border-soft bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
               !sidebarMotionDisabled &&
                 "transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
               sidebarCollapsed
@@ -813,14 +808,14 @@ export default function ChatSidebar({
             existing border provides the visual hover/drag affordance. */}
         <div
           className={cn(
-            "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
+            "group absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
             !sidebarMotionDisabled && "transition-[width,opacity] duration-200 ease-out",
             sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
           )}
           onMouseDown={handleDragStart}
-          onMouseEnter={() => setIsResizeHandleHovered(true)}
-          onMouseLeave={() => setIsResizeHandleHovered(false)}
-        />
+        >
+          <ResizeHandleGlow active={isResizing} className="inset-y-0 left-0 w-px" />
+        </div>
       </div>
     </>
   )

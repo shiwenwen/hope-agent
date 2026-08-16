@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "Pré-visualização",
-    "resizePanel": "Redimensionar painel de pré-visualização"
+    "resizePanel": "Redimensionar painel de pré-visualização",
+    "pathBreadcrumb": "Caminho do arquivo",
+    "revealFolder": "Mostrar a pasta em Arquivos",
+    "copyPath": "Copiar o caminho completo"
   },
   "fileBrowser": {
     "panelTitle": "Arquivos",
@@ -2732,7 +2735,10 @@
     "zoomOut": "Diminuir zoom",
     "zoomIn": "Aumentar zoom",
     "fitWidth": "Ajustar à largura",
-    "officeNoContent": "Não foi possível extrair conteúdo deste arquivo."
+    "officeNoContent": "Não foi possível extrair conteúdo deste arquivo.",
+    "openInNewTab": "Abrir em uma nova aba",
+    "collapseTree": "Ocultar a lista de arquivos",
+    "expandTree": "Mostrar a lista de arquivos"
   },
   "diffPanel": {
     "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",

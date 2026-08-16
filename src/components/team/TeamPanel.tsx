@@ -24,6 +24,7 @@ interface TeamPanelProps {
   animateOnMount?: boolean
   onClose: () => void
   onViewSession?: (sessionId: string) => void
+  integrated?: boolean
 }
 
 const MIN_WIDTH = 320
@@ -40,6 +41,7 @@ export function TeamPanel({
   animateOnMount = false,
   onClose,
   onViewSession,
+  integrated = false,
 }: TeamPanelProps) {
   const { t } = useTranslation()
   const { team, members, messages, tasks, sendMessage, hasMore, loadingMore, loadMoreMessages } =
@@ -116,6 +118,7 @@ export function TeamPanel({
         collapsed={collapsed}
         overlay={overlay}
         animateOnMount={animateOnMount}
+        integrated={integrated}
         contentKey="team-loading"
       >
         <div className="flex h-full min-h-0 w-full items-center justify-center text-sm text-muted-foreground">
@@ -136,18 +139,21 @@ export function TeamPanel({
       collapsed={collapsed}
       overlay={overlay}
       animateOnMount={animateOnMount}
+      integrated={integrated}
       contentKey="team"
     >
       <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-        {/* Close button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="absolute right-3 top-2.5 z-10 h-6 w-6 p-0"
-          onClick={onClose}
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
+        {!integrated && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-3 top-2.5 z-10 h-6 w-6 p-0"
+            onClick={onClose}
+            aria-label={t("common.close", "Close")}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
 
         {/* Toolbar */}
         <TeamToolbar

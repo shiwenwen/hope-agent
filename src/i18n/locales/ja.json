@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "プレビュー",
-    "resizePanel": "プレビューパネルの幅を調整"
+    "resizePanel": "プレビューパネルの幅を調整",
+    "pathBreadcrumb": "ファイルパス",
+    "revealFolder": "ファイルパネルでこのフォルダーを表示",
+    "copyPath": "フルパスをコピー"
   },
   "fileBrowser": {
     "panelTitle": "ファイル",
@@ -2732,7 +2735,10 @@
     "zoomOut": "縮小",
     "zoomIn": "拡大",
     "fitWidth": "幅に合わせる",
-    "officeNoContent": "このファイルから内容を抽出できませんでした"
+    "officeNoContent": "このファイルから内容を抽出できませんでした",
+    "openInNewTab": "新しいタブで開く",
+    "collapseTree": "ファイル一覧を隠す",
+    "expandTree": "ファイル一覧を表示"
   },
   "diffPanel": {
     "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",

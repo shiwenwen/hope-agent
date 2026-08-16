@@ -164,6 +164,7 @@ flowchart TB
 
 - **面板开合**：标题栏按钮或 `⌘/Ctrl+J` 显示/隐藏。隐藏不杀 shell。
 - **多标签**：支持新建/关闭、拖拽调高、最大化；每个标签一个独立会话。
+- **与分栏工作台正交**：Terminal 继续位于会话内容区底部，不迁成普通工作台标签；右侧 [Docked Workbench](../agent/docked-workbench.md) 的展开、切页、stage 与 resize 不得卸载 `TerminalPanel` 或重建 PTY。
 - **尺寸自适应**：xterm 的 `FitAddon` 把容器像素尺寸换算成行列，`onResize` 把新行列**去抖后**回传 PTY（`terminal_resize`）。
 - **输入合并**：逐按键会在 HTTP 模式下变成逐请求，太浪费。前端把击键攒进缓冲，遇回车或缓冲满即刻 flush，否则 16 ms 空闲后 flush；写请求还串成 FIFO promise 链，保证顺序不乱。
 

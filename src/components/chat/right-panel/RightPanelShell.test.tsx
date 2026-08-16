@@ -42,6 +42,29 @@ describe("RightPanelShell", () => {
     expect(shell.className).toContain("transition-[width,min-width,max-width,padding]")
   })
 
+  it("stops painting a surface when an integrated shell is collapsed", () => {
+    // Integrated shells stack as absolute siblings inside the workbench, so a
+    // collapsed one would otherwise cover whichever panel is active before it
+    // in DOM order — the active panel then renders as a blank sheet.
+    const { container: active } = render(
+      <RightPanelShell width={520} resizeLabel="Resize panel" integrated>
+        <div>Active panel</div>
+      </RightPanelShell>,
+    )
+    const { container: collapsed } = render(
+      <RightPanelShell width={520} resizeLabel="Resize panel" integrated collapsed>
+        <div>Background panel</div>
+      </RightPanelShell>,
+    )
+
+    const activeClasses = (active.firstElementChild as HTMLElement).className.split(" ")
+    const collapsedClasses = (collapsed.firstElementChild as HTMLElement).className.split(" ")
+    expect(activeClasses).toContain("bg-background")
+    expect(collapsedClasses).toContain("bg-transparent")
+    expect(collapsedClasses).not.toContain("bg-background")
+    expect(collapsedClasses).toContain("pointer-events-none")
+  })
+
   it("animates the first panel mount from zero to its configured width", () => {
     let enterFrame: FrameRequestCallback | null = null
     const requestFrame = vi

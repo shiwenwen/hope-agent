@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
@@ -108,7 +109,6 @@ export default function PlansView({
     readStoredWidth(LIST_WIDTH_STORAGE_KEY, LIST_DEFAULT_WIDTH),
   )
   const [isResizingList, setIsResizingList] = useState(false)
-  const [isListResizeHandleHovered, setIsListResizeHandleHovered] = useState(false)
 
   const onDragList = useDragWidth({
     width: listWidth,
@@ -282,12 +282,7 @@ export default function PlansView({
               aria-hidden={listCollapsed}
               inert={listCollapsed ? true : undefined}
               className={cn(
-                "flex h-full flex-col border-r",
-                isResizingList
-                  ? "border-r-primary/50"
-                  : isListResizeHandleHovered
-                    ? "border-r-primary/35"
-                    : "border-r-border-soft",
+                "flex h-full flex-col border-r border-r-border-soft",
                 LIST_SURFACE_TRANSITION,
                 listCollapsed
                   ? "pointer-events-none -translate-x-4 opacity-0"
@@ -405,16 +400,16 @@ export default function PlansView({
           </div>
           <div
             className={cn(
-              "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
+              "group absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
               listCollapsed ? "pointer-events-none w-0 opacity-0" : "w-3 opacity-100",
             )}
             onMouseDown={onDragList}
-            onMouseEnter={() => setIsListResizeHandleHovered(true)}
-            onMouseLeave={() => setIsListResizeHandleHovered(false)}
             role="separator"
             aria-orientation="vertical"
             aria-label={t("plans.resizeList")}
-          />
+          >
+            <ResizeHandleGlow active={isResizingList} className="inset-y-0 left-0 w-px" />
+          </div>
         </div>
 
         <main className="flex min-w-0 flex-1 flex-col">

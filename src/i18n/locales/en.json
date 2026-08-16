@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "Preview",
-    "resizePanel": "Resize preview panel"
+    "resizePanel": "Resize preview panel",
+    "pathBreadcrumb": "File path",
+    "revealFolder": "Show folder in Files",
+    "copyPath": "Copy full path"
   },
   "fileBrowser": {
     "panelTitle": "Files",
@@ -2732,7 +2735,10 @@
     "zoomOut": "Zoom out",
     "zoomIn": "Zoom in",
     "fitWidth": "Fit width",
-    "officeNoContent": "No content could be extracted from this file."
+    "officeNoContent": "No content could be extracted from this file.",
+    "openInNewTab": "Open in a new tab",
+    "collapseTree": "Hide file list",
+    "expandTree": "Show file list"
   },
   "diffPanel": {
     "fileTooLarge": "File too large, only the first 256KB is rendered",

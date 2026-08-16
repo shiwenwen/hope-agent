@@ -9,7 +9,15 @@
  * path via the read-only `"path"` scope (no writes), with a "back" affordance.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronLeft,
@@ -20,6 +28,8 @@ import {
   Folders,
   GitBranch,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   RotateCcw,
   Search,
@@ -40,6 +50,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { SearchInput } from "@/components/ui/search-input"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { IconTip } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { useTransport, useTransportRevision } from "@/lib/transport-provider"
@@ -54,6 +65,7 @@ import { projectFsPreviewSource } from "@/components/chat/files/previewSource"
 import {
   resolveProjectFileQuoteTarget,
   type ProjectFileQuoteReveal,
+  type ProjectFolderIdentity,
 } from "../fileQuoteTarget"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
@@ -81,6 +93,17 @@ const encodeProjectFolderScope = (
   target: string,
 ) => `${baseScope}:${baseScopeId}:${index}:${target}`
 
+/**
+ * A directory jump from a preview-header breadcrumb. The host owns the
+ * absolute→root resolution (it knows the browsable roots), so `relPath` is
+ * already relative to `projectRoot` — an empty one addresses the root itself.
+ */
+export interface FileBrowserDirectoryReveal {
+  relPath: string
+  projectRoot: ProjectFolderIdentity | null
+  nonce: number
+}
+
 function parentRelPath(relPath: string): string {
   const i = relPath.lastIndexOf("/")
   return i >= 0 ? relPath.slice(0, i) : ""
@@ -107,10 +130,22 @@ export interface FileBrowserViewProps {
   editable?: boolean
   layout?: "split" | "stacked"
   onQuote?: (payload: QuotePayload) => void
+  /** Legacy escape hatch: hand a picked file to a host-owned preview surface.
+   *  Split hosts leave it unset — the preview lives in this view's right pane. */
+  onPreviewFile?: (target: PreviewTarget) => void
+  /** Explicit "open in a new tab" from the tree context menu. */
+  onOpenInNewTab?: (target: PreviewTarget) => void
+  /** Report the picked file so a host tab can title itself after it. */
+  onSelectionChange?: (selection: { name: string; relPath: string } | null) => void
   /** Reveal + select this file and highlight the quoted line range (from a
    *  composer quote-chip click). The nonce re-triggers even for the same path. */
   revealFile?: ProjectFileQuoteReveal | null
+  /** Expand + select a directory (a preview-header breadcrumb jump). The host
+   *  resolves the root, so `relPath` is already relative to `projectRoot`. */
+  revealDirectory?: FileBrowserDirectoryReveal | null
   className?: string
+  /** Host-level actions appended to the file toolbar (for example detach). */
+  toolbarTrailing?: ReactNode
 }
 
 export function FileBrowserView({
@@ -121,8 +156,13 @@ export function FileBrowserView({
   editable: requestedEditable = false,
   layout = "split",
   onQuote,
+  onPreviewFile,
+  onOpenInNewTab,
+  onSelectionChange,
   revealFile,
+  revealDirectory,
   className,
+  toolbarTrailing,
 }: FileBrowserViewProps) {
   const { t } = useTranslation()
   const transport = useTransport()
@@ -341,7 +381,20 @@ export function FileBrowserView({
     ["code", "text", "markdown"].includes(selectedKind) &&
     (selected.size === null || selected.size <= filesystemConfig.maxTextEditMb * MEBIBYTE_BYTES) &&
     selectedActions.capabilities.edit.state !== "disabled"
+  // Report the picked file up so a host tab can title itself after it. Only
+  // files count — a selected directory leaves the host on its generic title.
+  const reportedSelectionRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!onSelectionChange) return
+    const next = selected && !selected.isDir ? selected : null
+    const key = next ? `${next.relPath}${next.name}` : ""
+    if (reportedSelectionRef.current === key) return
+    reportedSelectionRef.current = key
+    onSelectionChange(next ? { name: next.name, relPath: next.relPath } : null)
+  }, [onSelectionChange, selected])
+
   const expansion = useTreeExpansion(activeScope, activeScopeId)
+  const [treeCollapsed, setTreeCollapsed] = useState(false)
   const [treeWidth, setTreeWidth] = useFileBrowserSplit(activeScope, activeScopeId)
   const [isResizingTree, setIsResizingTree] = useState(false)
   const onDragDivider = useDragWidth({
@@ -390,6 +443,29 @@ export function FileBrowserView({
   // revealFile cleared (e.g. the quote chip was removed) → drop the highlight.
   if (!revealFile && revealLines) {
     setRevealLines(null)
+  }
+
+  // Breadcrumb directory jump. Same render-phase shape as the file reveal: the
+  // tree expands the chain (including the target itself) off `selectedPath`.
+  const [trackedRevealDirNonce, setTrackedRevealDirNonce] = useState<number | null>(null)
+  if (revealDirectory && revealDirectory.nonce !== trackedRevealDirNonce) {
+    setTrackedRevealDirNonce(revealDirectory.nonce)
+    setActiveProjectRoot(revealDirectory.projectRoot)
+    setActiveWorktree(null)
+    setRevealLines(null)
+    const parts = revealDirectory.relPath.split("/").filter(Boolean)
+    setSelected(
+      parts.length > 0
+        ? {
+            name: parts[parts.length - 1],
+            relPath: parts.join("/"),
+            isDir: true,
+            isSymlink: false,
+            size: null,
+            modifiedMs: null,
+          }
+        : null,
+    )
   }
 
   // Read-only git context (branch + worktrees) for the active root. The
@@ -644,9 +720,31 @@ export function FileBrowserView({
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </IconTip>
+        {toolbarTrailing}
+        {layout === "split" ? (
+          <IconTip label={t("fileBrowser.collapseTree", "Hide file list")}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              aria-label={t("fileBrowser.collapseTree", "Hide file list")}
+              onClick={() => setTreeCollapsed(true)}
+            >
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+        ) : null}
       </div>
     ),
-    [effectiveEditable, expansion.collapseAll, onRefresh, prepareRootAction, t],
+    [
+      effectiveEditable,
+      expansion.collapseAll,
+      layout,
+      onRefresh,
+      prepareRootAction,
+      t,
+      toolbarTrailing,
+    ],
   )
 
   const activeBaseRootPath = activeProjectRoot?.path ?? fs.access?.rootPath ?? rootPath ?? ""
@@ -822,6 +920,7 @@ export function FileBrowserView({
             truncated={searchTruncated}
             selectedIndex={searchSelectedIndex}
             onSelect={selectSearchMatch}
+            onPreviewFile={onPreviewFile}
             onHover={setSearchSelectedIndex}
           />
         ) : (
@@ -829,7 +928,10 @@ export function FileBrowserView({
             fs={fs}
             expansion={expansion}
             selectedPath={selected?.relPath ?? null}
+            selectedIsDir={selected?.isDir ?? false}
             onSelectFile={onSelectFile}
+            onPreviewFile={onPreviewFile}
+            onOpenInNewTab={onOpenInNewTab}
             editable={effectiveEditable}
             draft={draft}
             onDraftChange={setDraft}
@@ -983,22 +1085,42 @@ export function FileBrowserView({
   return (
     <>
       <div className={cn("flex h-full min-h-0", className)}>
-        <div className="flex min-w-0 shrink-0 flex-col" style={{ width: treeWidth }}>
-          {tree}
-        </div>
-        <div
-          className={cn(
-            "relative w-px shrink-0 cursor-col-resize transition-colors",
-            isResizingTree ? "bg-primary/50" : "bg-border hover:bg-primary/35",
-          )}
-          onMouseDown={onDragDivider}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("fileBrowser.resizeTree", "Resize file tree")}
-        >
-          {/* Wider invisible hit area around the 1px divider. */}
-          <div className="absolute inset-y-0 -left-1 -right-1" />
-        </div>
+        {treeCollapsed ? (
+          // Collapsed: a rail keeps the reopen affordance on screen — the
+          // toolbar toggle goes away with the column it lives in.
+          <div className="flex w-9 shrink-0 flex-col items-center border-r border-border-soft py-1">
+            <IconTip label={t("fileBrowser.expandTree", "Show file list")}>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                aria-label={t("fileBrowser.expandTree", "Show file list")}
+                onClick={() => setTreeCollapsed(false)}
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
+        ) : (
+          <>
+            <div className="flex min-w-0 shrink-0 flex-col" style={{ width: treeWidth }}>
+              {tree}
+            </div>
+            <div
+              // Structural 1px rule, like every other column boundary; the glow
+              // on top of it is the drag affordance, not the separator itself.
+              className="group relative w-px shrink-0 cursor-col-resize bg-border-soft"
+              onMouseDown={onDragDivider}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t("fileBrowser.resizeTree", "Resize file tree")}
+            >
+              <ResizeHandleGlow active={isResizingTree} className="inset-0" />
+              {/* Wider invisible hit area around the 1px divider. */}
+              <div className="absolute inset-y-0 -left-1 -right-1" />
+            </div>
+          </>
+        )}
         {editing && selected ? (
           <WorkspaceTextEditor
             fs={fs}
@@ -1041,6 +1163,7 @@ function FileBrowserSearchResults({
   truncated,
   selectedIndex,
   onSelect,
+  onPreviewFile,
   onHover,
 }: {
   fs: ReturnType<typeof useProjectFs>
@@ -1050,6 +1173,7 @@ function FileBrowserSearchResults({
   truncated: boolean
   selectedIndex: number
   onSelect: (match: FileMatch) => void
+  onPreviewFile?: (target: PreviewTarget) => void
   onHover: (index: number) => void
 }) {
   const { t } = useTranslation()
@@ -1082,6 +1206,7 @@ function FileBrowserSearchResults({
           index={index}
           selected={index === selectedIndex}
           onSelect={onSelect}
+          onPreviewFile={onPreviewFile}
           onHover={onHover}
         />
       ))}
@@ -1095,6 +1220,7 @@ function FileBrowserSearchResultRow({
   index,
   selected,
   onSelect,
+  onPreviewFile,
   onHover,
 }: {
   fs: ReturnType<typeof useProjectFs>
@@ -1102,6 +1228,7 @@ function FileBrowserSearchResultRow({
   index: number
   selected: boolean
   onSelect: (match: FileMatch) => void
+  onPreviewFile?: (target: PreviewTarget) => void
   onHover: (index: number) => void
 }) {
   const selectedRef = useRef<HTMLButtonElement>(null)
@@ -1122,7 +1249,10 @@ function FileBrowserSearchResultRow({
   )
   const overrides = {
     workspaceAccess: fs.access ?? undefined,
-    onPreviewFile: () => onSelect(match),
+    onPreviewFile: () => {
+      onSelect(match)
+      if (target) onPreviewFile?.(target)
+    },
   }
   const actions = useFileResource(target, overrides)
 

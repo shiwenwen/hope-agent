@@ -73,3 +73,17 @@ test("reloads an open scoped preview when transport credentials rotate", async (
   })
   expect(state.artifactPreviewUrl).toHaveBeenCalledTimes(2)
 })
+
+test("keeps file actions but delegates close to the workbench when integrated", async () => {
+  const target = { kind: "artifact", artifactId: "artifact-1", name: "Report.html" } as const
+  render(
+    <TooltipProvider>
+      <FilePreviewPanel target={target} onClose={vi.fn()} integrated />
+    </TooltipProvider>,
+  )
+
+  await waitFor(() => expect(screen.getByTitle("Report.html")).toBeTruthy())
+  expect(screen.getByRole("button", { name: "fileActions.open" })).toBeTruthy()
+  expect(screen.getByRole("button", { name: "fileActions.download" })).toBeTruthy()
+  expect(screen.queryByRole("button", { name: "common.close" })).toBeNull()
+})

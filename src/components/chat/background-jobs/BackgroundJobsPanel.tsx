@@ -80,12 +80,14 @@ export default function BackgroundJobsPanel({
   onJobExpandedChange,
   onClose,
   onViewSubagentSession,
+  integrated = false,
 }: {
   jobs: BackgroundJobSnapshot[]
   jobExpansionOverrides?: Record<string, boolean>
   onJobExpandedChange?: (jobId: string, expanded: boolean) => void
   onClose: () => void
   onViewSubagentSession?: (sessionId: string) => void
+  integrated?: boolean
 }) {
   const { t } = useTranslation()
   // The global model-job mirror only subscribes while this panel is mounted.
@@ -93,22 +95,24 @@ export default function BackgroundJobsPanel({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="truncate text-sm font-medium">
-          {t("backgroundJobs.panelTitle", "后台任务")}
-        </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="ml-auto h-7 w-7 shrink-0"
-          onClick={onClose}
-          aria-label={t("common.close", "关闭")}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+      {!integrated && (
+        <div className="flex items-center gap-2 px-3 py-2">
+          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm font-medium">
+            {t("backgroundJobs.panelTitle", "后台任务")}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="ml-auto h-7 w-7 shrink-0"
+            onClick={onClose}
+            aria-label={t("common.close", "关闭")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       <div className="flex-1 space-y-3 overflow-auto p-2">
         <div>

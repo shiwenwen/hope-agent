@@ -346,6 +346,8 @@ interface WorkspacePanelProps {
   draftWorkflowMode?: WorkflowAutonomyMode
   onDraftWorkflowModeChange?: (mode: WorkflowAutonomyMode) => void
   onClose: () => void
+  /** Hosted under the shared workbench tabs; suppress the redundant frame header. */
+  integrated?: boolean
 }
 
 /** 每段初始渲染条数;滚到底自动 +此值（无「加载更多」按钮）。 */
@@ -22320,6 +22322,7 @@ export default function WorkspacePanel({
   draftWorkflowMode = "off",
   onDraftWorkflowModeChange,
   onClose,
+  integrated = false,
 }: WorkspacePanelProps) {
   const { t } = useTranslation()
   const { files, sources, browser, filesTruncated, sourcesTruncated, browserTruncated } =
@@ -22414,20 +22417,24 @@ export default function WorkspacePanel({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="truncate text-sm font-medium">{t("workspace.panelTitle", "工作台")}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="ml-auto h-7 w-7 shrink-0"
-          onClick={onClose}
-          aria-label={t("common.close", "关闭")}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+      {!integrated && (
+        <div className="flex items-center gap-2 px-3 py-2">
+          <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm font-medium">
+            {t("workspace.panelTitle", "工作台")}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="ml-auto h-7 w-7 shrink-0"
+            onClick={onClose}
+            aria-label={t("common.close", "关闭")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* 上下边缘柔化淡出 —— 内容滚到边界时渐隐不硬切（mask 渐变到透明，露出面板底色）。
           Tauri = WebKit,补 `-webkit-mask-image` 兜底。 */}

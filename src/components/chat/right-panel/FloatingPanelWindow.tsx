@@ -3,15 +3,32 @@ import { useTranslation } from "react-i18next"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { IconTip } from "@/components/ui/tooltip"
 import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { useFloatingWindow, type ResizeEdge } from "@/hooks/useFloatingWindow"
 
-const RESIZE_EDGES: Array<{ edge: ResizeEdge; className: string }> = [
-  { edge: "n", className: "left-2 right-2 -top-0.5 h-1.5 cursor-ns-resize" },
-  { edge: "s", className: "left-2 right-2 -bottom-0.5 h-1.5 cursor-ns-resize" },
-  { edge: "e", className: "top-2 bottom-2 -right-0.5 w-1.5 cursor-ew-resize" },
-  { edge: "w", className: "top-2 bottom-2 -left-0.5 w-1.5 cursor-ew-resize" },
+const RESIZE_EDGES: Array<{ edge: ResizeEdge; className: string; lineClassName?: string }> = [
+  {
+    edge: "n",
+    className: "left-2 right-2 -top-0.5 h-1.5 cursor-ns-resize",
+    lineClassName: "inset-x-0 top-0.5 h-px",
+  },
+  {
+    edge: "s",
+    className: "left-2 right-2 -bottom-0.5 h-1.5 cursor-ns-resize",
+    lineClassName: "inset-x-0 bottom-0.5 h-px",
+  },
+  {
+    edge: "e",
+    className: "top-2 bottom-2 -right-0.5 w-1.5 cursor-ew-resize",
+    lineClassName: "inset-y-0 right-0.5 w-px",
+  },
+  {
+    edge: "w",
+    className: "top-2 bottom-2 -left-0.5 w-1.5 cursor-ew-resize",
+    lineClassName: "inset-y-0 left-0.5 w-px",
+  },
   { edge: "ne", className: "-right-0.5 -top-0.5 h-2.5 w-2.5 cursor-nesw-resize" },
   { edge: "nw", className: "-left-0.5 -top-0.5 h-2.5 w-2.5 cursor-nwse-resize" },
   { edge: "se", className: "-bottom-0.5 -right-0.5 h-2.5 w-2.5 cursor-nwse-resize" },
@@ -102,14 +119,21 @@ export function FloatingPanelWindow({
 
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 
-      {RESIZE_EDGES.map(({ edge, className }) => (
+      {RESIZE_EDGES.map(({ edge, className, lineClassName }) => (
         <div
           key={edge}
           role="separator"
           aria-label={t("chat.controlPanel.resizeWindow")}
           onPointerDown={handleResizePointerDown(edge)}
-          className={cn("absolute z-10 touch-none", className)}
-        />
+          className={cn("group absolute z-10 touch-none", className)}
+        >
+          {lineClassName && (
+            <ResizeHandleGlow
+              active={gesture !== null && gesture !== "move" && gesture.includes(edge)}
+              className={lineClassName}
+            />
+          )}
+        </div>
       ))}
     </div>
   )

@@ -276,6 +276,14 @@ Tooltip 是补充说明，不是可访问名称——这条边界要一直守住
 - 右侧刷新、设置、创建等操作统一使用紧凑按钮，窄宽度下优先压缩或隐藏次要说明；
 - 标题栏可保留固定结构分隔线，但 hover、selected、open 等状态不得改变该分隔线。
 
+### 对话分栏工作台标题行
+
+主聊天的 [`Docked Workbench`](../agent/docked-workbench.md) 也遵守单行 `h-10`，但同一行按下方真实分栏拆成 conversation header 与 workbench tabs 两段。两段边界必须与内容 resize separator 对齐；工作台关闭时 conversation 段自然占满，禁止为标签再增加第二条应用级标题栏。面板内部只保留 URL、Git、文件、Plan 等业务工具栏，不能再建立另一条顶层 chrome。
+
+工作台分隔线及其它拖拽尺寸区域统一使用 `ResizeHandleGlow`：命中区可以放宽，但 idle 时不得显示视觉线；hover / keyboard focus / drag 时才显示 1 px 的低对比蓝色光晕，且不改变 border 宽度或布局。键盘可聚焦的 separator 必须提供方向键调整与当前值 ARIA。
+
+分栏工作台使用两级 chrome 归属：重复面板名称、关闭、最大化和容器浮动属于 workbench frame，统一进入顶部标签行；文件路径 / 操作、PR 分支、Diff hunk、Plan 版本、Canvas 类型 / 刷新、Browser URL / 刷新等属于当前内容，保留一层内容工具栏。禁止因为“已有标签”而删除后者，也禁止把 frame controls 复制到每个内容工具栏。
+
 ### 主侧栏工作区生命周期
 
 一级工作区不是「切走就卸载、切回再重建」，而是**首次访问才挂载、之后隐藏而不卸载**。这样切换
@@ -355,6 +363,8 @@ Canvas、文件浏览器、单文件预览、Plan、产物阅读器等从局部�
 - 遵守 `prefers-reduced-motion: reduce`，此时直接切换布局，不播放动画；
 - 共用 `RightPanelShell` 的面板通过 `fullscreenTransitionRef` 接入，业务组件不得再复制一套
   `Element.animate` / `flushSync` 编排。
+
+当这些内容集成到 Docked Workbench 时是明确例外：内容组件不得再拥有私有最大化按钮，统一由 workbench frame 最大化整个标签容器；独立窗口或其它 standalone 宿主仍沿用上述 `useFullscreenTransition` 契约。
 
 ## 焦点可见性
 

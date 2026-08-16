@@ -140,6 +140,8 @@ interface MessageListProps {
   autoCollapseCompletedTurns?: boolean
   /** Reports whether the latest transcript tail is inside the reading window. */
   onAtBottomChange?: (atBottom: boolean) => void
+  /** Reserve a compact lane on the right for the conversation-owned environment card. */
+  environmentInset?: boolean
 }
 
 const AT_BOTTOM_THRESHOLD_PX = 48
@@ -765,6 +767,7 @@ export default function MessageList({
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
   onAtBottomChange,
+  environmentInset = false,
 }: MessageListProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -2061,6 +2064,7 @@ export default function MessageList({
           // blank viewport even after the messages had committed to the DOM.
           className={cn(
             "h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]",
+            environmentInset && "pr-[332px]",
             isTimelineMode && "px-5 sm:px-6",
             scrollFade && PANEL_SCROLL_FADE,
           )}

@@ -58,6 +58,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { SearchInput } from "@/components/ui/search-input"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -184,7 +185,7 @@ const PANE_WIDTH_TRANSITION =
 const PANE_SURFACE_TRANSITION =
   "transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none"
 const PANE_HANDLE_BASE =
-  "absolute inset-y-0 z-20 cursor-col-resize transition-[width,opacity] duration-200 ease-out"
+  "group absolute inset-y-0 z-20 cursor-col-resize transition-[width,opacity] duration-200 ease-out"
 
 function readStoredBool(key: string): boolean {
   if (typeof window === "undefined") return false
@@ -340,8 +341,6 @@ export default function KnowledgeView({
   // Suppress the width CSS transition during a drag so the pane tracks the cursor.
   const [isResizingLeft, setIsResizingLeft] = useState(false)
   const [isResizingRight, setIsResizingRight] = useState(false)
-  const [isLeftResizeHandleHovered, setIsLeftResizeHandleHovered] = useState(false)
-  const [isRightResizeHandleHovered, setIsRightResizeHandleHovered] = useState(false)
   // Responsive-collapse intent tracking (per side): distinguishes a viewport-driven
   // collapse from a deliberate user one so auto-expand never fights the user.
   const autoCollapsedLeftRef = useRef(false)
@@ -2291,12 +2290,7 @@ export default function KnowledgeView({
               aria-hidden={leftCollapsed}
               inert={leftCollapsed ? true : undefined}
               className={cn(
-                "flex h-full min-w-0 flex-col border-r",
-                isResizingLeft
-                  ? "border-r-primary/50"
-                  : isLeftResizeHandleHovered
-                    ? "border-r-primary/35"
-                    : "border-r-border-soft/60",
+                "flex h-full min-w-0 flex-col border-r border-r-border-soft/60",
                 PANE_SURFACE_TRANSITION,
                 leftCollapsed
                   ? "pointer-events-none -translate-x-4 opacity-0"
@@ -2532,12 +2526,12 @@ export default function KnowledgeView({
               leftCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
             )}
             onMouseDown={onDragLeft}
-            onMouseEnter={() => setIsLeftResizeHandleHovered(true)}
-            onMouseLeave={() => setIsLeftResizeHandleHovered(false)}
             role="separator"
             aria-orientation="vertical"
             aria-label={t("knowledge.resizeLeft", "Resize sidebar")}
-          />
+          >
+            <ResizeHandleGlow active={isResizingLeft} className="inset-y-0 left-0 w-px" />
+          </div>
         </div>
 
         {graphMode && activeKbId ? (
@@ -2830,12 +2824,7 @@ export default function KnowledgeView({
                   aria-hidden={rightCollapsed}
                   inert={rightCollapsed ? true : undefined}
                   className={cn(
-                    "flex h-full min-w-0 flex-col border-l",
-                    isResizingRight
-                      ? "border-l-primary/50"
-                      : isRightResizeHandleHovered
-                        ? "border-l-primary/35"
-                        : "border-l-border-soft/60",
+                    "flex h-full min-w-0 flex-col border-l border-l-border-soft/60",
                     PANE_SURFACE_TRANSITION,
                     rightCollapsed
                       ? "pointer-events-none translate-x-4 opacity-0"
@@ -3026,12 +3015,12 @@ export default function KnowledgeView({
                   rightCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
                 )}
                 onMouseDown={onDragRight}
-                onMouseEnter={() => setIsRightResizeHandleHovered(true)}
-                onMouseLeave={() => setIsRightResizeHandleHovered(false)}
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={t("knowledge.resizeRight", "Resize panel")}
-              />
+              >
+                <ResizeHandleGlow active={isResizingRight} className="inset-y-0 left-0 w-px" />
+              </div>
             </div>
           </>
         )}

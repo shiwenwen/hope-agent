@@ -19,7 +19,6 @@ import {
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { useReadableSurface } from "@/hooks/useReadableSurface"
-import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { cn } from "@/lib/utils"
 import {
   Bot,
@@ -79,7 +78,8 @@ import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
-import type { ProjectFileQuoteReveal } from "@/components/chat/project/fileQuoteTarget"
+import type { FileBrowserDirectoryReveal } from "@/components/chat/project/file-browser/FileBrowserView"
+import type { ProjectFolderIdentity } from "@/components/chat/project/fileQuoteTarget"
 import { projectSourceFoldersForSession } from "@/components/chat/project/projectSourceFolders"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
@@ -135,7 +135,8 @@ import {
 } from "./contextCompactionEvents"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
-import { useFilePreview } from "./files/useFilePreview"
+import { previewTargetMime, useFilePreview, type PreviewTarget } from "./files/useFilePreview"
+import { useFileTabs } from "./files/useFileTabs"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
 import WorkspacePanel, { type WorkspaceFocusRequest } from "./workspace/WorkspacePanel"
@@ -160,6 +161,10 @@ import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
 import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
+import { WorkbenchResizeHandle } from "./workbench/WorkbenchResizeHandle"
+import { WorkbenchSurface } from "./workbench/WorkbenchSurface"
+import { useWorkbenchSizing, WORKBENCH_STAGE_THRESHOLD } from "./workbench/useWorkbenchSizing"
+import type { WorkbenchPanelId, WorkbenchTabItem } from "./workbench/types"
 import { TerminalPanel } from "./terminal/TerminalPanel"
 import { useProjects } from "./project/hooks/useProjects"
 import { useProjectWorkingDir } from "./project/hooks/useProjectWorkingDir"
@@ -284,19 +289,7 @@ function latestAssistantUsageFingerprint(messages: Message[]): string | null {
   return null
 }
 
-type ExclusiveRightPanel =
-  | "workspace"
-  | "pull-request"
-  | "diff"
-  | "plan"
-  | "files"
-  | "browser"
-  | "mac-control"
-  | "canvas"
-  | "team"
-  | "background-jobs"
-  | "subagent"
-  | "preview"
+type ExclusiveRightPanel = WorkbenchPanelId
 type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
 const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
@@ -313,6 +306,10 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "workspace",
   "preview",
 ]
+
+function isExclusiveRightPanel(value: string): value is ExclusiveRightPanel {
+  return EXCLUSIVE_RIGHT_PANEL_ORDER.includes(value as ExclusiveRightPanel)
+}
 
 const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   workspace: false,
@@ -366,11 +363,7 @@ const PERSISTENT_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "subagent",
 ]
 
-const DEFAULT_RIGHT_PANEL_WIDTH = 520
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
-const CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH = 320
-const RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH = 360
-const RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH = 640
 const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
 const RESPONSIVE_PANEL_HYSTERESIS = 120
 
@@ -379,17 +372,24 @@ interface MacControlFrameOpenHint {
   path?: string | null
 }
 
-function clampChatSidebarWidth(width: number): number {
-  return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
+interface RestorableWorkbenchSessionState {
+  workspace: boolean
+  browser: boolean
+  macControl: boolean
+  backgroundJobs: boolean
+  subagent: boolean
+  activePanel: ExclusiveRightPanel | null
+  collapsed: boolean
+  dismissed: {
+    workspace: boolean
+    browser: boolean
+    macControl: boolean
+    backgroundJobs: boolean
+  }
 }
 
-function clampResponsiveRightPanelWidth(width: number): number {
-  return Math.round(
-    Math.min(
-      RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH,
-      Math.max(RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH, width),
-    ),
-  )
+function clampChatSidebarWidth(width: number): number {
+  return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
 }
 
 function isSessionMode(value: unknown): value is SessionMode {
@@ -704,32 +704,17 @@ export default function ChatScreen({
   const { displayMode: defaultDisplayMode, autoCollapseCompletedTurns } =
     useChatDisplayPreferences()
 
-  // Right panel width (shared by all switchable right panels)
-  const [rightPanelWidth, setRightPanelWidth] = useState(DEFAULT_RIGHT_PANEL_WIDTH)
   const [canvasPanelOpen, setCanvasPanelOpen] = useState(false)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
 
-  // Right side file-preview panel (Markdown links / attachments / workspace
-  // files → in-app preview). Opened via `onPreviewFile` from the message tree.
+  // File browser tabs (tree + preview). Files inside a browsable root open here;
+  // a new tab is created only on explicit request, never by picking a file.
+  const fileTabs = useFileTabs()
+  // Bare preview tabs, for resources the tree cannot address (chat attachments,
+  // Canvas artifacts, knowledge notes, composer drafts).
   const filePreview = useFilePreview()
-  // Fullscreen toggle for the right-side preview panel (its RightPanelShell is
-  // owned here, unlike files/canvas which own their own). Reset whenever the
-  // preview isn't actively shown so it never reopens stuck-maximized.
-  const [filePreviewMaximized, setFilePreviewMaximized] = useState(false)
-  const {
-    ref: filePreviewFullscreenRef,
-    toggle: toggleFilePreviewFullscreen,
-    reset: resetFilePreviewFullscreen,
-  } = useFullscreenTransition<HTMLDivElement>({
-    maximized: filePreviewMaximized,
-    onMaximizedChange: setFilePreviewMaximized,
-  })
-  useEffect(() => {
-    if (!filePreview.showPanel || !filePreview.target) resetFilePreviewFullscreen()
-  }, [filePreview.showPanel, filePreview.target, resetFilePreviewFullscreen])
-
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
@@ -773,16 +758,11 @@ export default function ChatScreen({
   // tracks the dismissal until a session switch resets it.
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
-  const [showFilesPanel, setShowFilesPanel] = useState(false)
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
   const pendingForkComposerRef = useRef<{
     sessionId: string
     draft: ForkComposerDraft
   } | null>(null)
-  // Clicking a staged quote chip reveals that file in the browser. The nonce
-  // makes each click a fresh signal, even when re-revealing the same path.
-  const revealQuoteNonce = useRef(0)
-  const [revealFile, setRevealFile] = useState<ProjectFileQuoteReveal | null>(null)
   const [showMacControlPanel, setShowMacControlPanel] = useState(false)
   const macControlPanelDismissedRef = useRef(false)
 
@@ -2134,15 +2114,6 @@ export default function ChatScreen({
     [setAttachedFiles],
   )
 
-  const fileActionsValue = useMemo<FileActionsContextValue>(
-    () => ({
-      sessionId: currentSessionId,
-      onPreviewFile: filePreview.openPreview,
-      onReplaceDraft: replaceDraftAttachment,
-    }),
-    [currentSessionId, filePreview.openPreview, replaceDraftAttachment],
-  )
-
   const setProjectWelcomeInput = stream.setInput
   const handleProjectWelcomeSuggestion = useCallback(
     (prompt: string) => {
@@ -3217,9 +3188,12 @@ export default function ChatScreen({
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [workbenchResizing, setWorkbenchResizing] = useState(false)
+  const [workbenchMaximized, setWorkbenchMaximized] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
-  const [manualRightPanelExpandedOverride, setManualRightPanelExpandedOverride] = useState(false)
-  const autoCollapsedRightPanelRef = useRef(false)
+  const [environmentPopoverOpen, setEnvironmentPopoverOpen] = useState(false)
+  const [workbenchTabOrders, setWorkbenchTabOrders] = useState<Record<string, string[]>>({})
+  const [incognitoWorkbenchTabOrder, setIncognitoWorkbenchTabOrder] = useState<string[]>([])
 
   useEffect(() => {
     const toggleTerminal = (event: KeyboardEvent) => {
@@ -3249,7 +3223,7 @@ export default function ChatScreen({
       "pull-request": showPullRequestPanel && !!session.currentSessionId,
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
-      files: showFilesPanel && !!effectiveWorkingDir,
+      files: fileTabs.showPanel && !!effectiveWorkingDir,
       browser: showBrowserPanel && !isPanelFloating("browser"),
       "mac-control": showMacControlPanel && !isPanelFloating("mac-control"),
       canvas: canvasPanelOpen,
@@ -3262,6 +3236,7 @@ export default function ChatScreen({
       activeTeamId,
       canvasPanelOpen,
       effectiveWorkingDir,
+      fileTabs.showPanel,
       isDiffPanelVisible,
       isFilePreviewVisible,
       isPanelFloating,
@@ -3269,7 +3244,6 @@ export default function ChatScreen({
       showBackgroundJobsPanel,
       showSubagentPanel,
       showBrowserPanel,
-      showFilesPanel,
       showMacControlPanel,
       showPullRequestPanel,
       showTeamPanel,
@@ -3282,6 +3256,47 @@ export default function ChatScreen({
     [rightPanelVisibility],
   )
   const hasOpenExclusiveRightPanel = openExclusiveRightPanels.length > 0
+
+  useEffect(() => {
+    if (!hasOpenExclusiveRightPanel && workbenchMaximized) {
+      setWorkbenchMaximized(false)
+    }
+  }, [hasOpenExclusiveRightPanel, workbenchMaximized])
+
+  useEffect(() => {
+    if (!workbenchMaximized) return
+    const restoreWorkbench = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      setWorkbenchMaximized(false)
+    }
+    window.addEventListener("keydown", restoreWorkbench)
+    return () => window.removeEventListener("keydown", restoreWorkbench)
+  }, [workbenchMaximized])
+  const workbenchSessionKey = session.currentSessionId ?? "__draft__"
+  const storedWorkbenchOrder = incognitoEnabled
+    ? incognitoWorkbenchTabOrder
+    : (workbenchTabOrders[workbenchSessionKey] ?? [])
+  const orderedOpenExclusiveRightPanels = useMemo(
+    () => [
+      ...storedWorkbenchOrder.filter(
+        (panel): panel is ExclusiveRightPanel =>
+          isExclusiveRightPanel(panel) && rightPanelVisibility[panel],
+      ),
+      ...openExclusiveRightPanels.filter((panel) => !storedWorkbenchOrder.includes(panel)),
+    ],
+    [openExclusiveRightPanels, rightPanelVisibility, storedWorkbenchOrder],
+  )
+  const workbenchOpen = hasOpenExclusiveRightPanel && !rightPanelCollapsed
+  const {
+    containerRef: workbenchContainerRef,
+    availableWidth: workbenchAvailableWidth,
+    width: rightPanelWidth,
+    layoutMode: workbenchLayoutMode,
+    setManualWidth: setRightPanelWidth,
+    commitManualWidth: commitRightPanelWidth,
+    resetAutomaticWidth: resetRightPanelWidth,
+  } = useWorkbenchSizing(workbenchOpen)
   const previousHasOpenRightPanelRef = useRef(false)
   const animateRightPanelOnMount =
     hasOpenExclusiveRightPanel && !previousHasOpenRightPanelRef.current
@@ -3291,20 +3306,15 @@ export default function ChatScreen({
   const renderedExclusiveRightPanel =
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
-      : (openExclusiveRightPanels[0] ?? null)
-  const shouldRenderRightPanelContent = !!renderedExclusiveRightPanel
+      : (orderedOpenExclusiveRightPanels[0] ?? null)
   const handleSelectRightPanel = useCallback((panelId: string) => {
-    if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
-    setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
-    autoCollapsedRightPanelRef.current = false
-    setManualRightPanelExpandedOverride(true)
+    if (!isExclusiveRightPanel(panelId)) return
+    setActiveExclusiveRightPanel(panelId)
     setRightPanelCollapsed(false)
   }, [])
 
   const showRightPanelByUser = useCallback((panel: ExclusiveRightPanel) => {
     setActiveExclusiveRightPanel(panel)
-    autoCollapsedRightPanelRef.current = false
-    setManualRightPanelExpandedOverride(true)
     setRightPanelCollapsed(false)
   }, [])
 
@@ -3334,24 +3344,138 @@ export default function ChatScreen({
       }),
     [handleMessageQuote],
   )
-  // Reveal a quoted file in the browser: open the files panel + signal target.
+  // 文件浏览器面板的作用域（与下方 FileBrowserPanel 渲染处共用，避免两处漂移）。
+  const fileBrowserScope: "session" | "project" =
+    !session.currentSessionId && currentProject ? "project" : "session"
+  const fileBrowserScopeId =
+    !session.currentSessionId && currentProject ? currentProject.id : session.currentSessionId
+
+  /**
+   * Map an absolute path onto a root the file browser can list. Longest match
+   * wins so a source folder nested inside the primary root resolves to itself
+   * rather than to a path the primary cannot address. `null` = not browsable.
+   */
+  const resolveBrowsablePath = useCallback(
+    (absPath: string): { relPath: string; projectRoot: ProjectFolderIdentity | null } | null => {
+      const path = absPath.replace(/\\/g, "/").replace(/\/+$/, "")
+      const roots: { path: string | null; projectRoot: ProjectFolderIdentity | null }[] = [
+        { path: effectiveWorkingDir, projectRoot: null },
+        ...projectFileBrowserRoots.map((rootPath, index) => ({
+          path: rootPath,
+          projectRoot: { index, path: rootPath },
+        })),
+      ]
+      let resolved: { relPath: string; projectRoot: ProjectFolderIdentity | null } | null = null
+      let matchedLength = -1
+      for (const root of roots) {
+        if (!root.path) continue
+        const rootDir = root.path.replace(/\\/g, "/").replace(/\/+$/, "")
+        if (!rootDir || rootDir.length <= matchedLength) continue
+        if (path !== rootDir && !path.startsWith(`${rootDir}/`)) continue
+        matchedLength = rootDir.length
+        resolved = {
+          relPath: path.slice(rootDir.length).replace(/^\/+/, ""),
+          projectRoot: root.projectRoot,
+        }
+      }
+      return resolved
+    },
+    [effectiveWorkingDir, projectFileBrowserRoots],
+  )
+
+  /** A file the browser can reveal, or `null` when it lives outside every root. */
+  const resolveBrowsableTarget = useCallback(
+    (target: PreviewTarget) => {
+      if (target.kind === "workspace") {
+        // Workspace targets already speak the browser's relative language — but
+        // only while they address the very scope this panel is rooted at.
+        if (target.scope !== fileBrowserScope || target.scopeId !== (fileBrowserScopeId ?? "")) {
+          return null
+        }
+        if (target.isDirectory) return null
+        return { path: target.relPath, name: target.name, projectRoot: null }
+      }
+      if (target.kind !== "sessionPath") return null
+      const resolved = resolveBrowsablePath(target.path)
+      if (!resolved || !resolved.relPath) return null
+      return { path: resolved.relPath, name: target.name, projectRoot: resolved.projectRoot }
+    },
+    [fileBrowserScope, fileBrowserScopeId, resolveBrowsablePath],
+  )
+
+  /**
+   * Single entry point for "show me this file". Anything the tree can address
+   * lands in the active browser tab (so picking files never spawns tabs); the
+   * rest — attachments, artifacts, notes, composer drafts — keeps its own bare
+   * preview tab, since there is no tree row to select for it.
+   */
+  const openFileTarget = useCallback(
+    (target: PreviewTarget) => {
+      const browsable = resolveBrowsableTarget(target)
+      if (browsable) {
+        fileTabs.revealFileInActiveTab(browsable)
+        showRightPanelByUser("files")
+        return
+      }
+      filePreview.openPreview(target)
+    },
+    [fileTabs, filePreview, resolveBrowsableTarget, showRightPanelByUser],
+  )
+
+  // Declared here (not beside the other memos) so it can close over the router
+  // above — every chat-side "open this file" affordance goes through it.
+  const fileActionsValue = useMemo<FileActionsContextValue>(
+    () => ({
+      sessionId: currentSessionId,
+      onPreviewFile: openFileTarget,
+      onReplaceDraft: replaceDraftAttachment,
+    }),
+    [currentSessionId, openFileTarget, replaceDraftAttachment],
+  )
+
+  // Reveal a quoted file in the browser: focus a file tab + signal the target.
   const handleQuoteJump = useCallback(
     (q: QuotePayload) => {
       if (q.revealable === false) return
-      setShowFilesPanel(true)
-      showRightPanelByUser("files")
-      revealQuoteNonce.current += 1
-      setRevealFile({
+      fileTabs.revealFileInActiveTab({
         path: q.path,
         name: q.name,
+        projectRoot: q.projectRoot ?? null,
+        worktreeRoot: q.worktreeRoot ?? null,
         startLine: q.startLine,
         endLine: q.endLine,
-        projectRoot: q.projectRoot,
-        worktreeRoot: q.worktreeRoot,
-        nonce: revealQuoteNonce.current,
       })
+      showRightPanelByUser("files")
     },
-    [showRightPanelByUser],
+    [fileTabs, showRightPanelByUser],
+  )
+
+  // 预览头面包屑 → 文件浏览器。只有浏览器真能寻址的目录才可点，其余渲染成纯文本
+  // 而不是死链接。
+  const resolvePreviewDirectory = useCallback(
+    (target: PreviewTarget, dirPath: string): Omit<FileBrowserDirectoryReveal, "nonce"> | null => {
+      if (target.kind === "workspace") {
+        if (target.scope !== fileBrowserScope || target.scopeId !== (fileBrowserScopeId ?? "")) {
+          return null
+        }
+        return { relPath: dirPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, ""), projectRoot: null }
+      }
+      return resolveBrowsablePath(dirPath)
+    },
+    [fileBrowserScope, fileBrowserScopeId, resolveBrowsablePath],
+  )
+  const canRevealPreviewDirectory = useCallback(
+    (target: PreviewTarget, dirPath: string) => !!resolvePreviewDirectory(target, dirPath),
+    [resolvePreviewDirectory],
+  )
+  const revealPreviewDirectory = useCallback(
+    (target: PreviewTarget, dirPath: string) => {
+      const resolved = resolvePreviewDirectory(target, dirPath)
+      if (!resolved) return
+      fileTabs.revealDirectoryInActiveTab(resolved.relPath, resolved.projectRoot)
+      showRightPanelByUser("files")
+    },
+    [fileTabs, resolvePreviewDirectory, showRightPanelByUser],
   )
 
   // 打开并激活 Workspace 面板（状态条点击 / 重新打开）。
@@ -3469,61 +3593,22 @@ export default function ChatScreen({
 
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
-      autoCollapsedRightPanelRef.current = false
-      setManualRightPanelExpandedOverride(false)
       setRightPanelCollapsed(false)
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
-  const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current
-    ? 0
-    : panelWidth
-  const responsiveRightPanelWidth = clampResponsiveRightPanelWidth(rightPanelWidth)
-  const rightPanelCollapseAt =
-    preferredSidebarWidthForResponsive + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + responsiveRightPanelWidth
-  const rightPanelExpandAt = rightPanelCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
   const sidebarCollapseAt =
-    panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
+    panelWidth +
+    (hasOpenExclusiveRightPanel
+      ? WORKBENCH_STAGE_THRESHOLD
+      : CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER)
   const sidebarExpandAt = sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
-  const shouldAutoCollapseRightPanel = useViewportMediaQuery(
-    `(max-width: ${rightPanelCollapseAt}px)`,
-  )
-  const shouldAutoExpandRightPanel = useViewportMediaQuery(`(min-width: ${rightPanelExpandAt}px)`)
-  const rightPanelOverlay =
-    hasOpenExclusiveRightPanel && manualRightPanelExpandedOverride && shouldAutoCollapseRightPanel
   const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
   const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
 
   useEffect(() => {
-    if (shouldAutoExpandRightPanel && manualRightPanelExpandedOverride) {
-      setManualRightPanelExpandedOverride(false)
-    }
-
     if (shouldAutoExpandSidebar) {
       manualSidebarExpandedOverrideRef.current = false
-    }
-
-    if (hasOpenExclusiveRightPanel) {
-      if (
-        shouldAutoCollapseRightPanel &&
-        !rightPanelCollapsed &&
-        !manualRightPanelExpandedOverride
-      ) {
-        autoCollapsedRightPanelRef.current = true
-        setRightPanelCollapsed(true)
-      } else if (
-        shouldAutoExpandRightPanel &&
-        rightPanelCollapsed &&
-        autoCollapsedRightPanelRef.current
-      ) {
-        autoCollapsedRightPanelRef.current = false
-        setRightPanelCollapsed(false)
-      }
-    } else {
-      autoCollapsedRightPanelRef.current = false
-      if (manualRightPanelExpandedOverride) {
-        setManualRightPanelExpandedOverride(false)
-      }
     }
 
     if (
@@ -3543,16 +3628,7 @@ export default function ChatScreen({
       autoCollapsedSidebarRef.current = false
       setSidebarCollapsed(false)
     }
-  }, [
-    hasOpenExclusiveRightPanel,
-    manualRightPanelExpandedOverride,
-    rightPanelCollapsed,
-    sidebarCollapsed,
-    shouldAutoCollapseRightPanel,
-    shouldAutoCollapseSidebar,
-    shouldAutoExpandRightPanel,
-    shouldAutoExpandSidebar,
-  ])
+  }, [sidebarCollapsed, shouldAutoCollapseSidebar, shouldAutoExpandSidebar])
 
   // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
   // rail. Track rising edges so the panel that just opened wins while the
@@ -3565,6 +3641,7 @@ export default function ChatScreen({
   // visibility rising edge to latch onto (showPanel stayed true), so the nonce's
   // rising edge force-claims the active slot.
   const previousPreviewOpenNonceRef = useRef(filePreview.openNonce)
+  const previousFileTabsOpenNonceRef = useRef(fileTabs.openNonce)
   const previousDiffOpenNonceRef = useRef(diffPanel.openNonce)
   useLayoutEffect(() => {
     const previous = previousRightPanelVisibilityRef.current
@@ -3582,16 +3659,20 @@ export default function ChatScreen({
     let forced: ExclusiveRightPanel | null = null
     if (filePreview.openNonce !== previousPreviewOpenNonceRef.current) {
       forced = "preview"
+    } else if (fileTabs.openNonce !== previousFileTabsOpenNonceRef.current) {
+      forced = "files"
     } else if (diffPanel.openNonce !== previousDiffOpenNonceRef.current) {
       forced = "diff"
     }
     previousPreviewOpenNonceRef.current = filePreview.openNonce
+    previousFileTabsOpenNonceRef.current = fileTabs.openNonce
     previousDiffOpenNonceRef.current = diffPanel.openNonce
     const stillActive =
       activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
         ? activeExclusiveRightPanel
         : null
-    const active = forced ?? newlyOpened ?? stillActive ?? openExclusiveRightPanels[0] ?? null
+    const active =
+      forced ?? newlyOpened ?? stillActive ?? orderedOpenExclusiveRightPanels[0] ?? null
 
     previousRightPanelVisibilityRef.current = rightPanelVisibility
     if (activeExclusiveRightPanel !== active) {
@@ -3599,43 +3680,93 @@ export default function ChatScreen({
     }
   }, [
     activeExclusiveRightPanel,
-    openExclusiveRightPanels,
+    orderedOpenExclusiveRightPanels,
     rightPanelVisibility,
+    fileTabs.openNonce,
     filePreview.openNonce,
     diffPanel.openNonce,
   ])
 
-  // Reset dismissal flags (and any open panel state) on session switch so each
-  // session gets a fresh chance to auto-open live mirror panels. Bind the stable
-  // `closePreview` callback locally so this effect depends on it (not the
-  // per-render `filePreview` object, which would reset every panel on every
-  // preview toggle).
-  const closeFilePreview = filePreview.closePreview
-  useEffect(() => {
+  // Workbench sets are session-scoped. Returning to a normal session restores
+  // its safe tabs/order/active selection; incognito sets are never cached.
+  const workbenchSessionCacheRef = useRef(new Map<string, RestorableWorkbenchSessionState>())
+  const activeWorkbenchSessionRef = useRef("__draft__")
+  const activeWorkbenchIncognitoRef = useRef(false)
+  const suppressWorkbenchOrderWriteRef = useRef(false)
+  const switchFilePreviewScope = filePreview.switchScope
+  const switchFileTabsScope = fileTabs.switchScope
+  useLayoutEffect(() => {
+    const nextKey = session.currentSessionId ?? "__draft__"
+    const previousKey = activeWorkbenchSessionRef.current
+    const leavingIncognito = activeWorkbenchIncognitoRef.current
+    if (previousKey === nextKey && leavingIncognito === incognitoEnabled) return
+    suppressWorkbenchOrderWriteRef.current = true
     const preserveWorkspace = preserveWorkspaceOnSessionSwitchRef.current
-    browserPanelDismissedRef.current = false
-    macControlPanelDismissedRef.current = false
-    workspacePanelDismissedRef.current = false
-    backgroundJobsPanelDismissedRef.current = false
+    if (!leavingIncognito) {
+      workbenchSessionCacheRef.current.set(previousKey, {
+        workspace: showWorkspacePanel,
+        browser: showBrowserPanel,
+        macControl: showMacControlPanel,
+        backgroundJobs: showBackgroundJobsPanel,
+        subagent: showSubagentPanel,
+        activePanel: activeExclusiveRightPanel,
+        collapsed: rightPanelCollapsed,
+        dismissed: {
+          workspace: workspacePanelDismissedRef.current,
+          browser: browserPanelDismissedRef.current,
+          macControl: macControlPanelDismissedRef.current,
+          backgroundJobs: backgroundJobsPanelDismissedRef.current,
+        },
+      })
+    }
+    if (leavingIncognito || incognitoEnabled) setIncognitoWorkbenchTabOrder([])
+    const restore = !incognitoEnabled ? workbenchSessionCacheRef.current.get(nextKey) : undefined
+    activeWorkbenchSessionRef.current = nextKey
+    activeWorkbenchIncognitoRef.current = incognitoEnabled
+    workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
+    browserPanelDismissedRef.current = restore?.dismissed.browser ?? false
+    macControlPanelDismissedRef.current = restore?.dismissed.macControl ?? false
+    backgroundJobsPanelDismissedRef.current = restore?.dismissed.backgroundJobs ?? false
     suppressNextBackgroundJobsActivationRef.current = false
     previousBackgroundRunningCountRef.current = 0
-    setShowBrowserPanel(false)
-    setShowMacControlPanel(false)
     // Frames are session-scoped — close floating mirrors on session switch.
     closeFloatingPanel("browser")
     closeFloatingPanel("mac-control")
-    setShowWorkspacePanel(preserveWorkspace)
+    setShowBrowserPanel(restore?.browser ?? false)
+    setShowMacControlPanel(restore?.macControl ?? false)
+    setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
     setPullRequestExpectedUrl(null)
-    setShowBackgroundJobsPanel(false)
+    setShowBackgroundJobsPanel(restore?.backgroundJobs ?? false)
     setBackgroundJobExpansionOverrides({})
-    setShowSubagentPanel(false)
+    setShowSubagentPanel(restore?.subagent ?? false)
     setSubagentPanelSelectRequest(null)
-    closeFilePreview()
+    setActiveExclusiveRightPanel(restore?.activePanel ?? null)
+    setRightPanelCollapsed(restore?.collapsed ?? false)
+    setWorkbenchMaximized(false)
+    const scopeSwitch = {
+      restore: !incognitoEnabled,
+      cacheCurrent: !leavingIncognito,
+    }
+    switchFilePreviewScope(incognitoEnabled ? `incognito:${nextKey}` : nextKey, scopeSwitch)
+    switchFileTabsScope(incognitoEnabled ? `incognito:${nextKey}` : nextKey, scopeSwitch)
     if (preserveWorkspace) {
       preserveWorkspaceOnSessionSwitchRef.current = false
     }
-  }, [session.currentSessionId, closeFilePreview, closeFloatingPanel])
+  }, [
+    activeExclusiveRightPanel,
+    closeFloatingPanel,
+    incognitoEnabled,
+    rightPanelCollapsed,
+    session.currentSessionId,
+    showBackgroundJobsPanel,
+    showBrowserPanel,
+    showMacControlPanel,
+    showSubagentPanel,
+    showWorkspacePanel,
+    switchFilePreviewScope,
+    switchFileTabsScope,
+  ])
 
   // Auto-open the BrowserPanel only on the first `browser:frame` of a session
   // and only if the user hasn't already dismissed it.
@@ -3758,7 +3889,7 @@ export default function ChatScreen({
       runningCount: workflowTitleBarRuns.runs.filter(isRunning).length,
     }
   }, [workflowTitleBarRuns.activeCount, workflowTitleBarRuns.runs])
-  const titleBarRightPanels = useMemo(() => {
+  const titleBarRightPanels = useMemo<WorkbenchTabItem[]>(() => {
     const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter((panel) => {
       if (panel === "files") return !!effectiveWorkingDir
       // Only surface the sub-agent entry once the session has spawned one.
@@ -3780,9 +3911,16 @@ export default function ChatScreen({
     return [...persistentPanels, ...transientPanels].map((panel) => {
       const base = {
         id: panel,
+        panelId: panel,
         labelKey: EXCLUSIVE_RIGHT_PANEL_LABEL_KEYS[panel],
         icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
         open: rightPanelVisibility[panel] || isFloatingPanelId(panel),
+        windowMode:
+          panel === "browser" || panel === "mac-control"
+            ? isPanelFloating(panel)
+              ? ("floating" as const)
+              : ("docked" as const)
+            : undefined,
       }
       if (panel === "workspace" && workflowBadgeCount > 0) {
         return {
@@ -3834,6 +3972,119 @@ export default function ChatScreen({
     showSubagentPanel,
     workflowTitleBarStatus,
   ])
+  const workbenchTabs = useMemo<WorkbenchTabItem[]>(() => {
+    const byId = new Map(titleBarRightPanels.map((item) => [item.id, item]))
+    const unordered: WorkbenchTabItem[] = []
+    for (const panel of orderedOpenExclusiveRightPanels) {
+      if (panel === "preview") {
+        for (const entry of filePreview.entries) {
+          unordered.push({
+            id: entry.id,
+            panelId: "preview",
+            label: entry.title,
+            icon: EXCLUSIVE_RIGHT_PANEL_ICONS.preview,
+            fileIcon: { name: entry.title, mime: previewTargetMime(entry.target) },
+            open: true,
+          })
+        }
+        continue
+      }
+      if (panel === "files") {
+        for (const tab of fileTabs.tabs) {
+          unordered.push({
+            id: tab.id,
+            panelId: "files",
+            label: tab.selection?.name ?? t("fileBrowser.panelTitle", "Files"),
+            icon: EXCLUSIVE_RIGHT_PANEL_ICONS.files,
+            fileIcon: tab.selection ? { name: tab.selection.name } : undefined,
+            open: true,
+          })
+        }
+        continue
+      }
+      const item = byId.get(panel)
+      if (item) unordered.push(item)
+    }
+    for (const item of titleBarRightPanels) {
+      // Both of these expand into per-resource tabs above; the singleton entry
+      // from the launcher list would otherwise duplicate them.
+      if (item.panelId === "preview" || item.panelId === "files") continue
+      if (item.open && !unordered.some((tab) => tab.id === item.id)) unordered.push(item)
+    }
+    const byTabId = new Map(unordered.map((item) => [item.id, item]))
+    return [
+      ...storedWorkbenchOrder
+        .map((id) => byTabId.get(id))
+        .filter((item): item is WorkbenchTabItem => !!item),
+      ...unordered.filter((item) => !storedWorkbenchOrder.includes(item.id)),
+    ]
+  }, [
+    fileTabs.tabs,
+    filePreview.entries,
+    orderedOpenExclusiveRightPanels,
+    storedWorkbenchOrder,
+    t,
+    titleBarRightPanels,
+  ])
+
+  useLayoutEffect(() => {
+    if (suppressWorkbenchOrderWriteRef.current) {
+      suppressWorkbenchOrderWriteRef.current = false
+      return
+    }
+    const nextOrder = workbenchTabs.map((tab) => tab.id)
+    if (incognitoEnabled) {
+      setIncognitoWorkbenchTabOrder((current) =>
+        current.length === nextOrder.length &&
+        current.every((tabId, index) => tabId === nextOrder[index])
+          ? current
+          : nextOrder,
+      )
+      return
+    }
+    setWorkbenchTabOrders((current) => {
+      const previous = current[workbenchSessionKey] ?? []
+      if (
+        previous.length === nextOrder.length &&
+        previous.every((tabId, index) => tabId === nextOrder[index])
+      ) {
+        return current
+      }
+      return { ...current, [workbenchSessionKey]: nextOrder }
+    })
+  }, [incognitoEnabled, workbenchSessionKey, workbenchTabs])
+
+  const handleReorderWorkbenchTabs = useCallback(
+    (source: string, target: string) => {
+      const reorder = (currentOrder: string[]) => {
+        const order = [...currentOrder]
+        const sourceIndex = order.indexOf(source)
+        const targetIndex = order.indexOf(target)
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return currentOrder
+        order.splice(sourceIndex, 1)
+        order.splice(targetIndex, 0, source)
+        return order
+      }
+      if (incognitoEnabled) {
+        setIncognitoWorkbenchTabOrder((current) =>
+          reorder(current.length > 0 ? current : workbenchTabs.map((tab) => tab.id)),
+        )
+      } else {
+        setWorkbenchTabOrders((current) => {
+          const currentOrder = current[workbenchSessionKey] ?? workbenchTabs.map((tab) => tab.id)
+          const order = reorder(currentOrder)
+          return order === currentOrder ? current : { ...current, [workbenchSessionKey]: order }
+        })
+      }
+      if (source.startsWith("preview:") && target.startsWith("preview:")) {
+        filePreview.reorderPreviews(source, target)
+      }
+      if (source.startsWith("files:") && target.startsWith("files:")) {
+        fileTabs.reorderTabs(source, target)
+      }
+    },
+    [fileTabs, filePreview, incognitoEnabled, workbenchSessionKey, workbenchTabs],
+  )
   const workflowInputProgress = useMemo(() => {
     const visibleStates = new Set<WorkflowRun["state"]>([
       "awaiting_approval",
@@ -3874,30 +4125,21 @@ export default function ChatScreen({
     }
   }, [workflowTitleBarRuns.runs])
 
-  const handleRightPanelAction = useCallback(
-    (panelId: string) => {
-      if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
-      const panel = panelId as ExclusiveRightPanel
-      // A floating mirror's title-bar button docks it back into the slot.
+  const handleOpenWorkbenchPanel = useCallback(
+    (panel: ExclusiveRightPanel) => {
       if ((panel === "browser" || panel === "mac-control") && isPanelFloating(panel)) {
         dockFloatingPanel(panel)
         showRightPanelByUser(panel)
         return
       }
-      if (panel === renderedExclusiveRightPanel) {
-        const nextCollapsed = !rightPanelCollapsed
-        autoCollapsedRightPanelRef.current = false
-        setManualRightPanelExpandedOverride(!nextCollapsed)
-        setRightPanelCollapsed(nextCollapsed)
-        return
-      }
-
       if (panel === "workspace") {
         openWorkspacePanel()
         return
       }
       if (panel === "files") {
-        setShowFilesPanel(true)
+        // The `+` menu always means "give me another browser", so this opens a
+        // fresh tab rather than re-focusing whichever one already exists.
+        fileTabs.openTab()
         showRightPanelByUser("files")
         return
       }
@@ -3909,28 +4151,198 @@ export default function ChatScreen({
         openSubagentPanel()
         return
       }
+      if (panel === "plan") {
+        planMode.openPlanPanel()
+        return
+      }
+      if (panel === "browser") {
+        openBrowserPanel()
+        return
+      }
+      if (panel === "mac-control") {
+        macControlPanelDismissedRef.current = false
+        setShowMacControlPanel(true)
+        showRightPanelByUser("mac-control")
+        return
+      }
+      if (panel === "canvas") {
+        setCanvasPanelOpen(true)
+        showRightPanelByUser("canvas")
+        return
+      }
+      if (panel === "team" && activeTeamId) {
+        setShowTeamPanel(true)
+        showRightPanelByUser("team")
+        return
+      }
+      if (panel === "pull-request" && session.currentSessionId) {
+        setShowPullRequestPanel(true)
+        showRightPanelByUser("pull-request")
+        return
+      }
       handleSelectRightPanel(panel)
     },
     [
+      activeTeamId,
       dockFloatingPanel,
+      fileTabs,
       handleSelectRightPanel,
       isPanelFloating,
       openBackgroundJobsPanel,
+      openBrowserPanel,
       openSubagentPanel,
       openWorkspacePanel,
-      renderedExclusiveRightPanel,
-      rightPanelCollapsed,
+      planMode,
+      session.currentSessionId,
       showRightPanelByUser,
     ],
   )
 
-  const rightPanelReservedMainWidth =
-    manualRightPanelExpandedOverride && !rightPanelCollapsed
-      ? CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH
-      : CHAT_MAIN_MIN_INTERACTIVE_WIDTH
-  const chatMainMinWidth = `min(100%, ${rightPanelReservedMainWidth}px)`
+  const handleSelectWorkbenchTab = useCallback(
+    (tabId: string) => {
+      if (tabId.startsWith("preview:")) {
+        filePreview.selectPreview(tabId)
+        showRightPanelByUser("preview")
+        return
+      }
+      if (tabId.startsWith("files:")) {
+        fileTabs.selectTab(tabId)
+        showRightPanelByUser("files")
+        return
+      }
+      handleSelectRightPanel(tabId)
+    },
+    [fileTabs, filePreview, handleSelectRightPanel, showRightPanelByUser],
+  )
+
+  const handleToggleWorkbenchTabWindow = useCallback(
+    (tabId: string) => {
+      if (tabId !== "browser" && tabId !== "mac-control") return
+      if (isPanelFloating(tabId)) {
+        dockFloatingPanel(tabId)
+        showRightPanelByUser(tabId)
+        return
+      }
+      floatPanel(tabId)
+    },
+    [dockFloatingPanel, floatPanel, isPanelFloating, showRightPanelByUser],
+  )
+
+  const confirmFilesPanelClose = useCallback(
+    () =>
+      confirmDiscardDirtyFileEditors(
+        t("fileEditor.unsavedBody", "Discard the current edits before leaving this file?"),
+      ),
+    [t],
+  )
+
+  const closeFilePreview = useCallback(
+    (previewId: string) => {
+      filePreview.closePreview(previewId)
+    },
+    [filePreview.closePreview],
+  )
+
+  const handleCloseWorkbenchTab = useCallback(
+    (tabId: string) => {
+      if (tabId.startsWith("preview:")) {
+        closeFilePreview(tabId)
+        return
+      }
+      if (tabId.startsWith("files:")) {
+        if (!confirmFilesPanelClose()) return
+        fileTabs.closeTab(tabId)
+        return
+      }
+      if (!isExclusiveRightPanel(tabId)) return
+      const panel = tabId
+      if (panel === "workspace") {
+        workspacePanelDismissedRef.current = true
+        setWorkspaceFocusRequest(null)
+        setShowWorkspacePanel(false)
+      } else if (panel === "pull-request") {
+        setShowPullRequestPanel(false)
+        setPullRequestExpectedUrl(null)
+      } else if (panel === "diff") {
+        diffPanel.closeDiff()
+      } else if (panel === "plan") {
+        planMode.setShowPanel(false)
+      } else if (panel === "files") {
+        if (!confirmFilesPanelClose()) return
+        fileTabs.closeAllTabs()
+      } else if (panel === "browser") {
+        browserPanelDismissedRef.current = true
+        closeFloatingPanel("browser")
+        setShowBrowserPanel(false)
+      } else if (panel === "mac-control") {
+        macControlPanelDismissedRef.current = true
+        closeFloatingPanel("mac-control")
+        setShowMacControlPanel(false)
+      } else if (panel === "canvas") {
+        window.dispatchEvent(new CustomEvent("hope-agent:close-canvas"))
+        setCanvasPanelOpen(false)
+      } else if (panel === "team") {
+        setShowTeamPanel(false)
+      } else if (panel === "background-jobs") {
+        closeBackgroundJobsPanel()
+      } else if (panel === "subagent") {
+        closeSubagentPanel()
+      } else if (panel === "preview") {
+        filePreview.closeAllPreviews()
+      }
+    },
+    [
+      closeBackgroundJobsPanel,
+      closeFilePreview,
+      closeFloatingPanel,
+      closeSubagentPanel,
+      confirmFilesPanelClose,
+      diffPanel,
+      fileTabs,
+      filePreview,
+      planMode,
+    ],
+  )
+
+  const handleCollapseWorkbench = useCallback(() => {
+    setWorkbenchMaximized(false)
+    setRightPanelCollapsed(true)
+  }, [])
+
+  const handleToggleWorkbenchMaximize = useCallback(() => {
+    setRightPanelCollapsed(false)
+    setWorkbenchMaximized((value) => !value)
+  }, [])
+
+  const handleExpandWorkbench = useCallback(() => {
+    if (hasOpenExclusiveRightPanel) {
+      setRightPanelCollapsed(false)
+      if (!renderedExclusiveRightPanel) {
+        setActiveExclusiveRightPanel(orderedOpenExclusiveRightPanels[0] ?? null)
+      }
+      return
+    }
+    openWorkspacePanel()
+  }, [
+    hasOpenExclusiveRightPanel,
+    openWorkspacePanel,
+    orderedOpenExclusiveRightPanels,
+    renderedExclusiveRightPanel,
+  ])
+
   const workspacePanelVisibleInRightPanel =
     showWorkspacePanel && renderedExclusiveRightPanel === "workspace" && !rightPanelCollapsed
+  const conversationAvailableWidth =
+    workbenchOpen && workbenchLayoutMode === "docked"
+      ? workbenchAvailableWidth - rightPanelWidth
+      : workbenchAvailableWidth
+  const environmentReserved = environmentPopoverOpen && conversationAvailableWidth >= 964
+  const activeWorkbenchTabId =
+    renderedExclusiveRightPanel === "preview"
+      ? filePreview.activeId
+      : renderedExclusiveRightPanel === "files"
+        ? fileTabs.activeId
+        : renderedExclusiveRightPanel
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
@@ -4135,56 +4547,90 @@ export default function ChatScreen({
       />
 
       {/* Conversation workspace */}
-      <div className="flex-1 flex flex-col min-w-0 bg-background">
-        <ChatTitleBar
-          agentName={session.agentName}
-          currentAgentId={session.currentAgentId}
-          currentSessionId={session.currentSessionId}
-          sessions={session.sessions}
-          messages={session.messages}
-          contextUsageOverride={contextUsage}
-          activeModel={activeModel}
-          availableModels={availableModels}
-          reasoningEffort={reasoningEffort}
-          loading={session.loading}
-          compacting={compacting}
-          onCompactContext={runCompactContextForCurrentSession}
-          onRenameSession={handleRenameSession}
-          onViewSystemPrompt={loadSystemPrompt}
-          systemPromptLoading={systemPromptLoading}
-          onCommandAction={handleCommandAction}
-          onOpenSearch={openSessionSearch}
-          searchOpen={searchBarOpen}
-          effectiveWorkingDir={effectiveWorkingDir}
-          workingDirSource={workingDirSource}
-          project={currentProject}
-          onOpenProjectSettings={openProjectOverview}
-          onOpenHandover={(sid) => setHandoverSessionId(sid)}
-          agents={session.agents}
-          onChangeAgent={handleChangeAgent}
-          sidebarCollapsed={sidebarCollapsed}
-          onExpandSidebar={() => handleSidebarCollapsedChange(false)}
-          incognitoEnabled={incognitoEnabled}
-          incognitoDisabledReason={incognitoDisabledReason}
-          onIncognitoChange={handleIncognitoChange}
-          rightPanels={titleBarRightPanels}
-          activeRightPanelId={renderedExclusiveRightPanel}
-          rightPanelCollapsed={rightPanelCollapsed}
-          onRightPanelAction={handleRightPanelAction}
-          terminalOpen={terminalOpen}
-          onToggleTerminal={() => setTerminalOpen((value) => !value)}
-        />
+      <div
+        ref={workbenchContainerRef}
+        className="relative flex min-w-0 flex-1 flex-col bg-background"
+      >
+        {/* Positioning context for the workbench divider. It deliberately stops
+            above the Terminal dock: the dock spans the full width, so a
+            container-height divider would draw a line straight through it. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          {workbenchOpen && workbenchLayoutMode === "docked" && !workbenchMaximized && (
+            <WorkbenchResizeHandle
+              width={rightPanelWidth}
+              availableWidth={workbenchAvailableWidth}
+              resizeLabel={t("chat.rightPanel.dock", "Resize workbench")}
+              onWidthChange={setRightPanelWidth}
+              onWidthCommit={commitRightPanelWidth}
+              onResetWidth={resetRightPanelWidth}
+              onResizingChange={setWorkbenchResizing}
+            />
+          )}
+          <ChatTitleBar
+            agentName={session.agentName}
+            currentAgentId={session.currentAgentId}
+            currentSessionId={session.currentSessionId}
+            sessions={session.sessions}
+            messages={session.messages}
+            contextUsageOverride={contextUsage}
+            activeModel={activeModel}
+            availableModels={availableModels}
+            reasoningEffort={reasoningEffort}
+            loading={session.loading}
+            compacting={compacting}
+            onCompactContext={runCompactContextForCurrentSession}
+            onRenameSession={handleRenameSession}
+            onViewSystemPrompt={loadSystemPrompt}
+            systemPromptLoading={systemPromptLoading}
+            onCommandAction={handleCommandAction}
+            onOpenSearch={openSessionSearch}
+            searchOpen={searchBarOpen}
+            effectiveWorkingDir={effectiveWorkingDir}
+            workingDirSource={workingDirSource}
+            project={currentProject}
+            onOpenProjectSettings={openProjectOverview}
+            onOpenHandover={(sid) => setHandoverSessionId(sid)}
+            agents={session.agents}
+            onChangeAgent={handleChangeAgent}
+            sidebarCollapsed={sidebarCollapsed}
+            onExpandSidebar={() => handleSidebarCollapsedChange(false)}
+            incognitoEnabled={incognitoEnabled}
+            incognitoDisabledReason={incognitoDisabledReason}
+            onIncognitoChange={handleIncognitoChange}
+            workbenchWidth={rightPanelWidth}
+            workbenchLayoutMode={workbenchLayoutMode}
+            workbenchTabs={workbenchTabs}
+            workbenchLaunchItems={titleBarRightPanels}
+            activeWorkbenchTabId={activeWorkbenchTabId}
+            workbenchCollapsed={rightPanelCollapsed}
+            workbenchResizing={workbenchResizing}
+            workbenchMaximized={workbenchMaximized}
+            onSelectWorkbenchTab={handleSelectWorkbenchTab}
+            onOpenWorkbenchPanel={handleOpenWorkbenchPanel}
+            onCloseWorkbenchTab={handleCloseWorkbenchTab}
+            onReorderWorkbenchTabs={handleReorderWorkbenchTabs}
+            onToggleWorkbenchTabWindow={handleToggleWorkbenchTabWindow}
+            onToggleWorkbenchMaximize={handleToggleWorkbenchMaximize}
+            onCollapseWorkbench={handleCollapseWorkbench}
+            onExpandWorkbench={handleExpandWorkbench}
+            onStatusOpenChange={setEnvironmentPopoverOpen}
+            onOpenWorkspace={openWorkspacePanel}
+            terminalOpen={terminalOpen}
+            onToggleTerminal={() => setTerminalOpen((value) => !value)}
+          />
 
-        <BrowserExtensionNudge
-          sessionId={session.currentSessionId}
-          onOpenSettings={onOpenSettings}
-        />
+          <BrowserExtensionNudge
+            sessionId={session.currentSessionId}
+            onOpenSettings={onOpenSettings}
+          />
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <div
-              className="relative flex-1 flex flex-col min-w-0"
-              style={{ minWidth: chatMainMinWidth }}
+              className={cn(
+                "relative min-w-0 flex-1 flex-col",
+                workbenchOpen && workbenchLayoutMode === "stage" ? "hidden" : "flex",
+              )}
+              inert={workbenchOpen && workbenchLayoutMode === "stage" ? true : undefined}
             >
               {activeTeamId && !showTeamPanel && (
                 <div className="px-3 py-1 border-b border-border">
@@ -4293,6 +4739,7 @@ export default function ChatScreen({
                   displayMode={displayMode}
                   autoCollapseCompletedTurns={autoCollapseCompletedTurns}
                   onAtBottomChange={setMessageTailVisible}
+                  environmentInset={environmentReserved}
                 />
 
                 {/* Memory extraction toast — absolute-positioned above ChatInput
@@ -4363,6 +4810,7 @@ export default function ChatScreen({
                     <div
                       className={cn(
                         "mx-auto w-full max-w-[880px]",
+                        environmentReserved && "mr-[332px] max-w-[calc(100%-332px)]",
                         emptySessionInputHero && "flex flex-col",
                       )}
                     >
@@ -4460,7 +4908,7 @@ export default function ChatScreen({
                         pendingQuotes={stream.pendingQuotes}
                         onRemoveQuote={(index) => {
                           stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
-                          setRevealFile(null) // dropping a quote clears its reveal highlight
+                          fileTabs.clearReveals() // dropping a quote clears its reveal highlight
                         }}
                         onJumpToQuote={handleQuoteJump}
                         pendingMessageQuotes={stream.pendingMessageQuotes}
@@ -4554,167 +5002,353 @@ export default function ChatScreen({
               </FileActionsContext.Provider>
             </div>
 
-            {/* Diff panel (right side, selected from the title-bar panel switcher) */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "diff" && (
-              <RightPanelShell
+            {hasOpenExclusiveRightPanel && (
+              <WorkbenchSurface
                 width={rightPanelWidth}
-                onWidthChange={setRightPanelWidth}
-                resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
-                maxWidth={860}
-                reservedMainWidth={rightPanelReservedMainWidth}
+                layoutMode={workbenchLayoutMode}
                 collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                contentKey="diff"
+                resizing={workbenchResizing}
+                maximized={workbenchMaximized}
               >
-                <DiffPanel
-                  changes={diffPanel.activeChanges}
-                  activeIndex={diffPanel.activeIndex}
-                  openNonce={diffPanel.openNonce}
-                  onActiveIndexChange={diffPanel.setActiveIndex}
-                  onClose={diffPanel.closeDiff}
-                  onPreviewFile={filePreview.openPreview}
-                  gitContext={diffPanel.gitContext}
-                  onGitSnapshotChange={diffPanel.replaceGitDiff}
-                  embedded
-                />
-              </RightPanelShell>
-            )}
+                {/* Diff panel (right side, selected from the title-bar panel switcher) */}
+                {rightPanelVisibility.diff && (
+                  <RightPanelShell
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
+                    maxWidth={860}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "diff"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey="diff"
+                  >
+                    <DiffPanel
+                      changes={diffPanel.activeChanges}
+                      activeIndex={diffPanel.activeIndex}
+                      openNonce={diffPanel.openNonce}
+                      onActiveIndexChange={diffPanel.setActiveIndex}
+                      onClose={diffPanel.closeDiff}
+                      onPreviewFile={openFileTarget}
+                      gitContext={diffPanel.gitContext}
+                      onGitSnapshotChange={diffPanel.replaceGitDiff}
+                      embedded
+                    />
+                  </RightPanelShell>
+                )}
 
-            {shouldRenderRightPanelContent &&
-              renderedExclusiveRightPanel === "pull-request" &&
-              session.currentSessionId && (
-                <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
-                  maxWidth={960}
-                  reservedMainWidth={rightPanelReservedMainWidth}
-                  collapsed={rightPanelCollapsed}
-                  overlay={rightPanelOverlay}
-                  animateOnMount={animateRightPanelOnMount}
-                  contentKey={`pull-request:${session.currentSessionId}`}
-                >
-                  <PullRequestPanel
-                    sessionId={session.currentSessionId}
-                    expectedUrl={pullRequestExpectedUrl}
-                    onFillInput={stream.setInput}
-                    onClose={() => {
-                      setShowPullRequestPanel(false)
-                      setPullRequestExpectedUrl(null)
-                    }}
-                  />
-                </RightPanelShell>
-              )}
+                {rightPanelVisibility["pull-request"] && session.currentSessionId && (
+                  <RightPanelShell
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
+                    maxWidth={960}
+                    collapsed={
+                      rightPanelCollapsed || renderedExclusiveRightPanel !== "pull-request"
+                    }
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey={`pull-request:${session.currentSessionId}`}
+                  >
+                    <PullRequestPanel
+                      sessionId={session.currentSessionId}
+                      expectedUrl={pullRequestExpectedUrl}
+                      onFillInput={stream.setInput}
+                      integrated
+                      onClose={() => {
+                        setShowPullRequestPanel(false)
+                        setPullRequestExpectedUrl(null)
+                      }}
+                    />
+                  </RightPanelShell>
+                )}
 
-            {/* Plan workspace (right side, integrated under the shared title bar) */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
-              <RightPanelShell
-                width={rightPanelWidth}
-                onWidthChange={setRightPanelWidth}
-                resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
-                maxWidth={860}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                contentKey="plan"
-              >
-                <PlanPanel
-                  planState={planMode.planState}
-                  planContent={planMode.planContent}
-                  sessionId={session.currentSessionId}
-                  onApprove={handlePlanApprove}
-                  onExit={planMode.exitPlanMode}
-                  onClose={() => planMode.setShowPanel(false)}
-                  onContinue={handlePlanContinue}
-                  isExecutionActive={session.loading && planMode.planState === "executing"}
-                  onRequestChanges={handleRequestChanges}
-                  embedded
-                />
-              </RightPanelShell>
-            )}
+                {/* Plan workspace (right side, integrated under the shared title bar) */}
+                {rightPanelVisibility.plan && (
+                  <RightPanelShell
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
+                    maxWidth={860}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "plan"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey="plan"
+                  >
+                    <PlanPanel
+                      planState={planMode.planState}
+                      planContent={planMode.planContent}
+                      sessionId={session.currentSessionId}
+                      onApprove={handlePlanApprove}
+                      onExit={planMode.exitPlanMode}
+                      onClose={() => planMode.setShowPanel(false)}
+                      onContinue={handlePlanContinue}
+                      isExecutionActive={session.loading && planMode.planState === "executing"}
+                      onRequestChanges={handleRequestChanges}
+                      embedded
+                    />
+                  </RightPanelShell>
+                )}
 
-            {/* Project file browser (right side, scoped to the working dir) */}
-            {/* File browser panel — permanently mounted (like CanvasPanel) and
+                {/* Project file browser (right side, scoped to the working dir) */}
+                {/* File browser panel — permanently mounted (like CanvasPanel) and
               toggled via `visible`, so a popped-out window survives panel
               switches / collapses. */}
-            <FileBrowserPanel
-              scope={!session.currentSessionId && currentProject ? "project" : "session"}
-              scopeId={
-                !session.currentSessionId && currentProject
-                  ? currentProject.id
-                  : session.currentSessionId
-              }
-              rootPath={effectiveWorkingDir}
-              linkedRootPaths={projectFileBrowserRoots}
-              sessionId={session.currentSessionId}
-              visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              panelWidth={rightPanelWidth}
-              onPanelWidthChange={setRightPanelWidth}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              onQuote={handleFileQuote}
-              revealFile={revealFile}
-              onClose={() => setShowFilesPanel(false)}
-            />
+                {/* One browser per file tab. Picking a file updates that tab's
+                own preview — new tabs only come from an explicit request. */}
+                {fileTabs.tabs.map((tab) => (
+                  <FileBrowserPanel
+                    key={tab.id}
+                    scope={fileBrowserScope}
+                    scopeId={fileBrowserScopeId}
+                    rootPath={effectiveWorkingDir}
+                    linkedRootPaths={projectFileBrowserRoots}
+                    sessionId={session.currentSessionId}
+                    instanceKey={tab.id}
+                    visible={rightPanelVisibility.files}
+                    collapsed={
+                      rightPanelCollapsed ||
+                      renderedExclusiveRightPanel !== "files" ||
+                      fileTabs.activeId !== tab.id
+                    }
+                    animateOnMount={animateRightPanelOnMount}
+                    panelWidth={rightPanelWidth}
+                    onPanelWidthChange={setRightPanelWidth}
+                    integrated
+                    onQuote={handleFileQuote}
+                    onOpenInNewTab={(target) => {
+                      const browsable = resolveBrowsableTarget(target)
+                      if (browsable) fileTabs.openTab(browsable)
+                    }}
+                    onSelectionChange={(selection) => fileTabs.setTabSelection(tab.id, selection)}
+                    revealFile={tab.revealFile}
+                    revealDirectory={tab.revealDirectory}
+                    onClose={() => {
+                      if (!confirmFilesPanelClose()) return false
+                      fileTabs.closeTab(tab.id)
+                      return true
+                    }}
+                  />
+                ))}
 
-            {/* Canvas Preview Panel */}
-            <CanvasPanel
-              panelWidth={rightPanelWidth}
-              onPanelWidthChange={setRightPanelWidth}
-              currentSessionId={currentSessionId}
-              onOpenChange={setCanvasPanelOpen}
-              onQuote={handleFileQuote}
-              collapsed={rightPanelCollapsed}
-              overlay={rightPanelOverlay}
-              animateOnMount={animateRightPanelOnMount}
-              reservedMainWidth={rightPanelReservedMainWidth}
-              visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"}
-            />
+                {/* Canvas Preview Panel */}
+                <CanvasPanel
+                  panelWidth={rightPanelWidth}
+                  onPanelWidthChange={setRightPanelWidth}
+                  currentSessionId={currentSessionId}
+                  onOpenChange={setCanvasPanelOpen}
+                  onQuote={handleFileQuote}
+                  collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "canvas"}
+                  animateOnMount={animateRightPanelOnMount}
+                  integrated
+                  visible={rightPanelVisibility.canvas}
+                />
 
-            {/* Browser live-mirror panel — open on first `browser:frame` push,
+                {/* Browser live-mirror panel — open on first `browser:frame` push,
               close-only by user, then switchable from the title bar. */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
-              <BrowserPanel
-                sessionId={session.currentSessionId}
-                panelWidth={rightPanelWidth}
-                onPanelWidthChange={setRightPanelWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                onClose={() => {
-                  browserPanelDismissedRef.current = true
-                  setShowBrowserPanel(false)
-                }}
-                onFloat={() => floatPanel("browser")}
-              />
-            )}
+                {rightPanelVisibility.browser && (
+                  <BrowserPanel
+                    sessionId={session.currentSessionId}
+                    panelWidth={rightPanelWidth}
+                    onPanelWidthChange={setRightPanelWidth}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "browser"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    onClose={() => {
+                      browserPanelDismissedRef.current = true
+                      setShowBrowserPanel(false)
+                    }}
+                    onFloat={() => floatPanel("browser")}
+                  />
+                )}
 
-            {/* Mac Control live-mirror panel — opens on tool-produced managed
+                {/* Mac Control live-mirror panel — opens on tool-produced managed
               screenshot frames; panel polling frames only refresh an already
               open panel and must not re-open after a session switch. */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
-              <MacControlPanel
-                sessionId={session.currentSessionId}
-                panelWidth={rightPanelWidth}
-                onPanelWidthChange={setRightPanelWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                onClose={() => {
-                  macControlPanelDismissedRef.current = true
-                  setShowMacControlPanel(false)
-                }}
-                onFloat={() => floatPanel("mac-control")}
-              />
+                {rightPanelVisibility["mac-control"] && (
+                  <MacControlPanel
+                    sessionId={session.currentSessionId}
+                    panelWidth={rightPanelWidth}
+                    onPanelWidthChange={setRightPanelWidth}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "mac-control"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    onClose={() => {
+                      macControlPanelDismissedRef.current = true
+                      setShowMacControlPanel(false)
+                    }}
+                    onFloat={() => floatPanel("mac-control")}
+                  />
+                )}
+
+                {/* Team Panel */}
+                {rightPanelVisibility.team && activeTeamId && (
+                  <TeamPanel
+                    teamId={activeTeamId}
+                    panelWidth={rightPanelWidth}
+                    onPanelWidthChange={setRightPanelWidth}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "team"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    onClose={() => setShowTeamPanel(false)}
+                    onViewSession={setSubagentPreviewSessionId}
+                  />
+                )}
+
+                {/* Workspace 面板 — 聚合任务进度 / 碰到的文件 / 引用来源 */}
+                {rightPanelVisibility.workspace && (
+                  <RightPanelShell
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
+                    maxWidth={860}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "workspace"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey="workspace"
+                  >
+                    <WorkspacePanel
+                      taskSnapshot={taskProgressSnapshot}
+                      taskExecutionState={workspaceTaskExecutionState}
+                      messages={session.messages}
+                      contextUsageOverride={contextUsage}
+                      onOpenDiff={diffPanel.openDiff}
+                      onOpenGitDiff={diffPanel.openGitDiff}
+                      onFillInput={stream.setInput}
+                      onOpenPullRequest={openPullRequestPanel}
+                      onPreviewFile={openFileTarget}
+                      sessionId={session.currentSessionId}
+                      sessionMeta={currentSessionMeta}
+                      project={currentProject}
+                      effectiveWorkingDir={workspaceEffectiveWorkingDir}
+                      workingDirSource={workspaceWorkingDirSource}
+                      permissionMode={stream.permissionMode}
+                      planState={planMode.planState}
+                      activeModel={activeModel}
+                      agentName={session.agentName}
+                      reasoningEffort={reasoningEffort}
+                      availableModels={availableModels}
+                      currentAgentId={session.currentAgentId}
+                      compacting={compacting}
+                      onCompactContext={runCompactContextForCurrentSession}
+                      onCommandAction={handleCommandAction}
+                      onViewSystemPrompt={loadSystemPrompt}
+                      systemPromptLoading={systemPromptLoading}
+                      incognito={incognitoEnabled}
+                      turnActive={
+                        workspaceTaskExecutionState === "running" ||
+                        workspaceTaskExecutionState === "cancelling"
+                      }
+                      workflowRunsState={workflowTitleBarRuns}
+                      backgroundJobs={backgroundJobs.jobs}
+                      backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
+                      onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
+                      onOpenBackgroundJobs={openBackgroundJobsPanel}
+                      onOpenBrowserPanel={openBrowserPanel}
+                      onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                      subagentRunsState={subagentRuns}
+                      focusRequest={workspaceFocusRequest}
+                      onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
+                      onEnsureSession={ensureWorkflowSession}
+                      draftWorkflowMode={draftWorkflowMode}
+                      onDraftWorkflowModeChange={setDraftWorkflowMode}
+                      integrated
+                      onClose={() => {
+                        workspacePanelDismissedRef.current = true
+                        setWorkspaceFocusRequest(null)
+                        setShowWorkspacePanel(false)
+                      }}
+                    />
+                  </RightPanelShell>
+                )}
+
+                {/* Background-jobs panel (R4) — session jobs (cancellable) + a
+              read-only mirror of global local-model jobs. */}
+                {rightPanelVisibility["background-jobs"] && (
+                  <RightPanelShell
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("backgroundJobs.resizePanel", "Resize background jobs panel")}
+                    maxWidth={860}
+                    collapsed={
+                      rightPanelCollapsed || renderedExclusiveRightPanel !== "background-jobs"
+                    }
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey="background-jobs"
+                  >
+                    <BackgroundJobsPanel
+                      jobs={backgroundJobs.jobs}
+                      jobExpansionOverrides={backgroundJobExpansionOverrides}
+                      onJobExpandedChange={handleBackgroundJobExpandedChange}
+                      onClose={closeBackgroundJobsPanel}
+                      onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                      integrated
+                    />
+                  </RightPanelShell>
+                )}
+
+                {/* Sub-agent panel — this session's sub-agent runs + the selected
+              run's live child-session transcript. Opened from inline chips. */}
+                {rightPanelVisibility.subagent && (
+                  <RightPanelShell
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("subagentPanel.resizePanel", "Resize sub-agents panel")}
+                    maxWidth={960}
+                    collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "subagent"}
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey={`subagent:${session.currentSessionId ?? ""}`}
+                  >
+                    <SubagentPanel
+                      sessionId={session.currentSessionId}
+                      runsState={subagentRuns}
+                      agents={session.agents}
+                      selectRequest={subagentPanelSelectRequest}
+                      onClose={closeSubagentPanel}
+                      integrated
+                    />
+                  </RightPanelShell>
+                )}
+
+                {/* Each preview tab stays mounted so switching files preserves its
+              renderer, scroll position and local selection. */}
+                {filePreview.entries.map((entry) => (
+                  <RightPanelShell
+                    key={entry.id}
+                    width={rightPanelWidth}
+                    onWidthChange={setRightPanelWidth}
+                    resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
+                    maxWidth={860}
+                    collapsed={
+                      rightPanelCollapsed ||
+                      renderedExclusiveRightPanel !== "preview" ||
+                      filePreview.activeId !== entry.id
+                    }
+                    animateOnMount={animateRightPanelOnMount}
+                    integrated
+                    contentKey={entry.id}
+                  >
+                    <FilePreviewPanel
+                      target={entry.target}
+                      sessionId={session.currentSessionId}
+                      onReplaceDraft={replaceDraftAttachment}
+                      onQuote={handleFileQuote}
+                      onClose={() => closeFilePreview(entry.id)}
+                      integrated
+                      onNavigateDirectory={(dirPath) =>
+                        revealPreviewDirectory(entry.target, dirPath)
+                      }
+                      canNavigateDirectory={(dirPath) =>
+                        canRevealPreviewDirectory(entry.target, dirPath)
+                      }
+                    />
+                  </RightPanelShell>
+                ))}
+              </WorkbenchSurface>
             )}
 
-            {/* In-app floating control-panel windows (portal to body). */}
+            {/* In-app floating control-panel windows stay alive when the workbench is collapsed. */}
             <FloatingPanelLayer
               floatingPanels={floatingPanelList}
               zIndexOf={floatingPanelZIndex}
@@ -4735,177 +5369,13 @@ export default function ChatScreen({
               onFocus={focusFloatingPanel}
               sessionId={session.currentSessionId}
             />
-
-            {/* Team Panel */}
-            {shouldRenderRightPanelContent &&
-              renderedExclusiveRightPanel === "team" &&
-              activeTeamId && (
-                <TeamPanel
-                  teamId={activeTeamId}
-                  panelWidth={rightPanelWidth}
-                  onPanelWidthChange={setRightPanelWidth}
-                  collapsed={rightPanelCollapsed}
-                  overlay={rightPanelOverlay}
-                  animateOnMount={animateRightPanelOnMount}
-                  reservedMainWidth={rightPanelReservedMainWidth}
-                  onClose={() => setShowTeamPanel(false)}
-                  onViewSession={setSubagentPreviewSessionId}
-                />
-              )}
-
-            {/* Workspace 面板 — 聚合任务进度 / 碰到的文件 / 引用来源 */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "workspace" && (
-              <RightPanelShell
-                width={rightPanelWidth}
-                onWidthChange={setRightPanelWidth}
-                resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
-                maxWidth={860}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                contentKey="workspace"
-              >
-                <WorkspacePanel
-                  taskSnapshot={taskProgressSnapshot}
-                  taskExecutionState={workspaceTaskExecutionState}
-                  messages={session.messages}
-                  contextUsageOverride={contextUsage}
-                  onOpenDiff={diffPanel.openDiff}
-                  onOpenGitDiff={diffPanel.openGitDiff}
-                  onFillInput={stream.setInput}
-                  onOpenPullRequest={openPullRequestPanel}
-                  onPreviewFile={filePreview.openPreview}
-                  sessionId={session.currentSessionId}
-                  sessionMeta={currentSessionMeta}
-                  project={currentProject}
-                  effectiveWorkingDir={workspaceEffectiveWorkingDir}
-                  workingDirSource={workspaceWorkingDirSource}
-                  permissionMode={stream.permissionMode}
-                  planState={planMode.planState}
-                  activeModel={activeModel}
-                  agentName={session.agentName}
-                  reasoningEffort={reasoningEffort}
-                  availableModels={availableModels}
-                  currentAgentId={session.currentAgentId}
-                  compacting={compacting}
-                  onCompactContext={runCompactContextForCurrentSession}
-                  onCommandAction={handleCommandAction}
-                  onViewSystemPrompt={loadSystemPrompt}
-                  systemPromptLoading={systemPromptLoading}
-                  incognito={incognitoEnabled}
-                  turnActive={
-                    workspaceTaskExecutionState === "running" ||
-                    workspaceTaskExecutionState === "cancelling"
-                  }
-                  workflowRunsState={workflowTitleBarRuns}
-                  backgroundJobs={backgroundJobs.jobs}
-                  backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
-                  onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
-                  onOpenBackgroundJobs={openBackgroundJobsPanel}
-                  onOpenBrowserPanel={openBrowserPanel}
-                  onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
-                  subagentRunsState={subagentRuns}
-                  focusRequest={workspaceFocusRequest}
-                  onFocusRequestHandled={handleWorkspaceFocusRequestHandled}
-                  onEnsureSession={ensureWorkflowSession}
-                  draftWorkflowMode={draftWorkflowMode}
-                  onDraftWorkflowModeChange={setDraftWorkflowMode}
-                  onClose={() => {
-                    workspacePanelDismissedRef.current = true
-                    setWorkspaceFocusRequest(null)
-                    setShowWorkspacePanel(false)
-                  }}
-                />
-              </RightPanelShell>
-            )}
-
-            {/* Background-jobs panel (R4) — session jobs (cancellable) + a
-              read-only mirror of global local-model jobs. */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "background-jobs" && (
-              <RightPanelShell
-                width={rightPanelWidth}
-                onWidthChange={setRightPanelWidth}
-                resizeLabel={t("backgroundJobs.resizePanel", "Resize background jobs panel")}
-                maxWidth={860}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                contentKey="background-jobs"
-              >
-                <BackgroundJobsPanel
-                  jobs={backgroundJobs.jobs}
-                  jobExpansionOverrides={backgroundJobExpansionOverrides}
-                  onJobExpandedChange={handleBackgroundJobExpandedChange}
-                  onClose={closeBackgroundJobsPanel}
-                  onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
-                />
-              </RightPanelShell>
-            )}
-
-            {/* Sub-agent panel — this session's sub-agent runs + the selected
-              run's live child-session transcript. Opened from inline chips. */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "subagent" && (
-              <RightPanelShell
-                width={rightPanelWidth}
-                onWidthChange={setRightPanelWidth}
-                resizeLabel={t("subagentPanel.resizePanel", "Resize sub-agents panel")}
-                maxWidth={960}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                contentKey={`subagent:${session.currentSessionId ?? ""}`}
-              >
-                <SubagentPanel
-                  sessionId={session.currentSessionId}
-                  runsState={subagentRuns}
-                  agents={session.agents}
-                  selectRequest={subagentPanelSelectRequest}
-                  onClose={closeSubagentPanel}
-                />
-              </RightPanelShell>
-            )}
-
-            {/* File preview panel — single-file viewer opened from Markdown
-              links / attachments / the workspace panel (file-operations
-              unification). Reuses the file-browser FilePreviewPane. */}
-            {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "preview" && (
-              <RightPanelShell
-                width={rightPanelWidth}
-                onWidthChange={setRightPanelWidth}
-                resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
-                maxWidth={860}
-                maximized={filePreviewMaximized}
-                fullscreenTransitionRef={filePreviewFullscreenRef}
-                reservedMainWidth={rightPanelReservedMainWidth}
-                collapsed={rightPanelCollapsed}
-                overlay={rightPanelOverlay}
-                animateOnMount={animateRightPanelOnMount}
-                contentKey="preview"
-              >
-                <FilePreviewPanel
-                  target={filePreview.target}
-                  sessionId={session.currentSessionId}
-                  onReplaceDraft={replaceDraftAttachment}
-                  onQuote={handleFileQuote}
-                  maximized={filePreviewMaximized}
-                  onToggleMaximize={toggleFilePreviewFullscreen}
-                  onClose={() => {
-                    resetFilePreviewFullscreen()
-                    filePreview.closePreview()
-                  }}
-                />
-              </RightPanelShell>
-            )}
           </div>
-          <TerminalPanel
-            open={terminalOpen}
-            workingDir={effectiveWorkingDir}
-            onOpenChange={setTerminalOpen}
-          />
         </div>
+        <TerminalPanel
+          open={terminalOpen}
+          workingDir={effectiveWorkingDir}
+          onOpenChange={setTerminalOpen}
+        />
       </div>
 
       <HandoverDialog

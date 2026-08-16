@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "预览",
-    "resizePanel": "调整预览面板宽度"
+    "resizePanel": "调整预览面板宽度",
+    "pathBreadcrumb": "文件路径",
+    "revealFolder": "在文件面板中显示该文件夹",
+    "copyPath": "复制完整路径"
   },
   "fileBrowser": {
     "panelTitle": "文件",
@@ -2732,7 +2735,10 @@
     "zoomOut": "缩小",
     "zoomIn": "放大",
     "fitWidth": "适应宽度",
-    "officeNoContent": "无法从该文件提取内容"
+    "officeNoContent": "无法从该文件提取内容",
+    "openInNewTab": "在新标签中打开",
+    "collapseTree": "隐藏文件列表",
+    "expandTree": "显示文件列表"
   },
   "diffPanel": {
     "fileTooLarge": "文件过大，仅渲染前 256KB",

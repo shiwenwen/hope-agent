@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "預覽",
-    "resizePanel": "調整預覽面板寬度"
+    "resizePanel": "調整預覽面板寬度",
+    "pathBreadcrumb": "檔案路徑",
+    "revealFolder": "在檔案面板中顯示此資料夾",
+    "copyPath": "複製完整路徑"
   },
   "fileBrowser": {
     "panelTitle": "檔案",
@@ -2732,7 +2735,10 @@
     "zoomOut": "縮小",
     "zoomIn": "放大",
     "fitWidth": "符合寬度",
-    "officeNoContent": "無法從該檔案擷取內容"
+    "officeNoContent": "無法從該檔案擷取內容",
+    "openInNewTab": "在新分頁中開啟",
+    "collapseTree": "隱藏檔案清單",
+    "expandTree": "顯示檔案清單"
   },
   "diffPanel": {
     "fileTooLarge": "檔案過大，僅渲染前 256KB",

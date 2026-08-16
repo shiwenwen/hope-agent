@@ -26,9 +26,13 @@ import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
 import { isTauriMode } from "@/lib/transport"
 import { cn } from "@/lib/utils"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
-import { FileBrowserView } from "./project/file-browser/FileBrowserView"
+import {
+  FileBrowserView,
+  type FileBrowserDirectoryReveal,
+} from "./project/file-browser/FileBrowserView"
 import type { QuotePayload } from "./project/file-browser/FilePreviewPane"
 import type { ProjectFileQuoteReveal } from "./project/fileQuoteTarget"
+import type { PreviewTarget } from "./files/useFilePreview"
 
 interface FileBrowserPanelProps {
   scope: "session" | "project"
@@ -37,6 +41,8 @@ interface FileBrowserPanelProps {
   linkedRootPaths?: string[]
   /** Used to disambiguate / title the detached window. */
   sessionId?: string | null
+  /** Distinguishes this browser's detached window from a sibling tab's. */
+  instanceKey?: string
   /** Whether this panel is the active right-side panel. Hidden (but kept
    *  mounted) when false, so detached state survives panel switches. */
   visible: boolean
@@ -47,10 +53,19 @@ interface FileBrowserPanelProps {
   onPanelWidthChange: (w: number) => void
   reservedMainWidth?: number
   onQuote?: (payload: QuotePayload) => void
+  onPreviewFile?: (target: PreviewTarget) => void
+  /** Explicit "open in a new tab" from the tree context menu. */
+  onOpenInNewTab?: (target: PreviewTarget) => void
+  /** Report the picked file so the owning workbench tab can title itself. */
+  onSelectionChange?: (selection: { name: string; relPath: string } | null) => void
   /** A click on a quote chip in the composer: reveal + select this file and
    *  highlight the quoted line range. */
   revealFile?: ProjectFileQuoteReveal | null
-  onClose: () => void
+  /** A preview-header breadcrumb click: expand + select this directory. */
+  revealDirectory?: FileBrowserDirectoryReveal | null
+  /** Return false to cancel closing (for example, an unsaved editor guard). */
+  onClose: () => boolean | void
+  integrated?: boolean
 }
 
 export function FileBrowserPanel({
@@ -59,6 +74,7 @@ export function FileBrowserPanel({
   rootPath,
   linkedRootPaths = [],
   sessionId,
+  instanceKey,
   visible,
   collapsed = false,
   overlay = false,
@@ -67,8 +83,13 @@ export function FileBrowserPanel({
   onPanelWidthChange,
   reservedMainWidth,
   onQuote,
+  onPreviewFile,
+  onOpenInNewTab,
+  onSelectionChange,
   revealFile,
+  revealDirectory,
   onClose,
+  integrated = false,
 }: FileBrowserPanelProps) {
   const { t } = useTranslation()
   const desktopMode = isTauriMode()
@@ -125,7 +146,12 @@ export function FileBrowserPanel({
         params.set("linkedRootPaths", JSON.stringify(linkedRootPaths))
       }
       if (sessionId) params.set("sessionId", sessionId)
-      const webview = new WebviewWindow("files-window", {
+      // Tauri window labels are global: sibling file tabs must not collide, or
+      // the second detach silently fails against the first tab's window.
+      const label = instanceKey
+        ? `files-window-${instanceKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+        : "files-window"
+      const webview = new WebviewWindow(label, {
         url: `index.html?${params.toString()}`,
         title: t("fileBrowser.panelTitle", "Files"),
         width: 900,
@@ -155,7 +181,17 @@ export function FileBrowserPanel({
     } catch {
       /* ignore window creation errors */
     }
-  }, [desktopMode, linkedRootPaths, resetFullscreen, rootPath, scope, scopeId, sessionId, t])
+  }, [
+    desktopMode,
+    instanceKey,
+    linkedRootPaths,
+    resetFullscreen,
+    rootPath,
+    scope,
+    scopeId,
+    sessionId,
+    t,
+  ])
 
   const handleReattach = useCallback(() => {
     if (detachedWindowRef.current) {
@@ -199,41 +235,45 @@ export function FileBrowserPanel({
                 <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
-            <IconTip
-              label={
-                maximized
-                  ? t("fileBrowser.minimize", "Restore")
-                  : t("fileBrowser.maximize", "Maximize")
-              }
-            >
-              <button
-                type="button"
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                onClick={toggleFullscreen}
-                disabled={fullscreenAnimating}
+            {!integrated && (
+              <IconTip
+                label={
+                  maximized
+                    ? t("fileBrowser.minimize", "Restore")
+                    : t("fileBrowser.maximize", "Maximize")
+                }
               >
-                {maximized ? (
-                  <Minimize2 className="h-3.5 w-3.5" />
-                ) : (
-                  <Maximize2 className="h-3.5 w-3.5" />
-                )}
-              </button>
-            </IconTip>
+                <button
+                  type="button"
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={toggleFullscreen}
+                  disabled={fullscreenAnimating}
+                >
+                  {maximized ? (
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </IconTip>
+            )}
           </>
         ) : null}
-        <IconTip label={t("common.close", "Close")}>
-          <button
-            type="button"
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={() => {
-              if (detached) handleReattach()
-              resetFullscreen()
-              onClose()
-            }}
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        </IconTip>
+        {!integrated && (
+          <IconTip label={t("common.close", "Close")}>
+            <button
+              type="button"
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={() => {
+                if (onClose() === false) return
+                if (detached) handleReattach()
+                resetFullscreen()
+              }}
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+        )}
       </div>
     </div>
   )
@@ -249,7 +289,7 @@ export function FileBrowserPanel({
     </div>
   ) : (
     <div className="flex h-full flex-col">
-      {titleBar}
+      {!integrated && titleBar}
       <FileBrowserView
         scope={scope}
         scopeId={scopeId}
@@ -258,8 +298,25 @@ export function FileBrowserPanel({
         editable
         layout="split"
         onQuote={onQuote}
+        onPreviewFile={onPreviewFile}
+        onOpenInNewTab={onOpenInNewTab}
+        onSelectionChange={onSelectionChange}
         revealFile={revealFile}
+        revealDirectory={revealDirectory}
         className="min-h-0 flex-1"
+        toolbarTrailing={
+          integrated && desktopMode ? (
+            <IconTip label={t("fileBrowser.openInWindow", "Open in a separate window")}>
+              <button
+                type="button"
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={handleDetach}
+              >
+                <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          ) : undefined
+        }
       />
     </div>
   )
@@ -270,12 +327,13 @@ export function FileBrowserPanel({
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
       maxWidth={1000}
-      maximized={maximized}
-      fullscreenTransitionRef={fullscreenTransitionRef}
+      maximized={integrated ? false : maximized}
+      fullscreenTransitionRef={integrated ? undefined : fullscreenTransitionRef}
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
       animateOnMount={animateOnMount}
+      integrated={integrated}
       contentKey={detached ? "files-detached" : "files"}
     >
       {body}

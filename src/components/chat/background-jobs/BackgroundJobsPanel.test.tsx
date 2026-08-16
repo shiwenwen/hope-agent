@@ -71,6 +71,7 @@ function renderPanel(
   props?: {
     overrides?: Record<string, boolean>
     onJobExpandedChange?: (jobId: string, expanded: boolean) => void
+    integrated?: boolean
   },
 ) {
   return render(
@@ -79,6 +80,7 @@ function renderPanel(
       jobExpansionOverrides={props?.overrides}
       onJobExpandedChange={props?.onJobExpandedChange}
       onClose={() => {}}
+      integrated={props?.integrated}
     />,
   )
 }
@@ -120,5 +122,12 @@ describe("BackgroundJobsPanel", () => {
 
     expect(screen.queryByText("success preview")).toBeNull()
     expect(screen.getByText("failure details")).toBeTruthy()
+  })
+
+  test("does not repeat the frame title when hosted by workbench tabs", () => {
+    renderPanel([], { integrated: true })
+
+    expect(screen.queryByText("后台任务")).toBeNull()
+    expect(screen.getByText("本会话")).toBeTruthy()
   })
 })

@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "Pratonton",
-    "resizePanel": "Ubah saiz panel pratonton"
+    "resizePanel": "Ubah saiz panel pratonton",
+    "pathBreadcrumb": "Laluan fail",
+    "revealFolder": "Tunjuk folder dalam panel Fail",
+    "copyPath": "Salin laluan penuh"
   },
   "fileBrowser": {
     "panelTitle": "Fail",
@@ -2732,7 +2735,10 @@
     "zoomOut": "Zum keluar",
     "zoomIn": "Zum masuk",
     "fitWidth": "Muat lebar",
-    "officeNoContent": "Tiada kandungan boleh diekstrak daripada fail ini."
+    "officeNoContent": "Tiada kandungan boleh diekstrak daripada fail ini.",
+    "openInNewTab": "Buka dalam tab baharu",
+    "collapseTree": "Sembunyikan senarai fail",
+    "expandTree": "Tunjukkan senarai fail"
   },
   "diffPanel": {
     "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",

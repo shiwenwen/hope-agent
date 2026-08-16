@@ -2673,7 +2673,10 @@
   },
   "filePreview": {
     "panelTitle": "Xem trước",
-    "resizePanel": "Đổi kích thước bảng xem trước"
+    "resizePanel": "Đổi kích thước bảng xem trước",
+    "pathBreadcrumb": "Đường dẫn tệp",
+    "revealFolder": "Hiển thị thư mục trong bảng Tệp",
+    "copyPath": "Sao chép đường dẫn đầy đủ"
   },
   "fileBrowser": {
     "panelTitle": "Tệp",
@@ -2732,7 +2735,10 @@
     "zoomOut": "Thu nhỏ",
     "zoomIn": "Phóng to",
     "fitWidth": "Vừa chiều rộng",
-    "officeNoContent": "Không thể trích xuất nội dung từ tệp này."
+    "officeNoContent": "Không thể trích xuất nội dung từ tệp này.",
+    "openInNewTab": "Mở trong tab mới",
+    "collapseTree": "Ẩn danh sách tệp",
+    "expandTree": "Hiện danh sách tệp"
   },
   "diffPanel": {
     "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",

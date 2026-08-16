@@ -25,6 +25,12 @@ interface FilePreviewPanelProps {
   /** Fullscreen toggle — mirrors the files / canvas panels' maximize affordance. */
   maximized?: boolean
   onToggleMaximize?: () => void
+  /** Shared workbench owns close/maximize while this pane keeps file actions. */
+  integrated?: boolean
+  /** Reveal a header-breadcrumb directory segment in the Files panel. */
+  onNavigateDirectory?: (dirPath: string) => void
+  /** Gate for the above: unresolvable segments render as plain text. */
+  canNavigateDirectory?: (dirPath: string) => boolean
 }
 
 /**
@@ -41,6 +47,9 @@ export default function FilePreviewPanel({
   onClose,
   maximized,
   onToggleMaximize,
+  integrated = false,
+  onNavigateDirectory,
+  canNavigateDirectory,
 }: FilePreviewPanelProps) {
   if (target?.kind === "clientDraft") {
     return (
@@ -55,10 +64,10 @@ export default function FilePreviewPanel({
               }
             : undefined
         }
-        onClose={onClose}
+        onClose={integrated ? undefined : onClose}
         className="h-full min-h-0"
-        maximized={maximized}
-        onToggleMaximize={onToggleMaximize}
+        maximized={integrated ? false : maximized}
+        onToggleMaximize={integrated ? undefined : onToggleMaximize}
       />
     )
   }
@@ -71,6 +80,9 @@ export default function FilePreviewPanel({
       onClose={onClose}
       maximized={maximized}
       onToggleMaximize={onToggleMaximize}
+      integrated={integrated}
+      onNavigateDirectory={onNavigateDirectory}
+      canNavigateDirectory={canNavigateDirectory}
     />
   )
 }
@@ -84,6 +96,9 @@ function PersistedFilePreviewPanel({
   onClose,
   maximized,
   onToggleMaximize,
+  integrated = false,
+  onNavigateDirectory,
+  canNavigateDirectory,
 }: Omit<FilePreviewPanelProps, "target"> & { target: PersistedPreviewTarget | null }) {
   const transport = useTransport()
   const transportRevision = useTransportRevision()
@@ -116,7 +131,7 @@ function PersistedFilePreviewPanel({
   return (
     <FilePreviewPane
       source={source}
-      onClose={onClose}
+      onClose={integrated ? undefined : onClose}
       onOpen={target && capabilities.open.state === "enabled" ? () => run("open") : undefined}
       onDownload={
         target && !isLocal && capabilities.download.state === "enabled"
@@ -127,8 +142,10 @@ function PersistedFilePreviewPanel({
       onQuote={onQuote ? handleQuote : undefined}
       highlightLines={highlightLines}
       className="h-full min-h-0"
-      maximized={maximized}
-      onToggleMaximize={onToggleMaximize}
+      maximized={integrated ? false : maximized}
+      onToggleMaximize={integrated ? undefined : onToggleMaximize}
+      onNavigateDirectory={onNavigateDirectory}
+      canNavigateDirectory={canNavigateDirectory}
     />
   )
 }

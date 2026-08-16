@@ -23,6 +23,8 @@ import { fileKindOf, shikiLang } from "@/lib/fileKind"
 import { cn } from "@/lib/utils"
 import type { FileTextContent } from "@/lib/transport"
 import type { PreviewSource } from "@/components/chat/files/previewSource"
+import { FilePathBreadcrumb } from "@/components/chat/files/FilePathBreadcrumb"
+import { isBreadcrumbablePath } from "@/components/chat/files/filePathSegments"
 import type { PendingFileQuote } from "@/types/chat"
 import { OfficeRichPreview } from "@/components/chat/files/office/OfficeRichPreview"
 import { ArtifactSelectionIframe } from "@/components/artifacts/ArtifactViewer"
@@ -56,6 +58,10 @@ export interface FilePreviewPaneProps {
    *  split view leaves it unset so no button appears). */
   maximized?: boolean
   onToggleMaximize?: () => void
+  /** Reveal a directory segment of the header breadcrumb in the Files panel. */
+  onNavigateDirectory?: (dirPath: string) => void
+  /** Gate for the above: unresolvable segments render as plain text. */
+  canNavigateDirectory?: (dirPath: string) => boolean
 }
 
 export function FilePreviewPane({
@@ -69,6 +75,8 @@ export function FilePreviewPane({
   className,
   maximized,
   onToggleMaximize,
+  onNavigateDirectory,
+  canNavigateDirectory,
 }: FilePreviewPaneProps) {
   const { t } = useTranslation()
   const [loadedResult, setLoadedResult] = useState<{
@@ -191,12 +199,20 @@ export function FilePreviewPane({
         <div className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium leading-tight">{source.name}</span>
           {source.displayPath && source.displayPath !== source.name ? (
-            <span
-              className="truncate font-mono text-[11px] leading-tight text-muted-foreground"
-              data-ha-title-tip={source.displayPath}
-            >
-              {source.displayPath}
-            </span>
+            isBreadcrumbablePath(source.displayPath) ? (
+              <FilePathBreadcrumb
+                path={source.displayPath}
+                onNavigateDirectory={onNavigateDirectory}
+                canNavigateDirectory={canNavigateDirectory}
+              />
+            ) : (
+              <span
+                className="truncate font-mono text-[11px] leading-tight text-muted-foreground"
+                data-ha-title-tip={source.displayPath}
+              >
+                {source.displayPath}
+              </span>
+            )
           ) : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">

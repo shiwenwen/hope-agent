@@ -13,6 +13,7 @@ interface MacControlPanelProps {
   onClose: () => void
   /** Switch to the in-app floating window. */
   onFloat?: () => void
+  integrated?: boolean
 }
 
 /** Docked container: RightPanelShell + shared MacControlPanelContent. */
@@ -26,6 +27,7 @@ export default function MacControlPanel({
   animateOnMount = false,
   onClose,
   onFloat,
+  integrated = false,
 }: MacControlPanelProps) {
   const { t } = useTranslation()
   return (
@@ -37,6 +39,7 @@ export default function MacControlPanel({
       collapsed={collapsed}
       overlay={overlay}
       animateOnMount={animateOnMount}
+      integrated={integrated}
       contentKey="mac-control"
     >
       <MacControlPanelContent
@@ -45,6 +48,7 @@ export default function MacControlPanel({
         active={!collapsed}
         onClose={onClose}
         onFloat={onFloat}
+        integrated={integrated}
       />
     </RightPanelShell>
   )

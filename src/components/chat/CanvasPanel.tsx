@@ -63,6 +63,7 @@ interface CanvasPanelProps {
   /** Kept for the shared panel call site; iframe panels intentionally ignore
    * zero-width mount animation so WebView hit testing is valid immediately. */
   animateOnMount?: boolean
+  integrated?: boolean
 }
 
 export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
@@ -77,6 +78,7 @@ export default function CanvasPanel({
   visible = true,
   collapsed = false,
   overlay = false,
+  integrated = false,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
@@ -461,6 +463,7 @@ export default function CanvasPanel({
         reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
         overlay={overlay}
+        integrated={integrated}
         contentKey="canvas-detached"
       >
         {/* Title Bar */}
@@ -478,14 +481,16 @@ export default function CanvasPanel({
                 <WindowModeIcon action="reattach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
-            <IconTip label={t("canvas.close")}>
-              <button
-                onClick={handleClose}
-                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </IconTip>
+            {!integrated && (
+              <IconTip label={t("canvas.close")}>
+                <button
+                  onClick={handleClose}
+                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            )}
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
@@ -505,6 +510,7 @@ export default function CanvasPanel({
       reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       overlay={overlay}
+      integrated={integrated}
       contentKey="canvas"
     >
       {/* Title Bar */}
@@ -544,28 +550,32 @@ export default function CanvasPanel({
             </IconTip>
           )}
 
-          <IconTip label={maximized ? t("canvas.minimize") : t("canvas.maximize")}>
-            <button
-              onClick={toggleFullscreen}
-              disabled={fullscreenAnimating}
-              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-            >
-              {maximized ? (
-                <Minimize2 className="h-3.5 w-3.5" />
-              ) : (
-                <Maximize2 className="h-3.5 w-3.5" />
-              )}
-            </button>
-          </IconTip>
+          {!integrated && (
+            <>
+              <IconTip label={maximized ? t("canvas.minimize") : t("canvas.maximize")}>
+                <button
+                  onClick={toggleFullscreen}
+                  disabled={fullscreenAnimating}
+                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  {maximized ? (
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </IconTip>
 
-          <IconTip label={t("canvas.close")}>
-            <button
-              onClick={handleClose}
-              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
+              <IconTip label={t("canvas.close")}>
+                <button
+                  onClick={handleClose}
+                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            </>
+          )}
         </div>
       </div>
 

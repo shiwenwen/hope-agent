@@ -12,6 +12,8 @@ interface ControlPanelHeaderProps {
   onFloat?: () => void
   onRefresh: () => void
   onClose: () => void
+  /** Frame controls live in the workbench tab/header when integrated. */
+  showFrameControls?: boolean
 }
 
 /** Shared docked-panel header for the browser / mac control panels. */
@@ -22,6 +24,7 @@ export function ControlPanelHeader({
   onFloat,
   onRefresh,
   onClose,
+  showFrameControls = true,
 }: ControlPanelHeaderProps) {
   const { t } = useTranslation()
   return (
@@ -29,23 +32,46 @@ export function ControlPanelHeader({
       {icon}
       <div className="flex-1 truncate text-sm font-medium">{title}</div>
       {badge}
-      {onFloat && (
+      {showFrameControls && onFloat && (
         <IconTip label={t("chat.controlPanel.floatWindow")}>
-          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onFloat}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={onFloat}
+            aria-label={t("chat.controlPanel.floatWindow")}
+          >
             <WindowModeIcon action="detach" className="h-3.5 w-3.5" />
           </Button>
         </IconTip>
       )}
       <IconTip label={t("chat.browserPanel.refresh")}>
-        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onRefresh}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={onRefresh}
+          aria-label={t("chat.browserPanel.refresh")}
+        >
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </IconTip>
-      <IconTip label={t("chat.browserPanel.close")}>
-        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </IconTip>
+      {showFrameControls && (
+        <IconTip label={t("chat.browserPanel.close")}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={onClose}
+            aria-label={t("chat.browserPanel.close")}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </IconTip>
+      )}
     </div>
   )
 }
