@@ -213,9 +213,21 @@ function shouldPassExecutionStateToBubble(
   return loading || executionState !== "running"
 }
 
+/**
+ * An autonomous occurrence — scheduled task, wakeup, loop tick — lands between
+ * turns and reads as its own exchange, so it starts a turn despite rendering
+ * centered; folding it into the previous human turn hides the very prompt that
+ * explains the answer below it. Subagent / workflow results belong to the turn
+ * that spawned them and stay non-starts.
+ */
+function isTriggeredTurnStart(msg: Message): boolean {
+  return !!msg.isCronTrigger || !!msg.isWakeupTrigger || !!msg.isLoopTrigger
+}
+
 function isHumanTurnStart(msg: Message): boolean {
   if (msg.fromAgentId) return false
   if (msg.role === "user" && !isCenteredSystemMessage(msg)) return true
+  if (msg.role === "user" && isTriggeredTurnStart(msg)) return true
   return msg.slashEvent?.displayAs === "user"
 }
 

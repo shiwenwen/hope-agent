@@ -246,6 +246,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 - `workspace_status` 返回任务的 workspace policy、现存受管 Worktree 及后端判定的安全动作；模型只读这些动作，不获得接管、归还、归档、恢复或丢弃 Worktree 的 owner 权限。
 - Project、mode 或 base ref 的变更继续受 revision CAS、运行中锁与 Persistent 资源锁保护；模型不能用陈旧草稿或工具调用绕过。
 - 模型仍不能设置 `permission_mode_override` / `sandbox_mode_override`；这两个字段不进工具 schema，且带 owner 覆盖的任务拒绝模型修改。
+- 触发消息本身是 `role='user'` + `source='cron'` + `attachments_meta.cron_trigger` 的普通消息，只是渲染成居中系统气泡。**它必须被 `MessageList.isHumanTurnStart` 当作一轮的开始**（wakeup / loop 触发同理）：自主触发落在两轮之间、自成一轮，若归进上一轮就会被「已处理」折叠吞掉——而那条 prompt 正是解释下面这条回答的唯一线索。subagent / workflow 结果属于派生它们的那一轮，仍不算轮次开始。
 - 模型成功创建任务后通过既有 `tool_metadata` 写入 `schedule_entity`；`MessageContent` 必须把它提升到工具折叠之外，`MessageList` 还必须在整轮「已处理」折叠时再次 hoist，不能只放在 `ToolCallBlock` 或 assistant prefix 内。聊天历史与实时流统一渲染可点击的任务卡片，卡片按 id 读取 live 状态并跳转 Scheduled 详情，不复制任务正文或另建投影表。
 
 ### 任务卡片与删除后的可复制历史

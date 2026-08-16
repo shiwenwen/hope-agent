@@ -375,6 +375,54 @@ describe("MessageList", () => {
     expect(screen.queryByText("step two")).toBeNull()
   })
 
+  test("keeps a scheduled trigger prompt visible instead of folding it into the previous turn", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({
+            role: "user",
+            content: "question",
+            dbId: 1,
+            timestamp: "2026-04-26T00:00:00.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "manual answer",
+            dbId: 2,
+            timestamp: "2026-04-26T00:00:03.000Z",
+          }),
+          baseMessage({
+            role: "user",
+            content: "scheduled prompt",
+            dbId: 3,
+            isCronTrigger: true,
+            cronJobName: "Daily summary",
+            cronJobId: "job-1",
+            timestamp: "2026-04-26T01:00:00.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "scheduled answer",
+            dbId: 4,
+            timestamp: "2026-04-26T01:00:05.000Z",
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    // The occurrence is its own turn: its prompt explains the answer below it.
+    expect(screen.getByText("scheduled prompt")).toBeTruthy()
+    expect(screen.getByText("scheduled answer")).toBeTruthy()
+    expect(screen.getByText("manual answer")).toBeTruthy()
+    expect(screen.queryByText("chat.completedTurnCollapsedWithDuration")).toBeNull()
+  })
+
   test("collapses historical assistant content blocks before the final answer", () => {
     render(
       <MessageList
