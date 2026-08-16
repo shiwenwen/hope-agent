@@ -20,6 +20,13 @@ const RUNNING_COUNT_SQL: &str = "SELECT COUNT(*) FROM cron_jobs j WHERE j.runnin
            AND l.finished_at IS NULL AND l.status IN ('preparing','queued')
            AND l.request_id IS NOT NULL
            AND json_extract(j.payload_json, '$.type')='sessionTurn')";
+/// Last occurrence per task; grouped once and joined by rowid.
+const LATEST_RUN_SUMMARY_SQL: &str =
+    "SELECT l.job_id, l.id, l.session_id, l.status, l.started_at, l.finished_at,
+            l.error, l.result_preview, l.delivery_status
+       FROM cron_run_logs l
+       JOIN (SELECT job_id, MAX(id) AS id FROM cron_run_logs GROUP BY job_id) latest
+         ON latest.id = l.id";
 
 /// Schedule-side disposition committed with an exact run terminal and marker
 /// release. `Interrupted` is recovery-only: work from a dead owner is never
@@ -174,6 +181,10 @@ impl CronDB {
 
             CREATE INDEX IF NOT EXISTS idx_cron_runs_job
                 ON cron_run_logs(job_id, started_at DESC);
+
+            -- `(job_id, started_at)` cannot answer MAX(id) per job by seek.
+            CREATE INDEX IF NOT EXISTS idx_cron_runs_job_id
+                ON cron_run_logs(job_id, id DESC);
 
             CREATE INDEX IF NOT EXISTS idx_cron_runs_started
                 ON cron_run_logs(started_at DESC);",
@@ -1073,9 +1084,9 @@ impl CronDB {
         }
     }
 
-    /// Most recent occurrence per task, keyed by job id. One query for the whole
-    /// list: the task list needs every row's last outcome at once, and per-row
-    /// lookups would turn one panel render into N round trips.
+    /// Most recent occurrence per task, keyed by job id. The correlated form of
+    /// this query is quadratic and holds the mutex the scheduler claims through,
+    /// so a long-lived task would stall cron itself — keep the grouped join.
     pub fn latest_run_summaries(
         &self,
     ) -> Result<std::collections::HashMap<String, CronLastRunSummary>> {
@@ -1083,14 +1094,7 @@ impl CronDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        // Order by the autoincrement id, not `started_at`: two runs can share a
-        // second, and only the id is a total order.
-        let mut stmt = conn.prepare(
-            "SELECT job_id, id, session_id, status, started_at, finished_at, error,
-                    result_preview, delivery_status
-               FROM cron_run_logs l
-              WHERE l.id = (SELECT MAX(id) FROM cron_run_logs WHERE job_id = l.job_id)",
-        )?;
+        let mut stmt = conn.prepare(LATEST_RUN_SUMMARY_SQL)?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -1114,10 +1118,8 @@ impl CronDB {
         Ok(out)
     }
 
-    /// Owner-facing read of one task and its tombstone flag. Deleting only
-    /// stops future occurrences, so retained history (a chat task card, a run
-    /// log) still resolves the task it names — and can seed a copy of it —
-    /// without any live scheduling surface listing the deleted task again.
+    /// Owner-facing read of one task and its tombstone flag; see
+    /// [`CronJobSnapshot`] for why a deleted task stays readable.
     pub fn get_job_snapshot(&self, id: &str) -> Result<Option<CronJobSnapshot>> {
         Ok(self
             .get_job_including_deleted(id)?
@@ -2273,9 +2275,6 @@ impl CronDB {
         .map_err(Into::into)
     }
 
-    /// Load one immutable run occurrence for exact cancellation. This query is
-    /// intentionally independent of the live job predicate so a tombstoned
-    /// task's retained in-flight run can still be stopped and finalized.
     /// The task's single unfinished occurrence, resolved from its live
     /// `running_at` claim. Callers that only know the task (the model tool asked
     /// to "stop the run that is going right now") need this to reach the exact
@@ -3994,6 +3993,70 @@ mod tests {
     }
 
     #[test]
+    fn latest_run_summaries_never_degrades_into_a_correlated_scan() {
+        let path = temp_db_path("latest-run-plan");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("history", Vec::new(), None))
+            .expect("add job");
+        for index in 0..3 {
+            let claimed = db
+                .claim_immediate_job_for_execution(&job)
+                .expect("claim")
+                .expect("claimed");
+            let run_id = db
+                .add_running_run_log(&job.id, &format!("session-{index}"), &claimed.claimed_at)
+                .expect("open run log");
+            db.finalize_run_log(
+                run_id,
+                if index == 2 { "error" } else { "success" },
+                &Utc::now().to_rfc3339(),
+                Some(1),
+                None,
+                (index == 2).then_some("boom"),
+                None,
+            )
+            .expect("finish run");
+            db.clear_running(&job.id).expect("release claim");
+        }
+
+        let summary = db
+            .latest_run_summaries()
+            .expect("summaries")
+            .remove(&job.id)
+            .expect("last run");
+        assert_eq!(summary.status, "error", "newest occurrence wins");
+        assert_eq!(summary.error.as_deref(), Some("boom"));
+
+        // Pin the plan, not the wall clock.
+        let plan = {
+            let conn = db.conn.lock().expect("lock db");
+            let mut stmt = conn
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN {}",
+                    super::LATEST_RUN_SUMMARY_SQL
+                ))
+                .expect("prepare plan");
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(3))
+                .expect("plan rows")
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .expect("collect plan");
+            rows.join(" | ")
+        };
+        assert!(
+            !plan.to_uppercase().contains("CORRELATED"),
+            "last-run lookup regressed to a correlated subquery: {plan}"
+        );
+        assert!(
+            plan.contains("idx_cron_runs_job_id"),
+            "per-job MAX(id) must seek the (job_id, id) index: {plan}"
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
     fn open_run_log_lookup_follows_the_live_claim() {
         let path = temp_db_path("open-run-log-lookup");
         let db = CronDB::open(&path).expect("open db");
@@ -4056,8 +4119,6 @@ mod tests {
         db.delete_job(&job.id).expect("soft delete");
         assert!(db.get_job(&job.id).unwrap().is_none());
 
-        // Deleting only stops future occurrences: retained history still resolves
-        // the task, and the full configuration remains available to copy.
         let tombstone = db
             .get_job_snapshot(&job.id)
             .expect("snapshot deleted task")

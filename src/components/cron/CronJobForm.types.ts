@@ -123,9 +123,8 @@ export interface CronLastRunSummary {
 }
 
 /**
- * A task plus its tombstone flag (`cron_get_job_snapshot`). Deleting a task only
- * stops future occurrences, so retained history still resolves it here — as
- * display + copy material, never as a schedulable job.
+ * A task plus its tombstone flag (`cron_get_job_snapshot`): a deleted task still
+ * resolves here as display + copy material, never as a schedulable job.
  */
 export interface CronJobSnapshot {
   job: CronJob

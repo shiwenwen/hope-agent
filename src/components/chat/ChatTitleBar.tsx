@@ -449,8 +449,7 @@ export default function ChatTitleBar({
                   data-panel-state={active ? "active" : panel.open ? "open" : "closed"}
                   className={cn(
                     "group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground",
-                    // Open panels carry a light fill; the active one deepens it.
-                    // Background-only so hover/selected never add a border or ring.
+                    // Background-only: hover/selected must never add a border or ring.
                     active
                       ? "bg-secondary text-foreground hover:bg-secondary"
                       : panel.open

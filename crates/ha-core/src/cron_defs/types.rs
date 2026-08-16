@@ -395,7 +395,6 @@ pub struct CronUpdateResult {
     pub current_job: Option<CronJob>,
 }
 
-/// Result of cancelling one immutable run-log occurrence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CronRunCancelResult {

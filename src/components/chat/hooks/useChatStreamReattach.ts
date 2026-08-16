@@ -424,11 +424,9 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           if (handshakeRegistry.get(sid) === handshake) {
             handshakeRegistry.delete(sid)
           }
-          // Delta flushes only append into a trailing, not-yet-persisted
-          // assistant bubble. A cold reattach has no send-side placeholder, and
-          // this branch has no journal snapshot to build one from — without it
-          // every frame of a still-running stream is silently dropped (the
-          // reattached scheduled/exact turn renders nothing until it ends).
+          // A cold reattach has no send-side placeholder and no journal snapshot
+          // to build one from; delta flushes only append into a trailing
+          // unpersisted bubble, so without this the running stream renders nothing.
           if (state.active) {
             updateSessionMessages(sid, (prev) => {
               const last = prev[prev.length - 1]
@@ -531,6 +529,23 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         }
       }
       markStreamEnded(endedStreamIdsRef.current, sid, streamId)
+      // Drop a reattach placeholder the turn never wrote into; an exact-turn
+      // viewer has no DB reload to reclaim it, so it would stay blank forever.
+      updateSessionMessages(sid, (prev) => {
+        const last = prev[prev.length - 1]
+        if (
+          !last ||
+          last.role !== "assistant" ||
+          typeof last.dbId === "number" ||
+          !last._clientId?.startsWith("live-stream:") ||
+          last.content ||
+          last.toolCalls?.length ||
+          last.contentBlocks?.length
+        ) {
+          return prev
+        }
+        return prev.slice(0, -1)
+      })
       // The backend deliberately delivers every durable delta before end, but
       // the most recent frame may still be waiting in our 30fps RAF merge
       // buffer. Flush it before cleanup; a `pending` persistence end does not

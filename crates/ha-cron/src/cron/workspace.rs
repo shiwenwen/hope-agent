@@ -349,10 +349,14 @@ pub struct PreparedCronWorkspace {
     session_db: Arc<SessionDB>,
 }
 
-/// Does this settled Fresh Worktree get removed? `DiscardIfClean` reads the
-/// audit that was just taken: any file the run left behind — staged, unstaged,
-/// untracked, conflicted — or any commit ahead of the base keeps it.
-fn cleanup_discards(cleanup: CronWorkspaceCleanup, audit: &CronWorkspaceSnapshot) -> bool {
+/// Does this settled Fresh Worktree get removed? `DiscardIfClean` keeps any
+/// Worktree the run left work in, gitignored output included — the dirty
+/// counters cannot see that, hence the separate `has_ignored_output` probe.
+fn cleanup_discards(
+    cleanup: CronWorkspaceCleanup,
+    audit: &CronWorkspaceSnapshot,
+    has_ignored_output: bool,
+) -> bool {
     match cleanup {
         CronWorkspaceCleanup::Retain => false,
         CronWorkspaceCleanup::Always => true,
@@ -362,6 +366,23 @@ fn cleanup_discards(cleanup: CronWorkspaceCleanup, audit: &CronWorkspaceSnapshot
                 && audit.untracked == 0
                 && audit.conflicted == 0
                 && !audit.head_diverged
+                && !has_ignored_output
+        }
+    }
+}
+
+/// Fail closed: a probe error counts as holding output, so it retains.
+fn holds_ignored_output(row: &ManagedWorktree) -> bool {
+    match ha_core::worktree::worktree_has_ignored_files(std::path::Path::new(&row.path)) {
+        Ok(found) => found,
+        Err(error) => {
+            app_warn!(
+                "cron",
+                "workspace_cleanup",
+                "Worktree {} kept; ignored-file probe failed: {error:#}",
+                row.id
+            );
+            true
         }
     }
 }
@@ -579,7 +600,13 @@ impl PreparedCronWorkspace {
             // doubt fails closed to a retained Worktree plus the pending-resource
             // panel — never a half-removed one.
             let discarded = self.mode == CronWorkspaceMode::Fresh
-                && cleanup_discards(self.cleanup, &audit)
+                && cleanup_discards(
+                    self.cleanup,
+                    &audit,
+                    // Probe only when the answer can change the outcome.
+                    self.cleanup == CronWorkspaceCleanup::DiscardIfClean
+                        && holds_ignored_output(&row),
+                )
                 && match row.scheduled_task_id.as_deref() {
                     Some(task) => {
                         match self.session_db.discard_scheduled_run_worktree(
@@ -784,11 +811,10 @@ mod tests {
     fn discard_if_clean_never_removes_a_worktree_that_holds_work() {
         assert!(cleanup_discards(
             CronWorkspaceCleanup::DiscardIfClean,
-            &audit(0, 0, 0, 0, false)
+            &audit(0, 0, 0, 0, false),
+            false
         ));
 
-        // Any surviving artifact of the run keeps the Worktree: a file the user
-        // may still want is worth more than the disk it occupies.
         for dirty in [
             audit(1, 0, 0, 0, false),
             audit(0, 1, 0, 0, false),
@@ -797,20 +823,35 @@ mod tests {
             audit(0, 0, 0, 0, true),
         ] {
             assert!(
-                !cleanup_discards(CronWorkspaceCleanup::DiscardIfClean, &dirty),
+                !cleanup_discards(CronWorkspaceCleanup::DiscardIfClean, &dirty, false),
                 "dirty audit must be retained: {dirty:?}"
             );
         }
+
+        // Ignored build output is invisible to the dirty counters.
+        assert!(
+            !cleanup_discards(
+                CronWorkspaceCleanup::DiscardIfClean,
+                &audit(0, 0, 0, 0, false),
+                true
+            ),
+            "gitignored output must retain the Worktree"
+        );
     }
 
     #[test]
     fn retain_keeps_everything_and_always_discards_everything() {
         let dirty = audit(3, 2, 1, 0, true);
-        assert!(!cleanup_discards(CronWorkspaceCleanup::Retain, &dirty));
         assert!(!cleanup_discards(
             CronWorkspaceCleanup::Retain,
-            &audit(0, 0, 0, 0, false)
+            &dirty,
+            false
         ));
-        assert!(cleanup_discards(CronWorkspaceCleanup::Always, &dirty));
+        assert!(!cleanup_discards(
+            CronWorkspaceCleanup::Retain,
+            &audit(0, 0, 0, 0, false),
+            false
+        ));
+        assert!(cleanup_discards(CronWorkspaceCleanup::Always, &dirty, true));
     }
 }

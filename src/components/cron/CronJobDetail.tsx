@@ -291,6 +291,9 @@ export default function CronJobDetail({
   const { t } = useTranslation()
   const [job, setJob] = useState<CronJob | null>(null)
   const [logs, setLogs] = useState<CronRunLog[]>([])
+  // Read by the global-event listener, which must not re-subscribe per page.
+  const logsRef = useRef<CronRunLog[]>([])
+  logsRef.current = logs
   const [workspaceResources, setWorkspaceResources] = useState<CronWorkspaceResource[] | null>([])
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
@@ -410,14 +413,24 @@ export default function CronJobDetail({
   useEffect(() => {
     if (!isViewVisible) return
     const refresh = () => void fetchData()
+    // Chat events are global; refetching on a stranger's turn throws away the
+    // pages the user loaded here.
+    const refreshOwnSession = (payload: unknown) => {
+      const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId
+      if (typeof sessionId !== "string") return
+      const owned =
+        logsRef.current.some((log) => log.sessionId === sessionId) ||
+        (job?.payload.type === "sessionTurn" && job.payload.sessionId === sessionId)
+      if (owned) refresh()
+    }
     const unlisten = [
-      getTransport().listen("chat:turn_queue_changed", refresh),
-      getTransport().listen("chat:turn_started", refresh),
+      getTransport().listen("chat:turn_queue_changed", refreshOwnSession),
+      getTransport().listen("chat:turn_started", refreshOwnSession),
       getTransport().listen("cron:run_completed", refresh),
     ]
     return () => unlisten.forEach((stop) => stop())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isViewVisible, jobId])
+  }, [isViewVisible, jobId, job?.payload])
 
   async function handleToggle() {
     if (!job) return
@@ -881,7 +894,7 @@ export default function CronJobDetail({
                         <span className="mt-0.5 shrink-0">
                           {log.status === "success" ? (
                             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                          ) : log.status === "queued" ? (
+                          ) : log.status === "queued" || log.status === "preparing" ? (
                             <Clock className="h-4 w-4 text-amber-500" />
                           ) : log.status === "running" || log.status === "completing" ? (
                             <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
@@ -903,7 +916,9 @@ export default function CronJobDetail({
                                 "font-medium",
                                 log.status === "success" &&
                                   "text-emerald-600 dark:text-emerald-400",
-                                (log.status === "queued" || log.status === "cancelling") &&
+                                (log.status === "queued" ||
+                                  log.status === "preparing" ||
+                                  log.status === "cancelling") &&
                                   "text-amber-600 dark:text-amber-400",
                                 (log.status === "running" || log.status === "completing") &&
                                   "text-blue-600 dark:text-blue-400",
@@ -912,7 +927,7 @@ export default function CronJobDetail({
                             >
                               {log.status === "success"
                                 ? t("cron.runStatusSuccess")
-                                : log.status === "queued"
+                                : log.status === "queued" || log.status === "preparing"
                                   ? t("common.statusValues.queued")
                                   : log.status === "running" || log.status === "completing"
                                     ? t("cron.runStatusRunning")

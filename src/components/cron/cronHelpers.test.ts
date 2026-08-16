@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest"
-import {
-  cronAttention,
-  cronSearchHaystack,
-  runLogDotColor,
-  runStatusDisplay,
-} from "./cronHelpers"
+import { cronAttention, cronSearchHaystack, runLogDotColor, runStatusDisplay } from "./cronHelpers"
 import type { CronJob } from "./CronJobForm.types"
 
 describe("runLogDotColor (C21)", () => {

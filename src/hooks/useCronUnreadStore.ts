@@ -43,9 +43,8 @@ export function initCronUnreadStore() {
     _unlisten.push(
       getTransport().listen("session:unread_changed", (raw) => {
         const payload = raw && typeof raw === "object" ? (raw as { domain?: string | null }) : null
-        // Ordinary Cron-origin sessions emit `regular`; legacy rows emit
-        // `cron`; mixed bulk/archive mutations are unscoped. All three can
-        // change the Scheduled projection, while channel-only reads cannot.
+        // Cron-origin sessions emit `regular`, legacy rows `cron`, bulk/archive
+        // mutations nothing — all three move Scheduled; channel-only reads do not.
         if (!payload?.domain || payload.domain === "cron" || payload.domain === "regular") {
           void reload()
         }

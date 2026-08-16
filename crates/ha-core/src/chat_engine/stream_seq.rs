@@ -422,10 +422,8 @@ mod tests {
 
     #[test]
     fn cron_source_wire_roundtrip_and_buckets() {
-        // Cron is owner-internal: it tracks seq (real session + concurrency
-        // guard) and broadcasts through the global stream bus so an opened run
-        // can reattach live. Its wire string round-trips so persisted
-        // `messages.source` rows reload as Cron rather than collapsing to Desktop.
+        // The wire string must round-trip so persisted `messages.source` rows
+        // reload as Cron rather than collapsing to Desktop.
         assert!(ChatSource::Cron.tracks_seq());
         assert!(ChatSource::Cron.broadcasts_to_user_ui());
         assert_eq!(ChatSource::Cron.as_str(), "cron");

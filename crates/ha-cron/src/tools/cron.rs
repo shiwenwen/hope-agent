@@ -318,7 +318,9 @@ pub(crate) fn tool_manage_cron<'a>(
                     job.project_id = parse_project_id_value(v)?;
                     validate_project_id(job.project_id.as_deref())?;
                 }
-                if args.get("workspace_mode").is_some() || args.get("workspace_base_ref").is_some()
+                if args.get("workspace_mode").is_some()
+                    || args.get("workspace_base_ref").is_some()
+                    || args.get("workspace_cleanup").is_some()
                 {
                     job.workspace_policy =
                         resolve_workspace_policy(args, Some(&job.workspace_policy))?;
@@ -345,7 +347,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 let draft = job.clone();
                 ha_core::blocking::run_blocking(move || db.update_job(&draft)).await?;
                 Ok(format!(
-                    "Updated scheduled task '{}' (id: {}). Next run: {} | Project: {} | Workspace: {}{} | Targets: {}",
+                    "Updated scheduled task '{}' (id: {}). Next run: {} | Project: {} | Workspace: {}{}{} | Targets: {}",
                     job.name,
                     job.id,
                     job.next_run_at.as_deref().unwrap_or("none"),
@@ -359,6 +361,14 @@ pub(crate) fn tool_manage_cron<'a>(
                         .as_deref()
                         .map(|base_ref| format!(" ({base_ref})"))
                         .unwrap_or_default(),
+                    if job.workspace_policy.mode == CronWorkspaceMode::Fresh {
+                        format!(
+                            " (cleanup={})",
+                            workspace_cleanup_label(job.workspace_policy.cleanup)
+                        )
+                    } else {
+                        String::new()
+                    },
                     if job.delivery_targets.is_empty() {
                         "none".to_string()
                     } else {
@@ -441,8 +451,6 @@ pub(crate) fn tool_manage_cron<'a>(
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
                 match cron_db.get_job(id)? {
-                    // Carry the last occurrence's outcome so "why didn't it work"
-                    // is answerable without a second call.
                     Some(job) => {
                         let last_run = cron_db
                             .latest_run_summaries()
@@ -518,7 +526,21 @@ pub(crate) fn tool_manage_cron<'a>(
                 // between two calls, and a stale "cancel whatever is running"
                 // must never terminate the next occurrence instead.
                 let run_log_id = match args.get("run_log_id").and_then(Value::as_i64) {
-                    Some(explicit) => explicit,
+                    Some(explicit) => {
+                        // Run ids are global; a transposed pair would otherwise
+                        // stop another task while reporting this one's name.
+                        let owner = cron_db
+                            .get_run_cancel_target(explicit)?
+                            .ok_or_else(|| anyhow::anyhow!("Run {} not found", explicit))?;
+                        anyhow::ensure!(
+                            owner.job_id == id,
+                            "run {} belongs to scheduled task '{}', not '{}'",
+                            explicit,
+                            owner.job_id,
+                            id
+                        );
+                        explicit
+                    }
                     None => match cron_db.find_open_run_log_for_job(id)? {
                         Some(found) => found,
                         None => {
@@ -850,6 +872,7 @@ fn reject_existing_session_context_overrides(args: &Value) -> Result<()> {
         "project_id",
         "workspace_mode",
         "workspace_base_ref",
+        "workspace_cleanup",
     ]
     .into_iter()
     .filter(|key| args.get(*key).is_some())
@@ -1057,9 +1080,11 @@ fn resolve_workspace_policy(
         }
         policy.base_ref = None;
     }
-    // Reject rather than normalize away: a task asked to clean up after each run
-    // must not come back silently as "retain everything".
-    if policy.mode != CronWorkspaceMode::Fresh && policy.cleanup != CronWorkspaceCleanup::Retain {
+    // Reject only what the caller actually sent; an inherited cleanup is dropped
+    // by `normalized()` so switching a cleaning task off Fresh still works.
+    if policy.mode != CronWorkspaceMode::Fresh
+        && matches!(supplied_cleanup, Some(cleanup) if cleanup != CronWorkspaceCleanup::Retain)
+    {
         anyhow::bail!(
             "workspace_cleanup is only valid for workspace_mode=fresh_worktree; persistent reuses one Worktree and project creates none"
         );
@@ -1533,8 +1558,6 @@ mod tests {
         .unwrap();
         assert_eq!(policy.cleanup, CronWorkspaceCleanup::DiscardIfClean);
 
-        // Switching a cleaning task to a mode that has nothing to clean up is a
-        // contradiction, not something to silently normalize away.
         let error = resolve_workspace_policy(
             &json!({ "workspace_mode": "persistent_worktree", "workspace_cleanup": "always" }),
             None,
@@ -1545,6 +1568,29 @@ mod tests {
         let error =
             resolve_workspace_policy(&json!({ "workspace_cleanup": "burn" }), None).unwrap_err();
         assert!(error.to_string().contains("Invalid workspace_cleanup"));
+    }
+
+    #[test]
+    fn switching_a_cleaning_task_off_fresh_drops_the_inherited_cleanup() {
+        let cleaning = CronWorkspacePolicy {
+            mode: CronWorkspaceMode::Fresh,
+            base_ref: None,
+            cleanup: CronWorkspaceCleanup::DiscardIfClean,
+        };
+        // Only what the caller sent may be rejected; the inherited policy must
+        // not make a plain mode switch fail on an argument nobody passed.
+        let policy = resolve_workspace_policy(
+            &json!({ "workspace_mode": "persistent_worktree" }),
+            Some(&cleaning),
+        )
+        .unwrap();
+        assert_eq!(policy.mode, CronWorkspaceMode::Persistent);
+        assert_eq!(policy.cleanup, CronWorkspaceCleanup::Retain);
+
+        let kept =
+            resolve_workspace_policy(&json!({ "workspace_base_ref": "main" }), Some(&cleaning))
+                .unwrap();
+        assert_eq!(kept.cleanup, CronWorkspaceCleanup::DiscardIfClean);
     }
 
     #[test]

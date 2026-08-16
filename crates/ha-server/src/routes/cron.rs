@@ -62,9 +62,7 @@ pub async fn get_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(job)?))
 }
 
-/// `GET /api/cron/jobs/{id}/snapshot` — task + tombstone flag. Deleting only
-/// stops future occurrences, so retained history resolves its task here even
-/// after deletion; the result is read/copy material, never a scheduling handle.
+/// `GET /api/cron/jobs/{id}/snapshot` — task + tombstone flag, read/copy only.
 pub async fn get_job_snapshot(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let db = db()?;
     let snapshot = run_blocking(move || db.get_job_snapshot(&id)).await?;

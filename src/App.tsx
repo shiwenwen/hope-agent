@@ -1280,7 +1280,13 @@ export default function App() {
                       isViewVisible={view === "calendar"}
                       defaultProjectId={currentChatProjectId}
                       taskFocus={pendingCronTaskFocus}
+                      onTaskFocusHandled={(nonce) =>
+                        setPendingCronTaskFocus((prev) => (prev?.nonce === nonce ? null : prev))
+                      }
                       taskDraft={pendingCronTaskDraft}
+                      onTaskDraftHandled={(nonce) =>
+                        setPendingCronTaskDraft((prev) => (prev?.nonce === nonce ? null : prev))
+                      }
                       onOpenSettings={handleOpenSettings}
                       onCreateWithModel={(prompt) => {
                         setPendingChatInsert({ token: prompt })

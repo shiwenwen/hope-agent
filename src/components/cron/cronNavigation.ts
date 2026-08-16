@@ -19,9 +19,8 @@ export function subscribeCronTaskFocus(handler: (jobId: string) => void): () => 
 }
 
 /**
- * Open the Scheduled surface with a new-task draft seeded from a retained task.
- * The seed may be a tombstone (deleted tasks keep their ledger row) — it seeds
- * a create, never an edit, so the deleted task is never rescheduled in place.
+ * Seed a brand-new task draft from a retained task — a create, never an edit, so
+ * a deleted seed (tombstone) is never rescheduled in place.
  */
 export function requestCronTaskDraft(seed: CronJob): void {
   if (typeof window === "undefined" || !seed) return

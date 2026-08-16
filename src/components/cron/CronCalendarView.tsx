@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -92,11 +92,10 @@ interface CronCalendarViewProps {
   defaultProjectId?: string | null
   /** Cross-surface request to open one scheduled task. */
   taskFocus?: { jobId: string; nonce: number } | null
-  /**
-   * Cross-surface request to open a new-task draft seeded from a retained task
-   * (typically a deleted one, copied from the chat card that outlived it).
-   */
+  onTaskFocusHandled?: (nonce: number) => void
+  /** Open a new-task draft seeded from a retained (possibly deleted) task. */
   taskDraft?: { seed: CronJob; nonce: number } | null
+  onTaskDraftHandled?: (nonce: number) => void
   /** Open the main Settings page deep-linked to a section (e.g. "cron"). */
   onOpenSettings?: (section: SettingsSection) => void
   /** Open the ordinary chat surface with a conversational task-creation prompt. */
@@ -107,7 +106,9 @@ export default function CronCalendarView({
   isViewVisible,
   defaultProjectId,
   taskFocus,
+  onTaskFocusHandled,
   taskDraft,
+  onTaskDraftHandled,
   onOpenSettings,
   onCreateWithModel,
 }: CronCalendarViewProps) {
@@ -119,8 +120,12 @@ export default function CronCalendarView({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
-  // Copy-as-new-task seed. Never an edit target: it may be a deleted task.
+  // Copy-as-new-task seed, never an edit target.
   const [seedJob, setSeedJob] = useState<CronJob | null>(null)
+  const handledHandoffRef = useRef<{ focus: number | null; draft: number | null }>({
+    focus: null,
+    draft: null,
+  })
   const [detailJobId, setDetailJobId] = useState<string | null>(null)
   const [pendingWorkspaces, setPendingWorkspaces] = useState<CronWorkspaceResource[] | null>([])
 
@@ -138,8 +143,7 @@ export default function CronCalendarView({
   // rendered as an embedded CronJobDetail on the right (separate from the
   // calendar's full-screen detailJobId).
   const [selectedListJobId, setSelectedListJobId] = useState<string | null>(null)
-  // CronJobDetail resolves its configured Agent label from this shared roster.
-  // Keep it job-independent so row selection doesn't refetch the same list.
+  // Kept job-independent so row selection doesn't refetch the same agent list.
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
 
   const year = currentDate.getFullYear()
@@ -200,30 +204,38 @@ export default function CronCalendarView({
   useEffect(() => {
     const jobId = taskFocus?.jobId
     if (!isViewVisible || !jobId) return
+    if (handledHandoffRef.current.focus === taskFocus?.nonce) return
+    handledHandoffRef.current.focus = taskFocus?.nonce ?? null
     let cancelled = false
     void fetchJobs().then((latestJobs) => {
       if (cancelled) return
       if (latestJobs?.some((job) => job.id === jobId)) {
         setDetailJobId(jobId)
-        return
+      } else {
+        // A retained conversation may outlive its deleted task. Never navigate
+        // to an unresolvable detail surface; keep the remaining task list visible.
+        setDetailJobId(null)
+        setMode("list")
       }
-      // A retained conversation may outlive its deleted task. Never navigate
-      // to an unresolvable detail surface; keep the remaining task list visible.
-      setDetailJobId(null)
-      setMode("list")
+      if (taskFocus) onTaskFocusHandled?.(taskFocus.nonce)
     })
     return () => {
       cancelled = true
     }
-  }, [fetchJobs, isViewVisible, taskFocus])
+  }, [fetchJobs, isViewVisible, onTaskFocusHandled, taskFocus])
 
   useEffect(() => {
     const seed = taskDraft?.seed
     if (!isViewVisible || !seed) return
+    // Consume the handoff: this view stays mounted, so an unconsumed nonce would
+    // re-open the seeded form on every return to Scheduled.
+    if (handledHandoffRef.current.draft === taskDraft?.nonce) return
+    handledHandoffRef.current.draft = taskDraft?.nonce ?? null
     setEditingJob(null)
     setSeedJob(seed)
     setShowForm(true)
-  }, [isViewVisible, taskDraft])
+    if (taskDraft) onTaskDraftHandled?.(taskDraft.nonce)
+  }, [isViewVisible, onTaskDraftHandled, taskDraft])
 
   const refreshAll = useCallback(() => {
     fetchEvents()

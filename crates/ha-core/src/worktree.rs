@@ -2173,6 +2173,20 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Does this Worktree still hold gitignored files? The dirty counters never see
+/// them, but removal deletes them, so anything that deletes on "clean" must ask.
+/// Kept out of the standard snapshot because it walks ignored directories.
+pub fn worktree_has_ignored_files(path: &Path) -> Result<bool> {
+    if !path.exists() || !is_inside_git_work_tree(path) {
+        bail!("{} is not inside a git worktree", path.display());
+    }
+    let out = git_output_read_only(
+        path,
+        &["status", "--porcelain=v1", "--ignored=matching", "-uall"],
+    )?;
+    Ok(out.lines().any(|line| line.starts_with("!!")))
+}
+
 fn worktree_dirty_snapshot(path: &Path) -> Option<ManagedWorktreeDirtySnapshot> {
     if !path.exists() || !is_inside_git_work_tree(path) {
         return None;

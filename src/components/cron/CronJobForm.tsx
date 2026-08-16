@@ -94,11 +94,8 @@ export default function CronJobForm({
 }: CronJobFormProps) {
   const { t } = useTranslation()
   const isEditing = !!job
-  // Configuration source for the initial field values. `job` also drives CAS and
-  // edit-only branches; `seedJob` only ever seeds a fresh draft.
   const seed = job ?? seedJob ?? null
-  // A target is immutable once a task exists, and pinned when the form was
-  // opened from a chat. Otherwise the user picks new-chat vs. an existing chat.
+  // A target is immutable once a task exists, and pinned when opened from a chat.
   const lockedSessionId =
     job?.payload.type === "sessionTurn" ? job.payload.sessionId : sessionTarget?.id
   const targetLocked = !!lockedSessionId || isEditing

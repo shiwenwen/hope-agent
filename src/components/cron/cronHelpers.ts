@@ -58,12 +58,9 @@ export interface CronAttention {
 }
 
 /**
- * Single source for "this task needs you". Ordered by how much it costs to miss:
- * an auto-disabled task stopped running entirely (`disabled` is only ever
- * reached by consecutive failures — a user pause is `paused`), a failed last run
- * produced nothing, a missed one never fired, a stale delivery target silently
- * drops output, and a non-zero failure streak is the early warning before the
- * task disables itself.
+ * Single source for "this task needs you", ordered by how much it costs to miss.
+ * `disabled` is only ever reached by consecutive failures — a user pause is
+ * `paused` and never needs attention.
  */
 export function cronAttention(job: CronJob): CronAttention | null {
   const failures = job.consecutiveFailures
@@ -273,6 +270,7 @@ export function runLogDotColor(runStatus: string | undefined, jobStatus: string)
     case "running":
     case "completing":
       return "bg-blue-500"
+    case "preparing":
     case "queued":
     case "cancelling":
       return "bg-amber-500"
@@ -302,6 +300,7 @@ export function runStatusDisplay(runStatus: string): {
     case "running":
     case "completing":
       return { className: "text-blue-500", symbol: "", labelKey: "cron.runStatusRunning" }
+    case "preparing":
     case "queued":
       return { className: "text-amber-500", symbol: "", labelKey: "common.statusValues.queued" }
     case "cancelling":

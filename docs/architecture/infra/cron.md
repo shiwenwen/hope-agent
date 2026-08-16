@@ -196,7 +196,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 | `delivery_status` | `Option<String>` | fan-out 结果：`None`=无目标 / `delivered` / `partial` / `failed` |
 | `worktree_id` / `workspace_status` / `workspace_snapshot` | `Option<…>` | 精确运行的 Worktree 身份、保管状态和终态 Git 快照；Project 模式也记录 `project` 状态但无 Worktree id |
 
-`status` 的取值：`running`（在途）/ `success` / `empty`（零输出）/ `cancelled` / `error` / `timeout` / `no_session`（会话创建失败的基础设施错误字面量）。
+`status` 的取值：`preparing` / `queued`（SessionTurn 入目标会话队列的模型前状态）/ `running`（在途）/ `cancelling` / `completing`（结算中）/ `success` / `empty`（零输出）/ `cancelled` / `error` / `timeout` / `no_session`（会话创建失败的基础设施错误字面量）。
 
 #### run_log status 是自由文本列——新增状态的同步契约
 
@@ -204,7 +204,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 
 | # | 触点 | 三个非成功状态各自如何被特殊处理 |
 |---|------|--------------------------------------|
-| 1 | **Dashboard 聚合**（[`dashboard/insights.rs`](../../../crates/ha-dash/src/dashboard/insights.rs) 成功率 + [`dashboard/queries.rs`](../../../crates/ha-dash/src/dashboard/queries.rs) 的 `CronJobStats`） | 两处各有 `status NOT IN ('success','running','empty','cancelled')` 的失败 denylist——`running`/`empty`/`cancelled` 靠出现在排除名单里才不进失败分母；`queries.rs` 另有 `SUM(CASE WHEN status != 'running' …)` 把在途 `running` 排除出 `total_runs`。新非失败状态不加进这两条 denylist 就会被当失败 |
+| 1 | **Dashboard 聚合**（[`dashboard/insights.rs`](../../../crates/ha-dash/src/dashboard/insights.rs) 成功率 + [`dashboard/queries.rs`](../../../crates/ha-dash/src/dashboard/queries.rs) 的 `CronJobStats`） | 两处各有 `status NOT IN ('success','preparing','queued','running','cancelling','completing','empty','cancelled')` 的失败 denylist——`running`/`empty`/`cancelled` 靠出现在排除名单里才不进失败分母；`queries.rs` 另有 `SUM(CASE WHEN status != 'running' …)` 把在途 `running` 排除出 `total_runs`。新非失败状态不加进这两条 denylist 就会被当失败 |
 | 2 | **前端渲染** | [`cronHelpers.ts`](../../../src/components/cron/cronHelpers.ts) 的 `runLogDotColor` / `runStatusDisplay`（`running`→蓝 / `empty`·`cancelled`→中性 muted / `success`→绿 / **默认分支一律红 `✕`**）供日历圆点与历史时间线共用；[`CronJobDetail.tsx`](../../../src/components/cron/CronJobDetail.tsx) 另有一套等价的 inline 分支，两份必须一起改；[`TaskSection.tsx`](../../../src/components/dashboard/TaskSection.tsx) 的圆环按 `successRuns + failedRuns` 这个已决分母算，随 #1 自动生效 |
 | 3 | **通知分支**（[`useChatSession.ts`](../../../src/components/chat/hooks/useChatSession.ts) 监听 `cron:run_completed`） | `auto_disabled` 优先短路；其后按 `status` 分流：`success`→`cronSuccess` / `empty`→中性 `cronEmpty` / `cancelled`→中性 `cronCancelled` / **`else` 一律 `cronError`**。新非失败状态不加分支就会弹「任务失败」 |
 
@@ -767,7 +767,7 @@ Tauri 全局事件，任务执行完成后（无论成功或失败）发射。
 1. `CronDB::list_run_timeline(batch, offset)`——`cron_run_logs LEFT JOIN cron_jobs`，按 `started_at DESC, id DESC` 倒序取批次；逻辑删除保留原 `job_name` 并返回 `job_deleted=true`，仅物理遗留孤儿回退 `(deleted job)`。
 2. `SessionDB::cron_session_read_state(session_ids)`——按批次 session id 取 `(title, Scheduled 未读标记 0/1, archived)`；过滤归档项后再按可见行做 offset/limit，防止归档造成短页或漏页。普通 Cron-origin Session 的 `unread_count` 直接投影普通会话的 `last_read_message_id`，legacy `is_cron=1` 继续兼容；缺失 session 回退 `title=job_name` / `0`。
 
-返回 `CronTimelineRow`（其 `run_log_id` 是列表 key，因 `SessionLoop` 多次运行共享父会话）。前端 `CronConversationsPanel` 与任务详情继续用 `CronSessionViewer` 做只读预览；`AgentTurn` 行另提供“打开会话”，通过普通 chat focus 导航到同一个 Session。完整输入框、实时 stream、Stop、默认排队与显式安全边界插入都由普通 `ChatScreen` 提供；Scheduled 预览刻意不复制输入框或 composer，只负责历史与只读 live preview。预览成功渲染后可推进同一个普通 read watermark，不另建 Scheduled 未读域。
+返回 `CronTimelineRow`（其 `run_log_id` 是列表 key，因 `SessionLoop` 多次运行共享父会话）。运行既然就是普通会话，专用只读预览面板（`CronConversationsPanel` / `CronSessionViewer`）已删除：任务详情的运行历史直接“打开会话”，通过普通 chat focus 导航到同一个 Session，由普通 `ChatScreen` 提供输入框、实时 stream、Stop 与排队语义。读普通对话即推进同一个 read watermark，不另建 Scheduled 未读域。
 
 普通 AgentTurn Session 的未读只由普通 read receipt 清除：主聊天或 Scheduled 只读预览成功加载并真实渲染消息后，均调用同一个 `mark_session_read` 推进 watermark。`cron_unread_total()` 只是过滤 `origin.kind=cron` 的普通 Session（并兼容 legacy `is_cron=1`），按会话数去重且排除 archived；`mark_all_cron_sessions_read()` 批量推进这两类 Session 的现有 watermark，不创建第二套 receipt。archive / restore / pin 也完全复用普通 Session 入口，其中 archive 会从 Scheduled 时间线与角标投影隐藏会话并清除 pin。
 

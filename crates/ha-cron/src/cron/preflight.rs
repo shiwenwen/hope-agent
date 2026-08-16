@@ -698,8 +698,6 @@ fn inspect_delivery(targets: &[CronDeliveryTarget], report: &mut CronPreflightRe
     if targets.is_empty() {
         return;
     }
-    // Attribute each problem to its row as well as raising it as an issue, so
-    // the dialog can show *which* target is broken instead of one anonymous line.
     let mut attribute = |index: usize, code: CronPreflightIssueCode| {
         if let Some(preview) = report.execution.delivery_targets.get_mut(index) {
             if preview.problem.is_none() {

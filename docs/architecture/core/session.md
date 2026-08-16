@@ -554,9 +554,11 @@ AND NOT EXISTS (channel_conversations 绑定)
 
 项目会话与未归项目的普通顶层会话都包含。
 
-### 三域互不清除
+### 普通与 IM 互不清除，Scheduled 是普通域的投影
 
-普通、IM Channel、Cron 是三个互不干扰的未读域：普通域只看 `COALESCE(source,'desktop') != 'channel'` 的 assistant 行；IM 域只看 channel 绑定会话内 `source='channel'` 的 assistant 行。`source` NULL 保守视作 desktop（兼容旧数据）。知识空间、Eval、Subagent、无痕，以及未来用独立 `SessionKind` 的空间默认排除。
+普通与 IM Channel 是两个互不干扰的未读域：普通域只看 `COALESCE(source,'desktop') != 'channel'` 的 assistant 行；IM 域只看 channel 绑定会话内 `source='channel'` 的 assistant 行。`source` NULL 保守视作 desktop（兼容旧数据）。知识空间、Eval、Subagent、无痕，以及未来用独立 `SessionKind` 的空间默认排除。
+
+Scheduled 不是第三个域：运行会话本身就是普通会话（`origin.kind='cron'`），其角标是同一 watermark 经 `scheduled_session_scope_sql` 的过滤投影，因此读普通对话即清 Scheduled 角标，反之亦然。详见 [cron](../infra/cron.md)。
 
 ### 何时算"已读"
 

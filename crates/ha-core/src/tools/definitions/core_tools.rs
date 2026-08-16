@@ -2631,8 +2631,7 @@ mod tests {
             .filter_map(|value| value.as_str())
             .collect::<Vec<_>>();
 
-        // Reading run history is what makes "why did it fail" answerable, and
-        // cancelling one occurrence must stay distinct from pausing the task.
+        // Cancelling one occurrence must stay distinct from pausing the task.
         assert!(actions.contains(&"runs"));
         assert!(actions.contains(&"cancel_run"));
         assert_eq!(properties["limit"]["type"], "integer");

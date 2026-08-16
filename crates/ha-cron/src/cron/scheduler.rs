@@ -297,27 +297,15 @@ pub fn start_scheduler(
                 }
 
                 // Startup recovery
-                let boundaries_recovered = match recover_session_turn_boundaries(&cron_db, &session_db) {
-                    Ok(()) => true,
-                    Err(error) => {
-                        app_error!("cron", "scheduler", "SessionTurn recovery stopped fail-closed: {error:#}");
-                        false
-                    }
-                };
-                let recovery_complete = boundaries_recovered
-                    && match cron_db.recover_orphaned_runs() {
-                        Ok(_) => true,
-                        Err(e) => {
-                        app_error!(
-                            "cron",
-                            "scheduler",
-                            "Failed to recover orphaned runs: {}",
-                            e
-                        );
-                            false
-                        }
-                    };
-                match recovery_complete.then(|| cron_db.clear_stale_running()).transpose() {
+                if let Err(error) = recover_session_turn_boundaries(&cron_db, &session_db) {
+                    app_error!("cron", "scheduler", "SessionTurn recovery stopped fail-closed: {error:#}");
+                }
+                if let Err(e) = cron_db.recover_orphaned_runs() {
+                    app_error!("cron", "scheduler", "Failed to recover orphaned runs: {}", e);
+                }
+                // Ungated on purpose: this is the only sweep that clears a marker
+                // written before its run log existed, and it never runs again.
+                match cron_db.clear_stale_running().map(Some) {
                     Ok(Some(n)) if n > 0 => app_warn!(
                         "cron",
                         "scheduler",
