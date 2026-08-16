@@ -22,6 +22,7 @@ import type {
   CronPreflightReport,
   CronSchedule,
   CronUpdateResult,
+  CronWorkspaceCleanup,
   CronWorkspaceMode,
 } from "./CronJobForm.types"
 
@@ -234,6 +235,9 @@ export default function CronJobForm({
     seed?.workspacePolicy?.mode ?? "project",
   )
   const [workspaceBaseRef, setWorkspaceBaseRef] = useState(seed?.workspacePolicy?.baseRef ?? "")
+  const [workspaceCleanup, setWorkspaceCleanup] = useState<CronWorkspaceCleanup>(
+    seed?.workspacePolicy?.cleanup ?? "retain",
+  )
   const [maxFailures, setMaxFailures] = useState(String(seed?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(seed?.notifyOnComplete ?? true)
   const [prefixDeliveryWithName, setPrefixDeliveryWithName] = useState(
@@ -327,6 +331,7 @@ export default function CronJobForm({
     setProjectId(latest.projectId ?? NO_PROJECT_VALUE)
     setWorkspaceMode(latest.workspacePolicy?.mode ?? "project")
     setWorkspaceBaseRef(latest.workspacePolicy?.baseRef ?? "")
+    setWorkspaceCleanup(latest.workspacePolicy?.cleanup ?? "retain")
     setMaxFailures(String(latest.maxFailures))
     setNotifyOnComplete(latest.notifyOnComplete)
     setPrefixDeliveryWithName(latest.prefixDeliveryWithName ?? false)
@@ -510,6 +515,9 @@ export default function CronJobForm({
           mode: isSessionTurn ? "project" : workspaceMode,
           baseRef:
             isSessionTurn || workspaceMode === "project" ? null : workspaceBaseRef.trim() || null,
+          // Cleanup only exists for Fresh; anything else must send `retain` so a
+          // mode switch cannot leave a stale discard policy behind.
+          cleanup: !isSessionTurn && workspaceMode === "fresh" ? workspaceCleanup : "retain",
         },
         schedule: buildSchedule(),
         payload: isSessionTurn
@@ -897,6 +905,27 @@ export default function CronJobForm({
                       onChange={(event) => setWorkspaceBaseRef(event.target.value)}
                       placeholder="HEAD"
                     />
+                  </div>
+                )}
+                {/* Only Fresh accumulates one checkout per run, so only Fresh has
+                    something to clean up — Persistent reuses a single Worktree. */}
+                {workspaceMode === "fresh" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      {t("cron.workspaceCleanup")}
+                    </label>
+                    <RadioPills<CronWorkspaceCleanup>
+                      value={workspaceCleanup}
+                      onChange={setWorkspaceCleanup}
+                      ariaLabel={t("cron.workspaceCleanup")}
+                      options={(["retain", "discardIfClean", "always"] as const).map((value) => ({
+                        value,
+                        label: t(`cron.workspaceCleanupOption.${value}`),
+                      }))}
+                    />
+                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                      {t(`cron.workspaceCleanupHint.${workspaceCleanup}`)}
+                    </p>
                   </div>
                 )}
               </div>

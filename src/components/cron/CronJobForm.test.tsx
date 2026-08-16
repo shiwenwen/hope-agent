@@ -112,7 +112,12 @@ describe("CronJobForm conversation target", () => {
     // An existing-chat task follows the chat's live context; it never carries a
     // task-owned Project / workspace / permission copy.
     expect(request.job.projectId).toBeNull()
-    expect(request.job.workspacePolicy).toEqual({ mode: "project", baseRef: null })
+    expect(request.job.workspacePolicy).toEqual({
+      mode: "project",
+      baseRef: null,
+      // Cleanup exists only for Fresh; a chat-targeted task must not carry one.
+      cleanup: "retain",
+    })
     expect(request.job.permissionModeOverride).toBeNull()
   })
 

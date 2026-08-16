@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "(archived)",
     "workspaceModePersistent": "Persistent worktree",
+    "workspaceCleanup": "After each run",
+    "workspaceCleanupOption": {
+      "retain": "Keep",
+      "discardIfClean": "Remove if unchanged",
+      "always": "Always remove"
+    },
+    "workspaceCleanupHint": {
+      "retain": "Every run keeps its Worktree until you archive or discard it.",
+      "discardIfClean": "The Worktree is removed only when the run left no changes and no new commits — nothing you could still need is ever deleted.",
+      "always": "The Worktree is removed after every run, including its uncommitted changes. Use only when the real output is delivered elsewhere."
+    },
     "workspaceModeHint": "Project uses its directory; New creates one worktree per run; Persistent reuses one per task. Base branch applies to worktrees.",
     "workspaceActionBlocked": "Unavailable: {{reason}}",
     "workspaceActionReturn": "Return",

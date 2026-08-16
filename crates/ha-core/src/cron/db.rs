@@ -3876,6 +3876,12 @@ pub fn validate_workspace_policy(
     payload: &CronPayload,
     project_id: Option<&str>,
 ) -> Result<CronWorkspacePolicy> {
+    // Reject an explicit cleanup on a mode that has nothing to clean up rather
+    // than letting `normalized()` silently drop it — a task saved with
+    // "discard after each run" must never come back as Project + retain.
+    if policy.cleanup != CronWorkspaceCleanup::Retain && policy.mode != CronWorkspaceMode::Fresh {
+        anyhow::bail!("workspace_cleanup_requires_fresh");
+    }
     let policy = policy.normalized();
     if matches!(
         payload,

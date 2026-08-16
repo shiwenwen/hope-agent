@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "(đã lưu trữ)",
     "workspaceModePersistent": "Cây làm việc chuyên dụng",
+    "workspaceCleanup": "Sau mỗi lần chạy",
+    "workspaceCleanupOption": {
+      "retain": "Giữ lại",
+      "discardIfClean": "Xóa nếu không có thay đổi",
+      "always": "Luôn xóa"
+    },
+    "workspaceCleanupHint": {
+      "retain": "Worktree của mỗi lần chạy được giữ lại cho tới khi bạn lưu trữ hoặc xóa nó.",
+      "discardIfClean": "Chỉ xóa khi lần chạy không để lại thay đổi và không có commit mới — không bao giờ mất thứ bạn còn cần.",
+      "always": "Xóa sau mỗi lần chạy, kể cả các thay đổi chưa commit. Chỉ dùng khi kết quả thật sự được gửi đi nơi khác."
+    },
     "workspaceModeHint": "Dự án dùng thư mục của nó; Mới tạo một cây cho mỗi lần chạy; Chuyên dụng tái sử dụng một cây cho mỗi tác vụ. Nhánh cơ sở áp dụng cho cây làm việc.",
     "workspaceActionBlocked": "Không khả dụng: {{reason}}",
     "workspaceActionReturn": "Trả lại",

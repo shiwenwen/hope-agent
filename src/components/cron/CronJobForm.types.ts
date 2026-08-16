@@ -4,9 +4,13 @@ import type { ManagedWorktree } from "@/lib/transport"
 import type { ActiveModel } from "@/types/chat"
 
 export type CronWorkspaceMode = "project" | "fresh" | "persistent"
+/** What happens to a Fresh Worktree once its run settles. */
+export type CronWorkspaceCleanup = "retain" | "discardIfClean" | "always"
 export interface CronWorkspacePolicy {
   mode: CronWorkspaceMode
   baseRef?: string | null
+  /** Fresh-only; every other mode is always `retain`. */
+  cleanup?: CronWorkspaceCleanup
 }
 export interface CronWorkspaceSnapshot {
   mode: CronWorkspaceMode
@@ -222,6 +226,7 @@ export interface CronPreflightReport {
     resolvedAgentId?: string | null
     projectName?: string | null
     workspaceMode: CronWorkspaceMode
+    workspaceCleanup?: CronWorkspaceCleanup
     baseRef?: string | null
     workspaceDirtyFiles?: number | null
     effectivePermissionMode?: string | null

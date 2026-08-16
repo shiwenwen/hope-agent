@@ -6,8 +6,8 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use ha_core::cron::{
-    self, CronDeliveryTarget, CronPayload, CronSchedule, CronWorkspaceMode, CronWorkspacePolicy,
-    NewCronJob,
+    self, CronDeliveryTarget, CronPayload, CronSchedule, CronWorkspaceCleanup, CronWorkspaceMode,
+    CronWorkspacePolicy, NewCronJob,
 };
 
 use crate::cron::{
@@ -195,13 +195,21 @@ pub(crate) fn tool_manage_cron<'a>(
                     out.push_str(&format!("\nProject: {}", project_label(project_id)));
                 }
                 out.push_str(&format!(
-                    "\nWorkspace: {}{}",
+                    "\nWorkspace: {}{}{}",
                     workspace_mode_label(job.workspace_policy.mode),
                     job.workspace_policy
                         .base_ref
                         .as_deref()
                         .map(|base_ref| format!(" (base_ref={base_ref})"))
-                        .unwrap_or_default()
+                        .unwrap_or_default(),
+                    if job.workspace_policy.mode == CronWorkspaceMode::Fresh {
+                        format!(
+                            " (cleanup={})",
+                            workspace_cleanup_label(job.workspace_policy.cleanup)
+                        )
+                    } else {
+                        String::new()
+                    }
                 ));
                 if let CronPayload::SessionTurn {
                     session_id: target_session_id,
@@ -1025,6 +1033,14 @@ fn resolve_workspace_policy(
         };
     }
 
+    let supplied_cleanup = args
+        .get("workspace_cleanup")
+        .map(parse_workspace_cleanup)
+        .transpose()?;
+    if let Some(cleanup) = supplied_cleanup {
+        policy.cleanup = cleanup;
+    }
+
     let supplied_base_ref = args
         .get("workspace_base_ref")
         .map(parse_workspace_base_ref)
@@ -1041,8 +1057,38 @@ fn resolve_workspace_policy(
         }
         policy.base_ref = None;
     }
+    // Reject rather than normalize away: a task asked to clean up after each run
+    // must not come back silently as "retain everything".
+    if policy.mode != CronWorkspaceMode::Fresh && policy.cleanup != CronWorkspaceCleanup::Retain {
+        anyhow::bail!(
+            "workspace_cleanup is only valid for workspace_mode=fresh_worktree; persistent reuses one Worktree and project creates none"
+        );
+    }
 
     Ok(policy.normalized())
+}
+
+fn parse_workspace_cleanup(value: &Value) -> Result<CronWorkspaceCleanup> {
+    let raw = value.as_str().ok_or_else(|| {
+        anyhow::anyhow!("Invalid 'workspace_cleanup': expected retain, discard_if_clean, or always")
+    })?;
+    match raw.trim() {
+        "retain" | "keep" => Ok(CronWorkspaceCleanup::Retain),
+        "discard_if_clean" | "discardIfClean" => Ok(CronWorkspaceCleanup::DiscardIfClean),
+        "always" | "always_discard" => Ok(CronWorkspaceCleanup::Always),
+        other => anyhow::bail!(
+            "Invalid workspace_cleanup: '{}'. Use 'retain', 'discard_if_clean', or 'always'",
+            other
+        ),
+    }
+}
+
+fn workspace_cleanup_label(cleanup: CronWorkspaceCleanup) -> &'static str {
+    match cleanup {
+        CronWorkspaceCleanup::Retain => "retain",
+        CronWorkspaceCleanup::DiscardIfClean => "discard_if_clean",
+        CronWorkspaceCleanup::Always => "always",
+    }
 }
 
 fn parse_workspace_base_ref(value: &Value) -> Result<Option<String>> {
@@ -1366,7 +1412,7 @@ mod tests {
         reject_existing_session_context_overrides, resolve_workspace_policy, workspace_lifecycle,
         CronConversationTarget,
     };
-    use ha_core::cron::{CronWorkspaceMode, CronWorkspacePolicy};
+    use ha_core::cron::{CronWorkspaceCleanup, CronWorkspaceMode, CronWorkspacePolicy};
     use serde_json::{json, Value};
 
     #[test]
@@ -1451,6 +1497,7 @@ mod tests {
         let current = CronWorkspacePolicy {
             mode: CronWorkspaceMode::Persistent,
             base_ref: Some("release".to_string()),
+            cleanup: CronWorkspaceCleanup::Retain,
         };
         let policy =
             resolve_workspace_policy(&json!({ "workspace_mode": "project" }), Some(&current))
@@ -1463,12 +1510,41 @@ mod tests {
         let current = CronWorkspacePolicy {
             mode: CronWorkspaceMode::Fresh,
             base_ref: Some("release".to_string()),
+            cleanup: CronWorkspaceCleanup::DiscardIfClean,
         };
         let policy =
             resolve_workspace_policy(&json!({ "workspace_base_ref": null }), Some(&current))
                 .unwrap();
         assert_eq!(policy.mode, CronWorkspaceMode::Fresh);
         assert_eq!(policy.base_ref, None);
+        assert_eq!(
+            policy.cleanup,
+            CronWorkspaceCleanup::DiscardIfClean,
+            "clearing the base ref must not reset an unrelated cleanup policy",
+        );
+    }
+
+    #[test]
+    fn workspace_cleanup_is_fresh_only_and_survives_a_round_trip() {
+        let policy = resolve_workspace_policy(
+            &json!({ "workspace_mode": "fresh_worktree", "workspace_cleanup": "discard_if_clean" }),
+            None,
+        )
+        .unwrap();
+        assert_eq!(policy.cleanup, CronWorkspaceCleanup::DiscardIfClean);
+
+        // Switching a cleaning task to a mode that has nothing to clean up is a
+        // contradiction, not something to silently normalize away.
+        let error = resolve_workspace_policy(
+            &json!({ "workspace_mode": "persistent_worktree", "workspace_cleanup": "always" }),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("fresh_worktree"));
+
+        let error =
+            resolve_workspace_policy(&json!({ "workspace_cleanup": "burn" }), None).unwrap_err();
+        assert!(error.to_string().contains("Invalid workspace_cleanup"));
     }
 
     #[test]

@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "(archivado)",
     "workspaceModePersistent": "Árbol de trabajo persistente",
+    "workspaceCleanup": "Después de cada ejecución",
+    "workspaceCleanupOption": {
+      "retain": "Conservar",
+      "discardIfClean": "Eliminar si no hay cambios",
+      "always": "Eliminar siempre"
+    },
+    "workspaceCleanupHint": {
+      "retain": "Cada ejecución conserva su Worktree hasta que la archives o descartes.",
+      "discardIfClean": "El Worktree se elimina solo si la ejecución no dejó cambios ni nuevos commits: nunca se borra algo que aún puedas necesitar.",
+      "always": "El Worktree se elimina tras cada ejecución, incluidos los cambios sin confirmar. Úsalo solo si el resultado real se entrega por otro canal."
+    },
     "workspaceModeHint": "Proyecto usa su directorio; Nuevo crea un árbol por ejecución; Persistente reutiliza uno por tarea. La rama base se aplica a los árboles de trabajo.",
     "workspaceActionBlocked": "No disponible: {{reason}}",
     "workspaceActionReturn": "Devolver",

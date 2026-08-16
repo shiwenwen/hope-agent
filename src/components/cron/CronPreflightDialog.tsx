@@ -43,6 +43,10 @@ export default function CronPreflightDialog({
     execution.projectName && `${t("cron.project")}: ${execution.projectName}`,
     model && `${t("workspace.environment.model")}: ${model}`,
     execution.workspaceMode,
+    execution.workspaceMode === "fresh" &&
+      execution.workspaceCleanup &&
+      execution.workspaceCleanup !== "retain" &&
+      `${t("cron.workspaceCleanup")}: ${t(`cron.workspaceCleanupOption.${execution.workspaceCleanup}`)}`,
     execution.baseRef && `${t("workspace.git.prBase")}: ${execution.baseRef}`,
     execution.workspaceDirtyFiles != null &&
       t("workspace.worktree.changed", { count: execution.workspaceDirtyFiles }),

@@ -133,6 +133,8 @@ Only new-chat tasks have a task-level workspace choice. Current-chat tasks alway
 | Fresh | Creates an isolated Git Worktree from an optional base ref for every occurrence | Each result is retained separately; archive, restore, or discard it when those actions are offered |
 | Persistent | Keeps one task-owned Git Worktree and reuses it across occurrences | Every run chat keeps that Worktree mounted and can be reopened like an ordinary chat; take it over to pause the task for exclusive manual work |
 
+Fresh creates a full new Worktree per run and keeps it until you archive or discard it. When such a task usually changes nothing — checks, read-only analysis — set **After each run** to "Remove if unchanged": the Worktree is deleted only when that run left no changes and no new commits, so nothing you might still need is removed. "Always remove" deletes it including uncommitted changes, which suits only tasks whose real output is delivered elsewhere. A Worktree you have taken over, or one still in use, is never cleaned up automatically.
+
 Fresh and Persistent require a Git project. A blank base ref means `HEAD`; preflight verifies that it resolves to a commit. The backend decides which actions are safe from the Worktree's real ownership, run state, conflicts, and chat custody, and fails closed if that state cannot be read. Unresolved Persistent or retained Worktrees remain discoverable in Scheduled Tasks even after their task is deleted.
 
 Finishing a run does not unmount its Worktree from the conversation. Reopening that chat from the message list or run history keeps the same Worktree path in the title bar, file panel, and tool runtime, just like an ordinary Worktree-backed chat.

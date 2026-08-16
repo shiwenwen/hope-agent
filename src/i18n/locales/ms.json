@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "(diarkibkan)",
     "workspaceModePersistent": "Pokok kerja khusus",
+    "workspaceCleanup": "Selepas setiap larian",
+    "workspaceCleanupOption": {
+      "retain": "Simpan",
+      "discardIfClean": "Buang jika tiada perubahan",
+      "always": "Sentiasa buang"
+    },
+    "workspaceCleanupHint": {
+      "retain": "Setiap larian mengekalkan Worktree-nya sehingga anda arkibkan atau buang.",
+      "discardIfClean": "Worktree dibuang hanya apabila larian tidak meninggalkan sebarang perubahan dan tiada commit baharu — tiada apa yang mungkin anda perlukan akan hilang.",
+      "always": "Worktree dibuang selepas setiap larian, termasuk perubahan yang belum di-commit. Guna hanya apabila hasil sebenar dihantar melalui saluran lain."
+    },
     "workspaceModeHint": "Projek menggunakan direktorinya; Baharu mencipta satu pokok bagi setiap larian; Khusus menggunakan semula satu pokok bagi setiap tugasan. Cabang asas digunakan pada pokok kerja.",
     "workspaceActionBlocked": "Tidak tersedia: {{reason}}",
     "workspaceActionReturn": "Kembalikan",

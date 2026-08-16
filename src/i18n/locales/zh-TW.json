@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "（已封存）",
     "workspaceModePersistent": "專屬工作樹",
+    "workspaceCleanup": "每次執行後",
+    "workspaceCleanupOption": {
+      "retain": "保留",
+      "discardIfClean": "無變更則刪除",
+      "always": "一律刪除"
+    },
+    "workspaceCleanupHint": {
+      "retain": "每次執行的 Worktree 都會保留，直到你封存或丟棄它。",
+      "discardIfClean": "僅當這次執行沒有留下任何變更、也沒有新提交時才刪除——不會刪掉你可能還需要的東西。",
+      "always": "每次執行後都刪除，包含未提交的變更。只適合真正產出走投遞的任務。"
+    },
     "workspaceModeHint": "專案模式直接使用專案目錄；新增模式每次執行建立工作樹；專屬模式由任務長期重複使用。起始分支僅用於工作樹。",
     "workspaceActionBlocked": "不可用：{{reason}}",
     "workspaceActionReturn": "歸還",

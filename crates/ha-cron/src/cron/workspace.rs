@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use ha_core::cron::{
-    CronDB, CronJob, CronJobStatus, CronRunLog, CronWorkspaceMode, CronWorkspaceSnapshot,
+    CronDB, CronJob, CronJobStatus, CronRunLog, CronWorkspaceCleanup, CronWorkspaceMode,
+    CronWorkspaceSnapshot,
 };
 use ha_core::session::SessionDB;
 use ha_core::worktree::{
@@ -339,12 +340,30 @@ pub fn workspace_error_code(error: &anyhow::Error) -> &'static str {
 
 pub struct PreparedCronWorkspace {
     mode: CronWorkspaceMode,
+    cleanup: CronWorkspaceCleanup,
     row: Option<ManagedWorktree>,
     run_log_id: i64,
     session_id: String,
     turn_id: String,
     cron_db: Arc<CronDB>,
     session_db: Arc<SessionDB>,
+}
+
+/// Does this settled Fresh Worktree get removed? `DiscardIfClean` reads the
+/// audit that was just taken: any file the run left behind — staged, unstaged,
+/// untracked, conflicted — or any commit ahead of the base keeps it.
+fn cleanup_discards(cleanup: CronWorkspaceCleanup, audit: &CronWorkspaceSnapshot) -> bool {
+    match cleanup {
+        CronWorkspaceCleanup::Retain => false,
+        CronWorkspaceCleanup::Always => true,
+        CronWorkspaceCleanup::DiscardIfClean => {
+            audit.staged == 0
+                && audit.unstaged == 0
+                && audit.untracked == 0
+                && audit.conflicted == 0
+                && !audit.head_diverged
+        }
+    }
 }
 
 fn snapshot_identity(mode: CronWorkspaceMode, row: &ManagedWorktree) -> CronWorkspaceSnapshot {
@@ -385,8 +404,10 @@ pub async fn prepare_workspace(
     turn_id: &str,
 ) -> Result<PreparedCronWorkspace> {
     let mode = job.workspace_policy.mode;
+    let cleanup = job.workspace_policy.cleanup;
     let prepared = |row| PreparedCronWorkspace {
         mode,
+        cleanup,
         row,
         run_log_id,
         session_id: session_id.into(),
@@ -545,14 +566,45 @@ impl PreparedCronWorkspace {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
         ha_core::blocking::run_blocking(move || {
-            let audit = snapshot(self.mode, &row, &self.session_db)?;
+            let mut audit = snapshot(self.mode, &row, &self.session_db)?;
             self.session_db.release_scheduled_runtime(
                 &row,
                 self.run_log_id,
                 &self.session_id,
                 Some(&self.turn_id),
             )?;
-            let status = if self.mode == CronWorkspaceMode::Fresh {
+            // Per-task cleanup runs only after custody is released, and only for
+            // Fresh: `discard_scheduled_run_worktree` re-checks owner, custody,
+            // handoff, and session idleness inside its own transaction, so any
+            // doubt fails closed to a retained Worktree plus the pending-resource
+            // panel — never a half-removed one.
+            let discarded = self.mode == CronWorkspaceMode::Fresh
+                && cleanup_discards(self.cleanup, &audit)
+                && match row.scheduled_task_id.as_deref() {
+                    Some(task) => {
+                        match self.session_db.discard_scheduled_run_worktree(
+                            &row.id,
+                            task,
+                            &self.session_id,
+                        ) {
+                            Ok(()) => true,
+                            Err(error) => {
+                                app_warn!(
+                                    "cron",
+                                    "workspace_cleanup",
+                                    "Run {} kept its Worktree; cleanup failed: {error:#}",
+                                    self.run_log_id
+                                );
+                                false
+                            }
+                        }
+                    }
+                    None => false,
+                };
+            audit.retained = !discarded;
+            let status = if discarded {
+                "discarded"
+            } else if self.mode == CronWorkspaceMode::Fresh {
                 "retained"
             } else {
                 "ready"
@@ -704,4 +756,61 @@ fn reconcile_workspaces_sync(cron_db: &Arc<CronDB>, session_db: &Arc<SessionDB>)
         }
     }
     Ok(released)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn audit(
+        staged: u32,
+        unstaged: u32,
+        untracked: u32,
+        conflicted: u32,
+        diverged: bool,
+    ) -> CronWorkspaceSnapshot {
+        CronWorkspaceSnapshot {
+            mode: CronWorkspaceMode::Fresh,
+            staged,
+            unstaged,
+            untracked,
+            conflicted,
+            head_diverged: diverged,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn discard_if_clean_never_removes_a_worktree_that_holds_work() {
+        assert!(cleanup_discards(
+            CronWorkspaceCleanup::DiscardIfClean,
+            &audit(0, 0, 0, 0, false)
+        ));
+
+        // Any surviving artifact of the run keeps the Worktree: a file the user
+        // may still want is worth more than the disk it occupies.
+        for dirty in [
+            audit(1, 0, 0, 0, false),
+            audit(0, 1, 0, 0, false),
+            audit(0, 0, 1, 0, false),
+            audit(0, 0, 0, 1, false),
+            audit(0, 0, 0, 0, true),
+        ] {
+            assert!(
+                !cleanup_discards(CronWorkspaceCleanup::DiscardIfClean, &dirty),
+                "dirty audit must be retained: {dirty:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn retain_keeps_everything_and_always_discards_everything() {
+        let dirty = audit(3, 2, 1, 0, true);
+        assert!(!cleanup_discards(CronWorkspaceCleanup::Retain, &dirty));
+        assert!(!cleanup_discards(
+            CronWorkspaceCleanup::Retain,
+            &audit(0, 0, 0, 0, false)
+        ));
+        assert!(cleanup_discards(CronWorkspaceCleanup::Always, &dirty));
+    }
 }

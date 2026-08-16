@@ -142,7 +142,7 @@ stateDiagram-v2
 | `revision` | `u64` | owner/config edit generation（初始 1）；纯 claim、排程推进、运行终态等 runtime bookkeeping 不递增 |
 | `name` / `description` | `String` / `Option<String>` | 名称与描述 |
 | `project_id` | `Option<String>` | 可选 Project 关联。执行时创建 Project 会话并注入 Project 上下文；Project 已删除时自愈清空、降级为普通 cron |
-| `workspace_policy` | `CronWorkspacePolicy` | `project` 直接使用 Project 目录；`fresh` 每次运行创建并由普通 run chat 持有；`persistent` 由 Task 长期持有并按 occurrence 精确绑定，同时让每个运行会话持续保留该 Worktree 工作目录。Worktree 准备失败不回退 Project |
+| `workspace_policy` | `CronWorkspacePolicy` | `project` 直接使用 Project 目录；`fresh` 每次运行创建并由普通 run chat 持有；`persistent` 由 Task 长期持有并按 occurrence 精确绑定，同时让每个运行会话持续保留该 Worktree 工作目录。`cleanup` 决定 Fresh 收尾后的去留（见「Fresh Worktree 的收尾清理」）。Worktree 准备失败不回退 Project |
 | `schedule` | `CronSchedule` | 调度配置 |
 | `payload` | `CronPayload` | 执行内容 |
 | `status` | `CronJobStatus` | 五态状态 |
@@ -255,6 +255,20 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 - 卡片状态三分：live（状态 / 下次运行 / 打开详情）、`deleted=true`（划线 + 已删除态 + 「复制为新任务」，不再轮询运行日志、不提供打开详情）、台账无行（只显示「任务不存在」，无可复制草稿）。
 - 「复制为新任务」经 `cronNavigation` 的 `hope:cron-task-draft` 把保留的 `CronJob` 交给 Scheduled 面板，`CronJobForm` 以 `seedJob` **只初始化字段**：不带 id / revision，恒走 create，绝不把 tombstone 重新推回排程或 CAS 更新。删除的 Worktree 定制、投递目标等配置随草稿一并带出，用户改完再存。
 - live 任务的最近一次运行为 `error` / `timeout` 时，卡片给「再次运行」；它与详情页 run-now 共用同一条 `cron_preflight` → `cron_run_now`（带 `expectedRevision`）链路，不新开执行入口。
+
+### Fresh Worktree 的收尾清理
+
+Fresh 每次运行造一个完整 checkout 且默认永不回收——日更任务一年就是 365 个工作树。`CronWorkspacePolicy.cleanup` 让任务自己声明去留，而不是把破坏性动作交给模型：
+
+| 值 | 收尾行为 |
+|---|---|
+| `retain`（默认，即历史行为） | 永不自动删，只有 owner 显式归档 / 丢弃 |
+| `discardIfClean` | 仅当收尾审计显示零 staged / unstaged / untracked / conflicted 且 `head_diverged=false` 才删——**不可能删掉运行产出** |
+| `always` | 无条件删；只适合产出走投递、文件系统纯当沙箱的任务 |
+
+- **只对 Fresh 有意义**：`normalized()` 把其它模式的 `cleanup` 归零，而 `validate_workspace_policy` 与模型工具**先报错再归一化**——「每次运行后清理」的任务不能因为改了 mode 就静默变成「全部保留」。
+- **执行点在 `PreparedCronWorkspace::finalize`**：先等会话 idle、取审计快照、释放 custody，再决定是否 `discard_scheduled_run_worktree`。该方法在自己的事务里复查 owner / runtime custody / handoff / `state='active'` / 会话 idle，任一不满足即失败——**失败一律回落为保留 + 埋点**，待处理资源区仍是兜底。run log 的 `workspace_status` 记 `discarded`，审计的 `retained` 同步为 `false`。
+- 被聊天接管、handoff 或仍有 runtime 占用的 Worktree 因此永远不会被自动清理掉。
 
 ### 任务列表的异常入口
 

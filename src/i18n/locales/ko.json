@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "(보관됨)",
     "workspaceModePersistent": "전용 워크트리",
+    "workspaceCleanup": "각 실행 후",
+    "workspaceCleanupOption": {
+      "retain": "유지",
+      "discardIfClean": "변경 없으면 삭제",
+      "always": "항상 삭제"
+    },
+    "workspaceCleanupHint": {
+      "retain": "각 실행의 Worktree는 보관하거나 삭제할 때까지 유지됩니다.",
+      "discardIfClean": "실행이 변경 사항과 새 커밋을 남기지 않은 경우에만 삭제합니다. 필요할 수 있는 것은 지워지지 않습니다.",
+      "always": "커밋되지 않은 변경까지 포함해 매번 삭제합니다. 실제 결과물이 전달로 나가는 작업에만 사용하세요."
+    },
     "workspaceModeHint": "프로젝트는 해당 디렉터리를 사용하고, 새 모드는 실행마다 워크트리를 만들며, 전용 모드는 작업별로 재사용합니다. 기준 브랜치는 워크트리에 적용됩니다.",
     "workspaceActionBlocked": "사용할 수 없음: {{reason}}",
     "workspaceActionReturn": "반환",

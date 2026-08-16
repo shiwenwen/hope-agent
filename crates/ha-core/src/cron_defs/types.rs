@@ -71,6 +71,25 @@ pub enum CronWorkspaceMode {
     Persistent,
 }
 
+/// What happens to a Fresh Worktree once its run settles. Retention is the
+/// default because a run's uncommitted output is often the whole point; the
+/// other two exist because one Worktree per occurrence otherwise accumulates a
+/// full checkout per run forever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CronWorkspaceCleanup {
+    /// Keep every run's Worktree until the user archives or discards it.
+    #[default]
+    Retain,
+    /// Discard only when the run left nothing behind — no staged, unstaged,
+    /// untracked, or conflicted files and no commits ahead of the base. Removes
+    /// empty husks without ever destroying work.
+    DiscardIfClean,
+    /// Always discard at settle. For sandbox-style tasks whose real output goes
+    /// out through delivery rather than the filesystem.
+    Always,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CronWorkspacePolicy {
@@ -78,6 +97,10 @@ pub struct CronWorkspacePolicy {
     pub mode: CronWorkspaceMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_ref: Option<String>,
+    /// Only meaningful for `Fresh`: `Persistent` is defined by reuse, and
+    /// `Project` never creates a Worktree to clean up.
+    #[serde(default)]
+    pub cleanup: CronWorkspaceCleanup,
 }
 
 impl CronWorkspacePolicy {
@@ -89,6 +112,9 @@ impl CronWorkspacePolicy {
             .filter(|value| !value.is_empty());
         if self.mode == CronWorkspaceMode::Project {
             self.base_ref = None;
+        }
+        if self.mode != CronWorkspaceMode::Fresh {
+            self.cleanup = CronWorkspaceCleanup::Retain;
         }
         self
     }

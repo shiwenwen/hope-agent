@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "（アーカイブ済み）",
     "workspaceModePersistent": "専用ワークツリー",
+    "workspaceCleanup": "各実行の後",
+    "workspaceCleanupOption": {
+      "retain": "保持",
+      "discardIfClean": "変更がなければ削除",
+      "always": "常に削除"
+    },
+    "workspaceCleanupHint": {
+      "retain": "各実行の Worktree は、アーカイブまたは破棄するまで保持されます。",
+      "discardIfClean": "実行が変更も新しいコミットも残さなかった場合にのみ削除します。必要かもしれないものが消えることはありません。",
+      "always": "未コミットの変更も含め、毎回削除します。実際の成果物が配信で届くタスクにのみ使ってください。"
+    },
     "workspaceModeHint": "プロジェクトはそのディレクトリを使用し、新規は実行ごとに作成し、専用はタスクごとに再利用します。ベースブランチはワークツリーに適用されます。",
     "workspaceActionBlocked": "利用不可: {{reason}}",
     "workspaceActionReturn": "返却",

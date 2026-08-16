@@ -1448,6 +1448,17 @@
     "agent": "Agent",
     "archivedProject": "(arşivlendi)",
     "workspaceModePersistent": "Kalıcı çalışma ağacı",
+    "workspaceCleanup": "Her çalıştırmadan sonra",
+    "workspaceCleanupOption": {
+      "retain": "Sakla",
+      "discardIfClean": "Değişiklik yoksa sil",
+      "always": "Her zaman sil"
+    },
+    "workspaceCleanupHint": {
+      "retain": "Her çalıştırmanın Worktree'si, siz arşivleyene veya silene kadar durur.",
+      "discardIfClean": "Worktree yalnızca çalıştırma hiçbir değişiklik ve yeni commit bırakmadıysa silinir — hâlâ ihtiyacınız olabilecek hiçbir şey silinmez.",
+      "always": "Worktree her çalıştırmadan sonra, commit edilmemiş değişikliklerle birlikte silinir. Yalnızca asıl çıktısı teslimatla giden görevler için."
+    },
     "workspaceModeHint": "Proje kendi dizinini kullanır; Yeni her çalıştırmada bir ağaç oluşturur; Kalıcı her görev için bir ağacı yeniden kullanır. Temel dal çalışma ağaçlarına uygulanır.",
     "workspaceActionBlocked": "Kullanılamıyor: {{reason}}",
     "workspaceActionReturn": "Geri ver",

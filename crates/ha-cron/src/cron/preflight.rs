@@ -4,8 +4,8 @@ use anyhow::Result;
 use chrono::Utc;
 use ha_core::cron::{
     compute_next_run, resolve_agent_id_for_execution, validate_schedule, validate_workspace_policy,
-    CronDB, CronDeliveryTarget, CronJob, CronPayload, CronSchedule, CronWorkspaceMode,
-    CronWorkspacePolicy, NewCronJob,
+    CronDB, CronDeliveryTarget, CronJob, CronPayload, CronSchedule, CronWorkspaceCleanup,
+    CronWorkspaceMode, CronWorkspacePolicy, NewCronJob,
 };
 use ha_core::permission::{SandboxMode, SessionMode};
 use ha_core::provider::ActiveModel;
@@ -153,6 +153,9 @@ pub struct CronExecutionPreview {
     pub resolved_agent_id: Option<String>,
     pub project_name: Option<String>,
     pub workspace_mode: CronWorkspaceMode,
+    /// Fresh-only retention policy; `Retain` for every other mode.
+    #[serde(default)]
+    pub workspace_cleanup: CronWorkspaceCleanup,
     pub base_ref: Option<String>,
     pub workspace_dirty_files: Option<u32>,
     pub effective_permission_mode: Option<SessionMode>,
@@ -365,6 +368,7 @@ fn evaluate_sync(
 
     report.execution.conversation = preview_conversation(&candidate.payload, session_db);
     report.execution.workspace_mode = candidate.workspace.mode;
+    report.execution.workspace_cleanup = candidate.workspace.cleanup;
     report.execution.base_ref =
         (candidate.workspace.mode != CronWorkspaceMode::Project).then(|| {
             candidate
