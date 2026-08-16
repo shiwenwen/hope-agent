@@ -60,12 +60,18 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         // doubao-seed-1.8 ¥0.8/¥8，输入为长度阶梯价、此处取最低档）；带日期后缀的
         // 第三方托管 id（kimi/glm/deepseek 的 ark 变体）不再单列——落到各厂商直连臂，
         // 量级正确即可。
+        // Seed 2.1 官方价 ¥6/¥30（Pro 与 Evolving 同档），Turbo 为 Pro 的一半。
+        m if m.contains("doubao-seed-2-1-pro") || m.contains("doubao-seed-evolving") => {
+            (6.0 / CNY_PER_USD, 30.0 / CNY_PER_USD)
+        }
+        m if m.contains("doubao-seed-2-1-turbo") => (3.0 / CNY_PER_USD, 15.0 / CNY_PER_USD),
         m if m.contains("doubao-seed-code") => (1.2 / CNY_PER_USD, 8.0 / CNY_PER_USD),
         m if m.contains("doubao-seed-1-8") || m.contains("doubao-seed-1.8") => {
             (0.8 / CNY_PER_USD, 8.0 / CNY_PER_USD)
         }
         // Anthropic — Claude 5 family
         m if m.contains("claude-fable-5") || m.contains("claude-mythos-5") => (10.0, 50.0),
+        m if m.contains("claude-opus-5") => (5.0, 25.0),
         m if m.contains("claude-sonnet-5") => (3.0, 15.0),
         // Anthropic — Claude 4.x. Opus 4.5 onwards is $5/$25; only Opus 4/4.1 stayed $15/$75.
         m if m.contains("claude-opus-4-8")
@@ -86,8 +92,9 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("claude-3-haiku") || m.contains("claude-haiku-3") => (0.25, 1.25),
         m if m.contains("claude-4") => (3.0, 15.0),
         // OpenAI — GPT-5.x. Tier suffixes must precede the bare family arm.
-        m if m.contains("gpt-5.6-terra") => (2.5, 15.0),
-        m if m.contains("gpt-5.6-luna") => (1.0, 6.0),
+        // Terra / Luna 于 2026-07-30 降价（Terra -20%、Luna -80%）；Sol 未变。
+        m if m.contains("gpt-5.6-terra") => (2.0, 12.0),
+        m if m.contains("gpt-5.6-luna") => (0.20, 1.20),
         m if m.contains("gpt-5.6") => (5.0, 30.0),
         m if m.contains("gpt-5.5-pro") => (30.0, 180.0),
         m if m.contains("gpt-5.5") => (5.0, 30.0),
@@ -113,9 +120,14 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("o3-deep-research") => (10.0, 40.0),
         m if m.contains("o3") => (2.0, 8.0),
         // Google Gemini — 3.x. Lite must precede the plain flash arm.
-        m if m.contains("gemini-3.1-flash-lite") || m.contains("gemini-3-flash-lite") => {
+        m if m.contains("gemini-3.5-flash-lite")
+            || m.contains("gemini-3.1-flash-lite")
+            || m.contains("gemini-3-flash-lite") =>
+        {
             (0.10, 0.40)
         }
+        // 3.7 / 3.6 Flash 现为促销价（3.6 促销至 2026-12-31，之后回 $1.5/$7.5）。
+        m if m.contains("gemini-3.7-flash") || m.contains("gemini-3.6-flash") => (0.75, 3.75),
         m if m.contains("gemini-3.5-flash")
             || m.contains("gemini-3.1-flash")
             || m.contains("gemini-3-flash") =>
@@ -136,7 +148,10 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("gemini-1.5-pro") => (1.25, 5.0),
         m if m.contains("gemini-1.5-flash") => (0.075, 0.30),
         // xAI Grok. Point releases must precede the `grok-4` / `grok-3` family arms.
-        m if m.contains("grok-4.5") => (2.0, 6.0),
+        // 4.6 / 4.5 均按短上下文价入账；>200K 输入时 xAI 会对整请求翻倍，此处不建模。
+        m if m.contains("grok-4.6") || m.contains("grok-4.5") || m.contains("grok-4-5") => {
+            (2.0, 6.0)
+        }
         m if m.contains("grok-4.3") => (1.25, 2.5),
         m if m.contains("grok-4.20") => (1.25, 2.5),
         m if m.contains("grok-build") => (1.0, 2.0),
@@ -163,17 +178,25 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("DeepSeek-R1") || m.contains("deepseek-r1") => (0.55, 2.19),
         m if m.contains("deepseek") || m.contains("DeepSeek") => (0.27, 1.1),
         // Qwen。价目源是阿里国内站人民币价（qwen provider 模板同源、标 CNY），表侧
-        // 统一换算成 USD 口径入账。
+        // 统一换算成 USD 口径入账。3.x-max 的点版号不含 `qwen-max`/`qwen3-max` 子串，
+        // 漏掉这条会掉进末尾的通用 qwen 臂（¥0.3/¥0.6）、低估约 40 倍。
+        m if m.contains("qwen3.8-max") => (12.0 / CNY_PER_USD, 36.0 / CNY_PER_USD),
         m if m.contains("qwen-max") || m.contains("qwen3-max") => {
             (2.4 / CNY_PER_USD, 9.6 / CNY_PER_USD)
         }
         m if m.contains("qwq-plus") => (1.6 / CNY_PER_USD, 4.0 / CNY_PER_USD),
         m if m.contains("qwen-plus") => (0.8 / CNY_PER_USD, 2.0 / CNY_PER_USD),
         m if m.contains("qwen-turbo") => (0.3 / CNY_PER_USD, 0.6 / CNY_PER_USD),
-        m if m.contains("qwen") => (0.3 / CNY_PER_USD, 0.6 / CNY_PER_USD),
-        // GLM (Zhipu)
+        m if m.contains("qwen") || m.contains("Qwen") => (0.3 / CNY_PER_USD, 0.6 / CNY_PER_USD),
+        // GLM (Zhipu). 5.3 走积分制、无公开 token 价，按同代 5.2 档入账（量级正确即可）。
         m if m.contains("glm-5v-turbo") => (1.2, 4.0),
         m if m.contains("glm-5-turbo") => (1.2, 4.0),
+        m if m.contains("glm-5.3") || m.contains("glm-5.2") || m.contains("glm-5-2") => (1.4, 4.4),
+        // HF 式大小写 id（Synthetic 整块 null 价，只能靠本表）：contains 区分大小写，
+        // 少了这条会直接掉默认价，约 40 倍高估。
+        m if m.contains("GLM-5.2") => (1.4, 4.4),
+        m if m.contains("GLM-4.7-Flash") => (0.07, 0.4),
+        m if m.contains("GLM-4.7") || m.contains("GLM-5") => (0.6, 2.2),
         m if m.contains("glm-5.1") => (1.2, 4.0),
         m if m.contains("glm-5") => (1.0, 3.2),
         m if m.contains("glm-4.7-flashx") => (0.06, 0.4),
@@ -187,11 +210,14 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("glm-4.5") => (0.6, 2.2),
         // Moonshot Kimi. `kimi-k2-thinking` is billed as K2-era, not K2.5+.
         m if m.contains("kimi-k3") || m.contains("Kimi-K3") => (3.0, 15.0),
+        // HighSpeed 档是 K2.7 Code 的两倍价，必须排在通用 k2.7 臂之前。
+        m if m.contains("kimi-k2.7-code-highspeed") => (1.9, 8.0),
         m if m.contains("kimi-k2.7")
             || m.contains("Kimi-K2.7")
             || m.contains("kimi-k2.6")
             || m.contains("Kimi-K2.6")
-            || m.contains("kimi-k2p6") =>
+            || m.contains("kimi-k2p6")
+            || m.contains("kimi-k2-6") =>
         {
             (0.95, 4.0)
         }
@@ -211,11 +237,22 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("hy3") => (1.0 / CNY_PER_USD, 4.0 / CNY_PER_USD),
         // 阶跃星辰 (StepFun). step-3.5-flash 未公布单价，留给默认估价。
         m if m.contains("step-3.7-flash") => (0.2, 1.15),
+        // 百度千帆 ERNIE 5.x（千帆价目以美元标价，非人民币）。
+        m if m.contains("ernie-5.1") => (0.59, 2.66),
+        // 只钉基础档；thinking-preview 单价未公布，留默认估价（勿扩这条）。
+        m if m.contains("ernie-5.0-thinking") => (3.0, 15.0),
+        m if m.contains("ernie-5.0") => (0.89, 3.54),
+        // 小米 MiMo V2.5：官方统一价 $1/$3。
+        m if m.contains("mimo-v2.5") => (1.0, 3.0),
+        // Meta Muse Spark（contributor 档另计，必须排在通用臂之前）。
+        m if m.contains("muse-spark-1.2-contributor") => (0.1, 0.2),
+        m if m.contains("muse-spark-1.2") => (1.25, 4.25),
         // Llama (Together/HuggingFace)
         m if m.contains("Llama-4-Maverick") => (0.27, 0.85),
         m if m.contains("Llama-4-Scout") => (0.18, 0.59),
         m if m.contains("Llama-3.3-70B") || m.contains("llama-3.3-70b") => (0.88, 0.88),
         // Groq
+        m if m.contains("Nemotron") || m.contains("nemotron") => (0.5, 2.2),
         m if m.contains("mixtral") => (0.24, 0.24),
         _ => (3.0, 15.0), // default estimate
     };
@@ -499,9 +536,12 @@ mod tests {
         // ...while Opus 4 / 4.1 legitimately stay at the old price.
         assert_eq!(prices("claude-opus-4-1-20250805"), (15.0, 75.0));
 
+        // Opus 5 有独立臂：`claude-opus-4*` 匹配不到它，漏了会掉默认价。
+        assert_eq!(prices("claude-opus-5"), (5.0, 25.0));
+
         // Tier suffixes differ in price from the bare family.
-        assert_eq!(prices("gpt-5.6-terra"), (2.5, 15.0));
-        assert_eq!(prices("gpt-5.6-luna"), (1.0, 6.0));
+        assert_eq!(prices("gpt-5.6-terra"), (2.0, 12.0));
+        assert_eq!(prices("gpt-5.6-luna"), (0.20, 1.20));
         assert_eq!(prices("gpt-5.6-sol"), (5.0, 30.0));
         assert_eq!(prices("gpt-5.4-mini"), (0.75, 4.50));
         assert_eq!(prices("gpt-5.4-nano"), (0.20, 1.25));
@@ -517,9 +557,41 @@ mod tests {
         assert_eq!(prices("qwq-plus"), (1.6 / CNY_PER_USD, 4.0 / CNY_PER_USD));
 
         // `grok-4` must not swallow the point releases, which are priced far below it.
+        assert_eq!(prices("grok-4.6"), (2.0, 6.0));
         assert_eq!(prices("grok-4.5"), (2.0, 6.0));
         assert_eq!(prices("grok-4.3"), (1.25, 2.5));
         assert_eq!(prices("grok-4"), (3.0, 15.0));
+
+        // 同代内更贵的档位排在通用臂之前，否则被便宜价吞掉。
+        assert_eq!(prices("kimi-k2.7-code-highspeed"), (1.9, 8.0));
+        assert_eq!(prices("kimi-k2.7-code"), (0.95, 4.0));
+        assert_eq!(prices("muse-spark-1.2-contributor"), (0.1, 0.2));
+        assert_eq!(prices("muse-spark-1.2"), (1.25, 4.25));
+        assert_eq!(
+            prices("doubao-seed-2-1-turbo-260628"),
+            (3.0 / CNY_PER_USD, 15.0 / CNY_PER_USD)
+        );
+        assert_eq!(
+            prices("doubao-seed-2-1-pro-260628"),
+            (6.0 / CNY_PER_USD, 30.0 / CNY_PER_USD)
+        );
+        // `gemini-3.5-flash` must not swallow its own lite variant.
+        assert_eq!(prices("gemini-3.5-flash-lite"), (0.10, 0.40));
+        // 点版号不含 `qwen-max` / `qwen3-max` 子串，漏臂会掉进通用 qwen 臂。
+        assert_eq!(
+            prices("qwen3.8-max"),
+            (12.0 / CNY_PER_USD, 36.0 / CNY_PER_USD)
+        );
+        // GLM 5.2/5.3 与 5.0 不同价，`glm-5` 通用臂不得吞掉它们。
+        assert_eq!(prices("glm-5.3"), (1.4, 4.4));
+        assert_eq!(prices("glm-5.2"), (1.4, 4.4));
+        assert_eq!(prices("glm-5"), (1.0, 3.2));
+
+        // 模板对这几个刻意留 null（价未公布），臂不得越界把它们钉成确定价。
+        let default = prices("some-model-nobody-has-priced");
+        assert_eq!(prices("ernie-5.0-thinking-preview"), default);
+        assert_eq!(prices("muse-spark-1.1"), default);
+        assert_eq!(prices("qwen3.7-max"), prices("qwen-something-generic"));
 
         // 火山引擎：doubao 走方舟人民币价换算；第三方托管 ark id 落各厂商直连臂
         // （不再用 batch 占位价 0.0001/0.0002——那低了真实价约 4 个数量级）。
@@ -532,6 +604,9 @@ mod tests {
             (0.8 / CNY_PER_USD, 8.0 / CNY_PER_USD)
         );
         assert_eq!(prices("glm-4-7-251222"), prices("glm-4.7"));
+        assert_eq!(prices("glm-5-2-260617"), prices("glm-5.2"));
+        assert_eq!(prices("kimi-k2-6"), prices("kimi-k2.6"));
+        assert_eq!(prices("grok-4-5"), prices("grok-4.5"));
         assert_eq!(prices("kimi-k2-5-260127"), prices("kimi-k2.5"));
         assert_eq!(prices("deepseek-v3-2-251201"), prices("deepseek-v3"));
     }
@@ -566,13 +641,29 @@ mod tests {
         for id in [
             "claude-fable-5",
             "claude-mythos-5",
+            "claude-opus-5",
             "claude-haiku-4-5-20251001",
             "gpt-5.6",
             "gpt-5.5",
             "gpt-5.4",
             "gemini-3.1-pro-preview",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
             "gemini-3.5-flash",
             "kimi-k2.6",
+            "grok-4.6",
+            "glm-5.3",
+            "ernie-5.1",
+            "ernie-5.0",
+            "mimo-v2.5-pro",
+            "muse-spark-1.2",
+            "doubao-seed-evolving",
+            // HF 式大小写 id：Synthetic 整块 null 价，只能靠本表；contains 区分大小写，
+            // 这几条是回归哨兵——之前它们全都掉在默认价上（约 40 倍高估）。
+            "hf:zai-org/GLM-5.2",
+            "hf:zai-org/GLM-4.7-Flash",
+            "hf:Qwen/Qwen3.6-27B",
+            "hf:nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
         ] {
             assert_ne!(
                 prices(id),
