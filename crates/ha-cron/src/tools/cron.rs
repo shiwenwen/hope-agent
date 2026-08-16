@@ -364,10 +364,31 @@ pub(crate) fn tool_manage_cron<'a>(
                 if jobs.is_empty() {
                     return Ok("No scheduled tasks.".to_string());
                 }
+                // One query for every task's last outcome: a failing task should
+                // be visible in the list itself, not only after a follow-up call.
+                let last_runs = cron_db.latest_run_summaries().unwrap_or_default();
                 let mut lines = Vec::new();
                 lines.push(format!("{} scheduled task(s):", jobs.len()));
                 for job in &jobs {
                     let next = job.next_run_at.as_deref().unwrap_or("none");
+                    let last = last_runs
+                        .get(&job.id)
+                        .map(|run| {
+                            let detail = run
+                                .error
+                                .as_deref()
+                                .map(|error| {
+                                    format!(": {}", ha_core::truncate_utf8(error, LIST_ERROR_LIMIT))
+                                })
+                                .unwrap_or_default();
+                            format!(
+                                " | Last: {} at {}{}",
+                                run.status,
+                                run.finished_at.as_deref().unwrap_or(&run.started_at),
+                                detail
+                            )
+                        })
+                        .unwrap_or_default();
                     let targets = if job.delivery_targets.is_empty() {
                         String::new()
                     } else {
@@ -391,12 +412,13 @@ pub(crate) fn tool_manage_cron<'a>(
                             .unwrap_or_default()
                     );
                     lines.push(format!(
-                        "  - [{}] {} ({}) | Next: {} | Status: {}{}{}{}",
+                        "  - [{}] {} ({}) | Next: {} | Status: {}{}{}{}{}",
                         ha_core::truncate_utf8(&job.id, 8),
                         job.name,
                         schedule_summary(&job.schedule),
                         next,
                         job.status.as_str(),
+                        last,
                         project,
                         workspace,
                         targets,
@@ -411,8 +433,111 @@ pub(crate) fn tool_manage_cron<'a>(
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
                 match cron_db.get_job(id)? {
-                    Some(job) => Ok(serde_json::to_string_pretty(&job)?),
+                    // Carry the last occurrence's outcome so "why didn't it work"
+                    // is answerable without a second call.
+                    Some(job) => {
+                        let last_run = cron_db
+                            .latest_run_summaries()
+                            .ok()
+                            .and_then(|mut summaries| summaries.remove(&job.id));
+                        Ok(serde_json::to_string_pretty(&json!({
+                            "job": job,
+                            "lastRun": last_run,
+                        }))?)
+                    }
                     None => Ok(format!("Job '{}' not found.", id)),
+                }
+            }
+
+            "runs" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let limit = args
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(RUNS_DEFAULT_LIMIT)
+                    .clamp(1, RUNS_MAX_LIMIT) as usize;
+                let session_db = cron_session_db().await?;
+                let db = cron_db.clone();
+                let job_id = id.to_string();
+                let logs = ha_core::blocking::run_blocking(move || {
+                    crate::cron::visible_cron_run_logs(&db, &session_db, &job_id, limit, 0)
+                })
+                .await?;
+                if logs.is_empty() {
+                    return Ok(format!("No recorded runs for scheduled task '{}'.", id));
+                }
+                let mut lines = vec![format!("Runs for '{}' (newest first):", id)];
+                for log in &logs {
+                    let mut line = format!(
+                        "  - [{}] {} | started: {}",
+                        log.id, log.status, log.started_at
+                    );
+                    if let Some(duration) = log.duration_ms {
+                        line.push_str(&format!(" | {}ms", duration));
+                    }
+                    if let Some(delivery) = log.delivery_status.as_deref() {
+                        line.push_str(&format!(" | delivery: {}", delivery));
+                    }
+                    if let Some(error) = log.error.as_deref() {
+                        line.push_str(&format!(
+                            "\n      error: {}",
+                            ha_core::truncate_utf8(error, RUN_TEXT_LIMIT)
+                        ));
+                    } else if let Some(preview) = log.result_preview.as_deref() {
+                        line.push_str(&format!(
+                            "\n      result: {}",
+                            ha_core::truncate_utf8(preview, RUN_TEXT_LIMIT)
+                        ));
+                    }
+                    lines.push(line);
+                }
+                Ok(lines.join("\n"))
+            }
+
+            "cancel_run" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let job = cron_db
+                    .get_job(id)?
+                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+                reject_loop_managed_job(&job, id, "cancelled")?;
+                // An explicit run log id wins: the task's live claim can advance
+                // between two calls, and a stale "cancel whatever is running"
+                // must never terminate the next occurrence instead.
+                let run_log_id = match args.get("run_log_id").and_then(Value::as_i64) {
+                    Some(explicit) => explicit,
+                    None => match cron_db.find_open_run_log_for_job(id)? {
+                        Some(found) => found,
+                        None => {
+                            return Ok(format!(
+                                "Scheduled task '{}' has no run in flight. Cancelling is only for a live occurrence; use action='pause' to stop future runs.",
+                                job.name
+                            ))
+                        }
+                    },
+                };
+                match crate::cron::cancel_run(run_log_id).await? {
+                    Some(result) if result.cancel_requested => Ok(format!(
+                        "Requested cancellation of run {} for '{}' (status: {}).",
+                        result.run_log_id, job.name, result.status
+                    )),
+                    Some(result) => Ok(format!(
+                        "Run {} for '{}' was not cancelled (status: {}{}). Future runs are unaffected — use action='pause' to stop them.",
+                        result.run_log_id,
+                        job.name,
+                        result.status,
+                        result
+                            .code
+                            .as_deref()
+                            .map(|code| format!(", {code}"))
+                            .unwrap_or_default()
+                    )),
+                    None => Ok(format!("Run {} not found.", run_log_id)),
                 }
             }
 
@@ -573,8 +698,9 @@ pub(crate) fn tool_manage_cron<'a>(
             )),
 
             _ => Err(anyhow::anyhow!(
-                "Unknown action: '{}'. Valid actions: create, update, list, get, delete, \
-                 pause, resume, run_now, workspace_status, list_channel_targets, list_projects",
+                "Unknown action: '{}'. Valid actions: create, update, list, get, runs, delete, \
+                 pause, resume, run_now, cancel_run, workspace_status, list_channel_targets, \
+                 list_projects",
                 action
             )),
         }
@@ -677,6 +803,14 @@ enum CronTimeoutArg {
     Set(Option<u64>),
     Ignored,
 }
+
+/// Run-history read bounds: enough to diagnose a failure, not enough to dump a
+/// task's whole output history into the context window.
+const RUNS_DEFAULT_LIMIT: u64 = 5;
+const RUNS_MAX_LIMIT: u64 = 20;
+const RUN_TEXT_LIMIT: usize = 400;
+/// The list is a survey, so its per-row error is a pointer to `action='runs'`.
+const LIST_ERROR_LIMIT: usize = 120;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CronConversationTarget {

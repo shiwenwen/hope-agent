@@ -2276,6 +2276,38 @@ impl CronDB {
     /// Load one immutable run occurrence for exact cancellation. This query is
     /// intentionally independent of the live job predicate so a tombstoned
     /// task's retained in-flight run can still be stopped and finalized.
+    /// The task's single unfinished occurrence, resolved from its live
+    /// `running_at` claim. Callers that only know the task (the model tool asked
+    /// to "stop the run that is going right now") need this to reach the exact
+    /// run log; anything that already holds a run log id must keep using it,
+    /// since a task's claim can advance between two calls.
+    pub fn find_open_run_log_for_job(&self, job_id: &str) -> Result<Option<i64>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let claimed_at: Option<String> = conn
+            .query_row(
+                "SELECT running_at FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(claimed_at) = claimed_at else {
+            return Ok(None);
+        };
+        conn.query_row(
+            "SELECT id FROM cron_run_logs
+              WHERE job_id=?1 AND started_at=?2 AND finished_at IS NULL
+              ORDER BY id LIMIT 1",
+            params![job_id, claimed_at],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
     pub fn get_run_cancel_target(&self, run_log_id: i64) -> Result<Option<CronRunCancelTarget>> {
         let conn = self
             .conn
@@ -3950,6 +3982,51 @@ mod tests {
         assert_eq!(
             db.get_job(&original.id).unwrap().unwrap().name,
             "fresh edit"
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn open_run_log_lookup_follows_the_live_claim() {
+        let path = temp_db_path("open-run-log-lookup");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("in flight", Vec::new(), None))
+            .expect("add job");
+        assert!(db
+            .find_open_run_log_for_job(&job.id)
+            .expect("idle task")
+            .is_none());
+
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        let run_id = db
+            .add_running_run_log(&job.id, "session-1", &claimed.claimed_at)
+            .expect("open run log");
+        assert_eq!(
+            db.find_open_run_log_for_job(&job.id).expect("live claim"),
+            Some(run_id)
+        );
+
+        db.finalize_run_log(
+            run_id,
+            "success",
+            &Utc::now().to_rfc3339(),
+            Some(1),
+            Some("done"),
+            None,
+            None,
+        )
+        .expect("finish run");
+        db.clear_running(&job.id).expect("release claim");
+        assert!(
+            db.find_open_run_log_for_job(&job.id)
+                .expect("settled task")
+                .is_none(),
+            "a settled occurrence must not be cancellable as if it were live",
         );
 
         cleanup_db_files(&path);

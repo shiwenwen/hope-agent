@@ -231,7 +231,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 
 ### `manage_cron` 工具与 Project 语义
 
-模型侧 `manage_cron` 支持 `create` / `update` / `list` / `get` / `delete` / `pause` / `resume` / `run_now` / `workspace_status` / `list_channel_targets` / `list_projects`。Project 与 Worktree 相关语义：
+模型侧 `manage_cron` 支持 `create` / `update` / `list` / `get` / `runs` / `delete` / `pause` / `resume` / `run_now` / `cancel_run` / `workspace_status` / `list_channel_targets` / `list_projects`。Project 与 Worktree 相关语义：
 
 - `create` 的 `conversation_target` 缺省为 `new_session`；`current_session` 只从 `ToolExecContext.session_id` 取当前会话，`existing_session` 则要求模型先调 `sessions_list`，再把用户指定的 exact id 传入 `target_session_id`。两者均构造同一 `SessionTurn`，「安排当前会话」只是已有会话排程的快捷入口，不是独立执行类型。
 - current / existing session target 不接受 `agent_id` / `project_id` / `workspace_mode` / `workspace_base_ref`；这些执行上下文恒从目标会话 live 读取。创建仍经共享 preflight，非 regular、incognito、已归档、Channel 绑定或缺失的目标会话均 fail closed。模型可按 job id 修改排程、prompt 等非上下文字段，但 target id 创建后不可变更。
@@ -241,6 +241,8 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 - 工具层校验显式传入的 Project id 必须存在；执行层仍保留 Project 删除后的降级自愈兜底。
 - `workspace_mode` 接受 `project` / `fresh_worktree` / `persistent_worktree`；创建时省略默认 `project`，更新时省略保持原策略。
 - `workspace_base_ref` 只对 Worktree 模式有效；`null`/空串表示创建时解析 Project HEAD。Worktree 模式必须关联 Git Project，创建和更新都执行与 owner 控制面相同的 live preflight。
+- **诊断面与 owner 面对齐**：`list` / `get` 带最近一次运行结果，`runs` 返回近几次 occurrence（状态 / 耗时 / 错误 / 结果摘要 / 投递结果，默认 5 条、上限 20 条，正文截断）。任务由模型创建，「上次为什么没跑成功」就该由模型能答；没有这条读路径它只能看见 `consecutive_failures` 一个数字。读路径复用 `visible_cron_run_logs`，同样排除已归档的运行会话。
+- **`cancel_run` 与 `pause` 语义不合并**：前者只终止**正在执行的那一次** occurrence（省略 `run_log_id` 时按任务 live `running_at` 精确解析，显式传入的 id 优先——任务的 claim 会在两次调用之间推进，「取消正在跑的那个」不能误杀下一次），后者只停未来排程、不动在途运行。`cancel_run` 刻意不加审批门：Stop 语义可恢复，`delete` 才是那个不可逆、必须逐次确认的动作。
 - `workspace_status` 返回任务的 workspace policy、现存受管 Worktree 及后端判定的安全动作；模型只读这些动作，不获得接管、归还、归档、恢复或丢弃 Worktree 的 owner 权限。
 - Project、mode 或 base ref 的变更继续受 revision CAS、运行中锁与 Persistent 资源锁保护；模型不能用陈旧草稿或工具调用绕过。
 - 模型仍不能设置 `permission_mode_override` / `sandbox_mode_override`；这两个字段不进工具 schema，且带 owner 覆盖的任务拒绝模型修改。
