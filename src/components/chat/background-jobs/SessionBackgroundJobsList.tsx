@@ -105,26 +105,40 @@ function BackgroundJobRow({
   const toggleLabel = expanded
     ? t("backgroundJobs.collapseJob", "收起任务")
     : t("backgroundJobs.expandJob", "展开任务")
+  // A subagent projection deliberately holds no content (`subagent_runs` is the
+  // truth source), so its row never gains details — the child-session button is
+  // the way in. Other active jobs keep the toggle: output lands on a later poll.
+  const canExpand =
+    showGroupProgress ||
+    !!outputText ||
+    !!merged.resultPath ||
+    (merged.kind !== "subagent" && isBackgroundJobActive(merged))
 
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5">
       <div className="flex items-center gap-2">
-        <IconTip label={toggleLabel}>
-          <button
-            type="button"
-            onClick={() => onExpandedChange(merged.jobId, !expanded)}
-            className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
-            aria-label={toggleLabel}
-            aria-expanded={expanded}
-          >
-            <ChevronRight
-              className={cn(
-                "h-3.5 w-3.5 transition-transform duration-200",
-                expanded && "rotate-90",
-              )}
-            />
-          </button>
-        </IconTip>
+        {canExpand ? (
+          <IconTip label={toggleLabel}>
+            <button
+              type="button"
+              onClick={() => onExpandedChange(merged.jobId, !expanded)}
+              className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label={toggleLabel}
+              aria-expanded={expanded}
+            >
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200",
+                  expanded && "rotate-90",
+                )}
+              />
+            </button>
+          </IconTip>
+        ) : (
+          <span className="p-0.5" aria-hidden="true">
+            <ChevronRight className="h-3.5 w-3.5 opacity-0" />
+          </span>
+        )}
         <BackgroundJobKindIcon
           kind={merged.kind}
           className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
@@ -161,32 +175,34 @@ function BackgroundJobRow({
           </IconTip>
         )}
       </div>
-      <AnimatedCollapse open={expanded}>
-        <div className="space-y-1">
-          {showGroupProgress && (
-            <div className="flex items-center gap-2">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full bg-blue-500 transition-all duration-300"
-                  style={{ width: `${groupPct}%` }}
-                />
+      {canExpand && (
+        <AnimatedCollapse open={expanded}>
+          <div className="space-y-1">
+            {showGroupProgress && (
+              <div className="flex items-center gap-2">
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${groupPct}%` }}
+                  />
+                </div>
+                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                  {groupDone}/{groupTotal}
+                </span>
               </div>
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                {groupDone}/{groupTotal}
-              </span>
-            </div>
-          )}
-          {outputText && <JobOutputBlock label={outputLabel} text={outputText} />}
-          {merged.resultPath && (
-            <div
-              className="truncate text-[10px] text-muted-foreground/75"
-              data-ha-title-tip={merged.resultPath}
-            >
-              {t("backgroundJobs.outputFile", "完整结果")}: {merged.resultPath}
-            </div>
-          )}
-        </div>
-      </AnimatedCollapse>
+            )}
+            {outputText && <JobOutputBlock label={outputLabel} text={outputText} />}
+            {merged.resultPath && (
+              <div
+                className="truncate text-[10px] text-muted-foreground/75"
+                data-ha-title-tip={merged.resultPath}
+              >
+                {t("backgroundJobs.outputFile", "完整结果")}: {merged.resultPath}
+              </div>
+            )}
+          </div>
+        </AnimatedCollapse>
+      )}
     </div>
   )
 }

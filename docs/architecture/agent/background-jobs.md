@@ -342,6 +342,7 @@ flowchart TB
 - **Group 子投影折叠进 Group 行**：查询层排除 `(kind=Subagent AND group_id IS NOT NULL)`，面板只显 Group 的进度摘要、不展开 N 个子行；客户端再叠一层防御过滤。
 - 统一 Activity 投影另有一个限额版 `list_active_by_session_limited(session, 50)`，只服务只读状态聚合；会话删除、取消与 Goal Runner 仍用无界的 `list_active_by_session`，不能因为 UI 限额漏掉任何 live 作业。
 - 前端镜像类型在 `src/types/background-jobs.ts`，`useBackgroundJobs` 单订阅喂头部徽标 / 独立面板 / 工作台区块。
+- **展开箭头只在真有详情时给**：`kind=Subagent` 的投影不持正文（task / result 只在 `subagent_runs`），故其行**永不**提供展开——入口是「查看子会话」按钮；进度条、输出尾、结果预览 / 路径与在跑的非 subagent 作业才渲染切换器，否则点了展开只会得到一个空壳。
 - **取消统一复用** `cancel_runtime_task(kind=AsyncJob)`（见 [`runtime_tasks.rs`](../../../crates/ha-core/src/runtime_tasks.rs)），不新增取消端点。
 
 ## 无痕（incognito）

@@ -124,6 +124,31 @@ describe("BackgroundJobsPanel", () => {
     expect(screen.getByText("failure details")).toBeTruthy()
   })
 
+  test("offers no expand toggle when a row has nothing to expand", () => {
+    renderPanel([
+      // Subagent projections carry no content by design — no toggle, ever.
+      job({
+        jobId: "sub",
+        kind: "subagent",
+        status: "completed",
+        tool: "subagent:researcher",
+        label: "",
+        outputTail: null,
+        subagentRunId: "run-1",
+      }),
+      job({
+        jobId: "done",
+        status: "completed",
+        outputTail: null,
+        resultPreview: "success preview",
+      }),
+    ])
+
+    // Only the tool job (collapsed by default) keeps a toggle.
+    expect(screen.getAllByRole("button", { name: "展开任务" })).toHaveLength(1)
+    expect(screen.queryByRole("button", { name: "收起任务" })).toBeNull()
+  })
+
   test("does not repeat the frame title when hosted by workbench tabs", () => {
     renderPanel([], { integrated: true })
 
