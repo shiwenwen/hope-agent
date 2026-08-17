@@ -595,7 +595,8 @@ executor 经 `permission::task_intent`（session-keyed map + RAII guard）把 cr
 
 `manage_cron action=delete` 是唯一对接统一权限引擎的 action（其余维持 internal 免审）。delete 分支单独以 `is_internal=false` 调一次 `resolve_tool_permission`，引擎 `check_cron_delete` 发**非 strict** 的 `AskReason::CronDelete`：
 
-- **Default** 弹标准审批；**Smart** 交 judge 自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
+- **Default** 弹标准审批；**Smart** 交 judge 自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用）按 `unattended_approval_action` **fail-closed**（默认 deny），桌面开着窗口也一样——没人守着 3 点的那次运行。
+- **无人值守的判定信号是 live turn，不是会话行（红线）**：运行会话已是普通会话（`is_cron=0`），`evaluate_approval_surface` 改看 `active_turn::current(session_id).source == ChatSource::Cron`（`session_runs_cron_turn`，legacy `is_cron` 仍兼容）。审批必然发生在该轮执行中故信号必在；用户之后在同一会话里自己发的 Desktop/HTTP 轮照常 Attended。**不得改用 `origin.kind='cron'`**——`SessionMeta.origin` 是 display-only，永不作为执行/权限输入。判定失效的连带后果不止弹框：`execution.rs` 的意图感知 Smart 完全依赖同一判定。
 - 非 strict 只约束 timeout / unattended 轴（超时不强制 deny、可按配置 proceed、Smart 可降级 judge）。**AllowAlways 刻意抑制**（红线）：`gate_cron_delete` 强制 `allow_always_forbidden=true`，前端同步禁用「始终允许」按钮——因为 `manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦持久化便是「静默删除任意定时任务」的 id 无关常驻授权。故每次 delete 都需逐次确认，永不留常驻 grant。
 - delete 成功落 `app_info!` 审计；不做 creator 作用域隔离（模型需管理用户全部提醒）。
 

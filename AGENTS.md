@@ -83,7 +83,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 - 工具调用唯一入口 `permission::engine::resolve_async()`；Smart 不消费 `custom_approval_tools`，UI 须提示。
 - strict 永不自动放行：超时/无人值守 `proceed` 强制 deny；判定源 `AskReason::forbids_allow_always`，`ApprovalReasonKind::is_strict()` 须镜像。
-- 无人值守 fail-closed：`check_and_request_approval` 预检 `evaluate_approval_surface`，`permission.unattended_approval_action` 默认 deny；可能 surface 即 Attended，唯 cron（含其血缘 subagent）例外；判 ACP 用 `is_acp()` 非 `ChatSource`（复用 Http）。
+- 无人值守 fail-closed：`check_and_request_approval` 预检 `evaluate_approval_surface`，`permission.unattended_approval_action` 默认 deny；可能 surface 即 Attended，唯 cron（含其血缘 subagent）例外——**判 cron 看 live turn 的 `ChatSource::Cron`（运行会话已是 `is_cron=0` 的普通会话），禁用 display-only 的 `origin`**；判 ACP 用 `is_acp()` 非 `ChatSource`（复用 Http）。
 - `control.raw_cdp` strict：每调用必审批、永无 Allow Always（规则/smart 均绕不过）；方法/域黑名单 + SSRF 扫描 + 硬开关 `browser.extension.allowRawCdp=false` 三道执行层防御勿削弱。
 - 出站 HTTP 必走 `security::ssrf::check_url`，新入口严禁自写 IP 校验。
 - 可见性与执行层兜底走 `dispatch::resolve_tool_fate`（`tools.allow/deny` 只覆盖非 Core）。
