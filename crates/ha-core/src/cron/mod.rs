@@ -19,7 +19,10 @@ mod schedule;
 // kernel 侧消费）——此处原路径再导出，`crate::cron::CronJob` 等调用点不变。
 pub use crate::cron_defs::*;
 
-pub use db::CronDB;
+pub use db::{
+    validate_workspace_policy, CronDB, CronFinalScheduleAction, CronOccurrenceSettlement,
+    CronRunTerminal, CronScheduleDisposition, CronSettlementPolicy,
+};
 
 /// cron 执行期解析 agent id。**是 kernel 逻辑的薄包装**（只调
 /// `agent::resolver::resolve_default_agent_id_full`），故随台账留 kernel，
@@ -44,7 +47,9 @@ pub fn resolve_agent_id_for_execution(
 // 排程算术（表达式校验 / 下次触发计算 / 时区解析）随台账留 kernel——
 // `CronDB` 推进 `next_run_at` 直接用它，且 `validate_schedule` 是合法性
 // **唯一裁决**（owner 与模型共用，AGENTS 红线）。
-pub use schedule::{validate_cron_expression, validate_schedule, validate_timezone};
+pub use schedule::{
+    compute_next_run, validate_cron_expression, validate_schedule, validate_timezone,
+};
 
 #[cfg(test)]
 mod tests {

@@ -44,6 +44,7 @@ import {
   PlayCircle,
   CheckCircle2,
   Radio,
+  Timer,
 } from "lucide-react"
 import type {
   AvailableModel,
@@ -1743,11 +1744,11 @@ export default function ChatInput({
           ]
         : []
   const pendingVisibleItems = pendingExpanded ? pendingQueueItems : pendingQueueItems.slice(0, 2)
-  const nextSendablePendingId = pendingQueueItems.find(
-    (item) =>
-      item.managedBy !== "channel" &&
-      (item.status === "queued" || item.status === "fallback_after_reply"),
-  )?.id
+  const pendingQueueHead = pendingQueueItems.find(
+    (item) => item.status === "queued" || item.status === "fallback_after_reply",
+  )
+  const nextSendablePendingId =
+    pendingQueueHead?.managedBy == null ? pendingQueueHead?.id : undefined
   const hasPendingQueue = pendingQueueItems.length > 0
   const topStripBase =
     !topAccessory &&
@@ -2294,30 +2295,30 @@ export default function ChatInput({
                     item.id === "__legacy__"
                       ? onDiscardPending?.()
                       : onDiscardPendingItem?.(item.id)
-                  const managedByChannel = item.managedBy === "channel"
+                  const backendManaged = item.managedBy != null
                   const menuLocked =
                     item.status === "saving" ||
                     item.status === "inserting" ||
                     item.status === "dispatching"
                   const canEdit =
-                    !managedByChannel &&
+                    !backendManaged &&
                     !menuLocked &&
                     item.status !== "held_after_stop" &&
                     item.editable !== false
-                  // Defensive compatibility for legacy/local projections: a non-channel
-                  // held row may still be deleted, while Channel-owned rows stay read-only.
-                  const canDelete = !managedByChannel && !menuLocked
+                  // Defensive compatibility for legacy/local projections: ownerless held
+                  // rows may still be deleted, while backend-managed rows stay read-only.
+                  const canDelete = !backendManaged && !menuLocked
                   const canCancelForce =
-                    !managedByChannel &&
+                    !backendManaged &&
                     item.mode === "force_insert" &&
                     item.status === "waiting_tool_boundary"
                   const canForceInsert =
-                    !managedByChannel &&
+                    !backendManaged &&
                     loading &&
                     item.canForceInsert &&
                     (item.status === "queued" || item.status === "fallback_after_reply")
                   const canSendNow =
-                    !managedByChannel &&
+                    !backendManaged &&
                     !loading &&
                     !!onSendPending &&
                     item.id === nextSendablePendingId &&
@@ -2360,6 +2361,11 @@ export default function ChatInput({
                         />
                       ) : (
                         <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                          {item.managedBy === "scheduled" && (
+                            <IconTip label={t("chat.cronTrigger")}>
+                              <Timer className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-primary" />
+                            </IconTip>
+                          )}
                           {item.text}
                           {(item.attachmentCount > 0 || item.quoteCount > 0) && (
                             <span className="ml-1 text-xs text-muted-foreground">

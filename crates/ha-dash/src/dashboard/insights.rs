@@ -413,12 +413,12 @@ pub fn query_health_score(
         // failure. Failure is the complement of the known non-failure terminals
         // (C05): error/timeout AND the infra 'no_session' literal (and any future
         // failure tag) all count, instead of an IN ('error','timeout') allowlist
-        // that dropped 'no_session' and inflated the rate. In-progress 'running',
-        // zero-output 'empty', and 'cancelled' are neither success nor failure, so
+        // that dropped 'no_session' and inflated the rate. In-progress 'running'
+        // /'cancelling', zero-output 'empty', and 'cancelled' are neither, so
         // excluding them from the denominator keeps a healthy job's rate from being
         // diluted (review fix #3 — COUNT(*) used to absorb all of them).
         "SELECT COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN status NOT IN ('success', 'running', 'empty', 'cancelled') THEN 1 ELSE 0 END), 0)
+                COALESCE(SUM(CASE WHEN status NOT IN ('success','preparing','queued','running','cancelling','completing','empty','cancelled') THEN 1 ELSE 0 END), 0)
          FROM cron_run_logs {}",
         where_sql
     );

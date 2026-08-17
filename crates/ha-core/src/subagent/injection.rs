@@ -2183,6 +2183,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             run_context: None,
             reasoning_effort: resolved_reasoning_effort,
             cancel: cancel.clone(),
+            foreground_stop_admission: None,
             plan_context_override: None,
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),

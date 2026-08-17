@@ -68,6 +68,7 @@ function Harness({
   onMessages,
   onTurnStarted,
   onTurnEnded,
+  expectedTurnId,
   initialMessages = [],
 }: {
   onMessages: (messages: Message[]) => void
@@ -79,6 +80,7 @@ function Harness({
     interruptReason?: ChatTurnInterruptReason | null,
     turnId?: string | null,
   ) => boolean
+  expectedTurnId?: string | null
 }) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [, setLoading] = useState(false)
@@ -114,6 +116,7 @@ function Harness({
     reloadSessions: async () => {},
     onTurnStarted,
     onTurnEnded,
+    expectedTurnId,
   })
 
   useEffect(() => onMessages(messages), [messages, onMessages])
@@ -143,6 +146,50 @@ afterEach(() => {
 })
 
 describe("useChatStreamReattach durable snapshot handshake", () => {
+  test("fails closed for stream generations outside the expected turn", async () => {
+    let latest: Message[] = []
+    render(
+      <Harness
+        expectedTurnId="turn-exact"
+        onMessages={(messages) => {
+          latest = messages
+        }}
+      />,
+    )
+    const emit = mocks.listeners.get("chat:stream_delta")
+
+    await act(async () => {
+      emit?.({
+        sessionId: "s1",
+        streamId: "stream-other",
+        seq: 1,
+        event: JSON.stringify({ type: "text_delta", content: "wrong" }),
+      })
+      emit?.({
+        sessionId: "s1",
+        streamId: "stream-exact",
+        seq: 1,
+        event: JSON.stringify({ type: "text_delta", content: "right" }),
+      })
+      mocks.pending.get("get_session_stream_state")?.({
+        active: true,
+        lastSeq: 1,
+        acceptedSeq: 1,
+        durableSeq: 0,
+        committedSeq: 0,
+        streamId: "stream-exact",
+        turnId: "turn-exact",
+      })
+      mocks.pending.get("get_session_stream_snapshot")?.(null)
+      await Promise.resolve()
+      await Promise.resolve()
+      flushAnimationFrames()
+    })
+
+    expect(latest.some((message) => String(message.content).includes("wrong"))).toBe(false)
+    expect(latest.at(-1)?.content).toBe("right")
+  })
+
   test("replays the durable prefix then buffered deltas newer than throughSeq", async () => {
     mocks.dbMessages = [
       { role: "user", content: "question", dbId: 1 },

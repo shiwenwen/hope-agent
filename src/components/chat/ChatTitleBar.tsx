@@ -23,6 +23,7 @@ import {
   Share2,
   PanelLeftDashed,
   SquareTerminal,
+  Timer,
   type LucideIcon,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
@@ -60,6 +61,7 @@ import type {
   AgentSummaryForSidebar,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
+import { requestCronTaskFocus } from "@/components/cron/cronNavigation"
 
 interface RightPanelTitleBarItem {
   id: string
@@ -104,6 +106,8 @@ interface ChatTitleBarProps {
   onCommandAction?: (result: import("@/components/chat/slash-commands/types").CommandResult) => void
   /** Opens or refocuses the in-session "find in page" search bar. */
   onOpenSearch?: () => void
+  /** Opens a locked Scheduled form targeting this ordinary session. */
+  onScheduleSession?: (sessionId: string) => void
   /** Whether the in-session search bar is currently open (controls active styling). */
   searchOpen?: boolean
   /**
@@ -168,6 +172,7 @@ export default function ChatTitleBar({
   systemPromptLoading,
   onCommandAction,
   onOpenSearch,
+  onScheduleSession,
   searchOpen,
   effectiveWorkingDir,
   workingDirSource,
@@ -401,78 +406,78 @@ export default function ChatTitleBar({
     </IconTip>
   ) : null
   const shouldShowWorkingDirChip = !project || workingDirSource === "session"
-  const rightPanelControls = rightPanels.length > 0 ? (
-    <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
-      <div
-        className="flex h-9 max-w-[248px] items-center gap-0.5 overflow-x-auto pb-0.5 pl-0.5 pr-1.5 pt-1.5"
-        role="toolbar"
-        aria-label={t("chat.rightPanel.dock")}
-      >
-        {rightPanels.map((panel) => {
-          const PanelIcon = panel.icon
-          const active = panel.id === activeRightPanelId
-          const panelLabel = t(panel.labelKey)
-          const actionLabel = active
-            ? t(
-                rightPanelCollapsed
-                  ? "chat.rightPanel.expandPanel"
-                  : "chat.rightPanel.collapsePanel",
-                { panel: panelLabel },
-              )
-            : t(panel.open ? "chat.rightPanel.switchToPanel" : "chat.rightPanel.openPanel", {
-                panel: panelLabel,
-              })
-          const badgeTone =
-            panel.badge?.tone === "attention"
-              ? "bg-amber-500 text-white"
-              : panel.badge?.tone === "running"
-                ? "bg-blue-500 text-white"
-                : "bg-muted-foreground text-background"
-          const badgeDescriptionId = panel.badge
-            ? `right-panel-${panel.id}-badge-description`
-            : undefined
-          return (
-            <IconTip key={panel.id} label={actionLabel}>
-              <button
-                type="button"
-                aria-label={actionLabel}
-                aria-pressed={active}
-                aria-expanded={active ? !rightPanelCollapsed : undefined}
-                aria-describedby={badgeDescriptionId}
-                data-panel-id={panel.id}
-                data-panel-state={active ? "active" : panel.open ? "open" : "closed"}
-                className={cn(
-                  "group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground",
-                  // Open panels carry a light fill; the active one deepens it.
-                  // Background-only so hover/selected never add a border or ring.
-                  active
-                    ? "bg-secondary text-foreground hover:bg-secondary"
-                    : panel.open
-                      ? "bg-muted hover:bg-secondary/60"
-                      : "hover:bg-secondary/40",
-                )}
-                onClick={() => onRightPanelAction?.(panel.id)}
-              >
-                <PanelIcon className="h-4 w-4" strokeWidth={active ? 2.15 : 1.9} />
-                {panel.badge && panel.badge.count > 0 ? (
-                  <span
-                    id={badgeDescriptionId}
-                    className={cn(
-                      "absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background px-0.5 text-[9px] font-semibold leading-none tabular-nums",
-                      badgeTone,
-                    )}
-                    aria-label={t(panel.badge.labelKey, { count: panel.badge.count })}
-                  >
-                    {panel.badge.count > 99 ? "99+" : panel.badge.count}
-                  </span>
-                ) : null}
-              </button>
-            </IconTip>
-          )
-        })}
+  const rightPanelControls =
+    rightPanels.length > 0 ? (
+      <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
+        <div
+          className="flex h-9 max-w-[248px] items-center gap-0.5 overflow-x-auto pb-0.5 pl-0.5 pr-1.5 pt-1.5"
+          role="toolbar"
+          aria-label={t("chat.rightPanel.dock")}
+        >
+          {rightPanels.map((panel) => {
+            const PanelIcon = panel.icon
+            const active = panel.id === activeRightPanelId
+            const panelLabel = t(panel.labelKey)
+            const actionLabel = active
+              ? t(
+                  rightPanelCollapsed
+                    ? "chat.rightPanel.expandPanel"
+                    : "chat.rightPanel.collapsePanel",
+                  { panel: panelLabel },
+                )
+              : t(panel.open ? "chat.rightPanel.switchToPanel" : "chat.rightPanel.openPanel", {
+                  panel: panelLabel,
+                })
+            const badgeTone =
+              panel.badge?.tone === "attention"
+                ? "bg-amber-500 text-white"
+                : panel.badge?.tone === "running"
+                  ? "bg-blue-500 text-white"
+                  : "bg-muted-foreground text-background"
+            const badgeDescriptionId = panel.badge
+              ? `right-panel-${panel.id}-badge-description`
+              : undefined
+            return (
+              <IconTip key={panel.id} label={actionLabel}>
+                <button
+                  type="button"
+                  aria-label={actionLabel}
+                  aria-pressed={active}
+                  aria-expanded={active ? !rightPanelCollapsed : undefined}
+                  aria-describedby={badgeDescriptionId}
+                  data-panel-id={panel.id}
+                  data-panel-state={active ? "active" : panel.open ? "open" : "closed"}
+                  className={cn(
+                    "group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground",
+                    // Background-only: hover/selected must never add a border or ring.
+                    active
+                      ? "bg-secondary text-foreground hover:bg-secondary"
+                      : panel.open
+                        ? "bg-muted hover:bg-secondary/60"
+                        : "hover:bg-secondary/40",
+                  )}
+                  onClick={() => onRightPanelAction?.(panel.id)}
+                >
+                  <PanelIcon className="h-4 w-4" strokeWidth={active ? 2.15 : 1.9} />
+                  {panel.badge && panel.badge.count > 0 ? (
+                    <span
+                      id={badgeDescriptionId}
+                      className={cn(
+                        "absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background px-0.5 text-[9px] font-semibold leading-none tabular-nums",
+                        badgeTone,
+                      )}
+                      aria-label={t(panel.badge.labelKey, { count: panel.badge.count })}
+                    >
+                      {panel.badge.count > 99 ? "99+" : panel.badge.count}
+                    </span>
+                  ) : null}
+                </button>
+              </IconTip>
+            )
+          })}
+        </div>
       </div>
-    </div>
-  ) : null
+    ) : null
 
   return (
     <div
@@ -558,6 +563,18 @@ export default function ChatTitleBar({
                 )}
               </span>
             )}
+            {currentSession?.origin?.kind === "cron" && (
+              <IconTip label={t("chat.scheduledOrigin", { name: currentSession.origin.label })}>
+                <button
+                  type="button"
+                  className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+                  onClick={() => requestCronTaskFocus(currentSession.origin!.id)}
+                >
+                  <Timer className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{currentSession.origin.label}</span>
+                </button>
+              </IconTip>
+            )}
             {currentSession?.incognito && (
               <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
                 <Ghost className="h-3 w-3" strokeWidth={1.75} />
@@ -579,6 +596,17 @@ export default function ChatTitleBar({
             showLabel={false}
             onChange={onIncognitoChange}
           />
+        )}
+        {currentSessionId && onScheduleSession && (
+          <IconTip label={t("cron.scheduleSession")}>
+            <button
+              aria-label={t("cron.scheduleSession")}
+              className="pb-1.5 text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => onScheduleSession(currentSessionId)}
+            >
+              <Timer className="h-4 w-4" />
+            </button>
+          </IconTip>
         )}
         {/* In-session Search Button */}
         {currentSessionId && onOpenSearch && (
@@ -636,7 +664,11 @@ export default function ChatTitleBar({
                       <select
                         value={memoryPolicy.useMemories}
                         disabled={memoryPolicySaving || !!currentSession?.incognito}
-                        onChange={(event) => void updateMemoryPolicy({ useMemories: event.target.value as SessionMemoryPolicyValue })}
+                        onChange={(event) =>
+                          void updateMemoryPolicy({
+                            useMemories: event.target.value as SessionMemoryPolicyValue,
+                          })
+                        }
                         className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
                       >
                         <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
@@ -645,11 +677,17 @@ export default function ChatTitleBar({
                       </select>
                     </label>
                     <label className="flex items-center justify-between gap-3 text-[11px]">
-                      <span className="text-muted-foreground">{t("chat.memoryPolicy.contribute")}</span>
+                      <span className="text-muted-foreground">
+                        {t("chat.memoryPolicy.contribute")}
+                      </span>
                       <select
                         value={memoryPolicy.contributeToMemories}
                         disabled={memoryPolicySaving || !!currentSession?.incognito}
-                        onChange={(event) => void updateMemoryPolicy({ contributeToMemories: event.target.value as SessionMemoryPolicyValue })}
+                        onChange={(event) =>
+                          void updateMemoryPolicy({
+                            contributeToMemories: event.target.value as SessionMemoryPolicyValue,
+                          })
+                        }
                         className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
                       >
                         <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
@@ -668,9 +706,7 @@ export default function ChatTitleBar({
                       onClick={() => void reloadCoreMemory()}
                       className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-border bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                     >
-                      <RefreshCw
-                        className={cn("h-3 w-3", coreMemoryReloading && "animate-spin")}
-                      />
+                      <RefreshCw className={cn("h-3 w-3", coreMemoryReloading && "animate-spin")} />
                       {t("chat.memoryPolicy.reloadCore")}
                     </button>
                   </div>

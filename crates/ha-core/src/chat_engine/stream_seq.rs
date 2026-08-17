@@ -40,8 +40,8 @@ pub enum ChatSource {
     /// Desktop/HTTP, but does not claim fresh foreground user intent.
     #[serde(rename = "session_tool")]
     SessionTool,
-    /// Scheduled task (cron job) run in its own isolated session. Owner-internal
-    /// and non-interactive: no live user is waiting, but it is a legitimate
+    /// Scheduled task (cron job) opening the first turn of an ordinary session.
+    /// Owner-internal and unattended: no live user is waiting, but it is a legitimate
     /// top-level session (unlike `Subagent`) — so it holds the foreground idle
     /// guard, fires lifecycle hooks, and gets owner-plane KB access (not the IM
     /// cap). Distinct from `Channel` so KB access is granted via the owner bucket
@@ -72,12 +72,13 @@ impl ChatSource {
     ///
     /// ParentInjection is user-visible: it is the follow-up turn that answers
     /// when a background job/subagent result is injected back into a normal
-    /// conversation. Subagent stays off the bus because child sessions have no
-    /// UI counterpart waiting to reattach.
+    /// conversation. Cron also uses this bus because its ordinary Session can
+    /// be opened while the scheduled turn is running. Subagent stays off the
+    /// bus because child sessions have no UI counterpart waiting to reattach.
     pub fn broadcasts_to_user_ui(&self) -> bool {
         matches!(
             self,
-            Self::Desktop | Self::Http | Self::ParentInjection | Self::SessionTool
+            Self::Desktop | Self::Http | Self::ParentInjection | Self::SessionTool | Self::Cron
         )
     }
 
@@ -452,12 +453,10 @@ mod tests {
 
     #[test]
     fn cron_source_wire_roundtrip_and_buckets() {
-        // Cron is owner-internal: it tracks seq (real session + concurrency
-        // guard) but does NOT broadcast to the user UI (background run), and its
-        // wire string round-trips so persisted `messages.source` rows reload as
-        // Cron rather than collapsing to Desktop.
+        // The wire string must round-trip so persisted `messages.source` rows
+        // reload as Cron rather than collapsing to Desktop.
         assert!(ChatSource::Cron.tracks_seq());
-        assert!(!ChatSource::Cron.broadcasts_to_user_ui());
+        assert!(ChatSource::Cron.broadcasts_to_user_ui());
         assert_eq!(ChatSource::Cron.as_str(), "cron");
         assert_eq!(ChatSource::from_db_string("cron"), ChatSource::Cron);
         assert_eq!(

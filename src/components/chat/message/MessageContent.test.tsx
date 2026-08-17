@@ -40,6 +40,12 @@ vi.mock("./ToolCallGroup", () => ({
   ),
 }))
 
+vi.mock("./ScheduleEntityCard", () => ({
+  default: ({ metadata }: { metadata: { entityId: string } }) => (
+    <div data-testid="schedule-card">{metadata.entityId}</div>
+  ),
+}))
+
 vi.mock("./RuntimeControlActivityGroup", () => ({
   default: ({ tools }: { tools: ToolCall[] }) => (
     <div data-testid="runtime-control-group">{tools.map((tool) => tool.callId).join(",")}</div>
@@ -144,6 +150,27 @@ describe("AssistantContentBlocks processed grouping", () => {
     expect(processed.getAttribute("aria-expanded")).toBe("true")
     expect(screen.getAllByTestId("thinking-block")).toHaveLength(2)
     expect(screen.getByTestId("tool-group").textContent).toBe("call-1,call-2")
+  })
+
+  test("keeps a scheduled-task card visible outside a collapsed processed group", () => {
+    const cronTool = tool("cron-create", "manage_cron")
+    cronTool.metadata = {
+      kind: "schedule_entity",
+      entityType: "cronTask",
+      entityId: "job-1",
+      title: "Smoke task",
+    }
+    renderContentBlocks([
+      { type: "thinking", content: "create it" },
+      { type: "tool_call", tool: cronTool },
+      { type: "text", content: "done" },
+    ])
+
+    expect(screen.getByRole("button", { name: /已处理/ }).getAttribute("aria-expanded")).toBe(
+      "false",
+    )
+    expect(screen.getByTestId("schedule-card").textContent).toBe("job-1")
+    expect(screen.queryByTestId("tool-block")).toBeNull()
   })
 
   test("text blocks break processed folding", () => {

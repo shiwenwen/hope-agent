@@ -2022,11 +2022,20 @@ fn build_router_with_cors(
         // Cron
         .route("/cron/jobs", get(routes::cron::list_jobs))
         .route("/cron/jobs", post(routes::cron::create_job))
+        .route("/cron/preflight", post(routes::cron::preflight))
         .route("/cron/jobs/{id}", get(routes::cron::get_job))
+        .route(
+            "/cron/jobs/{id}/snapshot",
+            get(routes::cron::get_job_snapshot),
+        )
         .route("/cron/jobs/{id}", put(routes::cron::update_job))
         .route("/cron/jobs/{id}", delete(routes::cron::delete_job))
         .route("/cron/jobs/{id}/toggle", post(routes::cron::toggle_job))
         .route("/cron/jobs/{id}/run", post(routes::cron::run_now))
+        .route(
+            "/cron/runs/{run_log_id}/cancel",
+            post(routes::cron::cancel_run),
+        )
         .route("/cron/jobs/{id}/logs", get(routes::cron::get_run_logs))
         .route(
             "/cron/jobs-referencing-account/{account_id}",
@@ -2036,6 +2045,27 @@ fn build_router_with_cors(
         .route("/cron/timeline", get(routes::cron::run_timeline))
         .route("/cron/unread", get(routes::cron::unread_total))
         .route("/cron/read-all", post(routes::cron::mark_all_read))
+        .route("/cron/workspaces", get(routes::cron::workspace_resources))
+        .route(
+            "/cron/runs/{run_log_id}/workspace",
+            get(routes::cron::workspace_resource_for_run),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/takeover",
+            post(routes::cron::workspace_takeover),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/return",
+            post(routes::cron::workspace_return),
+        )
+        .route(
+            "/cron/runs/{run_log_id}/workspace/discard",
+            post(routes::cron::workspace_discard_run),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/discard",
+            post(routes::cron::workspace_discard_task),
+        )
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))

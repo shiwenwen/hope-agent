@@ -229,6 +229,7 @@ mod tests {
             updated_at: "2025-01-01T00:00:00Z".into(),
             pinned_at: None,
             archived_at: None,
+            origin: None,
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,

@@ -1104,6 +1104,7 @@ fn payload_references_agent(payload: &CronPayload, id: &str) -> bool {
         CronPayload::AgentTurn { agent_id, .. } | CronPayload::SessionLoop { agent_id, .. } => {
             agent_id.as_deref() == Some(id)
         }
+        CronPayload::SessionTurn { .. } => false,
     }
 }
 
@@ -1112,6 +1113,9 @@ fn cron_job_resolves_to_agent(job: &CronJob, id: &str) -> Result<bool> {
         CronPayload::AgentTurn { agent_id, .. } | CronPayload::SessionLoop { agent_id, .. } => {
             agent_id.as_deref()
         }
+        // The ordinary session owns this binding; task lifecycle must not
+        // rewrite or delete a SessionTurn based on today's live agent.
+        CronPayload::SessionTurn { .. } => return Ok(false),
     };
     let project = match (job.project_id.as_deref(), crate::get_project_db()) {
         (Some(project_id), Some(db)) => db.get(project_id)?,

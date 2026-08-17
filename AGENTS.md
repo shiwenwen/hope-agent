@@ -87,7 +87,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 - 工具调用唯一入口 `permission::engine::resolve_async()`；Smart 不消费 `custom_approval_tools`，UI 须提示。
 - strict 永不自动放行：超时/无人值守 `proceed` 强制 deny；判定源 `AskReason::forbids_allow_always`，`ApprovalReasonKind::is_strict()` 须镜像。
-- 无人值守 fail-closed：`check_and_request_approval` 预检 `evaluate_approval_surface`，`permission.unattended_approval_action` 默认 deny；可能 surface 即 Attended，唯 cron（含其血缘 subagent）例外；判 ACP 用 `is_acp()` 非 `ChatSource`（复用 Http）。
+- 无人值守 fail-closed：`check_and_request_approval` 预检 `evaluate_approval_surface`，`permission.unattended_approval_action` 默认 deny；可能 surface 即 Attended，唯 cron（含其血缘 subagent）例外——**判 cron 看 live turn 的 `ChatSource::Cron`（运行会话已是 `is_cron=0` 的普通会话），禁用 display-only 的 `origin`**；判 ACP 用 `is_acp()` 非 `ChatSource`（复用 Http）。
 - `control.raw_cdp` strict：每调用必审批、永无 Allow Always（规则/smart 均绕不过）；方法/域黑名单 + SSRF 扫描 + 硬开关 `browser.extension.allowRawCdp=false` 三道执行层防御勿削弱。
 - 出站 HTTP 必走 `security::ssrf::check_url`，新入口严禁自写 IP 校验。
 - 可见性与执行层兜底走 `dispatch::resolve_tool_fate`（`tools.allow/deny` 只覆盖非 Core）。
@@ -128,7 +128,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **Subagent Provider / 回投恢复不可失活**：Provider 整链失败的外层重试留在同一 child session，须可被 Stop 取消并向 parent 注入恢复状态；`subagent_result_deliveries.requested_at` 是 durable 回投退避真相，Primary 的 5s replay sweep 是运行期活性保证，禁止退化成只在启动 / Continue 时扫一次
 - `TeamTemplateMember.description` 注入子 session 身份段
 - **Cron 投递白名单**：`delivery_targets` 须命中 `channel_conversations`——模型显式给的未命中目标创建期 `bail!`，投递期再查、未命中或 DB 不可用 fail-closed 跳过。白名单即边界（刻意不叠 SSRF）
-- **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_sessions`；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
+- **Cron delete 审批**：`manage_cron action=delete` 唯一非 internal action，刻意抑制 AllowAlways——matcher 只按 `action` 不含 `id`，持久化即「删任意任务」常驻授权。owner 三入口走 `cron::delete_job_and_legacy_sessions`：逻辑删除 Task，保留 run logs 与全部普通 / legacy Session；新增审批原因同步 `ApprovalReasonKind` + `ApprovalDialog.tsx` union + 全语言文案
 - **Cron owner-only 覆盖**：`permission_mode_override` / `sandbox_mode_override` 仅 owner 可设，`manage_cron` 恒 `None`、不进 schema、`update` 拒带覆盖的 job（否则注入可排 `permission=yolo` 提权）。沙箱与权限 override 写失败**均 fail-closed 终止本次运行**：沙箱写丢=裸跑 host；权限写丢=按 agent 默认跑，agent 默认可能**比 override 更宽松**（owner 收紧场景 agent `yolo` → override `smart` 常见），静默回退即隐性提权，故两侧对称——**别拉回不对称**；预检读错回退 expected 而非 `Off`（防 `.unwrap_or(Off)`）；`ensure_sandbox_available_for_mode()` 失败即终止、不回落宿主机
 - **Cron 排程与时区**：`schedule::validate_schedule` 为合法性唯一裁决（owner/模型共用），非法 IANA 时区 `bail!`、禁止静默回退 UTC；`compute_next_cron` 用 `.find(|dt| *dt > *after)` 非裸 `.next()`（否则 DST 秋退写入过去时刻 → 每 tick 重触发）；时区 backfill 经 `cron_meta` sentinel `tz_backfill_done` 真·一次性（形似性能优化，删掉即把故意-UTC 任务静默改成宿主时区）；`update_job` 系统字段以 DB live 为准、不取 caller 快照
 - **Cron Primary-only + slot-before-claim**：执行与 run-now 三入口前置 `is_primary()`（非 Primary 返错不假成功）；调度器先 `count_running()`（并发计数单一真相源，失败 fail-closed 跳过本 pass）抢槽再 claim——claim 会推进 `next_run_at`，反序即静默丢一轮
@@ -152,7 +152,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [chat-engine](docs/architecture/core/chat-engine.md)；未读口径见 [session](docs/architecture/core/session.md)。
 
-- **未读单一来源**：普通未读计**会话数**，资格只走 `regular_session_scope_sql` / `regular_unread_exists_sql`，禁止分页求和；Regular / Cron / IM 三域互不清除，新专属对话空间须用独立 `SessionKind`
+- **未读单一来源**：普通未读计**会话数**，资格只走 `regular_session_scope_sql` / `regular_unread_exists_sql`，禁止分页求和；Scheduled 是同一 regular watermark 的过滤投影（读普通会话即清 Scheduled 角标），IM Channel 仍是独立域、与普通未读互不清除，新专属对话空间须用独立 `SessionKind`
 - **Bundled HTTP UI 只作观察者**：非 incognito 主对话由服务端持有执行；页面、WebSocket 或反向代理断开不得取消 turn，前端须以 durable `turnId` 重连终态；会话删除导致 turn 404 时须终止本地等待并释放轮询 / 订阅
 - **API-Round 分组**：新 Provider adapter 须经 `push_and_stamp` 标 `_oc_round`（否则压缩切割拆散 tool_use / tool_result 配对），请求体构建前统一 `prepare_messages_for_api()` 剥离元数据
 - **前台 idle guard 单一入口**：`run_chat_engine` 按 `ChatSource::holds_foreground_idle_guard()` 统一建 `ChatSessionGuard`（ACP 自建），新增对话入口不得手搓 per-shell guard

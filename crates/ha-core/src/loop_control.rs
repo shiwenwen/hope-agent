@@ -520,6 +520,10 @@ pub struct CronJobView {
     pub job: CronJob,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loop_state: Option<LoopState>,
+    /// Last occurrence's outcome, so the task list can surface (and search) a
+    /// recent failure without a per-row run-log fetch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<crate::cron::CronLastRunSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1094,6 +1098,7 @@ impl SessionDB {
             job_timeout_secs: input.max_runtime_secs.map(|v| v.max(30) as u64),
             permission_mode_override: None,
             sandbox_mode_override: None,
+            workspace_policy: Default::default(),
         })?;
         if input.trigger_kind == LoopTriggerKind::Event {
             if let Err(err) = cron_db.toggle_job(&cron_job.id, false) {
@@ -1263,6 +1268,7 @@ impl SessionDB {
     /// so exposing only `CronJob.status` would mislabel an active Loop.
     pub fn list_cron_job_views(&self, cron_db: &CronDB) -> Result<Vec<CronJobView>> {
         let jobs = cron_db.list_jobs()?;
+        let mut last_runs = cron_db.latest_run_summaries()?;
         let loop_states = {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             let mut stmt = conn.prepare("SELECT id, state FROM loop_schedules")?;
@@ -1282,9 +1288,14 @@ impl SessionDB {
             .map(|job| {
                 let loop_state = match &job.payload {
                     CronPayload::SessionLoop { loop_id, .. } => loop_states.get(loop_id).copied(),
-                    CronPayload::AgentTurn { .. } => None,
+                    CronPayload::AgentTurn { .. } | CronPayload::SessionTurn { .. } => None,
                 };
-                CronJobView { job, loop_state }
+                let last_run = last_runs.remove(&job.id);
+                CronJobView {
+                    job,
+                    loop_state,
+                    last_run,
+                }
             })
             .collect())
     }

@@ -184,6 +184,9 @@ pub(crate) fn reconcile_typed_resource_snapshots(
 #[serde(rename_all = "camelCase")]
 pub struct SessionStreamState {
     pub active: bool,
+    /// Exact in-memory turn admission still exists. This can briefly outlive a
+    /// terminal stream while its owner finishes safe post-turn cleanup.
+    pub admission_active: bool,
     /// Backward-compatible alias for `accepted_seq`.
     pub last_seq: u64,
     pub accepted_seq: u64,
@@ -236,6 +239,7 @@ pub fn session_stream_state(session_id: &str) -> SessionStreamState {
         .unwrap_or(0);
     SessionStreamState {
         active,
+        admission_active: active_turn.is_some(),
         last_seq: accepted_seq,
         accepted_seq,
         durable_seq,

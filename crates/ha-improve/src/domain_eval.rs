@@ -1902,6 +1902,7 @@ async fn run_domain_eval_agent_execution(
             .clone()
             .or_else(|| Some("none".to_string())),
         cancel: Arc::new(AtomicBool::new(false)),
+        foreground_stop_admission: None,
         plan_context_override: Some(ha_core::agent::PlanResolvedContext::off()),
         skill_allowed_tools: Vec::new(),
         denied_tools: execution.denied_tools.clone(),

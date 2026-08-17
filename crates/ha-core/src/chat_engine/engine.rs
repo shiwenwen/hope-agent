@@ -596,8 +596,9 @@ impl Drop for StreamLifecycle {
 /// Emit one stream event. Desktop / HTTP turns send through both the per-call
 /// sink and the main `chat:stream_delta` EventBus path with a shared `_oc_seq`
 /// for dedup. Parent-injection turns use the same bus so background-completion
-/// follow-up replies are visible while they stream. Channel / cron turns stay
-/// off the main chat bus; IM uses `ChannelStreamSink` to emit
+/// follow-up replies are visible while they stream. Cron turns also use the
+/// main bus because their ordinary Sessions can be opened mid-run. Channel and
+/// child Subagent turns stay off it; IM uses `ChannelStreamSink` to emit
 /// `channel:stream_delta` instead.
 fn emit_stream_event(
     db: &session::SessionDB,
@@ -1028,6 +1029,7 @@ pub async fn run_chat_engine_classified(
         run_context,
         reasoning_effort,
         cancel,
+        foreground_stop_admission,
         plan_context_override,
         mut skill_allowed_tools,
         denied_tools,
@@ -1296,17 +1298,31 @@ pub async fn run_chat_engine_classified(
         turn_id.clone(),
         event_sink.clone(),
         cancel.clone(),
+        foreground_stop_admission,
     )
     .await
     {
         Ok(coordinator) => coordinator,
         Err(error) => {
             let message = format!("Cannot initialize durable chat stream: {error}");
+            let stopped_by_fence = error
+                .to_string()
+                .contains(session::FOREGROUND_STOP_FENCE_ERROR);
+            let terminal_status = if stopped_by_fence {
+                session::ChatTurnStatus::Interrupted
+            } else {
+                session::ChatTurnStatus::Failed
+            };
+            let interrupt_reason = if stopped_by_fence {
+                session::ChatTurnInterruptReason::UserStop
+            } else {
+                session::ChatTurnInterruptReason::Unknown
+            };
             if let Some(turn_id) = turn_id.as_deref() {
                 if let Err(finish_error) = db.finish_chat_turn_once(
                     turn_id,
-                    session::ChatTurnStatus::Failed,
-                    Some(session::ChatTurnInterruptReason::Unknown),
+                    terminal_status,
+                    Some(interrupt_reason),
                     Some(&message),
                     None,
                 ) {
@@ -1320,12 +1336,16 @@ pub async fn run_chat_engine_classified(
                 }
             }
             stream_lifecycle.set_terminal(
-                session::ChatTurnStatus::Failed,
-                Some(session::ChatTurnInterruptReason::Unknown),
+                terminal_status,
+                Some(interrupt_reason),
                 Some(message.clone()),
             );
             stream_lifecycle.finish();
-            return Err(message.into());
+            return Err(if stopped_by_fence {
+                ChatEngineFailure::cancelled(message)
+            } else {
+                message.into()
+            });
         }
     };
     stream_lifecycle
@@ -4678,6 +4698,7 @@ mod stream_lifecycle_tests {
             run_context: None,
             reasoning_effort: Some("none".to_string()),
             cancel: Arc::new(AtomicBool::new(false)),
+            foreground_stop_admission: None,
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),

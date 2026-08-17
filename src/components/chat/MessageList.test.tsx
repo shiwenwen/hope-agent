@@ -49,6 +49,12 @@ vi.mock("./MessageBubble", () => ({
   ),
 }))
 
+vi.mock("./message/ScheduleEntityCard", () => ({
+  default: ({ metadata }: { metadata: { entityId: string } }) => (
+    <div data-testid="schedule-card">{metadata.entityId}</div>
+  ),
+}))
+
 vi.mock("./ask-user/AskUserQuestionBlock", () => ({
   default: ({ group }: { group: AskUserQuestionGroup }) => (
     <div data-testid="ask-user-block">{group.requestId}</div>
@@ -393,6 +399,54 @@ describe("MessageList", () => {
     expect(screen.queryByText("step two")).toBeNull()
   })
 
+  test("keeps a scheduled trigger prompt visible instead of folding it into the previous turn", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({
+            role: "user",
+            content: "question",
+            dbId: 1,
+            timestamp: "2026-04-26T00:00:00.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "manual answer",
+            dbId: 2,
+            timestamp: "2026-04-26T00:00:03.000Z",
+          }),
+          baseMessage({
+            role: "user",
+            content: "scheduled prompt",
+            dbId: 3,
+            isCronTrigger: true,
+            cronJobName: "Daily summary",
+            cronJobId: "job-1",
+            timestamp: "2026-04-26T01:00:00.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "scheduled answer",
+            dbId: 4,
+            timestamp: "2026-04-26T01:00:05.000Z",
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    // The occurrence is its own turn: its prompt explains the answer below it.
+    expect(screen.getByText("scheduled prompt")).toBeTruthy()
+    expect(screen.getByText("scheduled answer")).toBeTruthy()
+    expect(screen.getByText("manual answer")).toBeTruthy()
+    expect(screen.queryByText("chat.completedTurnCollapsedWithDuration")).toBeNull()
+  })
+
   test("collapses historical assistant content blocks before the final answer", () => {
     render(
       <MessageList
@@ -489,6 +543,49 @@ describe("MessageList", () => {
         .getAllByTestId("message-bubble")
         .some((bubble) => bubble.getAttribute("data-suppress-goal-footer") === "true"),
     ).toBe(true)
+  })
+
+  test("keeps scheduled-task cards visible when the completed turn is collapsed", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "create a task", dbId: 1 }),
+          baseMessage({
+            role: "assistant",
+            content: "created",
+            dbId: 2,
+            contentBlocks: [
+              { type: "thinking", content: "creating" },
+              {
+                type: "tool_call",
+                tool: {
+                  callId: "cron-create-1",
+                  name: "manage_cron",
+                  arguments: '{"action":"create"}',
+                  result: "created",
+                  metadata: {
+                    kind: "schedule_entity",
+                    entityType: "cronTask",
+                    entityId: "job-1",
+                  },
+                },
+              },
+              { type: "text", content: "created" },
+            ],
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    expect(screen.getByRole("button", { expanded: false })).toBeTruthy()
+    expect(screen.getByTestId("schedule-card").textContent).toBe("job-1")
+    expect(screen.queryByTestId("completed-turn-details")).toBeNull()
   })
 
   test("expands collapsed historical prefix when search targets text inside it", async () => {

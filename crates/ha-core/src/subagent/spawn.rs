@@ -1745,6 +1745,7 @@ fn execute_subagent(
                     run_context: run_context.clone(),
                     reasoning_effort: effective_reasoning_effort.clone(),
                     cancel: cancel.clone(),
+                    foreground_stop_admission: None,
                     plan_context_override: plan_context_override.clone(),
                     skill_allowed_tools: skill_allowed_tools.clone(),
                     denied_tools: denied.clone(),

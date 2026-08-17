@@ -35,6 +35,7 @@ vi.mock("react-i18next", () => ({
         "fileBrowser.panelTitle": "Files",
         "backgroundJobs.panelTitle": "Background Tasks",
         "filePreview.panelTitle": "Preview",
+        "cron.scheduleSession": "Schedule this chat",
       }
       const template = translations[key] ?? (typeof options === "string" ? options : key)
       if (!options || typeof options === "string") return template
@@ -104,6 +105,14 @@ afterEach(() => {
 })
 
 describe("ChatTitleBar right-panel dock", () => {
+  test("opens the locked schedule form for the current session", () => {
+    const onScheduleSession = vi.fn()
+    renderTitleBar({ onScheduleSession })
+
+    fireEvent.click(screen.getByRole("button", { name: "Schedule this chat" }))
+    expect(onScheduleSession).toHaveBeenCalledWith("s1")
+  })
+
   test("renders a single icon entry for each panel and dispatches its id", () => {
     const onRightPanelAction = vi.fn()
     renderTitleBar({

@@ -3,9 +3,9 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 /**
- * Global store for the Cron sidebar unread badge. The aggregate is the number
- * of unread run sessions (not assistant messages) and stays independent from
- * regular conversations. It refreshes on completion and explicit read changes.
+ * Global store for the Scheduled sidebar unread badge. It filters the ordinary
+ * Session watermark by Cron provenance (plus legacy `is_cron` compatibility),
+ * so Chat and Scheduled never maintain competing read receipts.
  */
 type Listener = () => void
 
@@ -43,10 +43,11 @@ export function initCronUnreadStore() {
     _unlisten.push(
       getTransport().listen("session:unread_changed", (raw) => {
         const payload = raw && typeof raw === "object" ? (raw as { domain?: string | null }) : null
-        // `domain` is only an invalidation hint. Batch/legacy mutations emit no
-        // domain, so conservatively reconcile instead of leaving the Cron badge
-        // stale after a mixed-session mark-read request.
-        if (!payload?.domain || payload.domain === "cron") void reload()
+        // Cron-origin sessions emit `regular`, legacy rows `cron`, bulk/archive
+        // mutations nothing — all three move Scheduled; channel-only reads do not.
+        if (!payload?.domain || payload.domain === "cron" || payload.domain === "regular") {
+          void reload()
+        }
       }),
     )
     // Only latch initialized once the subscriptions are actually attached, so a
@@ -70,18 +71,24 @@ export function disposeCronUnreadStore() {
   _initialized = false
 }
 
-/** Refresh the authoritative unread run-session aggregate from the backend. */
+/** Refresh the authoritative Scheduled projection from the backend. */
 export function refreshCronUnread() {
   void reload()
 }
 
-/** Mark one explicitly viewed cron run as read, then reconcile the aggregate. */
-export async function markCronSessionRead(sessionId: string): Promise<void> {
-  await getTransport().call("mark_session_read_cmd", { sessionId })
+/** Advance one viewed Session's ordinary watermark, then reconcile Scheduled. */
+export async function markCronSessionRead(
+  sessionId: string,
+  throughMessageId?: number | null,
+): Promise<void> {
+  await getTransport().call("mark_session_read_cmd", {
+    sessionId,
+    throughMessageId: throughMessageId ?? undefined,
+  })
   await reload()
 }
 
-/** One-click clear: mark every cron session read, then zero the badge. */
+/** One-click clear over ordinary Cron-origin and legacy Cron Sessions. */
 export async function markAllCronRead(): Promise<void> {
   try {
     await getTransport().call("cron_mark_all_read")

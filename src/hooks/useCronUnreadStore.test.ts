@@ -36,7 +36,7 @@ afterEach(() => {
 })
 
 describe("useCronUnreadStore invalidation", () => {
-  it("reconciles an unscoped batch read event but ignores an unrelated explicit domain", async () => {
+  it("reconciles ordinary and legacy read events but ignores channel-only changes", async () => {
     cronUnreadTotal = 2
     initCronUnreadStore()
     const { result } = renderHook(() => useCronUnreadStore())
@@ -52,6 +52,10 @@ describe("useCronUnreadStore invalidation", () => {
 
     calls.length = 0
     act(() => listeners.get("session:unread_changed")?.({ domain: "regular" }))
+    await waitFor(() => expect(calls).toEqual(["cron_unread_total"]))
+
+    calls.length = 0
+    act(() => listeners.get("session:unread_changed")?.({ domain: "channel" }))
     await Promise.resolve()
     expect(calls).toEqual([])
   })

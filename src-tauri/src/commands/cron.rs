@@ -26,11 +26,50 @@ pub async fn cron_get_job(
         .map_err(Into::into)
 }
 
+/// Read a task and whether it is a tombstone. Retained history keeps naming a
+/// deleted task, so its card resolves through this instead of `cron_get_job`
+/// (live-only) — a deleted task stays readable and copyable, never schedulable.
+#[tauri::command]
+pub async fn cron_get_job_snapshot(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<cron::CronJobSnapshot>, CmdError> {
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.get_job_snapshot(&id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_preflight(
+    request: ha_cron::cron::CronPreflightRequest,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronPreflightReport, CmdError> {
+    ha_cron::cron::evaluate_cron_preflight(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        request,
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await
+    .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn cron_create_job(
     job: cron::NewCronJob,
     state: State<'_, AppState>,
 ) -> Result<cron::CronJob, CmdError> {
+    let report = ha_cron::cron::evaluate_cron_preflight(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        ha_cron::cron::CronPreflightRequest::Create { job: job.clone() },
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await?;
+    if !report.can_proceed {
+        return Err(CmdError::msg("Cron preflight blocked"));
+    }
     let cron_db = state.cron_db.clone();
     ha_core::blocking::run_blocking(move || cron_db.add_job(&job))
         .await
@@ -40,23 +79,44 @@ pub async fn cron_create_job(
 #[tauri::command]
 pub async fn cron_update_job(
     job: cron::CronJob,
+    expected_revision: u64,
     state: State<'_, AppState>,
-) -> Result<(), CmdError> {
+) -> Result<cron::CronUpdateResult, CmdError> {
+    let report = ha_cron::cron::evaluate_cron_preflight(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        ha_cron::cron::CronPreflightRequest::Update {
+            job: job.clone(),
+            expected_revision,
+        },
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await?;
+    if !report.can_proceed {
+        return Err(CmdError::msg("Cron preflight blocked"));
+    }
     let cron_db = state.cron_db.clone();
-    ha_core::blocking::run_blocking(move || cron_db.update_job(&job))
+    ha_core::blocking::run_blocking(move || cron_db.update_job_cas(&job, expected_revision))
         .await
         .map_err(Into::into)
 }
 
 #[tauri::command]
+pub async fn cron_cancel_run(run_log_id: i64) -> Result<cron::CronRunCancelResult, CmdError> {
+    ha_cron::cron::cancel_run(run_log_id)
+        .await?
+        .ok_or_else(|| CmdError::msg("Cron run not found"))
+}
+
+#[tauri::command]
+/// Logically delete a task. Run logs and linked conversations stay available
+/// through the history endpoints.
 pub async fn cron_delete_job(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     let cron_db = state.cron_db.clone();
     let session_db = state.session_db.clone();
-    ha_core::blocking::run_blocking(move || {
-        ha_cron::cron::delete_job_and_sessions(&cron_db, &session_db, &id)
-    })
-    .await
-    .map_err(Into::into)
+    ha_cron::cron::delete_job_and_legacy_sessions(&cron_db, &session_db, &id)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -72,23 +132,20 @@ pub async fn cron_toggle_job(
 }
 
 #[tauri::command]
-pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    // Cron only runs on the Primary instance — `execute_job_public` no-ops on a
-    // Secondary (C10). The desktop is normally Primary, but guard anyway so a
-    // Secondary desktop reports the failure instead of silently swallowing the run.
-    if !ha_core::runtime_lock::is_primary() {
-        return Err(CmdError::msg(
-            "run-now is unavailable on this instance: scheduled jobs only run on the primary",
-        ));
-    }
-    let job = {
-        let cron_db = state.cron_db.clone();
-        ha_core::blocking::run_blocking(move || cron_db.get_job(&id)).await?
-    }
-    .ok_or_else(|| CmdError::msg("Job not found"))?;
-
-    ha_cron::cron::spawn_job_execution(state.cron_db.clone(), state.session_db.clone(), job);
-    Ok(())
+pub async fn cron_run_now(
+    id: String,
+    expected_revision: u64,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronRunNowResult, CmdError> {
+    ha_cron::cron::start_cron_run_now(
+        state.cron_db.clone(),
+        state.session_db.clone(),
+        id,
+        expected_revision,
+        ha_cron::cron::CronManagedWorkspaceWritePolicy::Allowed,
+    )
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -121,8 +178,8 @@ pub async fn cron_get_run_logs(
 }
 
 /// Cross-job run timeline for the cron panel's "conversations" view: every cron
-/// run across all jobs, newest-first, paginated; each row carries the run's
-/// session id + title + unread count for the read-only conversation viewer.
+/// run across live and deleted jobs, newest-first, paginated; each row carries
+/// the run's session id, title, unread count, and task-deleted marker.
 #[tauri::command]
 pub async fn cron_run_timeline(
     limit: Option<usize>,
@@ -179,4 +236,106 @@ pub async fn cron_get_calendar_events(
     ha_core::blocking::run_blocking(move || cron_db.get_calendar_events(&start_dt, &end_dt))
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_resources(
+    job_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ha_cron::cron::CronWorkspaceResource>, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::workspace_resources(&cron_db, &session_db, job_id.as_deref())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_resource_for_run(
+    run_log_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<ha_cron::cron::CronWorkspaceResource>, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::workspace_resource_for_run(&cron_db, &session_db, run_log_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_takeover(
+    job_id: String,
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::take_over_persistent_worktree(&cron_db, &session_db, &job_id, &session_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_return(
+    job_id: String,
+    session_id: String,
+    resume: bool,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::return_persistent_worktree(
+            &cron_db,
+            &session_db,
+            &job_id,
+            &session_id,
+            resume,
+        )
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_discard_run(
+    run_log_id: i64,
+    session_id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    if !confirm {
+        return Err(CmdError::msg("discard requires explicit confirmation"));
+    }
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::discard_run_worktree(&cron_db, &session_db, run_log_id, &session_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cron_workspace_discard_task(
+    job_id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> Result<ha_cron::cron::CronWorkspaceActionResult, CmdError> {
+    if !confirm {
+        return Err(CmdError::msg("discard requires explicit confirmation"));
+    }
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        ha_cron::cron::discard_persistent_worktree(&cron_db, &session_db, &job_id)
+    })
+    .await
+    .map_err(Into::into)
 }

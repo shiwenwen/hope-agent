@@ -29,7 +29,10 @@ mod turns;
 mod types;
 
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
-pub use autonomy_pause::{SessionAutonomyPause, SessionAutonomyResumeOutcome};
+pub use autonomy_pause::{
+    ForegroundStopAdmission, SessionAutonomyPause, SessionAutonomyResumeOutcome,
+    FOREGROUND_STOP_FENCE_ERROR,
+};
 pub(crate) use context_compaction_recovery::{
     claim_incognito_tier3_recovery, clear_incognito_capacity_projection_recovery,
     clear_incognito_tier3_recovery, exhaust_incognito_tier3_recovery,
@@ -90,17 +93,21 @@ pub use tasks::{
     create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
     set_task_status_and_snapshot, Task, TaskStatus,
 };
+pub(crate) use turn_queue::emit_turn_released;
 pub use turn_queue::{
-    EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage, QueuedTurnMessageMode,
-    QueuedTurnMessageRecord, QueuedTurnMessageSource, QueuedTurnMessageStatus,
-    QueuedTurnMessageView, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    DirectTurnAdmission, EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage,
+    NewScheduledTurnMessage, QueuedTurnMessageMode, QueuedTurnMessageRecord,
+    QueuedTurnMessageSource, QueuedTurnMessageStatus, QueuedTurnMessageView,
+    ScheduledTurnQueueIdentity, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    SCHEDULED_TARGET_INELIGIBLE_ERROR,
 };
-pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
+pub use turns::{new_chat_turn_id, ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
     build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
     ForkSessionResult, MessageRole, NewMessage, PendingCountdown, SessionDefaultsInput,
     SessionKind, SessionMemoryPolicy, SessionMemoryPolicyValue, SessionMessage, SessionMeta,
-    UnreadSessionTarget, ATTACHMENT_META_KEY_ACTIVE_MEMORY, ATTACHMENT_META_KEY_QUEUED_MESSAGE,
-    ATTACHMENT_META_KEY_RETRIEVAL_PLANNER, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
-    ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT, ATTACHMENT_META_KEY_USED_MEMORY_REFS,
+    SessionOrigin, UnreadSessionTarget, ATTACHMENT_META_KEY_ACTIVE_MEMORY,
+    ATTACHMENT_META_KEY_QUEUED_MESSAGE, ATTACHMENT_META_KEY_RETRIEVAL_PLANNER,
+    ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS, ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT,
+    ATTACHMENT_META_KEY_USED_MEMORY_REFS,
 };

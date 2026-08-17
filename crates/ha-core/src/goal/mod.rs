@@ -5175,12 +5175,12 @@ mod tests {
         let conn = db.conn.lock().expect("lock session db");
         conn.execute(
             "INSERT INTO managed_worktrees (
-                id, session_id, child_session_id, workflow_run_id, purpose, state, label,
+                id, session_id, owner_session_id, child_session_id, workflow_run_id, purpose, state, label,
                 repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
                 git_branch, dirty_snapshot_json, created_at, updated_at,
                 archived_at, restored_at, handed_off_at
              ) VALUES (
-                ?1, ?2, NULL, NULL, 'workflow', 'active', 'Goal worktree',
+                ?1, ?2, ?2, NULL, NULL, 'workflow', 'active', 'Goal worktree',
                 ?3, ?3, ?4, 'HEAD', 'main', 'abc123',
                 NULL, NULL, ?5, ?5,
                 NULL, NULL, NULL

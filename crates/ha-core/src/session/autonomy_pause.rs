@@ -6,6 +6,47 @@ use serde::{Deserialize, Serialize};
 
 use super::SessionDB;
 
+/// Stable diagnostic used when an entry admission predates a durable Stop.
+/// Callers that collapse `anyhow` into a transport string still need to map
+/// this exact safety rejection to cancellation rather than execution failure.
+pub const FOREGROUND_STOP_FENCE_ERROR: &str = "foreground request crossed a durable Stop fence";
+
+/// Durable Stop generation captured when a foreground request first enters a
+/// transport. The session hash keeps the snapshot `Copy` while preventing a
+/// draft/channel remap from applying another session's lineage generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForegroundStopAdmission {
+    session_hash: Option<[u8; 32]>,
+    lineage_epoch: u64,
+    global_stop_epoch: u64,
+    global_stop_receipt_count: u64,
+}
+
+impl ForegroundStopAdmission {
+    fn baseline_for(self, session_id: &str) -> (u64, u64, u64) {
+        let matches_session = self
+            .session_hash
+            .is_some_and(|hash| hash == *blake3::hash(session_id.as_bytes()).as_bytes());
+        (
+            if matches_session {
+                self.lineage_epoch
+            } else {
+                0
+            },
+            self.global_stop_epoch,
+            if matches_session {
+                self.global_stop_receipt_count
+            } else {
+                0
+            },
+        )
+    }
+
+    pub(crate) fn resolved_for(self, session_id: &str) -> (u64, u64, u64) {
+        self.baseline_for(session_id)
+    }
+}
+
 pub(super) const SESSION_LINEAGE_PAUSE_EXISTS_SQL: &str =
     "WITH RECURSIVE session_lineage(id, parent_session_id) AS (
          SELECT id, parent_session_id FROM sessions WHERE id = ?1
@@ -129,6 +170,49 @@ pub(super) fn global_stop_epoch_with_conn(conn: &rusqlite::Connection) -> Result
     .map_err(Into::into)
 }
 
+pub(super) fn foreground_stop_admission_with_conn(
+    conn: &rusqlite::Connection,
+    session_id: Option<&str>,
+) -> Result<ForegroundStopAdmission> {
+    let global_stop_epoch = global_stop_epoch_with_conn(conn)?;
+    let Some(session_id) = session_id else {
+        return Ok(ForegroundStopAdmission {
+            session_hash: None,
+            lineage_epoch: 0,
+            global_stop_epoch,
+            global_stop_receipt_count: 0,
+        });
+    };
+    Ok(ForegroundStopAdmission {
+        session_hash: Some(*blake3::hash(session_id.as_bytes()).as_bytes()),
+        lineage_epoch: session_autonomy_lineage_pause_epoch_with_conn(conn, session_id)?,
+        global_stop_epoch,
+        global_stop_receipt_count: lineage_attributed_global_stop_receipt_count_with_conn(
+            conn,
+            session_id,
+            global_stop_epoch,
+        )?,
+    })
+}
+
+pub(super) fn foreground_stop_admission_is_current_with_conn(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    admission: ForegroundStopAdmission,
+) -> Result<bool> {
+    let (admitted_lineage, admitted_global, admitted_global_receipts) =
+        admission.baseline_for(session_id);
+    let current_global = global_stop_epoch_with_conn(conn)?;
+    if current_global > admitted_global {
+        return Ok(false);
+    }
+    let current_lineage = session_autonomy_lineage_pause_epoch_with_conn(conn, session_id)?;
+    let current_global_receipts =
+        lineage_attributed_global_stop_receipt_count_with_conn(conn, session_id, admitted_global)?;
+    Ok(current_lineage.saturating_sub(admitted_lineage)
+        <= current_global_receipts.saturating_sub(admitted_global_receipts))
+}
+
 fn list_session_ids_with_active_autonomy_with_conn(
     conn: &rusqlite::Connection,
 ) -> Result<Vec<String>> {
@@ -154,8 +238,17 @@ fn list_session_ids_with_active_autonomy_with_conn(
               WHERE status IN ('running', 'cancelling')
                 AND source = 'session_tool'
              UNION
+             SELECT turn.session_id FROM chat_turns turn
+               JOIN sessions session ON session.id = turn.session_id
+              WHERE turn.status IN ('running', 'cancelling')
+                AND session.incognito = 0
+             UNION
+             SELECT direct.session_id FROM direct_turn_admissions direct
+               JOIN sessions session ON session.id = direct.session_id
+              WHERE session.incognito = 0
+             UNION
              SELECT session_id FROM queued_turn_user_messages
-              WHERE source = 'channel'
+              WHERE source IN ('channel', 'scheduled')
                 AND status IN ('queued', 'fallback_after_reply', 'waiting_tool_boundary',
                                'inserting', 'dispatching')
          ), session_lineage(active_id, id, parent_session_id) AS (
@@ -176,6 +269,29 @@ fn list_session_ids_with_active_autonomy_with_conn(
 }
 
 impl SessionDB {
+    pub fn foreground_stop_admission(
+        &self,
+        session_id: Option<&str>,
+    ) -> Result<ForegroundStopAdmission> {
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let admission = foreground_stop_admission_with_conn(&tx, session_id)?;
+        tx.commit()?;
+        Ok(admission)
+    }
+
+    pub fn foreground_stop_admission_is_current(
+        &self,
+        session_id: &str,
+        admission: ForegroundStopAdmission,
+    ) -> Result<bool> {
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let current = foreground_stop_admission_is_current_with_conn(&tx, session_id, admission)?;
+        tx.commit()?;
+        Ok(current)
+    }
+
     /// Resolve any hidden descendant conversation to its top-level, visible
     /// session. Global Stop uses this before publishing receipts so Continue
     /// never has to discover and consume an invisible child-only fence.
@@ -236,7 +352,145 @@ impl SessionDB {
             params![now],
         )?;
         let epoch = global_stop_epoch_with_conn(&tx)?;
-        let sessions = list_session_ids_with_active_autonomy_with_conn(&tx)?;
+        let mut sessions = list_session_ids_with_active_autonomy_with_conn(&tx)?;
+        let epoch_i64 = i64::try_from(epoch)
+            .map_err(|_| anyhow!("global Stop epoch exceeds SQLite INTEGER range"))?;
+
+        // Rotate every already-active receipt inside the same write ordering
+        // point as the new generation. A Continue carrying the old id must not
+        // release Scheduled rows quarantined by this newer Global Stop while
+        // the detached owner is still publishing per-session receipts. Copying
+        // the captured controller ids into a new-generation receipt preserves
+        // targeted Stop semantics and also leaves an exact resumable receipt if
+        // the process exits before the eager convergence pass reaches it.
+        let active_pauses = {
+            let mut stmt = tx.prepare(
+                "SELECT id, session_id, goal_id, workflow_run_ids_json,
+                        subagent_run_ids_json
+                   FROM session_autonomy_pauses
+                  WHERE resumed_at IS NULL
+                  ORDER BY session_id",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut current_receipt_sessions = HashSet::new();
+        for (old_id, session_id, goal_id, workflow_ids, subagent_ids) in active_pauses {
+            let changed = tx.execute(
+                "UPDATE session_autonomy_pauses
+                    SET resumed_at = ?1,
+                        resume_replay_error = 'superseded_by_newer_stop'
+                  WHERE id = ?2 AND resumed_at IS NULL",
+                params![now, old_id],
+            )?;
+            if changed != 1 {
+                return Err(anyhow!(
+                    "active session pause changed during Global Stop publication"
+                ));
+            }
+            tx.execute(
+                "INSERT INTO session_autonomy_pauses (
+                    id, session_id, goal_id, workflow_run_ids_json,
+                    subagent_run_ids_json, created_at, resumed_at, global_stop_epoch
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+                params![
+                    format!("pause_{}", uuid::Uuid::new_v4().simple()),
+                    session_id,
+                    goal_id,
+                    workflow_ids,
+                    subagent_ids,
+                    now,
+                    epoch_i64,
+                ],
+            )?;
+            current_receipt_sessions.insert(session_id.clone());
+            sessions.push(session_id);
+        }
+
+        // Continue publishes a durable Primary replay handoff after consuming
+        // its pause. A newer Global Stop must supersede that handoff in this
+        // same transaction: otherwise another process can replay the already-
+        // consumed receipt before the detached Global Stop owner recreates the
+        // session fence. Preserve the newest captured snapshot as the current
+        // epoch receipt; all older pending handoffs are terminally superseded.
+        let pending_resumes = {
+            let mut stmt = tx.prepare(
+                "SELECT id, session_id, goal_id, workflow_run_ids_json,
+                        subagent_run_ids_json
+                   FROM session_autonomy_pauses
+                  WHERE resume_requested_at IS NOT NULL
+                    AND resume_replayed_at IS NULL
+                  ORDER BY session_id, resume_requested_at DESC, id DESC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for (old_id, session_id, goal_id, workflow_ids, subagent_ids) in pending_resumes {
+            let changed = tx.execute(
+                "UPDATE session_autonomy_pauses
+                    SET resume_replayed_at = ?1,
+                        resume_replay_error = 'superseded_by_newer_stop'
+                  WHERE id = ?2
+                    AND resume_requested_at IS NOT NULL
+                    AND resume_replayed_at IS NULL",
+                params![now, old_id],
+            )?;
+            if changed != 1 {
+                return Err(anyhow!(
+                    "pending session Continue changed during Global Stop publication"
+                ));
+            }
+            if current_receipt_sessions.insert(session_id.clone()) {
+                tx.execute(
+                    "INSERT INTO session_autonomy_pauses (
+                        id, session_id, goal_id, workflow_run_ids_json,
+                        subagent_run_ids_json, created_at, resumed_at, global_stop_epoch
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+                    params![
+                        format!("pause_{}", uuid::Uuid::new_v4().simple()),
+                        session_id,
+                        goal_id,
+                        workflow_ids,
+                        subagent_ids,
+                        now,
+                        epoch_i64,
+                    ],
+                )?;
+            }
+            sessions.push(session_id);
+        }
+        sessions.sort();
+        sessions.dedup();
+        // The generation publication and quarantine of every pre-existing
+        // backend-managed row are one SQLite ordering point. Primary Channel
+        // and Scheduled pumps can therefore never re-snapshot old work as a
+        // post-Stop admission while per-session receipts are still being
+        // published asynchronously.
+        tx.execute(
+            "UPDATE queued_turn_user_messages
+                SET mode = 'queue', status = 'held_after_stop', turn_id = NULL,
+                    updated_at = ?1
+              WHERE source IN ('channel', 'scheduled')
+                AND status IN ('queued', 'fallback_after_reply', 'waiting_tool_boundary',
+                               'inserting', 'dispatching')",
+            params![now],
+        )?;
         tx.commit()?;
         Ok((epoch, sessions))
     }
@@ -444,6 +698,15 @@ impl SessionDB {
                 pause.created_at,
                 global_stop_epoch,
             ],
+        )?;
+        tx.execute(
+            "UPDATE queued_turn_user_messages
+                SET mode = 'queue', status = 'held_after_stop', turn_id = NULL,
+                    updated_at = ?1
+              WHERE session_id = ?2 AND source = 'channel'
+                AND status IN ('queued', 'fallback_after_reply', 'waiting_tool_boundary',
+                               'inserting', 'dispatching')",
+            params![now, session_id],
         )?;
         tx.commit()?;
         Ok(pause)
@@ -711,16 +974,21 @@ impl SessionDB {
     pub fn finish_session_autonomy_resume(&self, pause_id: &str) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let subagent_ids = tx
+        let pause = tx
             .query_row(
-                "SELECT subagent_run_ids_json
+                "SELECT session_id, subagent_run_ids_json
                    FROM session_autonomy_pauses
                   WHERE id = ?1 AND resumed_at IS NULL",
                 params![pause_id],
-                |row| parse_ids(row.get(0)?),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        parse_ids(row.get::<_, String>(1)?)?,
+                    ))
+                },
             )
             .optional()?;
-        let Some(subagent_ids) = subagent_ids else {
+        let Some((session_id, subagent_ids)) = pause else {
             tx.commit()?;
             return Ok(false);
         };
@@ -756,6 +1024,20 @@ impl SessionDB {
               WHERE id = ?2 AND resumed_at IS NULL",
             params![now, pause_id],
         )?;
+        if changed == 1 {
+            // Global Stop quarantines Scheduled rows in the same transaction
+            // that publishes its epoch. Release them only after this exact,
+            // still-active pause generation wins the Continue CAS. A stale
+            // Continue either observes `resumed_at` above or loses this writer
+            // ordering to a newer Stop, whose transaction holds the rows again.
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                    SET status = 'queued', updated_at = ?1
+                  WHERE session_id = ?2 AND source = 'scheduled'
+                    AND status = 'held_after_stop'",
+                params![now, session_id],
+            )?;
+        }
         tx.commit()?;
         Ok(changed > 0)
     }
@@ -1185,6 +1467,37 @@ mod tests {
     }
 
     #[test]
+    fn foreground_admission_rejects_new_stop_but_accepts_its_late_global_receipt() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("foreground-admission.db"))
+            .expect("session db");
+        let session = db.create_session("ha-main").expect("session");
+
+        let before_target = db
+            .foreground_stop_admission(Some(&session.id))
+            .expect("capture targeted admission");
+        let target = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("targeted Stop");
+        assert!(db.finish_session_autonomy_resume(&target.id).unwrap());
+        assert!(!db
+            .foreground_stop_admission_is_current(&session.id, before_target)
+            .unwrap());
+
+        let (global_epoch, _) = db
+            .begin_global_stop_enumeration()
+            .expect("publish global generation");
+        let after_global_epoch = db
+            .foreground_stop_admission(Some(&session.id))
+            .expect("capture after global generation");
+        db.prepare_session_autonomy_pause_for_global(&session.id, global_epoch)
+            .expect("late same-generation receipt");
+        assert!(db
+            .foreground_stop_admission_is_current(&session.id, after_global_epoch)
+            .unwrap());
+    }
+
+    #[test]
     fn one_global_stop_generation_has_one_active_pause_id_per_session() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = SessionDB::open_ephemeral_for_test(&dir.path().join("global-stop-idempotent.db"))
@@ -1208,6 +1521,231 @@ mod tests {
             db.session_autonomy_resume_global_stop_epoch(&first.id)
                 .unwrap(),
             global_stop_epoch
+        );
+    }
+
+    #[test]
+    fn global_stop_holds_scheduled_rows_until_the_exact_pause_is_continued() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("scheduled-stop.db"))
+            .expect("session db");
+        let session = db.create_session("ha-main").expect("session");
+        let admission = db
+            .foreground_stop_admission(Some(&session.id))
+            .expect("scheduled admission");
+        db.enqueue_scheduled_turn_message(
+            crate::session::NewScheduledTurnMessage {
+                request_id: "scheduled-before-stop".to_string(),
+                session_id: session.id.clone(),
+                source_ref: "101".to_string(),
+                message: "run after Continue".to_string(),
+            },
+            admission,
+        )
+        .expect("enqueue scheduled row");
+        let cancellable_admission = db
+            .foreground_stop_admission(Some(&session.id))
+            .expect("second scheduled admission");
+        db.enqueue_scheduled_turn_message(
+            crate::session::NewScheduledTurnMessage {
+                request_id: "scheduled-cancelled-while-held".to_string(),
+                session_id: session.id.clone(),
+                source_ref: "102".to_string(),
+                message: "cancel me".to_string(),
+            },
+            cancellable_admission,
+        )
+        .expect("enqueue cancellable scheduled row");
+
+        let (global_epoch, enumerated) = db
+            .begin_global_stop_enumeration()
+            .expect("publish global Stop and hold queues");
+        assert_eq!(enumerated, vec![session.id.clone()]);
+        assert_eq!(
+            db.get_scheduled_turn_message("101")
+                .unwrap()
+                .expect("held scheduled row")
+                .status,
+            crate::session::QueuedTurnMessageStatus::HeldAfterStop
+        );
+        assert!(db
+            .claim_scheduled_turn_message_for_dispatch(
+                "scheduled-before-stop",
+                "101",
+                "turn-before-receipt",
+            )
+            .unwrap()
+            .is_none());
+        assert!(db
+            .cancel_scheduled_turn_message("scheduled-cancelled-while-held", "102")
+            .expect("cancel held scheduled row"));
+
+        let global_pause = db
+            .prepare_session_autonomy_pause_for_global(&session.id, global_epoch)
+            .expect("global pause receipt");
+        let newer_pause = db
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("newer targeted pause receipt");
+        assert!(!db
+            .finish_session_autonomy_resume(&global_pause.id)
+            .expect("stale Continue"));
+        assert_eq!(
+            db.get_scheduled_turn_message("101")
+                .unwrap()
+                .expect("still-held scheduled row")
+                .status,
+            crate::session::QueuedTurnMessageStatus::HeldAfterStop
+        );
+
+        assert!(db
+            .finish_session_autonomy_resume(&newer_pause.id)
+            .expect("exact Continue"));
+        assert_eq!(
+            db.get_scheduled_turn_message("101")
+                .unwrap()
+                .expect("resumed scheduled row")
+                .status,
+            crate::session::QueuedTurnMessageStatus::Queued
+        );
+        assert!(db
+            .claim_scheduled_turn_message_for_dispatch(
+                "scheduled-before-stop",
+                "101",
+                "turn-after-continue",
+            )
+            .expect("claim resumed scheduled row")
+            .is_some());
+    }
+
+    #[test]
+    fn global_stop_atomically_supersedes_an_old_pause_before_releasing_scheduled_rows() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("global-stop-old-continue.db");
+        let stop_owner = SessionDB::open_ephemeral_for_test(&path).expect("Stop owner DB");
+        let continue_owner = SessionDB::open_ephemeral_for_test(&path).expect("Continue owner DB");
+        let session = stop_owner.create_session("ha-main").expect("session");
+        let admission = stop_owner
+            .foreground_stop_admission(Some(&session.id))
+            .expect("scheduled admission");
+        stop_owner
+            .enqueue_scheduled_turn_message(
+                crate::session::NewScheduledTurnMessage {
+                    request_id: "scheduled-before-new-global-stop".to_string(),
+                    session_id: session.id.clone(),
+                    source_ref: "201".to_string(),
+                    message: "remain held for the new generation".to_string(),
+                },
+                admission,
+            )
+            .expect("enqueue scheduled row");
+        let old_pause = stop_owner
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("old targeted pause");
+
+        let (global_epoch, enumerated) = stop_owner
+            .begin_global_stop_enumeration()
+            .expect("publish Global Stop");
+        assert_eq!(enumerated, vec![session.id.clone()]);
+
+        assert!(!continue_owner
+            .finish_session_autonomy_resume(&old_pause.id)
+            .expect("old cross-process Continue loses"));
+        assert_eq!(
+            continue_owner
+                .get_scheduled_turn_message("201")
+                .unwrap()
+                .expect("held scheduled row")
+                .status,
+            crate::session::QueuedTurnMessageStatus::HeldAfterStop
+        );
+
+        let new_pause = continue_owner
+            .prepare_session_autonomy_pause_for_global(&session.id, global_epoch)
+            .expect("new exact Global Stop receipt");
+        assert_ne!(new_pause.id, old_pause.id);
+        assert!(continue_owner
+            .finish_session_autonomy_resume(&new_pause.id)
+            .expect("new cross-process Continue wins"));
+        assert_eq!(
+            continue_owner
+                .get_scheduled_turn_message("201")
+                .unwrap()
+                .expect("resumed scheduled row")
+                .status,
+            crate::session::QueuedTurnMessageStatus::Queued
+        );
+    }
+
+    #[test]
+    fn global_stop_supersedes_a_pending_continue_handoff_across_connections() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("global-stop-pending-continue.db");
+        let stop_owner = SessionDB::open_ephemeral_for_test(&path).expect("Stop owner DB");
+        let continue_owner = SessionDB::open_ephemeral_for_test(&path).expect("Continue owner DB");
+        let session = stop_owner.create_session("ha-main").expect("session");
+        let created_pause = stop_owner
+            .prepare_session_autonomy_pause(&session.id)
+            .expect("old pause");
+        stop_owner
+            .with_conn_for_test(|conn| {
+                conn.execute(
+                    "UPDATE session_autonomy_pauses
+                        SET goal_id = 'goal-snapshot',
+                            workflow_run_ids_json = '[\"workflow-snapshot\"]',
+                            subagent_run_ids_json = '[\"subagent-snapshot\"]'
+                      WHERE id = ?1",
+                    params![created_pause.id],
+                )?;
+                Ok(())
+            })
+            .expect("seed captured controller snapshot");
+        let old_pause = stop_owner
+            .active_session_autonomy_pause(&session.id)
+            .expect("load old pause")
+            .expect("old pause remains active");
+        assert!(continue_owner
+            .finish_session_autonomy_resume(&old_pause.id)
+            .expect("publish Continue handoff"));
+        assert_eq!(
+            stop_owner
+                .list_pending_session_autonomy_resume_replays(10)
+                .expect("pending handoff")
+                .iter()
+                .map(|pause| pause.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![old_pause.id.as_str()]
+        );
+
+        let (global_epoch, enumerated) = stop_owner
+            .begin_global_stop_enumeration()
+            .expect("publish newer Global Stop");
+        assert_eq!(enumerated, vec![session.id.clone()]);
+        assert!(continue_owner
+            .list_pending_session_autonomy_resume_replays(10)
+            .expect("old replay suppressed")
+            .is_empty());
+        assert!(!continue_owner
+            .finish_session_autonomy_resume_replay(&old_pause.id)
+            .expect("old replay cannot acknowledge"));
+
+        let current_pause = continue_owner
+            .prepare_session_autonomy_pause_for_global(&session.id, global_epoch)
+            .expect("current Global Stop receipt");
+        assert_ne!(current_pause.id, old_pause.id);
+        assert_eq!(current_pause.goal_id, old_pause.goal_id);
+        assert_eq!(current_pause.workflow_run_ids, old_pause.workflow_run_ids);
+        assert_eq!(current_pause.subagent_run_ids, old_pause.subagent_run_ids);
+        assert!(continue_owner
+            .finish_session_autonomy_resume(&current_pause.id)
+            .expect("Continue current receipt"));
+        assert_eq!(
+            stop_owner
+                .list_pending_session_autonomy_resume_replays(10)
+                .expect("current replay handoff")
+                .iter()
+                .map(|pause| pause.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![current_pause.id.as_str()]
         );
     }
 }

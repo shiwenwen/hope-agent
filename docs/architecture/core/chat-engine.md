@@ -435,7 +435,7 @@ Incognito 使用纯内存 coordinator，不创建 run/journal/spool/usage 行；
 1. **主路径** —— `EventSink.send()` 直接推 per-call sink（桌面 IPC Channel / `NoopEventSink`）。
 2. **广播路径** —— 同一事件经 `stream_broadcast` 注入序号后，通过 `EventBus` 发 `chat:stream_delta`（带 `{sessionId, seq}`）；HTTP / Tauri 前端订阅 `/ws/events` 或 Tauri 事件总线时统一从这里取流。
 
-seq 由 coordinator 在 accept 时分配，只有 `seq <= durable_seq` 才能进入上述通道；`lastSeq` 只是 `acceptedSeq` 的兼容别名。`SessionStreamState` 还暴露 `durableSeq / committedSeq / persistenceRunId`，但前端不得把 cursor 直接跳到尚未通过 DB 快照验证的 accepted 水位。
+seq 由 coordinator 在 accept 时分配，只有 `seq <= durable_seq` 才能进入上述通道；`lastSeq` 只是 `acceptedSeq` 的兼容别名。`SessionStreamState` 还暴露 `durableSeq / committedSeq / persistenceRunId`，以及精确反映进程内 Turn admission 是否仍被占用的 `admissionActive`。ChatTurn 已终态但收尾 guard 尚未释放时，`active` 可为 false 而 `admissionActive` 仍为 true；队列续发必须等待两者都为 false。前端不得把 cursor 直接跳到尚未通过 DB 快照验证的 accepted 水位。
 
 **重载 handshake** 顺序固定为：先注册 delta/end listener，再并行读取 DB 消息窗口、`get_session_stream_state` 和 `get_session_stream_snapshot`；用 snapshot 替换尾部临时 assistant，按 seq 重放 durable prefix，最后应用请求期间缓存的 `seq > throughSeq` 事件。已 committed/recovered 的 snapshot 已被 canonical DB messages 表示，不重复重放 journal。重复 delta/snapshot/迟到 stream_end 都按 `(stream_id, seq)` 幂等。
 

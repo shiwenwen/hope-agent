@@ -6,7 +6,7 @@
 //! subagent paths share the same semantics.
 
 use anyhow::{anyhow, bail, Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::session::{effective_working_dir_for_meta, SessionDB};
+use crate::session::{effective_working_dir_for_meta, SessionDB, SessionOrigin};
 use crate::util::now_rfc3339;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +52,8 @@ pub enum ManagedWorktreePurpose {
     Manual,
     Workflow,
     Subagent,
+    ScheduledRun,
+    ScheduledTask,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +86,8 @@ impl ManagedWorktreePurpose {
             Self::Manual => "manual",
             Self::Workflow => "workflow",
             Self::Subagent => "subagent",
+            Self::ScheduledRun => "scheduled_run",
+            Self::ScheduledTask => "scheduled_task",
         }
     }
 
@@ -91,8 +95,16 @@ impl ManagedWorktreePurpose {
         match value {
             "workflow" => Self::Workflow,
             "subagent" => Self::Subagent,
+            "scheduled_run" => Self::ScheduledRun,
+            "scheduled_task" => Self::ScheduledTask,
             _ => Self::Manual,
         }
+    }
+
+    /// Scheduled purposes are minted only by the scheduler's typed kernel API.
+    /// Generic owner transports must not let a client forge their provenance.
+    pub fn is_owner_transport_safe(self) -> bool {
+        matches!(self, Self::Manual | Self::Workflow | Self::Subagent)
     }
 }
 
@@ -107,6 +119,42 @@ pub struct ManagedWorktreeDirtySnapshot {
     pub changed_files: u32,
 }
 
+/// Validate the same source/ref boundary as managed-worktree creation without
+/// creating a directory or writing a database row.
+pub fn preflight_managed_worktree_source(
+    source_working_dir: &str,
+    base_ref: Option<&str>,
+) -> Result<u32> {
+    let source = canonical_dir(source_working_dir)?;
+    if !is_inside_git_work_tree(&source) {
+        bail!("{} is not inside a git worktree", source.display());
+    }
+    canonical_dir(git_output(&source, &["rev-parse", "--show-toplevel"])?.trim())?;
+    let base_ref = base_ref
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD");
+    resolve_commit(&source, base_ref)?;
+    Ok(worktree_dirty_snapshot(&source)
+        .ok_or_else(|| anyhow!("{} is not inside a git worktree", source.display()))?
+        .changed_files)
+}
+
+#[derive(Debug, Clone)]
+pub struct ManagedWorktreeRuntimeSnapshot {
+    pub head_sha: Option<String>,
+    pub branch: Option<String>,
+    pub dirty: ManagedWorktreeDirtySnapshot,
+    pub head_diverged: bool,
+}
+
+const MANAGED_WORKTREE_SELECT: &str =
+    "SELECT id, session_id, child_session_id, workflow_run_id, purpose, state, label,
+    repo_root, source_working_dir, path, base_ref, base_branch, base_sha, git_branch,
+    dirty_snapshot_json, created_at, updated_at, archived_at, restored_at, handed_off_at,
+    path_source, owner_session_id, owner_scheduled_task_id, scheduled_task_id,
+    runtime_session_id, runtime_run_id, handoff_session_id FROM managed_worktrees";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManagedWorktree {
@@ -116,6 +164,20 @@ pub struct ManagedWorktree {
     pub child_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workflow_run_id: Option<String>,
+    /// Durable owner. `session_id` remains the immutable creator/audit value;
+    /// scheduled-task ownership deliberately survives deletion of that session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_scheduled_task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handoff_session_id: Option<String>,
     pub purpose: ManagedWorktreePurpose,
     pub state: ManagedWorktreeState,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,6 +241,67 @@ fn default_purpose() -> ManagedWorktreePurpose {
     ManagedWorktreePurpose::Manual
 }
 
+fn ensure_owner_key(value: &str, label: &str) -> Result<()> {
+    if value.trim().is_empty() || value.len() > 256 {
+        bail!("{label} must be non-empty and at most 256 bytes");
+    }
+    Ok(())
+}
+
+fn scheduled_session_idle_on(
+    conn: &Connection,
+    session_id: &str,
+    ignored_turn_id: Option<&str>,
+) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND incognito=0)
+          AND NOT EXISTS(SELECT 1 FROM chat_turns WHERE session_id=?1
+                           AND status IN ('running','cancelling')
+                           AND (?2 IS NULL OR id<>?2))
+          AND NOT EXISTS(SELECT 1 FROM chat_stream_runs WHERE session_id=?1 AND status='running')
+          AND NOT EXISTS(SELECT 1 FROM subagent_runs WHERE parent_session_id=?1
+                           AND status IN ('queued','spawning','running'))
+          AND NOT EXISTS(SELECT 1 FROM workflow_runs WHERE session_id=?1
+                           AND state IN ('running','awaiting_user','paused','recovering'))
+          AND NOT EXISTS(SELECT 1 FROM queued_turn_user_messages WHERE session_id=?1
+                           AND status IN ('inserting','dispatching'))",
+        params![session_id, ignored_turn_id],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+fn require_scheduled_session_idle_on(
+    conn: &Connection,
+    session_id: &str,
+    ignored_turn_id: Option<&str>,
+) -> Result<()> {
+    if !scheduled_session_idle_on(conn, session_id, ignored_turn_id)? {
+        bail!("workspace_session_busy");
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_session_has_no_scheduled_worktree_custody_on(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<()> {
+    let held: Option<String> = conn
+        .query_row(
+            "SELECT id FROM managed_worktrees
+              WHERE purpose IN ('scheduled_run','scheduled_task')
+                AND (owner_session_id=?1 OR runtime_session_id=?1
+                     OR handoff_session_id=?1) LIMIT 1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(id) = held {
+        bail!("workspace_session_custody:{id}");
+    }
+    Ok(())
+}
+
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS managed_worktrees (
@@ -203,8 +326,20 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             restored_at TEXT,
             handed_off_at TEXT,
             path_source TEXT NOT NULL DEFAULT 'builtin',
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-            FOREIGN KEY (child_session_id) REFERENCES sessions(id) ON DELETE SET NULL
+            owner_session_id TEXT,
+            owner_scheduled_task_id TEXT,
+            scheduled_task_id TEXT,
+            runtime_session_id TEXT,
+            runtime_run_id TEXT,
+            handoff_session_id TEXT,
+            FOREIGN KEY (child_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY (owner_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (runtime_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY (handoff_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+            CHECK (
+                (owner_session_id IS NOT NULL AND owner_scheduled_task_id IS NULL) OR
+                (owner_session_id IS NULL AND owner_scheduled_task_id IS NOT NULL)
+            )
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_worktrees_path
@@ -216,7 +351,20 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_managed_worktrees_workflow
             ON managed_worktrees(workflow_run_id);
         CREATE INDEX IF NOT EXISTS idx_managed_worktrees_state
-            ON managed_worktrees(state);",
+            ON managed_worktrees(state);
+        CREATE TABLE IF NOT EXISTS scheduled_worktree_pending (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL
+        );
+        CREATE TRIGGER IF NOT EXISTS scheduled_worktree_session_custody_bd
+        BEFORE DELETE ON sessions WHEN EXISTS (
+            SELECT 1 FROM managed_worktrees
+             WHERE purpose IN ('scheduled_run','scheduled_task')
+               AND (owner_session_id=OLD.id OR runtime_session_id=OLD.id
+                    OR handoff_session_id=OLD.id)
+        ) BEGIN
+            SELECT RAISE(ABORT, 'workspace_session_custody');
+        END;",
     )?;
     for (column, ddl) in [
         (
@@ -245,6 +393,75 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             conn.execute_batch(ddl)?;
         }
     }
+    // Ownership v2: keep `session_id` as creator provenance, but move cascade
+    // semantics to `owner_session_id`. This is the one schema rebuild required
+    // for a task-owned worktree to survive deletion of its creating run chat.
+    if conn
+        .prepare("SELECT owner_session_id FROM managed_worktrees LIMIT 1")
+        .is_err()
+    {
+        conn.execute_batch("PRAGMA foreign_keys=OFF;")?;
+        let rebuild = conn.execute_batch(
+            "BEGIN IMMEDIATE;
+             ALTER TABLE managed_worktrees RENAME TO managed_worktrees_owner_v1;
+             CREATE TABLE managed_worktrees (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL, child_session_id TEXT,
+                workflow_run_id TEXT, purpose TEXT NOT NULL, state TEXT NOT NULL, label TEXT,
+                repo_root TEXT NOT NULL, source_working_dir TEXT NOT NULL, path TEXT NOT NULL,
+                base_ref TEXT, base_branch TEXT, base_sha TEXT, git_branch TEXT,
+                dirty_snapshot_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                archived_at TEXT, restored_at TEXT, handed_off_at TEXT,
+                path_source TEXT NOT NULL DEFAULT 'builtin', owner_session_id TEXT,
+                owner_scheduled_task_id TEXT, scheduled_task_id TEXT,
+                runtime_session_id TEXT, runtime_run_id TEXT, handoff_session_id TEXT,
+                FOREIGN KEY (child_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+                FOREIGN KEY (owner_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (runtime_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+                FOREIGN KEY (handoff_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+                CHECK ((owner_session_id IS NOT NULL AND owner_scheduled_task_id IS NULL) OR
+                       (owner_session_id IS NULL AND owner_scheduled_task_id IS NOT NULL))
+             );
+             INSERT INTO managed_worktrees (
+                id, session_id, child_session_id, workflow_run_id, purpose, state, label,
+                repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
+                git_branch, dirty_snapshot_json, created_at, updated_at, archived_at,
+                restored_at, handed_off_at, path_source, owner_session_id
+             ) SELECT id, session_id, child_session_id, workflow_run_id, purpose, state, label,
+                      repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
+                      git_branch, dirty_snapshot_json, created_at, updated_at, archived_at,
+                      restored_at, handed_off_at, path_source, session_id
+                 FROM managed_worktrees_owner_v1;
+             DROP TABLE managed_worktrees_owner_v1;
+             COMMIT;",
+        );
+        if let Err(error) = rebuild {
+            let _ = conn.execute_batch("ROLLBACK;");
+            conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+            return Err(error.into());
+        }
+        conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        let foreign_keys_enabled: i64 =
+            conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+        if foreign_keys_enabled != 1 {
+            bail!("managed worktree owner migration did not restore foreign key enforcement");
+        }
+    }
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_managed_worktrees_session_updated;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_worktrees_path
+             ON managed_worktrees(path);
+         CREATE INDEX IF NOT EXISTS idx_managed_worktrees_session_updated
+             ON managed_worktrees(owner_session_id, updated_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_managed_worktrees_child
+             ON managed_worktrees(child_session_id);
+         CREATE INDEX IF NOT EXISTS idx_managed_worktrees_workflow
+             ON managed_worktrees(workflow_run_id);
+         CREATE INDEX IF NOT EXISTS idx_managed_worktrees_state
+             ON managed_worktrees(state);
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_worktrees_scheduled_task_owner
+             ON managed_worktrees(owner_scheduled_task_id)
+             WHERE purpose='scheduled_task' AND owner_scheduled_task_id IS NOT NULL;",
+    )?;
     Ok(())
 }
 
@@ -261,6 +478,12 @@ struct WorktreePrep {
     default_path: std::path::PathBuf,
     local_changes: Option<LocalChangesSnapshot>,
     bootstrap_dir: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+struct ScheduledCreate {
+    task_id: String,
+    run_log_id: i64,
 }
 
 struct LocalChangesSnapshot {
@@ -301,6 +524,72 @@ impl SessionDB {
     pub async fn create_managed_worktree(
         self: &std::sync::Arc<Self>,
         input: CreateManagedWorktreeInput,
+    ) -> Result<ManagedWorktree> {
+        if !input.purpose.is_owner_transport_safe() {
+            bail!("scheduled managed worktree purposes are internal to the scheduler");
+        }
+        self.create_managed_worktree_inner(input, None).await
+    }
+
+    pub async fn create_scheduled_run_worktree(
+        self: &std::sync::Arc<Self>,
+        input: CreateManagedWorktreeInput,
+        task_id: &str,
+        run_log_id: i64,
+    ) -> Result<ManagedWorktree> {
+        self.create_scheduled_worktree(
+            input,
+            task_id,
+            run_log_id,
+            ManagedWorktreePurpose::ScheduledRun,
+        )
+        .await
+    }
+
+    pub async fn create_scheduled_task_worktree(
+        self: &std::sync::Arc<Self>,
+        input: CreateManagedWorktreeInput,
+        task_id: &str,
+        run_log_id: i64,
+    ) -> Result<ManagedWorktree> {
+        self.create_scheduled_worktree(
+            input,
+            task_id,
+            run_log_id,
+            ManagedWorktreePurpose::ScheduledTask,
+        )
+        .await
+    }
+
+    async fn create_scheduled_worktree(
+        self: &std::sync::Arc<Self>,
+        mut input: CreateManagedWorktreeInput,
+        task_id: &str,
+        run_log_id: i64,
+        purpose: ManagedWorktreePurpose,
+    ) -> Result<ManagedWorktree> {
+        ensure_owner_key(task_id, "scheduled task id")?;
+        if run_log_id <= 0 {
+            bail!("scheduled run log id must be positive");
+        }
+        input.purpose = purpose;
+        input.bind_session_working_dir = true;
+        input.include_local_changes = false;
+        input.bootstrap_request_id = None;
+        self.create_managed_worktree_inner(
+            input,
+            Some(ScheduledCreate {
+                task_id: task_id.to_string(),
+                run_log_id,
+            }),
+        )
+        .await
+    }
+
+    async fn create_managed_worktree_inner(
+        self: &std::sync::Arc<Self>,
+        input: CreateManagedWorktreeInput,
+        scheduled: Option<ScheduledCreate>,
     ) -> Result<ManagedWorktree> {
         // Phase 1 — validate the session and inspect the source repo. This runs
         // synchronous DB reads plus several `git rev-parse` subprocesses; on a
@@ -343,9 +632,7 @@ impl SessionDB {
                     .filter(|s| !s.is_empty())
                     .unwrap_or("HEAD")
                     .to_string();
-                let base_sha = git_output(&source_dir, &["rev-parse", "--verify", &base_ref])?
-                    .trim()
-                    .to_string();
+                let base_sha = resolve_commit(&source_dir, &base_ref)?;
                 let base_branch = if base_ref == "HEAD" {
                     current_branch(&source_dir)
                 } else {
@@ -398,6 +685,14 @@ impl SessionDB {
             })
             .await?
         };
+
+        if scheduled.is_some() {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+            conn.execute(
+                "INSERT INTO scheduled_worktree_pending (id,created_at) VALUES (?1,?2)",
+                params![prep.id, now_rfc3339()],
+            )?;
+        }
 
         // Arm cleanup before the async Hook boundary so task cancellation or a
         // Hook failure cannot strand snapshot material under bootstrap/.
@@ -495,11 +790,22 @@ impl SessionDB {
 
             let git_branch = current_branch(&path);
             let now = now_rfc3339();
+            let task_owned = input.purpose == ManagedWorktreePurpose::ScheduledTask;
+            let owner_session_id = (!task_owned).then(|| input.session_id.clone());
+            let owner_scheduled_task_id = task_owned
+                .then(|| scheduled.as_ref().map(|value| value.task_id.clone()))
+                .flatten();
             let row = ManagedWorktree {
                 id: prep.id,
-                session_id: input.session_id,
+                session_id: input.session_id.clone(),
                 child_session_id: input.child_session_id,
                 workflow_run_id: input.workflow_run_id,
+                owner_session_id,
+                owner_scheduled_task_id,
+                scheduled_task_id: scheduled.as_ref().map(|value| value.task_id.clone()),
+                runtime_session_id: scheduled.as_ref().map(|_| input.session_id.clone()),
+                runtime_run_id: scheduled.as_ref().map(|value| value.run_log_id.to_string()),
+                handoff_session_id: None,
                 purpose: input.purpose,
                 state: ManagedWorktreeState::Active,
                 label: input.label.filter(|s| !s.trim().is_empty()),
@@ -520,16 +826,19 @@ impl SessionDB {
                 handed_off_at: None,
             };
             {
-                let conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-                conn.execute(
+                let mut conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+                let tx = conn.transaction()?;
+                tx.execute(
                     "INSERT INTO managed_worktrees (
                         id, session_id, child_session_id, workflow_run_id, purpose, state, label,
                         repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
                         git_branch, dirty_snapshot_json, created_at, updated_at,
-                        archived_at, restored_at, handed_off_at, path_source
+                        archived_at, restored_at, handed_off_at, path_source,
+                        owner_session_id, owner_scheduled_task_id, scheduled_task_id,
+                        runtime_session_id, runtime_run_id, handoff_session_id
                     ) VALUES (
                         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                        NULL, ?15, ?15, NULL, NULL, NULL, ?16
+                        NULL, ?15, ?15, NULL, NULL, NULL, ?16, ?17, ?18, ?19, ?20, ?21, NULL
                     )",
                     params![
                         &row.id,
@@ -547,12 +856,26 @@ impl SessionDB {
                         row.base_sha.as_deref(),
                         row.git_branch.as_deref(),
                         &row.created_at,
-                        row.path_source.as_str()
+                        row.path_source.as_str(),
+                        row.owner_session_id.as_deref(),
+                        row.owner_scheduled_task_id.as_deref(),
+                        row.scheduled_task_id.as_deref(),
+                        row.runtime_session_id.as_deref(),
+                        row.runtime_run_id.as_deref()
                     ],
                 )?;
+                if input.bind_session_working_dir
+                    && tx.execute(
+                        "UPDATE sessions SET working_dir=?1 WHERE id=?2 AND incognito=0",
+                        params![row.path, row.session_id],
+                    )? != 1
+                {
+                    bail!("scheduled run session is missing or incognito");
+                }
+                tx.commit()?;
             }
             if input.bind_session_working_dir {
-                db.update_session_working_dir(&row.session_id, Some(row.path.clone()))?;
+                crate::hooks::fire_cwd_changed(&row.session_id, None, Some(&row.path));
             }
             creation_guard.armed = false;
             emit_worktree_changed("worktree:created", &row);
@@ -567,6 +890,14 @@ impl SessionDB {
             Ok(row)
         })
         .await?;
+        if row.scheduled_task_id.is_some() {
+            if let Ok(conn) = self.conn.lock() {
+                let _ = conn.execute(
+                    "DELETE FROM scheduled_worktree_pending WHERE id=?1",
+                    params![row.id],
+                );
+            }
+        }
         Ok(row)
     }
 
@@ -577,6 +908,14 @@ impl SessionDB {
         let worktree = self
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        generic_owner_session_id(&worktree, "discard")?;
+        self.discard_managed_worktree_unchecked(worktree)
+    }
+
+    /// The caller must establish custody before entering this helper. Scheduled
+    /// owners use their typed CAS claim, while generic callers are checked by
+    /// `discard_managed_worktree` above.
+    fn discard_managed_worktree_unchecked(&self, worktree: ManagedWorktree) -> Result<()> {
         let path = PathBuf::from(&worktree.path);
         if path.exists() {
             git_status(
@@ -593,9 +932,31 @@ impl SessionDB {
                 .conn
                 .lock()
                 .map_err(|error| anyhow!("Lock error: {error}"))?;
-            conn.execute("DELETE FROM managed_worktrees WHERE id = ?1", params![id])?;
+            conn.execute(
+                "DELETE FROM managed_worktrees WHERE id = ?1",
+                params![worktree.id],
+            )?;
         }
-        self.update_session_working_dir(&worktree.session_id, None)?;
+        if let Some(session_id) = worktree.owner_session_id.as_deref() {
+            self.clear_worktree_cwd_if_matches(session_id, &worktree.path)?;
+        }
+        if let Some(session_id) = worktree.handoff_session_id.as_deref() {
+            self.clear_worktree_cwd_if_matches(session_id, &worktree.path)?;
+        }
+        Ok(())
+    }
+
+    fn clear_worktree_cwd_if_matches(&self, session_id: &str, path: &str) -> Result<()> {
+        let changed = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+            conn.execute(
+                "UPDATE sessions SET working_dir=NULL WHERE id=?1 AND working_dir=?2",
+                params![session_id, path],
+            )?
+        };
+        if changed > 0 {
+            crate::hooks::fire_cwd_changed(session_id, Some(path), None);
+        }
         Ok(())
     }
 
@@ -619,33 +980,415 @@ impl SessionDB {
         session_id: &str,
     ) -> Result<Vec<ManagedWorktree>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, session_id, child_session_id, workflow_run_id, purpose, state, label,
-                    repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
-                    git_branch, dirty_snapshot_json, created_at, updated_at,
-                    archived_at, restored_at, handed_off_at, path_source
-             FROM managed_worktrees
-             WHERE session_id = ?1 OR child_session_id = ?1
-             ORDER BY updated_at DESC, created_at DESC",
-        )?;
-        let rows = stmt.query_map(params![session_id], row_to_worktree)?;
+        let scheduled_task_id = conn
+            .query_row(
+                "SELECT origin_json FROM sessions WHERE id=?1",
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .and_then(|raw| serde_json::from_str::<SessionOrigin>(&raw).ok())
+            .filter(|origin| origin.kind == "cron")
+            .map(|origin| origin.id);
+        let mut stmt = conn.prepare(&format!(
+            "{MANAGED_WORKTREE_SELECT}
+             WHERE owner_session_id = ?1 OR child_session_id = ?1
+                OR runtime_session_id = ?1 OR handoff_session_id = ?1
+                OR (purpose='scheduled_task' AND scheduled_task_id=?2)
+             ORDER BY updated_at DESC, created_at DESC"
+        ))?;
+        let rows = stmt.query_map(params![session_id, scheduled_task_id], row_to_worktree)?;
         collect_rows(rows)
     }
 
     pub fn get_managed_worktree(&self, id: &str) -> Result<Option<ManagedWorktree>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(
-            "SELECT id, session_id, child_session_id, workflow_run_id, purpose, state, label,
-                    repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
-                    git_branch, dirty_snapshot_json, created_at, updated_at,
-                    archived_at, restored_at, handed_off_at, path_source
-             FROM managed_worktrees
-             WHERE id = ?1",
+            &format!("{MANAGED_WORKTREE_SELECT} WHERE id = ?1"),
             params![id],
             row_to_worktree,
         )
         .optional()
         .map_err(Into::into)
+    }
+
+    pub fn list_scheduled_worktrees(
+        &self,
+        task_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<ManagedWorktree>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let mut stmt = conn.prepare(&format!(
+            "{MANAGED_WORKTREE_SELECT}
+              WHERE purpose IN ('scheduled_run','scheduled_task')
+                AND (?1 IS NULL OR scheduled_task_id=?1)
+              ORDER BY updated_at DESC LIMIT ?2"
+        ))?;
+        let rows = stmt.query_map(params![task_id, limit.min(256) as i64], row_to_worktree)?;
+        collect_rows(rows)
+    }
+
+    pub fn scheduled_session_durably_idle(
+        &self,
+        session_id: &str,
+        ignored_turn_id: Option<&str>,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        scheduled_session_idle_on(&conn, session_id, ignored_turn_id)
+    }
+
+    pub fn list_scheduled_runtime_worktrees(&self, limit: usize) -> Result<Vec<ManagedWorktree>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let mut stmt = conn.prepare(&format!(
+            "{MANAGED_WORKTREE_SELECT} WHERE runtime_run_id IS NOT NULL
+                AND purpose IN ('scheduled_run','scheduled_task')
+              ORDER BY updated_at LIMIT ?1"
+        ))?;
+        let rows = stmt.query_map(params![limit.min(256) as i64], row_to_worktree)?;
+        collect_rows(rows)
+    }
+
+    pub fn recover_pending_scheduled_worktrees(&self, limit: usize) -> Result<usize> {
+        let ids: Vec<String> = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+            let mut stmt = conn.prepare(
+                "SELECT id FROM scheduled_worktree_pending
+                  WHERE julianday(created_at)<=julianday('now','-1 minute')
+                  ORDER BY created_at LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit.min(64) as i64], |row| row.get(0))?;
+            collect_rows(rows)?
+        };
+        let mut recovered = 0;
+        for id in ids {
+            let result = (|| -> Result<usize> {
+                if self.get_managed_worktree(&id)?.is_none() {
+                    cleanup_orphan_builtin_worktree(&id)?;
+                }
+                let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+                Ok(conn.execute(
+                    "DELETE FROM scheduled_worktree_pending WHERE id=?1",
+                    params![id],
+                )?)
+            })();
+            match result {
+                Ok(count) => recovered += count,
+                Err(error) => app_warn!(
+                    "worktree",
+                    "scheduled_recovery",
+                    "Pending worktree {id} recovery failed: {error:#}"
+                ),
+            }
+        }
+        Ok(recovered)
+    }
+
+    pub fn snapshot_managed_worktree(&self, id: &str) -> Result<ManagedWorktreeRuntimeSnapshot> {
+        let row = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("workspace_missing"))?;
+        let path = canonical_dir(&row.path).map_err(|_| anyhow!("workspace_path_missing"))?;
+        let listed = git_output(
+            Path::new(&row.repo_root),
+            &["worktree", "list", "--porcelain"],
+        )?;
+        if !listed
+            .lines()
+            .any(|line| line.strip_prefix("worktree ") == Some(path_arg(&path)))
+        {
+            bail!("workspace_repo_mismatch");
+        }
+        let dirty = worktree_dirty_snapshot(&path).ok_or_else(|| anyhow!("workspace_not_git"))?;
+        let head_sha = Some(
+            git_output(&path, &["rev-parse", "HEAD"])?
+                .trim()
+                .to_string(),
+        );
+        Ok(ManagedWorktreeRuntimeSnapshot {
+            branch: current_branch(&path),
+            head_diverged: row.base_sha.as_deref() != head_sha.as_deref(),
+            head_sha,
+            dirty,
+        })
+    }
+
+    pub fn get_scheduled_task_worktree(
+        &self,
+        scheduled_task_id: &str,
+    ) -> Result<Option<ManagedWorktree>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        conn.query_row(
+            &format!("{MANAGED_WORKTREE_SELECT} WHERE owner_scheduled_task_id=?1 AND purpose='scheduled_task'"),
+            params![scheduled_task_id],
+            row_to_worktree,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    /// Acquire the task-owned checkout for one exact scheduled occurrence and
+    /// atomically bind the run session cwd. The scheduler remains responsible
+    /// for its task-level running lease; this CAS is only filesystem custody.
+    pub fn acquire_scheduled_worktree_runtime(
+        &self,
+        id: &str,
+        scheduled_task_id: &str,
+        run_log_id: i64,
+        session_id: &str,
+    ) -> Result<ManagedWorktree> {
+        if run_log_id <= 0 {
+            bail!("scheduled run log id must be positive");
+        }
+        let run_id = run_log_id.to_string();
+        let worktree = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        if self.snapshot_managed_worktree(id)?.dirty.conflicted_files > 0 {
+            bail!("workspace_conflicted");
+        }
+        let now = now_rfc3339();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction()?;
+        let old_cwd: Option<String> = tx
+            .query_row(
+                "SELECT working_dir FROM sessions WHERE id=?1 AND incognito=0",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let changed = tx.execute(
+            "UPDATE managed_worktrees
+                SET runtime_session_id=?1, runtime_run_id=?2, updated_at=?3
+              WHERE id=?4 AND purpose='scheduled_task' AND state='active'
+                AND owner_scheduled_task_id=?5 AND handoff_session_id IS NULL
+                AND runtime_session_id IS NULL AND runtime_run_id IS NULL",
+            params![session_id, run_id, now, id, scheduled_task_id],
+        )?;
+        if changed != 1 {
+            bail!("scheduled worktree is handed off, busy, or no longer owned by this task");
+        }
+        let session_changed = tx.execute(
+            "UPDATE sessions SET working_dir=?1 WHERE id=?2 AND incognito=0",
+            params![worktree.path, session_id],
+        )?;
+        if session_changed != 1 {
+            bail!("scheduled run session is missing or incognito");
+        }
+        tx.commit()?;
+        drop(conn);
+        if old_cwd.as_deref() != Some(worktree.path.as_str()) {
+            crate::hooks::fire_cwd_changed(session_id, old_cwd.as_deref(), Some(&worktree.path));
+        }
+        self.scheduled_owner_update_result(id, 1, "acquire scheduled runtime")
+    }
+
+    /// Release the scheduler's exact runtime lease while keeping the run
+    /// conversation bound to the Worktree it used. A reopened scheduled
+    /// conversation therefore behaves like any ordinary Worktree-backed chat.
+    pub fn release_scheduled_runtime(
+        &self,
+        row: &ManagedWorktree,
+        run_log_id: i64,
+        session_id: &str,
+        ignored_turn_id: Option<&str>,
+    ) -> Result<ManagedWorktree> {
+        if run_log_id <= 0
+            || !matches!(
+                row.purpose,
+                ManagedWorktreePurpose::ScheduledRun | ManagedWorktreePurpose::ScheduledTask
+            )
+        {
+            bail!("workspace_wrong_mode");
+        }
+        let task = row
+            .scheduled_task_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("workspace_not_owner"))?;
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        require_scheduled_session_idle_on(&tx, session_id, ignored_turn_id)?;
+        let changed = tx.execute(
+            "UPDATE managed_worktrees SET runtime_session_id=NULL, runtime_run_id=NULL, updated_at=?1
+              WHERE id=?2 AND scheduled_task_id=?3 AND runtime_run_id=?5 AND (
+                (purpose='scheduled_run' AND owner_session_id=?4 AND runtime_session_id=?4) OR
+                (purpose='scheduled_task' AND owner_scheduled_task_id=?3 AND
+                  (runtime_session_id=?4 OR (runtime_session_id IS NULL AND
+                    NOT EXISTS (SELECT 1 FROM sessions WHERE id=?4)))))",
+            params![now_rfc3339(), row.id, task, session_id, run_log_id.to_string()],
+        )?;
+        if changed != 1 {
+            bail!("workspace_busy");
+        }
+        tx.commit()?;
+        drop(conn);
+        self.scheduled_owner_update_result(&row.id, changed, "release scheduled runtime")
+    }
+
+    /// Transfer task custody to an ordinary chat. Callers pause the schedule
+    /// first; a live occurrence may only hand off to its own runtime session.
+    pub fn take_over_scheduled_worktree(
+        &self,
+        id: &str,
+        scheduled_task_id: &str,
+        session_id: &str,
+    ) -> Result<ManagedWorktree> {
+        let worktree = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        let now = now_rfc3339();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        require_scheduled_session_idle_on(&tx, session_id, None)?;
+        let old_cwd: Option<String> = tx
+            .query_row(
+                "SELECT working_dir FROM sessions WHERE id=?1 AND incognito=0",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let changed = tx.execute(
+            "UPDATE managed_worktrees
+                SET handoff_session_id=?1, handed_off_at=?2, updated_at=?2
+              WHERE id=?3 AND purpose='scheduled_task' AND state='active'
+                AND owner_scheduled_task_id=?4
+                AND (handoff_session_id IS NULL OR handoff_session_id=?1)
+                AND runtime_session_id IS NULL AND runtime_run_id IS NULL",
+            params![session_id, now, id, scheduled_task_id],
+        )?;
+        if changed != 1 {
+            bail!("workspace_busy");
+        }
+        if tx.execute(
+            "UPDATE sessions SET working_dir=?1 WHERE id=?2 AND incognito=0",
+            params![worktree.path, session_id],
+        )? != 1
+        {
+            bail!("handoff session is missing or incognito");
+        }
+        tx.commit()?;
+        drop(conn);
+        if old_cwd.as_deref() != Some(worktree.path.as_str()) {
+            crate::hooks::fire_cwd_changed(session_id, old_cwd.as_deref(), Some(&worktree.path));
+        }
+        self.scheduled_owner_update_result(id, 1, "take over scheduled worktree")
+    }
+
+    pub fn return_scheduled_worktree(
+        &self,
+        id: &str,
+        scheduled_task_id: &str,
+        session_id: &str,
+    ) -> Result<ManagedWorktree> {
+        let worktree = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        let now = now_rfc3339();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        require_scheduled_session_idle_on(&tx, session_id, None)?;
+        let changed = tx.execute(
+            "UPDATE managed_worktrees SET handoff_session_id=NULL, updated_at=?1
+              WHERE id=?2 AND purpose='scheduled_task' AND owner_scheduled_task_id=?3
+                AND handoff_session_id=?4 AND runtime_session_id IS NULL
+                AND runtime_run_id IS NULL",
+            params![now, id, scheduled_task_id, session_id],
+        )?;
+        if changed != 1 {
+            bail!("scheduled worktree is running or not handed off to this session");
+        }
+        let cwd_cleared = tx.execute(
+            "UPDATE sessions SET working_dir=NULL WHERE id=?1 AND working_dir=?2",
+            params![session_id, worktree.path],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        if cwd_cleared > 0 {
+            crate::hooks::fire_cwd_changed(session_id, Some(&worktree.path), None);
+        }
+        self.scheduled_owner_update_result(id, 1, "return scheduled worktree")
+    }
+
+    pub fn discard_scheduled_run_worktree(
+        &self,
+        id: &str,
+        scheduled_task_id: &str,
+        owner_session_id: &str,
+    ) -> Result<()> {
+        let row = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("workspace_missing"))?;
+        let now = now_rfc3339();
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        require_scheduled_session_idle_on(&tx, owner_session_id, None)?;
+        let changed = tx.execute(
+            "UPDATE managed_worktrees SET state='archived', updated_at=?1
+              WHERE id=?2 AND purpose='scheduled_run' AND scheduled_task_id=?3
+                AND owner_session_id=?4 AND owner_scheduled_task_id IS NULL
+                AND runtime_session_id IS NULL AND runtime_run_id IS NULL
+                AND handoff_session_id IS NULL AND state='active'",
+            params![now, id, scheduled_task_id, owner_session_id],
+        )?;
+        if changed != 1 {
+            bail!("workspace_not_owner");
+        }
+        let cwd_cleared = tx.execute(
+            "UPDATE sessions SET working_dir=NULL WHERE id=?1 AND working_dir=?2",
+            params![owner_session_id, row.path],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        if cwd_cleared > 0 {
+            crate::hooks::fire_cwd_changed(owner_session_id, Some(&row.path), None);
+        }
+        self.finish_scheduled_discard(id)
+    }
+
+    pub fn discard_scheduled_task_worktree(&self, id: &str, scheduled_task_id: &str) -> Result<()> {
+        let changed = self.claim_scheduled_task_discard(id, scheduled_task_id)?;
+        if changed != 1 {
+            bail!("scheduled task worktree is running, handed off, or no longer owned by the task");
+        }
+        self.finish_scheduled_discard(id)
+    }
+
+    fn claim_scheduled_task_discard(&self, id: &str, scheduled_task_id: &str) -> Result<usize> {
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        Ok(conn.execute(
+            "UPDATE managed_worktrees SET state='archived', updated_at=?1
+              WHERE id=?2 AND purpose='scheduled_task' AND scheduled_task_id=?3
+                AND owner_scheduled_task_id=?3 AND owner_session_id IS NULL
+                AND runtime_session_id IS NULL AND runtime_run_id IS NULL
+                AND handoff_session_id IS NULL AND state IN ('active','archived')",
+            params![now, id, scheduled_task_id],
+        )?)
+    }
+
+    fn finish_scheduled_discard(&self, id: &str) -> Result<()> {
+        let worktree = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        self.discard_managed_worktree_unchecked(worktree)
+    }
+
+    fn scheduled_owner_update_result(
+        &self,
+        id: &str,
+        changed: usize,
+        action: &str,
+    ) -> Result<ManagedWorktree> {
+        if changed != 1 {
+            bail!("could not {action}: ownership changed or preconditions were not met");
+        }
+        let row = self
+            .get_managed_worktree(id)?
+            .ok_or_else(|| anyhow!("managed worktree disappeared after {action}: {id}"))?;
+        emit_worktree_changed("worktree:updated", &row);
+        Ok(row)
     }
 
     pub(crate) fn link_managed_worktree_to_workflow_run(
@@ -693,17 +1436,26 @@ impl SessionDB {
         let current = self
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        let owner_session_id = archive_restore_owner_session_id(&current, "archive")?;
         let path = PathBuf::from(&current.path);
         let snapshot = worktree_dirty_snapshot(&path);
-        if current.state != ManagedWorktreeState::Handoff
+        let scheduled_safe_remove = if current.purpose == ManagedWorktreePurpose::ScheduledRun {
+            self.snapshot_managed_worktree(id).ok().is_some_and(|live| {
+                live.branch.is_none() && !live.head_diverged && live.dirty.clean
+            })
+        } else {
+            true
+        };
+        let should_remove = current.state != ManagedWorktreeState::Handoff
             && snapshot.as_ref().map(|s| s.clean).unwrap_or(false)
             && path.exists()
-        {
+            && scheduled_safe_remove;
+        if should_remove && current.purpose != ManagedWorktreePurpose::ScheduledRun {
             match git_status(
                 Path::new(&current.repo_root),
                 &["worktree", "remove", path_arg(&path)],
             ) {
-                Ok(()) => crate::hooks::fire_worktree_remove(&current.session_id, &current.path),
+                Ok(()) => crate::hooks::fire_worktree_remove(owner_session_id, &current.path),
                 Err(e) => {
                     app_warn!(
                         "worktree",
@@ -721,22 +1473,74 @@ impl SessionDB {
             .map(serde_json::to_string)
             .transpose()
             .context("serialize dirty snapshot")?;
+        let mut removed = false;
         {
-            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-            conn.execute(
-                "UPDATE managed_worktrees
+            let changed = if current.purpose == ManagedWorktreePurpose::ScheduledRun {
+                let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                require_scheduled_session_idle_on(&tx, owner_session_id, None)?;
+                let changed = tx.execute(
+                    "UPDATE managed_worktrees
+                        SET state=?1, dirty_snapshot_json=?2,
+                            archived_at=COALESCE(archived_at,?3), updated_at=?3
+                      WHERE id=?4 AND purpose='scheduled_run' AND owner_session_id=?5
+                        AND runtime_session_id IS NULL AND runtime_run_id IS NULL
+                        AND state='active'",
+                    params![
+                        ManagedWorktreeState::Archived.as_str(),
+                        snapshot_json,
+                        now,
+                        id,
+                        owner_session_id
+                    ],
+                )?;
+                if changed == 1
+                    && should_remove
+                    && tx.query_row(
+                        "SELECT NOT EXISTS(SELECT 1 FROM sessions WHERE working_dir=?1)",
+                        params![current.path],
+                        |row| row.get(0),
+                    )?
+                {
+                    match git_status(
+                        Path::new(&current.repo_root),
+                        &["worktree", "remove", path_arg(&path)],
+                    ) {
+                        Ok(()) => removed = true,
+                        Err(error) => app_warn!(
+                            "worktree",
+                            "archive",
+                            "failed to remove clean worktree {}: {}",
+                            current.path,
+                            error
+                        ),
+                    }
+                }
+                tx.commit()?;
+                changed
+            } else {
+                let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+                conn.execute(
+                    "UPDATE managed_worktrees
                     SET state = ?1,
                         dirty_snapshot_json = ?2,
                         archived_at = COALESCE(archived_at, ?3),
                         updated_at = ?3
                  WHERE id = ?4",
-                params![
-                    ManagedWorktreeState::Archived.as_str(),
-                    snapshot_json,
-                    now,
-                    id
-                ],
-            )?;
+                    params![
+                        ManagedWorktreeState::Archived.as_str(),
+                        snapshot_json,
+                        now,
+                        id
+                    ],
+                )?
+            };
+            if changed != 1 {
+                bail!("workspace_busy");
+            }
+        }
+        if removed {
+            crate::hooks::fire_worktree_remove(owner_session_id, &current.path);
         }
         let row = self
             .get_managed_worktree(id)?
@@ -757,25 +1561,67 @@ impl SessionDB {
         let current = self
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        let owner_session_id = archive_restore_owner_session_id(&current, "restore")?;
         let path = PathBuf::from(&current.path);
-        if path.exists() && !path.is_dir() {
-            bail!(
-                "managed worktree path exists but is not a directory: {}",
-                path.display()
-            );
-        }
-        if !path.exists() {
-            ensure_parent(&path)?;
-            let base = current.base_sha.as_deref().unwrap_or("HEAD");
-            git_status(
-                Path::new(&current.repo_root),
-                &["worktree", "add", "--detach", path_arg(&path), base],
-            )?;
-            copy_worktreeinclude(Path::new(&current.repo_root), &path, None)?;
-        }
+        let restore_path = || -> Result<()> {
+            if path.exists() && !path.is_dir() {
+                bail!(
+                    "managed worktree path exists but is not a directory: {}",
+                    path.display()
+                );
+            }
+            if !path.exists() {
+                ensure_parent(&path)?;
+                let base = current.base_sha.as_deref().unwrap_or("HEAD");
+                git_status(
+                    Path::new(&current.repo_root),
+                    &["worktree", "add", "--detach", path_arg(&path), base],
+                )?;
+                if let Err(error) = copy_worktreeinclude(Path::new(&current.repo_root), &path, None)
+                {
+                    let _ = git_status(
+                        Path::new(&current.repo_root),
+                        &["worktree", "remove", "--force", path_arg(&path)],
+                    );
+                    let _ = git_status(Path::new(&current.repo_root), &["worktree", "prune"]);
+                    return Err(error);
+                }
+            }
+            Ok(())
+        };
         let now = now_rfc3339();
-        {
-            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        if current.purpose == ManagedWorktreePurpose::ScheduledRun {
+            let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            require_scheduled_session_idle_on(&tx, owner_session_id, None)?;
+            if tx.execute(
+                "UPDATE managed_worktrees SET state=?1, restored_at=?2, updated_at=?2
+                  WHERE id=?3 AND purpose='scheduled_run' AND owner_session_id=?4
+                    AND runtime_session_id IS NULL AND runtime_run_id IS NULL
+                    AND state='archived'",
+                params![
+                    ManagedWorktreeState::Active.as_str(),
+                    now,
+                    id,
+                    owner_session_id
+                ],
+            )? != 1
+            {
+                bail!("workspace_busy");
+            }
+            restore_path()?;
+            if tx.execute(
+                "UPDATE sessions SET working_dir=?1 WHERE id=?2 AND incognito=0",
+                params![current.path, owner_session_id],
+            )? != 1
+            {
+                bail!("workspace_busy");
+            }
+            tx.commit()?;
+            crate::hooks::fire_cwd_changed(owner_session_id, None, Some(&current.path));
+        } else {
+            restore_path()?;
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
             conn.execute(
                 "UPDATE managed_worktrees
                     SET state = ?1,
@@ -804,9 +1650,10 @@ impl SessionDB {
         let current = self
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found: {id}"))?;
+        let owner_session_id = generic_owner_session_id(&current, "handoff")?;
         let path = canonical_dir(&current.path)?;
         self.update_session_working_dir(
-            &current.session_id,
+            owner_session_id,
             Some(path.to_string_lossy().to_string()),
         )?;
         let now = now_rfc3339();
@@ -835,6 +1682,34 @@ impl SessionDB {
         }
         Ok(row)
     }
+}
+
+fn generic_owner_session_id<'a>(worktree: &'a ManagedWorktree, action: &str) -> Result<&'a str> {
+    if !worktree.purpose.is_owner_transport_safe() {
+        bail!(
+            "cannot {action} scheduled managed worktree {} through the generic owner API",
+            worktree.id
+        );
+    }
+    worktree.owner_session_id.as_deref().ok_or_else(|| {
+        anyhow!(
+            "cannot {action} managed worktree {} without a session owner",
+            worktree.id
+        )
+    })
+}
+
+fn archive_restore_owner_session_id<'a>(
+    worktree: &'a ManagedWorktree,
+    action: &str,
+) -> Result<&'a str> {
+    if worktree.purpose == ManagedWorktreePurpose::ScheduledRun {
+        return worktree
+            .owner_session_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("workspace_not_owner"));
+    }
+    generic_owner_session_id(worktree, action)
 }
 
 /// Recover a built-in worktree that was registered by Git but whose DB row was
@@ -880,6 +1755,12 @@ fn row_to_worktree(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManagedWorktree>
         session_id: row.get(1)?,
         child_session_id: row.get(2)?,
         workflow_run_id: row.get(3)?,
+        owner_session_id: row.get(21)?,
+        owner_scheduled_task_id: row.get(22)?,
+        scheduled_task_id: row.get(23)?,
+        runtime_session_id: row.get(24)?,
+        runtime_run_id: row.get(25)?,
+        handoff_session_id: row.get(26)?,
         purpose: ManagedWorktreePurpose::from_str(&purpose),
         state: ManagedWorktreeState::from_str(&state),
         label: row.get(6)?,
@@ -949,8 +1830,19 @@ fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
 }
 
 fn git_output_bytes(cwd: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    git_output_bytes_mode(cwd, args, false)
+}
+
+fn git_output_read_only(cwd: &Path, args: &[&str]) -> Result<String> {
+    Ok(String::from_utf8_lossy(&git_output_bytes_mode(cwd, args, true)?).into_owned())
+}
+
+fn git_output_bytes_mode(cwd: &Path, args: &[&str], no_optional_locks: bool) -> Result<Vec<u8>> {
     let mut cmd = Command::new("git");
     crate::filesystem::isolate_repository_env(&mut cmd);
+    if no_optional_locks {
+        cmd.env("GIT_OPTIONAL_LOCKS", "0");
+    }
     cmd.current_dir(cwd).args(args);
     crate::platform::hide_console(&mut cmd);
     let out = cmd
@@ -964,6 +1856,13 @@ fn git_output_bytes(cwd: &Path, args: &[&str]) -> Result<Vec<u8>> {
         );
     }
     Ok(out.stdout)
+}
+
+fn resolve_commit(cwd: &Path, base_ref: &str) -> Result<String> {
+    let commit_ref = format!("{base_ref}^{{commit}}");
+    Ok(git_output(cwd, &["rev-parse", "--verify", &commit_ref])?
+        .trim()
+        .to_string())
 }
 
 fn git_status(cwd: &Path, args: &[&str]) -> Result<()> {
@@ -1274,11 +2173,25 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Does this Worktree still hold gitignored files? The dirty counters never see
+/// them, but removal deletes them, so anything that deletes on "clean" must ask.
+/// Kept out of the standard snapshot because it walks ignored directories.
+pub fn worktree_has_ignored_files(path: &Path) -> Result<bool> {
+    if !path.exists() || !is_inside_git_work_tree(path) {
+        bail!("{} is not inside a git worktree", path.display());
+    }
+    let out = git_output_read_only(
+        path,
+        &["status", "--porcelain=v1", "--ignored=matching", "-uall"],
+    )?;
+    Ok(out.lines().any(|line| line.starts_with("!!")))
+}
+
 fn worktree_dirty_snapshot(path: &Path) -> Option<ManagedWorktreeDirtySnapshot> {
     if !path.exists() || !is_inside_git_work_tree(path) {
         return None;
     }
-    let out = git_output(path, &["status", "--porcelain=v1"]).ok()?;
+    let out = git_output_read_only(path, &["status", "--porcelain=v1"]).ok()?;
     let mut staged = 0u32;
     let mut unstaged = 0u32;
     let mut untracked = 0u32;
@@ -1477,6 +2390,103 @@ mod tests {
             repo,
             &["worktree", "remove", "--force", path_arg(&worktree)],
         );
+    }
+
+    #[test]
+    fn persistent_scheduled_release_keeps_run_chat_mounted() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open_ephemeral_for_test(&root.path().join("sessions.db"))
+            .expect("open sessions db");
+        // Session reads join `channel_conversations`, which the channel
+        // subsystem creates at startup rather than the Session schema.
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )?;
+            Ok(())
+        })
+        .expect("create channel conversations table");
+        let task_id = "scheduled-task";
+        let session = db
+            .create_session_with_project_and_origin(
+                "ha-main",
+                None,
+                Some(false),
+                &SessionOrigin {
+                    kind: "cron".to_string(),
+                    id: task_id.to_string(),
+                    label: "Scheduled task".to_string(),
+                },
+            )
+            .expect("create scheduled run chat");
+        let worktree_path = root.path().join("persistent-worktree");
+        fs::create_dir_all(&worktree_path).expect("create worktree dir");
+        // The working-dir writer canonicalizes; compare against the same form
+        // (macOS temp dirs resolve through the /private symlink).
+        let worktree_path = fs::canonicalize(&worktree_path).expect("canonical worktree path");
+        let worktree_path = worktree_path.to_string_lossy().to_string();
+        db.update_session_working_dir(&session.id, Some(worktree_path.clone()))
+            .expect("mount worktree");
+        let now = now_rfc3339();
+        {
+            let conn = db.conn.lock().expect("lock db");
+            conn.execute(
+                "INSERT INTO managed_worktrees (
+                    id, session_id, purpose, state, label, repo_root, source_working_dir,
+                    path, created_at, updated_at, path_source, owner_session_id,
+                    owner_scheduled_task_id, scheduled_task_id, runtime_session_id,
+                    runtime_run_id
+                 ) VALUES (
+                    'persistent-worktree', ?1, 'scheduled_task', 'active', 'Scheduled task',
+                    ?2, ?2, ?2, ?3, ?3, 'builtin', NULL, ?4, ?4, ?1, '42'
+                 )",
+                params![session.id, worktree_path, now, task_id],
+            )
+            .expect("insert persistent worktree");
+        }
+        let row = db
+            .get_managed_worktree("persistent-worktree")
+            .expect("read worktree")
+            .expect("worktree exists");
+
+        db.release_scheduled_runtime(&row, 42, &session.id, None)
+            .expect("release runtime lease");
+
+        assert_eq!(
+            db.get_session(&session.id)
+                .expect("read run chat")
+                .expect("run chat exists")
+                .working_dir
+                .as_deref(),
+            Some(worktree_path.as_str()),
+            "finishing the scheduled run must not unmount its Worktree",
+        );
+        let released = db
+            .get_managed_worktree("persistent-worktree")
+            .expect("read released worktree")
+            .expect("released worktree exists");
+        assert!(released.runtime_session_id.is_none());
+        assert!(released.runtime_run_id.is_none());
+        assert!(db
+            .list_managed_worktrees_for_session(&session.id)
+            .expect("list mounted worktrees")
+            .iter()
+            .any(|worktree| worktree.id == released.id));
     }
 
     #[test]

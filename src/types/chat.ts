@@ -107,7 +107,9 @@ export interface PendingSendPreview {
   editable?: boolean
   /** Backend-owned rows are visible for status only; the GUI must not claim,
    * edit, delete, or force-insert them. */
-  managedBy?: "channel"
+  managedBy?: "channel" | "scheduled"
+  /** Opaque owner reference; Scheduled uses the canonical run-log id. */
+  sourceRef?: string
 }
 
 export interface MessageAttachment {
@@ -181,11 +183,27 @@ export interface BrowserActivityMetadata {
   at?: number | null
 }
 
+/** Durable card attached to a successful model-created scheduled task. */
+export interface ScheduleEntityMetadata {
+  kind: "schedule_entity"
+  entityType: "cronTask"
+  entityId: string
+  sessionId?: string | null
+  title?: string | null
+  state?: string | null
+  nextRunAt?: string | null
+  schedule?: import("@/components/cron/CronJobForm.types").CronSchedule | null
+  projectId?: string | null
+  workspaceMode?: import("@/components/cron/CronJobForm.types").CronWorkspaceMode | null
+  workspaceBaseRef?: string | null
+}
+
 export type ToolMetadata =
   | FileChangeMetadata
   | FileChangesMetadata
   | FileReadMetadata
   | BrowserActivityMetadata
+  | ScheduleEntityMetadata
 
 export interface ToolCall {
   callId: string
@@ -365,6 +383,8 @@ export interface Message {
   isMeta?: boolean
   /** The cron job name that triggered this message */
   cronJobName?: string
+  /** The scheduled task that triggered this message. */
+  cronJobId?: string
   /** If set, this user message came from an IM channel */
   channelInbound?: {
     channelId: string
@@ -558,6 +578,12 @@ export type SessionMode = "default" | "smart" | "yolo"
  */
 export type SandboxMode = "off" | "standard" | "isolated" | "workspace" | "trusted"
 
+export interface SessionOrigin {
+  kind: string
+  id: string
+  label: string
+}
+
 export interface SessionMeta {
   id: string
   /** A durable Stop receipt fences autonomous work until explicit Continue. */
@@ -577,6 +603,8 @@ export interface SessionMeta {
   pinnedAt?: string | null
   /** Retained but hidden from active chat surfaces until restored. */
   archivedAt?: string | null
+  /** Display-only producer provenance; never an execution or permission input. */
+  origin?: SessionOrigin | null
   messageCount: number
   /** Regular-conversation unread flag encoded as 0 or 1. */
   unreadCount: number

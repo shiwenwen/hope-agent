@@ -1531,6 +1531,7 @@ impl AcpAgent {
                     session_id: session_id_owned.clone(),
                 }),
                 cancel.clone(),
+                None,
             ))?;
 
         // SessionStart hook (startup/resume). ACP runs `AssistantAgent::chat`

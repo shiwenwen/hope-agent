@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use cron::Schedule as CronExpression;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Mutex;
@@ -13,6 +13,96 @@ use super::types::*;
 
 const CALENDAR_EVENT_WINDOW_MINUTES: i64 = 2;
 const MAX_CALENDAR_EVENTS_PER_JOB: usize = 10_000;
+const RUNNING_COUNT_SQL: &str = "SELECT COUNT(*) FROM cron_jobs j WHERE j.running_at IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM cron_run_logs l
+         WHERE l.job_id=j.id AND l.started_at=j.running_at
+           AND l.finished_at IS NULL AND l.status IN ('preparing','queued')
+           AND l.request_id IS NOT NULL
+           AND json_extract(j.payload_json, '$.type')='sessionTurn')";
+/// Last occurrence per task; grouped once and joined by rowid.
+const LATEST_RUN_SUMMARY_SQL: &str =
+    "SELECT l.job_id, l.id, l.session_id, l.status, l.started_at, l.finished_at,
+            l.error, l.result_preview, l.delivery_status
+       FROM cron_run_logs l
+       JOIN (SELECT job_id, MAX(id) AS id FROM cron_run_logs GROUP BY job_id) latest
+         ON latest.id = l.id";
+
+/// Schedule-side disposition committed with an exact run terminal and marker
+/// release. `Interrupted` is recovery-only: work from a dead owner is never
+/// replayed, one-shot jobs become completed-with-error, and recurring jobs move
+/// to their next live-schedule occurrence without consuming the failure budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CronScheduleDisposition {
+    Preserve,
+    Success,
+    Empty,
+    Failure,
+    InfrastructureFailure,
+    Cancelled,
+    Interrupted,
+}
+
+/// Final live-task mutation committed with terminal accounting and exact marker
+/// release. Loop execution supplies Pause/Complete only after its SessionDB
+/// outcome has been decided, so no later write can race a newly claimed run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CronFinalScheduleAction {
+    #[default]
+    Keep,
+    Pause,
+    Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CronSettlementPolicy {
+    pub release_marker: bool,
+    pub final_action: CronFinalScheduleAction,
+    pub backoff_secs: Option<i64>,
+}
+
+impl CronSettlementPolicy {
+    pub const STANDARD: Self = Self {
+        release_marker: true,
+        final_action: CronFinalScheduleAction::Keep,
+        backoff_secs: None,
+    };
+
+    pub const DEFER_MARKER: Self = Self {
+        release_marker: false,
+        final_action: CronFinalScheduleAction::Keep,
+        backoff_secs: None,
+    };
+
+    pub const fn loop_final(
+        final_action: CronFinalScheduleAction,
+        backoff_secs: Option<i64>,
+    ) -> Self {
+        Self {
+            release_marker: true,
+            final_action,
+            backoff_secs,
+        }
+    }
+}
+
+/// Terminal fields written by [`CronDB::settle_running_occurrence`].
+#[derive(Debug, Clone, Copy)]
+pub struct CronRunTerminal<'a> {
+    pub status: &'a str,
+    pub finished_at: &'a str,
+    pub duration_ms: Option<u64>,
+    pub result_preview: Option<&'a str>,
+    pub error: Option<&'a str>,
+    pub delivery_status: Option<&'a str>,
+    pub immediate: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CronOccurrenceSettlement {
+    pub cancel_won: bool,
+    pub auto_disabled: bool,
+}
 
 /// SQLite-based persistence for cron jobs and run logs.
 pub struct CronDB {
@@ -58,7 +148,11 @@ impl CronDB {
                 project_id TEXT,
                 job_timeout_secs INTEGER,
                 permission_mode_override TEXT,
-                sandbox_mode_override TEXT
+                sandbox_mode_override TEXT,
+                workspace_policy_json TEXT NOT NULL DEFAULT '{\"mode\":\"project\"}',
+                workspace_resource_locked INTEGER NOT NULL DEFAULT 0,
+                deleted_at TEXT,
+                revision INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
@@ -68,17 +162,29 @@ impl CronDB {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT NOT NULL REFERENCES cron_jobs(id) ON DELETE CASCADE,
                 session_id TEXT NOT NULL,
+                turn_id TEXT,
+                request_id TEXT,
+                execution_started_at TEXT,
+                target_message_id INTEGER,
+                immediate INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 finished_at TEXT,
                 duration_ms INTEGER,
                 result_preview TEXT,
                 error TEXT,
+                worktree_id TEXT,
+                workspace_status TEXT,
+                workspace_snapshot_json TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_runs_job
                 ON cron_run_logs(job_id, started_at DESC);
+
+            -- `(job_id, started_at)` cannot answer MAX(id) per job by seek.
+            CREATE INDEX IF NOT EXISTS idx_cron_runs_job_id
+                ON cron_run_logs(job_id, id DESC);
 
             CREATE INDEX IF NOT EXISTS idx_cron_runs_started
                 ON cron_run_logs(started_at DESC);",
@@ -154,6 +260,39 @@ impl CronDB {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN sandbox_mode_override TEXT;")?;
         }
 
+        // Logical deletion keeps run history and its ordinary conversations
+        // reachable while removing the task from every live control surface.
+        let has_deleted_at: bool = conn
+            .prepare("SELECT deleted_at FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_deleted_at {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN deleted_at TEXT;")?;
+        }
+        let has_revision = conn
+            .prepare("SELECT revision FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_revision {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;",
+            )?;
+        }
+        if conn
+            .prepare("SELECT workspace_policy_json FROM cron_jobs LIMIT 0")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN workspace_policy_json TEXT NOT NULL DEFAULT '{\"mode\":\"project\"}';",
+            )?;
+        }
+        if conn
+            .prepare("SELECT workspace_resource_locked FROM cron_jobs LIMIT 0")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN workspace_resource_locked INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
         // Migration: `running_owner` / `started_owner` — 启动清理据此识别遗留，
         // 与墙上时钟解耦。旧库升上来的行 owner 为 NULL，第一次启动清理会当成
         // 「历史遗留」清掉——这与它们语义上就是「本进程从没写过 owner」相符。
@@ -176,6 +315,41 @@ impl CronDB {
             .is_ok();
         if !has_delivery_status {
             conn.execute_batch("ALTER TABLE cron_run_logs ADD COLUMN delivery_status TEXT;")?;
+        }
+        let has_turn_id = conn
+            .prepare("SELECT turn_id FROM cron_run_logs LIMIT 0")
+            .is_ok();
+        if !has_turn_id {
+            conn.execute_batch("ALTER TABLE cron_run_logs ADD COLUMN turn_id TEXT;")?;
+        }
+        for (column, definition) in [
+            ("request_id", "TEXT"),
+            ("execution_started_at", "TEXT"),
+            ("target_message_id", "INTEGER"),
+            ("immediate", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            if conn
+                .prepare(&format!("SELECT {column} FROM cron_run_logs LIMIT 0"))
+                .is_err()
+            {
+                conn.execute_batch(&format!(
+                    "ALTER TABLE cron_run_logs ADD COLUMN {column} {definition};"
+                ))?;
+            }
+        }
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_cron_runs_request
+             ON cron_run_logs(request_id) WHERE request_id IS NOT NULL;",
+        )?;
+        for column in ["worktree_id", "workspace_status", "workspace_snapshot_json"] {
+            if conn
+                .prepare(&format!("SELECT {column} FROM cron_run_logs LIMIT 0"))
+                .is_err()
+            {
+                conn.execute_batch(&format!(
+                    "ALTER TABLE cron_run_logs ADD COLUMN {column} TEXT;"
+                ))?;
+            }
         }
 
         // §9 (C6): tiny key/value table for the scheduler liveness heartbeat, so
@@ -211,6 +385,17 @@ impl CronDB {
         // never fires, no unknown cron expression / timezone (which would silently
         // fall back to UTC at fire time).
         validate_schedule(&input.schedule)?;
+        let workspace_policy = validate_workspace_policy(
+            input.workspace_policy.clone(),
+            &input.payload,
+            input.project_id.as_deref(),
+        )?;
+        validate_payload_overrides(
+            &input.payload,
+            input.project_id.as_deref(),
+            input.permission_mode_override,
+            input.sandbox_mode_override,
+        )?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
@@ -237,14 +422,15 @@ impl CronDB {
         let prefix_delivery_with_name = input.prefix_delivery_with_name.unwrap_or(false);
         let delivery_targets = input.delivery_targets.clone().unwrap_or_default();
         let delivery_targets_json = serde_json::to_string(&delivery_targets)?;
+        let workspace_policy_json = serde_json::to_string(&workspace_policy)?;
 
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override, workspace_policy_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 input.name,
@@ -261,15 +447,18 @@ impl CronDB {
                 prefix_delivery_with_name as i32,
                 input.job_timeout_secs.map(|v| v as i64),
                 input.permission_mode_override.map(|m| m.as_str()),
-                input.sandbox_mode_override.map(|m| m.as_str())
+                input.sandbox_mode_override.map(|m| m.as_str()),
+                workspace_policy_json
             ],
         )?;
 
         Ok(CronJob {
             id,
+            revision: 1,
             name: input.name.clone(),
             description: input.description.clone(),
             project_id: normalize_optional_string(input.project_id.as_deref()),
+            workspace_policy,
             schedule,
             payload: input.payload.clone(),
             status: initial_status,
@@ -299,8 +488,35 @@ impl CronDB {
     /// `next_run_at`, and only an *Active* job edited to a past `At` terminalizes
     /// (→ `missed`); a terminal/paused status is never resurrected to active.
     pub fn update_job(&self, job: &CronJob) -> Result<()> {
+        let result = self.update_job_cas(job, job.revision)?;
+        if result.updated {
+            Ok(())
+        } else {
+            anyhow::bail!(CRON_REVISION_CONFLICT_CODE)
+        }
+    }
+
+    /// Owner edit with optimistic concurrency control. Runtime scheduling
+    /// fields are still sourced from the live row, but another owner mutation
+    /// must not be overwritten by a stale form or tool snapshot.
+    pub fn update_job_cas(
+        &self,
+        job: &CronJob,
+        expected_revision: u64,
+    ) -> Result<CronUpdateResult> {
         // Persistence chokepoint — validate the whole schedule (see `add_job`).
         validate_schedule(&job.schedule)?;
+        let workspace_policy = validate_workspace_policy(
+            job.workspace_policy.clone(),
+            &job.payload,
+            job.project_id.as_deref(),
+        )?;
+        validate_payload_overrides(
+            &job.payload,
+            job.project_id.as_deref(),
+            job.permission_mode_override,
+            job.sandbox_mode_override,
+        )?;
 
         let now = Utc::now();
         let now_str = now.to_rfc3339();
@@ -309,29 +525,94 @@ impl CronDB {
         let schedule_json = serde_json::to_string(&schedule)?;
         let payload_json = serde_json::to_string(&job.payload)?;
         let delivery_targets_json = serde_json::to_string(&job.delivery_targets)?;
+        let workspace_policy_json = serde_json::to_string(&workspace_policy)?;
+        let expected_revision_i64 = i64::try_from(expected_revision)
+            .context("cron revision exceeds SQLite INTEGER range")?;
 
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        // Reserve the SQLite writer before reading system-managed fields. This
+        // closes the cross-process SELECT -> UPDATE window: a Secondary owner
+        // edit cannot overwrite a Primary scheduler transition read moments
+        // earlier, and two owner writers serialize before checking revision.
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         // C04: read the live system-managed fields — never trust the caller's
         // snapshot of status / next_run_at (it may be stale). Missing row = the job
         // was deleted; preserve the previous silent no-op.
-        let (current_status, current_next_run, current_schedule_json): (
-            String,
-            Option<String>,
-            String,
-        ) = match conn.query_row(
-            "SELECT status, next_run_at, schedule_json FROM cron_jobs WHERE id=?1",
+        let (
+            current_status,
+            current_next_run,
+            current_schedule_json,
+            current_revision,
+            current_project_id,
+            current_workspace_json,
+            current_running_at,
+            workspace_resource_locked,
+            current_payload_json,
+        ) = match tx.query_row(
+            "SELECT status, next_run_at, schedule_json, revision, project_id,
+                    workspace_policy_json, running_at, workspace_resource_locked, payload_json FROM cron_jobs
+             WHERE id=?1 AND deleted_at IS NULL",
             params![job.id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, bool>(7)?,
+                    r.get::<_, String>(8)?,
+                ))
+            },
         ) {
             Ok(row) => row,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+            Err(rusqlite::Error::QueryReturnedNoRows) => anyhow::bail!("Cron job not found"),
             Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
         };
+        if current_revision != expected_revision_i64 {
+            drop(tx);
+            drop(conn);
+            return Ok(CronUpdateResult {
+                updated: false,
+                code: Some(CRON_REVISION_CONFLICT_CODE.to_string()),
+                current_job: self.get_job(&job.id)?,
+            });
+        }
         let db_status = CronJobStatus::from_str(&current_status);
+        if current_running_at.is_some() {
+            if let CronPayload::SessionTurn { session_id, .. } =
+                serde_json::from_str::<CronPayload>(&current_payload_json)?
+            {
+                if !matches!(&job.payload, CronPayload::SessionTurn { session_id: next, .. } if next == &session_id)
+                {
+                    anyhow::bail!("session_turn_target_locked");
+                }
+            }
+        }
+        let workspace_changed = current_workspace_json != workspace_policy_json
+            || current_project_id != normalize_optional_string(job.project_id.as_deref());
+        if workspace_changed {
+            let current_policy: CronWorkspacePolicy =
+                serde_json::from_str(&current_workspace_json)?;
+            let has_persistent_resource = current_policy.mode == CronWorkspaceMode::Persistent
+                && tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM cron_run_logs
+                      WHERE job_id=?1 AND worktree_id IS NOT NULL
+                        AND COALESCE(workspace_status,'') != 'discarded')",
+                    params![job.id],
+                    |row| row.get::<_, bool>(0),
+                )?;
+            if current_running_at.is_some() || workspace_resource_locked || has_persistent_resource
+            {
+                anyhow::bail!("workspace_policy_locked");
+            }
+        }
 
         // Preserve the current next_run_at unless the schedule actually changed —
         // a non-schedule edit (rename / prompt / targets) keeps its mid-cycle
@@ -355,9 +636,9 @@ impl CronDB {
             db_status
         };
 
-        conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, updated_at=?11
-             WHERE id=?12",
+        let updated = tx.execute(
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, workspace_policy_json=?17, updated_at=?11, revision=revision+1
+             WHERE id=?12 AND deleted_at IS NULL AND revision=?18",
             params![
                 job.name,
                 job.description,
@@ -374,10 +655,26 @@ impl CronDB {
                 job.prefix_delivery_with_name as i32,
                 job.job_timeout_secs.map(|v| v as i64),
                 job.permission_mode_override.map(|m| m.as_str()),
-                job.sandbox_mode_override.map(|m| m.as_str())
+                job.sandbox_mode_override.map(|m| m.as_str()),
+                workspace_policy_json,
+                expected_revision_i64,
             ],
         )?;
-        Ok(())
+        if updated == 0 {
+            drop(tx);
+            drop(conn);
+            return Ok(CronUpdateResult {
+                updated: false,
+                code: Some(CRON_REVISION_CONFLICT_CODE.to_string()),
+                current_job: self.get_job(&job.id)?,
+            });
+        }
+        tx.commit()?;
+        Ok(CronUpdateResult {
+            updated: true,
+            code: None,
+            current_job: None,
+        })
     }
 
     /// §8: atomically flip `stale` flags on a job's **current** delivery targets,
@@ -398,12 +695,14 @@ impl CronDB {
         mark_stale: &HashSet<String>,
         clear_stale: &HashSet<String>,
     ) -> Result<bool> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        let json: String = match conn.query_row(
-            "SELECT delivery_targets_json FROM cron_jobs WHERE id=?1",
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let json: String = match tx.query_row(
+            "SELECT delivery_targets_json FROM cron_jobs
+             WHERE id=?1 AND deleted_at IS NULL",
             params![job_id],
             |r| r.get::<_, String>(0),
         ) {
@@ -425,11 +724,14 @@ impl CronDB {
         if changed {
             let targets_json = serde_json::to_string(&targets)?;
             let now = Utc::now().to_rfc3339();
-            conn.execute(
-                "UPDATE cron_jobs SET delivery_targets_json=?1, updated_at=?2 WHERE id=?3",
+            tx.execute(
+                "UPDATE cron_jobs SET delivery_targets_json=?1, updated_at=?2,
+                                      revision=revision+1
+                 WHERE id=?3 AND deleted_at IS NULL",
                 params![targets_json, now, job_id],
             )?;
         }
+        tx.commit()?;
         Ok(changed)
     }
 
@@ -491,53 +793,246 @@ impl CronDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        conn.execute(
-            "UPDATE cron_jobs SET project_id=NULL, updated_at=?1 WHERE id=?2",
+        if conn.execute(
+            "UPDATE cron_jobs SET project_id=NULL, updated_at=?1, revision=revision+1
+             WHERE id=?2 AND deleted_at IS NULL AND workspace_resource_locked=0
+               AND json_extract(workspace_policy_json,'$.mode')='project'",
             params![now, id],
-        )?;
+        )? != 1
+        {
+            anyhow::bail!("workspace_policy_locked");
+        }
         Ok(())
     }
 
-    /// Delete a job by ID.
+    /// Logically delete a job while retaining its run logs and conversations.
+    /// SessionTurn callers with an unpublished queue occurrence must use
+    /// [`Self::delete_job_with_session_turn_cleanup`] so the cross-database
+    /// queue custody is revoked while this ledger's writer fence is held.
     pub fn delete_job(&self, id: &str) -> Result<()> {
-        // C15: if the job is mid-run, request cancellation first so the in-flight
-        // turn stops promptly (cron's `abort_on_cancel=false` → it returns `Ok("")`
-        // → classified Cancelled → no wasted completion, no IM delivery to a
-        // now-deleted job) instead of running to the end against a row that's about
-        // to vanish. Read-then-cancel is run-keyed by `running_at` (the run's
-        // claimed_at), so a stale read can't cancel a later run of a recurring job.
-        // The cancelled run's own terminal writes then no-op against the deleted row
-        // (its in-progress run_log is CASCADE-removed — an accepted loss for a
-        // user-initiated delete). Done before taking the lock since `get_job` locks.
-        if let Ok(Some(job)) = self.get_job(id) {
-            if let Some(running_at) = job.running_at.as_deref() {
-                super::cancel::cancel(id, running_at);
+        self.delete_job_inner(id, None).map(|_| ())
+    }
+
+    /// Logically delete a task and atomically select its exact unfinished
+    /// occurrence from `running_at`. A pending SessionTurn queue row is revoked
+    /// before the tombstone commits; a running occurrence id is returned so the
+    /// feature layer can publish an exact durable Stop across processes.
+    pub fn delete_job_with_session_turn_cleanup(
+        &self,
+        session_db: &crate::session::SessionDB,
+        id: &str,
+    ) -> Result<Option<i64>> {
+        self.delete_job_inner(id, Some(session_db))
+    }
+
+    fn delete_job_inner(
+        &self,
+        id: &str,
+        session_db: Option<&crate::session::SessionDB>,
+    ) -> Result<Option<i64>> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let live: Option<(String, Option<String>, bool)> = tx
+            .query_row(
+                "SELECT payload_json, running_at, deleted_at IS NOT NULL
+                   FROM cron_jobs WHERE id=?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((payload_json, running_at, deleted)) = live else {
+            tx.commit()?;
+            return Ok(None);
+        };
+        if deleted {
+            let retry_target = running_at
+                .as_deref()
+                .map(|claimed_at| {
+                    tx.query_row(
+                        "SELECT id FROM cron_run_logs
+                          WHERE job_id=?1 AND started_at=?2 AND finished_at IS NULL
+                            AND turn_id IS NOT NULL
+                          ORDER BY id LIMIT 1",
+                        params![id, claimed_at],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                })
+                .transpose()?
+                .flatten();
+            tx.commit()?;
+            drop(conn);
+            if let Some(claimed_at) = running_at {
+                super::cancel::cancel(id, &claimed_at);
+            }
+            return Ok(retry_target);
+        }
+        let payload: CronPayload = serde_json::from_str(&payload_json)?;
+        let mut active_run_log_id = None;
+        let mut run_terminalized = false;
+
+        if let Some(claimed_at) = running_at.as_deref() {
+            let mut stmt = tx.prepare(
+                "SELECT id, session_id, request_id, status, turn_id
+                   FROM cron_run_logs
+                  WHERE job_id=?1 AND started_at=?2 AND finished_at IS NULL
+                  ORDER BY id LIMIT 2",
+            )?;
+            let open = stmt
+                .query_map(params![id, claimed_at], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            drop(stmt);
+            if open.len() > 1 {
+                anyhow::bail!("cron_job_has_multiple_open_occurrences");
+            }
+            if let Some((run_log_id, _session_id, request_id, status, turn_id)) = open.first() {
+                if status == "completing" {
+                    anyhow::bail!("cron_run_completion_in_progress");
+                }
+                if matches!(payload, CronPayload::SessionTurn { .. }) {
+                    let request_id = request_id.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!("scheduled run is missing its queue identity")
+                    })?;
+                    let session_db = session_db.ok_or_else(|| {
+                        anyhow::anyhow!("scheduled pending delete requires SessionDB")
+                    })?;
+                    let source_ref = run_log_id.to_string();
+                    let queue_revoked =
+                        session_db.cancel_scheduled_turn_message(request_id, &source_ref)?;
+                    let queue_survived = !queue_revoked
+                        && session_db
+                            .get_scheduled_turn_message(&source_ref)?
+                            .is_some();
+                    if queue_survived {
+                        anyhow::bail!("scheduled queue custody could not be revoked");
+                    }
+
+                    // For `running`, a surviving dispatch row is the exact
+                    // pre-ChatTurn commit fence: deleting it makes the atomic
+                    // message+ChatTurn transaction fail. If the row is already
+                    // gone, SessionDB must atomically show the committed exact
+                    // ChatTurn; that path is stopped durably after tombstoning.
+                    let committed_turn =
+                        if matches!(status.as_str(), "running" | "cancelling") && !queue_revoked {
+                            let turn_id = turn_id.as_deref().ok_or_else(|| {
+                                anyhow::anyhow!("running scheduled turn is missing turn identity")
+                            })?;
+                            session_db.get_chat_turn(turn_id)?.is_some()
+                        } else {
+                            false
+                        };
+                    if committed_turn {
+                        active_run_log_id = Some(*run_log_id);
+                    } else {
+                        let now = Utc::now().to_rfc3339();
+                        if tx.execute(
+                            "UPDATE cron_run_logs
+                                SET status='cancelled', error=?1, finished_at=?2
+                              WHERE id=?3 AND request_id=?4
+                                AND status IN ('preparing','queued','running','cancelling','completing')
+                                AND finished_at IS NULL",
+                            params!["Scheduled task was deleted", now, run_log_id, request_id],
+                        )? != 1
+                        {
+                            anyhow::bail!("scheduled run custody changed during task deletion");
+                        }
+                        run_terminalized = true;
+                    }
+                } else if turn_id.is_some() {
+                    active_run_log_id = Some(*run_log_id);
+                } else {
+                    // Legacy/SessionLoop has no ordinary exact ChatTurn and its
+                    // executor does not consume the generic Cron flag. Keep the
+                    // Task live rather than acknowledge deletion while an
+                    // unstoppable occurrence continues side effects.
+                    anyhow::bail!("cron_run_cancel_unsupported");
+                }
             }
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        conn.execute("DELETE FROM cron_jobs WHERE id=?1", params![id])?;
-        Ok(())
+
+        let now = Utc::now().to_rfc3339();
+        tx.execute(
+            "UPDATE cron_jobs
+                 SET deleted_at=?1, status='paused', next_run_at=NULL, updated_at=?1,
+                 revision=revision+1,
+                 running_at=CASE WHEN ?2 THEN NULL ELSE running_at END,
+                 running_owner=CASE WHEN ?2 THEN NULL ELSE running_owner END
+             WHERE id=?3 AND deleted_at IS NULL",
+            params![now, run_terminalized, id],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        if !run_terminalized {
+            if let Some(claimed_at) = running_at {
+                super::cancel::cancel(id, &claimed_at);
+            }
+        }
+        Ok(active_run_log_id)
     }
 
-    /// Distinct run-session ids produced by a job. Must be read BEFORE
-    /// `delete_job` (which CASCADE-removes `cron_run_logs`), so the caller can
-    /// clean up the now-orphaned cron sessions in `sessions.db`.
-    pub fn session_ids_for_job(&self, job_id: &str) -> Result<Vec<String>> {
-        let conn = self
+    /// Permanently delete one Session and its historical Cron rows under the
+    /// Cron writer fence. Existing SessionTurn/SessionLoop tasks must be
+    /// removed first, otherwise a later occurrence would target a missing chat.
+    pub fn delete_conversation_and_run_logs(
+        &self,
+        session_db: &crate::session::SessionDB,
+        session_id: &str,
+    ) -> Result<()> {
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        let mut stmt =
-            conn.prepare("SELECT DISTINCT session_id FROM cron_run_logs WHERE job_id=?1")?;
-        let rows = stmt.query_map(params![job_id], |row| row.get::<_, String>(0))?;
-        let mut ids = Vec::new();
-        for r in rows {
-            ids.push(r?);
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let referencing_job: Option<String> = tx
+            .query_row(
+                "SELECT id FROM cron_jobs
+                  WHERE deleted_at IS NULL
+                    AND json_extract(payload_json, '$.type') IN ('sessionTurn','sessionLoop')
+                    AND json_extract(payload_json, '$.session_id')=?1
+                  LIMIT 1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(job_id) = referencing_job {
+            anyhow::bail!("scheduled_session_referenced:{job_id}");
         }
-        Ok(ids)
+        let active: bool = tx.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM cron_run_logs l
+                JOIN cron_jobs j ON j.id=l.job_id
+                WHERE l.session_id=?1 AND l.finished_at IS NULL
+                  AND l.status IN ('preparing','queued','running','cancelling','completing')
+                  AND json_extract(j.payload_json, '$.type') IN ('sessionTurn','sessionLoop')
+             )",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if active {
+            anyhow::bail!("scheduled_session_turn_active");
+        }
+
+        // SessionDB reserves its own writer and checks Worktree/queue/ChatTurn
+        // custody before deleting. Any failure leaves this Cron transaction
+        // uncommitted, so historical rows are still intact.
+        session_db.delete_session(session_id)?;
+        tx.execute(
+            "DELETE FROM cron_run_logs WHERE session_id=?1",
+            params![session_id],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// Remove every run-log row that points at a permanently deleted
@@ -561,8 +1056,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
-             FROM cron_jobs WHERE id=?1"
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+             FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL"
         )?;
         let mut rows = stmt.query(params![id])?;
         if let Some(row) = rows.next()? {
@@ -570,6 +1065,65 @@ impl CronDB {
         } else {
             Ok(None)
         }
+    }
+
+    /// Resource-only lookup that keeps logically deleted task ownership
+    /// inspectable without putting the task back on a live scheduling surface.
+    pub fn get_job_including_deleted(&self, id: &str) -> Result<Option<(CronJob, bool)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, deleted_at IS NOT NULL
+             FROM cron_jobs WHERE id=?1")?;
+        let mut rows = stmt.query(params![id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some((row_to_cron_job(row)?, row.get(22)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// Most recent occurrence per task, keyed by job id. The correlated form of
+    /// this query is quadratic and holds the mutex the scheduler claims through,
+    /// so a long-lived task would stall cron itself — keep the grouped join.
+    pub fn latest_run_summaries(
+        &self,
+    ) -> Result<std::collections::HashMap<String, CronLastRunSummary>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(LATEST_RUN_SUMMARY_SQL)?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CronLastRunSummary {
+                    run_log_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    status: row.get(3)?,
+                    started_at: row.get(4)?,
+                    finished_at: row.get(5)?,
+                    error: row.get(6)?,
+                    result_preview: row.get(7)?,
+                    delivery_status: row.get(8)?,
+                },
+            ))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for row in rows {
+            let (job_id, summary) = row?;
+            out.insert(job_id, summary);
+        }
+        Ok(out)
+    }
+
+    /// Owner-facing read of one task and its tombstone flag; see
+    /// [`CronJobSnapshot`] for why a deleted task stays readable.
+    pub fn get_job_snapshot(&self, id: &str) -> Result<Option<CronJobSnapshot>> {
+        Ok(self
+            .get_job_including_deleted(id)?
+            .map(|(job, deleted)| CronJobSnapshot { job, deleted }))
     }
 
     /// Find the cron job that owns a run session (the most recent run log for
@@ -609,8 +1163,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
-             FROM cron_jobs ORDER BY created_at DESC"
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+             FROM cron_jobs WHERE deleted_at IS NULL ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
             row_to_cron_job(row).map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
@@ -640,8 +1194,9 @@ impl CronDB {
             // — without it SQLite returns rows in arbitrary rowid order and, under
             // sustained cap pressure, the most-overdue job could be skipped every
             // tick (starvation). Most-overdue-first makes the cap fair.
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
-             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+             FROM cron_jobs WHERE deleted_at IS NULL AND status='active'
+               AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
              ORDER BY next_run_at ASC"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
@@ -668,7 +1223,8 @@ impl CronDB {
         if enabled {
             // Read current schedule
             let schedule_json: String = conn.query_row(
-                "SELECT schedule_json FROM cron_jobs WHERE id=?1",
+                "SELECT schedule_json FROM cron_jobs
+                 WHERE id=?1 AND deleted_at IS NULL",
                 params![id],
                 |row| row.get(0),
             )?;
@@ -685,19 +1241,36 @@ impl CronDB {
                     new_status
                 };
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, next_run_at=?2, consecutive_failures=0, updated_at=?3 WHERE id=?4",
+                "UPDATE cron_jobs SET status=?1, next_run_at=?2, consecutive_failures=0, updated_at=?3, revision=revision+1
+                 WHERE id=?4 AND deleted_at IS NULL",
                 params![resumed_status, next_run, now, id],
             )?;
         } else {
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, updated_at=?2 WHERE id=?3",
+                "UPDATE cron_jobs SET status=?1, updated_at=?2, revision=revision+1
+                 WHERE id=?3 AND deleted_at IS NULL",
                 params![new_status, now, id],
             )?;
         }
         Ok(())
     }
 
-    /// Update job state after a run (success or failure).
+    /// Runtime Loop disposition: pause without manufacturing an owner edit
+    /// revision. Owner-facing pause/resume continues to use [`Self::toggle_job`].
+    pub fn pause_job_for_runtime(&self, id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET status='paused', updated_at=?1
+             WHERE id=?2 AND deleted_at IS NULL",
+            params![now, id],
+        )?;
+        Ok(())
+    }
+
     /// Update job state after a run. Returns `true` iff this failure pushed the
     /// job to the auto-disable threshold (`consecutive_failures >= max_failures`)
     /// and the status was flipped to `disabled` — the caller uses this to fire a
@@ -707,22 +1280,43 @@ impl CronDB {
         &self,
         id: &str,
         success: bool,
-        schedule: &CronSchedule,
+        _claimed_schedule: &CronSchedule,
     ) -> Result<bool> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some((schedule_json, failures, max_failures)) = tx
+            .query_row(
+                "SELECT schedule_json, consecutive_failures, max_failures
+                 FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+                params![id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(false);
+        };
+        // Owner edits serialize on this transaction. Terminal accounting must
+        // use the live schedule, never the snapshot claimed before a long run.
+        let schedule: CronSchedule = serde_json::from_str(&schedule_json)?;
 
         if success {
             // Success: reset failures, compute next run
-            let (next_status, next_run) = match schedule {
+            let (next_status, next_run) = match &schedule {
                 CronSchedule::At { .. } => ("completed".to_string(), None),
                 _ => {
-                    let next = compute_next_run(schedule, &now).map(|dt| dt.to_rfc3339());
+                    let next = compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339());
                     ("active".to_string(), next)
                 }
             };
@@ -735,24 +1329,14 @@ impl CronDB {
             // user's pause. (Mirrors the failure/auto-disable branch's
             // `status != 'disabled'` guard below; run-now skips this path entirely
             // via `immediate`.)
-            conn.execute(
-                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4 AND status='active'",
+            tx.execute(
+                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3
+                 WHERE id=?4 AND status='active' AND deleted_at IS NULL",
                 params![next_status, next_run, now_str, id],
             )?;
+            tx.commit()?;
             Ok(false)
         } else {
-            // Failure: increment failures, apply backoff
-            let (failures,): (u32,) = conn.query_row(
-                "SELECT consecutive_failures FROM cron_jobs WHERE id=?1",
-                params![id],
-                |row| Ok((row.get(0)?,)),
-            )?;
-            let (max_failures,): (u32,) = conn.query_row(
-                "SELECT max_failures FROM cron_jobs WHERE id=?1",
-                params![id],
-                |row| Ok((row.get(0)?,)),
-            )?;
-
             let new_failures = failures + 1;
 
             // §7 / Sweep#1: a one-shot `At` that fails or times out must NOT be
@@ -763,11 +1347,13 @@ impl CronDB {
             // At backoff-retries and repeats its side effect up to 1+max_failures
             // times — directly contradicting §7's one-shot side-effect safety.
             // Recurring jobs fall through to the backoff / auto-disable logic below.
-            if matches!(schedule, CronSchedule::At { .. }) {
-                conn.execute(
-                    "UPDATE cron_jobs SET status='missed', next_run_at=NULL, consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+            if matches!(&schedule, CronSchedule::At { .. }) {
+                tx.execute(
+                    "UPDATE cron_jobs SET status='missed', next_run_at=NULL, consecutive_failures=?1, last_run_at=?2, updated_at=?2
+                     WHERE id=?3 AND deleted_at IS NULL",
                     params![new_failures, now_str, id],
                 )?;
+                tx.commit()?;
                 return Ok(false);
             }
 
@@ -784,30 +1370,34 @@ impl CronDB {
                 // `running_at`), so re-running an already-disabled job that fails
                 // again must NOT re-notify or re-bump the count. (A re-run that
                 // *succeeds* still re-activates via the success branch above.)
-                let rows = conn.execute(
-                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3 AND status != 'disabled'",
+                let rows = tx.execute(
+                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2
+                     WHERE id=?3 AND status != 'disabled' AND deleted_at IS NULL",
                     params![new_failures, now_str, id],
                 )?;
+                tx.commit()?;
                 Ok(rows > 0)
             } else {
                 // Apply backoff to next run
                 let backoff = backoff_delay_ms(new_failures);
-                let next_run_base = match schedule {
+                let next_run_base = match &schedule {
                     CronSchedule::At { .. } => {
                         // One-shot with failure: retry with backoff
                         now + Duration::milliseconds(backoff as i64)
                     }
                     _ => {
-                        let base = compute_next_run(schedule, &now)
+                        let base = compute_next_run(&schedule, &now)
                             .unwrap_or(now + Duration::milliseconds(backoff as i64));
                         // Add backoff on top
                         base + Duration::milliseconds(backoff as i64)
                     }
                 };
-                conn.execute(
-                    "UPDATE cron_jobs SET consecutive_failures=?1, next_run_at=?2, last_run_at=?3, updated_at=?3 WHERE id=?4",
+                tx.execute(
+                    "UPDATE cron_jobs SET consecutive_failures=?1, next_run_at=?2, last_run_at=?3, updated_at=?3
+                     WHERE id=?4 AND deleted_at IS NULL",
                     params![new_failures, next_run_base.to_rfc3339(), now_str, id],
                 )?;
+                tx.commit()?;
                 Ok(false)
             }
         }
@@ -819,24 +1409,42 @@ impl CronDB {
     /// healthy job toward auto-disable. Recurring jobs advance to their next
     /// occurrence; a one-shot `At` retries shortly (its slot was already cleared
     /// to NULL at claim). Status stays `active`; the failure counter is untouched.
-    pub fn reschedule_without_failure(&self, id: &str, schedule: &CronSchedule) -> Result<()> {
+    pub fn reschedule_without_failure(
+        &self,
+        id: &str,
+        _claimed_schedule: &CronSchedule,
+    ) -> Result<()> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
-        let next_run = match schedule {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(schedule_json) = tx
+            .query_row(
+                "SELECT schedule_json FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        else {
+            return Ok(());
+        };
+        let schedule: CronSchedule = serde_json::from_str(&schedule_json)?;
+        let next_run = match &schedule {
             // One-shot: retry shortly rather than terminalize (the infra failure
             // is likely transient). Bounded by the fact that a permanently-broken
             // session DB is a whole-app outage, not a per-job problem.
             CronSchedule::At { .. } => Some((now + Duration::seconds(60)).to_rfc3339()),
-            _ => compute_next_run(schedule, &now).map(|dt| dt.to_rfc3339()),
+            _ => compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339()),
         };
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        conn.execute(
-            "UPDATE cron_jobs SET next_run_at=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+        tx.execute(
+            "UPDATE cron_jobs SET next_run_at=?1, last_run_at=?2, updated_at=?2
+             WHERE id=?3 AND deleted_at IS NULL",
             params![next_run, now_str, id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -858,7 +1466,7 @@ impl CronDB {
         let rows = conn.execute(
             "UPDATE cron_jobs
              SET next_run_at = ?1, updated_at = ?2
-             WHERE id = ?3 AND status = 'active'",
+             WHERE id = ?3 AND status = 'active' AND deleted_at IS NULL",
             params![next_run, now_str, id],
         )?;
         if rows > 0 {
@@ -881,7 +1489,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1 WHERE id=?2",
+            "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1
+             WHERE id=?2 AND deleted_at IS NULL",
             params![now, id],
         )?;
         Ok(())
@@ -896,13 +1505,16 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, started_owner)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO cron_run_logs (job_id, session_id, turn_id, request_id, execution_started_at, target_message_id, immediate, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, started_owner, worktree_id, workspace_status, workspace_snapshot_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
-                log.job_id, log.session_id, log.status, log.started_at,
-                log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error,
-                log.delivery_status,
-                self.owner_token,
+                log.job_id, log.session_id, log.turn_id, log.request_id,
+                log.execution_started_at, log.target_message_id, log.immediate as i32,
+                log.status, log.started_at, log.finished_at,
+                log.duration_ms.map(|v| v as i64), log.result_preview, log.error,
+                log.delivery_status, self.owner_token, log.worktree_id,
+                log.workspace_status,
+                log.workspace_snapshot.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -919,21 +1531,87 @@ impl CronDB {
         session_id: &str,
         started_at: &str,
     ) -> Result<i64> {
+        self.add_running_run_log_with_turn_for_occurrence(
+            job_id, session_id, started_at, None, false,
+        )
+    }
+
+    pub fn add_running_run_log_with_turn(
+        &self,
+        job_id: &str,
+        session_id: &str,
+        started_at: &str,
+        turn_id: Option<&str>,
+    ) -> Result<i64> {
+        self.add_running_run_log_with_turn_for_occurrence(
+            job_id, session_id, started_at, turn_id, false,
+        )
+    }
+
+    pub fn add_running_run_log_with_turn_for_occurrence(
+        &self,
+        job_id: &str,
+        session_id: &str,
+        started_at: &str,
+        turn_id: Option<&str>,
+        immediate: bool,
+    ) -> Result<i64> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, started_owner)
-             VALUES (?1, ?2, 'running', ?3, NULL, ?4)",
-            params![job_id, session_id, started_at, self.owner_token],
+        let inserted = conn.execute(
+            "INSERT INTO cron_run_logs (job_id, session_id, turn_id, status, started_at, finished_at, started_owner, immediate)
+             SELECT ?1, ?2, ?3, 'running', ?4, NULL, ?5, ?6
+               FROM cron_jobs
+              WHERE id=?1 AND deleted_at IS NULL AND running_at=?4",
+            params![
+                job_id,
+                session_id,
+                turn_id,
+                started_at,
+                self.owner_token,
+                immediate
+            ],
         )?;
+        if inserted != 1 {
+            anyhow::bail!("cron_occurrence_no_longer_live");
+        }
         Ok(conn.last_insert_rowid())
     }
 
-    /// §9 (D2): finalize an in-progress run log to its terminal state (status +
-    /// timing + result/error + delivery outcome) in one UPDATE. No-op-safe — a
-    /// missing / already-finalized id simply matches no rows.
+    /// Recheck the exact claim after its ordinary ChatTurn becomes durable and
+    /// before model/tool execution starts. If task deletion wins before this
+    /// read, the executor aborts locally; if this read wins, deletion can see
+    /// the already-durable turn and publish an exact cross-process Stop.
+    pub fn running_occurrence_is_live(
+        &self,
+        run_log_id: i64,
+        job_id: &str,
+        started_at: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM cron_run_logs l
+                 JOIN cron_jobs j ON j.id=l.job_id
+                 WHERE l.id=?1 AND l.job_id=?2 AND l.started_at=?3
+                   AND l.status IN ('running','completing') AND l.finished_at IS NULL
+                   AND j.deleted_at IS NULL AND j.running_at=l.started_at
+             )",
+            params![run_log_id, job_id, started_at],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
+    /// §9 (D2): seal an in-progress run log to its terminal state. Exact cancel
+    /// is a durable competing owner: once the row is `cancelling`, no failure or
+    /// success path may overwrite it. Returns whether the effective terminal is
+    /// `cancelled`; missing rows retain the caller's requested classification.
     #[allow(clippy::too_many_arguments)]
     pub fn finalize_run_log(
         &self,
@@ -944,26 +1622,563 @@ impl CronDB {
         result_preview: Option<&str>,
         error: Option<&str>,
         delivery_status: Option<&str>,
+    ) -> Result<bool> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current: Option<(String, Option<String>)> = tx
+            .query_row(
+                "SELECT status, finished_at FROM cron_run_logs WHERE id=?1",
+                [run_log_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((current_status, current_finished_at)) = current else {
+            tx.commit()?;
+            return Ok(status == "cancelled");
+        };
+        if current_finished_at.is_some() {
+            tx.commit()?;
+            return Ok(current_status == "cancelled");
+        }
+        let cancel_won = current_status == "cancelling" || status == "cancelled";
+        let effective_status = if cancel_won { "cancelled" } else { status };
+        let effective_preview = if cancel_won { None } else { result_preview };
+        let effective_error = if cancel_won {
+            Some("Cancelled by user")
+        } else {
+            error
+        };
+        let effective_delivery = if cancel_won { None } else { delivery_status };
+        let sealed = tx.execute(
+            "UPDATE cron_run_logs
+             SET status=?1, finished_at=?2, duration_ms=?3, result_preview=?4, error=?5, delivery_status=?6
+             WHERE id=?7 AND status=?8 AND finished_at IS NULL",
+            params![
+                effective_status,
+                finished_at,
+                duration_ms.map(|v| v as i64),
+                effective_preview,
+                effective_error,
+                effective_delivery,
+                run_log_id,
+                current_status
+            ],
+        )?;
+        if sealed != 1 {
+            anyhow::bail!("cron_run_terminal_seal_conflict");
+        }
+        tx.commit()?;
+        Ok(cancel_won)
+    }
+
+    /// Atomically seal one run, apply its live schedule disposition, and release
+    /// only the marker owned by that exact occurrence. If any statement fails,
+    /// the run remains open and the marker remains set for recovery; exposing a
+    /// terminal row before schedule accounting would make a completed `At` look
+    /// missed after restart.
+    #[allow(clippy::too_many_arguments)]
+    pub fn settle_running_occurrence(
+        &self,
+        run_log_id: Option<i64>,
+        job_id: &str,
+        session_id: &str,
+        expected_running_at: &str,
+        terminal: CronRunTerminal<'_>,
+        disposition: CronScheduleDisposition,
+        policy: CronSettlementPolicy,
+    ) -> Result<CronOccurrenceSettlement> {
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        let current = match run_log_id {
+            Some(id) => tx
+                .query_row(
+                    "SELECT status, finished_at, immediate
+                       FROM cron_run_logs
+                      WHERE id=?1 AND job_id=?2 AND started_at=?3",
+                    params![id, job_id, expected_running_at],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, bool>(2)?,
+                        ))
+                    },
+                )
+                .optional()?,
+            None => None,
+        };
+        if run_log_id.is_some() && current.is_none() {
+            anyhow::bail!("cron_run_settlement_target_missing");
+        }
+
+        let job = tx
+            .query_row(
+                "SELECT schedule_json, status, consecutive_failures, max_failures,
+                        running_at, deleted_at
+                   FROM cron_jobs WHERE id=?1",
+                params![job_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, u32>(2)?,
+                        row.get::<_, u32>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((schedule_json, _job_status, failures, max_failures, running_at, deleted_at)) =
+            job
+        else {
+            anyhow::bail!("cron_run_settlement_job_missing");
+        };
+        let mut owns_marker = running_at.as_deref() == Some(expected_running_at);
+        let already_terminal = current
+            .as_ref()
+            .is_some_and(|(_, finished_at, _)| finished_at.is_some());
+        if !owns_marker
+            && running_at.is_none()
+            && !already_terminal
+            && deleted_at.is_none()
+            && matches!(
+                disposition,
+                CronScheduleDisposition::Interrupted | CronScheduleDisposition::Cancelled
+            )
+        {
+            // Older versions could expose the marker before closing the run.
+            // Recovery may safely reacquire an otherwise-free job inside this
+            // same IMMEDIATE transaction, then use the normal exact-owner path.
+            owns_marker = tx.execute(
+                "UPDATE cron_jobs SET running_at=?1, running_owner=?2
+                  WHERE id=?3 AND running_at IS NULL AND deleted_at IS NULL",
+                params![expected_running_at, self.owner_token, job_id],
+            )? == 1;
+        }
+        if !owns_marker && running_at.is_some() && !already_terminal && deleted_at.is_none() {
+            anyhow::bail!("cron_run_settlement_owner_changed");
+        }
+
+        let current_status = current.as_ref().map(|(status, _, _)| status.as_str());
+        let external_cancel_won = current_status == Some("cancelling");
+        let cancel_won = external_cancel_won || terminal.status == "cancelled";
+        let effective_disposition = if external_cancel_won {
+            CronScheduleDisposition::Cancelled
+        } else {
+            disposition
+        };
+        let immediate = terminal.immediate
+            || current
+                .as_ref()
+                .map(|(_, _, immediate)| *immediate)
+                .unwrap_or(false);
+        let mut auto_disabled = false;
+
+        if owns_marker && deleted_at.is_none() && !immediate {
+            let schedule: CronSchedule = serde_json::from_str(&schedule_json)?;
+            match effective_disposition {
+                CronScheduleDisposition::Preserve => {}
+                CronScheduleDisposition::Success | CronScheduleDisposition::Empty => {
+                    if matches!(schedule, CronSchedule::At { .. }) {
+                        tx.execute(
+                            "UPDATE cron_jobs
+                                SET status='completed', next_run_at=NULL, last_run_at=?1,
+                                    consecutive_failures=0, updated_at=?1
+                              WHERE id=?2 AND running_at=?3 AND status='active'
+                                AND deleted_at IS NULL",
+                            params![now_str, job_id, expected_running_at],
+                        )?;
+                    } else {
+                        let next_run = compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339());
+                        if effective_disposition == CronScheduleDisposition::Success {
+                            tx.execute(
+                                "UPDATE cron_jobs
+                                    SET next_run_at=?1, last_run_at=?2,
+                                        consecutive_failures=0, updated_at=?2
+                                  WHERE id=?3 AND running_at=?4 AND status='active'
+                                    AND deleted_at IS NULL",
+                                params![next_run, now_str, job_id, expected_running_at],
+                            )?;
+                        } else {
+                            tx.execute(
+                                "UPDATE cron_jobs
+                                    SET next_run_at=?1, last_run_at=?2, updated_at=?2
+                                  WHERE id=?3 AND running_at=?4 AND deleted_at IS NULL",
+                                params![next_run, now_str, job_id, expected_running_at],
+                            )?;
+                        }
+                    }
+                }
+                CronScheduleDisposition::Failure => {
+                    let new_failures = failures.saturating_add(1);
+                    if matches!(schedule, CronSchedule::At { .. }) {
+                        tx.execute(
+                            "UPDATE cron_jobs
+                                SET status='missed', next_run_at=NULL,
+                                    consecutive_failures=?1, last_run_at=?2, updated_at=?2
+                              WHERE id=?3 AND running_at=?4 AND deleted_at IS NULL",
+                            params![new_failures, now_str, job_id, expected_running_at],
+                        )?;
+                    } else if max_failures > 0 && new_failures >= max_failures {
+                        auto_disabled = tx.execute(
+                            "UPDATE cron_jobs
+                                SET status='disabled', consecutive_failures=?1,
+                                    last_run_at=?2, updated_at=?2
+                              WHERE id=?3 AND running_at=?4 AND status != 'disabled'
+                                AND deleted_at IS NULL",
+                            params![new_failures, now_str, job_id, expected_running_at],
+                        )? > 0;
+                    } else {
+                        let backoff = backoff_delay_ms(new_failures);
+                        let base = compute_next_run(&schedule, &now)
+                            .unwrap_or(now + Duration::milliseconds(backoff as i64));
+                        let next_run = (base + Duration::milliseconds(backoff as i64)).to_rfc3339();
+                        tx.execute(
+                            "UPDATE cron_jobs
+                                SET consecutive_failures=?1, next_run_at=?2,
+                                    last_run_at=?3, updated_at=?3
+                              WHERE id=?4 AND running_at=?5 AND deleted_at IS NULL",
+                            params![new_failures, next_run, now_str, job_id, expected_running_at],
+                        )?;
+                    }
+                }
+                CronScheduleDisposition::InfrastructureFailure => {
+                    let next_run = if matches!(schedule, CronSchedule::At { .. }) {
+                        Some((now + Duration::seconds(60)).to_rfc3339())
+                    } else {
+                        compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
+                    };
+                    tx.execute(
+                        "UPDATE cron_jobs
+                            SET next_run_at=?1, last_run_at=?2, updated_at=?2
+                          WHERE id=?3 AND running_at=?4 AND deleted_at IS NULL",
+                        params![next_run, now_str, job_id, expected_running_at],
+                    )?;
+                }
+                CronScheduleDisposition::Interrupted => {
+                    if matches!(schedule, CronSchedule::At { .. }) {
+                        tx.execute(
+                            "UPDATE cron_jobs
+                                SET status='completed', next_run_at=NULL,
+                                    last_run_at=?1, updated_at=?1
+                              WHERE id=?2 AND running_at=?3 AND deleted_at IS NULL",
+                            params![now_str, job_id, expected_running_at],
+                        )?;
+                    } else {
+                        let next_run = compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339());
+                        tx.execute(
+                            "UPDATE cron_jobs
+                                SET next_run_at=?1, last_run_at=?2, updated_at=?2
+                              WHERE id=?3 AND running_at=?4 AND deleted_at IS NULL",
+                            params![next_run, now_str, job_id, expected_running_at],
+                        )?;
+                    }
+                }
+                CronScheduleDisposition::Cancelled => {
+                    if matches!(schedule, CronSchedule::At { .. }) {
+                        tx.execute(
+                            "UPDATE cron_jobs
+                                SET status='completed', next_run_at=NULL, updated_at=?1
+                              WHERE id=?2 AND running_at=?3 AND deleted_at IS NULL",
+                            params![now_str, job_id, expected_running_at],
+                        )?;
+                    }
+                }
+            }
+        }
+
+        if owns_marker && deleted_at.is_none() && !immediate {
+            if let Some(delay_secs) = policy.backoff_secs.filter(|delay| *delay > 0) {
+                let next_run = (now + Duration::seconds(delay_secs)).to_rfc3339();
+                tx.execute(
+                    "UPDATE cron_jobs
+                        SET next_run_at=?1, updated_at=?2
+                      WHERE id=?3 AND running_at=?4 AND status='active'
+                        AND deleted_at IS NULL",
+                    params![next_run, now_str, job_id, expected_running_at],
+                )?;
+            }
+            match policy.final_action {
+                CronFinalScheduleAction::Keep => {}
+                CronFinalScheduleAction::Pause => {
+                    tx.execute(
+                        "UPDATE cron_jobs SET status='paused', updated_at=?1
+                          WHERE id=?2 AND running_at=?3 AND deleted_at IS NULL",
+                        params![now_str, job_id, expected_running_at],
+                    )?;
+                }
+                CronFinalScheduleAction::Complete => {
+                    tx.execute(
+                        "UPDATE cron_jobs
+                            SET status='completed', next_run_at=NULL, updated_at=?1
+                          WHERE id=?2 AND running_at=?3 AND deleted_at IS NULL",
+                        params![now_str, job_id, expected_running_at],
+                    )?;
+                }
+            }
+        }
+
+        let effective_status = if cancel_won {
+            "cancelled"
+        } else {
+            terminal.status
+        };
+        let effective_preview = (!cancel_won).then_some(terminal.result_preview).flatten();
+        let effective_error = if cancel_won {
+            Some("Cancelled by user")
+        } else {
+            terminal.error
+        };
+        let effective_delivery = (!cancel_won).then_some(terminal.delivery_status).flatten();
+        if let Some(id) = run_log_id {
+            if !already_terminal {
+                let current_status = current_status.expect("run id requires current row");
+                if tx.execute(
+                    "UPDATE cron_run_logs
+                        SET status=?1, finished_at=?2, duration_ms=?3,
+                            result_preview=?4, error=?5, delivery_status=?6
+                      WHERE id=?7 AND job_id=?8 AND started_at=?9
+                        AND status=?10 AND finished_at IS NULL",
+                    params![
+                        effective_status,
+                        terminal.finished_at,
+                        terminal.duration_ms.map(|value| value as i64),
+                        effective_preview,
+                        effective_error,
+                        effective_delivery,
+                        id,
+                        job_id,
+                        expected_running_at,
+                        current_status
+                    ],
+                )? != 1
+                {
+                    anyhow::bail!("cron_run_terminal_seal_conflict");
+                }
+            }
+        } else {
+            tx.execute(
+                "INSERT INTO cron_run_logs (
+                    job_id, session_id, status, started_at, finished_at,
+                    duration_ms, result_preview, error, delivery_status,
+                    started_owner, immediate
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    job_id,
+                    session_id,
+                    effective_status,
+                    expected_running_at,
+                    terminal.finished_at,
+                    terminal.duration_ms.map(|value| value as i64),
+                    effective_preview,
+                    effective_error,
+                    effective_delivery,
+                    self.owner_token,
+                    terminal.immediate,
+                ],
+            )?;
+        }
+
+        if policy.release_marker
+            && owns_marker
+            && tx.execute(
+                "UPDATE cron_jobs SET running_at=NULL, running_owner=NULL
+                  WHERE id=?1 AND running_at=?2",
+                params![job_id, expected_running_at],
+            )? != 1
+        {
+            anyhow::bail!("cron_run_marker_release_conflict");
+        }
+        tx.commit()?;
+        Ok(CronOccurrenceSettlement {
+            cancel_won,
+            auto_disabled,
+        })
+    }
+
+    /// Transfer an unfinished exact occurrence to the scheduler recovery owner
+    /// after atomic terminal/accounting settlement failed. No terminal fields are
+    /// published here; recovery deliberately records an interrupted, no-replay
+    /// outcome through [`Self::settle_running_occurrence`].
+    pub fn handoff_running_occurrence_to_recovery(
+        &self,
+        run_log_id: Option<i64>,
+        job_id: &str,
+        session_id: &str,
+        started_at: &str,
+        immediate: bool,
+        cancel_requested: bool,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let changed = if let Some(id) = run_log_id {
+            conn.execute(
+                "UPDATE cron_run_logs
+                    SET started_owner=NULL,
+                        status=CASE WHEN ?4 THEN 'cancelling' ELSE status END
+                  WHERE id=?1 AND job_id=?2 AND started_at=?3
+                    AND finished_at IS NULL",
+                params![id, job_id, started_at, cancel_requested],
+            )?
+        } else {
+            0
+        };
+        if changed == 0 {
+            conn.execute(
+                "INSERT INTO cron_run_logs (
+                    job_id, session_id, status, started_at, error,
+                    started_owner, immediate
+                 ) SELECT ?1, ?2, CASE WHEN ?5 THEN 'cancelling' ELSE 'running' END,
+                          ?3, 'Interrupted before terminal accounting', NULL, ?4
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM cron_run_logs
+                     WHERE job_id=?1 AND started_at=?3 AND finished_at IS NULL
+                  )",
+                params![job_id, session_id, started_at, immediate, cancel_requested],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Delivery happens after a successful scheduled settlement so slow remote
+    /// targets do not retain a Cron slot. It may only enrich an already-terminal
+    /// exact run and never changes its classification.
+    pub fn update_terminal_run_delivery_status(
+        &self,
+        run_log_id: i64,
+        delivery_status: Option<&str>,
     ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_run_logs
-             SET status=?1, finished_at=?2, duration_ms=?3, result_preview=?4, error=?5, delivery_status=?6
-             WHERE id=?7",
-            params![
-                status,
-                finished_at,
-                duration_ms.map(|v| v as i64),
-                result_preview,
-                error,
-                delivery_status,
-                run_log_id
-            ],
+            "UPDATE cron_run_logs SET delivery_status=?1
+              WHERE id=?2 AND finished_at IS NOT NULL",
+            params![delivery_status, run_log_id],
         )?;
         Ok(())
+    }
+
+    /// Persist the exact workspace custody/audit state for one occurrence.
+    pub fn set_run_workspace(
+        &self,
+        run_log_id: i64,
+        worktree_id: Option<&str>,
+        status: &str,
+        snapshot: Option<&CronWorkspaceSnapshot>,
+    ) -> Result<()> {
+        let snapshot_json = snapshot.map(serde_json::to_string).transpose()?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        if conn.execute(
+            "UPDATE cron_run_logs SET worktree_id=?1, workspace_status=?2,
+              workspace_snapshot_json=COALESCE(?3, workspace_snapshot_json) WHERE id=?4",
+            params![worktree_id, status, snapshot_json, run_log_id],
+        )? != 1
+        {
+            anyhow::bail!("workspace_run_not_found");
+        }
+        Ok(())
+    }
+
+    pub fn mark_worktree_discarded(&self, worktree_id: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_run_logs SET workspace_status='discarded' WHERE worktree_id=?1",
+            params![worktree_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_locked_persistent_workspaces(&self, limit: usize) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM cron_jobs WHERE workspace_resource_locked=1 AND running_at IS NULL
+              ORDER BY updated_at LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![limit.min(256) as i64], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into);
+        rows
+    }
+
+    pub fn finish_persistent_discard(&self, job_id: &str, worktree_id: Option<&str>) -> Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction()?;
+        if tx.execute(
+            "UPDATE cron_jobs SET workspace_resource_locked=0
+              WHERE id=?1 AND workspace_resource_locked=1",
+            params![job_id],
+        )? == 1
+        {
+            tx.execute(
+                "UPDATE cron_run_logs SET workspace_status='discarded'
+                  WHERE job_id=?1 AND worktree_id=COALESCE(?2, (
+                    SELECT worktree_id FROM cron_run_logs WHERE job_id=?1
+                      AND json_extract(workspace_snapshot_json, '$.mode')='persistent'
+                    ORDER BY id DESC LIMIT 1))",
+                params![job_id, worktree_id],
+            )?;
+        }
+        tx.commit().map_err(Into::into)
+    }
+
+    pub fn set_persistent_workspace_lock(&self, job_id: &str, locked: bool) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        if conn.execute(
+            "UPDATE cron_jobs SET workspace_resource_locked=?1 WHERE id=?2",
+            params![locked as i32, job_id],
+        )? != 1
+        {
+            anyhow::bail!("workspace_task_missing");
+        }
+        Ok(())
+    }
+
+    /// Read-only mirror of the workspace-policy CAS guard used by owner edits.
+    pub fn workspace_policy_locked(&self, job_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT running_at IS NOT NULL OR workspace_resource_locked OR
+                    (json_extract(workspace_policy_json, '$.mode')='persistent' AND EXISTS(
+                      SELECT 1 FROM cron_run_logs WHERE job_id=?1 AND worktree_id IS NOT NULL
+                        AND COALESCE(workspace_status,'') != 'discarded'))
+                   FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
     }
 
     /// Review fix: finalize the in-progress run log if it was opened
@@ -985,7 +2200,7 @@ impl CronDB {
         result_preview: Option<&str>,
         error: Option<&str>,
         delivery_status: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         match run_log_id {
             Some(id) => self.finalize_run_log(
                 id,
@@ -1001,6 +2216,11 @@ impl CronDB {
                     id: 0,
                     job_id: job_id.to_string(),
                     session_id: session_id.to_string(),
+                    turn_id: None,
+                    request_id: None,
+                    execution_started_at: None,
+                    target_message_id: None,
+                    immediate: false,
                     status: status.to_string(),
                     started_at: started_at.to_string(),
                     finished_at: Some(finished_at.to_string()),
@@ -1008,8 +2228,11 @@ impl CronDB {
                     result_preview: result_preview.map(|s| s.to_string()),
                     error: error.map(|s| s.to_string()),
                     delivery_status: delivery_status.map(|s| s.to_string()),
+                    worktree_id: None,
+                    workspace_status: None,
+                    workspace_snapshot: None,
                 };
-                self.add_run_log(&log).map(|_| ())
+                self.add_run_log(&log).map(|_| status == "cancelled")
             }
         }
     }
@@ -1026,23 +2249,10 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id, worktree_id, workspace_status, workspace_snapshot_json, request_id, execution_started_at, target_message_id, immediate
              FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2 OFFSET ?3"
         )?;
-        let rows = stmt.query_map(params![job_id, limit as i64, offset as i64], |row| {
-            Ok(CronRunLog {
-                id: row.get(0)?,
-                job_id: row.get(1)?,
-                session_id: row.get(2)?,
-                status: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                duration_ms: crate::sql_opt_u64(row, 6)?,
-                result_preview: row.get(7)?,
-                error: row.get(8)?,
-                delivery_status: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![job_id, limit as i64, offset as i64], row_to_run_log)?;
         let mut logs = Vec::new();
         for row in rows {
             logs.push(row?);
@@ -1050,11 +2260,117 @@ impl CronDB {
         Ok(logs)
     }
 
+    pub fn get_run_log(&self, run_log_id: i64) -> Result<Option<CronRunLog>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id, worktree_id, workspace_status, workspace_snapshot_json, request_id, execution_started_at, target_message_id, immediate
+             FROM cron_run_logs WHERE id=?1",
+            params![run_log_id],
+            row_to_run_log,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    /// The task's single unfinished occurrence, resolved from its live
+    /// `running_at` claim. Callers that only know the task (the model tool asked
+    /// to "stop the run that is going right now") need this to reach the exact
+    /// run log; anything that already holds a run log id must keep using it,
+    /// since a task's claim can advance between two calls.
+    pub fn find_open_run_log_for_job(&self, job_id: &str) -> Result<Option<i64>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let claimed_at: Option<String> = conn
+            .query_row(
+                "SELECT running_at FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(claimed_at) = claimed_at else {
+            return Ok(None);
+        };
+        conn.query_row(
+            "SELECT id FROM cron_run_logs
+              WHERE job_id=?1 AND started_at=?2 AND finished_at IS NULL
+              ORDER BY id LIMIT 1",
+            params![job_id, claimed_at],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    pub fn get_run_cancel_target(&self, run_log_id: i64) -> Result<Option<CronRunCancelTarget>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT id, job_id, session_id, started_at, turn_id, status, finished_at, request_id
+             FROM cron_run_logs WHERE id=?1",
+            params![run_log_id],
+            |row| {
+                Ok(CronRunCancelTarget {
+                    run_log_id: row.get(0)?,
+                    job_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    started_at: row.get(3)?,
+                    turn_id: row.get(4)?,
+                    status: row.get(5)?,
+                    finished_at: row.get(6)?,
+                    request_id: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    /// Persist exact cancellation before crossing into sessions.db. This is the
+    /// durable pre-ChatTurn intent: a Secondary can win this CAS even while the
+    /// Primary has only opened the run log, and the occurrence watcher then
+    /// cancels the shared token before model/tool work continues.
+    pub fn request_running_run_cancel(&self, run_log_id: i64) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        Ok(conn.execute(
+            "UPDATE cron_run_logs SET status='cancelling'
+             WHERE id=?1 AND status='running' AND finished_at IS NULL
+               AND turn_id IS NOT NULL",
+            [run_log_id],
+        )? == 1)
+    }
+
+    /// Close the durable exact-cancel window before delivery or other
+    /// irreversible post-model effects. A cancel CAS that wins first leaves the
+    /// row `cancelling`; a completion CAS that wins first makes later Cancel Run
+    /// honestly report that the occurrence has crossed its stop point.
+    pub fn close_running_run_cancellation(&self, run_log_id: i64) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        Ok(conn.execute(
+            "UPDATE cron_run_logs SET status='completing'
+             WHERE id=?1 AND status='running' AND finished_at IS NULL",
+            [run_log_id],
+        )? == 1)
+    }
+
     /// Cross-job timeline: every cron run across all jobs, newest-first,
     /// paginated. `title` / `unread_count` are left at their defaults here — the
     /// caller (`cron_run_timeline`) hydrates them from `SessionDB`, a separate
-    /// database. LEFT JOIN so a run whose job row was deleted still surfaces,
-    /// with `job_name` falling back to `(deleted job)`.
+    /// database. LEFT JOIN preserves legacy orphan rows; logical tombstones keep
+    /// their original task name and are exposed through `job_deleted`.
     pub fn list_run_timeline(&self, limit: usize, offset: usize) -> Result<Vec<CronTimelineRow>> {
         let conn = self
             .conn
@@ -1063,15 +2379,18 @@ impl CronDB {
         let mut stmt = conn.prepare(
             "SELECT l.id, l.session_id, l.job_id,
                     COALESCE(j.name, '(deleted job)') AS job_name,
+                    (j.id IS NULL OR j.deleted_at IS NOT NULL) AS job_deleted,
                     j.payload_json,
-                    l.status, l.started_at, l.finished_at, l.result_preview
+                    l.status, l.started_at, l.finished_at, l.result_preview,
+                    l.worktree_id, l.workspace_status, l.workspace_snapshot_json,
+                    l.turn_id, l.target_message_id
              FROM cron_run_logs l
              LEFT JOIN cron_jobs j ON j.id = l.job_id
              ORDER BY l.started_at DESC, l.id DESC
              LIMIT ?1 OFFSET ?2",
         )?;
         let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
-            let payload_json: Option<String> = row.get(4)?;
+            let payload_json: Option<String> = row.get(5)?;
             let payload_type = payload_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str::<CronPayload>(json).ok())
@@ -1082,11 +2401,17 @@ impl CronDB {
                 session_id: row.get(1)?,
                 job_id: row.get(2)?,
                 job_name: row.get(3)?,
+                job_deleted: row.get(4)?,
                 payload_type,
-                status: row.get(5)?,
-                started_at: row.get(6)?,
-                finished_at: row.get(7)?,
-                result_preview: row.get(8)?,
+                status: row.get(6)?,
+                started_at: row.get(7)?,
+                finished_at: row.get(8)?,
+                result_preview: row.get(9)?,
+                worktree_id: row.get(10)?,
+                workspace_status: row.get(11)?,
+                workspace_snapshot: decode_workspace_snapshot(row.get(12)?)?,
+                turn_id: row.get(13)?,
+                target_message_id: row.get(14)?,
                 title: None,
                 unread_count: 0,
             })
@@ -1275,24 +2600,11 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status, turn_id, worktree_id, workspace_status, workspace_snapshot_json, request_id, execution_started_at, target_message_id, immediate
              FROM cron_run_logs WHERE job_id=?1 AND started_at >= ?2 AND started_at <= ?3
              ORDER BY started_at ASC"
         )?;
-        let rows = stmt.query_map(params![job_id, window_start, window_end], |row| {
-            Ok(CronRunLog {
-                id: row.get(0)?,
-                job_id: row.get(1)?,
-                session_id: row.get(2)?,
-                status: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                duration_ms: crate::sql_opt_u64(row, 6)?,
-                result_preview: row.get(7)?,
-                error: row.get(8)?,
-                delivery_status: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![job_id, window_start, window_end], row_to_run_log)?;
         let mut logs = Vec::new();
         for row in rows {
             logs.push(row?);
@@ -1314,20 +2626,63 @@ impl CronDB {
     /// 缺这条界，那条 in-flight log 会被标成 `error` + `Interrupted by app
     /// shutdown`，一条假失败记录、还污染 dashboard 的 cron 成功率口径。
     pub fn recover_orphaned_runs(&self) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        // 与 `clear_stale_running` 同一条 owner 界、同一个理由：不带界的话，
-        // 本进程刚开的 run log 会被标成 "Interrupted by app shutdown"——那是
-        // 一条**假的失败记录**，还会污染 dashboard 的 cron 成功率口径。
-        // `started_owner IS NULL` 覆盖旧库升上来的行与历史崩溃留下的 log。
-        let count = conn.execute(
-            "UPDATE cron_run_logs SET status='error', error='Interrupted by app shutdown', finished_at=datetime('now')
-             WHERE finished_at IS NULL AND (started_owner IS NULL OR started_owner != ?1)",
-            [&self.owner_token],
-        )?;
-        Ok(count)
+        let orphaned = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+            let mut stmt = conn.prepare(
+                "SELECT id, job_id, session_id, started_at, status, immediate
+                   FROM cron_run_logs
+                  WHERE status IN ('running','cancelling','completing')
+                    AND finished_at IS NULL
+                    AND (started_owner IS NULL OR started_owner != ?1)
+                  ORDER BY id",
+            )?;
+            let rows = stmt.query_map([&self.owner_token], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, bool>(5)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut recovered = 0;
+        for (run_log_id, job_id, session_id, started_at, status, immediate) in orphaned {
+            let cancelled = status == "cancelling";
+            self.settle_running_occurrence(
+                Some(run_log_id),
+                &job_id,
+                &session_id,
+                &started_at,
+                CronRunTerminal {
+                    status: if cancelled { "cancelled" } else { "error" },
+                    finished_at: &Utc::now().to_rfc3339(),
+                    duration_ms: None,
+                    result_preview: None,
+                    error: Some(if cancelled {
+                        "Cancelled by user"
+                    } else {
+                        "Interrupted by app shutdown"
+                    }),
+                    delivery_status: None,
+                    immediate,
+                },
+                if cancelled {
+                    CronScheduleDisposition::Cancelled
+                } else {
+                    CronScheduleDisposition::Interrupted
+                },
+                CronSettlementPolicy::STANDARD,
+            )?;
+            recovered += 1;
+        }
+        Ok(recovered)
     }
 
     /// §9 (C6): record the (Primary-only) scheduler's liveness heartbeat. Called
@@ -1368,6 +2723,492 @@ impl CronDB {
             .map(|dt| dt.with_timezone(&Utc)))
     }
 
+    /// Atomically reserve the task occurrence and create its invisible run-log
+    /// envelope. The queue row is inserted afterwards using the returned log id
+    /// as `source_ref`, then [`Self::mark_session_turn_queued`] publishes it.
+    pub fn claim_session_turn_for_preparing(
+        &self,
+        job: &CronJob,
+        request_id: &str,
+        immediate: bool,
+    ) -> Result<Option<SessionTurnRunEnvelope>> {
+        let CronPayload::SessionTurn { session_id, .. } = &job.payload else {
+            anyhow::bail!("cron_payload_not_session_turn");
+        };
+        if request_id.trim().is_empty() {
+            anyhow::bail!("cron_request_id_required");
+        }
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let payload_json = serde_json::to_string(&job.payload)?;
+        let workspace_policy_json = serde_json::to_string(&job.workspace_policy)?;
+        let next_run = match &job.schedule {
+            CronSchedule::At { .. } => None,
+            other => compute_next_run(other, &now).map(|dt| dt.to_rfc3339()),
+        };
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let claimed = if immediate {
+            tx.execute(
+                "UPDATE cron_jobs SET running_at=?1, running_owner=?2
+                 WHERE id=?3 AND payload_json=?4 AND revision=?5 AND project_id IS NULL
+                   AND workspace_policy_json=?6 AND running_at IS NULL
+                   AND deleted_at IS NULL",
+                params![
+                    now_str,
+                    self.owner_token,
+                    job.id,
+                    payload_json,
+                    job.revision as i64,
+                    workspace_policy_json
+                ],
+            )?
+        } else {
+            tx.execute(
+                "UPDATE cron_jobs SET running_at=?1, running_owner=?2,
+                                      next_run_at=?3, updated_at=?1
+                 WHERE id=?4 AND next_run_at=?5 AND next_run_at<=?6
+                   AND payload_json=?7 AND revision=?8 AND project_id IS NULL
+                   AND workspace_policy_json=?9 AND status='active'
+                   AND running_at IS NULL AND deleted_at IS NULL",
+                params![
+                    now_str,
+                    self.owner_token,
+                    next_run,
+                    job.id,
+                    job.next_run_at,
+                    now_str,
+                    payload_json,
+                    job.revision as i64,
+                    workspace_policy_json
+                ],
+            )?
+        };
+        if claimed == 0 {
+            return Ok(None);
+        }
+        tx.execute(
+            "INSERT INTO cron_run_logs
+               (job_id, session_id, request_id, status, started_at, immediate,
+                finished_at, started_owner)
+             VALUES (?1, ?2, ?3, 'preparing', ?4, ?5, NULL, ?6)",
+            params![
+                job.id,
+                session_id,
+                request_id,
+                now_str,
+                immediate as i32,
+                self.owner_token
+            ],
+        )?;
+        let run_log_id = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(Some(SessionTurnRunEnvelope {
+            run_log_id,
+            job_id: job.id.clone(),
+            session_id: session_id.clone(),
+            request_id: request_id.to_string(),
+            started_at: now_str,
+            immediate,
+        }))
+    }
+
+    /// Publish a SessionTurn occurrence only after its exact managed queue row
+    /// exists. The dispatch pump never considers `preparing` rows.
+    pub fn mark_session_turn_queued(&self, run_log_id: i64, request_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        Ok(conn.execute(
+            "UPDATE cron_run_logs SET status='queued'
+             WHERE id=?1 AND request_id=?2 AND status='preparing'
+               AND finished_at IS NULL AND EXISTS (
+                 SELECT 1 FROM cron_jobs j WHERE j.id=cron_run_logs.job_id
+                   AND j.deleted_at IS NULL AND j.running_at=cron_run_logs.started_at)",
+            params![run_log_id, request_id],
+        )? == 1)
+    }
+
+    pub fn list_queued_session_turn_runs(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<SessionTurnRunEnvelope>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT l.id, l.job_id, l.session_id, l.request_id, l.started_at, l.immediate
+             FROM cron_run_logs l JOIN cron_jobs j ON j.id=l.job_id
+             WHERE l.id>?1 AND l.status='queued' AND l.finished_at IS NULL
+               AND l.request_id IS NOT NULL AND j.deleted_at IS NULL
+               AND j.running_at=l.started_at
+               AND json_extract(j.payload_json, '$.type')='sessionTurn'
+             ORDER BY l.id LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![after_id, limit.min(256) as i64], |row| {
+            Ok(SessionTurnRunEnvelope {
+                run_log_id: row.get(0)?,
+                job_id: row.get(1)?,
+                session_id: row.get(2)?,
+                request_id: row.get(3)?,
+                started_at: row.get(4)?,
+                immediate: row.get::<_, i32>(5)? != 0,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    /// Whether an exact Scheduled queue identity still belongs to a live
+    /// SessionTurn occurrence. Cross-database recovery removes custody when
+    /// this predicate is false; no terminal occurrence can become live again.
+    pub fn session_turn_queue_envelope_is_live(
+        &self,
+        run_log_id: i64,
+        request_id: &str,
+        session_id: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM cron_run_logs l
+                JOIN cron_jobs j ON j.id=l.job_id
+                WHERE l.id=?1 AND l.request_id=?2 AND l.session_id=?3
+                  AND l.finished_at IS NULL
+                  AND l.status IN ('preparing','queued','running')
+                  AND j.deleted_at IS NULL AND j.running_at=l.started_at
+                  AND json_extract(j.payload_json, '$.type')='sessionTurn'
+             )",
+            params![run_log_id, request_id, session_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn list_stale_preparing_session_turn_runs(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<SessionTurnRunEnvelope>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, job_id, session_id, request_id, started_at, immediate
+             FROM cron_run_logs
+             WHERE id>?1 AND status='preparing' AND finished_at IS NULL
+               AND request_id IS NOT NULL
+               AND (started_owner IS NULL OR started_owner != ?2)
+             ORDER BY id LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![after_id, self.owner_token, limit.min(256) as i64],
+            |row| {
+                Ok(SessionTurnRunEnvelope {
+                    run_log_id: row.get(0)?,
+                    job_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    request_id: row.get(3)?,
+                    started_at: row.get(4)?,
+                    immediate: row.get::<_, i32>(5)? != 0,
+                })
+            },
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    /// Convert the queued overlap marker into an executing slot without ever
+    /// clearing `running_at`. Capacity check and state transition share one
+    /// IMMEDIATE transaction, so two Primary candidates cannot oversubscribe.
+    pub fn claim_session_turn_for_execution(
+        &self,
+        run_log_id: i64,
+        request_id: &str,
+        turn_id: &str,
+        max_concurrent: Option<usize>,
+    ) -> Result<Option<String>> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(max) = max_concurrent {
+            let running: i64 = tx.query_row(RUNNING_COUNT_SQL, [], |row| row.get(0))?;
+            if running as usize >= max {
+                return Ok(None);
+            }
+        }
+        let execution_started_at = Utc::now().to_rfc3339();
+        let updated = tx.execute(
+            "UPDATE cron_run_logs SET status='running', execution_started_at=?1,
+                                      turn_id=?2, started_owner=?3
+             WHERE id=?4 AND request_id=?5 AND status='queued'
+               AND finished_at IS NULL AND EXISTS (
+                 SELECT 1 FROM cron_jobs j WHERE j.id=cron_run_logs.job_id
+                   AND j.deleted_at IS NULL AND j.running_at=cron_run_logs.started_at
+                   AND json_extract(j.payload_json, '$.type')='sessionTurn')",
+            params![
+                execution_started_at,
+                turn_id,
+                self.owner_token,
+                run_log_id,
+                request_id
+            ],
+        )?;
+        if updated == 0 {
+            return Ok(None);
+        }
+        tx.execute(
+            "UPDATE cron_jobs SET running_owner=?1 WHERE id=(
+               SELECT job_id FROM cron_run_logs WHERE id=?2)",
+            params![self.owner_token, run_log_id],
+        )?;
+        tx.commit()?;
+        Ok(Some(execution_started_at))
+    }
+
+    /// Put an admitted occurrence back behind the same FIFO head if dispatch
+    /// failed before the ordinary ChatTurn transaction committed.
+    pub fn release_session_turn_execution(
+        &self,
+        run_log_id: i64,
+        request_id: &str,
+        turn_id: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        Ok(conn.execute(
+            "UPDATE cron_run_logs SET status='queued', execution_started_at=NULL,
+                                      turn_id=NULL, started_owner=?1
+             WHERE id=?2 AND request_id=?3 AND turn_id=?4 AND status='running'
+               AND finished_at IS NULL AND target_message_id IS NULL",
+            params![self.owner_token, run_log_id, request_id, turn_id],
+        )? == 1)
+    }
+
+    pub fn set_session_turn_target_message(
+        &self,
+        run_log_id: i64,
+        request_id: &str,
+        turn_id: &str,
+        message_id: i64,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        Ok(conn.execute(
+            "UPDATE cron_run_logs SET target_message_id=?1
+             WHERE id=?2 AND request_id=?3 AND turn_id=?4
+               AND status IN ('running','cancelling')
+               AND finished_at IS NULL",
+            params![message_id, run_log_id, request_id, turn_id],
+        )? == 1)
+    }
+
+    pub fn list_unprojected_session_turn_commits(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT l.id, l.request_id, l.turn_id
+             FROM cron_run_logs l JOIN cron_jobs j ON j.id=l.job_id
+             WHERE l.id>?1 AND l.status='running' AND l.finished_at IS NULL
+               AND l.target_message_id IS NULL AND l.request_id IS NOT NULL
+               AND l.turn_id IS NOT NULL
+               AND (l.started_owner IS NULL OR l.started_owner != ?2)
+               AND json_extract(j.payload_json, '$.type')='sessionTurn'
+             ORDER BY l.id LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![after_id, self.owner_token, limit.min(256) as i64],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn has_active_session_turn_custody(&self, session_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cron_run_logs l
+             JOIN cron_jobs j ON j.id=l.job_id
+             WHERE l.session_id=?1 AND l.finished_at IS NULL
+               AND l.status IN ('preparing','queued','running','cancelling','completing')
+               AND json_extract(j.payload_json, '$.type')='sessionTurn')",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+    }
+
+    /// Terminalize a not-yet-executing occurrence and clear only its exact task
+    /// overlap marker. Used by enqueue failure, exact cancel, and recovery.
+    pub fn finish_pending_session_turn(
+        &self,
+        run_log_id: i64,
+        request_id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<bool> {
+        if !matches!(status, "cancelled" | "error") {
+            anyhow::bail!("cron_pending_terminal_status_invalid");
+        }
+        let now = Utc::now().to_rfc3339();
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let marker: Option<(String, String, bool)> = tx
+            .query_row(
+                "SELECT job_id, started_at, immediate FROM cron_run_logs
+                 WHERE id=?1 AND request_id=?2 AND status IN ('preparing','queued')
+                   AND finished_at IS NULL",
+                params![run_log_id, request_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i32>(2)? != 0)),
+            )
+            .optional()?;
+        let Some((job_id, started_at, immediate)) = marker else {
+            return Ok(false);
+        };
+        tx.execute(
+            "UPDATE cron_run_logs SET status=?1, error=?2, finished_at=?3
+             WHERE id=?4 AND request_id=?5 AND status IN ('preparing','queued')
+               AND finished_at IS NULL",
+            params![status, error, now, run_log_id, request_id],
+        )?;
+        tx.execute(
+            "UPDATE cron_jobs SET running_at=NULL, running_owner=NULL
+             WHERE id=?1 AND running_at=?2",
+            params![job_id, started_at],
+        )?;
+        if !immediate {
+            match status {
+                "cancelled" => {
+                    tx.execute(
+                        "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1
+                         WHERE id=?2 AND deleted_at IS NULL
+                           AND json_extract(schedule_json, '$.type')='at'",
+                        params![now, job_id],
+                    )?;
+                }
+                "error" => {
+                    let retry_at = (Utc::now() + Duration::seconds(60)).to_rfc3339();
+                    tx.execute(
+                        "UPDATE cron_jobs SET next_run_at=?1, updated_at=?2
+                         WHERE id=?3 AND deleted_at IS NULL AND status='active'
+                           AND json_extract(schedule_json, '$.type')='at'",
+                        params![retry_at, now, job_id],
+                    )?;
+                }
+                _ => unreachable!(),
+            }
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Fail an exact SessionTurn occurrence whose target became ineligible and
+    /// pause its recurring task in the same CronDB transaction. `turn_id=None`
+    /// owns a preparing/queued envelope; `Some(turn_id)` owns a running envelope
+    /// only before its ordinary ChatTurn has committed. If exact cancellation or
+    /// another terminal owner won first, this returns `false` without changing
+    /// the task marker.
+    pub fn finish_invalid_session_turn_and_pause(
+        &self,
+        run_log_id: i64,
+        request_id: &str,
+        turn_id: Option<&str>,
+        error: &str,
+        duration_ms: Option<u64>,
+    ) -> Result<bool> {
+        let now = Utc::now().to_rfc3339();
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let occurrence: Option<(String, String, bool)> = tx
+            .query_row(
+                "SELECT l.job_id, l.started_at, l.immediate
+                   FROM cron_run_logs l
+                   JOIN cron_jobs j ON j.id=l.job_id
+                  WHERE l.id=?1 AND l.request_id=?2 AND l.finished_at IS NULL
+                    AND j.running_at=l.started_at
+                    AND json_extract(j.payload_json, '$.type')='sessionTurn'
+                    AND ((?3 IS NULL AND l.status IN ('preparing','queued')
+                                      AND l.turn_id IS NULL)
+                      OR (?3 IS NOT NULL AND l.status='running'
+                                          AND l.turn_id=?3
+                                          AND l.target_message_id IS NULL))",
+                params![run_log_id, request_id, turn_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i32>(2)? != 0)),
+            )
+            .optional()?;
+        let Some((job_id, started_at, immediate)) = occurrence else {
+            return Ok(false);
+        };
+
+        let terminalized = tx.execute(
+            "UPDATE cron_run_logs
+                SET status='error', error=?1, finished_at=?2, duration_ms=?3
+              WHERE id=?4 AND request_id=?5 AND finished_at IS NULL
+                AND ((?6 IS NULL AND status IN ('preparing','queued') AND turn_id IS NULL)
+                  OR (?6 IS NOT NULL AND status='running' AND turn_id=?6
+                                      AND target_message_id IS NULL))",
+            params![
+                error,
+                now,
+                duration_ms.map(|value| value as i64),
+                run_log_id,
+                request_id,
+                turn_id
+            ],
+        )?;
+        if terminalized != 1 {
+            anyhow::bail!("cron_invalid_target_terminal_conflict");
+        }
+        let released = tx.execute(
+            "UPDATE cron_jobs
+                SET running_at=NULL,
+                    running_owner=NULL,
+                    status=CASE
+                      WHEN ?1=0 AND deleted_at IS NULL AND status='active' THEN 'paused'
+                      ELSE status
+                    END,
+                    updated_at=?2
+              WHERE id=?3 AND running_at=?4",
+            params![immediate as i32, now, job_id, started_at],
+        )?;
+        if released != 1 {
+            anyhow::bail!("cron_invalid_target_marker_conflict");
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Atomically claim a scheduled due job: set running_at and advance next_run_at.
     /// Returns an execution lease if no one else grabbed it first.
     pub fn claim_scheduled_job_for_execution(
@@ -1387,6 +3228,7 @@ impl CronDB {
             other => compute_next_run(other, &now).map(|dt| dt.to_rfc3339()),
         };
         let payload_json = serde_json::to_string(&job.payload)?;
+        let workspace_policy_json = serde_json::to_string(&job.workspace_policy)?;
 
         // Atomically claim only the exact payload snapshot that was listed.
         // Agent deletion may rebind payload_json between list and claim; in
@@ -1395,7 +3237,9 @@ impl CronDB {
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, running_owner=?2, next_run_at=?3, updated_at=?1
              WHERE id=?4 AND next_run_at=?5 AND next_run_at <= ?6
-               AND payload_json=?7 AND status='active' AND running_at IS NULL",
+               AND payload_json=?7 AND revision=?8 AND project_id IS ?9
+               AND workspace_policy_json=?10 AND status='active' AND running_at IS NULL
+               AND deleted_at IS NULL",
             params![
                 now_str,
                 self.owner_token,
@@ -1403,7 +3247,10 @@ impl CronDB {
                 job.id,
                 job.next_run_at,
                 now_str,
-                payload_json
+                payload_json,
+                job.revision as i64,
+                job.project_id,
+                workspace_policy_json
             ],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
@@ -1425,10 +3272,21 @@ impl CronDB {
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let now = chrono::Utc::now().to_rfc3339();
         let payload_json = serde_json::to_string(&job.payload)?;
+        let workspace_policy_json = serde_json::to_string(&job.workspace_policy)?;
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, running_owner=?2
-             WHERE id=?3 AND payload_json=?4 AND running_at IS NULL",
-            params![now, self.owner_token, job.id, payload_json],
+             WHERE id=?3 AND payload_json=?4 AND revision=?5 AND project_id IS ?6
+               AND workspace_policy_json=?7 AND running_at IS NULL
+               AND deleted_at IS NULL",
+            params![
+                now,
+                self.owner_token,
+                job.id,
+                payload_json,
+                job.revision as i64,
+                job.project_id,
+                workspace_policy_json
+            ],
         )?;
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
@@ -1459,11 +3317,7 @@ impl CronDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM cron_jobs WHERE running_at IS NOT NULL",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = conn.query_row(RUNNING_COUNT_SQL, [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -1514,7 +3368,13 @@ impl CronDB {
         let count = conn.execute(
             "UPDATE cron_jobs SET running_at=NULL, running_owner=NULL
              WHERE running_at IS NOT NULL
-               AND (running_owner IS NULL OR running_owner != ?1)",
+               AND (running_owner IS NULL OR running_owner != ?1)
+               AND NOT EXISTS (
+                 SELECT 1 FROM cron_run_logs l
+                 WHERE l.job_id=cron_jobs.id AND l.started_at=cron_jobs.running_at
+                   AND l.finished_at IS NULL AND l.status IN ('preparing','queued')
+                   AND l.request_id IS NOT NULL
+                   AND json_extract(cron_jobs.payload_json, '$.type')='sessionTurn')",
             [&self.owner_token],
         )?;
         Ok(count)
@@ -1559,7 +3419,7 @@ impl CronDB {
         // `running_at` to NULL) BEFORE `mark_missed_at_jobs`, so they still match.
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1
-             WHERE status='active' AND running_at IS NULL
+             WHERE deleted_at IS NULL AND status='active' AND running_at IS NULL
                AND schedule_json LIKE '%\"type\":\"at\"%'
                AND (next_run_at IS NULL OR next_run_at < ?2)",
             params![now_str, cutoff],
@@ -1907,6 +3767,40 @@ fn backfill_cron_schedule_timezone(conn: &Connection) -> Result<()> {
 
 // ── Helper: Row -> CronJob ───────────────────────────────────────
 
+fn decode_workspace_snapshot(
+    json: Option<String>,
+) -> rusqlite::Result<Option<CronWorkspaceSnapshot>> {
+    json.map(|value| {
+        serde_json::from_str(&value).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(13, rusqlite::types::Type::Text, error.into())
+        })
+    })
+    .transpose()
+}
+
+fn row_to_run_log(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronRunLog> {
+    Ok(CronRunLog {
+        id: row.get(0)?,
+        job_id: row.get(1)?,
+        session_id: row.get(2)?,
+        turn_id: row.get(10)?,
+        status: row.get(3)?,
+        started_at: row.get(4)?,
+        finished_at: row.get(5)?,
+        duration_ms: crate::sql_opt_u64(row, 6)?,
+        result_preview: row.get(7)?,
+        error: row.get(8)?,
+        delivery_status: row.get(9)?,
+        worktree_id: row.get(11)?,
+        workspace_status: row.get(12)?,
+        workspace_snapshot: decode_workspace_snapshot(row.get(13)?)?,
+        request_id: row.get(14)?,
+        execution_started_at: row.get(15)?,
+        target_message_id: row.get(16)?,
+        immediate: row.get::<_, i32>(17)? != 0,
+    })
+}
+
 pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     let schedule_json: String = row.get(3)?;
     let payload_json: String = row.get(4)?;
@@ -1932,9 +3826,11 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
 
     Ok(CronJob {
         id: row.get(0)?,
+        revision: row.get::<_, i64>(20)?.max(1) as u64,
         name: row.get(1)?,
         description: row.get(2)?,
         project_id: row.get(15).ok().flatten(),
+        workspace_policy: serde_json::from_str(&row.get::<_, String>(21)?)?,
         schedule: serde_json::from_str(&schedule_json)?,
         payload: serde_json::from_str(&payload_json)?,
         status: CronJobStatus::from_str(&status_str),
@@ -1974,6 +3870,56 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     })
 }
 
+pub fn validate_workspace_policy(
+    policy: CronWorkspacePolicy,
+    payload: &CronPayload,
+    project_id: Option<&str>,
+) -> Result<CronWorkspacePolicy> {
+    // Reject an explicit cleanup on a mode that has nothing to clean up rather
+    // than letting `normalized()` silently drop it — a task saved with
+    // "discard after each run" must never come back as Project + retain.
+    if policy.cleanup != CronWorkspaceCleanup::Retain && policy.mode != CronWorkspaceMode::Fresh {
+        anyhow::bail!("workspace_cleanup_requires_fresh");
+    }
+    let policy = policy.normalized();
+    if matches!(
+        payload,
+        CronPayload::SessionLoop { .. } | CronPayload::SessionTurn { .. }
+    ) && policy.mode != CronWorkspaceMode::Project
+    {
+        anyhow::bail!("workspace_policy_unsupported_payload");
+    }
+    if policy.mode != CronWorkspaceMode::Project && normalize_optional_string(project_id).is_none()
+    {
+        anyhow::bail!("workspace_project_required");
+    }
+    if let Some(base_ref) = policy.base_ref.as_deref() {
+        if base_ref.len() > 256
+            || base_ref.starts_with('-')
+            || base_ref.chars().any(char::is_control)
+        {
+            anyhow::bail!("workspace_base_ref_invalid");
+        }
+    }
+    Ok(policy)
+}
+
+fn validate_payload_overrides(
+    payload: &CronPayload,
+    project_id: Option<&str>,
+    permission_mode: Option<crate::permission::SessionMode>,
+    sandbox_mode: Option<crate::permission::SandboxMode>,
+) -> Result<()> {
+    if matches!(payload, CronPayload::SessionTurn { .. })
+        && (normalize_optional_string(project_id).is_some()
+            || permission_mode.is_some()
+            || sandbox_mode.is_some())
+    {
+        anyhow::bail!("session_turn_uses_live_session_context");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{match_run_logs_to_occurrences, row_to_cron_job, CronDB};
@@ -1983,6 +3929,17 @@ mod tests {
     use rusqlite::params;
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
+
+    macro_rules! job {
+        ($($fields:tt)*) => {
+            NewCronJob { workspace_policy: Default::default(), $($fields)* }
+        };
+    }
+    macro_rules! run_log {
+        ($($fields:tt)*) => {
+            crate::cron::CronRunLog { request_id: None, execution_started_at: None, target_message_id: None, immediate: false, worktree_id: None, workspace_status: None, workspace_snapshot: None, $($fields)* }
+        };
+    }
 
     fn temp_db_path(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("hope-agent-cron-{label}-{}.db", Uuid::new_v4()))
@@ -1999,6 +3956,287 @@ mod tests {
     }
 
     #[test]
+    fn update_job_cas_rejects_stale_draft_without_overwrite() {
+        let path = temp_db_path("revision-cas");
+        let db = CronDB::open(&path).expect("open db");
+        let original = db
+            .add_job(&every_job("original", Vec::new(), None))
+            .expect("add job");
+
+        let mut fresh = original.clone();
+        fresh.name = "fresh edit".into();
+        let updated = db
+            .update_job_cas(&fresh, original.revision)
+            .expect("fresh update");
+        assert!(updated.updated);
+
+        let current = db.get_job(&original.id).unwrap().unwrap();
+        assert_eq!(current.revision, original.revision + 1);
+        assert_eq!(current.name, "fresh edit");
+
+        let mut stale = original.clone();
+        stale.name = "stale overwrite".into();
+        let conflict = db
+            .update_job_cas(&stale, original.revision)
+            .expect("stale update returns data conflict");
+        assert!(!conflict.updated);
+        assert_eq!(conflict.code.as_deref(), Some("cron_revision_conflict"));
+        let conflict_current = conflict.current_job.expect("current job");
+        assert_eq!(conflict_current.revision, current.revision);
+        assert_eq!(conflict_current.name, "fresh edit");
+        assert_eq!(
+            db.get_job(&original.id).unwrap().unwrap().name,
+            "fresh edit"
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn latest_run_summaries_never_degrades_into_a_correlated_scan() {
+        let path = temp_db_path("latest-run-plan");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("history", Vec::new(), None))
+            .expect("add job");
+        for index in 0..3 {
+            let claimed = db
+                .claim_immediate_job_for_execution(&job)
+                .expect("claim")
+                .expect("claimed");
+            let run_id = db
+                .add_running_run_log(&job.id, &format!("session-{index}"), &claimed.claimed_at)
+                .expect("open run log");
+            db.finalize_run_log(
+                run_id,
+                if index == 2 { "error" } else { "success" },
+                &Utc::now().to_rfc3339(),
+                Some(1),
+                None,
+                (index == 2).then_some("boom"),
+                None,
+            )
+            .expect("finish run");
+            db.clear_running(&job.id).expect("release claim");
+        }
+
+        let summary = db
+            .latest_run_summaries()
+            .expect("summaries")
+            .remove(&job.id)
+            .expect("last run");
+        assert_eq!(summary.status, "error", "newest occurrence wins");
+        assert_eq!(summary.error.as_deref(), Some("boom"));
+
+        // Pin the plan, not the wall clock.
+        let plan = {
+            let conn = db.conn.lock().expect("lock db");
+            let mut stmt = conn
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN {}",
+                    super::LATEST_RUN_SUMMARY_SQL
+                ))
+                .expect("prepare plan");
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(3))
+                .expect("plan rows")
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .expect("collect plan");
+            rows.join(" | ")
+        };
+        assert!(
+            !plan.to_uppercase().contains("CORRELATED"),
+            "last-run lookup regressed to a correlated subquery: {plan}"
+        );
+        assert!(
+            plan.contains("idx_cron_runs_job_id"),
+            "per-job MAX(id) must seek the (job_id, id) index: {plan}"
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn open_run_log_lookup_follows_the_live_claim() {
+        let path = temp_db_path("open-run-log-lookup");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("in flight", Vec::new(), None))
+            .expect("add job");
+        assert!(db
+            .find_open_run_log_for_job(&job.id)
+            .expect("idle task")
+            .is_none());
+
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        let run_id = db
+            .add_running_run_log(&job.id, "session-1", &claimed.claimed_at)
+            .expect("open run log");
+        assert_eq!(
+            db.find_open_run_log_for_job(&job.id).expect("live claim"),
+            Some(run_id)
+        );
+
+        db.finalize_run_log(
+            run_id,
+            "success",
+            &Utc::now().to_rfc3339(),
+            Some(1),
+            Some("done"),
+            None,
+            None,
+        )
+        .expect("finish run");
+        db.clear_running(&job.id).expect("release claim");
+        assert!(
+            db.find_open_run_log_for_job(&job.id)
+                .expect("settled task")
+                .is_none(),
+            "a settled occurrence must not be cancellable as if it were live",
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn snapshot_reads_a_deleted_task_that_live_lookup_hides() {
+        let path = temp_db_path("snapshot-tombstone");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("retained config", Vec::new(), None))
+            .expect("add job");
+
+        let live = db
+            .get_job_snapshot(&job.id)
+            .expect("snapshot live task")
+            .expect("live task exists");
+        assert!(!live.deleted);
+        assert_eq!(live.job.name, "retained config");
+
+        db.delete_job(&job.id).expect("soft delete");
+        assert!(db.get_job(&job.id).unwrap().is_none());
+
+        let tombstone = db
+            .get_job_snapshot(&job.id)
+            .expect("snapshot deleted task")
+            .expect("tombstone exists");
+        assert!(tombstone.deleted);
+        assert_eq!(tombstone.job.name, "retained config");
+        assert!(matches!(
+            tombstone.job.payload,
+            CronPayload::AgentTurn { .. }
+        ));
+        assert!(tombstone.job.next_run_at.is_none());
+        assert!(db
+            .get_job_snapshot("missing-task")
+            .expect("no row")
+            .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn exact_run_target_survives_soft_delete_and_terminalization() {
+        let path = temp_db_path("retained-exact-run");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("retained", Vec::new(), None))
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        let started_at = claimed.claimed_at;
+        let run_id = db
+            .add_running_run_log_with_turn(
+                &job.id,
+                "session-exact",
+                &started_at,
+                Some("turn-exact"),
+            )
+            .expect("add running log");
+
+        db.delete_job(&job.id).expect("soft delete");
+        assert!(db.get_job(&job.id).unwrap().is_none());
+        let running = db
+            .get_run_cancel_target(run_id)
+            .unwrap()
+            .expect("retained running target");
+        assert_eq!(running.session_id, "session-exact");
+        assert_eq!(running.turn_id.as_deref(), Some("turn-exact"));
+        assert_eq!(running.started_at, started_at);
+        assert!(db
+            .request_running_run_cancel(run_id)
+            .expect("request exact cancel"));
+        assert!(!db
+            .request_running_run_cancel(run_id)
+            .expect("repeat exact cancel"));
+        assert!(!db
+            .close_running_run_cancellation(run_id)
+            .expect("cancel wins completion race"));
+        assert_eq!(
+            db.get_run_cancel_target(run_id).unwrap().unwrap().status,
+            "cancelling"
+        );
+
+        let finished_at = "2026-08-14T01:02:04Z";
+        assert!(db
+            .finalize_run_log(
+                run_id,
+                "error",
+                finished_at,
+                Some(1_000),
+                None,
+                Some("late preparation failure"),
+                None,
+            )
+            .expect("cancellation wins terminal seal"));
+        for _ in 0..2 {
+            let terminal = db
+                .get_run_cancel_target(run_id)
+                .unwrap()
+                .expect("terminal target remains readable");
+            assert_eq!(terminal.run_log_id, run_id);
+            assert_eq!(terminal.job_id, job.id);
+            assert_eq!(terminal.status, "cancelled");
+            assert_eq!(terminal.finished_at.as_deref(), Some(finished_at));
+            assert_eq!(terminal.turn_id.as_deref(), Some("turn-exact"));
+        }
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn deleted_claim_cannot_open_a_running_log() {
+        let path = temp_db_path("deleted-claim-open-fence");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("delete race", Vec::new(), None))
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+
+        db.delete_job(&job.id).expect("delete wins");
+        let error = db
+            .add_running_run_log_with_turn(
+                &job.id,
+                "session-after-delete",
+                &claimed.claimed_at,
+                Some("turn-after-delete"),
+            )
+            .expect_err("deleted occurrence must not open");
+        assert!(error.to_string().contains("cron_occurrence_no_longer_live"));
+        assert!(db.get_run_logs(&job.id, 10, 0).unwrap().is_empty());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
     fn find_job_by_session_resolves_via_run_log() {
         // G2: a background job spawned during a cron run completes later; its
         // injected result turn must resolve the owning job (from the run log) to
@@ -2006,7 +4244,7 @@ mod tests {
         let path = temp_db_path("find-job-by-session");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Report".into(),
                 description: None,
                 project_id: None,
@@ -2028,10 +4266,11 @@ mod tests {
             })
             .expect("add job");
 
-        db.add_run_log(&crate::cron::CronRunLog {
+        db.add_run_log(&run_log! {
             id: 0,
             job_id: job.id.clone(),
             session_id: "cron-sess-1".into(),
+            turn_id: None,
             status: "success".into(),
             started_at: "2026-01-01T00:00:00Z".into(),
             finished_at: None,
@@ -2060,7 +4299,7 @@ mod tests {
         let path = temp_db_path("delete-run-logs-for-session");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Report".into(),
                 description: None,
                 project_id: None,
@@ -2083,10 +4322,11 @@ mod tests {
             .expect("add job");
 
         for session_id in ["delete-me", "keep-me"] {
-            db.add_run_log(&crate::cron::CronRunLog {
+            db.add_run_log(&run_log! {
                 id: 0,
                 job_id: job.id.clone(),
                 session_id: session_id.into(),
+                turn_id: None,
                 status: "success".into(),
                 started_at: "2026-01-01T00:00:00Z".into(),
                 finished_at: None,
@@ -2124,7 +4364,7 @@ mod tests {
     }
 
     fn every_job(name: &str, targets: Vec<CronDeliveryTarget>, prefix: Option<bool>) -> NewCronJob {
-        NewCronJob {
+        job! {
             name: name.into(),
             description: None,
             project_id: None,
@@ -2153,7 +4393,7 @@ mod tests {
         let path = temp_db_path("job-timeout-override");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "long".into(),
                 description: None,
                 project_id: None,
@@ -2195,7 +4435,7 @@ mod tests {
         let path = temp_db_path("perm-sandbox-override");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "guarded".into(),
                 description: None,
                 project_id: None,
@@ -2251,7 +4491,7 @@ mod tests {
         let path = temp_db_path("update-job-c04");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "j".into(),
                 description: None,
                 project_id: None,
@@ -2353,9 +4593,13 @@ mod tests {
         let path = temp_db_path("delivery-status");
         let db = CronDB::open(&path).expect("open db");
         let job = db.add_job(&every_job("job", vec![], None)).expect("add");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
 
         let id = db
-            .add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
+            .add_running_run_log(&job.id, "s1", &claimed.claimed_at)
             .expect("open in-progress run log");
         // Mid-run the row reads as "running" with no finish.
         let running = db.get_run_logs(&job.id, 10, 0).expect("logs");
@@ -2403,7 +4647,11 @@ mod tests {
             let db = CronDB::open(&path).expect("open db");
             let job = db.add_job(&every_job("job", vec![], None)).expect("add");
             job_id = job.id.clone();
-            db.add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
+            let claimed = db
+                .claim_immediate_job_for_execution(&job)
+                .expect("claim")
+                .expect("claimed");
+            db.add_running_run_log(&job.id, "s1", &claimed.claimed_at)
                 .expect("open in-progress");
         }
         // 「重启」：新的 CronDB 实例，新的 owner_token。
@@ -2598,7 +4846,7 @@ mod tests {
         let db = CronDB::open(&path).expect("open db");
 
         let mk = |name: &str| {
-            db.add_job(&NewCronJob {
+            db.add_job(&job! {
                 name: name.into(),
                 description: None,
                 project_id: None,
@@ -2713,7 +4961,7 @@ mod tests {
         let db = CronDB::open(&path).expect("open db");
 
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -2761,7 +5009,7 @@ mod tests {
         let db = CronDB::open(&path).expect("open db");
 
         let mut job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Project digest".into(),
                 description: None,
                 project_id: Some("project-a".into()),
@@ -2985,10 +5233,11 @@ mod tests {
                 parse("2026-04-22T12:01:00Z"),
                 parse("2026-04-22T12:02:00Z"),
             ],
-            &[crate::cron::CronRunLog {
+            &[run_log! {
                 id: 7,
                 job_id: "job".into(),
                 session_id: "session".into(),
+                turn_id: None,
                 status: "success".into(),
                 started_at: "2026-04-22T12:01:10Z".into(),
                 finished_at: None,
@@ -3034,7 +5283,7 @@ mod tests {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
+                "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
                  FROM cron_jobs WHERE id='row-read'",
             )
             .expect("prepare");
@@ -3062,7 +5311,7 @@ mod tests {
         let path = temp_db_path("scheduled-claim");
         let db = CronDB::open(&path).expect("open db");
         let mut job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -3118,7 +5367,7 @@ mod tests {
         let path = temp_db_path("scheduled-future-claim");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -3152,7 +5401,7 @@ mod tests {
         let path = temp_db_path("stale-payload-claim");
         let db = CronDB::open(&path).expect("open db");
         let mut stale_job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Rebind-safe".into(),
                 description: None,
                 project_id: None,
@@ -3208,7 +5457,7 @@ mod tests {
         let path = temp_db_path("immediate-claim");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "Hydrate".into(),
                 description: None,
                 project_id: None,
@@ -3258,24 +5507,26 @@ mod tests {
         // they clear.
         let path = temp_db_path("count-running");
         let db = CronDB::open(&path).expect("open db");
-        let mk = |name: &str| NewCronJob {
-            name: name.into(),
-            description: None,
-            project_id: None,
-            schedule: CronSchedule::At {
-                timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
-            },
-            payload: CronPayload::AgentTurn {
-                prompt: "p".into(),
-                agent_id: None,
-            },
-            max_failures: None,
-            notify_on_complete: None,
-            delivery_targets: None,
-            prefix_delivery_with_name: None,
-            job_timeout_secs: None,
-            permission_mode_override: None,
-            sandbox_mode_override: None,
+        let mk = |name: &str| {
+            job! {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            }
         };
         let a = db.add_job(&mk("a")).expect("add a");
         let b = db.add_job(&mk("b")).expect("add b");
@@ -3292,6 +5543,157 @@ mod tests {
         db.clear_running(&a.id).expect("clear a");
         assert_eq!(db.count_running().expect("count"), 1);
 
+        let mut scheduled = mk("scheduled");
+        scheduled.payload = CronPayload::SessionTurn {
+            session_id: "regular-session".into(),
+            prompt: "later".into(),
+        };
+        let scheduled = db.add_job(&scheduled).expect("add scheduled");
+        let run = db
+            .claim_session_turn_for_preparing(&scheduled, "request-1", true)
+            .expect("stage")
+            .expect("staged");
+        assert_eq!(db.count_running().expect("preparing excluded"), 1);
+        assert!(db
+            .mark_session_turn_queued(run.run_log_id, "request-1")
+            .unwrap());
+        assert_eq!(db.count_running().expect("queued excluded"), 1);
+        assert!(db
+            .claim_session_turn_for_execution(run.run_log_id, "request-1", "turn-1", Some(2))
+            .unwrap()
+            .is_some());
+        assert_eq!(db.count_running().expect("running counted"), 2);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn invalid_session_target_finishes_pending_occurrence_and_pauses_task() {
+        let path = temp_db_path("invalid-target-pending");
+        let db = CronDB::open(&path).expect("open db");
+        let mut input = every_job("Scheduled target", Vec::new(), None);
+        input.payload = CronPayload::SessionTurn {
+            session_id: "missing-session".into(),
+            prompt: "later".into(),
+        };
+        let mut job = db.add_job(&input).expect("add job");
+        let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                params![due_at, job.id],
+            )
+            .expect("make job due");
+        }
+        job.next_run_at = Some(due_at);
+        let run = db
+            .claim_session_turn_for_preparing(&job, "invalid-pending-request", false)
+            .expect("claim")
+            .expect("claimed");
+
+        assert!(db
+            .finish_invalid_session_turn_and_pause(
+                run.run_log_id,
+                &run.request_id,
+                None,
+                "scheduled target no longer exists",
+                None,
+            )
+            .expect("settle invalid target"));
+
+        let stored_job = db.get_job(&job.id).unwrap().unwrap();
+        assert_eq!(stored_job.status, CronJobStatus::Paused);
+        assert!(stored_job.running_at.is_none());
+        let stored_run = db.get_run_log(run.run_log_id).unwrap().unwrap();
+        assert_eq!(stored_run.status, "error");
+        assert!(stored_run.finished_at.is_some());
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn invalid_session_target_pause_failure_rolls_back_terminal_and_release() {
+        let path = temp_db_path("invalid-target-rollback");
+        let db = CronDB::open(&path).expect("open db");
+        let mut input = every_job("Archived target", Vec::new(), None);
+        input.payload = CronPayload::SessionTurn {
+            session_id: "archived-session".into(),
+            prompt: "later".into(),
+        };
+        let mut job = db.add_job(&input).expect("add job");
+        let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                params![due_at, job.id],
+            )
+            .expect("make job due");
+        }
+        job.next_run_at = Some(due_at);
+        let run = db
+            .claim_session_turn_for_preparing(&job, "invalid-running-request", false)
+            .expect("claim")
+            .expect("claimed");
+        assert!(db
+            .mark_session_turn_queued(run.run_log_id, &run.request_id)
+            .unwrap());
+        assert!(db
+            .claim_session_turn_for_execution(
+                run.run_log_id,
+                &run.request_id,
+                "invalid-running-turn",
+                None,
+            )
+            .unwrap()
+            .is_some());
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TRIGGER reject_invalid_target_pause
+                 BEFORE UPDATE ON cron_jobs
+                 WHEN NEW.status='paused'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'pause rejected');
+                 END;",
+            )
+            .expect("install failure trigger");
+        }
+
+        assert!(db
+            .finish_invalid_session_turn_and_pause(
+                run.run_log_id,
+                &run.request_id,
+                Some("invalid-running-turn"),
+                "scheduled target is archived",
+                Some(42),
+            )
+            .is_err());
+        let still_running = db.get_run_log(run.run_log_id).unwrap().unwrap();
+        assert_eq!(still_running.status, "running");
+        assert!(still_running.finished_at.is_none());
+        assert_eq!(
+            db.get_job(&job.id).unwrap().unwrap().running_at.as_deref(),
+            Some(run.started_at.as_str())
+        );
+
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute_batch("DROP TRIGGER reject_invalid_target_pause;")
+                .expect("drop failure trigger");
+        }
+        assert!(db
+            .finish_invalid_session_turn_and_pause(
+                run.run_log_id,
+                &run.request_id,
+                Some("invalid-running-turn"),
+                "scheduled target is archived",
+                Some(42),
+            )
+            .expect("retry settlement"));
+        let stored_job = db.get_job(&job.id).unwrap().unwrap();
+        assert_eq!(stored_job.status, CronJobStatus::Paused);
+        assert!(stored_job.running_at.is_none());
         cleanup_db_files(&path);
     }
 
@@ -3302,7 +5704,7 @@ mod tests {
         let path = temp_db_path("clear-if-owner");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "j".into(),
                 description: None,
                 project_id: None,
@@ -3357,7 +5759,7 @@ mod tests {
         let path = temp_db_path("auto-disable-signal");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "flaky".into(),
                 description: None,
                 project_id: None,
@@ -3421,7 +5823,7 @@ mod tests {
         let path = temp_db_path("success-no-revive-paused");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "recurring".into(),
                 description: None,
                 project_id: None,
@@ -3474,7 +5876,7 @@ mod tests {
         let path = temp_db_path("at-fail-terminal");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "one-shot".into(),
                 description: None,
                 project_id: None,
@@ -3514,6 +5916,34 @@ mod tests {
     }
 
     #[test]
+    fn terminal_accounting_uses_live_edited_schedule() {
+        let path = temp_db_path("terminal-live-schedule");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job("live", Vec::new(), None))
+            .expect("add job");
+        let claimed_schedule = db
+            .claim_immediate_job_for_execution(&job)
+            .unwrap()
+            .unwrap()
+            .job
+            .schedule;
+        let mut edited = db.get_job(&job.id).unwrap().unwrap();
+        edited.schedule = CronSchedule::At {
+            timestamp: "2999-01-01T00:00:00Z".into(),
+        };
+        db.update_job(&edited)
+            .expect("edit schedule while occurrence is in flight");
+
+        db.update_after_run(&job.id, true, &claimed_schedule)
+            .expect("terminal accounting");
+        let stored = db.get_job(&job.id).unwrap().unwrap();
+        assert_eq!(stored.status, CronJobStatus::Completed);
+        assert!(stored.next_run_at.is_none());
+        cleanup_db_files(&path);
+    }
+
+    #[test]
     fn reschedule_without_failure_preserves_failure_count() {
         // C07 building block: a recurring Empty run advances its schedule via
         // reschedule_without_failure, which must NOT touch consecutive_failures — so
@@ -3522,7 +5952,7 @@ mod tests {
         let path = temp_db_path("reschedule-keeps-failures");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "j".into(),
                 description: None,
                 project_id: None,
@@ -3570,7 +6000,7 @@ mod tests {
         let path = temp_db_path("toggle-past-at");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "elapsed".into(),
                 description: None,
                 project_id: None,
@@ -3622,7 +6052,7 @@ mod tests {
         let path = temp_db_path("max-failures-zero");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "unlimited".into(),
                 description: None,
                 project_id: None,
@@ -3664,7 +6094,7 @@ mod tests {
         let path = temp_db_path("delete-cancel");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "running".into(),
                 description: None,
                 project_id: None,
@@ -3707,7 +6137,7 @@ mod tests {
         let path = temp_db_path("at-grace");
         let db = CronDB::open(&path).expect("open db");
         let mk_at = |name: &str| {
-            db.add_job(&NewCronJob {
+            db.add_job(&job! {
                 name: name.into(),
                 description: None,
                 project_id: None,
@@ -3791,7 +6221,7 @@ mod tests {
         let path = temp_db_path("inflight-reap-success");
         let db = CronDB::open(&path).expect("open db");
         let job = db
-            .add_job(&NewCronJob {
+            .add_job(&job! {
                 name: "one-shot".into(),
                 description: None,
                 project_id: None,
@@ -3856,22 +6286,24 @@ mod tests {
         // that only the next restart's mark_missed would reap.
         let path = temp_db_path("past-at-missed");
         let db = CronDB::open(&path).expect("open db");
-        let mk = |name: &str, ts: String| NewCronJob {
-            name: name.into(),
-            description: None,
-            project_id: None,
-            schedule: CronSchedule::At { timestamp: ts },
-            payload: CronPayload::AgentTurn {
-                prompt: "p".into(),
-                agent_id: None,
-            },
-            max_failures: None,
-            notify_on_complete: None,
-            delivery_targets: None,
-            prefix_delivery_with_name: None,
-            job_timeout_secs: None,
-            permission_mode_override: None,
-            sandbox_mode_override: None,
+        let mk = |name: &str, ts: String| {
+            job! {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At { timestamp: ts },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            }
         };
 
         let past = db
