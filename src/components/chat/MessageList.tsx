@@ -1866,7 +1866,10 @@ export default function MessageList({
     [messages, subagentRunsSnapshot],
   )
 
-  const renderMessageItem = (item: MessageRenderItem) => {
+  // `insideProcessedFold`: the turn's folded steps. Folding is presentation
+  // only, so they drop their own action bar — it belongs to the turn's final
+  // reply, one per bubble.
+  const renderMessageItem = (item: MessageRenderItem, insideProcessedFold = false) => {
     const { msg, originalIndex } = item
     const rowKey = rowKeyForItem(item)
     const isLast = originalIndex === messages.length - 1
@@ -1949,6 +1952,7 @@ export default function MessageList({
           hideOwnFooterFiles={item.hideOwnFooterFiles}
           goalCompletionReportOverride={item.goalCompletionReport}
           suppressGoalCompletionFooter={item.suppressGoalCompletionFooter}
+          hideActionBar={insideProcessedFold}
           forceExpandUserContent={forceExpandUserContent}
           onForceExpandedUserContentDismiss={
             forceExpandUserContent
@@ -1971,7 +1975,7 @@ export default function MessageList({
           <CompletedTurnCollapseSummary row={row} onToggle={toggleCompletedTurn} />
           <AnimatedCollapse open={row.expanded} overflow="visible-when-open" unmountOnExit>
             <div data-testid="completed-turn-details" className="min-w-0">
-              {row.items.map(renderMessageItem)}
+              {row.items.map((item) => renderMessageItem(item, true))}
             </div>
           </AnimatedCollapse>
         </div>
