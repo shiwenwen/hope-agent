@@ -1659,26 +1659,6 @@ async fn handle_inbound_message_inner(
     let event_sink = pipeline.event_sink.clone();
     let reasoning_effort = Some(runtime_defaults.reasoning_effort);
 
-    // Snapshot whether the *entire* fallback chain is Codex before
-    // `model_chain` is moved into engine_params. Drives the `🔐 Codex
-    // session expired` headline in the error path below.
-    //
-    // Conservative `all` rather than `primary-only`: engine returns
-    // `Result<_, String>` and erases which model in the chain actually
-    // failed. With a mixed chain (e.g. OpenAI primary +
-    // Codex fallback) we'd guess wrong either way — falling through to
-    // the generic Auth headline ("re-check the API key in settings") is
-    // strictly better than directing the user to re-auth Codex when the
-    // OpenAI primary actually 401'd.
-    let chain_is_all_codex = !model_chain.is_empty()
-        && model_chain.iter().all(|m| {
-            store
-                .providers
-                .iter()
-                .find(|p| p.id == m.provider_id)
-                .is_some_and(|p| p.api_type.is_codex())
-        });
-
     let engine_params = ha_core::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
         agent_id: agent_id.clone(),
@@ -1740,7 +1720,7 @@ async fn handle_inbound_message_inner(
 
     emit_stream_lifecycle("channel:stream_start", &session_id);
 
-    let result = ha_core::chat_engine::run_chat_engine(engine_params).await;
+    let result = ha_core::chat_engine::run_chat_engine_classified(engine_params).await;
 
     // (channel cancel handle removal now happens via `_cancel_handle_guard` on
     // every exit path, including early bails above.)
@@ -1820,19 +1800,18 @@ async fn handle_inbound_message_inner(
                 e
             );
 
-            // Classify on the way out — engine erases the typed reason when
-            // it folds `ExecutorError` into `String`. IM-inbound has
-            // `abort_on_cancel=false`, so any error reaching here is a real
-            // failure (not a user cancel).
             let raw = e.to_string();
-            let reason = ha_core::failover::classify_error(&raw);
-            let is_codex_auth =
-                matches!(reason, ha_core::failover::FailoverReason::Auth) && chain_is_all_codex;
+            // Preserve the engine's typed verdict. Display text is deliberately
+            // not a recovery protocol and may omit the evidence that proved an
+            // application-level terminal such as CurrentToolGroupOverflow.
+            let reason = e
+                .reason()
+                .unwrap_or(ha_core::failover::FailoverReason::Unknown);
             let body = ha_core::chat_engine::im_error_message::format_im_engine_error(
                 ha_core::chat_engine::im_error_message::ImErrorContext {
                     reason,
                     raw: &raw,
-                    is_codex_auth,
+                    is_codex_auth: e.is_codex_auth(),
                 },
             );
             let err_target = DeliveryTarget {

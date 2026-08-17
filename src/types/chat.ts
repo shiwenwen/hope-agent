@@ -17,6 +17,11 @@ export type ChatTurnInterruptReason =
   | "crash_recovery"
   | "tool_cancel"
   | "runtime_cancel"
+  | "no_profile"
+  | "provider_failed"
+  | "current_tool_group_overflow"
+  | "dispatch_unknown"
+  | "compaction_failed"
   | "unknown"
 
 /** Structured media item emitted by tools (e.g. send_attachment) — richer than
@@ -46,9 +51,23 @@ export interface MediaItem {
 export interface PendingFileQuote {
   path: string
   name: string
+  /** 1-based source range; `0 / 0` means visual context without a source-line mapping. */
   startLine: number
   endLine: number
   content: string
+  /** False for visual/pseudo sources that cannot be reopened in the file browser. */
+  revealable?: boolean
+  /** Exact linked-project root selected when the quote was captured. The
+   *  index + path pair is a stale-selection guard, mirroring project_folder
+   *  filesystem scopes. */
+  projectRoot?: {
+    index: number
+    path: string
+  }
+  /** Absolute Git worktree root selected when the quote was captured. The
+   *  browser restores it through the backend-validated read-only path scope;
+   *  `projectRoot` remains the base-repository identity for linked roots. */
+  worktreeRoot?: string
   /** Knowledge-space quotes carry their KB id so "jump to selection" opens the
    *  right base even if the user has since switched the active KB. Unset for
    *  main-chat file quotes. */
@@ -108,6 +127,11 @@ export interface MessageAttachment {
   quotePath?: string
   quoteLines?: string
   quoteContent?: string
+  /** Persisted reopen capability for visual or synthetic quote sources. */
+  quoteRevealable?: boolean
+  /** Persisted browser provenance for restoring a linked-root quote draft. */
+  quoteProjectRoot?: PendingFileQuote["projectRoot"]
+  quoteWorktreeRoot?: string
   /** For `kind === "message_quote"`: role of the message the user selected. */
   messageQuoteRole?: "user" | "assistant"
 }

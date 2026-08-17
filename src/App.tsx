@@ -40,6 +40,7 @@ import { CURRENT_ONBOARDING_VERSION } from "@/components/onboarding/version"
 import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/ConfigRecoveryScreen"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
+import type { PendingFileQuote } from "@/types/chat"
 import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
 import { subscribeCronTaskDraft, subscribeCronTaskFocus } from "@/components/cron/cronNavigation"
 import type { CronJob } from "@/components/cron/CronJobForm.types"
@@ -148,6 +149,11 @@ interface PendingChatFocus extends ChatFocusTarget {
   nonce: number
 }
 
+interface PendingChatQuote {
+  quote: PendingFileQuote
+  nonce: number
+}
+
 interface PendingProjectFocus {
   projectId: string
   nonce: number
@@ -218,6 +224,7 @@ export default function App() {
   const [pendingCronTaskDraft, setPendingCronTaskDraft] = useState<PendingCronTaskDraft | null>(
     null,
   )
+  const [pendingChatQuote, setPendingChatQuote] = useState<PendingChatQuote | null>(null)
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null)
   const [pendingKnowledgePetFocus, setPendingKnowledgePetFocus] =
     useState<PendingKnowledgePetFocus | null>(null)
@@ -257,6 +264,7 @@ export default function App() {
   const chatFocusNonceRef = useRef(0)
   const cronTaskFocusNonceRef = useRef(0)
   const cronTaskDraftNonceRef = useRef(0)
+  const chatQuoteNonceRef = useRef(0)
   const projectFocusNonceRef = useRef(0)
   const petFocusNonceRef = useRef(0)
   const knowledgeFocusNonceRef = useRef(0)
@@ -597,6 +605,17 @@ export default function App() {
       const nonce = chatFocusNonceRef.current + 1
       chatFocusNonceRef.current = nonce
       setPendingChatFocus({ ...target, nonce })
+      setView("chat")
+    },
+    [keepConfigRecoveryView],
+  )
+
+  const handleArtifactQuoteToChat = useCallback(
+    (quote: PendingFileQuote) => {
+      if (keepConfigRecoveryView()) return
+      const nonce = chatQuoteNonceRef.current + 1
+      chatQuoteNonceRef.current = nonce
+      setPendingChatQuote({ quote, nonce })
       setView("chat")
     },
     [keepConfigRecoveryView],
@@ -1438,7 +1457,10 @@ export default function App() {
                       </div>
                     }
                   >
-                    <ArtifactsView isViewVisible={view === "artifacts"} />
+                    <ArtifactsView
+                      isViewVisible={view === "artifacts"}
+                      onAddQuoteToChat={handleArtifactQuoteToChat}
+                    />
                   </Suspense>
                 </PersistentViewSurface>
               )}
@@ -1461,6 +1483,10 @@ export default function App() {
                   externalChatFocus={pendingChatFocus}
                   onExternalChatFocusHandled={(nonce) => {
                     setPendingChatFocus((prev) => (prev?.nonce === nonce ? null : prev))
+                  }}
+                  externalFileQuote={pendingChatQuote}
+                  onExternalFileQuoteHandled={(nonce) => {
+                    setPendingChatQuote((prev) => (prev?.nonce === nonce ? null : prev))
                   }}
                   externalProjectFocus={pendingProjectFocus}
                   onExternalProjectFocusHandled={(nonce) => {

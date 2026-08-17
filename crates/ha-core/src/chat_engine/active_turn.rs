@@ -747,7 +747,7 @@ pub fn with_insertion_target<T>(
     with_insertion_target_for(session_id, turn_id, operation, |source| {
         matches!(
             source,
-            ChatSource::Desktop | ChatSource::Http | ChatSource::Cron
+            ChatSource::Desktop | ChatSource::Http | ChatSource::SessionTool | ChatSource::Cron
         )
     })
 }
@@ -1607,5 +1607,23 @@ mod tests {
             Ok("channel")
         );
         assert!(with_insertion_target(channel_sid, "channel-turn", || "owner").is_err());
+
+        let session_tool_sid = "test-active-turn-session-tool-insertion-domain";
+        let _guard = try_acquire(
+            session_tool_sid,
+            ChatSource::SessionTool,
+            "session-tool-turn".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert_eq!(
+            with_insertion_target(session_tool_sid, "session-tool-turn", || "owner"),
+            Ok("owner")
+        );
+        assert!(
+            with_channel_insertion_target(session_tool_sid, "session-tool-turn", || "channel")
+                .is_err()
+        );
     }
 }

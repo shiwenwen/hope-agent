@@ -711,6 +711,9 @@ fn ensure_typed_resource_acquisition_shape(attachment: &Attachment) -> Result<()
     }
     if attachment.upload_id.is_some()
         || attachment.quote_lines.is_some()
+        || attachment.quote_revealable.is_some()
+        || attachment.quote_project_root.is_some()
+        || attachment.quote_worktree_root.is_some()
         || attachment.quote_role.is_some()
     {
         anyhow::bail!("typed resource mention contains incompatible attachment metadata");
@@ -1608,12 +1611,16 @@ pub fn persist_chat_user_attachments_meta(
         // objects so history can render a friendly reference card (the model
         // already saw a `<file_reference>` via content.rs).
         if source_ref == Some("quote") {
+            let history_path = quote_history_path(att);
             meta_list.push(json!({
                 "kind": "quote",
                 "name": att.name,
-                "path": att.file_path,
+                "path": history_path,
                 "lines": att.quote_lines,
                 "content": att.data,
+                "revealable": att.quote_revealable,
+                "project_root": att.quote_project_root,
+                "worktree_root": att.quote_worktree_root,
             }));
             continue;
         }
@@ -1775,6 +1782,26 @@ pub fn persist_chat_user_attachments_meta(
     } else {
         Ok(Some(serde_json::to_string(&meta_list)?))
     }
+}
+
+fn quote_history_path(attachment: &Attachment) -> Option<String> {
+    let path = attachment.file_path.as_deref()?;
+    let root = attachment.quote_worktree_root.as_deref().or_else(|| {
+        attachment
+            .quote_project_root
+            .as_ref()
+            .map(|root| root.path.as_str())
+    });
+    let Some(root) = root else {
+        return Some(path.to_string());
+    };
+    let Ok(relative) = Path::new(path).strip_prefix(Path::new(root)) else {
+        return Some(path.to_string());
+    };
+    if relative.as_os_str().is_empty() {
+        return Some(path.to_string());
+    }
+    Some(relative.to_string_lossy().to_string())
 }
 
 /// Move queue attachments into the session-owned attachment directory before
@@ -2344,7 +2371,10 @@ mod tests {
             file_path: Some(path.to_string_lossy().into_owned()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }
     }
 
@@ -2894,7 +2924,10 @@ mod tests {
                     file_path: Some(plan_file.to_string_lossy().into_owned()),
                     upload_id: None,
                     quote_lines: None,
+                    quote_revealable: None,
                     quote_role: None,
+                    quote_project_root: None,
+                    quote_worktree_root: None,
                 },
             ];
             let containment_root = root.path().canonicalize().expect("root canonical");
@@ -2961,6 +2994,30 @@ mod tests {
     }
 
     #[test]
+    fn quote_revealable_wire_is_optional_and_preserves_false() {
+        let legacy: Attachment = serde_json::from_value(json!({
+            "name": "legacy quote",
+            "mime_type": "text/plain",
+            "source": "quote"
+        }))
+        .expect("deserialize legacy quote");
+        assert_eq!(legacy.quote_revealable, None);
+
+        let visual: Attachment = serde_json::from_value(json!({
+            "name": "visual quote",
+            "mime_type": "text/plain",
+            "source": "quote",
+            "quote_revealable": false
+        }))
+        .expect("deserialize visual quote");
+        assert_eq!(visual.quote_revealable, Some(false));
+        assert_eq!(
+            serde_json::to_value(&visual).expect("serialize visual quote")["quote_revealable"],
+            false
+        );
+    }
+
+    #[test]
     fn persist_chat_user_attachments_meta_keeps_message_quote_inline() {
         let root = tempfile::tempdir().expect("tempdir");
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
@@ -2972,7 +3029,10 @@ mod tests {
                 file_path: None,
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: Some("assistant".to_string()),
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
 
             let raw = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -2984,6 +3044,41 @@ mod tests {
             assert_eq!(value[0]["role"], "assistant");
             assert_eq!(value[0]["content"], "Selected answer");
             assert!(value[0].get("path").is_none());
+        });
+    }
+
+    #[test]
+    fn persist_chat_user_attachments_meta_keeps_quote_browser_provenance() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mut attachments = vec![Attachment {
+                name: "brief.md".to_string(),
+                mime_type: "text/plain".to_string(),
+                source: Some("quote".to_string()),
+                data: Some("quoted lines".to_string()),
+                file_path: Some("/repos/shared-feature/brief.md".to_string()),
+                upload_id: None,
+                quote_lines: Some("3-5".to_string()),
+                quote_revealable: Some(false),
+                quote_project_root: Some(crate::agent::QuoteProjectRoot {
+                    index: 1,
+                    path: "/repos/shared".to_string(),
+                }),
+                quote_worktree_root: Some("/repos/shared-feature".to_string()),
+                quote_role: None,
+            }];
+
+            let raw = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("persist file quote")
+                .expect("file quote metadata");
+            let value: Value = serde_json::from_str(&raw).expect("valid metadata json");
+
+            assert_eq!(value[0]["kind"], "quote");
+            assert_eq!(value[0]["path"], "brief.md");
+            assert_eq!(value[0]["revealable"], false);
+            assert_eq!(value[0]["project_root"]["index"], 1);
+            assert_eq!(value[0]["project_root"]["path"], "/repos/shared");
+            assert_eq!(value[0]["worktree_root"], "/repos/shared-feature");
         });
     }
 
@@ -3005,7 +3100,10 @@ mod tests {
                 file_path: Some(traversal.to_string_lossy().to_string()),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -3042,7 +3140,10 @@ mod tests {
                     file_path: Some(missing.to_string_lossy().to_string()),
                     upload_id: None,
                     quote_lines: None,
+                    quote_revealable: None,
                     quote_role: None,
+                    quote_project_root: None,
+                    quote_worktree_root: None,
                 },
                 Attachment {
                     name: "note.txt".to_string(),
@@ -3052,7 +3153,10 @@ mod tests {
                     file_path: Some(saved.clone()),
                     upload_id: None,
                     quote_lines: None,
+                    quote_revealable: None,
                     quote_role: None,
+                    quote_project_root: None,
+                    quote_worktree_root: None,
                 },
             ];
 
@@ -3084,7 +3188,10 @@ mod tests {
                 file_path: Some(saved.clone()),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -3115,7 +3222,10 @@ mod tests {
                 file_path: Some(original.clone()),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -3153,7 +3263,10 @@ mod tests {
                 file_path: None,
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
 
             persist_queued_chat_attachments(
@@ -3200,7 +3313,10 @@ mod tests {
                 file_path: None,
                 upload_id: Some(lease.upload_id),
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-lease", &mut attachments)
@@ -3243,7 +3359,10 @@ mod tests {
                 file_path: None,
                 upload_id: Some(lease.upload_id.clone()),
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
             let metadata = persist_chat_user_attachments_meta("session-a", &mut attachments)
                 .expect("claim")
@@ -3291,7 +3410,10 @@ mod tests {
                 file_path: None,
                 upload_id: Some(lease.upload_id.clone()),
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             }];
             persist_chat_user_attachments_meta("session-symlink", &mut attachments)
                 .expect_err("pre-existing destination symlink must fail closed");
@@ -3331,7 +3453,10 @@ mod tests {
                     file_path: None,
                     upload_id: Some(lease.upload_id),
                     quote_lines: None,
+                    quote_revealable: None,
                     quote_role: None,
+                    quote_project_root: None,
+                    quote_worktree_root: None,
                 },
                 Attachment {
                     name: "missing.txt".to_string(),
@@ -3341,7 +3466,10 @@ mod tests {
                     file_path: None,
                     upload_id: Some(uuid::Uuid::new_v4().to_string()),
                     quote_lines: None,
+                    quote_revealable: None,
                     quote_role: None,
+                    quote_project_root: None,
+                    quote_worktree_root: None,
                 },
             ];
 
@@ -3376,7 +3504,10 @@ mod tests {
                 file_path: None,
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             };
             let mut attachments = vec![template; MAX_CHAT_ATTACHMENTS + 1];
             assert!(

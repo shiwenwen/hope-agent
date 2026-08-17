@@ -476,6 +476,11 @@ pub enum EvalWorkerEvent {
         campaign_id: String,
         evidence_path: String,
     },
+    DeterministicEvidence {
+        experiment_id: String,
+        campaign_id: String,
+        evidence_path: String,
+    },
     Completed {
         experiment_id: String,
         evidence_paths: Vec<String>,

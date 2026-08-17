@@ -60,6 +60,55 @@ pub struct BoundarySnapshot {
     preserve_recent_rounds: usize,
 }
 
+/// Exact provider-native user item that anchors the active request across a
+/// destructive Tier-4 projection.
+///
+/// The value is captured before compaction and checked after compaction. This
+/// intentionally compares the whole provider item instead of display text: two
+/// different requests may have the same text while attachments or provider
+/// metadata differ.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LatestUserRequestAnchor {
+    message: Value,
+}
+
+impl LatestUserRequestAnchor {
+    /// Tier 4 may delete older duplicate-looking turns, but the exact latest
+    /// user item must remain once and only once in the projected history.
+    pub(crate) fn is_preserved_exactly_once(&self, messages: &[Value]) -> bool {
+        messages
+            .iter()
+            .filter(|message| is_user_message(message) && *message == &self.message)
+            .count()
+            == 1
+    }
+}
+
+pub(crate) fn latest_user_request_anchor(messages: &[Value]) -> Option<LatestUserRequestAnchor> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| is_user_message(message))
+        .cloned()
+        .map(|message| LatestUserRequestAnchor { message })
+}
+
+/// Return the genuine user-turn start that owns `message_index`.
+///
+/// Anthropic tool-result containers also use `role=user`, so callers must not
+/// recover this boundary with a raw reverse role scan. `build_message_rounds`
+/// already distinguishes genuine user input from result containers and keeps
+/// the owning turn on every protocol-safe round.
+pub(crate) fn user_turn_start_for_message(
+    messages: &[Value],
+    message_index: usize,
+) -> Option<usize> {
+    build_message_rounds(messages)
+        .into_iter()
+        .find(|round| round.start <= message_index && message_index < round.end_exclusive)
+        .map(|round| round.user_turn_start)
+}
+
 fn round_id(msg: &Value) -> Option<&str> {
     msg.get(ROUND_KEY).and_then(|v| v.as_str())
 }
@@ -218,6 +267,13 @@ impl BoundarySnapshot {
             .map(|round| round.start)
     }
 
+    fn latest_user_turn_start(&self) -> Option<usize> {
+        self.live_round_indices
+            .last()
+            .and_then(|idx| self.rounds.get(*idx))
+            .map(|round| round.user_turn_start)
+    }
+
     pub fn boundary(&self, messages: &[Value], mode: BoundaryMode) -> RecentBoundary {
         let mut warnings = Vec::new();
         if messages.is_empty() || self.rounds.is_empty() {
@@ -282,6 +338,40 @@ impl BoundarySnapshot {
         protected_start_index =
             super::round_grouping::find_round_safe_boundary(messages, protected_start_index);
 
+        // Tier 3 and Tier 4 both replace active history, so the current user
+        // request is a hard handoff anchor. Under pressure we may protect fewer
+        // assistant/tool rounds than the normal policy, but must never move the
+        // cut past the latest genuine user message. If that leaves no old
+        // prefix, the caller must use content reduction or fail closed rather
+        // than retry a request that has forgotten its task.
+        if matches!(
+            mode,
+            BoundaryMode::SummarizeUnderPressure | BoundaryMode::Emergency
+        ) {
+            if let Some(latest_user_start) = self.latest_user_turn_start() {
+                if protected_start_index > latest_user_start {
+                    protected_start_index = super::round_grouping::find_round_safe_boundary(
+                        messages,
+                        latest_user_start,
+                    );
+                    warnings.push(
+                        match mode {
+                            BoundaryMode::SummarizeUnderPressure => {
+                                "summary_boundary_preserved_latest_user_request"
+                            }
+                            BoundaryMode::Emergency => {
+                                "emergency_boundary_preserved_latest_user_request"
+                            }
+                            BoundaryMode::ProtectRecent => {
+                                unreachable!("only replacement modes enter the latest-user clamp")
+                            }
+                        }
+                        .to_string(),
+                    );
+                }
+            }
+        }
+
         RecentBoundary {
             protected_start_index,
             rounds: self.rounds.clone(),
@@ -320,6 +410,39 @@ mod tests {
         let boundary = recent_boundary(&messages, 2);
 
         assert_eq!(boundary.protected_start_index, 2);
+    }
+
+    #[test]
+    fn emergency_boundary_never_moves_past_current_user_before_tool_round() {
+        let messages = vec![
+            json!({"role":"user","content":"old request"}),
+            json!({"role":"assistant","content":"old reply"}),
+            json!({"role":"user","content":"current request"}),
+            json!({
+                "role":"assistant",
+                "content":null,
+                "tool_calls":[{
+                    "id":"call_1",
+                    "type":"function",
+                    "function":{"name":"read_file","arguments":"{}"}
+                }],
+                "_oc_round":"r0"
+            }),
+            json!({
+                "role":"tool",
+                "tool_call_id":"call_1",
+                "content":"result",
+                "_oc_round":"r0"
+            }),
+        ];
+
+        let boundary = boundary_snapshot(&messages, 8).boundary(&messages, BoundaryMode::Emergency);
+
+        assert_eq!(boundary.protected_start_index, 2);
+        assert!(boundary
+            .warnings
+            .iter()
+            .any(|warning| warning == "emergency_boundary_preserved_latest_user_request"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::acp::event_mapper;
 use crate::acp::protocol::NdJsonTransport;
 use crate::acp::session::{now_epoch_secs, AcpSession, AcpSessionStore};
 use crate::acp::types::*;
-use ha_core::agent::AssistantAgent;
+use ha_core::agent::{AssistantAgent, CurrentUserMessageState};
 use ha_core::chat_engine::EventSink;
 use ha_core::failover;
 use ha_core::provider;
@@ -29,6 +29,16 @@ const ACP_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::f
 const ACP_INBOUND_QUEUE_CAPACITY: usize = 256;
 
 type AcpCancelStates = Arc<Mutex<HashMap<String, Arc<AcpCancelState>>>>;
+
+fn current_user_message_state_for_retry_base(
+    contains_current_user: bool,
+) -> CurrentUserMessageState {
+    if contains_current_user {
+        CurrentUserMessageState::AlreadyInHistory
+    } else {
+        CurrentUserMessageState::MissingFromHistory
+    }
+}
 
 struct AcpCancelState {
     inner: Mutex<AcpCancelStateInner>,
@@ -402,8 +412,14 @@ fn finalize_acp_user_stop(
         interrupt_reason: Some("user_stop".to_string()),
         error: None,
         recovery_event: None,
+        request_plan: durability.interrupted_request_plan_commit(
+            session::RequestPlanResponseOutcome::CancelledAfterResponse,
+        ),
     };
     db.commit_interrupted_turn(&commit)?;
+    runtime.block_on(durability.finalize_interrupted_request_after_turn_commit(
+        session::RequestPlanResponseOutcome::CancelledAfterResponse,
+    ))?;
     durability.mark_interrupted("interrupted");
     Ok(())
 }
@@ -1489,6 +1505,7 @@ impl AcpAgent {
         const RETRY_MAX_MS: u64 = 10_000;
 
         let mut last_error = String::new();
+        let mut last_reason = failover::FailoverReason::Unknown;
         let mut stop_all_models = false;
         let mut cancelled = false;
 
@@ -1608,12 +1625,13 @@ impl AcpAgent {
                 let mut agent = match build_result {
                     Ok(a) => a.with_failover_context(prov),
                     Err(e) => {
+                        let (reason, _) = failover::classify_error_with_evidence(&e);
+                        last_reason = reason;
                         last_error = e.to_string();
                         if cancel.load(Ordering::Acquire) {
                             cancelled = true;
                             break;
                         }
-                        let reason = failover::classify_error(&last_error);
                         if reason.is_retryable() && retry_count < MAX_RETRIES {
                             retry_count += 1;
                             let delay = failover::retry_delay_ms(
@@ -1682,9 +1700,13 @@ impl AcpAgent {
                 let durability_for_cb = durability.clone();
 
                 let result = rt.block_on(async {
-                    let chat = agent.chat(
+                    let current_user_message_state = current_user_message_state_for_retry_base(
+                        durability.attempt_base_contains_current_user(),
+                    );
+                    let chat = agent.chat_with_user_message_state(
                         &text_owned,
                         &attachments_owned,
+                        current_user_message_state,
                         None,
                         cancel_clone.clone(),
                         move |delta| {
@@ -1837,8 +1859,11 @@ impl AcpAgent {
                             turn_id: None,
                             usage: Some(usage_event),
                             final_seq,
+                            tier3_recovery: ha_core::session::Tier3RecoveryCommit::Unchanged,
+                            request_plan: durability.successful_request_plan_commit()?,
                         };
                         let committed = db_clone.commit_assistant_turn(&commit)?;
+                        rt.block_on(durability.finalize_successful_request_after_turn_commit())?;
                         durability.mark_committed(committed.committed_seq);
                         ha_core::session_title::maybe_schedule_after_success(
                             db_clone.clone(),
@@ -1850,12 +1875,13 @@ impl AcpAgent {
                         return Ok("end_turn".to_string());
                     }
                     Err(e) => {
+                        let (reason, _) = failover::classify_error_with_evidence(&e);
+                        last_reason = reason;
                         last_error = e.to_string();
                         if cancel.load(Ordering::Acquire) {
                             cancelled = true;
                             break;
                         }
-                        let reason = failover::classify_error(&last_error);
 
                         if reason.is_terminal() {
                             stop_all_models = true;
@@ -1908,7 +1934,14 @@ impl AcpAgent {
 
         // Converge provider/build failures through the same durable protocol;
         // do not leave a `running` run waiting for the next process restart.
-        let final_error = format!("All models failed. Last error: {}", last_error);
+        let final_error = if last_reason == failover::FailoverReason::DispatchUnknown {
+            format!(
+                "Provider dispatch outcome is unknown. Automatic retry was stopped to avoid a duplicate request. Check Provider activity before retrying manually. Last error: {}",
+                last_error
+            )
+        } else {
+            format!("All models failed. Last error: {}", last_error)
+        };
         let durable_seq = rt.block_on(durability.flush(FlushReason::Failure))?;
         // Never terminalize a run while some already-emitted bytes exist only
         // in the spool. Keeping it `running` lets startup import and recover
@@ -1972,15 +2005,14 @@ impl AcpAgent {
             context_checkpoint_seq,
             provider_kind,
         )?;
+        let terminal_reason = ha_core::chat_engine::finalize::TerminationReason::ProviderFailed {
+            last_kind: last_reason,
+            last_message: final_error.clone(),
+            is_codex_auth: false,
+        };
         history.push(serde_json::json!({
             "role": "assistant",
-            "content": ha_core::chat_engine::finalize::copy::model_marker(
-                &ha_core::chat_engine::finalize::TerminationReason::ProviderFailed {
-                    last_kind: failover::classify_error(&final_error),
-                    last_message: final_error.clone(),
-                    is_codex_auth: false,
-                },
-            ),
+            "content": ha_core::chat_engine::finalize::copy::model_marker(&terminal_reason),
         }));
         let context_json = serde_json::to_string(&history)?;
         let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
@@ -1999,7 +2031,12 @@ impl AcpAgent {
             turn_id: None,
             final_seq,
             status: session::ChatTurnStatus::Failed,
-            interrupt_reason: Some("provider_failed".to_string()),
+            interrupt_reason: Some(
+                terminal_reason
+                    .to_chat_turn_interrupt_reason()
+                    .as_str()
+                    .to_string(),
+            ),
             error: Some(
                 integrity_error
                     .map(|integrity| format!("{final_error}; {integrity}"))
@@ -2008,6 +2045,9 @@ impl AcpAgent {
             recovery_event: Some(
                 session::NewMessage::error_event(&final_error)
                     .with_source(ha_core::chat_engine::ChatSource::Acp),
+            ),
+            request_plan: durability.interrupted_request_plan_commit(
+                session::RequestPlanResponseOutcome::ResponseIncomplete,
             ),
         };
         let completion_claimed = cancel_state
@@ -2038,6 +2078,18 @@ impl AcpAgent {
             );
             // Keep the DB run recoverable; its journal/spool is still the
             // durable source for every ACP chunk already emitted.
+        } else if let Err(error) =
+            rt.block_on(durability.finalize_interrupted_request_after_turn_commit(
+                session::RequestPlanResponseOutcome::ResponseIncomplete,
+            ))
+        {
+            app_error!(
+                "acp",
+                "stream_durability",
+                "failed to converge incognito request plan {}: {}",
+                durability.persistence_run_id(),
+                error
+            );
         }
         durability.mark_interrupted("failed");
         Err(anyhow::anyhow!(final_error))
@@ -2189,6 +2241,18 @@ fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assistan
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summarized_retry_base_does_not_reappend_current_user() {
+        assert_eq!(
+            current_user_message_state_for_retry_base(true),
+            CurrentUserMessageState::AlreadyInHistory
+        );
+        assert_eq!(
+            current_user_message_state_for_retry_base(false),
+            CurrentUserMessageState::MissingFromHistory
+        );
+    }
 
     fn inbound(method: &str, session_id: &str) -> JsonRpcMessage {
         JsonRpcMessage {

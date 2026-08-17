@@ -25,7 +25,8 @@ const PATH_SCOPE_SEP: char = '\u{1f}';
 // 目录 / project 目录」的解析属于上层业务：直接调用会把 filesystem 焊进
 // knowledge（7-环成员）与 session/project 的大环。解析器由归属模块实现
 // （`knowledge::workspace_root` / `session::workspace_root` /
-// `project::workspace_root`），app_init 装配时经 [`register_root_resolvers`]
+// `project::workspace_root` / `workspace_linked_root`），app_init 装配时经
+// [`register_root_resolvers`]
 // 注入；未注册即 fail-closed 报 internal 错，绝不回落任意目录。
 
 /// 上下文根解析结果。`read_only` 的语义按 scope 而异：knowledge = 外部
@@ -46,6 +47,7 @@ struct RootResolvers {
     kb: RootResolver,
     session: RootResolver,
     project: RootResolver,
+    project_folder: RootResolver,
 }
 
 static ROOT_RESOLVERS: std::sync::OnceLock<RootResolvers> = std::sync::OnceLock::new();
@@ -57,12 +59,14 @@ pub(crate) fn register_root_resolvers(
     kb: RootResolver,
     session: RootResolver,
     project: RootResolver,
+    project_folder: RootResolver,
 ) -> std::result::Result<(), crate::AlreadyRegistered> {
     ROOT_RESOLVERS
         .set(RootResolvers {
             kb,
             session,
             project,
+            project_folder,
         })
         .map_err(|_| crate::AlreadyRegistered("workspace root resolvers"))
 }
@@ -139,13 +143,14 @@ impl WorkspaceScope {
         }
     }
 
-    /// Dispatch by scope kind: `"session"` → [`Self::for_session`],
-    /// `"project"` → [`Self::for_project`]. The single entry point the command
-    /// layers use so the kind string is validated in exactly one place.
+    /// Dispatch by scope kind. `"project_folder"` is a secondary root that is
+    /// re-authorized against the owning project's live linked-folder list on
+    /// every operation; clients cannot use it as an arbitrary-path escape.
     pub fn resolve(kind: &str, id: &str) -> Result<Self> {
         match kind {
             "session" => Self::for_session(id),
             "project" => Self::for_project(id),
+            "project_folder" => Self::for_project_folder(id),
             "knowledge" => Self::for_knowledge(id),
             "path" => Self::for_path(id),
             other => Err(FilesystemError::bad_input(format!(
@@ -240,6 +245,7 @@ impl WorkspaceScope {
         let base = match base_scope {
             "session" => Self::for_session(base_scope_id)?,
             "project" => Self::for_project(base_scope_id)?,
+            "project_folder" => Self::for_project_folder(base_scope_id)?,
             _ => {
                 return Err(FilesystemError::bad_input(
                     "invalid base scope for path jump",
@@ -280,6 +286,21 @@ impl WorkspaceScope {
     /// lazily-created default workspace).
     pub fn for_project(project_id: &str) -> Result<Self> {
         let root = resolve_via(|r| r.project, "project", project_id)?;
+        Self::from_root_with(
+            &root.dir,
+            root.read_only
+                .then_some(WorkspaceWriteState::ProjectArchived),
+        )
+    }
+
+    /// Scope to one of a project's secondary source folders. The opaque id
+    /// carries the base scope/id, linked-folder index, and the path observed by
+    /// the client. The project-owned resolver checks all four values against
+    /// live state before returning a root, so removing/reordering a folder
+    /// fails closed instead of silently rebinding an open editor to another
+    /// directory.
+    pub fn for_project_folder(encoded_id: &str) -> Result<Self> {
+        let root = resolve_via(|r| r.project_folder, "project folder", encoded_id)?;
         Self::from_root_with(
             &root.dir,
             root.read_only

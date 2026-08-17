@@ -475,6 +475,17 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
                             evidence_path,
                         });
                     }
+                    AppControlEvent::DeterministicCampaignCompleted {
+                        campaign_id,
+                        evidence_path,
+                        ..
+                    } => {
+                        let _ = events_tx.send(EvalWorkerEvent::DeterministicEvidence {
+                            experiment_id: run_id_owned.clone(),
+                            campaign_id,
+                            evidence_path,
+                        });
+                    }
                     AppControlEvent::TrialStarted {
                         campaign_id,
                         trial_id,

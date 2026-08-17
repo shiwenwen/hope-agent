@@ -66,6 +66,7 @@ mod tests {
             default_agent_id: agent_id.map(str::to_string),
             default_model_id: None,
             working_dir: None,
+            linked_dirs: Vec::new(),
             created_at: 0,
             updated_at: 0,
             sort_order: 0,

@@ -412,11 +412,12 @@ The following project context files have been loaded:
 | **委托**     | subagent           | `TOOL_DESC_SUBAGENT`           | spawn/send/check/kill；异步执行与受限 continuation       |
 |              | agents_list        | `TOOL_DESC_AGENTS_LIST`        | 列出可委托 Agent                                         |
 |              | acp_spawn          | `TOOL_DESC_ACP_SPAWN`          | 外部 ACP Agent（Claude Code/Codex）                      |
-| **会话**     | sessions_list      | `TOOL_DESC_SESSIONS_LIST`      | 跨会话通信发现                                           |
+| **会话**     | sessions_create    | `TOOL_DESC_SESSIONS_CREATE`    | 创建普通/Project 会话并可直接启动首个持久 turn           |
+|              | sessions_list      | `TOOL_DESC_SESSIONS_LIST`      | 跨会话通信发现                                           |
 |              | session_status     | `TOOL_DESC_SESSION_STATUS`     | 会话详细状态                                             |
 |              | sessions_search    | `TOOL_DESC_SESSIONS_SEARCH`    | FTS 检索会话消息并返回上下文窗口                         |
 |              | sessions_history   | `TOOL_DESC_SESSIONS_HISTORY`   | 分页历史记录                                             |
-|              | sessions_send      | `TOOL_DESC_SESSIONS_SEND`      | 跨会话消息发送                                           |
+|              | sessions_send      | `TOOL_DESC_SESSIONS_SEND`      | 向已有普通会话提交持久 turn                              |
 | **媒体**     | image              | `TOOL_DESC_IMAGE`              | 视觉输入；把图片附件带入下一轮模型并用 task/question 指定目标 |
 |              | image_generate     | `TOOL_DESC_IMAGE_GENERATE`     | AI 图片生成；failover                                    |
 |              | audio_generate     | `TOOL_DESC_AUDIO_GENERATE`     | 音频生成（TTS 语音 / 音乐 / 音效）；failover             |

@@ -2292,6 +2292,15 @@ pub async fn cleanup_model_eval_trial(
     let session_ids = ha_core::eval_context::session_ids_for_trial(&trial_id)
         .ok_or_else(|| AppError::not_found("model evaluation trial was not found"))?;
     let count = session_ids.len();
+    let mut cancelled_background_tasks = 0usize;
+    for session_id in &session_ids {
+        cancelled_background_tasks +=
+            usize::from(ha_core::session_title::cancel_generation(session_id));
+        cancelled_background_tasks +=
+            usize::from(ha_core::memory_extract::cancel_idle_extraction(session_id));
+        cancelled_background_tasks +=
+            ha_core::memory_extract::cancel_active_extractions(session_id);
+    }
     ctx.session_db
         .run(move |db| {
             for session_id in session_ids {
@@ -2300,7 +2309,10 @@ pub async fn cleanup_model_eval_trial(
             anyhow::Ok(())
         })
         .await?;
-    Ok(Json(json!({ "cleanedSessions": count })))
+    Ok(Json(json!({
+        "cleanedSessions": count,
+        "cancelledBackgroundTasks": cancelled_background_tasks,
+    })))
 }
 
 /// Mark the final scripted/replay user turn complete without deleting state,
@@ -2982,7 +2994,10 @@ mod tests {
             file_path: Some("/tmp/forged.txt".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(
             validate_http_chat_attachments("missing-session", "plain", None, &[forged]).is_err()
@@ -2996,7 +3011,10 @@ mod tests {
             file_path: None,
             upload_id: Some("opaque-lease".to_string()),
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(
             validate_http_chat_attachments("missing-session", "plain", None, &[ordinary]).is_ok()
@@ -3013,7 +3031,10 @@ mod tests {
             file_path: Some("/tmp/secret.txt".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -3031,7 +3052,10 @@ mod tests {
             file_path: Some("/tmp/upload.txt".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -3049,7 +3073,10 @@ mod tests {
             file_path: Some("/tmp/pasted-text.txt".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -3067,7 +3094,10 @@ mod tests {
             file_path: None,
             upload_id: Some(uuid::Uuid::new_v4().to_string()),
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -3085,7 +3115,10 @@ mod tests {
             file_path: Some("/tmp/upload.txt".to_string()),
             upload_id: Some(uuid::Uuid::new_v4().to_string()),
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         assert!(
@@ -3134,7 +3167,10 @@ mod tests {
             file_path: Some(path.to_string_lossy().into_owned()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let resolver = |short_id: &str, version: u32| {
             (short_id == "abcdef12" && version == 3).then(|| registered.clone())

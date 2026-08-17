@@ -202,6 +202,12 @@ const TOOL_DESC_AGENTS_LIST: &str = "\
 - agents_list: List all available agents with their descriptions and capabilities.\n\
   - Useful for choosing which agent to delegate tasks to via subagent";
 
+const TOOL_DESC_SESSIONS_CREATE: &str = "\
+- sessions_create: Create a new regular chat session.\n\
+  - Params: agent_id/title/project_id (optional), message/attachments (optional), wait (default false)\n\
+  - Without agent_id, a resolved Project uses its default-agent chain; otherwise the current Agent is used\n\
+  - A message or attachment starts a durable target-agent turn immediately; returns session_id + turn_id";
+
 const TOOL_DESC_SESSIONS_LIST: &str = "\
 - sessions_list: List all chat sessions with metadata (title, agent, model, message count).\n\
   - Use to discover existing sessions for cross-session communication";
@@ -221,9 +227,9 @@ const TOOL_DESC_SESSIONS_HISTORY: &str = "\
   - Use to understand context from another session before sending messages";
 
 const TOOL_DESC_SESSIONS_SEND: &str = "\
-- sessions_send: Send a message to another session for cross-session communication.\n\
-  - Params: session_id, message (required), wait (default false), timeout_secs (default 60)\n\
-  - Use wait=true to block until the other session responds";
+- sessions_send: Start a durable agent turn in another regular session.\n\
+  - Params: session_id, message and/or attachments, wait (default false), timeout_secs (default 60)\n\
+  - The target always runs; wait only controls whether this tool waits for the reply";
 
 const TOOL_DESC_IMAGE: &str = "\
 - image: Attach local/URL/clipboard/screenshot images as visual input for the next model round.\n\
@@ -412,6 +418,7 @@ pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("subagent", TOOL_DESC_SUBAGENT),
     ("memory_get", TOOL_DESC_MEMORY_GET),
     ("agents_list", TOOL_DESC_AGENTS_LIST),
+    ("sessions_create", TOOL_DESC_SESSIONS_CREATE),
     ("sessions_list", TOOL_DESC_SESSIONS_LIST),
     ("session_status", TOOL_DESC_SESSION_STATUS),
     ("sessions_search", TOOL_DESC_SESSIONS_SEARCH),

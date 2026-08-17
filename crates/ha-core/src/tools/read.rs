@@ -176,54 +176,28 @@ pub(crate) fn resize_image_if_needed(
 
 // ── Read Constants ────────────────────────────────────────────────
 
-/// Default max bytes for a single read page (50KB).
-const DEFAULT_READ_PAGE_MAX_BYTES: usize = 50 * 1024;
-/// Max bytes for adaptive read (512KB).
-const MAX_ADAPTIVE_READ_MAX_BYTES: usize = 512 * 1024;
-/// Share of model context window to use for read output (20%).
-const ADAPTIVE_READ_CONTEXT_SHARE: f64 = 0.2;
-/// Estimated chars per token.
-const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+/// Page output must fit Tier 1's exact C0, including its continuation cursor.
+/// Advancing a cursor over a larger page would make an omitted middle range
+/// unreachable while durable ResultStore readback is disabled.
+const DEFAULT_READ_PAGE_MAX_BYTES: usize = crate::session::MAX_RESUMABLE_TOOL_PAGE_BYTES;
+const MAX_ADAPTIVE_READ_MAX_BYTES: usize = crate::session::MAX_RESUMABLE_TOOL_PAGE_BYTES;
+const READ_PAGE_CURSOR_RESERVE_BYTES: usize = 768;
 /// Max pages for adaptive paging.
 const MAX_ADAPTIVE_READ_PAGES: usize = 8;
 /// Default max lines per page when no limit is specified.
 const READ_DEFAULT_MAX_LINES: usize = 2000;
 
-/// Compute max bytes for adaptive read output based on **remaining** context budget.
+/// Compute the safe inline page size.
 ///
-/// When `used_tokens` is available, the budget is based on remaining tokens with a
-/// dynamic share ratio that decreases as context fills up. This prevents large reads
-/// from crowding out the context window in long conversations.
-///
-/// Fallback: when `used_tokens` is `None`, uses the full context window (backward compat).
+/// The downstream admission ceiling is currently the tighter invariant, so
+/// context-window inputs cannot raise this value. Keeping the parameters in
+/// the signature preserves the caller contract for the future ResultStore
+/// phase where durable readback can safely support larger adaptive pages.
 fn compute_adaptive_read_max_bytes(
-    context_window_tokens: Option<u32>,
-    used_tokens: Option<u32>,
+    _context_window_tokens: Option<u32>,
+    _used_tokens: Option<u32>,
 ) -> usize {
-    match context_window_tokens {
-        Some(window) if window > 0 => {
-            // Remaining tokens: total window minus already used
-            let remaining = match used_tokens {
-                Some(used) if used < window => window - used,
-                Some(_) => 0,   // context fully consumed or overflowed
-                None => window, // no usage info → fall back to full window
-            };
-
-            // Dynamic share: allocate a smaller fraction of remaining as context fills up
-            let utilization = used_tokens.map(|u| u as f64 / window as f64).unwrap_or(0.0);
-            let share = if utilization > 0.8 {
-                0.10 // tight: 10% of remaining
-            } else if utilization > 0.5 {
-                0.15 // moderate: 15% of remaining
-            } else {
-                ADAPTIVE_READ_CONTEXT_SHARE // fresh: 20% of remaining (baseline)
-            };
-
-            let budget = (remaining as f64 * share * CHARS_PER_TOKEN_ESTIMATE as f64) as usize;
-            budget.clamp(DEFAULT_READ_PAGE_MAX_BYTES, MAX_ADAPTIVE_READ_MAX_BYTES)
-        }
-        _ => DEFAULT_READ_PAGE_MAX_BYTES,
-    }
+    DEFAULT_READ_PAGE_MAX_BYTES.min(MAX_ADAPTIVE_READ_MAX_BYTES)
 }
 
 /// Verify base64 image data's actual MIME type by decoding first 192 bytes and re-sniffing magic bytes.
@@ -264,25 +238,94 @@ fn verify_base64_mime(b64: &str, declared_mime: &str) -> &'static str {
     }
 }
 
-/// Read a single page of a text file. Returns (output_text, lines_read, truncated, total_lines).
-pub(super) fn read_text_page(
+#[derive(Debug)]
+struct TextPage {
+    output: String,
+    lines_touched: usize,
+    complete_lines: usize,
+    truncated: bool,
+    total_lines: usize,
+    next_line_index: usize,
+    next_byte_offset: usize,
+}
+
+/// Read a text page with both a line ceiling and a hard byte ceiling.
+///
+/// The old pager bounded only the number of lines, so a minified JSON document
+/// or another single-line payload could return tens of megabytes and crowd out
+/// the model context. `start_byte_offset` makes that line resumable without
+/// cutting UTF-8 code points.
+fn read_text_page_bounded(
     lines: &[&str],
     start_idx: usize,
+    start_byte_offset: usize,
     max_lines: usize,
-) -> (String, usize, bool, usize) {
+    max_bytes: usize,
+) -> TextPage {
     let total_lines = lines.len();
-    let start = start_idx.min(total_lines);
-    let end = (start + max_lines).min(total_lines);
-    let selected = &lines[start..end];
-
+    let mut line_index = start_idx.min(total_lines);
+    let mut byte_offset = start_byte_offset;
     let mut output = String::new();
-    for (i, line) in selected.iter().enumerate() {
-        let line_num = start + i + 1;
-        output.push_str(&format!("{:6}\t{}\n", line_num, line));
+    let mut lines_touched = 0usize;
+    let mut complete_lines = 0usize;
+
+    while line_index < total_lines && lines_touched < max_lines {
+        let line = lines[line_index];
+        let mut safe_offset = byte_offset.min(line.len());
+        while safe_offset > 0 && !line.is_char_boundary(safe_offset) {
+            safe_offset -= 1;
+        }
+
+        if safe_offset == line.len() && !line.is_empty() {
+            line_index += 1;
+            byte_offset = 0;
+            continue;
+        }
+
+        let prefix = format!("{:6}\t", line_index + 1);
+        let required_overhead = prefix.len() + 1; // trailing newline
+        if output.len().saturating_add(required_overhead) >= max_bytes {
+            break;
+        }
+        let available = max_bytes - output.len() - required_overhead;
+        let remaining = &line[safe_offset..];
+        let take = crate::truncate_utf8(remaining, available).len();
+        if take == 0 && !remaining.is_empty() {
+            break;
+        }
+
+        output.push_str(&prefix);
+        output.push_str(&remaining[..take]);
+        output.push('\n');
+        lines_touched += 1;
+
+        if take < remaining.len() {
+            byte_offset = safe_offset + take;
+            return TextPage {
+                output,
+                lines_touched,
+                complete_lines,
+                truncated: true,
+                total_lines,
+                next_line_index: line_index,
+                next_byte_offset: byte_offset,
+            };
+        }
+
+        complete_lines += 1;
+        line_index += 1;
+        byte_offset = 0;
     }
 
-    let truncated = end < total_lines;
-    (output, selected.len(), truncated, total_lines)
+    TextPage {
+        output,
+        lines_touched,
+        complete_lines,
+        truncated: line_index < total_lines,
+        total_lines,
+        next_line_index: line_index,
+        next_byte_offset: byte_offset,
+    }
 }
 
 pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
@@ -303,14 +346,20 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
     let explicit_limit = args
         .get("limit")
         .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
+        .map(|v| v.max(1) as usize);
+    let byte_offset = args
+        .get("byte_offset")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(0);
 
     app_info!(
         "tool",
         "read",
-        "Reading file: {} (offset={}, limit={:?})",
+        "Reading file: {} (offset={}, byte_offset={}, limit={:?})",
         path,
         offset,
+        byte_offset,
         explicit_limit
     );
 
@@ -373,26 +422,24 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
 
-    // If user specified an explicit limit, use single-page mode (no adaptive paging)
+    let max_bytes = compute_adaptive_read_max_bytes(ctx.context_window_tokens, ctx.used_tokens);
+
+    // If user specified an explicit limit, use a single bounded page. `limit`
+    // remains a line ceiling; the byte ceiling is mandatory and supplies a
+    // resumable byte cursor for pathological long lines.
     if let Some(limit) = explicit_limit {
-        let (output, lines_read, truncated, _) = read_text_page(&lines, offset - 1, limit);
-        let mut result = output;
-        if truncated {
-            result.push_str(&format!(
-                "\n[Read {} lines ({}–{} of {}). Use offset={} to continue reading.]\n",
-                lines_read,
-                offset,
-                offset - 1 + lines_read,
-                total_lines,
-                offset + lines_read
-            ));
-        }
+        let content_budget = max_bytes
+            .saturating_sub(READ_PAGE_CURSOR_RESERVE_BYTES)
+            .max(512);
+        let mut page =
+            read_text_page_bounded(&lines, offset - 1, byte_offset, limit, content_budget);
+        let mut result = std::mem::take(&mut page.output);
+        append_text_page_cursor(&mut result, &page, max_bytes);
         emit_file_read_metadata(ctx, &path, total_lines).await;
         return Ok(result);
     }
 
     // Adaptive paging: auto-aggregate multiple pages up to max_bytes budget
-    let max_bytes = compute_adaptive_read_max_bytes(ctx.context_window_tokens, ctx.used_tokens);
     app_debug!(
         "tool",
         "read",
@@ -405,62 +452,55 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
             .saturating_sub(ctx.used_tokens.unwrap_or(0))
             / 1000
     );
-    let page_max_lines = READ_DEFAULT_MAX_LINES;
-    let mut aggregated = String::new();
-    let mut aggregated_bytes: usize = 0;
-    let mut next_offset = offset - 1; // convert to 0-based
-    let mut capped = false;
-
-    for _page in 0..MAX_ADAPTIVE_READ_PAGES {
-        if next_offset >= total_lines {
-            break;
-        }
-
-        let (page_text, lines_read, truncated, _) =
-            read_text_page(&lines, next_offset, page_max_lines);
-
-        if lines_read == 0 {
-            break;
-        }
-
-        let page_bytes = page_text.len();
-
-        // Check if adding this page would exceed budget (skip check for first page)
-        if !aggregated.is_empty() && aggregated_bytes + page_bytes > max_bytes {
-            capped = true;
-            break;
-        }
-
-        aggregated.push_str(&page_text);
-        aggregated_bytes += page_bytes;
-        next_offset += lines_read;
-
-        if !truncated {
-            // Reached end of file
-            break;
-        }
-    }
-
-    // Add truncation/continuation notice
-    if next_offset < total_lines {
-        aggregated.push_str(&format!(
-            "\n[Read lines {}–{} of {} ({} bytes). {}Use offset={} to continue reading.]\n",
-            offset,
-            next_offset,
-            total_lines,
-            aggregated_bytes,
-            if capped {
-                format!("Output capped at ~{}KB for this call. ", max_bytes / 1024)
-            } else {
-                String::new()
-            },
-            next_offset + 1
-        ));
-    }
+    let content_budget = max_bytes
+        .saturating_sub(READ_PAGE_CURSOR_RESERVE_BYTES)
+        .max(512);
+    let mut page = read_text_page_bounded(
+        &lines,
+        offset - 1,
+        byte_offset,
+        READ_DEFAULT_MAX_LINES * MAX_ADAPTIVE_READ_PAGES,
+        content_budget,
+    );
+    let mut aggregated = std::mem::take(&mut page.output);
+    append_text_page_cursor(&mut aggregated, &page, max_bytes);
 
     emit_file_read_metadata(ctx, &path, total_lines).await;
 
     Ok(aggregated)
+}
+
+fn append_text_page_cursor(output: &mut String, page: &TextPage, max_bytes: usize) {
+    if !page.truncated {
+        return;
+    }
+
+    if page.next_byte_offset > 0 {
+        output.push_str(&format!(
+            "\n[Read part of line {} of {} ({} bytes returned). Output capped at ~{}KB. Use offset={}, byte_offset={} to continue.]\n",
+            page.next_line_index + 1,
+            page.total_lines,
+            output.len(),
+            max_bytes / 1024,
+            page.next_line_index + 1,
+            page.next_byte_offset,
+        ));
+    } else {
+        let first_line = page
+            .next_line_index
+            .saturating_sub(page.complete_lines)
+            .saturating_add(1);
+        output.push_str(&format!(
+            "\n[Read {} lines ({}–{} of {}, {} bytes). Output capped at ~{}KB. Use offset={} to continue.]\n",
+            page.lines_touched,
+            first_line,
+            page.next_line_index,
+            page.total_lines,
+            output.len(),
+            max_bytes / 1024,
+            page.next_line_index + 1,
+        ));
+    }
 }
 
 async fn emit_file_read_metadata(ctx: &super::ToolExecContext, path: &str, total_lines: usize) {
@@ -473,4 +513,71 @@ async fn emit_file_read_metadata(ctx: &super::ToolExecContext, path: &str, total
         "lines": total_lines as u32,
     }))
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_text_page_returns_cursor_for_one_huge_utf8_line() {
+        let line = "中".repeat(10_000);
+        let lines = vec![line.as_str()];
+        let first = read_text_page_bounded(&lines, 0, 0, 10, 1_024);
+
+        assert!(first.truncated);
+        assert_eq!(first.next_line_index, 0);
+        assert!(first.next_byte_offset > 0);
+        assert!(line.is_char_boundary(first.next_byte_offset));
+        assert!(first.output.len() <= 1_024);
+
+        let second = read_text_page_bounded(
+            &lines,
+            first.next_line_index,
+            first.next_byte_offset,
+            10,
+            1_024,
+        );
+        assert!(second.next_byte_offset > first.next_byte_offset);
+        assert!(line.is_char_boundary(second.next_byte_offset));
+        let (_, second_payload) = second
+            .output
+            .split_once('\t')
+            .expect("page output has a line-number prefix");
+        let second_payload = second_payload
+            .strip_suffix('\n')
+            .expect("page output ends with a newline");
+        assert_eq!(
+            second_payload,
+            &line[first.next_byte_offset..second.next_byte_offset]
+        );
+    }
+
+    #[test]
+    fn bounded_text_page_keeps_empty_lines_and_line_cursor() {
+        let lines = vec!["a", "", "b", "c"];
+        let page = read_text_page_bounded(&lines, 0, 0, 3, 4_096);
+
+        assert!(page.truncated);
+        assert_eq!(page.lines_touched, 3);
+        assert_eq!(page.complete_lines, 3);
+        assert_eq!(page.next_line_index, 3);
+        assert_eq!(page.next_byte_offset, 0);
+        assert!(page.output.contains("     2\t\n"));
+    }
+
+    #[test]
+    fn pageable_read_never_exceeds_downstream_inline_projection() {
+        let line = "x".repeat(DEFAULT_READ_PAGE_MAX_BYTES * 2);
+        let lines = vec![line.as_str()];
+        let content_budget =
+            DEFAULT_READ_PAGE_MAX_BYTES.saturating_sub(READ_PAGE_CURSOR_RESERVE_BYTES);
+        let mut page = read_text_page_bounded(&lines, 0, 0, 10, content_budget);
+        let mut output = std::mem::take(&mut page.output);
+        append_text_page_cursor(&mut output, &page, DEFAULT_READ_PAGE_MAX_BYTES);
+
+        assert!(page.truncated);
+        assert!(output.len() <= crate::session::MAX_RESUMABLE_TOOL_PAGE_BYTES);
+        assert!(output.contains("byte_offset="));
+    }
 }

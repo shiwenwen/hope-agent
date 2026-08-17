@@ -17,10 +17,13 @@ use super::super::api_types::FunctionCallItem;
 use super::super::config::{apply_thinking_to_chat_body, build_api_url};
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, expand_openai_chat_image_markers_for_api,
-    openai_chat_history_has_images,
+    openai_chat_history_has_images, project_openai_chat_image_markers_for_token_count,
 };
 use super::super::streaming_adapter::{
-    ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter, VisionInputRejected,
+    observe_before_send, observe_response_started, ExecutedTool, PreparedProviderRequest,
+    PreparedRequestVariant, ProviderAccountingInput, ProviderDispatchObserver,
+    ProviderDispatchUnknown, ProviderEndpointKind, ProviderReprepareReason, ProviderRequestShape,
+    ReprepareRequired, RoundOutcome, RoundRequest, StreamingChatAdapter, VisionInputRejected,
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat, ThinkTagFilter};
 use crate::provider::ThinkingStyle;
@@ -63,13 +66,68 @@ pub(crate) struct OpenAIChatStreamingAdapter<'a> {
     pub vision_runtime_disabled: Arc<AtomicBool>,
     /// Guards the user-facing "model can't see images" notice to once per turn.
     pub vision_notice_emitted: Arc<AtomicBool>,
+    /// `prepare_history_for_api` may fold catalog-disabled image input before
+    /// `chat_round` can inspect it. Preserve that content-free fact so the
+    /// existing one-shot user notice is not lost at the freeze boundary.
+    pub prepared_history_had_images: AtomicBool,
+}
+
+impl OpenAIChatStreamingAdapter<'_> {
+    fn prepare_chat_variant(
+        &self,
+        req: &RoundRequest<'_>,
+        thinking_disabled: bool,
+        model_supports_vision: bool,
+    ) -> Result<PreparedProviderRequest> {
+        let thinking_style = if thinking_disabled {
+            &ThinkingStyle::None
+        } else {
+            self.thinking_style
+        };
+        let (body, api_messages, tools_array) = build_chat_body(
+            self.base_url,
+            self.model,
+            thinking_style,
+            model_supports_vision,
+            req,
+        );
+        let prompt_cache_key_included = body.get("prompt_cache_key").is_some();
+        let proactive_vision_notice = !model_supports_vision
+            && (self.prepared_history_had_images.load(Ordering::Relaxed)
+                || openai_chat_history_has_images(req.history_for_api));
+        let prepared = PreparedProviderRequest::from_json(
+            ProviderEndpointKind::OpenAIChatCompletions,
+            ProviderRequestShape::OpenAIChatCompletions,
+            self.model,
+            req.round,
+            req.session_id,
+            req.reasoning_effort,
+            req.vision_bridge_available,
+            PreparedRequestVariant::OpenAIChat {
+                thinking_disabled,
+                model_supports_vision,
+                prompt_cache_key_included,
+                proactive_vision_notice,
+            },
+            &body,
+        )?;
+        log_openai_chat_request(
+            self.model,
+            req,
+            &api_messages,
+            &tools_array,
+            &body,
+            prepared.identity.body_len as usize,
+        );
+        Ok(prepared)
+    }
 }
 
 /// Emit the one-shot "images ignored, continuing without vision" notice.
 /// Frontend renders it as a gray inline banner; IM ships it as a standalone
 /// system message. Deduped via `vision_notice_emitted`.
 fn emit_vision_auto_disabled(
-    on_delta: &(impl Fn(&str) + Send),
+    on_delta: &(impl Fn(&str) + Send + ?Sized),
     provider_config: Option<&crate::provider::ProviderConfig>,
     model: &str,
 ) {
@@ -154,15 +212,13 @@ fn build_chat_body(
 }
 
 fn log_openai_chat_request(
-    api_url: &str,
     model: &str,
     req: &RoundRequest<'_>,
     api_messages: &[Value],
     tools_array: &[Value],
     body: &Value,
+    body_size: usize,
 ) {
-    let body_str = serde_json::to_string(body).unwrap_or_default();
-    let body_size = body_str.len();
     super::super::token_manifest::log_round_manifest(
         "OpenAIChat",
         model,
@@ -190,7 +246,7 @@ fn log_openai_chat_request(
             Some(
                 json!({
                     "round": req.round,
-                    "api_url": api_url,
+                    "endpoint_kind": "openai_chat_completions",
                     "model": model,
                     "message_count": api_messages.len(),
                     "tool_count": tools_array.len(),
@@ -463,8 +519,7 @@ async fn send_chat_request(
     client: &reqwest::Client,
     api_url: &str,
     api_key: &str,
-    body: &Value,
-    round: u32,
+    body: Arc<[u8]>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Option<reqwest::Response>> {
     let mut http_req = client
@@ -473,14 +528,12 @@ async fn send_chat_request(
     if !api_key.is_empty() {
         http_req = http_req.header("Authorization", format!("Bearer {}", api_key));
     }
-    let request_start = std::time::Instant::now();
-    let Some(resp) = super::cancel::send_with_cancel(http_req.json(body), cancel)
+    let Some(resp) = super::cancel::send_with_cancel(http_req.body(body.to_vec()), cancel)
         .await
-        .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?
+        .map_err(|e| ProviderDispatchUnknown(e.to_string()))?
     else {
         return Ok(None);
     };
-    log_openai_chat_response(&resp, request_start, round);
     Ok(Some(resp))
 }
 
@@ -518,274 +571,181 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             .collect()
     }
 
-    async fn chat_round(
-        &self,
-        client: &reqwest::Client,
-        req: RoundRequest<'_>,
-        cancel: &Arc<AtomicBool>,
-        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
-    ) -> Result<RoundOutcome> {
-        let api_url = build_api_url(self.base_url, "/v1/chat/completions");
-        // Effective vision = catalog says yes AND the backend hasn't already
-        // rejected images this turn at runtime.
+    fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
+        // Keep the capacity proof on the exact same modality branch as
+        // `chat_round`: catalog-declared text-only models must count the
+        // placeholder form even before a runtime image rejection occurs.
         let model_supports_vision = self
             .provider_config
             .map(|pc| pc.model_supports_vision(self.model))
             .unwrap_or(true)
             && !self.vision_runtime_disabled();
-        // Proactive notice: a text-only model can't see the image(s) the
-        // conversation carries — surface it once, then fold the images to text
-        // below so the request still succeeds instead of 400-ing.
-        if !model_supports_vision
-            && openai_chat_history_has_images(req.history_for_api)
-            && !self.vision_notice_emitted.swap(true, Ordering::Relaxed)
-        {
-            emit_vision_auto_disabled(&on_delta, self.provider_config, self.model);
-        }
-        let (body, api_messages, tools_array) = build_chat_body(
-            self.base_url,
-            self.model,
-            self.thinking_style,
-            model_supports_vision,
-            &req,
-        );
-        log_openai_chat_request(
-            &api_url,
-            self.model,
-            &req,
-            &api_messages,
-            &tools_array,
-            &body,
-        );
-        let mut request_start = std::time::Instant::now();
-        let Some(resp) =
-            send_chat_request(client, &api_url, self.api_key, &body, req.round, cancel).await?
-        else {
-            return Ok(super::cancel::cancelled_round_outcome());
-        };
-        let mut resp = Some(resp);
+        project_openai_chat_image_markers_for_token_count(history, model_supports_vision)
+    }
 
-        if !resp
-            .as_ref()
-            .is_some_and(|value| value.status().is_success())
-        {
-            let status = resp
-                .as_ref()
-                .map(|value| value.status().as_u16())
-                .unwrap_or(500);
-            let error_text = match super::cancel::read_text_with_cancel(
-                resp.take().expect("response exists before reading error"),
-                cancel,
+    fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
+        self.prepared_history_had_images
+            .store(openai_chat_history_has_images(history), Ordering::Relaxed);
+        let model_supports_vision = self
+            .provider_config
+            .map(|pc| pc.model_supports_vision(self.model))
+            .unwrap_or(true)
+            && !self.vision_runtime_disabled();
+        expand_openai_chat_image_markers_for_api(history, model_supports_vision)
+    }
+
+    fn token_count_input_for(&self, req: &RoundRequest<'_>) -> ProviderAccountingInput {
+        let stable_message = json!({ "role": "system", "content": req.system_prompt });
+        let mut dynamic_messages: Vec<Value> =
+            super::super::streaming_adapter::dynamic_instruction_suffixes(req)
+                .into_iter()
+                .map(|content| json!({ "role": "system", "content": content }))
+                .collect();
+        if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
+            dynamic_messages.push(json!({ "role": "user", "content": content }));
+        }
+        ProviderAccountingInput {
+            stable_prompt: serde_json::to_string(&stable_message).unwrap_or_default(),
+            dynamic_prompt: serde_json::to_string(&dynamic_messages).unwrap_or_default(),
+            history: self.token_count_history_for(req.history_for_api),
+        }
+    }
+
+    fn prepare_round_request(&self, req: &RoundRequest<'_>) -> Result<PreparedProviderRequest> {
+        let model_supports_vision = self
+            .provider_config
+            .map(|pc| pc.model_supports_vision(self.model))
+            .unwrap_or(true)
+            && !self.vision_runtime_disabled();
+        self.prepare_chat_variant(req, false, model_supports_vision)
+    }
+
+    fn reprepare_round_request(
+        &self,
+        req: &RoundRequest<'_>,
+        previous: &PreparedProviderRequest,
+        reason: ProviderReprepareReason,
+    ) -> Result<PreparedProviderRequest> {
+        let PreparedRequestVariant::OpenAIChat {
+            thinking_disabled,
+            model_supports_vision,
+            ..
+        } = previous.variant
+        else {
+            anyhow::bail!("OpenAI Chat received an incompatible prepared request")
+        };
+        self.prepare_chat_variant(
+            req,
+            thinking_disabled || reason == ProviderReprepareReason::Thinking,
+            model_supports_vision && reason != ProviderReprepareReason::Vision,
+        )
+    }
+
+    async fn dispatch_prepared(
+        &self,
+        client: &reqwest::Client,
+        prepared: &PreparedProviderRequest,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+        observer: &dyn ProviderDispatchObserver,
+    ) -> Result<RoundOutcome> {
+        let PreparedRequestVariant::OpenAIChat {
+            thinking_disabled,
+            model_supports_vision,
+            prompt_cache_key_included,
+            proactive_vision_notice,
+        } = prepared.variant
+        else {
+            anyhow::bail!("OpenAI Chat received an incompatible prepared request")
+        };
+        if proactive_vision_notice && !self.vision_notice_emitted.swap(true, Ordering::Relaxed) {
+            emit_vision_auto_disabled(on_delta, self.provider_config, self.model);
+        }
+
+        let api_url = build_api_url(self.base_url, "/v1/chat/completions");
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
+        observe_before_send(observer, prepared).await?;
+        let request_start = std::time::Instant::now();
+        let Some(resp) =
+            send_chat_request(client, &api_url, self.api_key, prepared.body(), cancel).await?
+        else {
+            return Err(ProviderDispatchUnknown(
+                "cancelled after dispatch claim and before response headers".to_string(),
             )
-            .await
-            {
+            .into());
+        };
+        observe_response_started(observer, prepared, 1, &resp).await?;
+        log_openai_chat_response(&resp, request_start, prepared.identity.round);
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
                 Ok(Some(text)) => text,
                 Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
                 Err(_) => String::new(),
             };
-            log_openai_chat_error(status, &error_text, req.round);
+            log_openai_chat_error(status, &error_text, prepared.identity.round);
 
-            let mut recovered_by_prompt_cache_fallback = false;
-            let mut status = status;
-            let mut error_text = error_text;
-            if body.get("prompt_cache_key").is_some()
+            if prompt_cache_key_included
                 && is_unsupported_prompt_cache_key_error(status, &error_text)
             {
                 mark_prompt_cache_key_unsupported(self.base_url);
-                let (retry_body, retry_messages, retry_tools) = build_chat_body(
-                    self.base_url,
+                return Err(ReprepareRequired {
+                    reason: ProviderReprepareReason::PromptCacheKey,
+                }
+                .into());
+            }
+            if !thinking_disabled {
+                let active_style = self.thinking_style;
+                if let Some(autofix) = maybe_auto_disable_thinking(
+                    self.provider_config,
                     self.model,
-                    self.thinking_style,
-                    model_supports_vision,
-                    &req,
-                );
-                log_openai_chat_request(
-                    &api_url,
-                    self.model,
-                    &req,
-                    &retry_messages,
-                    &retry_tools,
-                    &retry_body,
-                );
-                request_start = std::time::Instant::now();
-                let Some(retry_resp) = send_chat_request(
-                    client,
-                    &api_url,
-                    self.api_key,
-                    &retry_body,
-                    req.round,
-                    cancel,
-                )
-                .await?
-                else {
-                    return Ok(super::cancel::cancelled_round_outcome());
-                };
-                if retry_resp.status().is_success() {
-                    resp = Some(retry_resp);
-                    recovered_by_prompt_cache_fallback = true;
-                } else {
-                    status = retry_resp.status().as_u16();
-                    error_text =
-                        match super::cancel::read_text_with_cancel(retry_resp, cancel).await {
-                            Ok(Some(text)) => text,
-                            Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
-                            Err(_) => String::new(),
-                        };
-                    log_openai_chat_error(status, &error_text, req.round);
+                    active_style,
+                    status,
+                    &error_text,
+                ) {
+                    on_delta(&autofix.payload.to_string());
+                    return Err(ReprepareRequired {
+                        reason: ProviderReprepareReason::Thinking,
+                    }
+                    .into());
                 }
             }
-
-            if recovered_by_prompt_cache_fallback {
-                // Continue with the successful retry response.
-            } else if let Some(autofix) = maybe_auto_disable_thinking(
-                self.provider_config,
-                self.model,
-                self.thinking_style,
-                status,
-                &error_text,
-            ) {
-                on_delta(&autofix.payload.to_string());
-                let retry_style = ThinkingStyle::None;
-                let (retry_body, retry_messages, retry_tools) = build_chat_body(
-                    self.base_url,
-                    self.model,
-                    &retry_style,
-                    model_supports_vision,
-                    &req,
-                );
-                log_openai_chat_request(
-                    &api_url,
-                    self.model,
-                    &req,
-                    &retry_messages,
-                    &retry_tools,
-                    &retry_body,
-                );
-                request_start = std::time::Instant::now();
-                let Some(retry_resp) = send_chat_request(
-                    client,
-                    &api_url,
-                    self.api_key,
-                    &retry_body,
-                    req.round,
-                    cancel,
-                )
-                .await?
-                else {
-                    return Ok(super::cancel::cancelled_round_outcome());
-                };
-                resp = Some(retry_resp);
-                if !resp
-                    .as_ref()
-                    .is_some_and(|value| value.status().is_success())
-                {
-                    let retry_status = resp
-                        .as_ref()
-                        .map(|value| value.status().as_u16())
-                        .unwrap_or(500);
-                    let retry_error = match super::cancel::read_text_with_cancel(
-                        resp.take()
-                            .expect("retry response exists before reading error"),
-                        cancel,
-                    )
-                    .await
-                    {
-                        Ok(Some(text)) => text,
-                        Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
-                        Err(_) => String::new(),
-                    };
-                    log_openai_chat_error(retry_status, &retry_error, req.round);
-                    return Err(anyhow::anyhow!(
-                        "OpenAI Chat API error ({}): {}",
-                        retry_status,
-                        retry_error
-                    ));
-                }
-            } else if model_supports_vision && is_unsupported_image_url_error(status, &error_text) {
+            if model_supports_vision && is_unsupported_image_url_error(status, &error_text) {
                 log_vision_runtime_disabled(self.provider_config, self.model, status, &error_text);
-                // Scope this discovery to the current turn. A generic
-                // `image_url` rejection can mean only role=tool image content
-                // is unsupported; it is not strong enough evidence to rewrite
-                // the model's durable `input_types` or poison future turns.
                 self.vision_runtime_disabled.store(true, Ordering::Relaxed);
-                // A configured bridge must own the recovery so this same round
-                // receives image descriptions. Without this handoff, the
-                // adapter's legacy retry below would silently remove the image
-                // before the orchestrator ever sees the runtime capability.
-                if req.vision_bridge_available {
+                if prepared.vision_bridge_available {
                     return Err(VisionInputRejected.into());
                 }
                 if !self.vision_notice_emitted.swap(true, Ordering::Relaxed) {
-                    emit_vision_auto_disabled(&on_delta, self.provider_config, self.model);
+                    emit_vision_auto_disabled(on_delta, self.provider_config, self.model);
                 }
-                let (retry_body, retry_messages, retry_tools) =
-                    build_chat_body(self.base_url, self.model, self.thinking_style, false, &req);
-                log_openai_chat_request(
-                    &api_url,
-                    self.model,
-                    &req,
-                    &retry_messages,
-                    &retry_tools,
-                    &retry_body,
-                );
-                request_start = std::time::Instant::now();
-                let Some(retry_resp) = send_chat_request(
-                    client,
-                    &api_url,
-                    self.api_key,
-                    &retry_body,
-                    req.round,
-                    cancel,
-                )
-                .await?
-                else {
-                    return Ok(super::cancel::cancelled_round_outcome());
-                };
-                resp = Some(retry_resp);
-                if !resp
-                    .as_ref()
-                    .is_some_and(|value| value.status().is_success())
-                {
-                    let retry_status = resp
-                        .as_ref()
-                        .map(|value| value.status().as_u16())
-                        .unwrap_or(500);
-                    let retry_error = match super::cancel::read_text_with_cancel(
-                        resp.take()
-                            .expect("retry response exists before reading error"),
-                        cancel,
-                    )
-                    .await
-                    {
-                        Ok(Some(text)) => text,
-                        Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
-                        Err(_) => String::new(),
-                    };
-                    log_openai_chat_error(retry_status, &retry_error, req.round);
-                    return Err(anyhow::anyhow!(
-                        "OpenAI Chat API error ({}): {}",
-                        retry_status,
-                        retry_error
-                    ));
+                return Err(ReprepareRequired {
+                    reason: ProviderReprepareReason::Vision,
                 }
-            } else {
-                return Err(anyhow::anyhow!(
-                    "OpenAI Chat API error ({}): {}",
-                    status,
-                    error_text
-                ));
+                .into());
             }
+            return Err(crate::failover::ProviderApiError::from_http_response(
+                "OpenAI Chat",
+                status,
+                &error_text,
+            )
+            .into());
         }
 
-        // ── Parse SSE.
         let (text, tool_calls, mut usage, thinking_text, ttft_ms) = parse_chat_completions_sse(
-            resp.expect("successful response exists before SSE parsing"),
+            resp,
             request_start,
-            req.reasoning_effort,
+            prepared.reasoning_effort.as_deref(),
             cancel,
             on_delta,
         )
         .await?;
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(super::cancel::cancelled_round_outcome());
+        }
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -796,13 +756,13 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                     "agent::chat_openai_chat::tool_loop",
                     &format!(
                         "Tool loop round {}: executing {} tools: {:?}",
-                        req.round,
+                        prepared.identity.round,
                         tool_calls.len(),
                         tool_names
                     ),
                     Some(
                         json!({
-                            "round": req.round,
+                            "round": prepared.identity.round,
                             "tool_count": tool_calls.len(),
                             "tools": tool_names,
                         })
@@ -818,8 +778,8 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         super::super::token_manifest::log_round_usage(
             "OpenAIChat",
             self.model,
-            req.round,
-            req.session_id,
+            prepared.identity.round,
+            prepared.session_id.as_deref(),
             &usage,
             ttft_ms,
         );
@@ -830,7 +790,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             provider_history_items: Vec::new(),
             usage,
             ttft_ms,
-            stop_reason: None, // OpenAI Chat exits via empty tool_calls
+            stop_reason: None,
         })
     }
 
@@ -903,6 +863,100 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
 
 /// Parse OpenAI Chat Completions SSE stream.
 /// Returns `(collected_text, tool_calls, usage, thinking, ttft_ms)`.
+fn take_next_chat_sse_event_block(buffer: &mut Vec<u8>) -> Result<Option<String>> {
+    let lf = buffer
+        .windows(b"\n\n".len())
+        .position(|window| window == b"\n\n")
+        .map(|idx| (idx, 2));
+    let crlf = buffer
+        .windows(b"\r\n\r\n".len())
+        .position(|window| window == b"\r\n\r\n")
+        .map(|idx| (idx, 4));
+    let (idx, delimiter_len) = match (lf, crlf) {
+        (Some(left), Some(right)) => {
+            if left.0 <= right.0 {
+                left
+            } else {
+                right
+            }
+        }
+        (Some(found), None) | (None, Some(found)) => found,
+        (None, None) => return Ok(None),
+    };
+    let mut consumed: Vec<u8> = buffer.drain(..idx + delimiter_len).collect();
+    consumed.truncate(idx);
+    let block = String::from_utf8(consumed)
+        .map_err(|_| anyhow::anyhow!("OpenAI Chat SSE event contained invalid UTF-8"))?;
+    Ok(Some(block))
+}
+
+fn validate_chat_sse_eof_tail(cancelled: bool, buffer: &[u8]) -> Result<()> {
+    if cancelled || buffer.is_empty() {
+        return Ok(());
+    }
+    std::str::from_utf8(buffer)
+        .map_err(|_| anyhow::anyhow!("OpenAI Chat SSE ended with invalid UTF-8"))?;
+    anyhow::bail!("OpenAI Chat SSE ended with an incomplete event")
+}
+
+fn finalize_chat_completion_stream(
+    cancelled: bool,
+    saw_done: bool,
+    finish_reason: Option<&str>,
+    mut pending_calls: std::collections::HashMap<usize, FunctionCallItem>,
+) -> Result<Vec<FunctionCallItem>> {
+    if cancelled {
+        return Ok(Vec::new());
+    }
+    if !saw_done {
+        anyhow::bail!("OpenAI Chat SSE ended before [DONE]")
+    }
+    let finish_reason = finish_reason
+        .filter(|reason| !reason.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("OpenAI Chat SSE ended without a finish_reason"))?;
+    if !matches!(
+        finish_reason,
+        "stop" | "length" | "tool_calls" | "content_filter" | "function_call"
+    ) {
+        anyhow::bail!("OpenAI Chat SSE ended with an unknown finish_reason={finish_reason}")
+    }
+    let tool_finish = matches!(finish_reason, "tool_calls" | "function_call");
+    if !pending_calls.is_empty() && !tool_finish {
+        anyhow::bail!(
+            "OpenAI Chat SSE ended with pending tool calls but finish_reason={finish_reason}"
+        )
+    }
+    if pending_calls.is_empty() && tool_finish {
+        anyhow::bail!("OpenAI Chat SSE declared tool completion without a tool call")
+    }
+
+    let mut sorted_keys: Vec<usize> = pending_calls.keys().copied().collect();
+    sorted_keys.sort_unstable();
+    let mut tool_calls = Vec::with_capacity(sorted_keys.len());
+    for key in sorted_keys {
+        let call = pending_calls
+            .remove(&key)
+            .expect("key collected from pending tool calls");
+        if call.call_id.is_empty() || call.name.is_empty() {
+            anyhow::bail!("OpenAI Chat SSE completed with an invalid tool call")
+        }
+        serde_json::from_str::<Value>(&call.arguments).map_err(|err| {
+            anyhow::anyhow!(
+                "OpenAI Chat SSE completed with invalid tool arguments for {}: {}",
+                call.name,
+                err
+            )
+        })?;
+        tool_calls.push(call);
+    }
+    Ok(tool_calls)
+}
+
+fn decode_chat_completion_sse_data(data: &str) -> Result<Value> {
+    serde_json::from_str::<Value>(data)
+        .map_err(|err| anyhow::anyhow!("OpenAI Chat SSE event could not be decoded: {err}"))
+}
+
 pub(in crate::agent) async fn parse_chat_completions_sse(
     resp: reqwest::Response,
     request_start: std::time::Instant,
@@ -918,7 +972,6 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
 )> {
     let mut collected_text = String::new();
     let mut collected_thinking = String::new();
-    let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
     let mut pending_calls: std::collections::HashMap<usize, FunctionCallItem> =
         std::collections::HashMap::new();
     let mut usage = ChatUsage::default();
@@ -926,16 +979,21 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
     let mut first_token_time: Option<u64> = None;
 
     let mut stream = resp.bytes_stream();
-    let mut buffer = String::new();
+    let mut buffer = Vec::new();
+    let mut saw_done = false;
+    let mut finish_reason: Option<String> = None;
 
-    while let Some(chunk) = super::cancel::next_chunk_or_cancel(&mut stream, cancel).await {
-        let chunk = chunk?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+    'chat_stream: while let Some(chunk) =
+        super::cancel::next_chunk_or_cancel(&mut stream, cancel).await
+    {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(_) if cancel.load(Ordering::SeqCst) => break,
+            Err(err) => return Err(err.into()),
+        };
+        buffer.extend_from_slice(&chunk);
 
-        while let Some(idx) = buffer.find("\n\n") {
-            let event_block = buffer[..idx].to_string();
-            buffer = buffer[idx + 2..].to_string();
-
+        while let Some(event_block) = take_next_chat_sse_event_block(&mut buffer)? {
             for line in event_block.lines() {
                 let data = if let Some(d) = line.strip_prefix("data:") {
                     d.trim()
@@ -943,125 +1001,160 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
                     continue;
                 };
 
-                if data.is_empty() || data == "[DONE]" {
+                if data.is_empty() {
                     continue;
                 }
+                if data == "[DONE]" {
+                    saw_done = true;
+                    continue;
+                }
+                if saw_done {
+                    anyhow::bail!("OpenAI Chat SSE emitted data after [DONE]")
+                }
 
-                if let Ok(chunk) = serde_json::from_str::<Value>(data) {
-                    // Parse usage from stream (when stream_options.include_usage is set).
-                    if let Some(u) = chunk.get("usage") {
-                        if let Some(pt) = u.get("prompt_tokens").and_then(|v| v.as_u64()) {
-                            usage.input_tokens = pt;
-                            usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
-                        }
-                        if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
-                            usage.output_tokens = ct;
-                            usage.output_coverage =
-                                crate::token_accounting::UsageCoverage::Complete;
-                        }
-                        // Anthropic-style at top level (some gateways forward).
-                        if let Some(cr) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64())
-                        {
-                            usage.cache_read_input_tokens = cr;
-                        }
-                        if let Some(cc) = u
-                            .get("cache_creation_input_tokens")
-                            .and_then(|v| v.as_u64())
-                        {
-                            usage.cache_creation_input_tokens = cc;
-                        }
-                        // Fallback: OpenAI prompt_tokens_details.cached_tokens or top-level cached_tokens.
-                        if usage.cache_read_input_tokens == 0 {
-                            usage.cache_read_input_tokens = u
-                                .get("prompt_tokens_details")
-                                .and_then(|d| d.get("cached_tokens"))
-                                .and_then(|v| v.as_u64())
-                                .or_else(|| u.get("cached_tokens").and_then(|v| v.as_u64()))
-                                .unwrap_or(0);
-                        }
-                        if usage.cache_creation_input_tokens == 0 {
-                            usage.cache_creation_input_tokens = u
-                                .get("prompt_tokens_details")
-                                .and_then(|d| d.get("cache_write_tokens"))
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                        }
+                let chunk = decode_chat_completion_sse_data(data)?;
+                if let Some(error) = chunk.get("error") {
+                    let message = error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OpenAI Chat streaming error");
+                    return Err(crate::failover::ProviderApiError::from_stream_event(
+                        "OpenAI Chat",
+                        error.get("code").and_then(Value::as_str),
+                        error.get("type").and_then(Value::as_str),
+                        Some(message),
+                        message.to_string(),
+                    )
+                    .into());
+                }
+                // Parse usage from stream (when stream_options.include_usage is set).
+                if let Some(u) = chunk.get("usage") {
+                    if let Some(pt) = u.get("prompt_tokens").and_then(|v| v.as_u64()) {
+                        usage.input_tokens = pt;
+                        usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
                     }
-                    if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
-                        for choice in choices {
-                            let delta = match choice.get("delta") {
-                                Some(d) => d,
-                                None => continue,
-                            };
-
-                            // Reasoning/thinking content (DeepSeek, OpenAI o-series, etc.)
-                            if let Some(reasoning) =
-                                delta.get("reasoning_content").and_then(|c| c.as_str())
-                            {
-                                if !reasoning.is_empty() {
-                                    if first_token_time.is_none() {
-                                        first_token_time =
-                                            Some(request_start.elapsed().as_millis() as u64);
-                                    }
-                                    emit_thinking_delta(&on_delta, reasoning);
-                                    collected_thinking.push_str(reasoning);
+                    if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
+                        usage.output_tokens = ct;
+                        usage.output_coverage = crate::token_accounting::UsageCoverage::Complete;
+                    }
+                    // Anthropic-style at top level (some gateways forward).
+                    if let Some(cr) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                        usage.cache_read_input_tokens = cr;
+                    }
+                    if let Some(cc) = u
+                        .get("cache_creation_input_tokens")
+                        .and_then(|v| v.as_u64())
+                    {
+                        usage.cache_creation_input_tokens = cc;
+                    }
+                    // Fallback: OpenAI prompt_tokens_details.cached_tokens or top-level cached_tokens.
+                    if usage.cache_read_input_tokens == 0 {
+                        usage.cache_read_input_tokens = u
+                            .get("prompt_tokens_details")
+                            .and_then(|d| d.get("cached_tokens"))
+                            .and_then(|v| v.as_u64())
+                            .or_else(|| u.get("cached_tokens").and_then(|v| v.as_u64()))
+                            .unwrap_or(0);
+                    }
+                    if usage.cache_creation_input_tokens == 0 {
+                        usage.cache_creation_input_tokens = u
+                            .get("prompt_tokens_details")
+                            .and_then(|d| d.get("cache_write_tokens"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                    }
+                }
+                if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
+                    for choice in choices {
+                        if let Some(reason) = choice.get("finish_reason") {
+                            if !reason.is_null() {
+                                let reason = reason
+                                    .as_str()
+                                    .filter(|value| !value.is_empty())
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!(
+                                            "OpenAI Chat SSE emitted an invalid finish_reason"
+                                        )
+                                    })?;
+                                if finish_reason
+                                    .as_deref()
+                                    .is_some_and(|existing| existing != reason)
+                                {
+                                    anyhow::bail!(
+                                        "OpenAI Chat SSE emitted conflicting finish_reason values"
+                                    )
                                 }
+                                finish_reason = Some(reason.to_string());
                             }
+                        }
+                        let delta = match choice.get("delta") {
+                            Some(d) => d,
+                            None => continue,
+                        };
 
-                            // Text content — filter <think>...</think> tags. Qwen models embed
-                            // thinking via <think> tags. With effort=none, discard entirely.
-                            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                let (text_part, think_part) = think_filter.process(content);
-                                if !think_part.is_empty() && reasoning_effort != Some("none") {
-                                    emit_thinking_delta(&on_delta, &think_part);
-                                    collected_thinking.push_str(&think_part);
+                        // Reasoning/thinking content (DeepSeek, OpenAI o-series, etc.)
+                        if let Some(reasoning) =
+                            delta.get("reasoning_content").and_then(|c| c.as_str())
+                        {
+                            if !reasoning.is_empty() {
+                                if first_token_time.is_none() {
+                                    first_token_time =
+                                        Some(request_start.elapsed().as_millis() as u64);
                                 }
-                                if !text_part.is_empty() {
-                                    if first_token_time.is_none() {
-                                        first_token_time =
-                                            Some(request_start.elapsed().as_millis() as u64);
-                                    }
-                                    emit_text_delta(&on_delta, &text_part);
-                                    collected_text.push_str(&text_part);
-                                }
+                                emit_thinking_delta(&on_delta, reasoning);
+                                collected_thinking.push_str(reasoning);
                             }
+                        }
 
-                            // Tool calls — accumulated by index (parallel calls supported).
-                            if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
-                                for tc_delta in tcs {
-                                    let idx =
-                                        tc_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0)
-                                            as usize;
+                        // Text content — filter <think>...</think> tags. Qwen models embed
+                        // thinking via <think> tags. With effort=none, discard entirely.
+                        if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                            let (text_part, think_part) = think_filter.process(content);
+                            if !think_part.is_empty() && reasoning_effort != Some("none") {
+                                emit_thinking_delta(&on_delta, &think_part);
+                                collected_thinking.push_str(&think_part);
+                            }
+                            if !text_part.is_empty() {
+                                if first_token_time.is_none() {
+                                    first_token_time =
+                                        Some(request_start.elapsed().as_millis() as u64);
+                                }
+                                emit_text_delta(&on_delta, &text_part);
+                                collected_text.push_str(&text_part);
+                            }
+                        }
 
-                                    if let Some(func) = tc_delta.get("function") {
-                                        let entry = pending_calls.entry(idx).or_insert_with(|| {
-                                            FunctionCallItem {
-                                                call_id: tc_delta
-                                                    .get("id")
-                                                    .and_then(|i| i.as_str())
-                                                    .unwrap_or("")
-                                                    .to_string(),
-                                                name: String::new(),
-                                                arguments: String::new(),
-                                            }
-                                        });
-                                        if let Some(id) =
-                                            tc_delta.get("id").and_then(|i| i.as_str())
-                                        {
-                                            if !id.is_empty() {
-                                                entry.call_id = id.to_string();
-                                            }
+                        // Tool calls — accumulated by index (parallel calls supported).
+                        if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
+                            for tc_delta in tcs {
+                                let idx =
+                                    tc_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0)
+                                        as usize;
+
+                                if let Some(func) = tc_delta.get("function") {
+                                    let entry = pending_calls.entry(idx).or_insert_with(|| {
+                                        FunctionCallItem {
+                                            call_id: tc_delta
+                                                .get("id")
+                                                .and_then(|i| i.as_str())
+                                                .unwrap_or("")
+                                                .to_string(),
+                                            name: String::new(),
+                                            arguments: String::new(),
                                         }
-                                        if let Some(name) =
-                                            func.get("name").and_then(|n| n.as_str())
-                                        {
-                                            entry.name.push_str(name);
+                                    });
+                                    if let Some(id) = tc_delta.get("id").and_then(|i| i.as_str()) {
+                                        if !id.is_empty() {
+                                            entry.call_id = id.to_string();
                                         }
-                                        if let Some(args) =
-                                            func.get("arguments").and_then(|a| a.as_str())
-                                        {
-                                            entry.arguments.push_str(args);
-                                        }
+                                    }
+                                    if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
+                                        entry.name.push_str(name);
+                                    }
+                                    if let Some(args) =
+                                        func.get("arguments").and_then(|a| a.as_str())
+                                    {
+                                        entry.arguments.push_str(args);
                                     }
                                 }
                             }
@@ -1069,22 +1162,20 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
                     }
                 }
             }
-        }
-    }
-
-    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-        pending_calls.clear();
-        tool_calls.clear();
-    } else {
-        // Move pending calls to final list, ordered by index.
-        let mut sorted_keys: Vec<usize> = pending_calls.keys().cloned().collect();
-        sorted_keys.sort();
-        for key in sorted_keys {
-            if let Some(tc) = pending_calls.remove(&key) {
-                tool_calls.push(tc);
+            if saw_done {
+                break 'chat_stream;
             }
         }
     }
+
+    let cancelled = cancel.load(Ordering::SeqCst);
+    validate_chat_sse_eof_tail(cancelled, &buffer)?;
+    let tool_calls = finalize_chat_completion_stream(
+        cancelled,
+        saw_done,
+        finish_reason.as_deref(),
+        pending_calls,
+    )?;
 
     if let Some(logger) = crate::get_logger() {
         let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -1128,13 +1219,122 @@ pub(in crate::agent) async fn parse_chat_completions_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_chat_body, emit_vision_auto_disabled, is_unsupported_image_url_error,
+        build_chat_body, decode_chat_completion_sse_data, emit_vision_auto_disabled,
+        finalize_chat_completion_stream, is_unsupported_image_url_error,
         is_unsupported_prompt_cache_key_error, mark_prompt_cache_key_unsupported,
-        OpenAIChatStreamingAdapter,
+        take_next_chat_sse_event_block, validate_chat_sse_eof_tail, OpenAIChatStreamingAdapter,
     };
+    use crate::agent::api_types::FunctionCallItem;
     use crate::agent::streaming_adapter::{RoundRequest, StreamingChatAdapter};
     use crate::provider::ThinkingStyle;
+    use std::collections::HashMap;
     use std::sync::{atomic::AtomicBool, Arc};
+
+    #[test]
+    fn chat_stream_requires_done_and_finish_reason() {
+        assert!(
+            finalize_chat_completion_stream(false, false, Some("stop"), HashMap::new()).is_err()
+        );
+        assert!(finalize_chat_completion_stream(false, true, None, HashMap::new()).is_err());
+        assert!(finalize_chat_completion_stream(
+            false,
+            true,
+            Some("non_standard_terminal"),
+            HashMap::new()
+        )
+        .is_err());
+        assert!(finalize_chat_completion_stream(false, true, Some("stop"), HashMap::new()).is_ok());
+        assert!(finalize_chat_completion_stream(true, false, None, HashMap::new()).is_ok());
+    }
+
+    #[test]
+    fn chat_stream_only_promotes_complete_tool_calls() {
+        let mut pending = HashMap::new();
+        pending.insert(
+            0,
+            FunctionCallItem {
+                call_id: "call_1".into(),
+                name: "read".into(),
+                arguments: r#"{"path":"README.md"}"#.into(),
+            },
+        );
+        assert!(
+            finalize_chat_completion_stream(false, true, Some("stop"), pending.clone()).is_err()
+        );
+        let completed =
+            finalize_chat_completion_stream(false, true, Some("tool_calls"), pending).unwrap();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].call_id, "call_1");
+    }
+
+    #[test]
+    fn chat_sse_framing_accepts_crlf_done_block() {
+        let mut buffer = b"data: [DONE]\r\n\r\nrest".to_vec();
+        assert_eq!(
+            take_next_chat_sse_event_block(&mut buffer)
+                .unwrap()
+                .as_deref(),
+            Some("data: [DONE]")
+        );
+        assert_eq!(buffer, b"rest");
+        assert!(decode_chat_completion_sse_data(r#"{"choices":[]}"#).is_ok());
+        assert!(decode_chat_completion_sse_data("{").is_err());
+    }
+
+    #[test]
+    fn chat_sse_framing_preserves_tool_json_split_inside_emoji_scalar() {
+        let payload = serde_json::json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_1",
+                        "function": {
+                            "name": "write",
+                            "arguments": "{\"text\":\"🙂\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let wire = format!("data: {payload}\n\n").into_bytes();
+        let scalar_start = wire
+            .windows("🙂".len())
+            .position(|window| window == "🙂".as_bytes())
+            .expect("emoji scalar in fixture");
+        let split = scalar_start + 2;
+        let mut buffer = wire[..split].to_vec();
+        assert!(take_next_chat_sse_event_block(&mut buffer)
+            .unwrap()
+            .is_none());
+        buffer.extend_from_slice(&wire[split..]);
+        let block = take_next_chat_sse_event_block(&mut buffer)
+            .unwrap()
+            .expect("complete SSE frame");
+        let data = block
+            .lines()
+            .find_map(|line| line.strip_prefix("data:"))
+            .expect("data line")
+            .trim();
+        let decoded = decode_chat_completion_sse_data(data).expect("valid Unicode JSON event");
+        assert_eq!(
+            decoded["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+            "{\"text\":\"🙂\"}"
+        );
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn chat_sse_eof_and_invalid_utf8_fail_closed() {
+        assert!(validate_chat_sse_eof_tail(false, b"data: partial").is_err());
+        assert!(validate_chat_sse_eof_tail(false, &[0xff]).is_err());
+        assert!(validate_chat_sse_eof_tail(false, b"").is_ok());
+        let mut invalid_frame = b"data: ".to_vec();
+        invalid_frame.push(0xff);
+        invalid_frame.extend_from_slice(b"\n\n");
+        assert!(take_next_chat_sse_event_block(&mut invalid_frame).is_err());
+    }
 
     #[test]
     fn openai_chat_request_golden_appends_dynamic_blocks_after_stable_system() {
@@ -1203,15 +1403,44 @@ mod tests {
         assert_eq!(body["tools"][0]["function"]["name"], "read");
         assert!(body.to_string().find("browser").is_none());
         let adapter = OpenAIChatStreamingAdapter {
-            api_key: "",
+            api_key: "sk-test-must-stay-in-header",
             base_url: "https://api.openai.com",
             model: "gpt-5.4",
             thinking_style: &thinking_style,
             provider_config: None,
             vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
             vision_notice_emitted: Arc::new(AtomicBool::new(false)),
+            prepared_history_had_images: AtomicBool::new(false),
         };
+        let accounting = adapter.token_count_input_for(&req);
+        let counted_stable: serde_json::Value =
+            serde_json::from_str(&accounting.stable_prompt).unwrap();
+        let counted_dynamic: Vec<serde_json::Value> =
+            serde_json::from_str(&accounting.dynamic_prompt).unwrap();
+        assert_eq!(counted_stable, messages[0]);
+        assert_eq!(
+            counted_dynamic,
+            vec![
+                messages[1].clone(),
+                messages[2].clone(),
+                messages[4].clone()
+            ]
+        );
+        assert_eq!(accounting.history, history);
         assert_eq!(adapter.token_count_tool_schemas(&req), request_tools);
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        assert_eq!(
+            prepared.body_bytes_for_test(),
+            serde_json::to_vec(&body).unwrap()
+        );
+        assert!(!String::from_utf8_lossy(prepared.body_bytes_for_test())
+            .contains("sk-test-must-stay-in-header"));
+        assert!(!prepared.identity.body_keyed_fingerprint.contains("sk-test"));
+        let prepared_json: serde_json::Value =
+            serde_json::from_slice(prepared.body_bytes_for_test()).unwrap();
+        for transport_field in ["authorization", "api_key", "access_token", "account_id"] {
+            assert!(prepared_json.get(transport_field).is_none());
+        }
         req.is_final_round = true;
         assert!(adapter.token_count_tool_schemas(&req).is_empty());
     }

@@ -1,0 +1,13 @@
+{
+  "scenarioId": "HA-CTX-001",
+  "synthetic": true,
+  "expectedTier": 3,
+  "requiresReduction": true,
+  "expectedResponse": {
+    "projectCode": "ORCHID-7421",
+    "entryPath": "/workspace/synthetic/海风/入口.rs",
+    "terminalEvent": "message_stop",
+    "dispatchRule": "send_unknown 不得自动重试",
+    "recoveryAction": "下一安全节点强制第 3 层"
+  }
+}

@@ -183,14 +183,12 @@ pub async fn resolve_local_launch(
                 bail!("Codex evaluation models do not accept API-key credential profiles");
             }
             if resolved_codex_secret.is_none() {
-                let required_validity_secs = request
-                    .campaign_budget
-                    .max_wall_seconds
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Codex evaluation requires maxWallSeconds because the isolated runtime cannot refresh OAuth"
-                        )
-                    })?;
+                // Unlimited local diagnostics do not acquire a hidden wall
+                // deadline merely to fit an OAuth token lifetime. The owner
+                // still refreshes before launch and requires the normal expiry
+                // safety margin; an eventual credential expiry remains an
+                // external Provider failure, not an evaluation budget stop.
+                let required_validity_secs = request.campaign_budget.max_wall_seconds.unwrap_or(0);
                 // 铸币三步（load → encode → digest）收在 ha-core，此处只拿成品。
                 // 注意 secret 是明文 JSON、内含 raw access token（见
                 // `ha_core::oauth::CodexEvaluationSecret` 文档）——这里收窄的是

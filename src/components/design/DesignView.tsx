@@ -143,6 +143,10 @@ import { IconTip } from "@/components/ui/tooltip"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
 import { useLightbox } from "@/components/common/ImageLightbox"
+import {
+  SelectionActionMenu,
+  type SelectionActionMenuPosition,
+} from "@/components/common/SelectionActionMenu"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
@@ -283,6 +287,32 @@ const ZOOM_MIN = 0.2
 const ZOOM_MAX = 4
 const ZOOM_WHEEL_SENSITIVITY = 0.0022
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z))
+
+// Design 产物本身可执行作者代码；同 iframe 内的 token 只能关联导航，不能认证选择来源。
+// 在桥获得独立可信执行域前 fail closed，保留原生选择/复制与现有元素/批注引用能力。
+const PREVIEW_TEXT_SELECTION_BRIDGE_TRUSTED = false
+const MAX_PREVIEW_TEXT_SELECTION_CHARS = 20_000
+const PREVIEW_TEXT_SELECTION_PROTOCOL_VERSION = 1
+let previewTextSelectionTokenCounter = 0
+
+function createPreviewTextSelectionToken(): string {
+  const cryptoApi = globalThis.crypto
+  const uuid = cryptoApi?.randomUUID?.()
+  if (uuid) return uuid
+  if (cryptoApi?.getRandomValues) {
+    const bytes = new Uint32Array(4)
+    cryptoApi.getRandomValues(bytes)
+    return Array.from(bytes, (value) => value.toString(16).padStart(8, "0")).join("")
+  }
+  previewTextSelectionTokenCounter += 1
+  return `fallback-${Date.now().toString(36)}-${previewTextSelectionTokenCounter.toString(36)}`
+}
+
+interface PreviewTextSelectionChannel {
+  token: string
+  artifactId: string
+  navigationKey: string
+}
 
 // 右侧面板（Inspector / Comment）宽度，须与根节点 `w-72` 一致；width 动画需显式 px（不能 auto）。
 const RIGHT_PANEL_WIDTH_PX = 288
@@ -626,6 +656,10 @@ export default function DesignView({
   const [previewKey, setPreviewKey] = useState(0)
   const [resolvedPreview, setResolvedPreview] = useState({ identity: "", url: "" })
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  // Design 选区通道在每次 iframe 实际 load 后重新激活。navigationKey 在 render 阶段
+  // 即时失效旧通道，避免复用同一 WindowProxy 时旧文档延迟消息串到新产物。
+  const previewTextSelectionChannelRef = useRef<PreviewTextSelectionChannel | null>(null)
+  const previewTextSelectionNavigationKeyRef = useRef("")
   // 预览重载中（Wave 2-⑥）：src 变→true，onLoad→false；驱动叠层 spinner，让改稿读作「更新中」
   // 而非白屏/坏页。旧帧因 iframe 不再按 key 重挂而垫在下面直到新帧就绪。
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -759,6 +793,11 @@ export default function DesignView({
   // 编辑态预览右键菜单：bridge ds_context_menu 回传 iframe 内坐标，父层按当前预览缩放换算成
   // 窗口坐标弹菜单（非编辑态 bridge 零拦截，原生右键不受影响）。previewScaleRef 在缩放计算处赋值。
   const [previewCtxMenu, setPreviewCtxMenu] = useState<{ x: number; y: number } | null>(null)
+  const [previewTextSelection, setPreviewTextSelection] = useState<{
+    artifactId: string
+    text: string
+    position: SelectionActionMenuPosition
+  } | null>(null)
   const previewScaleRef = useRef(1)
   // 批注钉：模式 / 数据 / 待填新钉锚点。与 editMode 互斥（都用 bridge + 右面板）。
   const [commentMode, setCommentMode] = useState(false)
@@ -814,6 +853,21 @@ export default function DesignView({
   activeProjectRef.current = activeProject
   const activeArtifactRef = useRef<DesignArtifactView | null>(null)
   activeArtifactRef.current = activeArtifact
+  const previewTextSelectionNavigationKey = JSON.stringify([
+    transportRevision,
+    activeArtifact?.id ?? "",
+    activeArtifact?.artifactPath ?? "",
+    resolvedPreview.identity,
+    resolvedPreview.url,
+    previewKey,
+  ])
+  const previewHasArtifact = Boolean(activeArtifact?.id && activeArtifact?.artifactPath)
+  useLayoutEffect(() => {
+    previewTextSelectionNavigationKeyRef.current = previewTextSelectionNavigationKey
+    previewTextSelectionChannelRef.current = null
+    previewLoadingRef.current = previewHasArtifact
+    setPreviewTextSelection(null)
+  }, [previewHasArtifact, previewTextSelectionNavigationKey])
   const lastWindowNavigationNonceRef = useRef<number | null>(null)
   const openTabIdsRef = useRef<string[]>([])
   openTabIdsRef.current = openTabIds
@@ -2642,6 +2696,8 @@ export default function DesignView({
   // 不随 state 反复重挂。
   const previewCtxMenuRef = useRef(previewCtxMenu)
   previewCtxMenuRef.current = previewCtxMenu
+  const previewTextSelectionRef = useRef(previewTextSelection)
+  previewTextSelectionRef.current = previewTextSelection
   const pendingPlacementRef = useRef(pendingPlacement)
   pendingPlacementRef.current = pendingPlacement
   const artifactsRef = useRef(artifacts)
@@ -2674,6 +2730,11 @@ export default function DesignView({
         !presentModeRef.current &&
         ae !== iframeRef.current
       ) {
+        if (previewTextSelectionRef.current) {
+          setPreviewTextSelection(null)
+          e.preventDefault()
+          return
+        }
         if (previewCtxMenuRef.current) {
           setPreviewCtxMenu(null)
           e.preventDefault()
@@ -2949,9 +3010,43 @@ export default function DesignView({
       startLine: 0,
       endLine: 0,
       content,
+      revealable: false,
     })
     toast.success(t("design.insp.addedToChat", "已加入对话，去补充你的要求"))
   }, [t, enqueueChatQuote])
+
+  // 预览精确文本选区 → 现有 Design composer quote chip。只入草稿、不触发发送；content 保留
+  // 浏览器 Selection 的原始空白/换行。artifactId 随选区捕获，切页后拒用旧选区。
+  const handleAddTextSelectionToChat = useCallback(
+    (text: string) => {
+      const selection = previewTextSelection
+      const artifact = activeArtifactRef.current
+      if (!selection || !artifact || artifact.id !== selection.artifactId) return
+      enqueueChatQuote({
+        path: `design-selection:${artifact.id}`,
+        name: artifact.title,
+        // 预览选区不是源码行范围；用 0/0 与既有 Design comment/element quote 同口径，
+        // 避免 composer chip 把视觉文本误标成 L1-n。
+        startLine: 0,
+        endLine: 0,
+        content: text,
+        revealable: false,
+      })
+      setPreviewTextSelection(null)
+      toast.success(t("design.insp.addedToChat", "已加入对话，去补充你的要求"))
+    },
+    [enqueueChatQuote, previewTextSelection, t],
+  )
+
+  const handleCopyTextSelection = useCallback(
+    (text: string) => {
+      void navigator.clipboard.writeText(text).then(
+        () => toast.success(t("design.ctx.copied", "已复制")),
+        () => toast.error(t("fileBrowser.copyFailed", "复制失败")),
+      )
+    },
+    [t],
+  )
 
   // 右键菜单：任意点击 / 滚动即关（同 MessageList contextMenu 范式）。
   useEffect(() => {
@@ -2964,6 +3059,21 @@ export default function DesignView({
       document.removeEventListener("scroll", close, true)
     }
   }, [previewCtxMenu])
+
+  // 浮层在父窗口用 fixed 坐标渲染；宿主点击/任一层滚动/窗口尺寸变化后锚点失效，立即收起。
+  // 公共菜单会拦 pointerdown，按钮动作不会被本监听提前清空。
+  useEffect(() => {
+    if (!previewTextSelection) return
+    const close = () => setPreviewTextSelection(null)
+    window.addEventListener("pointerdown", close)
+    document.addEventListener("scroll", close, true)
+    window.addEventListener("resize", close)
+    return () => {
+      window.removeEventListener("pointerdown", close)
+      document.removeEventListener("scroll", close, true)
+      window.removeEventListener("resize", close)
+    }
+  }, [previewTextSelection])
   // 右键菜单「添加批注」：切到批注模式并以右键选中元素为锚直接开待填钉（锚点取元素中心）。
   const handleCtxAddComment = useCallback(() => {
     const el = selectedRef.current
@@ -3250,6 +3360,18 @@ export default function DesignView({
         before?: string
         // 预览外链新窗口打开（W4）。
         href?: string
+        // Design 文本选区每次文档 load 的关联信封。
+        version?: number
+        token?: string
+        // 精确文本选区（预览交互桥）：DOMRect 必须以普通数字对象传输，不能直接信任/使用。
+        rect?: {
+          left?: number
+          top?: number
+          right?: number
+          bottom?: number
+          width?: number
+          height?: number
+        }
       }
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
@@ -3268,8 +3390,94 @@ export default function DesignView({
         styleReqRef.current.get(d.id)?.((d.styles as Record<string, Record<string, string>>) ?? {})
         return
       }
+      // iframe 内完成文本拖选/键盘选择 → 父层自动浮出「复制 / 添加到对话」。opaque-origin 无法校验
+      // origin，故只接受当前预览 iframe 的 contentWindow（本 listener 顶部 source 守卫），再对全部
+      // 标量做类型、长度、finite 校验。批注/画框是独占指针模式，不在其间弹文本菜单。
+      if (d?.type === "ds_text_selection") {
+        const artifact = activeArtifactRef.current
+        const channel = previewTextSelectionChannelRef.current
+        if (
+          !artifact ||
+          !channel ||
+          d.version !== PREVIEW_TEXT_SELECTION_PROTOCOL_VERSION ||
+          d.token !== channel.token ||
+          channel.artifactId !== artifact.id ||
+          channel.navigationKey !== previewTextSelectionNavigationKeyRef.current ||
+          commentModeRef.current ||
+          drawModeRef.current ||
+          previewLoadingRef.current
+        ) {
+          return
+        }
+        const text = typeof d.text === "string" ? d.text : ""
+        const selectionRect = d.rect
+        const rawValues = selectionRect
+          ? [selectionRect.left, selectionRect.top, selectionRect.right, selectionRect.bottom]
+          : []
+        const validValues = rawValues.every(
+          (value): value is number => typeof value === "number" && Number.isFinite(value),
+        )
+        if (
+          !text.trim() ||
+          text.length > MAX_PREVIEW_TEXT_SELECTION_CHARS ||
+          rawValues.length !== 4 ||
+          !validValues
+        ) {
+          setPreviewTextSelection(null)
+          return
+        }
+        const values = rawValues as [number, number, number, number]
+        if (values[2] < values[0] || values[3] < values[1]) {
+          setPreviewTextSelection(null)
+          return
+        }
+        const iframeRect = iframeRef.current?.getBoundingClientRect()
+        if (!iframeRect) return
+        if (iframeRect.width <= 0 || iframeRect.height <= 0) return
+        const innerWidth = iframeRef.current?.clientWidth || iframeRect.width
+        const innerHeight = iframeRef.current?.clientHeight || iframeRect.height
+        const scaleX = iframeRect.width / innerWidth
+        const scaleY = iframeRect.height / innerHeight
+        const clampCoord = (value: number, min: number, max: number) =>
+          Math.min(Math.max(value, min), Math.max(min, max))
+        const left = clampCoord(values[0], 0, innerWidth)
+        const top = clampCoord(values[1], 0, innerHeight)
+        const right = clampCoord(values[2], left, innerWidth)
+        const bottom = clampCoord(values[3], top, innerHeight)
+        const menuWidth = 252
+        const anchorX = iframeRect.left + ((left + right) / 2) * scaleX
+        const above = iframeRect.top + top * scaleY - 50
+        const below = iframeRect.top + bottom * scaleY + 8
+        setPreviewCtxMenu(null)
+        setPreviewTextSelection({
+          artifactId: artifact.id,
+          text,
+          position: {
+            x: Math.max(8, Math.min(anchorX - menuWidth / 2, window.innerWidth - 260)),
+            y: Math.max(8, Math.min(above >= 8 ? above : below, window.innerHeight - 48)),
+          },
+        })
+        return
+      }
+      if (d?.type === "ds_text_selection_cleared") {
+        const artifact = activeArtifactRef.current
+        const channel = previewTextSelectionChannelRef.current
+        if (
+          !artifact ||
+          !channel ||
+          d.version !== PREVIEW_TEXT_SELECTION_PROTOCOL_VERSION ||
+          d.token !== channel.token ||
+          channel.artifactId !== artifact.id ||
+          channel.navigationKey !== previewTextSelectionNavigationKeyRef.current
+        ) {
+          return
+        }
+        setPreviewTextSelection(null)
+        return
+      }
       if (d?.type === "ds_selected" && d.payload) {
         setSelected(d.payload)
+        setPreviewTextSelection(null)
         // iframe 内点击不冒泡到父 document（关菜单的 mousedown 监听收不到）——改点/改选元素时
         // 在此关右键菜单。右键流不受影响：bridge 先发本消息再发 ds_context_menu，同批后者重开。
         setPreviewCtxMenu(null)
@@ -3278,6 +3486,7 @@ export default function DesignView({
       else if (d?.type === "ds_selection_cleared") {
         setSelected(null)
         setPreviewCtxMenu(null)
+        setPreviewTextSelection(null)
       }
       // iframe 聚焦时 Delete/Backspace 删选中元素（P1-E）：走宿主确定性 remove + 撤销栈。
       else if (d?.type === "ds_request_delete" && d.oid != null && editModeRef.current) {
@@ -3303,6 +3512,7 @@ export default function DesignView({
           x: Math.max(8, Math.min(rect.left + Number(d.x ?? 0) * s, window.innerWidth - 184)),
           y: Math.max(8, Math.min(rect.top + Number(d.y ?? 0) * s, window.innerHeight - 200)),
         })
+        setPreviewTextSelection(null)
       }
       // 就地文本编辑提交：双击叶子元素改文案 → 走同一确定性回写（apply_text_patch +
       // expectedHash）。仅编辑态受理；oid 直接来自被编辑元素。
@@ -3396,6 +3606,7 @@ export default function DesignView({
         // iframe 内滚动不触发父层 scroll 监听且菜单锚点随内容滚走——开着就关（null→null 会被
         // React bail-out，持续滚动上报无重渲染开销）。
         setPreviewCtxMenu(null)
+        setPreviewTextSelection(null)
         // 重载在途（previewLoading）时丢弃上报：换产物瞬间旧文档的晚到滚动（iframe 复用同一
         // contentWindow，源守卫拦不住）可能被记到新产物名下（review LOW）。载完再记正常滚动。
         const aid = activeArtifactRef.current?.id
@@ -3405,6 +3616,7 @@ export default function DesignView({
       // 手势缩放（B4 增补）：iframe 内捏合 / Ctrl·⌘+滚轮由桥转发（跨源 wheel 不冒泡到父层），
       // 父层据此连续驱动 CSS scale。桥侧已 preventDefault 掉 iframe 文档自身的整页缩放。
       else if (d?.type === "ds_zoom") {
+        setPreviewTextSelection(null)
         applyZoomDeltaRef.current(Number(d.deltaY ?? 0), Number(d.deltaMode ?? 0))
       }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
@@ -3438,6 +3650,7 @@ export default function DesignView({
   useEffect(() => {
     setEditMode(false)
     setSelected(null)
+    setPreviewTextSelection(null)
     setCommentMode(false)
     setDrawMode(false)
     setDeckState(null) // Wave 2-⑧：切产物先清 deck 页码，等新 deck 桥上报（避免残留旧计数）
@@ -3445,8 +3658,26 @@ export default function DesignView({
 
   // Re-arm bridge + restore selection after an iframe (re)mount.
   const handleIframeLoad = useCallback(() => {
+    previewLoadingRef.current = false
     setPreviewLoading(false) // 新帧就绪 → 撤 spinner 叠层（Wave 2-⑥）
     setPreviewCtxMenu(null) // 重载后旧菜单挂在已失效元素上，关掉
+    setPreviewTextSelection(null) // 文档导航后旧 Range/坐标已失效
+    const artifact = activeArtifactRef.current
+    if (artifact && PREVIEW_TEXT_SELECTION_BRIDGE_TRUSTED) {
+      const channel: PreviewTextSelectionChannel = {
+        token: createPreviewTextSelectionToken(),
+        artifactId: artifact.id,
+        navigationKey: previewTextSelectionNavigationKeyRef.current,
+      }
+      previewTextSelectionChannelRef.current = channel
+      postToIframe({
+        type: "ds_selection_activate",
+        version: PREVIEW_TEXT_SELECTION_PROTOCOL_VERSION,
+        token: channel.token,
+      })
+    } else {
+      previewTextSelectionChannelRef.current = null
+    }
     if (editModeRef.current) postToIframe({ type: "ds_activate" })
     const oid = selectedRef.current?.oid
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
@@ -4584,7 +4815,10 @@ export default function DesignView({
   // src 变（换产物 / 内容刷新 / 定稿 swap）→ 进重载态，onLoad 撤（Wave 2-⑥）。字符串相等比较，
   // 流式期不变 src 故不触发（流式走 postMessage，无 spinner 打扰）。
   useEffect(() => {
-    if (iframeSrc) setPreviewLoading(true)
+    if (iframeSrc && !previewTextSelectionChannelRef.current) {
+      previewLoadingRef.current = true
+      setPreviewLoading(true)
+    }
   }, [iframeSrc])
 
   // 预览渲染坐标系（**统一**）：设备预设 / 自动(适应·缩放) 都走「自然尺寸 iframe + CSS transform
@@ -6189,10 +6423,11 @@ export default function DesignView({
                             !presentMode && drawMode && "bg-secondary",
                           )}
                         >
-                          {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
-                          旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
-                          （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
+                          {/* 同一 Artifact 的内容刷新只改 src 就地导航，保留滚动且避免白闪；
+                          跨 Artifact 则按 id 重挂 iframe，使 WindowProxy 与 selection token 一起失效，
+                          防止旧作品的延迟 load 或 selection 被归到新作品。 */}
                           <iframe
+                            key={activeArtifact.id}
                             ref={iframeRef}
                             src={iframeSrc}
                             sandbox="allow-scripts"
@@ -6422,6 +6657,18 @@ export default function DesignView({
               ) : null}
             </AnimatedPresenceBox>
           </div>
+
+          {/* 预览内精确文本选区操作：选完即由 iframe bridge 上报，宿主在选区旁自动弹出。
+              只做复制或把原文加入 Design composer 的可删 quote chip，绝不自动发送。 */}
+          <SelectionActionMenu
+            open={!!previewTextSelection}
+            position={previewTextSelection?.position ?? null}
+            text={previewTextSelection?.text ?? ""}
+            onCopy={handleCopyTextSelection}
+            onQuote={handleAddTextSelectionToChat}
+            onClose={() => setPreviewTextSelection(null)}
+            className="z-[110]"
+          />
 
           {/* 编辑态预览右键菜单（bridge ds_context_menu；非编辑态原生右键不受影响）。统一浮层：
               FloatingMenu（strategy=fixed + portal + 常挂载，退场动画走冻结坐标/内容，故 style 的

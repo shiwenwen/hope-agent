@@ -27,13 +27,18 @@ use ha_core::domain_workflow::{
 use ha_core::file_upload::FileUploadPurpose;
 use ha_core::paths;
 
+use crate::tool_canvas::renderer::{
+    inject_artifact_selection_bridge, selection_bridge_is_script_isolated,
+    upgrade_artifact_selection_bridge, OFFLINE_CSP_STATIC,
+};
+
 pub const ARTIFACT_SCHEMA_VERSION: &str = "hope.artifact.v1";
 pub const ANALYSIS_SCHEMA_VERSION: &str = "hope.analysis-artifact.v1";
 pub const EXPORT_GENERATOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 隐私切换锁已下沉 kernel（`session::privacy`——incognito 切换与 durable
 // 写入共享同一把锁，锁必须留 kernel），原路径再导出。
-pub(crate) use ha_core::session::privacy::lock_privacy_transition;
+pub(crate) use ha_core::session::privacy::{lock_privacy_transition, try_lock_privacy_transition};
 
 pub(crate) fn ensure_durable_session_allowed(session_id: Option<&str>) -> Result<()> {
     if request_is_incognito(false, session_id)? {
@@ -629,6 +634,12 @@ impl ArtifactService {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<ArtifactRecord>> {
+        // `get()` is also called from mutation methods that already hold this
+        // non-reentrant lock. Acquire it only when immediately available; a
+        // busy guard means a writer owns the projection and maintenance must
+        // be skipped. Holding the guard across read → derived write prevents a
+        // stale GET from overwriting a concurrent update/restore.
+        let projection_guard = try_lock_privacy_transition()?;
         sync_one_legacy_canvas_record(&self.conn, id)?;
         backfill_legacy_current_version(&self.conn, id)?;
         let mut record = self
@@ -648,11 +659,12 @@ impl ArtifactService {
             )
             .optional()
             .map_err(anyhow::Error::from)?;
-        if record
-            .as_ref()
-            .is_some_and(|record| record.payload_kind == "analysis")
+        if projection_guard.is_some()
+            && record
+                .as_ref()
+                .is_some_and(|record| record.payload_kind == "analysis")
         {
-            match self.refresh_analysis_projection(id) {
+            match self.refresh_analysis_projection_locked(id) {
                 Ok(true) => {
                     if let Some(record) = record.as_mut() {
                         record.verification = None;
@@ -676,16 +688,91 @@ impl ArtifactService {
                 }
             }
         }
+        if projection_guard.is_some() && record.is_some() {
+            match self.refresh_selection_bridge_projection_locked(id) {
+                Ok(true) => {
+                    if let Some(record) = record.as_mut() {
+                        record.verification = None;
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    if let Some(record) = record.as_mut() {
+                        record.verification = None;
+                    }
+                    app_warn!(
+                        "artifact",
+                        "refresh_selection_bridge_projection",
+                        "failed to refresh Artifact selection bridge for {}: {}",
+                        id,
+                        error
+                    );
+                }
+            }
+        }
+        if let Some(record) = record.as_mut() {
+            // The projection bytes + CSP are the authority. Stored capability
+            // metadata can be legacy or stale, and an in-frame token cannot
+            // distinguish Hope's bridge from author JavaScript in that frame.
+            let trusted_selection_bridge =
+                fs::read_to_string(paths::canvas_project_dir(id)?.join("index.html"))
+                    .is_ok_and(|html| selection_bridge_is_script_isolated(&html));
+            if let Some(capabilities) = record.capabilities.as_object_mut() {
+                capabilities.insert(
+                    "selectionBridgeTrusted".to_string(),
+                    Value::Bool(trusted_selection_bridge),
+                );
+            } else {
+                record.capabilities = json!({
+                    "selectionBridgeTrusted": trusted_selection_bridge
+                });
+            }
+        }
         match record {
             Some(record) if request_is_incognito(false, record.session_id.as_deref())? => Ok(None),
             other => Ok(other),
         }
     }
 
+    /// Upgrade old derived `index.html` projections with the app-authored text
+    /// selection bridge. This changes no canonical payload or Artifact version;
+    /// rendered-byte verification is invalidated before the atomic replacement.
+    fn refresh_selection_bridge_projection_locked(&self, id: &str) -> Result<bool> {
+        let path = paths::canvas_project_dir(id)?.join("index.html");
+        let html = fs::read_to_string(&path)?;
+        let upgraded = upgrade_artifact_selection_bridge(&html);
+        if upgraded == html {
+            return Ok(false);
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE artifact_records SET verification_json = NULL WHERE id = ?1",
+            [id],
+        )?;
+        tx.execute(
+            "UPDATE artifact_version_meta SET verification_json = NULL
+              WHERE artifact_id = ?1
+                AND version_number = (
+                    SELECT version_count FROM canvas_projects WHERE id = ?1
+                )",
+            [id],
+        )?;
+        tx.commit()?;
+        ha_core::platform::write_atomic(&path, upgraded.as_bytes())?;
+        Ok(true)
+    }
+
     /// Rebuild the current reading surface from the immutable analysis payload.
     /// `index.html` is a derived projection: refreshing it must never change the
     /// Artifact version, canonical hash, evidence, or source snapshot.
     pub fn refresh_analysis_projection(&self, id: &str) -> Result<bool> {
+        let Some(_projection_guard) = try_lock_privacy_transition()? else {
+            return Ok(false);
+        };
+        self.refresh_analysis_projection_locked(id)
+    }
+
+    fn refresh_analysis_projection_locked(&self, id: &str) -> Result<bool> {
         let payload: Option<(String, String)> = self
             .conn
             .query_row(
@@ -1936,6 +2023,11 @@ impl ArtifactService {
     }
 
     pub fn delete(&self, artifact_id: &str) -> Result<()> {
+        let _privacy_guard = lock_privacy_transition()?;
+        self.delete_locked(artifact_id)
+    }
+
+    fn delete_locked(&self, artifact_id: &str) -> Result<()> {
         let stored_id: String = self
             .conn
             .query_row(
@@ -2000,7 +2092,7 @@ impl ArtifactService {
         let mut failures = Vec::new();
         let mut deleted = 0;
         for id in ids {
-            match self.delete(&id) {
+            match self.delete_locked(&id) {
                 Ok(()) => deleted += 1,
                 Err(error) => failures.push(format!("{id}: {error}")),
             }
@@ -3452,7 +3544,7 @@ fn markdown_to_html(markdown: &str) -> String {
 }
 
 fn wrap_offline_document(title: &str, body: &str) -> String {
-    format!(
+    inject_artifact_selection_bridge(&format!(
         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"{}\">\
@@ -3461,10 +3553,9 @@ fn wrap_offline_document(title: &str, body: &str) -> String {
         escape_html(title),
         OFFLINE_CSS,
         body
-    )
+    ))
 }
 
-const OFFLINE_CSP_STATIC: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
 const OFFLINE_CSP_FREEFORM: &str = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
 
 fn normalize_imported_html(source: &str) -> String {
@@ -3472,16 +3563,19 @@ fn normalize_imported_html(source: &str) -> String {
         "<meta http-equiv=\"Content-Security-Policy\" content=\"{}\">",
         OFFLINE_CSP_FREEFORM
     );
-    if let Some(html) = insert_after_opening_tag(source, "head", &policy) {
-        return html;
-    }
-    let head = format!(
-        "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">{policy}</head>"
-    );
-    if let Some(html) = insert_after_opening_tag(source, "html", &head) {
-        return html;
-    }
-    format!("<!DOCTYPE html><html lang=\"en\">{head}<body>{source}</body></html>")
+    let normalized = if let Some(html) = insert_after_opening_tag(source, "head", &policy) {
+        html
+    } else {
+        let head = format!(
+            "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">{policy}</head>"
+        );
+        if let Some(html) = insert_after_opening_tag(source, "html", &head) {
+            html
+        } else {
+            format!("<!DOCTYPE html><html lang=\"en\">{head}<body>{source}</body></html>")
+        }
+    };
+    inject_artifact_selection_bridge(&normalized)
 }
 
 fn insert_after_opening_tag(source: &str, tag: &str, insertion: &str) -> Option<String> {
@@ -3913,6 +4007,7 @@ mod tests {
         let html = wrap_offline_document("Title", "<h1>Title</h1><p>Body</p>");
         assert!(!contains_remote_dependency(&html));
         assert!(html.contains("Content-Security-Policy"));
+        assert!(html.contains("data-hope-artifact-selection-bridge=\"1\""));
     }
 
     #[test]
@@ -3971,6 +4066,7 @@ mod tests {
         assert!(rendered_html.contains("class=\"quality-summary\""));
         assert!(rendered_html.contains("class=\"table-scroll\""));
         assert!(rendered_html.contains("overflow-x:hidden"));
+        assert!(rendered_html.contains("data-hope-artifact-selection-bridge=\"1\""));
         assert!(!rendered_html.contains("visualization backed by dataset"));
         assert!(!contains_remote_dependency(&rendered_html));
 
@@ -4012,6 +4108,8 @@ mod tests {
         );
         assert!(html.contains("Content-Security-Policy"));
         assert!(html.contains("connect-src 'none'"));
+        assert!(html.contains("data-hope-artifact-selection-bridge=\"1\""));
+        assert!(!selection_bridge_is_script_isolated(&html));
         assert!(!contains_remote_dependency(&html));
     }
 
@@ -4052,6 +4150,13 @@ mod tests {
                 .expect("import Artifact upload");
 
             assert_eq!(artifact.title, "Uploaded report");
+            assert_eq!(
+                artifact
+                    .capabilities
+                    .get("selectionBridgeTrusted")
+                    .and_then(Value::as_bool),
+                Some(true)
+            );
             assert!(ha_core::file_upload::upload_status(&lease.upload_id).is_err());
         });
     }

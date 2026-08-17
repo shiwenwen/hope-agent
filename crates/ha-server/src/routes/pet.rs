@@ -46,6 +46,22 @@ pub async fn set_enabled(
     Err(overlay_unsupported().await)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetActivateBody {
+    pub pet_ref: ha_pet::PetRef,
+}
+
+pub async fn activate(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<PetActivateBody>,
+) -> Result<Json<ha_pet::PetConfig>, AppError> {
+    let Some(activate) = ctx.pet_activate.as_ref() else {
+        return Err(overlay_unsupported().await);
+    };
+    activate(body.pet_ref).await.map(Json).map_err(bad_request)
+}
+
 pub async fn list() -> Result<Json<ha_pet::PetLibrarySnapshot>, AppError> {
     ha_core::blocking::run_blocking(ha_pet::list_pets)
         .await

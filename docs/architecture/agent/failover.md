@@ -12,9 +12,9 @@ Failover 系统把这套编排收敛成**一个执行器** [`execute_with_failov
 
 三个关键设计：
 
-- **分类是纯字符串判定**：把任意 API 错误消息映射到语义类别（`FailoverReason`），决策全部由类别驱动，与具体厂商解耦。
+- **分类以 typed evidence 为准，字符串只作兼容 fallback**：先读取发送状态、本地容量证书和 Provider 结构化 status/code/type，再把确实没有类型证据的错误文本映射为 `FailoverReason`。typed `DispatchUnknown`、`CurrentToolGroupOverflow` 和高置信 overflow evidence 不能被字符串重新分类。
 - **同 Provider 多 Key 轮换 + 会话亲和**：一个 Provider 可挂多把 API Key。失败的 key 进冷却，同一会话的连续多轮尽量粘在同一把 key 上（保住 prompt cache）。
-- **上下文超窗不降级、而是上交压缩**：换更小的模型只会更糟，所以 `ContextOverflow` 不参与重试也不参与轮换，直接返回 `NeedsCompaction` 让主对话压缩后用同一把 key 重来。
+- **上下文超窗只上交证据，不直接授权破坏性压缩**：`ContextOverflow` 不参与同请求的普通重试或 profile 轮换；执行器返回带 evidence 的 `NeedsCompaction`。主对话只有拿到匹配失败请求的本地完整容量证书并通过重放/最终容量守卫，才执行 Tier 4；否则保持原 history，继续安全模型回退或失败关闭。
 
 ## 架构总览
 
@@ -30,7 +30,7 @@ flowchart TB
 
     EX["execute_with_failover<br/>唯一执行器"]
 
-    EX --> CL["classify_error<br/>错误 → FailoverReason"]
+    EX --> CL["classify_error_with_evidence<br/>typed evidence 优先"]
     EX --> CD["PROFILE_COOLDOWNS<br/>失败 Key 临时拉黑"]
     EX --> ST["PROFILE_STICKY<br/>会话级 Key 亲和"]
     EX --> BO["retry_delay_ms<br/>指数退避 + 抖动"]
@@ -54,33 +54,35 @@ flowchart TB
 
 **为什么 summarize 关掉 profile 轮换**：Tier 3 摘要用的 `DedicatedModelProvider` 已经绑定到某个具体 `provider:model`，而用户正在等本轮主对话的回复——这时候为了换一把 key 多花几秒，不如直接 fail，让上层快速降级到 side_query fallback / 紧急压缩。
 
-**Codex 强制不参与 profile 轮换**：执行器内部 `allow_rotation = policy.allow_profile_rotation && provider.api_type != ApiType::Codex`，即使 caller 传 `chat_engine_default()`（其 `allow_profile_rotation=true`）也会被强制 false。Codex 走 OAuth，`effective_profiles()` 恒为空，根本没有可轮换的目标。此外 Codex adapter 自身已经有一层 3 次 transport retry（逐次通过流式回调发 `model_retry` 进度），执行器对 Codex 的所有 retryable 分类（含 Unknown）不再叠加第二层同模型重试，避免乘法放大——裸 HTTP 500 / 504 也统一归为 `Overloaded` 而非 Unknown，不会绕过这道闸门。
+**Codex 强制不参与 profile 轮换**：执行器内部 `allow_rotation = policy.allow_profile_rotation && provider.api_type != ApiType::Codex`，即使 caller 传 `chat_engine_default()`（其 `allow_profile_rotation=true`）也会被强制 false。Codex 走 OAuth，`effective_profiles()` 恒为空，根本没有可轮换的目标。请求 WAL 上线后，Codex adapter 不再在一次 dispatch claim 内暗中重发；已知瞬时错误和 Unknown 都复用当前 policy 的有界外层重试，每次重试重新准备精确正文、建立新计划并取得新 claim。`DispatchUnknown` 等可能已经发送的状态仍是 terminal，绝不进入这条重试链。
 
 ## 错误分类（FailoverReason）
 
-`classify_error(&str)` 把任意 API 错误消息（HTTP 状态码、Provider 厂商错误体、reqwest 传输错误）映射到 **9 种**语义类别。绝大多数关键字是**全字符串小写子串匹配**，命中即返回，热路径成本可忽略。
+生产路径先用 `classify_error_with_evidence(&anyhow::Error)` 读取 typed error 和 Provider 结构化字段，再把确实没有类型证据的错误交给 `classify_error(&str)`。总共有 **11 种**语义类别；自由文本分类只是兼容诊断，不能覆盖请求 WAL 已知的发送阶段。
 
-唯一的例外是**裸 500 / 504**：这两个码含义太泛（"maximum output tokens is 500"、"model v504-preview" 都会误命中），所以它们必须借助一条编译期正则 `HTTP_STATUS_CODE_RE` 提供的显式上下文才算数——错误文本里得出现 `http` / `status` / `response code` / `api error(错误)` / `"status":` 之类的前缀。其余状态码（429、502、503、521、522、524、401、402、403、404）仍是直接子串匹配。
+**裸 500 / 504** 含义太泛（"maximum output tokens is 500"、"model v504-preview" 都会误命中），必须带 `http` / `status` / `response code` / API error 等显式上下文才算 Overloaded。Context overflow 更严格：本地完整请求预检或 Provider status/code/type 才能产生高置信 typed evidence；`context window`、`token limit`、`request too large` 等裸文本只记 `TextHint`，按普通错误处理，绝不触发有损 Tier 4。
 
 | Reason | 触发关键字（节选） | 行为 |
 |---|---|---|
 | `EvaluationBudget` | `evaluation budget exhausted` | **terminal**：评测预算耗尽，直接 Exhausted，永不重试 / 轮换 |
-| `ContextOverflow` | `context length exceeded` / `context_length_exceeded` / `context window` / `maximum context length` / `prompt is too long` / `token limit` / `input too long` / `request too large` / `max_tokens` +(`exceed`\|`too large`) | **返回 `NeedsCompaction`**，不重试也不轮换 |
+| `ContextOverflow` | typed `PreflightOverflow` 或 Provider 结构化 status/code/type | 返回带 evidence 的 `NeedsCompaction`；只有本地不可变完整请求容量证书才能进入 Tier 4，单有 Provider evidence 时不改历史 |
+| `CurrentToolGroupOverflow` | typed C0 group capacity error | **terminal**：当前用户 + 当前完整工具组的最小合法请求仍放不下；禁止重跑工具、重试或轮换 |
+| `DispatchUnknown` | exact request 已取得 dispatch claim，但没有“确定未发送”或响应证明 | **terminal**：落 `send_unknown`，禁止自动重试、profile/model 轮换；等待用户显式新前台意图收敛 |
 | `RateLimit` | `429` / `rate limit` / `rate_limit` / `too many requests` / `resource_exhausted` / `throttl` | 退避重试 + 可轮换 profile |
 | `Overloaded` | `503` / `overloaded` / `service unavailable` / `temporarily unavailable` / `server_error` / `internal server error` / `502` / `521` / `522` / `524` / 500·504（**需 HTTP 上下文**）/ OpenAI 的 `An error occurred while processing your request…` | 退避重试 + 可轮换 profile |
-| `Timeout` | `timeout` / `timed out` / `ETIMEDOUT` / `ECONNRESET` / `ECONNREFUSED` / `connection reset` / `connection refused` / `dns error` / `error sending request` / `error decoding response body` / `incomplete message` / `unexpected eof` / `connection closed before message completed` …（一整套传输层错误） | 仅退避重试，**不**轮换 profile |
+| `Timeout` | 在**可证明尚未发送**阶段发生的 timeout / connect / DNS / reset 等错误，或无 WAL 的兼容调用错误 | 仅退避重试，**不**轮换 profile；dispatch claim 之后的相似文本由 typed send state 升级为 `DispatchUnknown`/response incomplete，不能落回这里 |
 | `Auth` | `401` / `unauthorized` / `invalid api key` / `invalid_api_key` / `authentication` / `403` / `forbidden` / `permission denied` | 可轮换 profile；Codex 场景由 chat_engine 在 Exhausted 出口补发 `codex_auth_expired` 引导重授权 |
 | `Billing` | `402` / `payment required` / `billing` / `quota` / `insufficient_quota` / `exceeded your current quota` | 可轮换 profile |
 | `ModelNotFound` | `404` / `model not found` / `model_not_found` / `provider not found` / `does not exist` / `not_found_error` | **不**重试 / **不**轮换，直接上交给上层跳下一个 fallback model |
 | `Unknown` | 上面都不命中 | 谨慎重试（小预算，默认 2 次）；仍失败则上交给上层跳下一个 fallback model |
 
-**判定顺序**（前置匹配优先于后置）：`EvaluationBudget → ContextOverflow → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。顺序不是随意的——靠前的都是更具体的模式，得赶在错误文本一路 fall through 到 Unknown（小预算重试）之前命中：OpenAI 的 5xx 文案要在 `Overloaded` 段拦下；含 `token limit` / `prompt is too long` 等字样的超窗错误更要最先判定，否则会漏过所有类别落到 Unknown，被当成瞬时错误重试而错过压缩。
+判定先级是：typed `DispatchUnknown` / `CurrentToolGroupOverflow` → typed overflow evidence → 文本 fallback。文本 fallback 内部再按 `EvaluationBudget → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。这种顺序保证发送歧义和确定性容量终态永远不会被字符串降级成可重试错误。
 
 三条容易忽略的设计取舍：
 
 - **`Timeout` 故意不算 `is_profile_rotatable`**：传输层错误换 key 也救不了，应当退避后重试同一把 key。否则一阵网络抽风会把所有 key 全打进 cooldown。
-- **`EvaluationBudget` 是唯一 terminal**：评测预算耗尽是应用级终态，不再发任何 Provider 请求。
-- **`ContextOverflow` 不是 terminal**：它是 `NeedsCompaction` 信号，交给 chat_engine 跑紧急压缩后重试，而不是直接失败。
+- **有三个 terminal**：`EvaluationBudget`、`CurrentToolGroupOverflow`、`DispatchUnknown` 都必须立即对用户可见，不能进入任何自动 fallback。
+- **`ContextOverflow` 不是 terminal，但也不等于一定执行 Tier 4**：它只是携 evidence 的 `NeedsCompaction`。chat_engine 只有拿到与失败请求完全匹配的本地容量证书，且工具副作用可安全重放时才发布紧急 history；否则保持旧历史并走普通模型链或失败关闭。
 
 ## 单次调用的决策流程
 
@@ -91,11 +93,11 @@ flowchart TD
     Start["operation(profile)"] --> Res{"Ok / Err?"}
     Res -- Ok --> Win["clear cooldown<br/>set sticky"] --> RetOk["return Ok(T)"]
 
-    Res -- "Err(e)" --> Cls["classify_error(e)"]
+    Res -- "Err(e)" --> Cls["classify_error_with_evidence(e)<br/>typed 状态优先"]
     Cls --> Comp{"needs_compaction?"}
-    Comp -- "是 · ContextOverflow" --> NC["return NeedsCompaction<br/>{ last_profile }"]
+    Comp -- "是 · ContextOverflow" --> NC["return NeedsCompaction<br/>{ last_profile, evidence }"]
     Comp -- 否 --> Term{"is_terminal?"}
-    Term -- "是 · EvaluationBudget" --> Exh["return Exhausted"]
+    Term -- "是 · 3 类 terminal" --> Exh["return Exhausted"]
     Term -- 否 --> Budget{"retry 预算未用尽?"}
 
     Budget -- 是 --> Guard1{"can_replay?"}
@@ -124,8 +126,8 @@ flowchart TD
 | 出口 | 何时触发 | Caller 行为 |
 |---|---|---|
 | `Ok(T)` | 操作成功 | 无；执行器已自动 `PROFILE_STICKY.set` + `PROFILE_COOLDOWNS.clear` |
-| `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过 / 命中不可重试错误 / terminal | chat_engine 跳到 fallback chain 下一个 model；side_query / summarize 直接返回 |
-| `NeedsCompaction { last_profile }` | 任意一次 attempt 命中 ContextOverflow | chat_engine 跑 `emergency_compact()` 后**把 sticky 写回同一把 key** 再调一次执行器；side_query / summarize 直接报错（无主对话上下文可压） |
+| `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过 / 命中不可重试错误 / terminal | chat_engine 仅对**非 terminal** reason 进入 fallback chain 下一个 model；`EvaluationBudget` / `CurrentToolGroupOverflow` / `DispatchUnknown` 立即持久收敛并返回。side_query / summarize 直接返回 |
+| `NeedsCompaction { last_profile, evidence }` | attempt 命中高置信 ContextOverflow | chat_engine 只在 evidence 含失败请求的本地完整容量证书时尝试 Tier 4；仅 Provider 结构化 evidence 不足以发布有损 history。side_query / summarize 直接报错（无主对话 canonical 可压） |
 | `SwitchModel { last_reason, last_error }` | 用户在可见退避期点击「立即换模型」 | chat_engine 跳过当前模型剩余重试，进入下一个 fallback model；没有下一个则终止，不重启同一条链 |
 | `Cancelled` | 用户停止本轮对话 | chat_engine 进入统一取消收尾 |
 | `NoProfileAvailable` | 执行器当前不产出此出口，保留供未来在 attempt 前置 cooldown 检查 | chat_engine 侧另有一条 `TerminationReason::NoProfileAvailable`，用于「压根没走到执行器」的快路径 |
@@ -136,11 +138,11 @@ flowchart TD
 
 1. 压缩需要 `&mut AssistantAgent`，而 operation 闭包已经借走了 agent，两个可变借用会冲突；
 2. 压缩只对主对话有意义——side_query / summarize 没有可压缩的对话历史；
-3. 压缩完必须用**同一把 key** 重试，否则 prompt cache 前缀失效。
+3. Tier 4 的本地容量证书、失败 attempt 与重试请求必须绑定同一 Provider / model / request shape；不能换一个 shape 后复用旧证明。
 
-于是执行器把决策上交：拿到 `NeedsCompaction { last_profile }` → 主对话用 `last_profile` 重建 `compact_agent` → `emergency_compact(history)` → `PROFILE_STICKY.set(provider_id, session_id, profile.id)` → `continue`，让下一轮 `select_profile` 命中 sticky、用同一把 key 再发一次。压缩后 token 数减少，而缓存前缀不变，重试几乎零成本地撞上缓存。
+于是执行器只把 evidence 上交。主对话先验证本地证书的 Provider/model/request shape、tokenizer revision 和原 history fingerprint，再对旧前缀执行紧急恢复并重新计算**完整**请求上界；验证通过才把紧急 history 与 `tier3_required` 标记原子 checkpoint，并建立一份新的 exact request plan/dispatch claim 重试一次。Tier 4 会改变动态 history，不能承诺缓存前缀不变或“几乎零成本”；prompt cache 仅是性能观察，不参与重试正确性。若证书缺失、历史已变、完整请求仍放不下或工具活动不可安全重放，则旧 canonical 保持不变，不发送紧急重试。
 
-`MAX_COMPACTION_RETRIES = 1`：连续两次 ContextOverflow（压缩完还溢出）就认定该模型的上下文窗口实在装不下，跳到 fallback chain 下一个模型。
+`MAX_COMPACTION_RETRIES = 1`：每个模型只允许一次经证明的 Tier 4 重试。重试后仍溢出即进入下一模型或终态；Tier 4 成功后还会在下一安全主请求前强制 Tier 3，避免把粗粒度应急 history 当长期会话真相。
 
 ## Profile 轮换：Cooldown + Sticky
 
@@ -207,7 +209,7 @@ return   max(delay + jitter, 0)
 - 控制请求必须**同时**精确匹配 `session_id + recovery_id`，且只接受第一个动作（`compare_exchange` 抢占）；旧卡片、重复点击、已过期等待一律返回 `applied=false`
 - 控制状态不持久化，进程重启或等待结束即失效；它只缩短等待或沿既有 fallback 链前进，**不修改配置、不扩大重试预算**
 
-桌面走 `control_model_recovery` Tauri command，HTTP / Web UI 走 `POST /api/chat/recovery/control`，两端最终都调用同一个 `recovery_control::request`。Codex adapter 的内部 transport retry 也注册同类等待，但它不知道外层模型链，因此只允许「跳过等待」，不显示「立即换模型」。
+桌面走 `control_model_recovery` Tauri command，HTTP / Web UI 走 `POST /api/chat/recovery/control`，两端最终都调用同一个 `recovery_control::request`。Codex 的等待同样由外层执行器注册；它仍可「跳过等待」，但由于没有 profile 可轮换，只有确实存在后续 fallback model 时才显示「立即换模型」。
 
 ## 事件与前端提示
 
@@ -241,7 +243,7 @@ return   max(delay + jitter, 0)
 
 `failover/mod.rs` 与 `failover/executor.rs` 的单测把以下不变量钉死，可当作行为规格来读：
 
-- **分类正确**：9 类 `FailoverReason` 各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown。
+- **分类正确**：11 类 `FailoverReason` 的 typed/string 边界各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown，裸 overflow 文本只作 hint。
 - **决策矩阵**：`is_retryable` / `is_terminal` / `is_profile_rotatable` / `profile_cooldown_secs` 对每个 reason 的取值。
 - **退避**：`retry_delay_ms` 的 ±10% 抖动范围与 clamp。
 - **Cooldown / Sticky**：0 时长不入 map；LRU 驱逐保留近期、`get` 触发提升。
@@ -250,7 +252,7 @@ return   max(delay + jitter, 0)
   - *轮换*：Auth 轮换到下一把 key 并让 sticky 改指新 key；Billing 连轮两把 key 全失败后 Exhausted、两把都进 cooldown；关闭轮换后 Auth 立即 Exhausted，所有 profile 试尽同样 Exhausted；Codex 即便 policy 允许也不轮换。
   - *重试*：RateLimit / Unknown 预算用尽后 Exhausted，Timeout 重试后成功，ModelNotFound 直接不重试不轮换，Codex 的 Unknown 不叠第二层同模型重试。
   - *压缩*：ContextOverflow 携 `last_profile` 返回 NeedsCompaction。
-  - *守卫与恢复*：重放守卫拦下重试与轮换；recovery id 精确匹配、旧 id 失效、「立即换模型」不等退避。
+  - *守卫与恢复*：重放守卫拦下重试与轮换；`CurrentToolGroupOverflow` / `DispatchUnknown` 零重试零轮换；recovery id 精确匹配、旧 id 失效、「立即换模型」不等退避。
 
 ## 关键源文件
 

@@ -37,15 +37,14 @@ pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) 
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
     let path = ctx.resolve_path(raw_path);
 
-    // Validate path: disallow writing outside the selected session working
-    // directory or, when no session directory is set, outside user home.
+    // Validate path: allow the selected session working directory, project
+    // linked directories, and user home. All roots are checked canonically.
     let resolved = std::path::Path::new(&path);
     if let Some(parent) = resolved.parent() {
-        let session_root = ctx.session_working_dir.as_deref().map(Path::new);
         let home_root = dirs::home_dir();
-        let allowed = session_root
-            .map(|root| path_is_under_root(parent, root))
-            .unwrap_or(false)
+        let allowed = ctx
+            .project_file_roots()
+            .any(|root| path_is_under_root(parent, Path::new(root)))
             || home_root
                 .as_deref()
                 .map(|root| path_is_under_root(parent, root))
@@ -53,7 +52,7 @@ pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) 
 
         if !allowed {
             return Err(anyhow::anyhow!(
-                "Refusing to write outside the session working directory or home directory: {}",
+                "Refusing to write outside the project directories or home directory: {}",
                 path
             ));
         }
@@ -169,6 +168,34 @@ mod tests {
             .await
             .expect("read written file");
         assert_eq!(written, "hello");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn write_allows_absolute_paths_under_a_linked_project_directory() {
+        let dir = std::path::Path::new("/tmp").join(format!(
+            "ha-linked-project-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create linked directory outside user home");
+        let target = dir.join("note.txt");
+        let ctx = ToolExecContext {
+            project_linked_dirs: vec![dir.to_string_lossy().into_owned()],
+            ..ToolExecContext::default()
+        };
+
+        tool_write_file(
+            &json!({"path": target.to_string_lossy(), "content": "linked"}),
+            &ctx,
+        )
+        .await
+        .expect("write absolute path inside linked project directory");
+
+        assert_eq!(tokio::fs::read_to_string(&target).await.unwrap(), "linked");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -619,6 +619,19 @@ function numberField(obj: Record<string, unknown>, ...keys: string[]): number {
   return 0
 }
 
+function quoteProjectRootField(
+  obj: Record<string, unknown>,
+): MessageAttachment["quoteProjectRoot"] {
+  const value = obj.project_root ?? obj.projectRoot
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const root = value as Record<string, unknown>
+  const index = root.index
+  const path = stringField(root, "path")
+  if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 0 || !path)
+    return undefined
+  return { index, path }
+}
+
 export function parseUserAttachmentsMeta(
   metaJson: string | null | undefined,
 ): MessageAttachment[] | undefined {
@@ -640,6 +653,14 @@ export function parseUserAttachmentsMeta(
       if (obj.kind === "quote") {
         const qname = stringField(obj, "name")
         if (!qname) continue
+        const quoteProjectRoot = quoteProjectRootField(obj)
+        const quoteWorktreeRoot = stringField(obj, "worktree_root", "worktreeRoot")
+        const quoteRevealable =
+          typeof obj.revealable === "boolean"
+            ? obj.revealable
+            : typeof obj.quote_revealable === "boolean"
+              ? obj.quote_revealable
+              : undefined
         attachments.push({
           name: qname,
           mimeType: "text/plain",
@@ -648,6 +669,9 @@ export function parseUserAttachmentsMeta(
           quotePath: stringField(obj, "path"),
           quoteLines: stringField(obj, "lines"),
           quoteContent: stringField(obj, "content"),
+          ...(quoteRevealable !== undefined ? { quoteRevealable } : {}),
+          ...(quoteProjectRoot ? { quoteProjectRoot } : {}),
+          ...(quoteWorktreeRoot ? { quoteWorktreeRoot } : {}),
         })
         continue
       }

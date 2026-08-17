@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  Copy,
   Download,
   FlaskConical,
   Play,
@@ -30,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { IconTip } from "@/components/ui/tooltip"
 import { parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
@@ -39,6 +41,7 @@ import type {
   EvalAppPlan,
   EvalAnnotationRecord,
   EvalBaselineRecord,
+  EvalCampaignBudget,
   EvalCatalog,
   EvalCompareResult,
   EvalCompatibilityMetric,
@@ -161,8 +164,18 @@ export default function EvaluationTab() {
   const [selectedArms, setSelectedArms] = useState<string[]>(["control"])
   const [repetitions, setRepetitions] = useState(1)
   const [maxCost, setMaxCost] = useState(100)
+  const [caseCostBudgets, setCaseCostBudgets] = useState<Record<string, number>>({})
+  const [caseResourceBudgets, setCaseResourceBudgets] = useState<
+    Record<string, CaseResourceBudget>
+  >({})
   const [maxWallMinutes, setMaxWallMinutes] = useState(480)
+  const [maxModelCalls, setMaxModelCalls] = useState(100)
+  const [maxInputTokens, setMaxInputTokens] = useState(1_000_000)
+  const [maxOutputTokens, setMaxOutputTokens] = useState(200_000)
+  const [maxToolCalls, setMaxToolCalls] = useState(200)
+  const [maxAgents, setMaxAgents] = useState(16)
   const [concurrency, setConcurrency] = useState(4)
+  const [unlimitedBudget, setUnlimitedBudget] = useState(false)
   const [consentCosts, setConsentCosts] = useState(false)
   const [consentTools, setConsentTools] = useState(false)
   const [preview, setPreview] = useState<EvalPreview | null>(null)
@@ -176,7 +189,11 @@ export default function EvaluationTab() {
   const [activeSection, setActiveSection] = useState("run")
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const [retryingExperimentId, setRetryingExperimentId] = useState<string | null>(null)
   const focusedRunIdRef = useRef<string | null>(null)
+  const retryingExperimentIdRef = useRef<string | null>(null)
+  const configuredProfileRef = useRef<string | null>(null)
+  const initializedBudgetProfileRef = useRef<string | null>(null)
 
   const profile = useMemo(
     () => catalog?.profiles.find((candidate) => candidate.id === profileId) ?? null,
@@ -200,6 +217,42 @@ export default function EvaluationTab() {
         .filter((model): model is EvalModelOption => Boolean(model)),
     [catalog, selectedModels],
   )
+  const budgetedCases = useMemo(
+    () =>
+      selectedCases.length === 0
+        ? availableCases
+        : availableCases.filter((item) => selectedCases.includes(item.id)),
+    [availableCases, selectedCases],
+  )
+  const allocatedCaseCost = useMemo(
+    () =>
+      budgetedCases.reduce(
+        (total, item) => total + (caseCostBudgets[caseBudgetKey(item.suiteId, item.id)] ?? 0),
+        0,
+      ),
+    [budgetedCases, caseCostBudgets],
+  )
+  const caseCostOverAllocated = !unlimitedBudget && allocatedCaseCost > maxCost + 0.000_001
+  const caseCostsReady =
+    unlimitedBudget ||
+    profile?.budgetMode !== "user_configurable" ||
+    budgetedCases.every((item) => (caseCostBudgets[caseBudgetKey(item.suiteId, item.id)] ?? 0) > 0)
+  const caseResourcesReady =
+    unlimitedBudget ||
+    budgetedCases.every((item) => {
+      const budget = caseResourceBudgets[caseBudgetKey(item.suiteId, item.id)]
+      return budget != null && caseResourceBudgetIsValid(budget)
+    })
+  const campaignBudgetReady =
+    unlimitedBudget ||
+    (maxWallMinutes > 0 &&
+      maxModelCalls > 0 &&
+      maxInputTokens > 0 &&
+      maxOutputTokens > 0 &&
+      maxToolCalls > 0 &&
+      maxAgents > 0 &&
+      concurrency > 0 &&
+      concurrency <= maxAgents)
   const activeRun = history.find((item) => item.id === activeRunId) ?? null
   const focusedRun =
     runDetail?.experiment.id === focusedRunId
@@ -438,8 +491,15 @@ export default function EvaluationTab() {
   useEffect(() => {
     setPreview(null)
     if (!profile) return
-    setMaxCost((current) => Math.min(Math.max(current, 0.01), profile.maxCostUsd))
-    setConcurrency((current) => Math.min(Math.max(current, 1), profile.maxConcurrency))
+    if (configuredProfileRef.current === profile.id) return
+    configuredProfileRef.current = profile.id
+    setMaxCost(
+      Math.min(
+        Math.max(profile.defaultCostUsd ?? Math.min(profile.maxCostUsd, 100), 0.01),
+        profile.maxCostUsd,
+      ),
+    )
+    setConcurrency(Math.min(Math.max(profile.defaultConcurrency, 1), profile.maxConcurrency))
     setSelectedArms(
       profile.armMode === "one_control_per_case"
         ? profile.allowedArms
@@ -449,7 +509,65 @@ export default function EvaluationTab() {
     )
     setRepetitions(profile.defaultRepetitions ?? 1)
     setSelectedCases([])
+    setUnlimitedBudget(false)
+    initializedBudgetProfileRef.current = null
+    setCaseCostBudgets({})
+    setCaseResourceBudgets({})
   }, [profile])
+
+  useEffect(() => {
+    if (!profile || profile.budgetMode !== "user_configurable" || availableCases.length === 0) {
+      setCaseCostBudgets({})
+      setCaseResourceBudgets({})
+      return
+    }
+    const profileChanged = initializedBudgetProfileRef.current !== profile.id
+    const initialTotal = Math.min(
+      Math.max(profile.defaultCostUsd ?? Math.min(profile.maxCostUsd, 100), 0.01),
+      profile.maxCostUsd,
+    )
+    const defaults = distributeCaseCostBudgets(
+      availableCases,
+      initialTotal,
+      selectedArms,
+      repetitions,
+      profile.useSuiteRepetitions,
+    )
+    setCaseCostBudgets((current) =>
+      Object.fromEntries(
+        availableCases.map((item) => {
+          const key = caseBudgetKey(item.suiteId, item.id)
+          return [key, !profileChanged && current[key] > 0 ? current[key] : defaults[key]]
+        }),
+      ),
+    )
+    setCaseResourceBudgets((current) =>
+      Object.fromEntries(
+        availableCases.map((item) => {
+          const key = caseBudgetKey(item.suiteId, item.id)
+          return [
+            key,
+            !profileChanged && current[key] ? current[key] : registeredCaseResourceBudget(item),
+          ]
+        }),
+      ),
+    )
+    if (profileChanged) {
+      const aggregate = aggregateCampaignResourceDefaults(
+        availableCases,
+        selectedArms,
+        repetitions,
+        profile.useSuiteRepetitions,
+      )
+      const modelCount = Math.max(1, selectedModelOptions.length)
+      setMaxModelCalls(aggregate.maxModelCalls * modelCount)
+      setMaxInputTokens(aggregate.maxInputTokens * modelCount)
+      setMaxOutputTokens(aggregate.maxOutputTokens * modelCount)
+      setMaxToolCalls(aggregate.maxToolCalls * modelCount)
+      setMaxAgents(Math.max(16, aggregate.maxAgents))
+      initializedBudgetProfileRef.current = profile.id
+    }
+  }, [availableCases, profile, repetitions, selectedArms, selectedModelOptions.length])
 
   const buildRequest = useCallback((): EvalAppRunRequest => {
     if (!profile) throw new Error("No evaluation profile selected")
@@ -466,32 +584,63 @@ export default function EvaluationTab() {
     return {
       schemaVersion: "eval-app-run-request.v1",
       profileId: profile.id,
+      budgetEnforcement: unlimitedBudget ? "unlimited" : "enforced",
       suiteSelections,
+      caseCostBudgets: unlimitedBudget
+        ? []
+        : profile.budgetMode === "user_configurable"
+          ? budgetedCases.map((item) => ({
+              suiteId: item.suiteId,
+              caseId: item.id,
+              maxCostUsd: caseCostBudgets[caseBudgetKey(item.suiteId, item.id)] ?? 0,
+            }))
+          : [],
+      caseResourceBudgets: unlimitedBudget
+        ? []
+        : budgetedCases.map((item) => ({
+            suiteId: item.suiteId,
+            caseId: item.id,
+            budget: caseResourceBudgets[caseBudgetKey(item.suiteId, item.id)],
+          })),
       models: selectedModelOptions.map((model) => ({
         providerId: model.providerId,
         modelId: model.modelId,
         credentialProfileRef:
           selectedCredentials[modelKey(model)] ?? model.credentialProfiles[0]?.credentialProfileRef,
       })),
-      campaignBudget: {
-        maxWallSeconds: Math.round(maxWallMinutes * 60),
-        maxModelCalls: Math.max(20, profile.maxTrials * 20),
-        maxInputTokens: Math.max(100_000, profile.maxTrials * 100_000),
-        maxOutputTokens: Math.max(20_000, profile.maxTrials * 20_000),
-        maxCostUsd: maxCost,
-        maxToolCalls: Math.max(100, profile.maxTrials * 100),
-        maxAgents: 16,
-        maxConcurrency: concurrency,
-      },
+      campaignBudget: unlimitedBudget
+        ? {}
+        : {
+            maxWallSeconds: Math.round(maxWallMinutes * 60),
+            maxModelCalls,
+            maxInputTokens,
+            maxOutputTokens,
+            maxCostUsd: maxCost,
+            maxToolCalls,
+            maxAgents,
+            maxConcurrency: concurrency,
+          },
       debugRetention: "redacted",
-      consent: { modelCosts: consentCosts, syntheticToolExecution: consentTools },
+      consent: {
+        modelCosts: consentCosts,
+        syntheticToolExecution: consentTools,
+        unlimitedBudgetRisk: unlimitedBudget,
+      },
     }
   }, [
     availableCases,
+    budgetedCases,
+    caseCostBudgets,
+    caseResourceBudgets,
     concurrency,
     consentCosts,
     consentTools,
     maxCost,
+    maxAgents,
+    maxInputTokens,
+    maxModelCalls,
+    maxOutputTokens,
+    maxToolCalls,
     maxWallMinutes,
     profile,
     repetitions,
@@ -499,6 +648,7 @@ export default function EvaluationTab() {
     selectedCases,
     selectedCredentials,
     selectedModelOptions,
+    unlimitedBudget,
   ])
 
   async function handlePreview() {
@@ -552,6 +702,9 @@ export default function EvaluationTab() {
   }
 
   async function handleRetry(experimentId: string) {
+    if (retryingExperimentIdRef.current) return
+    retryingExperimentIdRef.current = experimentId
+    setRetryingExperimentId(experimentId)
     setActionLoading(true)
     try {
       const nextId = await getTransport().call<string>("eval_retry", { experimentId })
@@ -566,6 +719,8 @@ export default function EvaluationTab() {
     } catch (error) {
       toast.error(String(error))
     } finally {
+      retryingExperimentIdRef.current = null
+      setRetryingExperimentId(null)
       setActionLoading(false)
     }
   }
@@ -799,6 +954,14 @@ export default function EvaluationTab() {
     )
   }
 
+  function updateCaseResourceBudget(key: string, field: keyof CaseResourceBudget, value: number) {
+    setPreview(null)
+    setCaseResourceBudgets((current) => ({
+      ...current,
+      [key]: { ...current[key], [field]: value },
+    }))
+  }
+
   if (loading && !catalog) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
@@ -1002,9 +1165,7 @@ export default function EvaluationTab() {
                             key={key}
                             className={cn(
                               "rounded-lg p-3 transition-colors",
-                              selected
-                                ? "bg-secondary"
-                                : "bg-secondary/30 hover:bg-secondary/40",
+                              selected ? "bg-secondary" : "bg-secondary/30 hover:bg-secondary/40",
                             )}
                           >
                             <button
@@ -1076,38 +1237,333 @@ export default function EvaluationTab() {
                 number={profile?.allowCustom ? "4" : "3"}
                 title={t("dashboard.evaluation.budget", "设置硬预算")}
               >
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <BudgetField
-                    label={t("dashboard.evaluation.maxCost", "最高费用（USD）")}
-                    value={maxCost}
-                    min={0.01}
-                    max={profile?.maxCostUsd ?? 1_000_000}
-                    step={0.5}
-                    onChange={(value) => {
+                <div className="mb-4 space-y-3">
+                  <ConsentButton
+                    selected={unlimitedBudget}
+                    onClick={() => {
                       setPreview(null)
-                      setMaxCost(value)
+                      setUnlimitedBudget((value) => !value)
                     }}
+                    label={t("dashboard.evaluation.unlimitedMode", "不设限运行")}
                   />
-                  <BudgetField
-                    label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
-                    value={maxWallMinutes}
-                    min={1}
-                    onChange={(value) => {
-                      setPreview(null)
-                      setMaxWallMinutes(value)
-                    }}
-                  />
-                  <BudgetField
-                    label={t("dashboard.evaluation.concurrency", "并发数")}
-                    value={concurrency}
-                    min={1}
-                    max={profile?.maxConcurrency ?? 500}
-                    onChange={(value) => {
-                      setPreview(null)
-                      setConcurrency(value)
-                    }}
-                  />
+                  {unlimitedBudget && (
+                    <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        {t(
+                          "dashboard.evaluation.unlimitedModeWarning",
+                          "将关闭评测的费用、时间、Token、调用、Agent 和并发止损。运行可能无限持续并产生不可控的 Provider 费用；权限、安全、隔离、取消与清理保护仍然生效。",
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
+                {!unlimitedBudget && (
+                  <>
+                    <div className="mb-4">
+                      <h4 className="text-sm font-medium">
+                        {t("dashboard.evaluation.campaignBudgetTitle", "整场评测总预算")}
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {t(
+                          "dashboard.evaluation.campaignBudgetDescription",
+                          "所有已选模型、场景和重复次数的累计消耗，都不能超过以下上限。",
+                        )}
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <BudgetField
+                        label={t("dashboard.evaluation.maxCost", "最高费用（USD）")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignCost",
+                          "整场实验中，所有模型和场景累计产生的可计费用上限。",
+                        )}
+                        value={maxCost}
+                        min={0.01}
+                        max={profile?.maxCostUsd ?? 1_000_000}
+                        step={0.5}
+                        stepBase={0}
+                        onChange={(value) => {
+                          setPreview(null)
+                          setCaseCostBudgets((current) =>
+                            rescaleCaseCostBudgets(current, maxCost, value),
+                          )
+                          setMaxCost(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignWall",
+                          "整场实验从启动、运行到证据收尾允许占用的最长时间。",
+                        )}
+                        value={maxWallMinutes}
+                        min={1}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setMaxWallMinutes(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t("dashboard.evaluation.modelCalls", "模型调用")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignModelCalls",
+                          "所有场景累计允许向模型发起的请求次数。",
+                        )}
+                        value={maxModelCalls}
+                        min={1}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setMaxModelCalls(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t("dashboard.evaluation.budgetDimensions.inputTokens", "输入 Token")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignInputTokens",
+                          "所有模型请求累计发送的输入 Token 上限。",
+                        )}
+                        value={maxInputTokens}
+                        min={1}
+                        step={10_000}
+                        stepBase={0}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setMaxInputTokens(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t(
+                          "dashboard.evaluation.budgetDimensions.outputTokens",
+                          "输出 Token",
+                        )}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignOutputTokens",
+                          "所有模型回复累计生成的输出 Token 上限。",
+                        )}
+                        value={maxOutputTokens}
+                        min={1}
+                        step={1_000}
+                        stepBase={0}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setMaxOutputTokens(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t("dashboard.evaluation.toolCalls", "工具调用")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignToolCalls",
+                          "所有场景累计允许执行的工具调用次数。",
+                        )}
+                        value={maxToolCalls}
+                        min={1}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setMaxToolCalls(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t("dashboard.evaluation.spawnedAgents", "Agent 数量")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignAgents",
+                          "整场实验累计允许创建的子 Agent 数量。",
+                        )}
+                        value={maxAgents}
+                        min={1}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setMaxAgents(value)
+                        }}
+                      />
+                      <BudgetField
+                        label={t("dashboard.evaluation.concurrency", "并发数")}
+                        description={t(
+                          "dashboard.evaluation.budgetDescriptions.campaignConcurrency",
+                          "整场可同时运行的评测任务数，不代表单场景内部并发。",
+                        )}
+                        value={concurrency}
+                        min={1}
+                        max={profile?.maxConcurrency ?? 500}
+                        integer
+                        onChange={(value) => {
+                          setPreview(null)
+                          setConcurrency(value)
+                        }}
+                      />
+                    </div>
+                    {profile?.budgetMode === "user_configurable" && budgetedCases.length > 0 && (
+                      <div className="mt-6 space-y-4 rounded-xl bg-secondary/20 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h4 className="text-sm font-medium">
+                              {t("dashboard.evaluation.scenarioBudgetTitle", "单场景预算分配")}
+                            </h4>
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                              {t(
+                                "dashboard.evaluation.scenarioBudgetDescription",
+                                "除费用外，其余资源上限按单次运行生效；费用是场景跨全部所选模型、实验分支和重复运行的总额度。",
+                              )}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 text-xs text-muted-foreground",
+                              caseCostOverAllocated && "font-medium text-destructive",
+                            )}
+                          >
+                            ${allocatedCaseCost.toFixed(2)} / ${maxCost.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          {budgetedCases.map((item) => {
+                            const key = caseBudgetKey(item.suiteId, item.id)
+                            const resource = caseResourceBudgets[key]
+                            if (!resource) return null
+                            return (
+                              <div key={key} className="space-y-4 rounded-xl bg-background/50 p-4">
+                                <div className="text-sm font-medium">
+                                  {item.id} · {item.title}
+                                </div>
+                                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                                  <BudgetField
+                                    label={t("dashboard.evaluation.cost", "费用（USD）")}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioCost",
+                                      "这个场景在全部所选模型、实验分支和重复运行中的模型费用总额度。",
+                                    )}
+                                    value={caseCostBudgets[key] ?? 0.01}
+                                    min={0.01}
+                                    max={maxCost}
+                                    step={0.5}
+                                    stepBase={0}
+                                    onChange={(value) => {
+                                      setPreview(null)
+                                      setCaseCostBudgets((current) => ({
+                                        ...current,
+                                        [key]: value,
+                                      }))
+                                    }}
+                                  />
+                                  <BudgetField
+                                    label={t("dashboard.evaluation.maxWall", "时间（分钟）")}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioWall",
+                                      "这个场景单次运行从开始执行到清理完成的时间上限。",
+                                    )}
+                                    value={resource.maxWallSeconds / 60}
+                                    min={1}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxWallSeconds", value * 60)
+                                    }
+                                  />
+                                  <BudgetField
+                                    label={t("dashboard.evaluation.modelCalls", "模型调用")}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioModelCalls",
+                                      "这个场景单次运行最多允许发起的模型请求次数。",
+                                    )}
+                                    value={resource.maxModelCalls}
+                                    min={1}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxModelCalls", value)
+                                    }
+                                  />
+                                  <BudgetField
+                                    label={t(
+                                      "dashboard.evaluation.budgetDimensions.inputTokens",
+                                      "输入 Token",
+                                    )}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioInputTokens",
+                                      "这个场景单次运行累计可发送的输入 Token 上限。",
+                                    )}
+                                    value={resource.maxInputTokens}
+                                    min={1}
+                                    step={10_000}
+                                    stepBase={0}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxInputTokens", value)
+                                    }
+                                  />
+                                  <BudgetField
+                                    label={t(
+                                      "dashboard.evaluation.budgetDimensions.outputTokens",
+                                      "输出 Token",
+                                    )}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioOutputTokens",
+                                      "这个场景单次运行累计可生成的输出 Token 上限。",
+                                    )}
+                                    value={resource.maxOutputTokens}
+                                    min={1}
+                                    step={1_000}
+                                    stepBase={0}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxOutputTokens", value)
+                                    }
+                                  />
+                                  <BudgetField
+                                    label={t("dashboard.evaluation.toolCalls", "工具调用")}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioToolCalls",
+                                      "这个场景单次运行最多允许执行的工具调用次数。",
+                                    )}
+                                    value={resource.maxToolCalls}
+                                    min={1}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxToolCalls", value)
+                                    }
+                                  />
+                                  <BudgetField
+                                    label={t("dashboard.evaluation.spawnedAgents", "Agent 数量")}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioAgents",
+                                      "这个场景单次运行最多允许创建的子 Agent 数量。",
+                                    )}
+                                    value={resource.maxAgents}
+                                    min={1}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxAgents", value)
+                                    }
+                                  />
+                                  <BudgetField
+                                    label={t(
+                                      "dashboard.evaluation.budgetDimensions.concurrency",
+                                      "最大并发",
+                                    )}
+                                    description={t(
+                                      "dashboard.evaluation.budgetDescriptions.scenarioConcurrency",
+                                      "这个场景内部允许同时进行的模型、Agent 或工具工作上限。",
+                                    )}
+                                    value={resource.maxConcurrency}
+                                    min={1}
+                                    integer
+                                    onChange={(value) =>
+                                      updateCaseResourceBudget(key, "maxConcurrency", value)
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </WizardSection>
 
               <WizardSection
@@ -1133,38 +1589,51 @@ export default function EvaluationTab() {
                   />
                 </div>
                 {preview && (
-                  <div className="mt-3 grid gap-2 rounded-lg bg-secondary/30 p-3 text-sm sm:grid-cols-2 xl:grid-cols-6">
-                    <Metric
-                      label={t("dashboard.evaluation.trials")}
-                      value={String(preview.estimatedTrials)}
-                    />
-                    <Metric
-                      label={t("dashboard.evaluation.models")}
-                      value={String(preview.plan.campaigns.length)}
-                    />
-                    <Metric
-                      label={t("dashboard.evaluation.maxCost")}
-                      value={`$${preview.maxCostUsd?.toFixed(2) ?? "—"}`}
-                    />
-                    <Metric
-                      label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
-                      value={
-                        preview.maxWallSeconds == null
-                          ? "—"
-                          : formatLongDuration(preview.maxWallSeconds * 1_000)
-                      }
-                    />
-                    <Metric
-                      label={t(
-                        "dashboard.evaluation.budgetDimensions.wall",
-                        "单场景总时间",
-                      )}
-                      value={formatPlanTrialTimeouts(preview.plan)}
-                    />
-                    <Metric
-                      label={t("dashboard.evaluation.environment")}
-                      value={`${preview.plan.runtimeEnvironment.os}/${preview.plan.runtimeEnvironment.arch}`}
-                    />
+                  <div className="mt-3 rounded-lg bg-secondary/30 p-3 text-sm">
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                      <Metric
+                        label={t("dashboard.evaluation.trials")}
+                        value={String(preview.estimatedTrials)}
+                      />
+                      <Metric
+                        label={t("dashboard.evaluation.models")}
+                        value={String(preview.plan.campaigns.length)}
+                      />
+                      <Metric
+                        label={t("dashboard.evaluation.maxCost")}
+                        value={
+                          preview.plan.budgetEnforcement === "unlimited"
+                            ? t("dashboard.evaluation.unlimitedMode", "不设限运行")
+                            : `$${preview.maxCostUsd?.toFixed(2) ?? "—"}`
+                        }
+                      />
+                      <Metric
+                        label={t("dashboard.evaluation.maxWall", "最长时间（分钟）")}
+                        value={
+                          preview.plan.budgetEnforcement === "unlimited"
+                            ? t("dashboard.evaluation.unlimitedMode", "不设限运行")
+                            : preview.maxWallSeconds == null
+                              ? "—"
+                              : formatLongDuration(preview.maxWallSeconds * 1_000)
+                        }
+                      />
+                      <Metric
+                        label={t("dashboard.evaluation.budgetDimensions.wall", "单场景总时间")}
+                        value={
+                          preview.plan.budgetEnforcement === "unlimited"
+                            ? t("dashboard.evaluation.unlimitedMode", "不设限运行")
+                            : formatPlanTrialTimeouts(preview.plan)
+                        }
+                      />
+                      <Metric
+                        label={t("dashboard.evaluation.environment")}
+                        value={`${preview.plan.runtimeEnvironment.os}/${preview.plan.runtimeEnvironment.arch}`}
+                      />
+                    </div>
+                    <div className="mt-2 flex min-w-0 items-center gap-1 border-t border-border/40 pt-2 text-[10px] text-muted-foreground">
+                      <span>planDigest:</span>
+                      <CopyableIdentifier value={preview.plan.planDigest} className="max-w-full" />
+                    </div>
                   </div>
                 )}
                 <div className="mt-3 flex gap-2">
@@ -1172,7 +1641,14 @@ export default function EvaluationTab() {
                     variant="secondary"
                     onClick={handlePreview}
                     disabled={
-                      actionLoading || selectedModels.length === 0 || !consentCosts || !consentTools
+                      actionLoading ||
+                      selectedModels.length === 0 ||
+                      !consentCosts ||
+                      !consentTools ||
+                      !caseCostsReady ||
+                      !caseResourcesReady ||
+                      !campaignBudgetReady ||
+                      caseCostOverAllocated
                     }
                   >
                     <RefreshCw className={cn("mr-2 h-4 w-4", actionLoading && "animate-spin")} />
@@ -1219,6 +1695,8 @@ export default function EvaluationTab() {
                   ? () => handleRetry(detail.experiment.id)
                   : undefined
               }
+              retrying={retryingExperimentId === detail.experiment.id}
+              retryDisabled={actionLoading}
               onExport={
                 detail.experiment.source === "local_app" &&
                 detail.experiment.integrity === "local_diagnostic"
@@ -1369,29 +1847,40 @@ function SelectionMark({ selected, kind }: { selected: boolean; kind: "radio" | 
 
 function BudgetField({
   label,
+  description,
   value,
   min,
   max,
   step = 1,
+  stepBase,
+  integer = false,
   onChange,
 }: {
   label: string
+  description: string
   value: number
   min: number
   max?: number
   step?: number
+  stepBase?: number
+  integer?: boolean
   onChange: (value: number) => void
 }) {
   return (
-    <label className="space-y-1 text-xs text-muted-foreground">
-      <span>{label}</span>
+    <label className="flex h-full min-w-0 flex-col rounded-lg bg-background/40 p-3">
+      <span className="text-xs font-medium text-foreground">{label}</span>
+      <span className="mt-1 min-h-8 text-[11px] leading-relaxed text-muted-foreground">
+        {description}
+      </span>
       <NumberInput
+        className="mt-3"
         value={value}
-        min={min}
+        min={stepBase ?? min}
         max={max}
         step={step}
         onChange={(event) => {
-          const next = Math.max(min, Number(event.target.value) || min)
+          const parsed = Number(event.target.value) || min
+          const next = Math.max(min, integer ? Math.round(parsed) : parsed)
           onChange(max === undefined ? next : Math.min(max, next))
         }}
       />
@@ -1409,18 +1898,62 @@ function ConsentButton({
   label: string
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant={selected ? "secondary" : "ghost"}
+      size="sm"
       aria-pressed={selected}
       onClick={onClick}
-      className={cn(
-        "rounded-lg px-3 py-2 text-xs transition-colors",
-        selected ? "bg-secondary" : "bg-secondary/30 hover:bg-secondary/40",
-      )}
+      className={cn(!selected && "hover:bg-secondary/40")}
     >
       <span className="mr-2">{selected ? "✓" : "○"}</span>
       {label}
-    </button>
+    </Button>
+  )
+}
+
+function CopyableIdentifier({ value, className }: { value: string; className?: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+  const resetTimer = useRef<number | null>(null)
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current != null) window.clearTimeout(resetTimer.current)
+    },
+    [],
+  )
+
+  async function copy() {
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable")
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      if (resetTimer.current != null) window.clearTimeout(resetTimer.current)
+      resetTimer.current = window.setTimeout(() => setCopied(false), 1200)
+    } catch {
+      toast.error(t("fileBrowser.copyFailed", "复制失败"))
+    }
+  }
+
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1", className)}>
+      <span className="min-w-0 truncate select-text font-mono" data-ha-title-tip={value}>
+        {value}
+      </span>
+      <IconTip label={copied ? t("common.copied", "已复制") : t("common.copy", "复制")}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 shrink-0 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          onClick={() => void copy()}
+          aria-label={`${copied ? t("common.copied", "已复制") : t("common.copy", "复制")} ${value}`}
+        >
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </Button>
+      </IconTip>
+    </span>
   )
 }
 
@@ -1474,6 +2007,22 @@ function RunMonitorPanel({
         suiteId: trial.suiteId,
         caseId: trial.caseId,
         arm: trial.arm,
+        status: "queued",
+        persisted: false,
+      })
+    }
+  }
+  for (const suite of plan?.deterministicSuites ?? []) {
+    const campaignId = `dcampaign_${suite.digest.slice(0, 24)}`
+    for (const testCase of suite.cases) {
+      const trialId = `dtrial-${testCase.id}`
+      const key = trialProgressKey(campaignId, trialId)
+      rowsByKey.set(key, {
+        campaignId,
+        trialId,
+        suiteId: suite.id,
+        caseId: testCase.id,
+        arm: "deterministic",
         status: "queued",
         persisted: false,
       })
@@ -1549,6 +2098,8 @@ function RunMonitorPanel({
         (trial) => trialProgressKey(trial.campaignId, trial.trialId) === selectedLiveTrialKey,
       )
     : undefined
+  const deterministicTrials = trialRows.filter((trial) => trial.arm === "deterministic")
+  const liveModelTrials = trialRows.filter((trial) => trial.arm !== "deterministic")
 
   async function openTrial(row: MonitorTrialRow) {
     const key = trialProgressKey(row.campaignId, row.trialId)
@@ -1599,16 +2150,26 @@ function RunMonitorPanel({
               <StatusBadge status={run.status} />
               <IntegrityBadge integrity={run.integrity} />
             </div>
-            <div className="mt-1 truncate text-xs text-muted-foreground">
-              {t(`dashboard.evaluation.profiles.${run.profileId}.title`, run.profileId)} ·{" "}
-              {active
-                ? t(`dashboard.evaluation.phases.${live.phase ?? run.status}`, {
-                    defaultValue: live.phase ?? run.status,
-                  })
-                : t(`dashboard.evaluation.statuses.${run.status}`, {
-                    defaultValue: run.status,
-                  })} · {run.id}
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <span>
+                {t(`dashboard.evaluation.profiles.${run.profileId}.title`, run.profileId)} ·{" "}
+                {active
+                  ? t(`dashboard.evaluation.phases.${live.phase ?? run.status}`, {
+                      defaultValue: live.phase ?? run.status,
+                    })
+                  : t(`dashboard.evaluation.statuses.${run.status}`, {
+                      defaultValue: run.status,
+                    })}{" "}
+                ·
+              </span>
+              <CopyableIdentifier value={run.id} className="max-w-full" />
             </div>
+            {plan && (
+              <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+                <span>planDigest:</span>
+                <CopyableIdentifier value={plan.planDigest} className="max-w-full" />
+              </div>
+            )}
           </div>
           {active ? (
             <Button
@@ -1687,6 +2248,29 @@ function RunMonitorPanel({
         />
       </section>
 
+      {deterministicTrials.length > 0 && (
+        <section className="grid gap-3 md:grid-cols-2">
+          <CoverageTrackCard
+            title={t("dashboard.evaluation.deterministicTrack", "零网络安全用例")}
+            description={t(
+              "dashboard.evaluation.deterministicTrackDescription",
+              "先验证第 0～4 层协议与安全不变量；不连接模型、不产生费用，失败时不会启动付费场景。",
+            )}
+            completed={deterministicTrials.filter((trial) => trial.status === "completed").length}
+            total={deterministicTrials.length}
+          />
+          <CoverageTrackCard
+            title={t("dashboard.evaluation.liveModelTrack", "真实模型场景")}
+            description={t(
+              "dashboard.evaluation.liveModelTrackDescription",
+              "安全用例全部通过后，验证第 3 层语义摘要和 UTF-8 文件连续分页。",
+            )}
+            completed={liveModelTrials.filter((trial) => trial.status === "completed").length}
+            total={liveModelTrials.length}
+          />
+        </section>
+      )}
+
       <section className="rounded-xl bg-secondary/20 p-4">
         <h3 className="text-sm font-semibold">
           {t("dashboard.evaluation.campaignStatus", "评测批次状态")}
@@ -1706,7 +2290,7 @@ function RunMonitorPanel({
                 ? "completed"
                 : !active
                   ? run.status
-                  : campaignActive
+                  : campaignActive || record?.status === "running"
                     ? "running"
                     : "queued"
             return (
@@ -1716,11 +2300,14 @@ function RunMonitorPanel({
                     <div className="truncate text-sm font-medium">
                       {campaignPlan
                         ? `${campaignPlan.model.providerId} / ${campaignPlan.model.modelId}`
-                        : campaignId}
+                        : campaignId.startsWith("dcampaign_")
+                          ? t("dashboard.evaluation.deterministicTrack", "零网络安全用例")
+                          : campaignId}
                     </div>
-                    <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                      {campaignId}
-                    </div>
+                    <CopyableIdentifier
+                      value={campaignId}
+                      className="mt-0.5 max-w-full text-[10px] text-muted-foreground"
+                    />
                   </div>
                   <StatusBadge status={status} />
                 </div>
@@ -1758,7 +2345,9 @@ function RunMonitorPanel({
                 <span>{t("dashboard.evaluation.scenario", "场景")}</span>
                 <span className="text-center">{t("dashboard.evaluation.statusLabel", "状态")}</span>
                 <span className="text-center">{t("dashboard.evaluation.duration", "耗时")}</span>
-                <span className="text-center">{t("dashboard.evaluation.toolCalls", "工具调用")}</span>
+                <span className="text-center">
+                  {t("dashboard.evaluation.toolCalls", "工具调用")}
+                </span>
                 <span className="text-center">{t("dashboard.evaluation.tokens", "Token 数")}</span>
                 <span className="text-center">{t("dashboard.evaluation.cost", "费用")}</span>
                 <span />
@@ -1879,6 +2468,31 @@ function RunMetricCard({
       </div>
       <div className="mt-0.5 text-[11px] text-muted-foreground">{label}</div>
       {hint && <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div>}
+    </div>
+  )
+}
+
+function CoverageTrackCard({
+  title,
+  description,
+  completed,
+  total,
+}: {
+  title: string
+  description: string
+  completed: number
+  total: number
+}) {
+  return (
+    <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-sm font-semibold tabular-nums">
+          {completed}/{total}
+        </div>
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
+      <Progress className="mt-3" value={total ? (completed / total) * 100 : 0} />
     </div>
   )
 }
@@ -2020,6 +2634,8 @@ function ExperimentDetail({
   onClose,
   onCreateBaseline,
   onRetry,
+  retrying = false,
+  retryDisabled = false,
   onPinned,
   onExport,
 }: {
@@ -2032,12 +2648,16 @@ function ExperimentDetail({
   onClose: () => void
   onCreateBaseline?: () => void
   onRetry?: () => void
+  retrying?: boolean
+  retryDisabled?: boolean
   onPinned?: (pinned: boolean) => void
   onExport?: () => void
 }) {
   const { t } = useTranslation()
   const [trialDetail, setTrialDetail] = useState<EvalTrialDetail | null>(null)
   const [trialLoading, setTrialLoading] = useState(false)
+  const deterministicTrials = detail.trials.filter((trial) => trial.arm === "deterministic")
+  const liveModelTrials = detail.trials.filter((trial) => trial.arm !== "deterministic")
 
   async function openTrial(campaignId: string, trialId: string) {
     if (detail.experiment.kind !== "hope_core") return
@@ -2065,15 +2685,28 @@ function ExperimentDetail({
     <section className="mt-4 rounded-xl bg-secondary/20 p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <h3 className="min-w-0 truncate font-semibold">{detail.experiment.id}</h3>
+          <h3 className="min-w-0 font-semibold">
+            <CopyableIdentifier value={detail.experiment.id} className="max-w-full" />
+          </h3>
           {detail.experiment.signatureStatus && (
             <SignatureBadge status={detail.experiment.signatureStatus} />
           )}
         </div>
         <div className="flex flex-wrap gap-2">
           {onRetry && (
-            <Button size="sm" variant="secondary" onClick={onRetry}>
-              {t("dashboard.evaluation.retryAsNew")}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onRetry}
+              disabled={retryDisabled}
+              aria-busy={retrying}
+            >
+              {retrying && <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />}
+              {t(
+                retrying
+                  ? "dashboard.evaluation.retryPreparing"
+                  : "dashboard.evaluation.retryAsNew",
+              )}
             </Button>
           )}
           {onExport && (
@@ -2127,6 +2760,28 @@ function ExperimentDetail({
           }
         />
       </div>
+      {deterministicTrials.length > 0 && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <CoverageTrackCard
+            title={t("dashboard.evaluation.deterministicTrack", "零网络安全用例")}
+            description={t(
+              "dashboard.evaluation.deterministicTrackDescription",
+              "先验证第 0～4 层协议与安全不变量；不连接模型、不产生费用，失败时不会启动付费场景。",
+            )}
+            completed={deterministicTrials.length}
+            total={deterministicTrials.length}
+          />
+          <CoverageTrackCard
+            title={t("dashboard.evaluation.liveModelTrack", "真实模型场景")}
+            description={t(
+              "dashboard.evaluation.liveModelTrackDescription",
+              "安全用例全部通过后，验证第 3 层语义摘要和 UTF-8 文件连续分页。",
+            )}
+            completed={liveModelTrials.length}
+            total={liveModelTrials.length}
+          />
+        </div>
+      )}
       {detail.experiment.kind === "hope_core" && (
         <div className="mt-4 rounded-lg bg-blue-500/10 px-3 py-2 text-xs text-blue-700 dark:text-blue-200">
           {t(
@@ -2522,8 +3177,15 @@ function TrialCausalDetail({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate font-semibold">{caseTitle ?? detail.record.caseId}</div>
-          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-            {detail.record.caseId} · {detail.record.arm} · {result.trialId}
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+            <span>
+              {detail.record.caseId} · {detail.record.arm} ·
+            </span>
+            <CopyableIdentifier value={result.trialId} className="max-w-full" />
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <span>campaignId:</span>
+            <CopyableIdentifier value={detail.record.campaignId} className="max-w-full" />
           </div>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
@@ -2683,8 +3345,15 @@ function TrialRecordDetail({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate font-semibold">{caseTitle ?? record.caseId}</div>
-          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-            {record.caseId} · {record.arm} · {record.id}
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+            <span>
+              {record.caseId} · {record.arm} ·
+            </span>
+            <CopyableIdentifier value={record.id} className="max-w-full" />
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <span>campaignId:</span>
+            <CopyableIdentifier value={record.campaignId} className="max-w-full" />
           </div>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
@@ -2712,14 +3381,8 @@ function TrialRecordDetail({
           label={t("dashboard.evaluation.duration")}
           value={formatDuration(record.durationMs)}
         />
-        <Metric
-          label={t("dashboard.evaluation.modelCalls")}
-          value={String(record.modelCalls)}
-        />
-        <Metric
-          label={t("dashboard.evaluation.toolCalls")}
-          value={String(record.toolCalls)}
-        />
+        <Metric label={t("dashboard.evaluation.modelCalls")} value={String(record.modelCalls)} />
+        <Metric label={t("dashboard.evaluation.toolCalls")} value={String(record.toolCalls)} />
         <Metric label={t("dashboard.evaluation.tokens")} value={tokens ? String(tokens) : "—"} />
         <Metric
           label={t("dashboard.evaluation.cost")}
@@ -2772,12 +3435,17 @@ function LiveTrialDetail({
     <section className="rounded-xl bg-secondary/20 p-4 text-xs">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-semibold">
-            {caseTitle ?? trial.caseId ?? trial.trialId}
+          <div className="font-semibold">{caseTitle ?? trial.caseId ?? trial.trialId}</div>
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+            <span>
+              {trial.caseId ?? trial.trialId} · {trial.arm ?? "—"} ·{" "}
+              {t("dashboard.evaluation.liveScenarioDetail", "场景运行详情")} ·
+            </span>
+            <CopyableIdentifier value={trial.trialId} className="max-w-full" />
           </div>
-          <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-            {trial.caseId ?? trial.trialId} · {trial.arm ?? "—"} ·{" "}
-            {t("dashboard.evaluation.liveScenarioDetail", "场景运行详情")}
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <span>campaignId:</span>
+            <CopyableIdentifier value={trial.campaignId} className="max-w-full" />
           </div>
           <div className="mt-1 truncate text-muted-foreground">
             {activity} · {t("dashboard.evaluation.attribution", "归因完整度")}: {attribution}
@@ -2796,10 +3464,7 @@ function LiveTrialDetail({
           label={t("dashboard.evaluation.modelCalls")}
           value={String(trial.modelCalls ?? 0)}
         />
-        <Metric
-          label={t("dashboard.evaluation.toolCalls")}
-          value={String(trial.toolCalls ?? 0)}
-        />
+        <Metric label={t("dashboard.evaluation.toolCalls")} value={String(trial.toolCalls ?? 0)} />
         <Metric label={t("dashboard.evaluation.tokens")} value={tokens ? String(tokens) : "—"} />
         <Metric
           label={t("dashboard.evaluation.cost")}
@@ -3313,6 +3978,143 @@ function StatusBadge({ status }: { status: EvalExperimentRecord["status"] }) {
 
 function modelKey(model: EvalModelOption) {
   return `${model.providerId}::${model.modelId}`
+}
+function caseBudgetKey(suiteId: string, caseId: string) {
+  return `${suiteId}::${caseId}`
+}
+type BudgetableCase = EvalCatalog["suites"][number]["cases"][number] & { suiteId: string }
+type CaseResourceBudget = Required<Omit<EvalCampaignBudget, "maxCostUsd">>
+
+function registeredCaseResourceBudget(item: BudgetableCase): CaseResourceBudget {
+  const registered = item.registeredBudget
+  const maxAgents = Math.max(1, registered.maxAgents ?? 16)
+  // Provider tokenizers and model-specific prompt shapes vary. Keep the
+  // immutable registered value visible in the catalog, but give an owner-run
+  // local diagnostic enough input headroom to avoid failing at its own
+  // recommendation before the capability contract is exercised.
+  const recommendedInputTokens =
+    Math.ceil(((registered.maxInputTokens ?? 100_000) * 1.25) / 10_000) * 10_000
+  return {
+    maxWallSeconds: Math.max(1, registered.maxWallSeconds ?? item.timeoutSeconds),
+    maxModelCalls: Math.max(1, registered.maxModelCalls ?? 20),
+    maxInputTokens: Math.max(1, recommendedInputTokens),
+    maxOutputTokens: Math.max(1, registered.maxOutputTokens ?? 20_000),
+    maxToolCalls: Math.max(1, registered.maxToolCalls ?? 100),
+    maxAgents,
+    maxConcurrency: Math.min(maxAgents, Math.max(1, registered.maxConcurrency ?? 1)),
+  }
+}
+
+function caseResourceBudgetIsValid(budget: CaseResourceBudget) {
+  return (
+    budget.maxWallSeconds > 0 &&
+    budget.maxModelCalls > 0 &&
+    budget.maxInputTokens > 0 &&
+    budget.maxOutputTokens > 0 &&
+    budget.maxToolCalls > 0 &&
+    budget.maxAgents > 0 &&
+    budget.maxConcurrency > 0 &&
+    budget.maxConcurrency <= budget.maxAgents
+  )
+}
+
+function plannedCaseMultiplicity(
+  item: BudgetableCase,
+  selectedArms: string[],
+  repetitions: number,
+  useSuiteRepetitions: boolean,
+) {
+  const selectedArmCount = item.arms.filter((arm) => selectedArms.includes(arm)).length
+  const plannedRepetitions = useSuiteRepetitions ? item.repetitions : repetitions
+  return Math.max(1, selectedArmCount) * Math.max(1, plannedRepetitions)
+}
+
+function aggregateCampaignResourceDefaults(
+  cases: BudgetableCase[],
+  selectedArms: string[],
+  repetitions: number,
+  useSuiteRepetitions: boolean,
+) {
+  return cases.reduce(
+    (total, item) => {
+      const budget = registeredCaseResourceBudget(item)
+      const multiplicity = plannedCaseMultiplicity(
+        item,
+        selectedArms,
+        repetitions,
+        useSuiteRepetitions,
+      )
+      return {
+        maxModelCalls: total.maxModelCalls + budget.maxModelCalls * multiplicity,
+        maxInputTokens: total.maxInputTokens + budget.maxInputTokens * multiplicity,
+        maxOutputTokens: total.maxOutputTokens + budget.maxOutputTokens * multiplicity,
+        maxToolCalls: total.maxToolCalls + budget.maxToolCalls * multiplicity,
+        maxAgents: Math.max(total.maxAgents, budget.maxAgents),
+      }
+    },
+    { maxModelCalls: 0, maxInputTokens: 0, maxOutputTokens: 0, maxToolCalls: 0, maxAgents: 0 },
+  )
+}
+
+function distributeCaseCostBudgets(
+  cases: BudgetableCase[],
+  totalUsd: number,
+  selectedArms: string[],
+  repetitions: number,
+  useSuiteRepetitions: boolean,
+) {
+  const totalMicros = Math.max(1, Math.round(totalUsd * 1_000_000))
+  const weights = cases.map((item) => {
+    const registered = Number.isFinite(item.registeredCostMicros) ? item.registeredCostMicros : 1
+    const multiplicity = plannedCaseMultiplicity(
+      item,
+      selectedArms,
+      repetitions,
+      useSuiteRepetitions,
+    )
+    return Math.max(1, registered * multiplicity)
+  })
+  const totalWeight = weights.reduce((total, weight) => total + weight, 0)
+  let allocated = 0
+  return Object.fromEntries(
+    cases.map((item, index) => {
+      const micros =
+        index === cases.length - 1
+          ? totalMicros - allocated
+          : Math.floor((totalMicros * weights[index]) / totalWeight)
+      allocated += micros
+      return [caseBudgetKey(item.suiteId, item.id), micros / 1_000_000]
+    }),
+  )
+}
+
+function rescaleCaseCostBudgets(
+  current: Record<string, number>,
+  previousTotalUsd: number,
+  nextTotalUsd: number,
+) {
+  const entries = Object.entries(current)
+  if (entries.length === 0 || previousTotalUsd <= 0) return current
+  const currentMicros = entries.map(([, value]) => Math.max(1, Math.round(value * 1_000_000)))
+  const currentTotalMicros = currentMicros.reduce((total, value) => total + value, 0)
+  const previousTotalMicros = Math.max(1, Math.round(previousTotalUsd * 1_000_000))
+  const nextLimitMicros = Math.max(1, Math.round(nextTotalUsd * 1_000_000))
+  const targetTotalMicros =
+    Math.abs(currentTotalMicros - previousTotalMicros) <= 1 || currentTotalMicros > nextLimitMicros
+      ? nextLimitMicros
+      : currentTotalMicros
+  if (targetTotalMicros === currentTotalMicros) return current
+  let allocated = 0
+  return Object.fromEntries(
+    entries.map(([key], index) => {
+      const micros =
+        index === entries.length - 1
+          ? targetTotalMicros - allocated
+          : Math.floor((targetTotalMicros * currentMicros[index]) / currentTotalMicros)
+      allocated += micros
+      return [key, Math.max(1, micros) / 1_000_000]
+    }),
+  )
 }
 function trialProgressKey(campaignId: string, trialId: string) {
   return `${campaignId}::${trialId}`

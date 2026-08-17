@@ -34,12 +34,12 @@
 
 能力评测有两条轨道，命令域、资产根、adapter 白名单、JSON Schema 和 evidence verifier 各自独立，**不能互相转换**：
 
-| 轨道 | 命令域 | Evidence schemaVersion | 是否调用模型 | 用途 |
-| --- | --- | --- | --- | --- |
-| 确定性专项评测 | `hope-agent-eval validate/plan/run/...` | `eval-evidence.v1` | 禁止 | 本地代码契约回归，进 `cargo test` 快速路径 |
-| 真实模型 Campaign | `hope-agent-eval model ...` / 桌面 App | `eval-model-campaign.v1` | 显式确认费用后调用 | 任务完成率、稳定性与效率诊断 |
+| 轨道              | 命令域                                  | Evidence schemaVersion   | 是否调用模型       | 用途                                       |
+| ----------------- | --------------------------------------- | ------------------------ | ------------------ | ------------------------------------------ |
+| 确定性专项评测    | `hope-agent-eval validate/plan/run/...` | `eval-evidence.v1`       | 禁止               | 本地代码契约回放，不进入普通 `cargo test` |
+| 真实模型 Campaign | `hope-agent-eval model ...` / 桌面 App  | `eval-model-campaign.v1` | 显式确认费用后调用 | 任务完成率、稳定性与效率诊断               |
 
-分离是刻意的：确定性轨道必须无 LLM、可进普通测试；真实模型轨道会花钱、有噪声、结果不完全可复现，绝不能混进 PR required check 或 pre-push。两条轨道的 JSON Schema 甚至挂在不同的命名域下（`hope-agent.dev/eval/…` 对 `hope-agent.local/evals/…`），从格式上就无法互认。未来若恢复远端发布证据链，也只能**只读引用**这两份互不合并的证据。
+分离是刻意的：确定性轨道必须无 LLM、可独立复现；真实模型轨道会花钱、有噪声、结果不完全可复现，绝不能混进 PR required check 或 pre-push。两条轨道的 JSON Schema 甚至挂在不同的命名域下（`hope-agent.dev/eval/…` 对 `hope-agent.local/evals/…`），从格式上就无法互认。未来若恢复远端发布证据链，也只能**只读引用**这两份互不合并的证据。
 
 ---
 
@@ -92,22 +92,22 @@ cargo run -p ha-eval --locked -- model aggregate \
 
 ### 谁执行模型请求：两种执行模式
 
-| 模式 | 模型请求由谁执行 | 用途 | 当前地位 |
-| --- | --- | --- | --- |
-| `native_provider` | Hope 自身 | 覆盖真实产品 Provider、failover、usage 与 automation 路径 | 唯一启用的本地模式 |
-| `bridged_provider` | 受控模型代理 | 统一不同 Agent 的模型后端与生成参数，适合横向研究 | 后续研究模式，不混入 native 基线；`release` policy 在 v1 明确禁止 |
+| 模式               | 模型请求由谁执行 | 用途                                                      | 当前地位                                                          |
+| ------------------ | ---------------- | --------------------------------------------------------- | ----------------------------------------------------------------- |
+| `native_provider`  | Hope 自身        | 覆盖真实产品 Provider、failover、usage 与 automation 路径 | 唯一启用的本地模式                                                |
+| `bridged_provider` | 受控模型代理     | 统一不同 Agent 的模型后端与生成参数，适合横向研究         | 后续研究模式，不混入 native 基线；`release` policy 在 v1 明确禁止 |
 
 ### Runner 类别（大多为未来远端能力）
 
 当前本地 Campaign 固定使用 `local_native_diagnostic` 执行画像 + `native_provider` 模式，网络约束标记为 `unverified`。下表其余类别是**未来恢复远端评测时**才从受审名单里选取的边界；suite 在 v1 强制 `hosted_linux`。
 
-| Runner 类别 | 适用场景 | 网络边界 |
-| --- | --- | --- |
-| `hosted_linux` | 资产校验、fake smoke、轻量无凭据协议任务 | 无 Provider Key；默认无外部任务网络 |
-| `docker_linux` | 文件、数据库、MCP、终端、仓库、AppWorld 类任务 | Provider + 场景私网 / 固定 allowlist |
-| `dedicated_linux` | 高并发、长任务、真实 Provider、weekly / release | 外部防火墙强制 provider-only 或受审 allowlist |
-| `desktop_vm` | Browser、Office、OSWorld、跨应用桌面任务 | 可销毁 VM、专用账号、逐 suite allowlist |
-| `isolated_external_service` | GitHub、Notion 等专用测试租户 | 最小权限 token，只允许指定租户与 API |
+| Runner 类别                 | 适用场景                                        | 网络边界                                      |
+| --------------------------- | ----------------------------------------------- | --------------------------------------------- |
+| `hosted_linux`              | 资产校验、fake smoke、轻量无凭据协议任务        | 无 Provider Key；默认无外部任务网络           |
+| `docker_linux`              | 文件、数据库、MCP、终端、仓库、AppWorld 类任务  | Provider + 场景私网 / 固定 allowlist          |
+| `dedicated_linux`           | 高并发、长任务、真实 Provider、weekly / release | 外部防火墙强制 provider-only 或受审 allowlist |
+| `desktop_vm`                | Browser、Office、OSWorld、跨应用桌面任务        | 可销毁 VM、专用账号、逐 suite allowlist       |
+| `isolated_external_service` | GitHub、Notion 等专用测试租户                   | 最小权限 token，只允许指定租户与 API          |
 
 `HA_MODEL_EVAL_NETWORK_ENFORCED=1` 只是部署证明，**不能代替**网络 namespace、防火墙或 egress proxy。动态重定向、私网地址、云 metadata 和未知目标仍服从 Hope 自身的 SSRF 与权限策略。
 
@@ -183,30 +183,33 @@ flowchart TB
 
 verifier 是代码级注册的固定集合，Manifest 只能按名字引用，不能塞命令字符串：
 
-| verifier | 断言对象 |
-| --- | --- |
-| `hope_state_subset` | 只允许审核过的 loopback owner API 路径（需 `expectedSubset` 或 `anyItemSubset`） |
-| `file_exists` / `file_contains_all` / `file_json_subset` | 文件存在 / 含全部子串 / JSON 子集 |
-| `git_changed_paths` | Git 变更路径集合 |
-| `signal_observed` / `trace_closed` | 观察到指定事件 / 根 trace 已闭合 |
-| `response_non_empty` / `response_contains_all` / `response_json_subset` | 回复非空 / 含全部子串 / JSON 子集 |
+| verifier                                                                                        | 断言对象                                                                         |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `hope_state_subset`                                                                             | 只允许审核过的 loopback owner API 路径（需 `expectedSubset` 或 `anyItemSubset`） |
+| `file_exists` / `file_contains_all` / `file_json_subset`                                        | 文件存在 / 含全部子串 / JSON 子集                                                |
+| `git_changed_paths`                                                                             | Git 变更路径集合                                                                 |
+| `signal_observed` / `trace_closed`                                                              | 观察到指定事件 / 根 trace 已闭合                                                 |
+| `tool_result_digest_sequence`                                                                   | 按因果事件顺序精确匹配指定工具的成功结果摘要序列，不保存工具正文                 |
+| `response_non_empty` / `response_contains_all` / `response_json_subset` / `response_json_exact` | 回复非空 / 含全部子串 / JSON 子集 / JSON 完全相等                                |
 
 ### 4.4 结果分类与聚合
 
 单 trial 保留细粒度 outcome，顶层再映射为兼容的三态 `passed | failed | infra_error`：
 
-| Outcome | 含义 | 是否 valid trial | Runner 自动重试 | 聚合归属 |
-| --- | --- | --- | --- | --- |
-| `passed` | 所有 blocking verifier / invariant 通过 | 是 | 否 | passed |
-| `task_failed` | 环境有效，但终态或必要里程碑未满足 | 是 | 否 | failed |
-| `policy_failed` | 越权、泄漏、禁止副作用、脱敏失败等安全失败 | 是 | 否 | failed |
-| `budget_exhausted` | 被测 Agent 用尽 trial 预算（属于能力结果） | 是 | 否 | failed |
-| `infra_error` | Runner、Provider 接入、环境或 scorer 无法形成有效试验 | 否 | 最多一次 | infra |
-| `benchmark_defect` | 任务、truth 或 grader 经审计确认有缺陷 | 否 | 否（进 quarantine） | 单列，不入成功率 |
-| `simulator_error` | 用户模拟器偏离契约，trial 无效 | 否 | policy 可允许最多一次 | 单列 |
-| `cancelled` | 外部取消或预期取消路径 | 否 | 否 | 单列 |
+| Outcome            | 含义                                                  | 是否 valid trial | Runner 自动重试       | 聚合归属         |
+| ------------------ | ----------------------------------------------------- | ---------------- | --------------------- | ---------------- |
+| `passed`           | 所有 blocking verifier / invariant 通过               | 是               | 否                    | passed           |
+| `task_failed`      | 环境有效，但终态或必要里程碑未满足                    | 是               | 否                    | failed           |
+| `policy_failed`    | 越权、泄漏、禁止副作用、脱敏失败等安全失败            | 是               | 否                    | failed           |
+| `budget_exhausted` | 被测 Agent 用尽 trial 预算（属于能力结果）            | 是               | 否                    | failed           |
+| `infra_error`      | Runner、Provider 接入、环境或 scorer 无法形成有效试验 | 否               | 最多一次              | infra            |
+| `benchmark_defect` | 任务、truth 或 grader 经审计确认有缺陷                | 否               | 否（进 quarantine）   | 单列，不入成功率 |
+| `simulator_error`  | 用户模拟器偏离契约，trial 无效                        | 否               | policy 可允许最多一次 | 单列             |
+| `cancelled`        | 外部取消或预期取消路径                                | 否               | 否                    | 单列             |
 
 **只有基础设施 / 模拟器错误才自动重试一次；业务失败、策略失败、预算耗尽永不重试。** 聚合必须同时报告 `passed / valid_trials`、`passed / scheduled_trials` 和 `infra_error / scheduled_trials`——禁止靠排除大量无效 trial 美化成功率。
+
+清理阶段不是再次执行任务的理由。Hope Core Harness 在删除合成会话前，必须按会话主动取消标题生成、延迟记忆提取和正在执行的记忆提取，等待评测根与孤立跨度收口。若评分证据已经形成、只有清理仍未闭合，结果记为 `infra_error/cleanup_incomplete_after_evidence`，保留清理前的真实 Token、费用、事件和诊断，**不得重新运行整场已计费任务**。不设限模式只关闭用户预算，不关闭这条清理流程；清理等待仍保留独立的基础设施死锁熔断，避免失联进程永久占用资源。
 
 ### 4.5 Milestone 与过程不变量
 
@@ -218,6 +221,7 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 - 每个故障场景同时保留 clean/control 与 chaos/faulted 两臂，避免把本来就失败的任务误判成"恢复失败"。
 - Model gateway、tool、scheduler、process、storage、user、environment 故障分开归因；重启从 durable row 恢复 trial 身份与剩余预算。
 - blocking 场景优先用 `scripted_fsm`，允许受审 `replay`；LLM User 只用于探索，固定模型 / Prompt / 预算并与 Agent 成本分开，**不得决定本地 required case 的 pass/fail**。
+- `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前只注册 `message` 与 `compact_context`。后者调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
 - 用户改需求、拒绝审批、取消等事件，执行前后都检查持久状态，确保事件确实命中预定阶段，而不是只在日志里出现。
 - infra retry 保留原 attempt、累计用量和独立 trace，**不能重置成本或覆盖失败证据**。
 
@@ -328,9 +332,9 @@ flowchart TB
 
 桌面端进入"仪表盘 → 能力评测 → 运行"：
 
-1. 选择 **Quick / Standard / Reliability / Custom** 画像；
+1. 选择 **Quick / Standard / Reliability / Custom / 上下文压缩专项** 画像；
 2. 选择 1–4 个已配置且支持隔离评测的真实模型；Provider 有多个 Auth Profile 时显式选一个非敏感引用；已登录的 Codex 模型也可选，但卡片固定标记"仅诊断"；
-3. 设置总费用、墙钟和并发预算，先生成**不可变预览**；
+3. 设置整场费用、时间、模型调用、输入 / 输出 Token、工具调用、Agent、并发预算，并逐场景设置费用与每次运行的同组资源上限；也可以显式勾选“不设限运行”，阅读风险警示后生成**不可变预览**；
 4. 确认模型费用与合成工具执行后启动；"运行"页立即切成当前 experiment 的实时工作台，按 Campaign 和 Trial 展示状态、耗时、模型 / 工具调用、Token、费用、预算告警，并允许取消；切换其它 Tab 不影响执行；
 5. 终态结果原地保留在"运行"页，可展开已落库 Trial 的因果轨迹或开始新评测；历史、对比、趋势和基线页负责跨运行查询。
 
@@ -342,18 +346,23 @@ Coding / Domain 的原始 Campaign 入口与表继续保留；Evaluation Center 
 
 版本化 profile 位于 `evals/live/app-profiles/`：
 
-| Profile | 本地选择范围 | 默认用途 |
-| --- | --- | --- |
-| Quick | critical / smoke 的 control 子集，`k=1` | 配置与主路径快速确认 |
-| Standard | weekly 覆盖的本地兼容 control 子集 | 日常版本预检 |
-| Reliability | 已注册对照 arm 与 suite 重复 | 恢复、稳定性和多 Agent 对照 |
-| Custom | 只能从 Reliability allowlist 继续缩小 case / arm，`k=1..5` | 定位单一问题 |
+| Profile        | 本地选择范围                                               | 默认用途                    |
+| -------------- | ---------------------------------------------------------- | --------------------------- |
+| Quick          | critical / smoke 的 control 子集，`k=1`                    | 配置与主路径快速确认        |
+| Standard       | weekly 覆盖的本地兼容 control 子集                         | 日常版本预检                |
+| Reliability    | 已注册对照 arm 与 suite 重复                               | 恢复、稳定性和多 Agent 对照 |
+| Custom         | 只能从 Reliability allowlist 继续缩小 case / arm，`k=1..5` | 定位单一问题                |
+| 上下文压缩专项 | 第 3 层语义摘要与 UTF-8 连续分页，`k=1`                    | 完整验证中的真实模型语义部分 |
 
-**App request 只能收窄，不能扩权**：它不能提供 tier / source / runner / network / digest / 任意 adapter，也不能扩大 profile 的场景 / arm / 重复 / 模型 / trial 范围，或 suite / scenario 的单 trial 预算。Sidecar 重新从打包资产解析不可变 `eval-app-plan.v1`，为每个模型生成独立 child campaign；多模型只属于同一 experiment 的比较组，不合并成一份可晋升 evidence。协议硬上限：最多 **4 个模型、500 trial**，同一 App 只允许一个 active experiment，另有 `1,000,000 USD` 的异常输入防护值。
+**App request 只能收窄执行权限，资源预算由用户决定**：它不能提供 tier / source / runner / network / digest / 任意 adapter，也不能扩大 profile 的场景 / arm / 重复 / 模型 / trial 范围。所有本机 App 画像都使用用户预算模式；suite / scenario 注册预算只是界面的推荐初值和相对权重，不是隐藏的不可突破上限。整场可调维度包括墙钟、模型调用、输入 / 输出 Token、费用、工具调用、Agent 与并发。逐场景费用是覆盖全部所选模型、arm 与重复运行的合计额度，Sidecar 保守均分到 child trial；逐场景的其余维度则是每个 trial 的直接上限。场景费用允许留出未分配余额，但合计不得超过整场费用。整场止损与单场景上限是两级独立约束：允许整场剩余额度低于某个场景的理论上限，运行时由先耗尽的一层停止；整场 trial 并发也不限制单场景内部工作并发。所有最终值都写入不可变 child plan 与 plan digest，运行中不得静默扩容。
 
-**预算切分只保守缩、绝不向上放大**：模型总预算采用保守整数切分；若一个非零整数上限小于模型数，计划直接拒绝，而不是用 `max(1)` 偷偷放大总量。App 新建评测的默认费用上限 **100 USD**、experiment 墙钟 **480 分钟**、并发 **4**；三项都可在预览前调整——墙钟输入不设前端最大值，并发最多等于画像可能生成的 trial 数。
+**不设限运行是显式的本地诊断模式，不是把输入框填成一个很大的数字。** request 与不可变计划都记录 `budgetEnforcement=unlimited`，并要求独立的风险确认；此时整场与逐场景预算对象必须为空，Harness 不再设置费用、墙钟、模型调用、输入 / 输出 Token、工具调用、Agent 或并发止损，也不再使用场景注册时间作为 trial 子进程或 HTTP 请求超时。已选择的 trial 可并行调度到协议结构上限。权限审批、工具策略、安全检查、进程隔离、网络边界、用户取消、失联回收和清理流程仍然生效，最多 4 个模型、500 trial、单个 active experiment 等结构约束也不会被关闭。界面必须明确警告运行可能无限持续并产生不可控的 Provider 费用；这种结果只能作为 local diagnostic，不能晋升为固定预算的标准比较或 release evidence。
 
-**并发不等于内部预算**：`campaignBudget.maxConcurrency` 只表示最多同时运行多少 trial / shard；suite / scenario 的 model / tool / token / agent / 内部并发预算仍逐 trial 生效，不能被 App 并发覆盖或放大。不可变计划把 experiment 总墙钟的 90% 按全部 trial 保守均分，取"可选 profile 时限、均分值、suite/scenario 注册上限"三者最小值，剩余 10% 专用于启动、落证据、取消和 Supervisor 回收。触及墙钟属于 `budget_exhausted/trial_wall_timeout`，**不是 infra-error**，因此不触发 infra 自动重试。
+画像必须提供费用与并发的推荐初值，但不得用 `maxTrialSeconds` 或较小的画像并发上限覆盖用户选择；画像中的 `maxCostUsd=1,000,000` 与 `maxConcurrency=500` 只是协议异常输入防护。App 产物始终标记为 local diagnostic，不能冒充固定预算的标准或 release evidence。Sidecar 为每个模型生成独立 child campaign；多模型只属于同一 experiment 的比较组，不合并成一份可晋升 evidence。协议仍限制最多 **4 个模型、500 trial**，同一 App 只允许一个 active experiment。CLI 与未来 release evidence 继续使用版本化注册预算，不接受这组 App 人工分配。
+
+**预算切分不突破用户总额**：多模型共享同一个整场墙钟；模型调用、Token、费用和工具等消耗型总预算按模型数保守整数切分；Agent 与并发属于瞬时上限，不按模型数累加或切分。若一个非零整数消耗上限小于模型数，计划直接拒绝，而不是用 `max(1)` 偷偷放大总量。通用画像的推荐总费用为 **100 USD**；专项画像可提供更合适的推荐值，例如上下文压缩专项默认 **5 USD**。推荐值不是硬上限。由于不同 Provider 的 tokenizer 和请求形状会产生差异，本地 App 的单场景输入 Token 推荐值在注册值之上增加 **25%** 余量；整场输入 Token 再按所选模型、场景分支和重复次数合计，其余调用 / 输出 / 工具推荐值按注册预算原值合计。用户可在预览前修改所有值；未分配费用不会被后台自动补给任一场景。experiment 墙钟默认 **480 分钟**，各画像另给并发推荐值；两者都允许用户修改。
+
+**并发不等于内部预算**：`campaignBudget.maxConcurrency` 表示最多同时运行多少 trial / shard；逐场景 `maxConcurrency` 表示一个 trial 内的工作并发，两者分别可调、互不替代。不可变计划把 experiment 总墙钟的 90% 按全部 trial 保守均分，并与用户设置的逐场景时间取最小值，剩余 10% 专用于启动、落证据、取消和 Supervisor 回收。触及墙钟属于 `budget_exhausted/trial_wall_timeout`，**不是 infra-error**，因此不触发 infra 自动重试。产品自有的标题 / Memory 等可选后台模型调用若没有剩余 trial 预算，应直接跳过，不得仅因这类非任务调用被拒就把已经完成的主任务改判为预算耗尽。
 
 **实时进度**：运行期间 Sidecar 每秒通过隔离 Server 的 owner-token telemetry endpoint 拉取一次当前 trial 的脱敏快照，发送 `trial_progress`（只含墙钟、模型 / 工具调用、Token、费用、Loop、Agent、Async、活跃子任务、归因状态和最后一个无 payload 事件类型）。Prompt、模型正文、工具参数 / 输出不进入控制协议。只有 telemetry endpoint 已实际注册的 trial 才进入"运行中"，同一 shard 里尚未开始的 case 保持"排队中"。最终 `trial_completed` 与 evidence 才是权威结果。
 
@@ -393,15 +402,15 @@ SQLite 只保存 experiment / campaign / trial / import / baseline / annotation 
 
 桌面 App 额外支持 Codex OAuth 身份跑评测。这条路径最敏感，因为它涉及一份**含 raw access token 的明文 JSON**——`CodexEvaluationSecret.secret` 只是 schema 封装与有效性校验的产物，**不是脱敏边界**。为此在 kernel 单一出口 `ha_core::oauth::mint_codex_evaluation_secret`（`load → encode → digest` 三步收在 kernel，特征 crate 不认识 `CodexEvaluationToken`）之上设三层守卫：
 
-| 层 | 机制 | 防的是什么 |
-| --- | --- | --- |
-| 编译期 | `assert_not_impl_all!(CodexEvaluationSecret: Debug)` | 若未来给它 derive `Debug`，本文件直接编译失败——避免被 `{:?}` 顺手打进日志 |
-| 运行期 | `mint_codex_evaluation_secret` 在 `HA_MODEL_EVAL_MODE=1` 下立刻 bail | 隔离评测运行时里绝不读 owner OAuth 文件；凭据只由 owner 进程解析 |
+| 层       | 机制                                                                               | 防的是什么                                                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 编译期   | `assert_not_impl_all!(CodexEvaluationSecret: Debug)`                               | 若未来给它 derive `Debug`，本文件直接编译失败——避免被 `{:?}` 顺手打进日志                                                                                         |
+| 运行期   | `mint_codex_evaluation_secret` 在 `HA_MODEL_EVAL_MODE=1` 下立刻 bail               | 隔离评测运行时里绝不读 owner OAuth 文件；凭据只由 owner 进程解析                                                                                                  |
 | 形状边界 | `encode_model_eval_codex_secret` 拒短 / 长 token、空 / 长 account_id、含 NUL/CR/LF | 短 token 像错误 fallback；长 token 可能夹带整份 config 顺流；空 account_id 让"同 Provider 不得混凭据"校验永远命中；控制字符可被下游 JSON 解析器错切或穿过日志脱敏 |
 
 形状边界由 10 case 表驱动测试 `encode_model_eval_codex_secret_enforces_credential_shape_bounds` 全覆盖。三层任改其一必须同看另两条。
 
-**流程**：owner 在 preview / start 前按 Campaign `maxWallSeconds + safety margin` 校验 token 剩余寿命，不足时只在 owner 进程用本机 refresh token 主动刷新；刷新失败、过期时间不可验证或刷新后仍无法覆盖整个 Campaign 时 fail-fast，提示缩短时长或重新登录。随后只把当前短期 `access_token + account_id + expires_at_ms` 编码为 `model-eval-codex-oauth.v1` 类型的 Provider secret，经匿名控制通道交给 Sidecar；隔离 Server 校验过期时间后把 access token / account id 放进进程内 Codex cache。**主 HOME、OAuth 文件和 refresh token 永不挂载或传入隔离运行时。** 该分支还必须同时具备 App-control 设置的 `HA_MODEL_EVAL_LOCAL_CODEX_OAUTH=1`；headless CLI 默认不接受这类本机 OAuth secret，Codex 结果固定为 local diagnostic。Codex token 只存在于 owner、Sidecar supervisor 与隔离 Server 内存；试验结束 / 取消 / 进程树回收后即失效，不同步到历史。
+**流程**：有墙钟预算时，owner 在 preview / start 前按 Campaign `maxWallSeconds + safety margin` 校验 token 剩余寿命，不足时只在 owner 进程用本机 refresh token 主动刷新；刷新失败、过期时间不可验证或刷新后仍无法覆盖整个 Campaign 时 fail-fast，提示缩短时长或重新登录。不设限运行没有可证明的结束时间，因此 owner 只要求 token 当前有效且覆盖安全余量，不为适配 OAuth 人为添加隐藏墙钟；token 后续自然过期属于外部 Provider 失败，不改写成预算耗尽。随后只把当前短期 `access_token + account_id + expires_at_ms` 编码为 `model-eval-codex-oauth.v1` 类型的 Provider secret，经匿名控制通道交给 Sidecar；隔离 Server 校验过期时间后把 access token / account id 放进进程内 Codex cache。**主 HOME、OAuth 文件和 refresh token 永不挂载或传入隔离运行时。** 该分支还必须同时具备 App-control 设置的 `HA_MODEL_EVAL_LOCAL_CODEX_OAUTH=1`；headless CLI 默认不接受这类本机 OAuth secret，Codex 结果固定为 local diagnostic。Codex token 只存在于 owner、Sidecar supervisor 与隔离 Server内存；试验结束 / 取消 / 进程树回收后即失效，不同步到历史。
 
 ### 隔离 Server 的启动契约
 
@@ -442,24 +451,34 @@ comparison        control/faulted、solo/team、baseline/candidate 配对
 
 当前 suite 的 Hope Core 编排场景按能力分五组：
 
-| 分组 | 场景 ID | 核心契约 |
-| --- | --- | --- |
-| Goal / Loop | `HA-GL-001..006` | 验收证据、假完成恢复、不可满足目标收敛、预算停止、需求修订、checkpoint/restart |
-| Workflow | `HA-WF-001..006` | fan-out/join、可重试与非幂等写、restart、补偿、pause/resume/cancel、拒绝审批 |
-| Async Jobs | `HA-AJ-001..006` | 乱序汇总、前台 busy 延迟注入、cancel/complete 竞态、重试分类、incognito purge、公平调度 |
-| Subagent / Team | `HA-ST-001..006` | 冲突资料研究、Planner/Executor/Verifier、worktree 合并、成员崩溃重分派、取消子树、origin/权限/KB/incognito |
-| 多模块 E2E | `HA-E2E-001..004` | Coding 发布修复、冻结语料 Research、Knowledge/File stale-write、Browser/Terminal incident |
+| 分组            | 场景 ID           | 核心契约                                                                                                   |
+| --------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| Goal / Loop     | `HA-GL-001..006`  | 验收证据、假完成恢复、不可满足目标收敛、预算停止、需求修订、checkpoint/restart                             |
+| Workflow        | `HA-WF-001..006`  | fan-out/join、可重试与非幂等写、restart、补偿、pause/resume/cancel、拒绝审批                               |
+| Async Jobs      | `HA-AJ-001..006`  | 乱序汇总、前台 busy 延迟注入、cancel/complete 竞态、重试分类、incognito purge、公平调度                    |
+| Subagent / Team | `HA-ST-001..006`  | 冲突资料研究、Planner/Executor/Verifier、worktree 合并、成员崩溃重分派、取消子树、origin/权限/KB/incognito |
+| 多模块 E2E      | `HA-E2E-001..004` | Coding 发布修复、冻结语料 Research、Knowledge/File stale-write、Browser/Terminal incident                  |
+| 上下文压缩（真实模型） | `HA-CTX-001..002` | 真实第 3 层摘要后的事实保真、只用 `read` 的 UTF-8 连续分页与结果摘要序列                              |
+
+上下文压缩不能只靠这两个付费场景宣称完整覆盖。完整证据由两条物理隔离的轨道共同组成：
+
+| 证据轨道 | 套件 / 场景 | 覆盖范围 | 不证明什么 |
+| --- | --- | --- | --- |
+| 确定性安全轨道 | `context-compaction-safety@1.0.0`，10 个用例 | 第 0～4 层请求投影、结果组接纳、保护后缀、摘要协议、恢复事务、完整请求容量证书、溢出证据闸、发送歧义终态和跨层边界 | 不评价某个真实模型写出的摘要是否语义充分 |
+| 真实模型语义轨道 | `HA-CTX-001..002` | 第 3 层摘要后的事实保真，以及模型只用 `read` 连续遍历 UTF-8 文件的能力 | 不模拟崩溃、发送状态未知或证明恰好一次副作用 |
+
+Evaluation Center 的“上下文压缩专项”画像一次调度两条轨道：先执行 10 个零网络安全用例，全部通过后再执行 2 个付费真实模型场景。结果页按轨道分开展示，并分别保存确定性 `eval-app-deterministic-evidence.v1` 与真实模型 `eval-model-campaign.v1`；两份结果不可合并成同一个通过位，也不能互相豁免失败。确定性轨道失败时，付费轨道不会启动。
 
 case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为准。业务域扩展沿用 Coding、Research、Knowledge、File、Browser、Terminal 六类终态契约；Pre-release 档位的 Research 使用**冻结语料**，实时 Web 必须单列 exploratory 基线并记录 URL、抓取时间和内容 hash。
 
 ### 9.3 数据等级与逐 trial 隔离
 
-| 等级 | 内容 | 当前本地处理 |
-| --- | --- | --- |
-| `synthetic` | 人工 fixture、生成账号、虚构文档 | 可进入本地诊断 artifact |
-| `licensed_fixture` | 明确允许评测的外部数据 | 遵守访问、保留和再分发限制 |
-| `sanitized_replay` | 经授权、去标识化的真实轨迹 | 默认不运行；显式启用时只存本机、不导出原文 |
-| `restricted` | 仍可能含敏感业务 / 用户信息 | 禁止运行 |
+| 等级               | 内容                             | 当前本地处理                               |
+| ------------------ | -------------------------------- | ------------------------------------------ |
+| `synthetic`        | 人工 fixture、生成账号、虚构文档 | 可进入本地诊断 artifact                    |
+| `licensed_fixture` | 明确允许评测的外部数据           | 遵守访问、保留和再分发限制                 |
+| `sanitized_replay` | 经授权、去标识化的真实轨迹       | 默认不运行；显式启用时只存本机、不导出原文 |
+| `restricted`       | 仍可能含敏感业务 / 用户信息      | 禁止运行                                   |
 
 每 trial 使用独立 temp home、data dir、session DB、KB、workspace、端口、浏览器 profile 和容器 / VM 网络；结束时验证无进程、挂载、账号、副作用、spool、worktree lock 或数据库句柄残留。Incognito 场景还要用 synthetic canary 扫描 sessions DB、旁路 DB、tool/job spool、Memory/Dreaming/Awareness、KB index、FTS/Dashboard 统计和共享模型 / 视觉缓存，然后销毁整个环境。
 
@@ -480,15 +499,15 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 
 ### 10.2 运行层级
 
-| Tier | 触发方式 | 大致范围 | 模型重复 | 用途 |
-| --- | --- | --- | --- | --- |
-| PR | 不运行 | 无评测任务 | 0 次真实模型调用 | 普通契约测试保持快速 |
-| Nightly | 本地手动 | 少量 critical case | 多数 `k=1` | 快速诊断 |
-| Weekly | 本地手动 | 中等覆盖 + 对照臂 | 默认 `k=3` | 可靠性和模型趋势 |
-| Pre-release | 本地手动，可选精确 SHA | 发版关键 case | 默认 `k=3`，critical `k=5` | 人工发版判断，不阻断 release workflow |
-| Monthly | 本地手动 | 全部 28 场景 + 重型 / chaos 扩展 | `k=1`，选中 case 多 seed | 能力发现和长周期趋势 |
+| Tier        | 触发方式               | 大致范围                         | 模型重复                   | 用途                                  |
+| ----------- | ---------------------- | -------------------------------- | -------------------------- | ------------------------------------- |
+| PR          | 不运行                 | 无评测任务                       | 0 次真实模型调用           | 普通契约测试保持快速                  |
+| Nightly     | 本地手动               | 少量 critical case               | 多数 `k=1`                 | 快速诊断                              |
+| Weekly      | 本地手动               | 中等覆盖 + 对照臂                | 默认 `k=3`                 | 可靠性和模型趋势                      |
+| Pre-release | 本地手动，可选精确 SHA | 发版关键 case                    | 默认 `k=3`，critical `k=5` | 人工发版判断，不阻断 release workflow |
+| Monthly     | 本地手动               | 全部 28 场景 + 重型 / chaos 扩展 | `k=1`，选中 case 多 seed   | 能力发现和长周期趋势                  |
 
-具体 case / trial 数量由当前 `1.8.0` suite 与 `1.0.8` policy 展开的不可变计划决定，随资产版本变化——**以 `model plan` 输出为准，文档数字不是执行器输入**。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
+具体 case / trial 数量由当前主编排 suite `1.8.0`、上下文压缩真实模型 suite `1.0.0` 与各档 policy 展开的不可变计划决定；Nightly policy 当前为 `1.0.9`——**以 `model plan` 输出为准，文档数字不是执行器输入**。零网络的 `context-compaction-safety@1.0.0` 既可由确定性 CLI 独立执行，也会被 GUI 的“上下文压缩专项”画像作为付费前置门禁纳入同一不可变 App 计划；它计入 GUI 总 trial 数，但模型调用与费用恒为零。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
 
 ### 10.3 Quarantine 与基线治理
 
@@ -517,18 +536,18 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 
 **接入优先级**（Hope Core 与统一证据先行，再依次接入）：
 
-| 优先级 | Benchmark | 主要信号 |
-| --- | --- | --- |
-| P1 | BFCL V4 非 live 子集 | 工具选择、参数、并行和多轮协议 |
-| P1 | AppWorld / AppWorld-UL | 有状态 App、跨工具、副作用、澄清与确认 |
-| P1 | Gaia2 / ARE | 异步事件、时间约束、环境变化和 A2A |
-| P1 | Terminal-Bench 2.1 | 真实终端、Coding、运维和长任务 |
-| P1 | τ³-bench text | 多轮用户、业务 policy、工具和可靠性 |
-| P2 | TeamBench / CooperBench | 角色隔离、协作、冲突和多 Agent 消融（须有 compute-matched solo） |
-| P2 | MCPMark | Filesystem / Postgres / Playwright / GitHub / Notion MCP |
-| P3 | OSWorld-Verified / 2.0 | Browser、Office、桌面和跨应用长任务（专用可销毁 VM） |
-| 观察 | ToolSandbox / GAIA / AgentBench | 状态工具、通用研究和历史环境广度 |
-| 谨慎 | SWE-bench 系列 | 仅内部复核子集，不以公开总分作 release gate |
+| 优先级 | Benchmark                       | 主要信号                                                         |
+| ------ | ------------------------------- | ---------------------------------------------------------------- |
+| P1     | BFCL V4 非 live 子集            | 工具选择、参数、并行和多轮协议                                   |
+| P1     | AppWorld / AppWorld-UL          | 有状态 App、跨工具、副作用、澄清与确认                           |
+| P1     | Gaia2 / ARE                     | 异步事件、时间约束、环境变化和 A2A                               |
+| P1     | Terminal-Bench 2.1              | 真实终端、Coding、运维和长任务                                   |
+| P1     | τ³-bench text                   | 多轮用户、业务 policy、工具和可靠性                              |
+| P2     | TeamBench / CooperBench         | 角色隔离、协作、冲突和多 Agent 消融（须有 compute-matched solo） |
+| P2     | MCPMark                         | Filesystem / Postgres / Playwright / GitHub / Notion MCP         |
+| P3     | OSWorld-Verified / 2.0          | Browser、Office、桌面和跨应用长任务（专用可销毁 VM）             |
+| 观察   | ToolSandbox / GAIA / AgentBench | 状态工具、通用研究和历史环境广度                                 |
+| 谨慎   | SWE-bench 系列                  | 仅内部复核子集，不以公开总分作 release gate                      |
 
 **数据许可预检**：代码开源不等于任务数据、附件、镜像、被测仓库、网站内容或模型输出可以再分发。每个 adapter 维护机器可读清单（component / source_url / 各类 license / third_party_assets / pinned_revision / task_selection_digest / image_digest / scorer_digest / reviewed_at / owner）。受限内容只保留 hash / 声明，不进公开 artifact；Promptfoo / 自定义 hook 等能执行本机代码的配置一律视为代码审查对象。外部 benchmark 固定代码、数据、任务列表、镜像、grader 和 adapter 版本，**禁止跟随 `latest` 建立趋势**。
 

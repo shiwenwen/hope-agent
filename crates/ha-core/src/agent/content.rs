@@ -758,7 +758,10 @@ mod tests {
             file_path: Some("/frozen/image.png".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(matches!(
             attachment.get_base64_data().expect("base64"),
@@ -779,7 +782,10 @@ mod tests {
             file_path: Some("/tmp/paste <secret>.txt".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         let (text, images, _) = process_file_attachments(&attachments, 200_000, &[]);
@@ -802,7 +808,10 @@ mod tests {
             file_path: None,
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: Some("assistant".to_string()),
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         let (text, images, _) = process_file_attachments(&attachments, 200_000, &[]);
@@ -824,7 +833,10 @@ mod tests {
             file_path: Some("/path/that/must/not/be/reopened.md".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }];
 
         let resources = context_resources(&attachments);
@@ -849,7 +861,10 @@ mod tests {
                 file_path: Some(format!("/snapshot-{index}.txt")),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             })
             .collect::<Vec<_>>();
 
@@ -890,7 +905,10 @@ mod tests {
             file_path: Some("/immutable/large.docx".to_string()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
 
         let resources = context_resources(std::slice::from_ref(&attachment));
@@ -928,7 +946,10 @@ mod tests {
             file_path: Some("/immutable/deck.pptx".into()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let resources = context_resources(std::slice::from_ref(&attachment));
 
@@ -1002,7 +1023,10 @@ mod tests {
             file_path: Some("/immutable/private.txt".into()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let (text, images, allowed) =
             process_file_attachments(std::slice::from_ref(&text_attachment), 8_000, &[]);
@@ -1066,7 +1090,10 @@ mod tests {
                 file_path: Some("/immutable/typed.txt".into()),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
             Attachment {
                 name: "ordinary.pptx".into(),
@@ -1078,7 +1105,10 @@ mod tests {
                 file_path: Some(ordinary_path.to_string_lossy().into_owned()),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
                 quote_role: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
             },
         ];
 
@@ -1099,7 +1129,10 @@ mod tests {
             file_path: Some("/immutable/paper.pdf".into()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         let resources = context_resources(std::slice::from_ref(&attachment));
         let (text, images, allowed) =

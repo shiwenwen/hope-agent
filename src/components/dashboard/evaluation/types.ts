@@ -44,6 +44,7 @@ export interface EvalAppProfile {
   description: string
   baseTier: "nightly" | "weekly" | "monthly"
   suites: Array<{ suiteId: string; caseTags: string[] }>
+  deterministicSuites: string[]
   allowedArms: string[]
   armMode: "one_control_per_case" | "all_allowed"
   defaultRepetitions?: number
@@ -51,8 +52,10 @@ export interface EvalAppProfile {
   maxTrials: number
   maxModels: number
   maxConcurrency: number
+  defaultConcurrency: number
   maxCostUsd: number
-  maxTrialSeconds?: number
+  defaultCostUsd: number
+  budgetMode: "user_configurable"
   allowCustom: boolean
 }
 
@@ -86,6 +89,9 @@ export interface EvalCatalog {
       tags: string[]
       arms: string[]
       timeoutSeconds: number
+      registeredCostMicros: number
+      repetitions: number
+      registeredBudget: EvalCampaignBudget
     }>
   }>
   models: EvalModelOption[]
@@ -105,11 +111,22 @@ export interface EvalCampaignBudget {
 export interface EvalAppRunRequest {
   schemaVersion: "eval-app-run-request.v1"
   profileId: string
+  budgetEnforcement: "enforced" | "unlimited"
   suiteSelections: Array<{
     suiteId: string
     caseIds: string[]
     arms: string[]
     repetitions?: number
+  }>
+  caseCostBudgets: Array<{
+    suiteId: string
+    caseId: string
+    maxCostUsd: number
+  }>
+  caseResourceBudgets: Array<{
+    suiteId: string
+    caseId: string
+    budget: Required<Omit<EvalCampaignBudget, "maxCostUsd">>
   }>
   models: Array<{
     providerId: string
@@ -120,7 +137,11 @@ export interface EvalAppRunRequest {
   }>
   campaignBudget: EvalCampaignBudget
   debugRetention: "metrics_only" | "redacted" | "full_local"
-  consent: { modelCosts: boolean; syntheticToolExecution: boolean }
+  consent: {
+    modelCosts: boolean
+    syntheticToolExecution: boolean
+    unlimitedBudgetRisk: boolean
+  }
 }
 
 export interface EvalAppPlan {
@@ -132,6 +153,14 @@ export interface EvalAppPlan {
   appVersion: string
   profileId: string
   profileVersion: string
+  budgetEnforcement: "enforced" | "unlimited"
+  deterministicSuites: Array<{
+    id: string
+    version: string
+    capability: string
+    digest: string
+    cases: Array<{ id: string; timeoutSeconds: number }>
+  }>
   campaigns: Array<{
     campaignId: string
     model: { providerId: string; modelId: string }

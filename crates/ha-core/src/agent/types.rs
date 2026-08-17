@@ -52,6 +52,12 @@ impl Default for AgentCapsCache {
 }
 
 /// File/image attachment sent alongside a chat message
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuoteProjectRoot {
+    pub index: usize,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
     pub name: String,
@@ -77,6 +83,19 @@ pub struct Attachment {
     /// block to the model. Not persisted as a file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote_lines: Option<String>,
+    /// Whether a persisted quote can be reopened in the file browser. Visual
+    /// and synthetic sources set this to `false`; absent preserves legacy
+    /// clients' revealable-by-default behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_revealable: Option<bool>,
+    /// Exact linked-project root identity captured with a file-browser quote.
+    /// This is durable UI provenance only; filesystem authorization continues
+    /// to resolve the live project row when a restored quote is opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_project_root: Option<QuoteProjectRoot>,
+    /// Absolute Git worktree root captured with a file-browser quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_worktree_root: Option<String>,
     /// For `source = "message_quote"`: role of the selected conversation
     /// message. The inline body remains in `data`; no file is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,6 +238,18 @@ pub struct AssistantAgent {
     /// When Some, tried first for summarization; falls back to side_query on failure.
     pub(super) compaction_provider:
         Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
+    /// Set only after this agent has applied a validated Tier 3 summary in the
+    /// current chat dispatch. The chat-engine success transaction consumes it
+    /// to clear a pending Tier 4 follow-up together with the summarized
+    /// provider-native context.
+    pub(super) tier3_summary_applied_this_turn: std::sync::atomic::AtomicBool,
+    /// One-shot publication latch for the exact canonical Tier 3 winner.
+    ///
+    /// `tier3_summary_applied_this_turn` deliberately stays true until the
+    /// turn terminates, but only the first checkpoint after installation may
+    /// promote the summary to the failover attempt base. Promoting later tool
+    /// round tails would make a failed provider attempt canonical.
+    pub(super) tier3_summary_publication_pending: std::sync::atomic::AtomicBool,
     /// Session-scoped deferred tools already discovered by `tool_search`.
     /// Persisted for regular sessions and kept memory-only for incognito.
     pub(super) activated_tool_names: std::sync::Mutex<Vec<String>>,
@@ -346,7 +377,9 @@ pub struct AssistantAgent {
     /// leave it `false` so their caller-specified effort isn't silently
     /// overridden by the UI picker.
     pub(super) follow_global_reasoning_effort: bool,
-    /// Timestamp of last Tier 2+ compaction (cache-TTL throttle, session-scoped).
+    /// Timestamp of the last Tier 2+ projection in the current request.
+    /// Cleared at the next public chat dispatch because the current
+    /// process-local projection is not durable across turns yet.
     pub(crate) last_tier2_compaction_at: std::sync::Mutex<Option<std::time::Instant>>,
     /// Lazily-populated cache for fields read from `agent.json` on every
     /// chat/tool-loop iteration. Cleared by `set_agent_id`.

@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "live-agent-scenario.v1",
+  "id": "HA-CTX-002",
+  "version": "1.0.0",
+  "title": "连续读取 UTF-8 文件直到结尾",
+  "capabilities": [
+    "tool",
+    "context_compaction"
+  ],
+  "businessDomains": [
+    "file_reading"
+  ],
+  "subject": {
+    "entrypoint": "server",
+    "driver": "chat_task",
+    "configProfile": "eval-safe-context-compaction-v1"
+  },
+  "environment": {
+    "runnerClass": "dedicated_linux",
+    "assets": [
+      "fixtures/utf8-pages.txt"
+    ],
+    "services": [],
+    "controlledClock": false
+  },
+  "task": {
+    "promptPath": "fixtures/task.zh-CN.md",
+    "hiddenTruthPath": "verifiers/truth.json",
+    "successSummary": "只使用 read 的 UTF-8 安全游标连续读取合成文件，并报告全部标记和文件结尾"
+  },
+  "userSimulator": {
+    "kind": "none",
+    "maxTurns": 1
+  },
+  "milestones": [
+    {
+      "id": "page_sequence",
+      "requires": [],
+      "anyOf": [],
+      "verifier": "page_sequence",
+      "weight": 0.5,
+      "blocking": true
+    },
+    {
+      "id": "all_markers",
+      "requires": [
+        "page_sequence"
+      ],
+      "anyOf": [],
+      "verifier": "all_markers",
+      "weight": 0.4,
+      "blocking": true
+    },
+    {
+      "id": "trace_terminal",
+      "requires": [
+        "all_markers"
+      ],
+      "anyOf": [],
+      "verifier": "trace_closed",
+      "weight": 0.1,
+      "blocking": true
+    }
+  ],
+  "faults": [],
+  "verifiers": [
+    {
+      "id": "all_markers",
+      "kind": "http_assertion",
+      "handler": "response_json_exact",
+      "configPath": "verifiers/expected-response.json",
+      "blocking": true,
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "page_sequence",
+      "kind": "trace_assertion",
+      "handler": "tool_result_digest_sequence",
+      "configPath": "verifiers/page-digests.json",
+      "blocking": true,
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "trace_closed",
+      "kind": "trace_assertion",
+      "handler": "trace_closed",
+      "blocking": true,
+      "timeoutSeconds": 30
+    }
+  ],
+  "invariants": [
+    {
+      "id": "no_exec",
+      "kind": "never",
+      "event": "tool.exec",
+      "blocking": true
+    },
+    {
+      "id": "no_grep",
+      "kind": "never",
+      "event": "tool.grep",
+      "blocking": true
+    },
+    {
+      "id": "no_find",
+      "kind": "never",
+      "event": "tool.find",
+      "blocking": true
+    },
+    {
+      "id": "no_orphan_children",
+      "kind": "parent_child_closed",
+      "blocking": true
+    },
+    {
+      "id": "root_closed_once",
+      "kind": "exactly_once",
+      "event": "session.root.closed",
+      "key": "sessionId",
+      "blocking": true
+    }
+  ],
+  "artifacts": [],
+  "budgets": {
+    "maxWallSeconds": 900,
+    "maxModelCalls": 16,
+    "maxInputTokens": 250000,
+    "maxOutputTokens": 16000,
+    "maxCostUsd": 3,
+    "maxToolCalls": 16,
+    "maxAgents": 1,
+    "maxConcurrency": 1
+  },
+  "network": {
+    "policy": "provider_only",
+    "allow": []
+  },
+  "privacy": {
+    "classification": "synthetic",
+    "redact": [
+      "authorization",
+      "api_key",
+      "cookie",
+      "tool_arguments.secret"
+    ],
+    "rawTraceRetentionDays": 14
+  },
+  "cadence": [
+    "nightly"
+  ]
+}

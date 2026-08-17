@@ -7,10 +7,7 @@ import type {
   PendingMessageQuote,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
-import {
-  createDraftAttachment,
-  type DraftAttachment,
-} from "@/components/chat/files/types"
+import { createDraftAttachment, type DraftAttachment } from "@/components/chat/files/types"
 import { parseUserAttachmentsMeta } from "../chatUtils"
 
 import { isHumanAuthoredUserMessage } from "../quick-prompts/messageQuickPrompts"
@@ -73,10 +70,20 @@ function mediaItemFromAttachment(attachment: MessageAttachment): MediaItem {
 
 function parseQuoteRange(lines: string | undefined): { start: number; end: number } {
   const match = lines?.trim().match(/^(\d+)(?:-(\d+))?$/)
-  if (!match) return { start: 1, end: 1 }
+  if (!match) return { start: 0, end: 0 }
   const start = Math.max(1, Number(match[1]))
   const end = Math.max(start, Number(match[2] ?? match[1]))
   return { start, end }
+}
+
+function restoredQuotePath(attachment: MessageAttachment): string {
+  const path = attachment.quotePath ?? ""
+  const root = attachment.quoteWorktreeRoot ?? attachment.quoteProjectRoot?.path
+  if (!root) return path
+  const normalizedPath = path.replace(/\\/g, "/")
+  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "")
+  const prefix = `${normalizedRoot}/`
+  return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : path
 }
 
 async function restoreFileAttachment(attachment: MessageAttachment): Promise<DraftAttachment> {
@@ -146,11 +153,16 @@ function quoteDraftsFromAttachments(attachments: MessageAttachment[]): {
     const range = parseQuoteRange(attachment.quoteLines)
     return [
       {
-        path: attachment.quotePath,
+        path: restoredQuotePath(attachment),
         name: attachment.name,
         startLine: range.start,
         endLine: range.end,
         content: attachment.quoteContent,
+        ...(attachment.quoteRevealable !== undefined
+          ? { revealable: attachment.quoteRevealable }
+          : {}),
+        ...(attachment.quoteProjectRoot ? { projectRoot: attachment.quoteProjectRoot } : {}),
+        ...(attachment.quoteWorktreeRoot ? { worktreeRoot: attachment.quoteWorktreeRoot } : {}),
       },
     ]
   })

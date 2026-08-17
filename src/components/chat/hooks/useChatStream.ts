@@ -37,6 +37,7 @@ import type {
   ChatTurnStatus,
   ChatTurnInterruptReason,
 } from "@/types/chat"
+import { quoteReferencePath } from "@/components/chat/project/fileQuoteTarget"
 import { parseSessionMessages } from "../chatUtils"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
@@ -1533,11 +1534,10 @@ export function useChatStream({
     [],
   )
 
-  const quoteLineLabel = useCallback(
-    (q: PendingFileQuote) =>
-      q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`,
-    [],
-  )
+  const quoteLineLabel = useCallback((q: PendingFileQuote) => {
+    if (q.startLine <= 0 || q.endLine <= 0) return undefined
+    return q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
+  }, [])
 
   const ensureAttachmentCount = useCallback(
     (attachments: ChatAttachment[], transport: Transport, signal?: AbortSignal) =>
@@ -1671,8 +1671,11 @@ export function useChatStream({
           mime_type: "text/plain",
           source: "quote",
           data: q.content,
-          file_path: q.path,
+          file_path: quoteReferencePath(q),
           quote_lines: quoteLineLabel(q),
+          ...(q.revealable !== undefined ? { quote_revealable: q.revealable } : {}),
+          ...(q.projectRoot ? { quote_project_root: q.projectRoot } : {}),
+          ...(q.worktreeRoot ? { quote_worktree_root: q.worktreeRoot } : {}),
         })
       }
 
@@ -2038,9 +2041,12 @@ export function useChatStream({
       mimeType: "text/plain",
       sizeBytes: 0,
       kind: "quote",
-      quotePath: q.path,
+      quotePath: quoteReferencePath(q),
       quoteLines: quoteLineLabel(q),
       quoteContent: q.content,
+      ...(q.revealable !== undefined ? { quoteRevealable: q.revealable } : {}),
+      ...(q.projectRoot ? { quoteProjectRoot: q.projectRoot } : {}),
+      ...(q.worktreeRoot ? { quoteWorktreeRoot: q.worktreeRoot } : {}),
     }))
     const optimisticMessageQuoteAttachments: MessageAttachment[] = messageQuotesToSend.map((q) => ({
       name: "message-quote",

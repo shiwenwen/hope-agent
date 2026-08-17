@@ -117,6 +117,8 @@ async fn commit_local_reply(
                 turn_id: Some(turn_id),
                 usage: None,
                 final_seq: 0,
+                tier3_recovery: session::Tier3RecoveryCommit::Unchanged,
+                request_plan: session::RequestPlanCommit::None,
             };
             db.commit_assistant_turn(&commit)
         })
@@ -2131,7 +2133,10 @@ mod typed_resource_boundary_tests {
             file_path: Some("/tmp/forged.txt".into()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(validate_desktop_chat_attachment_boundary("plain", None, &[forged]).is_err());
 
@@ -2143,7 +2148,10 @@ mod typed_resource_boundary_tests {
             file_path: None,
             upload_id: Some("lease".into()),
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         assert!(validate_desktop_chat_attachment_boundary("plain", None, &[ordinary]).is_ok());
     }

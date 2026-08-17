@@ -1,5 +1,5 @@
 //! 桌面宠物特征 crate（阶段 4 第四刀，自 ha-core 迁出）：包格式与校验 /
-//! sprite 库 store / 导入（含 Codex 兼容）/ creator / 活动投影。
+//! sprite 库 store / 导入（含 Codex 兼容）/ CLI 激活 / creator / 活动投影。
 //!
 //! kernel 侧留存（`ha_core::pet`）：`ChatUiSurface`（chat_turns 表列
 //! wire 类型）、`emit_activity_changed` + 活动修订计数、`update_config`
@@ -15,6 +15,7 @@
 pub mod activity;
 pub mod asset;
 pub mod atlas;
+pub mod cli;
 pub mod creator;
 pub mod import;
 pub mod store;

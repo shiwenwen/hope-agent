@@ -126,6 +126,16 @@ fn model_marker_provider_failed(kind: FailoverReason, raw: &str) -> String {
              请提醒用户开启新会话或精简对话。",
             msg
         ),
+        FailoverReason::CurrentToolGroupOverflow => format!(
+            "[系统事件] 当前工具结果组即使使用最小合法信封也无法安全放入请求。详情:{}。\
+             不得盲目重试或重新执行工具;请提醒用户缩小读取范围、分页读取或精简当前上下文。",
+            msg
+        ),
+        FailoverReason::DispatchUnknown => format!(
+            "[系统事件] 上一次模型请求已经进入发送阶段,但无法确认 Provider 是否收到或处理。详情:{}。\
+             为避免重复计费或重复执行,系统未自动重发;请提醒用户先检查 Provider 活动,再决定是否手动重试。",
+            msg
+        ),
         FailoverReason::ModelNotFound => format!(
             "[系统事件] 所有已配置模型均不可用。最后一次错误:{}。请提醒用户在设置\
              中选择其他模型。",
@@ -179,6 +189,13 @@ fn user_notice_provider_failed(kind: FailoverReason, raw: &str) -> String {
         }
         FailoverReason::Timeout => "所有模型网络不可达。请检查网络/代理/DNS,或稍后重试".to_string(),
         FailoverReason::ContextOverflow => "对话超出所有模型上下文窗口".to_string(),
+        FailoverReason::CurrentToolGroupOverflow => {
+            "当前工具结果组过大，最小合法结果仍无法安全发送。请缩小范围或分页读取".to_string()
+        }
+        FailoverReason::DispatchUnknown => {
+            "模型请求发送结果未知，已停止自动重试以避免重复请求。请检查 Provider 后手动重试"
+                .to_string()
+        }
         FailoverReason::ModelNotFound => "所有模型均不可用。请在设置中选择其他模型".to_string(),
         FailoverReason::Unknown => format!("所有模型失败:{}", msg),
     }
@@ -308,6 +325,23 @@ mod tests {
             user_notice(&r),
             "所有模型网络不可达。请检查网络/代理/DNS,或稍后重试"
         );
+    }
+
+    #[test]
+    fn dispatch_unknown_notice_requires_provider_check_and_manual_retry() {
+        let r = TerminationReason::ProviderFailed {
+            last_kind: FailoverReason::DispatchUnknown,
+            last_message: "transport closed after dispatch claim".into(),
+            is_codex_auth: false,
+        };
+
+        let marker = model_marker(&r);
+        assert!(marker.contains("无法确认 Provider 是否收到或处理"));
+        assert!(marker.contains("未自动重发"));
+        let notice = user_notice(&r);
+        assert!(notice.contains("发送结果未知"));
+        assert!(notice.contains("停止自动重试"));
+        assert!(notice.contains("检查 Provider 后手动重试"));
     }
 
     #[test]

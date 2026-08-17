@@ -304,7 +304,8 @@ fn phase2_openai_chat_sse(text: &str) -> String {
         }),
         json!({
             "choices": [{
-                "delta": {}
+                "delta": {},
+                "finish_reason": "stop"
             }],
             "usage": {
                 "prompt_tokens": 7,

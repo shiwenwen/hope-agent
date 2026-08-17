@@ -407,6 +407,43 @@ describe("computeContextUsage", () => {
 })
 
 describe("parseSessionMessages user attachments", () => {
+  test("restores persisted linked-worktree quote provenance", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 4,
+        role: "user",
+        content: "Explain this",
+        attachmentsMeta: JSON.stringify([
+          {
+            kind: "quote",
+            name: "brief.md",
+            path: "brief.md",
+            lines: "3-5",
+            content: "quoted lines",
+            revealable: false,
+            project_root: { index: 1, path: "/repos/shared" },
+            worktree_root: "/repos/shared-feature",
+          },
+        ]),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toEqual([
+      {
+        name: "brief.md",
+        mimeType: "text/plain",
+        sizeBytes: 0,
+        kind: "quote",
+        quotePath: "brief.md",
+        quoteLines: "3-5",
+        quoteContent: "quoted lines",
+        quoteRevealable: false,
+        quoteProjectRoot: { index: 1, path: "/repos/shared" },
+        quoteWorktreeRoot: "/repos/shared-feature",
+      },
+    ])
+  })
+
   test("hydrates typed mentions from a valid persisted receipt after restart", () => {
     const raw = "[@Google Drive](#connector:google-drive)"
     const content = `前😀 ${raw} 后`

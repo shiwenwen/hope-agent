@@ -10,6 +10,51 @@ pub fn new_chat_turn_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+pub(super) fn ensure_no_competing_durable_chat_work(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    admitted_turn_id: Option<&str>,
+) -> Result<()> {
+    let active_turn: Option<(String, String)> = conn
+        .query_row(
+            "SELECT id, source FROM chat_turns
+              WHERE session_id = ?1 AND status IN ('running', 'cancelling')
+                AND (?2 IS NULL OR id <> ?2)
+              ORDER BY started_at ASC, id ASC
+              LIMIT 1",
+            params![session_id, admitted_turn_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((active_turn_id, active_source)) = active_turn {
+        anyhow::bail!(
+            "Session '{}' already has an active {} turn ({})",
+            session_id,
+            active_source,
+            active_turn_id
+        );
+    }
+    let active_stream: Option<(String, String)> = conn
+        .query_row(
+            "SELECT run_id, source FROM chat_stream_runs
+              WHERE session_id = ?1 AND status = 'running'
+              ORDER BY started_at ASC, run_id ASC
+              LIMIT 1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((active_run_id, active_source)) = active_stream {
+        anyhow::bail!(
+            "Session '{}' already has an active {} stream ({})",
+            session_id,
+            active_source,
+            active_run_id
+        );
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatTurnStatus {
@@ -61,6 +106,14 @@ pub enum ChatTurnInterruptReason {
     /// All `model_chain` attempts failed at the provider layer.
     /// `chat_turns.error` carries the raw last-attempt message.
     ProviderFailed,
+    /// The current tool-result group's cheapest protocol-legal envelope still
+    /// exceeded capacity after the bounded recovery ladder. This terminal
+    /// application verdict must survive independently of display/error text.
+    CurrentToolGroupOverflow,
+    /// The exact Provider request crossed the dispatch claim, but no response
+    /// proof was observed. This verdict must remain typed across reconnect and
+    /// crash recovery so no caller silently turns it into an automatic retry.
+    DispatchUnknown,
     /// Emergency context compaction ran but the history still exceeds
     /// the hard threshold; the turn cannot continue.
     CompactionFailed,
@@ -77,6 +130,8 @@ impl ChatTurnInterruptReason {
             Self::RuntimeCancel => "runtime_cancel",
             Self::NoProfile => "no_profile",
             Self::ProviderFailed => "provider_failed",
+            Self::CurrentToolGroupOverflow => "current_tool_group_overflow",
+            Self::DispatchUnknown => "dispatch_unknown",
             Self::CompactionFailed => "compaction_failed",
             Self::Unknown => "unknown",
         }
@@ -91,6 +146,8 @@ impl ChatTurnInterruptReason {
             "runtime_cancel" => Some(Self::RuntimeCancel),
             "no_profile" => Some(Self::NoProfile),
             "provider_failed" => Some(Self::ProviderFailed),
+            "current_tool_group_overflow" => Some(Self::CurrentToolGroupOverflow),
+            "dispatch_unknown" => Some(Self::DispatchUnknown),
             "compaction_failed" => Some(Self::CompactionFailed),
             "unknown" => Some(Self::Unknown),
             _ => None,
@@ -316,16 +373,18 @@ impl SessionDB {
                 "UI chat dispatch identity requires both client_request_id and request_fingerprint"
             );
         }
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        ensure_no_competing_durable_chat_work(&tx, session_id, None)?;
         let now = chrono::Utc::now().to_rfc3339();
         // A non-UI turn can replace a currently projected UI turn in the same
         // session. Invalidate only for that transition (or for a new UI turn)
         // so background-only sessions do not create a pet refresh storm.
         let pet_relevant = ui_surface.is_some()
-            || conn
+            || tx
                 .query_row(
                     "SELECT ui_surface IS NOT NULL
                        FROM chat_turns
@@ -337,7 +396,7 @@ impl SessionDB {
                 )
                 .optional()?
                 .unwrap_or(false);
-        conn.execute(
+        tx.execute(
             "INSERT INTO chat_turns (
                 id, session_id, source, status, interrupt_reason, stream_id,
                 user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
@@ -370,6 +429,7 @@ impl SessionDB {
             updated_at: now,
             ui_surface,
         };
+        tx.commit()?;
         drop(conn);
         if pet_relevant {
             crate::pet::emit_activity_changed();
@@ -394,6 +454,60 @@ impl SessionDB {
         request_fingerprint: Option<&str>,
         stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<(i64, ChatTurn)> {
+        self.append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+            id,
+            session_id,
+            source,
+            stream_id,
+            message,
+            ui_surface,
+            client_request_id,
+            request_fingerprint,
+            stop_admission,
+            None,
+        )
+    }
+
+    /// Session-tool turns carry no fresh user intent, so their persisted Stop
+    /// admission must be checked in the same write transaction as the message
+    /// and turn. If this transaction wins, a later Stop enumerates the durable
+    /// running turn; if Stop wins, the generation/pause checks fail closed.
+    pub(crate) fn append_message_and_create_session_tool_turn_with_id(
+        &self,
+        id: &str,
+        session_id: &str,
+        source_session_id: Option<&str>,
+        message: &NewMessage,
+        expected_global_stop_epoch: u64,
+    ) -> Result<(i64, ChatTurn)> {
+        self.append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+            id,
+            session_id,
+            crate::chat_engine::ChatSource::SessionTool.as_str(),
+            None,
+            message,
+            None,
+            None,
+            None,
+            None,
+            Some((expected_global_stop_epoch, source_session_id)),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+        &self,
+        id: &str,
+        session_id: &str,
+        source: &str,
+        stream_id: Option<&str>,
+        message: &NewMessage,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+        session_tool_admission: Option<(u64, Option<&str>)>,
+    ) -> Result<(i64, ChatTurn)> {
         if client_request_id.is_some() != request_fingerprint.is_some() {
             anyhow::bail!(
                 "UI chat dispatch identity requires both client_request_id and request_fingerprint"
@@ -403,7 +517,58 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        // Every foreground admission takes the SQLite write lock before it
+        // checks and inserts the durable running turn. This serializes regular
+        // Desktop/HTTP turns with SessionTool turns across processes instead
+        // of relying only on the process-local active-turn registry.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some((expected_global_stop_epoch, source_session_id)) = session_tool_admission {
+            let current_global_stop_epoch =
+                super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
+            if current_global_stop_epoch != expected_global_stop_epoch {
+                anyhow::bail!("Global Stop began before the cross-session turn was persisted");
+            }
+            if let Some(source_session_id) = source_session_id {
+                let source_incognito = tx
+                    .query_row(
+                        "SELECT incognito FROM sessions WHERE id = ?1",
+                        params![source_session_id],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .optional()?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Source session '{}' no longer exists", source_session_id)
+                    })?;
+                if source_incognito {
+                    anyhow::bail!("Refusing cross-session messaging from an incognito session");
+                }
+            }
+            let target_incognito = tx
+                .query_row(
+                    "SELECT incognito FROM sessions WHERE id = ?1",
+                    params![session_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Target session '{}' no longer exists", session_id)
+                })?;
+            if target_incognito {
+                anyhow::bail!("Refusing to send to incognito session '{}'", session_id);
+            }
+            let paused = tx.query_row(
+                super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
+                params![session_id],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if paused {
+                anyhow::bail!(
+                    "Target session '{}' is paused; use Continue before delegating another turn",
+                    session_id
+                );
+            }
+        }
+        ensure_no_competing_durable_chat_work(&tx, session_id, None)?;
         if let Some(admission) = stop_admission {
             if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
                 &tx, session_id, admission,
@@ -945,6 +1110,311 @@ mod tests {
             Some(ChatTurnInterruptReason::UserStop)
         );
         assert!(persisted.error.is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_rejects_a_global_stop_that_won_admission() {
+        let db = temp_db();
+        let session = db.create_session("ha-main").unwrap();
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.begin_global_stop_enumeration().unwrap();
+
+        let error = db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-after-stop",
+                &session.id,
+                None,
+                &NewMessage::user("hello"),
+                expected_global_stop_epoch,
+            )
+            .expect_err("stale admission must fail closed");
+
+        assert!(error.to_string().contains("Global Stop"));
+        assert!(db.load_session_messages(&session.id).unwrap().is_empty());
+        assert!(db.get_chat_turn("delegated-after-stop").unwrap().is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_rejects_an_active_pause_in_its_write_transaction() {
+        let db = temp_db();
+        let session = db.create_session("ha-main").unwrap();
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.prepare_session_autonomy_pause(&session.id).unwrap();
+
+        let error = db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-while-paused",
+                &session.id,
+                None,
+                &NewMessage::user("hello"),
+                expected_global_stop_epoch,
+            )
+            .expect_err("active pause must fail closed");
+
+        assert!(error.to_string().contains("use Continue"));
+        assert!(db.load_session_messages(&session.id).unwrap().is_empty());
+        assert!(db
+            .get_chat_turn("delegated-while-paused")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_serializes_admission_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let first = std::sync::Arc::new(SessionDB::open(&path).unwrap());
+        let session = first.create_session("ha-main").unwrap();
+        let second = std::sync::Arc::new(SessionDB::open(&path).unwrap());
+        let expected_global_stop_epoch = first.global_stop_epoch().unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+        let run = |db: std::sync::Arc<SessionDB>, turn_id: &'static str| {
+            let session_id = session.id.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                db.append_message_and_create_session_tool_turn_with_id(
+                    turn_id,
+                    &session_id,
+                    None,
+                    &NewMessage::user(turn_id),
+                    expected_global_stop_epoch,
+                )
+            })
+        };
+        let first_attempt = run(first.clone(), "delegated-a");
+        let second_attempt = run(second, "delegated-b");
+        barrier.wait();
+
+        let results = [
+            first_attempt.join().unwrap(),
+            second_attempt.join().unwrap(),
+        ];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        let error = results
+            .iter()
+            .find_map(|result| result.as_ref().err())
+            .expect("one cross-process admission must lose");
+        assert!(error.to_string().contains("already has an active"));
+        assert_eq!(first.load_session_messages(&session.id).unwrap().len(), 1);
+        assert_eq!(
+            first
+                .find_stale_chat_turns_for_finalize()
+                .unwrap()
+                .into_iter()
+                .filter(|turn| turn.session_id == session.id)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn current_tool_group_terminal_reason_survives_chat_turn_storage() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-c0"), Some(1))
+            .unwrap();
+
+        assert!(db
+            .finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(ChatTurnInterruptReason::CurrentToolGroupOverflow),
+                Some("display text intentionally has no classifier token"),
+                None,
+            )
+            .unwrap());
+
+        let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+        assert_eq!(
+            persisted.interrupt_reason,
+            Some(ChatTurnInterruptReason::CurrentToolGroupOverflow)
+        );
+        assert_eq!(
+            persisted.error.as_deref(),
+            Some("display text intentionally has no classifier token")
+        );
+    }
+
+    #[test]
+    fn regular_turn_rejects_an_active_session_tool_turn_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let delegated_db = SessionDB::open(&path).unwrap();
+        let session = delegated_db.create_session("ha-main").unwrap();
+        let regular_db = SessionDB::open(&path).unwrap();
+        let expected_global_stop_epoch = delegated_db.global_stop_epoch().unwrap();
+
+        delegated_db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-active",
+                &session.id,
+                None,
+                &NewMessage::user("delegated"),
+                expected_global_stop_epoch,
+            )
+            .unwrap();
+        let error = regular_db
+            .append_message_and_create_chat_turn_with_id_surface_dispatch(
+                "regular-rejected",
+                &session.id,
+                crate::chat_engine::ChatSource::Http.as_str(),
+                None,
+                &NewMessage::user("regular"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect_err("a regular turn must not overlap a delegated turn");
+
+        assert!(error.to_string().contains("already has an active"));
+        let messages = delegated_db.load_session_messages(&session.id).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "delegated");
+        assert!(delegated_db
+            .get_chat_turn("regular-rejected")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_rejects_an_active_acp_stream_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let acp_db = SessionDB::open(&path).unwrap();
+        let session = acp_db.create_session("ha-main").unwrap();
+        let delegated_db = SessionDB::open(&path).unwrap();
+        acp_db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "active-acp-run".to_string(),
+                session_id: session.id.clone(),
+                source: crate::chat_engine::ChatSource::Acp.as_str().to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .unwrap();
+
+        let error = delegated_db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-rejected-by-acp",
+                &session.id,
+                None,
+                &NewMessage::user("delegated"),
+                delegated_db.global_stop_epoch().unwrap(),
+            )
+            .expect_err("a delegated turn must not overlap an ACP stream");
+
+        assert!(error.to_string().contains("active acp stream"));
+        assert!(delegated_db
+            .load_session_messages(&session.id)
+            .unwrap()
+            .is_empty());
+        assert!(delegated_db
+            .get_chat_turn("delegated-rejected-by-acp")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn acp_stream_rejects_an_active_session_tool_turn_across_database_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let delegated_db = SessionDB::open(&path).unwrap();
+        let session = delegated_db.create_session("ha-main").unwrap();
+        delegated_db
+            .append_message_and_create_session_tool_turn_with_id(
+                "active-delegated-turn",
+                &session.id,
+                None,
+                &NewMessage::user("delegated"),
+                delegated_db.global_stop_epoch().unwrap(),
+            )
+            .unwrap();
+        let acp_db = SessionDB::open(&path).unwrap();
+
+        let error = acp_db
+            .create_stream_run(&crate::session::CreateStreamRun {
+                run_id: "rejected-acp-run".to_string(),
+                session_id: session.id.clone(),
+                source: crate::chat_engine::ChatSource::Acp.as_str().to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect_err("an ACP stream must not overlap a delegated turn");
+
+        assert!(error.to_string().contains("active session_tool turn"));
+        assert_eq!(acp_db.stream_run_status("rejected-acp-run").unwrap(), None);
+    }
+
+    #[test]
+    fn session_tool_turn_rechecks_source_incognito_in_its_write_transaction() {
+        let db = temp_db();
+        let source = db.create_session("ha-main").unwrap();
+        let target = db.create_session("ha-main").unwrap();
+        let expected_global_stop_epoch = db.global_stop_epoch().unwrap();
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET incognito = 1 WHERE id = ?1",
+                params![source.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let error = db
+            .append_message_and_create_session_tool_turn_with_id(
+                "delegated-after-incognito",
+                &target.id,
+                Some(&source.id),
+                &NewMessage::user("hello"),
+                expected_global_stop_epoch,
+            )
+            .expect_err("live source privacy state must fail closed");
+
+        assert!(error.to_string().contains("incognito"));
+        assert!(db.load_session_messages(&target.id).unwrap().is_empty());
+        assert!(db
+            .get_chat_turn("delegated-after-incognito")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn dispatch_unknown_terminal_reason_survives_chat_turn_storage() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-send-unknown"), Some(1))
+            .unwrap();
+
+        assert!(db
+            .finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(ChatTurnInterruptReason::DispatchUnknown),
+                Some("display text intentionally has no classifier token"),
+                None,
+            )
+            .unwrap());
+
+        let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+        assert_eq!(
+            persisted.interrupt_reason,
+            Some(ChatTurnInterruptReason::DispatchUnknown)
+        );
+        assert_eq!(
+            persisted.error.as_deref(),
+            Some("display text intentionally has no classifier token")
+        );
     }
 
     #[test]

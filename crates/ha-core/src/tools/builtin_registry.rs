@@ -14,6 +14,8 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_PROCESS, aliases: &[], handler: tool_handler!(|args, ctx| super::process::tool_process(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_READ, aliases: &["read_file"], handler: tool_handler!(|args, ctx| super::read::tool_read_file(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_READ_CONTEXT_RESOURCE, aliases: &[], handler: tool_handler!(|args, ctx| super::context_resource::tool_read_context_resource(args, ctx).await) },
+        BuiltinToolEntry { name: super::TOOL_RESULT_META, aliases: &[], handler: tool_handler!(|args, ctx| super::result_store::tool_result_meta(args, ctx).await) },
+        BuiltinToolEntry { name: super::TOOL_RESULT_READ, aliases: &[], handler: tool_handler!(|args, ctx| super::result_store::tool_result_read(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_WRITE, aliases: &["write_file"], handler: tool_handler!(|args, ctx| super::write::tool_write_file(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_EDIT, aliases: &["patch_file"], handler: tool_handler!(|args, ctx| super::edit::tool_edit(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_LS, aliases: &["list_dir"], handler: tool_handler!(|args, ctx| super::ls::tool_ls(args, ctx).await) },
@@ -41,6 +43,7 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         // `session_to_note`）随 ha-knowledge 迁出，由 `ha_knowledge::wire()`
         // 注册外部分发条目；schema 仍在 definitions::core_tools。
         BuiltinToolEntry { name: super::TOOL_AGENTS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::agents::tool_agents_list(args).await) },
+        BuiltinToolEntry { name: super::TOOL_SESSIONS_CREATE, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_create(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_list(args).await) },
         BuiltinToolEntry { name: super::TOOL_SESSION_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_session_status(args).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_SEARCH, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_search(args, ctx).await) },

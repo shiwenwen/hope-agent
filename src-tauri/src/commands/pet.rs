@@ -62,6 +62,37 @@ pub async fn pet_set_enabled_cmd(
 }
 
 #[tauri::command]
+pub async fn pet_activate_cmd(
+    app: tauri::AppHandle,
+    pet_ref: ha_pet::PetRef,
+) -> Result<ha_pet::PetConfig, CmdError> {
+    activate_pet(&app, pet_ref, "pet-activate")
+        .await
+        .map_err(Into::into)
+}
+
+pub(crate) async fn activate_pet(
+    app: &tauri::AppHandle,
+    pet_ref: ha_pet::PetRef,
+    source: &'static str,
+) -> anyhow::Result<ha_pet::PetConfig> {
+    let previous = ha_core::config::cached_config().pet.clone();
+    // Activation is also an explicit request to repair a missing native
+    // overlay. Prove the window exists on every call; the cached enabled bit
+    // cannot tell us whether a prior asynchronous lifecycle sync succeeded.
+    crate::pet_window::sync_enabled(app, true)?;
+    match ha_pet::update_config(Some(true), Some(pet_ref), source).await {
+        Ok(config) => Ok(config),
+        Err(error) => {
+            if !previous.enabled {
+                let _ = crate::pet_window::sync_enabled(app, false);
+            }
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn pet_sync_window_cmd(app: tauri::AppHandle) -> Result<(), CmdError> {
     crate::pet_window::sync_enabled(&app, ha_core::config::cached_config().pet.enabled)?;
     Ok(())

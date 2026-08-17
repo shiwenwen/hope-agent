@@ -1007,8 +1007,10 @@ html[data-focus-indicators="enhanced"]
 }
 
 /* Direct Shiki file preview (file browser): dual theme + gutter line numbers.
- * Shiki is rendered with defaultColor:false, so each token carries
- * --shiki-light / --shiki-dark CSS vars that we switch on the `.dark` root. */
+ * Shiki emits an inline light `color` as a fail-safe plus `--shiki-dark`; the
+ * dark rule below switches tokens when the app theme is dark. Keeping a real
+ * inline color prevents the whole preview becoming monochrome when WebView
+ * style ordering drops the light custom-property override. */
 .hope-shiki-view {
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -1046,10 +1048,6 @@ html[data-focus-indicators="enhanced"]
   color: color-mix(in srgb, var(--color-muted-foreground) 65%, transparent);
   background: var(--color-background);
   user-select: none;
-}
-.hope-shiki-view .shiki,
-.hope-shiki-view .shiki span {
-  color: var(--shiki-light);
 }
 .dark .hope-shiki-view .shiki,
 .dark .hope-shiki-view .shiki span {

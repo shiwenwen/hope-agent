@@ -46,11 +46,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatBytes } from "@/lib/format"
 import { logger } from "@/lib/logger"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import type { Project, ProjectMeta, ProjectOverviewSummary } from "@/types/project"
 import type { SessionMeta } from "@/types/chat"
 
 import { FileBrowserView } from "./file-browser/FileBrowserView"
+import type { QuotePayload } from "./file-browser/FilePreviewPane"
+import { detachProjectFileQuote } from "./fileQuoteTarget"
+import { useProjectWorkingDir } from "./hooks/useProjectWorkingDir"
 import ProjectIcon from "./ProjectIcon"
 import { ProjectMemorySection } from "./ProjectMemorySection"
 import ProjectInstructionsEditor from "./ProjectInstructionsEditor"
@@ -65,6 +68,7 @@ interface ProjectOverviewDialogProps {
   onNewSessionInProject: (projectId: string, defaultAgentId?: string | null) => void
   onOpenSession?: (sessionId: string) => void
   onOpenStructuredMemory?: (projectId: string) => void
+  onQuote?: (quote: QuotePayload) => void
 }
 
 const DEFAULT_SHEET_WIDTH = 860
@@ -82,8 +86,10 @@ export default function ProjectOverviewDialog({
   onNewSessionInProject,
   onOpenSession,
   onOpenStructuredMemory,
+  onQuote,
 }: ProjectOverviewDialogProps) {
   const { t, i18n } = useTranslation()
+  const transport = useTransport()
   const [tab, setTab] = useState("overview")
   const [viewportWidth, setViewportWidth] = useState(getViewportWidth)
   const [sheetWidth, setSheetWidth] = useState(readStoredSheetWidth)
@@ -100,6 +106,15 @@ export default function ProjectOverviewDialog({
   const renderedSheetWidth =
     viewportWidth < 640 ? viewportWidth : clampSheetWidth(sheetWidth, viewportWidth)
   const wideOverview = renderedSheetWidth >= 760
+  const projectRootPath = useProjectWorkingDir(
+    transport,
+    project?.id ?? null,
+    project?.workingDir ?? null,
+  )
+  const handleFileQuote = useCallback(
+    (quote: QuotePayload) => onQuote?.(detachProjectFileQuote(quote, projectRootPath)),
+    [onQuote, projectRootPath],
+  )
 
   const loadOverview = useCallback(async () => {
     if (!open || !project) return
@@ -456,8 +471,14 @@ export default function ProjectOverviewDialog({
             <FileBrowserView
               scope="project"
               scopeId={project.id}
-              rootPath={project.workingDir ?? project.id}
+              rootPath={projectRootPath}
+              linkedRootPaths={project.linkedDirs ?? []}
               editable={!project.archived}
+              // The default project workspace resolves asynchronously. Until
+              // its canonical root is known, a primary-root quote would carry
+              // a relative path and could be mislabeled as the chat project's
+              // file. Copy remains available; quote fails closed.
+              onQuote={projectRootPath ? handleFileQuote : undefined}
               layout="split"
               className="h-full"
             />

@@ -1,4 +1,4 @@
-//! Durable user-message queue orchestration for active desktop / HTTP turns.
+//! Durable user-message queue orchestration for active user-visible turns.
 
 use serde::Serialize;
 

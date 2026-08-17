@@ -649,7 +649,10 @@ async fn transcribe_one(agent: &AssistantAgent, id: &ImageIdentity) -> Option<St
         file_path: None,
         upload_id: None,
         quote_lines: None,
+        quote_revealable: None,
         quote_role: None,
+        quote_project_root: None,
+        quote_worktree_root: None,
     };
     match agent
         .transcribe_images_for_vision_bridge(

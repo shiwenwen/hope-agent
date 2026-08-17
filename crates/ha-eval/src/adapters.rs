@@ -25,12 +25,46 @@ pub async fn run_case(
     let mut outcome = match suite.adapter {
         EvalAdapter::CodingFixturePatch => run_coding_fixture(root, suite, case).await?,
         EvalAdapter::CodingGoldFixturePatch => run_coding_gold(temp.path(), suite, case).await?,
+        EvalAdapter::ContextCompactionContract => run_context_compaction(suite, case)?,
         EvalAdapter::DomainTraceFixture => run_domain(temp.path(), suite, case).await?,
         EvalAdapter::DreamingGolden => run_dreaming(root, temp.path(), suite, case)?,
         EvalAdapter::MemoryRetrievalScale => run_memory_retrieval(suite, case)?,
     };
     outcome.attempt = attempt;
     Ok(outcome)
+}
+
+pub(crate) fn run_context_compaction(
+    suite: &PlannedSuite,
+    case: &PlannedCase,
+) -> Result<CaseResult> {
+    let report = ha_core::context_compact::eval::run_context_compaction_eval(&case.id)?;
+    let checks = report
+        .checks
+        .into_iter()
+        .map(|check| EvalCheck {
+            name: check.name,
+            status: if check.passed {
+                EvalStatus::Passed
+            } else {
+                EvalStatus::Failed
+            },
+            detail: check.detail,
+            metric: check.metric,
+            advisory: false,
+        })
+        .collect();
+    Ok(base_result(
+        suite,
+        case,
+        if report.passed {
+            EvalStatus::Passed
+        } else {
+            EvalStatus::Failed
+        },
+        checks,
+        None,
+    ))
 }
 
 async fn run_coding_fixture(

@@ -14,7 +14,7 @@ Agent 会不断产出"值得留下来的东西"——一份数据分析报告、
 
 - **本地优先，但不等于全程本地计算。** "本地优先"指交付无需公网部署：用户把 HTML、ZIP、Markdown 或 PDF 保存到自己的设备即可。Artifact 与工作文件始终落在当前 runtime host——本地桌面是这台电脑，桌面远程／Web 是 Server 所在机器。但分析过程仍可能按当前 Provider、知识空间和连接器配置访问远端服务。
 - **版本不可变。** 每次更新都产生新版本，旧版本永不覆写；更新必须携带 `expected_version`（乐观并发），restore 也是"复制历史内容→生成新版本"而非回退。这让来源、hash 和验证结果始终指向一个确定的快照。
-- **确定性优先。** 结构化分析报告用 Rust 确定性渲染成无脚本、无远程依赖的语义 HTML，保证离线、打印、审计三种场景结果一致；只有 Freeform HTML 才允许受限内联脚本。
+- **确定性优先。** 结构化分析报告用 Rust 确定性渲染成正文无可执行脚本、无远程依赖的语义 HTML，保证离线、打印、审计三种场景结果一致；受管预览只附带 Hope 固定文本选区 bridge，只有 Freeform HTML 才允许作者提供的受限内联脚本。
 
 ## 系统边界
 
@@ -60,12 +60,12 @@ Artifact 的生命周期是统一的，但内容不强制经过同一种中间�
 
 | 输入 | `payload_kind` | 阅读器 | JavaScript | Markdown 导出 | 典型用途 |
 | --- | --- | --- | --- | --- | --- |
-| `artifact.json`（`hope.analysis-artifact.v1`） | `analysis` | Core 确定性分析报告 renderer | 无 | 确定性生成 | 数据分析报告、KPI readout、数据表、分析型 explainer |
-| `.md` | `freeform` | Core Markdown renderer | 无 | 原文保留 | 普通报告、说明文档、低带宽交付 |
+| `artifact.json`（`hope.analysis-artifact.v1`） | `analysis` | Core 确定性分析报告 renderer | 正文无；固定预览桥 | 确定性生成 | 数据分析报告、KPI readout、数据表、分析型 explainer |
+| `.md` | `freeform` | Core Markdown renderer | 正文无；固定预览桥 | 原文保留 | 普通报告、说明文档、低带宽交付 |
 | `.html` / `.htm` | `freeform` | 导入 HTML + 强制离线 CSP | 可用内联脚本 | 不支持无损逆转换 | 交互 Dashboard、交互 explainer、自定义页面 |
 | 历史 Canvas | `freeform` / legacy | 旧 Canvas renderer | 取决于类型 | 仅有显式 fallback 时支持 | HTML、Markdown、Code、SVG、Mermaid、Chart、Slides 兼容预览 |
 
-这里的"交互 Dashboard"是**受限 Freeform HTML**，不是分析契约内置的 JS dashboard runtime：脚本可以操作包内 DOM 和内嵌数据，但强制注入的 CSP 禁止网络连接、远程脚本、iframe、object、embed、form 和外部导航。结构化 Analysis 报告则刻意保持静态，以便离线、无脚本、打印和审计得到一致结果。
+这里的"交互 Dashboard"是**受限 Freeform HTML**，不是分析契约内置的 JS dashboard runtime：脚本可以操作包内 DOM 和内嵌数据，但强制注入的 CSP 禁止网络连接、远程脚本、iframe、object、embed、form 和外部导航。结构化 Analysis 报告的正文刻意保持静态；Hope 固定预览 bridge 不属于作者内容，也不改变 `capabilities.scripts=false` 的含义。
 
 ## 数据模型与存储
 
@@ -169,6 +169,8 @@ stateDiagram-v2
 
 `artifact.json` / `artifact_version_meta.payload_json` 是 analysis 版本的不可变真相源；`index.html` 是 renderer 拥有、可随时重建的投影。读取、show 或 restore 旧 Analysis Artifact 时，Core 可以原子重建当前预览（拿到新版响应式与可访问性修复），但**不得改动版本号、canonical hash、来源或 evidence**。一旦投影 bytes 变化，旧 verification 会被清空——避免把针对旧渲染的校验误当作对新页面仍然有效。
 
+投影自愈与 Artifact／legacy Canvas 的文件变更共用 kernel 进程锁和数据根下的 OS advisory lock；Desktop、server、ACP 即使同时打开同一数据目录，也必须串行完成“读取 canonical 版本 → 清 verification → 原子替换投影”，旧读取不得覆盖另一进程刚提交的新版本。
+
 所有受管文件写入都走 `platform::write_atomic`。创建、更新、恢复在 DB、项目文件与 blob 之间维护回滚快照，失败不会留下半提交的项目；删除后通过引用表做 blob GC。
 
 ## 文件式创建与更新
@@ -245,7 +247,7 @@ Artifact 注册时会从显式结构写入 scoped Domain Evidence：
 
 ## Analysis 确定性阅读器
 
-`analysis_renderer.rs` 把 canonical JSON 渲染成无远程依赖、无 JavaScript 的语义 HTML。页面按三种阅读深度组织，让人可以按需下钻：
+`analysis_renderer.rs` 把 canonical JSON 渲染成正文无 JavaScript runtime、无远程依赖的语义 HTML；受管 `index.html` 只额外附带固定、精确 CSP hash 放行、由宿主 token 激活的文本选区 bridge。页面按三种阅读深度组织，让人可以按需下钻：
 
 1. **30 秒决策层**：状态、问题、受众、决策、时间范围、首个结论 block 与排名靠前的发现；
 2. **证据层**：静态 bar／SVG line 图、建议、限制、presentation tables 与指标口径；
@@ -269,6 +271,8 @@ Artifact 注册时会从显式结构写入 scoped Domain Evidence：
 - `referrerPolicy="no-referrer"`；
 - 本地桌面经 `convertFileSrc`，HTTP 经受保护的 `/api/canvas/projects/{id}/{path}`；用 opaque Artifact ID 解析投影，业务组件不拼受管路径；
 - `refreshKey` 变化时 remount iframe（`key` 含 refreshKey），确保 reload／restore 用上新页面状态。
+- 受管 projection 可以注入 app-authored 文本选区 bridge，但宿主只在后端**重新读取当前 `index.html`**并确认 bridge marker 与精确的 script-isolated CSP 同时存在后，才返回 `capabilities.selectionBridgeTrusted=true` 并激活它。`ArtifactViewer` 每次文档 load 用 version + 随机 token 关联当前导航，只接受当前 iframe `WindowProxy` 回传、finite rect 与不超过 20,000 字符的完整文本（超限不截断引用）。选区完成后自动显示「复制 / 引用到对话」，引用只进入当前主对话草稿，不自动发送；右键原生语义不被 bridge 接管。
+- 静态 projection 的 CSP 只额外放行 bridge 精确脚本 hash，不开放任意作者脚本；历史 Hope 静态 projection 可幂等自愈。Freeform HTML、Slides 等可执行 projection 即使也包含 bridge，宿主仍 fail-closed 不激活，只保留 iframe 内原生选择／复制。随机 token 只用于关联一次导航，不能把同一 iframe 里的作者脚本认证成可信发送者。
 
 顶层 `ArtifactsView` 当前提供：
 
@@ -277,6 +281,7 @@ Artifact 注册时会从显式结构写入 scoped Domain Evidence：
 - kind、privacy、analysis／verification status、source type／access scope 与 payload kind 只经 i18n label 显示；未知后端值统一显示本地化"未知"，不直接暴露内部 snake_case；
 - 当前版本、隐私、来源数量、analysis／verification 状态与 executable 标记；
 - 统一 Viewer、来源／质量摘要、版本历史与 restore；
+- Viewer 正文选区可复制或带到当前主对话；跨 Gallery → Chat 用一次性 nonce 投递到当前 composer，切换视图不会把 quote 直接发出；
 - Viewer 支持带 FLIP 过渡的应用内最大化阅读：最大化时隐藏左右辅助面板、保留产物操作栏，可用恢复按钮或 `Escape` 平滑返回；系统开启"减少动态效果"时直接切换、不强制动画；
 - verify，HTML／ZIP／Markdown／PDF 本地导出，archive 与 delete；Publisher review 入口当前不在 Gallery 展示。
 
@@ -339,7 +344,7 @@ flowchart TB
 
 ### HTML
 
-直接交付当前受管 `index.html`。Analysis／Markdown 是确定性静态页面；Freeform HTML 可能含内联脚本，因此 UI 会显示 executable content 标记。HTML verifier 通过只表示"未发现已知远程依赖"，不表示接收者在普通浏览器里直接打开任意可执行 HTML 等同于 Hope 的 iframe 沙盒。
+直接交付当前受管 `index.html`。Analysis／Markdown 的作者内容是确定性静态页面，文件中只额外保留未获宿主激活时惰性的 Hope 选区 bridge；Freeform HTML 可能含作者内联脚本，因此 UI 只按作者内容显示 executable content 标记，App 也不会为它开启宿主选区浮层。HTML verifier 通过只表示"未发现已知远程依赖"，不表示接收者在普通浏览器里直接打开任意可执行 HTML 等同于 Hope 的 iframe 沙盒。
 
 ### Markdown
 
@@ -439,7 +444,7 @@ Canvas renderer 离线自包含：Markdown 在 Rust 里渲染，Mermaid／Chart 
 
 后端测试覆盖：ready／blocked 的 `AnalysisArtifactV1` fixtures 与结构验证；expected-version 冲突、restore 新版本与 legacy backfill；原子写／事务失败回滚、blob 引用与 GC；HTML／CSP／远程依赖／forbidden embeds verifier；ZIP manifest 大小／hash 重算；本地导出只受 verification 约束、Publisher Guard 与 current-version owner review 保持独立；PDF receipt 与基础文件 QA；incognito fail-closed 与 session cleanup。
 
-数据分析 fixtures 位于 `crates/ha-design/tests/fixtures/artifacts/`，含 `activation.csv`／`activation.xlsx` 与 `analysis-ready.json`／`analysis-blocked.json`；独立重算脚本 `fixture_recompute.py` 与 schema validator `validate_analysis_artifact.py` 则在 `skills/ha-data-analytics/scripts/`。前端通过 typecheck 与 panel／skill mention 单测覆盖 Gallery transport、`@数据分析` token 渲染、统一 Viewer 与自动展开 iframe 的交互状态。
+数据分析 fixtures 位于 `crates/ha-design/tests/fixtures/artifacts/`，含 `activation.csv`／`activation.xlsx` 与 `analysis-ready.json`／`analysis-blocked.json`；独立重算脚本 `fixture_recompute.py` 与 schema validator `validate_analysis_artifact.py` 则在 `skills/ha-data-analytics/scripts/`。前端通过 typecheck 与 panel／skill mention 单测覆盖 Gallery transport、`@数据分析` token 渲染、统一 Viewer、选区消息校验与自动展开 iframe 的交互状态。
 
 ## 当前限制与后续阶段
 

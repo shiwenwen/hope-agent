@@ -162,6 +162,30 @@ function selectText(element: HTMLElement, start: number, end: number): void {
 }
 
 describe("MessageList", () => {
+  test("opens the selection actions automatically after selecting message text", async () => {
+    render(
+      <MessageList
+        messages={[baseMessage({ role: "assistant", content: "prefix selected suffix", dbId: 1 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onAddMessageQuote={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const bubble = screen.getByTestId("message-bubble")
+    selectText(bubble, 7, 15)
+    document.dispatchEvent(new Event("selectionchange"))
+
+    await waitFor(() => {
+      expect(screen.getByText("chat.copy")).toBeTruthy()
+      expect(screen.getByText("chat.messageQuote.addToChat")).toBeTruthy()
+    })
+  })
+
   test("adds an exact user-message selection to chat from the custom menu", () => {
     const onAddMessageQuote = vi.fn()
     render(

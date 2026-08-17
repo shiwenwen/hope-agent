@@ -848,6 +848,9 @@ export default function MessageList({
   const lastAskUserFollowKeyRef = useRef<string | null>(null)
   const completedTurnLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
+  const messageSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const messageSelectionPointerActiveRef = useRef(false)
+  const suppressMessageSelectionUntilRef = useRef(0)
   const editableUserMessageIndex = useMemo(
     () =>
       onEditAndResend
@@ -1634,6 +1637,153 @@ export default function MessageList({
     }
   }, [contextMenu])
 
+  const syncMessageSelection = useCallback(() => {
+    const selection = window.getSelection()
+    const closeAutomaticMenu = () => {
+      setContextMenu((current) => (current?.selectedText ? null : current))
+    }
+    if (
+      !selection ||
+      selection.isCollapsed ||
+      selection.rangeCount === 0 ||
+      !selection.anchorNode ||
+      !selection.focusNode
+    ) {
+      closeAutomaticMenu()
+      return
+    }
+    const rowForNode = (node: Node): HTMLElement | null => {
+      const element = node instanceof Element ? node : node.parentElement
+      const row = element?.closest<HTMLElement>("[data-message-index]") ?? null
+      return row && rootRef.current?.contains(row) ? row : null
+    }
+    const anchorRow = rowForNode(selection.anchorNode)
+    const focusRow = rowForNode(selection.focusNode)
+    if (!anchorRow || anchorRow !== focusRow) {
+      // Cross-message selections keep native copy semantics and never become
+      // a quote attributed to one arbitrary row.
+      closeAutomaticMenu()
+      return
+    }
+    const index = Number(anchorRow.dataset.messageIndex)
+    const msg = Number.isInteger(index) ? messagesRef.current[index] : undefined
+    if (
+      !msg ||
+      (msg.role !== "user" && msg.role !== "assistant") ||
+      msg.isMeta ||
+      isCenteredSystemMessage(msg)
+    ) {
+      closeAutomaticMenu()
+      return
+    }
+    const selectedText = selection.toString()
+    if (!selectedText.trim()) {
+      closeAutomaticMenu()
+      return
+    }
+    const range = selection.getRangeAt(0)
+    // Chromium/WebKit expose Range#getBoundingClientRect, but keep a row
+    // fallback for older embedded engines (and non-layout test DOMs) so a
+    // valid selection never crashes the transcript listener.
+    const rect =
+      typeof range.getBoundingClientRect === "function"
+        ? range.getBoundingClientRect()
+        : anchorRow.getBoundingClientRect()
+    const menuWidth = 260
+    const menuHeight = 44
+    const centeredX = rect.left + rect.width / 2 - menuWidth / 2
+    const aboveY = rect.top - menuHeight - 8
+    const preferredY = aboveY >= 8 ? aboveY : rect.bottom + 8
+    setContextMenu({
+      x: Math.max(8, Math.min(centeredX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(preferredY, window.innerHeight - menuHeight - 8)),
+      index,
+      selectedText,
+      quoteRole: msg.role,
+    })
+  }, [])
+
+  const scheduleMessageSelectionSync = useCallback(
+    (delay: number) => {
+      if (messageSelectionTimerRef.current) clearTimeout(messageSelectionTimerRef.current)
+      messageSelectionTimerRef.current = setTimeout(() => {
+        messageSelectionTimerRef.current = null
+        if (Date.now() < suppressMessageSelectionUntilRef.current) return
+        syncMessageSelection()
+      }, delay)
+    },
+    [syncMessageSelection],
+  )
+
+  useEffect(() => {
+    const belongsToTranscript = (target: EventTarget | null) =>
+      target instanceof Node && Boolean(rootRef.current?.contains(target))
+    const onPointerDown = (event: PointerEvent) => {
+      if (!event.isPrimary || !belongsToTranscript(event.target)) return
+      if (event.button === 2) {
+        suppressMessageSelectionUntilRef.current = Date.now() + 250
+        if (messageSelectionTimerRef.current) clearTimeout(messageSelectionTimerRef.current)
+        return
+      }
+      if (event.button !== 0) return
+      messageSelectionPointerActiveRef.current = true
+      if (messageSelectionTimerRef.current) clearTimeout(messageSelectionTimerRef.current)
+    }
+    const finishPointerSelection = (event: PointerEvent) => {
+      if (!event.isPrimary || !messageSelectionPointerActiveRef.current) return
+      messageSelectionPointerActiveRef.current = false
+      scheduleMessageSelectionSync(0)
+    }
+    const onPointerCancel = (event: PointerEvent) => {
+      if (!event.isPrimary) return
+      messageSelectionPointerActiveRef.current = false
+    }
+    const onPointerOut = (event: PointerEvent) => {
+      if (
+        event.isPrimary &&
+        messageSelectionPointerActiveRef.current &&
+        (event.pointerType === "mouse" || !event.pointerType) &&
+        !event.relatedTarget
+      ) {
+        messageSelectionPointerActiveRef.current = false
+        scheduleMessageSelectionSync(0)
+      }
+    }
+    const onWindowBlur = () => {
+      messageSelectionPointerActiveRef.current = false
+      if (messageSelectionTimerRef.current) {
+        clearTimeout(messageSelectionTimerRef.current)
+        messageSelectionTimerRef.current = null
+      }
+    }
+    const onSelectionChange = () => {
+      if (
+        messageSelectionPointerActiveRef.current ||
+        Date.now() < suppressMessageSelectionUntilRef.current
+      ) {
+        return
+      }
+      // Keyboard selection and mobile selection handles have no reliable row
+      // pointer-up. Debounce their intermediate Selection states.
+      scheduleMessageSelectionSync(100)
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    document.addEventListener("pointerup", finishPointerSelection, true)
+    document.addEventListener("pointercancel", onPointerCancel, true)
+    document.addEventListener("pointerout", onPointerOut, true)
+    document.addEventListener("selectionchange", onSelectionChange)
+    window.addEventListener("blur", onWindowBlur)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true)
+      document.removeEventListener("pointerup", finishPointerSelection, true)
+      document.removeEventListener("pointercancel", onPointerCancel, true)
+      document.removeEventListener("pointerout", onPointerOut, true)
+      document.removeEventListener("selectionchange", onSelectionChange)
+      window.removeEventListener("blur", onWindowBlur)
+      if (messageSelectionTimerRef.current) clearTimeout(messageSelectionTimerRef.current)
+    }
+  }, [scheduleMessageSelectionSync])
+
   const handleJumpToLatest = useCallback(() => {
     const el = containerRef.current
     if (!el) return
@@ -1705,8 +1855,8 @@ export default function MessageList({
       if (!selectedText.trim()) return
       e.preventDefault()
       setContextMenu({
-        x: Math.max(8, Math.min(e.clientX, window.innerWidth - 176)),
-        y: Math.max(8, Math.min(e.clientY, window.innerHeight - 92)),
+        x: Math.max(8, Math.min(e.clientX, window.innerWidth - 260)),
+        y: Math.max(8, Math.min(e.clientY, window.innerHeight - 52)),
         index,
         selectedText,
         quoteRole: msg.role,
@@ -1791,6 +1941,7 @@ export default function MessageList({
         data-message-key={rowKey}
         data-message-id={msg.dbId ?? undefined}
         data-message-source-id={item.sourceDbId ?? undefined}
+        data-message-index={originalIndex}
         className={cn(
           "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
           itemMatchesMessageId(item, highlightMessageId) && "message-hit-pulse",

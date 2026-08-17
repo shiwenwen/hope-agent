@@ -5,33 +5,26 @@
  * line numbers via the DOM (no fragile string matching), and the gutter line
  * numbers come from a CSS counter (see `.hope-shiki-view` in index.css).
  *
- * Right-click opens a small menu to copy the selection (or whole file) and quote
- * the selected lines to chat. We do NOT use Radix ContextMenu here: on macOS
- * WebView the native selection menu (Reload / Inspect / Look Up) pre-empts the
- * bubbling `contextmenu`, so Radix's trigger never fires on a text selection.
- * Instead we preventDefault in the CAPTURE phase (the only point that reliably
- * fires + suppresses the native menu) and render our own positioned menu.
+ * Selecting text automatically opens a small menu to copy or quote it. The
+ * legacy right-click path remains available (including copy-all with no active
+ * selection). We do NOT use Radix ContextMenu here: on macOS WebView the native
+ * selection menu pre-empts the bubbling `contextmenu`, so capture-phase handling
+ * remains the reliable compatibility path.
  *
  * The rendered `view` is memoized so opening the menu (a state change) doesn't
  * re-create the dangerouslySetInnerHTML node — React bails out on the stable
  * element, leaving the user's text selection (and its highlight) intact.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { codeToHtml, type ShikiTransformer } from "shiki"
-import { Copy, Loader2, Quote } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 
+import { SelectionActionMenu } from "@/components/common/SelectionActionMenu"
 import { cn } from "@/lib/utils"
-import { FloatingMenu } from "@/components/ui/floating-menu"
+import { useSelectionActionMenu } from "./useSelectionActionMenu"
 
 export interface CodeSelection {
   startLine: number
@@ -43,21 +36,12 @@ export interface CodeSelection {
  *  monospace text, so a huge file can't block the UI thread. */
 const MAX_HIGHLIGHT_BYTES = 400_000
 
-const MENU_ITEM_CLASS =
-  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-foreground/80 outline-none transition-colors hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-
 const lineData: ShikiTransformer = {
   name: "line-data",
   line(node, line) {
     node.properties["data-line"] = String(line)
     return node
   },
-}
-
-interface MenuState {
-  x: number
-  y: number
-  sel: CodeSelection | null
 }
 
 export function ShikiCodeView({
@@ -69,7 +53,7 @@ export function ShikiCodeView({
 }: {
   content: string
   lang: string
-  /** When provided, the right-click menu offers "quote to chat". */
+  /** When provided, the selection menu offers "quote to chat". */
   onQuote?: (sel: CodeSelection) => void
   /** Highlight + scroll to this 1-based line range (e.g. a quote reveal). */
   highlightLines?: { start: number; end: number; nonce: number } | null
@@ -80,7 +64,6 @@ export function ShikiCodeView({
   const [html, setHtml] = useState<string | null>(null)
   // Start in the loading state only when we actually intend to highlight.
   const [loading, setLoading] = useState(!tooLarge)
-  const [menu, setMenu] = useState<MenuState | null>(null)
   const rootRef = useRef<HTMLElement | null>(null)
   const setRootRef = useCallback((el: HTMLElement | null) => {
     rootRef.current = el
@@ -93,7 +76,6 @@ export function ShikiCodeView({
       codeToHtml(content, {
         lang: l,
         themes: { light: "github-light", dark: "github-dark" },
-        defaultColor: false,
         transformers: [lineData],
       })
     void render(lang)
@@ -112,30 +94,6 @@ export function ShikiCodeView({
       cancelled = true
     }
   }, [content, lang, tooLarge])
-
-  // Dismiss the menu on outside pointer-down, Escape, resize, or window blur.
-  useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenu(null)
-    }
-    window.addEventListener("pointerdown", close)
-    window.addEventListener("keydown", onKey)
-    window.addEventListener("resize", close)
-    window.addEventListener("blur", close)
-    // scroll doesn't bubble — listen in the capture phase so scrolling ANY
-    // container dismisses the fixed menu (it's anchored to the click point, not
-    // to the content, so it would otherwise float in place while text scrolls).
-    window.addEventListener("scroll", close, true)
-    return () => {
-      window.removeEventListener("pointerdown", close)
-      window.removeEventListener("keydown", onKey)
-      window.removeEventListener("resize", close)
-      window.removeEventListener("blur", close)
-      window.removeEventListener("scroll", close, true)
-    }
-  }, [menu])
 
   // Highlight + scroll to the revealed line range once the HTML is rendered.
   // Re-runs when the html or range changes; the range carries a nonce so a
@@ -173,30 +131,25 @@ export function ShikiCodeView({
     const text = sel?.toString() ?? ""
     const root = rootRef.current
     if (!sel || sel.isCollapsed || !text.trim() || !root) return null
-    if (!root.contains(sel.anchorNode) && !root.contains(sel.focusNode)) return null
+    if (!root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) return null
     const a = lineOf(sel.anchorNode)
     const b = lineOf(sel.focusNode)
-    // Use whichever endpoint resolved to a line; fall back to a best-effort
-    // range only when neither does (e.g. the plain <pre> path has no data-line).
+    // Use whichever endpoint resolved to a line. The oversized plain-<pre>
+    // fallback has no data-line mapping, so report 0/0 rather than inventing an
+    // L1-n range that a later reveal could misinterpret as exact.
     const lo = a ?? b
     const hi = b ?? a
     return lo != null && hi != null
       ? { startLine: Math.min(lo, hi), endLine: Math.max(lo, hi), text }
-      : { startLine: 1, endLine: text.split("\n").length, text }
+      : { startLine: 0, endLine: 0, text }
   }, [lineOf])
 
-  const onContextMenu = useCallback(
-    (e: ReactMouseEvent) => {
-      // Capture phase: suppress the native WebView menu and open ours. Clamp the
-      // anchor to the viewport here (in the event, not during render) so the
-      // menu can't open off-screen.
-      e.preventDefault()
-      const x = Math.min(e.clientX, window.innerWidth - 192)
-      const y = Math.min(e.clientY, window.innerHeight - 96)
-      setMenu({ x, y, sel: readSelection() })
-    },
-    [readSelection],
-  )
+  const getCopyAllText = useCallback(() => content, [content])
+  const { menu, closeMenu, onContextMenuCapture } = useSelectionActionMenu({
+    rootRef,
+    readSelection,
+    getCopyAllText,
+  })
 
   const copyText = useCallback(
     (text: string) => {
@@ -215,7 +168,7 @@ export function ShikiCodeView({
       tooLarge || !html ? (
         <pre
           ref={setRootRef}
-          onContextMenuCapture={onContextMenu}
+          onContextMenuCapture={onContextMenuCapture}
           className={cn("hope-shiki-view px-1 py-2", className)}
         >
           {content}
@@ -223,12 +176,12 @@ export function ShikiCodeView({
       ) : (
         <div
           ref={setRootRef}
-          onContextMenuCapture={onContextMenu}
+          onContextMenuCapture={onContextMenuCapture}
           className={cn("hope-shiki-view", className)}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ),
-    [tooLarge, html, content, className, onContextMenu, setRootRef],
+    [tooLarge, html, content, className, onContextMenuCapture, setRootRef],
   )
 
   if (loading) {
@@ -242,45 +195,22 @@ export function ShikiCodeView({
   return (
     <>
       {view}
-      <FloatingMenu
+      <SelectionActionMenu
         open={menu !== null}
-        strategy="fixed"
-        portal
-        positionClassName=""
-        originClassName="origin-top-left"
-        className="min-w-[11rem] p-1.5"
-        style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
-      >
-          <div onPointerDown={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                className={MENU_ITEM_CLASS}
-                onClick={() => {
-                  copyText(menu?.sel?.text ?? content)
-                  setMenu(null)
-                }}
-              >
-                <Copy className="h-3.5 w-3.5" />
-                {menu?.sel
-                  ? t("fileBrowser.copySelection", "Copy selection")
-                  : t("fileBrowser.copyAll", "Copy all")}
-              </button>
-              {onQuote ? (
-                <button
-                  type="button"
-                  disabled={!menu?.sel}
-                  className={MENU_ITEM_CLASS}
-                  onClick={() => {
-                    if (menu?.sel) onQuote(menu.sel)
-                    setMenu(null)
-                  }}
-                >
-                  <Quote className="h-3.5 w-3.5" />
-                  {t("fileBrowser.quoteToChat", "Quote to chat")}
-                </button>
-              ) : null}
-          </div>
-      </FloatingMenu>
+        position={menu?.position ?? null}
+        text={menu?.text ?? ""}
+        copyMode={menu?.copyMode}
+        onCopy={copyText}
+        quoteDisabled={!menu?.value}
+        onQuote={
+          onQuote
+            ? () => {
+                if (menu?.value) onQuote(menu.value)
+              }
+            : undefined
+        }
+        onClose={closeMenu}
+      />
     </>
   )
 }

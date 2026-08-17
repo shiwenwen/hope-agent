@@ -2424,7 +2424,10 @@ mod tests {
             file_path: Some(format!("/workspace/{target_id}")),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         }
     }
 
@@ -2878,7 +2881,10 @@ mod tests {
             file_path: None,
             upload_id: Some("ordinary-upload-lease".into()),
             quote_lines: None,
+            quote_revealable: None,
             quote_role: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
         };
         input.attachments = vec![queued_file_attachment("README.md"), ordinary.clone()];
         db.enqueue_turn_user_message(input).unwrap();

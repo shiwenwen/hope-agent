@@ -1,22 +1,27 @@
 {
   "schemaVersion": "eval-app-profile.v1",
   "id": "reliability",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "title": "Reliability and recovery",
-  "description": "Weekly comparison arms with manifest repetitions for reliability, faults, and compute-matched team analysis.",
+  "description": "Weekly comparison arms with manifest repetitions for reliability, faults, and compute-matched team analysis. The user controls the total budget and its per-case allocation.",
   "baseTier": "weekly",
-  "suites": [
-    { "suiteId": "hope-core-orchestration", "caseTags": ["smoke_weekly"] }
-  ],
+  "suites": [{ "suiteId": "hope-core-orchestration", "caseTags": ["smoke_weekly"] }],
   "allowedArms": [
-    "control", "faulted", "team_full_control", "team_full_faulted",
-    "single_agent_compute_matched_control", "single_agent_compute_matched_faulted"
+    "control",
+    "faulted",
+    "team_full_control",
+    "team_full_faulted",
+    "single_agent_compute_matched_control",
+    "single_agent_compute_matched_faulted"
   ],
   "armMode": "all_allowed",
   "useSuiteRepetitions": true,
   "maxTrials": 500,
   "maxModels": 1,
   "maxConcurrency": 500,
+  "defaultConcurrency": 4,
   "maxCostUsd": 1000000,
+  "defaultCostUsd": 100,
+  "budgetMode": "user_configurable",
   "allowCustom": true
 }

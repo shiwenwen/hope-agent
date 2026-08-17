@@ -36,9 +36,11 @@ pub async fn resolve_tool_permission(
     // model called `enter_plan_mode` mid-turn (user accepted) the live state
     // is now Planning/Review while the snapshot still says Off, so the
     // permission engine would happily run write/edit/apply_patch/canvas. Fall
-    // back to a hard deny on those four mutation tools so the user-sovereignty
-    // contract holds within the same turn — full PlanAgent restrictions kick
-    // in automatically on the next user message when the agent rebuilds.
+    // back to the canonical hard-deny list (including cross-session
+    // delegation, which could otherwise execute mutations in another regular
+    // session) so the user-sovereignty contract holds within the same turn.
+    // Full PlanAgent restrictions kick in automatically on the next user
+    // message when the agent rebuilds.
     if !is_internal_tool && ctx.plan_mode_allowed_tools.is_empty() {
         if let Some(sid) = ctx.session_id.as_deref() {
             let live = crate::plan::get_plan_state(sid).await;
@@ -1356,20 +1358,26 @@ pub async fn execute_tool_with_context(
 
     // Log tool execution start
     if let Some(logger) = crate::get_logger() {
-        let args_preview = {
-            let s = args.to_string();
-            if s.len() > 500 {
-                format!("{}...", crate::truncate_utf8(&s, 500))
-            } else {
-                s
-            }
-        };
+        let encoded_args = args.to_string();
+        let args_fingerprint: String = crate::cache_routing::audit_fingerprint(
+            "tool-execution-arguments",
+            encoded_args.as_bytes(),
+        )
+        .chars()
+        .take(16)
+        .collect();
         logger.log(
             "info",
             "tool",
             &format!("tools::{}", name),
             &format!("Tool '{}' started", name),
-            Some(serde_json::json!({"args": args_preview}).to_string()),
+            Some(
+                serde_json::json!({
+                    "arguments_size_bytes": encoded_args.len(),
+                    "arguments_fingerprint": args_fingerprint,
+                })
+                .to_string(),
+            ),
             None,
             None,
         );
@@ -1459,10 +1467,8 @@ pub async fn execute_tool_with_context(
             auto_bg_secs,
         )
         .await?;
-        // The inner worker suppresses generic disk persistence so detached jobs
-        // can spool their raw output into the async output-file. If the worker
-        // finished within the foreground budget, persist large inline output at
-        // this outer layer before returning it to the model.
+        // The foreground orchestrator admits ordinary text only after
+        // PostToolUse. This execution-layer step now materializes media only.
         return maybe_persist_large_tool_result(name, raw, ctx);
     }
 
@@ -1536,29 +1542,56 @@ pub async fn execute_tool_with_context(
 
     let duration_ms = start.elapsed().as_millis() as u64;
 
-    // Log tool execution result
+    // Log content-free execution diagnostics only. The hook-before body and
+    // provider error text may contain credentials or private paths.
     if let Some(logger) = crate::get_logger() {
         match &result {
             Ok(output) => {
-                let output_preview = if output.len() > 300 {
-                    format!("{}...", crate::truncate_utf8(output, 300))
-                } else {
-                    output.clone()
-                };
-                logger.log("info", "tool", &format!("tools::{}", name),
+                let fingerprint: String = crate::cache_routing::audit_fingerprint(
+                    "tool-execution-output",
+                    output.as_bytes(),
+                )
+                .chars()
+                .take(16)
+                .collect();
+                logger.log(
+                    "info",
+                    "tool",
+                    &format!("tools::{}", name),
                     &format!("Tool '{}' completed in {}ms", name, duration_ms),
-                    Some(serde_json::json!({"duration_ms": duration_ms, "output_preview": output_preview}).to_string()),
-                    None, None);
+                    Some(
+                        serde_json::json!({
+                            "duration_ms": duration_ms,
+                            "output_size_bytes": output.len(),
+                            "output_fingerprint": fingerprint,
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
             }
             Err(e) => {
+                let error_text = e.to_string();
+                let fingerprint: String = crate::cache_routing::audit_fingerprint(
+                    "tool-execution-error",
+                    error_text.as_bytes(),
+                )
+                .chars()
+                .take(16)
+                .collect();
                 logger.log(
                     "error",
                     "tool",
                     &format!("tools::{}", name),
-                    &format!("Tool '{}' failed in {}ms: {}", name, duration_ms, e),
+                    &format!("Tool '{}' failed in {}ms", name, duration_ms),
                     Some(
-                        serde_json::json!({"duration_ms": duration_ms, "error": e.to_string()})
-                            .to_string(),
+                        serde_json::json!({
+                            "duration_ms": duration_ms,
+                            "error_size_bytes": error_text.len(),
+                            "error_fingerprint": fingerprint,
+                        })
+                        .to_string(),
                     ),
                     None,
                     None,
@@ -1585,10 +1618,10 @@ pub async fn execute_tool_with_context(
     }
 }
 
-// ── Result disk persistence ──────────────────────────────────────
-// In normal sessions, inline image markers are first materialized into managed
-// `__IMAGE_FILE__` references. Other large results are written to disk and
-// replaced with a preview plus a path the model can `read`.
+// ── Media materialization ─────────────────────────────────────────
+// Ordinary text is deliberately returned unchanged. Its only admission point
+// is the PostToolUse-effective ResultStore writer in streaming_loop; keeping a
+// text spill here would reintroduce a hook-before raw/path bypass.
 fn maybe_persist_large_tool_result(
     name: &str,
     output: String,
@@ -1635,84 +1668,7 @@ fn maybe_persist_large_tool_result(
         }
         return Ok(output);
     }
-    if !should_persist_large_result(&output) {
-        return Ok(output);
-    }
-    match persist_large_result(&output, ctx.session_id.as_deref(), name) {
-        Ok(path) => {
-            app_info!(
-                "tool",
-                "disk_persist",
-                "Tool '{}' result {}B persisted to {}",
-                name,
-                output.len(),
-                path
-            );
-            Ok(build_persisted_large_result_preview(&output, &path))
-        }
-        Err(e) => {
-            // Fall back to returning the full result if persistence fails.
-            app_warn!(
-                "tool",
-                "disk_persist",
-                "Failed to persist large result for '{}': {}",
-                name,
-                e
-            );
-            Ok(output)
-        }
-    }
-}
-
-// ── Disk Persistence Helpers ─────────────────────────────────────
-
-/// Load the disk persistence threshold from config.json, defaulting to 50KB.
-/// Returns 0 to disable (never persist).
-fn disk_persist_threshold() -> usize {
-    crate::config::cached_config()
-        .tool_result_disk_threshold
-        .unwrap_or(50_000)
-}
-
-fn should_persist_large_result(output: &str) -> bool {
-    let threshold = disk_persist_threshold();
-    threshold > 0 && output.len() > threshold
-}
-
-fn build_persisted_large_result_preview(output: &str, path: &str) -> String {
-    let (media_header, output_body) = split_media_items_header(output);
-
-    if crate::tools::image_markers::contains_image_marker(output_body) {
-        let preview = format!(
-            "[Large tool result ({total}B) saved to: {path}]\n\
-             [Inline preview omitted because the result contains image marker data that must not be truncated.]\n\
-             [Use read tool with this path to access full content]",
-            total = output.len(),
-        );
-        return format!("{media_header}{preview}");
-    }
-
-    let head = crate::truncate_utf8(output_body, 2000);
-    let tail = crate::util::truncate_utf8_tail(output_body, 1000);
-    let omitted = output_body.len().saturating_sub(head.len() + tail.len());
-    let preview = format!(
-        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}\n\n\
-         [Full result ({total}B) saved to: {path}]\n\
-         [Use read tool with this path to access full content]",
-        total = output.len(),
-    );
-    format!("{media_header}{preview}")
-}
-
-fn split_media_items_header(output: &str) -> (&str, &str) {
-    let Some(rest) = output.strip_prefix(crate::agent::MEDIA_ITEMS_PREFIX) else {
-        return ("", output);
-    };
-    let Some(newline_idx) = rest.find('\n') else {
-        return ("", output);
-    };
-    let split_at = crate::agent::MEDIA_ITEMS_PREFIX.len() + newline_idx + 1;
-    (&output[..split_at], &output[split_at..])
+    Ok(output)
 }
 
 /// Write a large tool result to disk and return the file path.
@@ -1859,37 +1815,13 @@ pub fn purge_tool_results_for_session(session_id: &str) {
     }
 }
 
-fn persist_large_result(
-    content: &str,
-    session_id: Option<&str>,
-    tool_name: &str,
-) -> anyhow::Result<String> {
-    let base_dir =
-        crate::paths::root_dir()?
-            .join("tool_results")
-            .join(crate::paths::sanitize_path_segment(
-                session_id.unwrap_or("_global"),
-            ));
-    std::fs::create_dir_all(&base_dir)?;
-
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let filename = format!("{tool_name}_{ts}.txt");
-    let path = base_dir.join(&filename);
-    std::fs::write(&path, content)?;
-
-    Ok(path.to_string_lossy().to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        build_persisted_large_result_preview, canonical_mcp_execution_name_from,
-        decide_async_path_with_config, exec_process_background_mode, execute_tool_with_context,
-        is_bound_context_resource_read, maybe_persist_large_tool_result,
-        migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
+        canonical_mcp_execution_name_from, decide_async_path_with_config,
+        exec_process_background_mode, execute_tool_with_context, is_bound_context_resource_read,
+        maybe_persist_large_tool_result, migrate_exec_process_mode_to_async_job_args,
+        needs_permission_engine, resolve_tool_permission,
         should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
         tool_timeout, validate_async_background_contract, AsyncDecision, JobOrigin,
         ToolExecContext,
@@ -2398,31 +2330,13 @@ export default async function main(workflow) {
     }
 
     #[test]
-    fn persisted_preview_omits_image_marker_prefix_for_malformed_image_results() {
-        let output = format!(
-            "{}image/png__not-base64__\nScreenshot captured.",
-            IMAGE_BASE64_PREFIX
-        );
-
-        let preview = build_persisted_large_result_preview(&output, "/tmp/browser_1.txt");
-
-        assert!(!preview.contains(IMAGE_BASE64_PREFIX));
-        assert!(preview.contains("Large tool result"));
-        assert!(preview.contains("/tmp/browser_1.txt"));
-    }
-
-    #[test]
-    fn persisted_preview_preserves_media_items_header() {
-        let output = format!(
-            "{}[]\n{}",
-            crate::agent::MEDIA_ITEMS_PREFIX,
-            "x".repeat(10_000)
-        );
-
-        let preview = build_persisted_large_result_preview(&output, "/tmp/tool.txt");
-
-        assert!(preview.starts_with(crate::agent::MEDIA_ITEMS_PREFIX));
-        assert!(preview.contains("/tmp/tool.txt"));
+    fn ordinary_large_text_is_not_spilled_before_post_tool_use() {
+        let output = "x".repeat(100_000);
+        let result =
+            maybe_persist_large_tool_result("read", output.clone(), &ToolExecContext::default())
+                .expect("plain text passthrough");
+        assert_eq!(result, output);
+        assert!(!result.contains("saved to:"));
     }
 
     #[test]
@@ -2752,6 +2666,32 @@ export default async function main(workflow) {
             !ctx.should_run_exec_command_gate(),
             "exec_pre_approved (set post-approval by the reorder) must bypass the inner gate"
         );
+    }
+
+    #[tokio::test]
+    async fn live_plan_mode_blocks_same_round_cross_session_delegation() {
+        let session_id = format!("plan-cross-session-{}", uuid::Uuid::new_v4());
+        crate::plan::set_plan_state(&session_id, crate::plan::PlanModeState::Planning).await;
+        let ctx = ToolExecContext {
+            session_id: Some(session_id.clone()),
+            // An empty snapshot models a turn that entered Plan Mode after its
+            // tool schema had already been built.
+            plan_mode_allowed_tools: Vec::new(),
+            ..ToolExecContext::default()
+        };
+
+        for tool_name in [
+            crate::tool_defs::TOOL_SESSIONS_CREATE,
+            crate::tool_defs::TOOL_SESSIONS_SEND,
+        ] {
+            let decision = resolve_tool_permission(tool_name, &json!({}), &ctx, false).await;
+            assert!(
+                matches!(decision, crate::permission::Decision::Deny { .. }),
+                "{tool_name} must not escape a same-round Plan Mode transition"
+            );
+        }
+
+        crate::plan::set_plan_state(&session_id, crate::plan::PlanModeState::Off).await;
     }
 
     /// `ToolExecContext::emit_effective_args` is the bridge the streaming

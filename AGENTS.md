@@ -48,6 +48,10 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 前端 / UI 见 [src/AGENTS.md](src/AGENTS.md)（`src/` 嵌套 AGENTS.md，改前端时自动生效）。
 
+### 文档（中文为主）
+
+- **新增或修改中文文档时统一使用中文主术语**：标题、正文、表格和 Mermaid 可见标签都以中文为主；技术概念首次出现可写成“中文（English）”，后续只用中文。品牌、协议名、标准缩写，以及代码中的类型、函数、字段、枚举值、配置键、命令和路径可以保留英文；代码标识须用反引号。禁止无必要的中英夹写或给同一概念反复换译名，例如首次定义“权威会话历史（canonical history）”“请求投影视图（request projection）”后，后文只写中文。中英文用户指南仍须保持语义对齐。
+
 ### 后端（Rust）
 
 - **阻塞 IO 红线**：async 里 SQLite/config 写必经 [`run_blocking`](crates/ha-base/src/blocking.rs)/`SessionDB::run`/`mutate_config_async`，禁 inline / `block_on`（[process-model](docs/architecture/system/process-model.md) Layer C′）
@@ -160,6 +164,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 详见 [pet](docs/architecture/core/pet.md)。
 
 - **主对话投影边界**：只接入显式携带第一方 `ChatUiSurface` 的主动多轮主对话；side query、automation、compact、Memory、Cron、IM、ACP、subagent 与后台 job 等额外 LLM 请求不得接入。Pet 点击气泡只发 typed navigation，**不得提前清未读**；必须由目标消息列表真实加载并渲染后的 read receipt 推进 watermark
+- **宠物包自动化导入唯一入口**：本机走 `hope-agent pet preview` → 用户确认 `packageHash` → `hope-agent pet import --expected-package-hash`，远程走 Bearer-auth HTTP preview / commit；来源域名不决定资格，但所有入口仍须走 `ha-pet` 的统一校验与原子安装，禁止技能或壳层直接写宠物目录、静默安装，或在用户仅请求导入时顺带启用 overlay。用户明确请求“导入并启用”时，commit 成功后只许以返回的 `petRef` 独立走 `hope-agent pet activate` / desktop-only `POST /api/pets/activate`；两者必须把选择 + enabled 原子交给当前 Tauri 进程驱动窗口生命周期，禁用 `enableAfterImport` 偷渡或离线改配置假成功
 
 ### 上下文压缩
 
@@ -256,6 +261,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **已删勿引入**：`project_files`/`ProjectFile`/`project_read_file`（项目文件=工作目录真实文件）、`Project.bound_channel`（IM 无反向认领，归属靠 chat 内 `/project <id>`）
 - **交互入口懒创建**：进项目「新建对话」不得 `create_session_cmd` 预建，首条消息经 `chat` 的 `projectId` 落库；`project_id` 与 `incognito` 互斥（**后端强制 incognito off**）；IM/cron/subagent 仍 eager
 - **两个唯一入口**：工作目录 `session::effective_session_working_dir`（session > project > 默认 workspace）；文件读写 `filesystem::WorkspaceScope`（失败闭合，`for_path` 只读，HTTP 写受 `filesystem.allow_remote_writes` 默认 false）
+- **多源文件夹身份不可漂移**：`projects.linked_dirs_json` 顺序即 `project_folder` scope 稳定索引；会话 cwd 覆盖项目主目录时，主目录作为末尾虚拟源根继续进入 prompt / 工具 allowlist / 文件浏览器，索引为 `linked_dirs.len()` 且仅 session scope 可解析，live 项目主目录路径不匹配即 fail closed
 - **AGENTS.md 缺失可保留**：添加已有目录时用户可取消创建，之后只读检查、启动迁移和未改工作目录的元数据更新均不得补建；读取返回 `exists`，保存必须回传 `expectedExists` + raw BLAKE3，存在状态或内容任一变化都 stale-write fail closed
 - **删除级联**：`rm -rf projects/{id}/` **绝不波及用户显式选的外部 working_dir**；跨 db 项目记忆单独删、启动期 reconciler 兜底
 

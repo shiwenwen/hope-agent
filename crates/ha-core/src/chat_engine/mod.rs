@@ -604,6 +604,7 @@ async fn converge_abandoned_stream(
         interrupt_reason: Some(interrupt_reason.as_str().to_string()),
         error,
         recovery_event,
+        request_plan: crate::session::RequestPlanCommit::RecoverAllForRun,
     };
     let committed = db
         .clone()
@@ -882,9 +883,17 @@ pub fn spawn_user_stop_watchdog(
                     interrupt_reason: Some("user_stop".to_string()),
                     error: None,
                     recovery_event: None,
+                    request_plan: durability.interrupted_request_plan_commit(
+                        crate::session::RequestPlanResponseOutcome::CancelledAfterResponse,
+                    ),
                 };
                 db.clone()
                     .run(move |db| db.commit_interrupted_turn(&commit))
+                    .await?;
+                durability
+                    .finalize_interrupted_request_after_turn_commit(
+                        crate::session::RequestPlanResponseOutcome::CancelledAfterResponse,
+                    )
                     .await?;
                 Ok::<(), anyhow::Error>(())
             }
@@ -1158,6 +1167,14 @@ mod abandoned_stream_tests {
         let stopped = db
             .create_chat_turn(&session.id, "desktop", None, None)
             .expect("stopped turn");
+        db.finish_chat_turn_once(
+            &stopped.id,
+            crate::session::ChatTurnStatus::Interrupted,
+            Some(crate::session::ChatTurnInterruptReason::UserStop),
+            None,
+            None,
+        )
+        .expect("finish stopped turn");
         std::thread::sleep(std::time::Duration::from_millis(2));
         let replacement = db
             .create_chat_turn(&session.id, "desktop", None, None)

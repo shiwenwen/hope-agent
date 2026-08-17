@@ -2,13 +2,15 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
+use anyhow::Context;
 use serde_json::Value;
 
 use super::heuristic;
 use super::{
-    CalibrationKey, PartCacheKind, ProviderCountCapabilityCache, ProviderFamily, RequestShape,
-    SyncTextTokenizer, TokenAccountingObservation, TokenBreakdown, TokenCalibrationStore,
-    TokenCount, TokenCountConfidence, TokenCountRequest, TokenCountSource, TokenCountUnknown,
+    CalibrationKey, CapacityProofError, PartCacheKind, PreflightCapacityProof,
+    ProviderCountCapabilityCache, ProviderFamily, RequestShape, SyncTextTokenizer,
+    TokenAccountingObservation, TokenBreakdown, TokenCalibrationStore, TokenCount,
+    TokenCountConfidence, TokenCountRequest, TokenCountSource, TokenCountUnknown,
     TokenizedPartCache, TokenizerResolver, UsageCoverage, TOKENIZER_REGISTRY_VERSION,
 };
 
@@ -192,6 +194,140 @@ impl TokenAccountingService {
         self.count_local(&TokenCountRequest::text(provider, model, text))
     }
 
+    /// Capture the local complete-request accounting state needed for a later
+    /// Tier-4 capacity proof. The proof contains no request content.
+    pub fn preflight_capacity_proof(
+        &self,
+        request: &TokenCountRequest<'_>,
+        count: &TokenCount,
+        max_input_tokens: u64,
+    ) -> Option<PreflightCapacityProof> {
+        // A local proof is only valid when every unknown is the tokenizer
+        // availability marker. Media/unsupported blocks can change Provider
+        // accounting non-linearly when history is rewritten.
+        if count
+            .unknowns
+            .iter()
+            .any(|unknown| !matches!(unknown, TokenCountUnknown::TokenizerUnavailable))
+        {
+            return None;
+        }
+        let original_raw_tokens = count.breakdown.total();
+        let original_history_raw_tokens =
+            count
+                .breakdown
+                .history
+                .saturating_add(history_protocol_overhead(
+                    request.request_shape,
+                    request.history.len(),
+                ));
+        let fixed_raw_tokens = original_raw_tokens
+            .checked_sub(count.breakdown.history)?
+            // Leave tool-schema protocol overhead in the frozen fixed lane.
+            // A compact-history recount intentionally has no tool schemas, so
+            // it contributes only the base + per-message protocol cost.
+            .checked_sub(history_protocol_overhead(
+                request.request_shape,
+                request.history.len(),
+            ))?;
+        let fixed_non_history_upper_bound =
+            scaled_upper_bound(fixed_raw_tokens, count.upper_bound, original_raw_tokens)?;
+        let original_history_upper_bound = scaled_upper_bound(
+            original_history_raw_tokens,
+            count.upper_bound,
+            original_raw_tokens,
+        )?;
+        Some(PreflightCapacityProof {
+            provider: request.provider,
+            model: request.model.to_string(),
+            request_shape: request.request_shape,
+            tokenizer_id: count.tokenizer_id,
+            tokenizer_registry_version: count.tokenizer_registry_version,
+            original_history_fingerprint: history_fingerprint(request.history).ok()?,
+            fixed_non_history_upper_bound,
+            original_history_upper_bound,
+            original_raw_tokens,
+            original_local_upper_bound: count.upper_bound,
+            max_input_tokens,
+        })
+    }
+
+    /// Verify an immutable local-preflight certificate against the exact
+    /// original history and prove the complete compacted request upper bound.
+    /// Dynamic prompt and tool-schema bodies are intentionally not rebuilt:
+    /// their frozen conservative cost is carried by `proof.fixed_raw_tokens`.
+    pub fn verify_compacted_capacity(
+        &self,
+        proof: &PreflightCapacityProof,
+        original_history: &[Value],
+        compacted_history: &[Value],
+    ) -> Result<u64, CapacityProofError> {
+        if proof.max_input_tokens == 0
+            || proof.original_local_upper_bound <= proof.max_input_tokens
+            || proof.original_raw_tokens == 0
+            || proof
+                .fixed_non_history_upper_bound
+                .saturating_add(proof.original_history_upper_bound)
+                < proof.original_local_upper_bound
+        {
+            return Err(CapacityProofError::InvalidCertificate);
+        }
+        let original_fingerprint = history_fingerprint(original_history)
+            .map_err(|_| CapacityProofError::OriginalHistoryMismatch)?;
+        if original_fingerprint != proof.original_history_fingerprint {
+            return Err(CapacityProofError::OriginalHistoryMismatch);
+        }
+
+        let compact_request = TokenCountRequest {
+            provider: proof.provider,
+            model: &proof.model,
+            request_shape: proof.request_shape,
+            stable_prompt: "",
+            dynamic_prompt: "",
+            history: compacted_history,
+            eager_tool_schemas: &[],
+            activated_tool_schemas: &[],
+        };
+        let compact_count = self.count_local(&compact_request);
+        if compact_count.tokenizer_id != proof.tokenizer_id
+            || compact_count.tokenizer_registry_version != proof.tokenizer_registry_version
+        {
+            return Err(CapacityProofError::TokenizerDrift);
+        }
+        if compact_count
+            .unknowns
+            .iter()
+            .any(|unknown| !matches!(unknown, TokenCountUnknown::TokenizerUnavailable))
+        {
+            return Err(CapacityProofError::UnsupportedUnknownContent);
+        }
+
+        // Keep every non-history lane at its frozen conservative upper cost.
+        // Only the compacted history + its per-message protocol overhead is
+        // freshly counted, then lifted by the exact conservative multiplier
+        // encoded in the original complete local count.
+        let compact_history_raw = compact_count
+            .breakdown
+            .history
+            .saturating_add(compact_count.breakdown.protocol_overhead);
+        let compact_history_upper = scaled_upper_bound(
+            compact_history_raw,
+            proof.original_local_upper_bound,
+            proof.original_raw_tokens,
+        )
+        .ok_or(CapacityProofError::InvalidCertificate)?;
+        let projected_input_upper = proof
+            .fixed_non_history_upper_bound
+            .saturating_add(compact_history_upper);
+        if projected_input_upper > proof.max_input_tokens {
+            return Err(CapacityProofError::DoesNotFit {
+                projected_input_upper,
+                max_input_tokens: proof.max_input_tokens,
+            });
+        }
+        Ok(projected_input_upper)
+    }
+
     pub fn observe(&self, request: &TokenCountRequest<'_>, predicted: &TokenCount, actual: u64) {
         if actual == 0 || predicted.estimated == 0 {
             return;
@@ -316,6 +452,19 @@ impl TokenAccountingService {
     }
 }
 
+fn scaled_upper_bound(raw: u64, complete_upper: u64, complete_raw: u64) -> Option<u64> {
+    (complete_raw > 0).then(|| {
+        let scaled =
+            (u128::from(raw) * u128::from(complete_upper)).div_ceil(u128::from(complete_raw));
+        scaled.min(u128::from(u64::MAX)) as u64
+    })
+}
+
+fn history_fingerprint(history: &[Value]) -> anyhow::Result<String> {
+    let bytes = serde_json::to_vec(history).context("serialize history for capacity proof")?;
+    Ok(blake3::hash(&bytes).to_hex().to_string())
+}
+
 pub fn service() -> &'static TokenAccountingService {
     static SERVICE: OnceLock<TokenAccountingService> = OnceLock::new();
     SERVICE.get_or_init(TokenAccountingService::default)
@@ -386,16 +535,26 @@ impl<'a> CompactionTokenCounter<'a> {
 }
 
 fn request_protocol_overhead(request: &TokenCountRequest<'_>) -> u64 {
-    let message_count = request.history.len() as u64;
     let tool_count = request
         .eager_tool_schemas
         .len()
         .saturating_add(request.activated_tool_schemas.len()) as u64;
-    match request.request_shape {
-        RequestShape::AnthropicMessages => 8 + message_count.saturating_mul(4) + tool_count * 12,
-        RequestShape::OpenAiChat => 3 + message_count.saturating_mul(4) + tool_count * 12,
+    history_protocol_overhead(request.request_shape, request.history.len()).saturating_add(
+        match request.request_shape {
+            RequestShape::AnthropicMessages | RequestShape::OpenAiChat => tool_count * 12,
+            RequestShape::OpenAiResponses | RequestShape::CodexResponses => tool_count * 10,
+            RequestShape::Text | RequestShape::Json => 0,
+        },
+    )
+}
+
+fn history_protocol_overhead(request_shape: RequestShape, message_count: usize) -> u64 {
+    let message_count = message_count as u64;
+    match request_shape {
+        RequestShape::AnthropicMessages => 8 + message_count.saturating_mul(4),
+        RequestShape::OpenAiChat => 3 + message_count.saturating_mul(4),
         RequestShape::OpenAiResponses | RequestShape::CodexResponses => {
-            5 + message_count.saturating_mul(3) + tool_count * 10
+            5 + message_count.saturating_mul(3)
         }
         RequestShape::Text => 0,
         RequestShape::Json => 1,
@@ -446,6 +605,113 @@ mod tests {
         let with_tools = counter.count_request_upper("system", &messages, 0);
         let without_tools = counter.count_request_with_tools_upper("system", &messages, &[], 0);
         assert!(with_tools > without_tools);
+    }
+
+    #[test]
+    fn tier4_capacity_proof_covers_frozen_non_history_lanes() {
+        let service = TokenAccountingService::default();
+        let original_history = vec![serde_json::json!({
+            "role": "user",
+            "content": "overflow ".repeat(60_000),
+        })];
+        let compacted_history = vec![serde_json::json!({
+            "role": "user",
+            "content": "overflow summary",
+        })];
+        let tools = vec![serde_json::json!({
+            "type": "function",
+            "name": "large_tool",
+            "description": "schema ".repeat(5_000),
+        })];
+        let request = TokenCountRequest {
+            provider: ProviderFamily::OpenAiResponses,
+            model: "gpt-5",
+            request_shape: RequestShape::OpenAiResponses,
+            stable_prompt: &"system ".repeat(5_000),
+            dynamic_prompt: "dynamic lane",
+            history: &original_history,
+            eager_tool_schemas: &tools,
+            activated_tool_schemas: &[],
+        };
+        let count = service.count_local(&request);
+        let max_input_tokens = count.upper_bound.saturating_sub(10_000);
+        assert!(count.upper_bound > max_input_tokens);
+        let proof = service
+            .preflight_capacity_proof(&request, &count, max_input_tokens)
+            .expect("plain text request should produce a proof");
+
+        let projected = service
+            .verify_compacted_capacity(&proof, &original_history, &compacted_history)
+            .expect("large history reduction should prove full request capacity");
+
+        assert!(projected <= max_input_tokens);
+        assert!(
+            projected > 1_000,
+            "fixed prompt/tool lanes must remain counted"
+        );
+    }
+
+    #[test]
+    fn tier4_capacity_proof_rejects_wrong_source_history_and_insufficient_reduction() {
+        let service = TokenAccountingService::default();
+        let original_history = vec![serde_json::json!({
+            "role": "user",
+            "content": "overflow ".repeat(20_000),
+        })];
+        let request = TokenCountRequest {
+            provider: ProviderFamily::OpenAiResponses,
+            model: "gpt-5",
+            request_shape: RequestShape::OpenAiResponses,
+            stable_prompt: "system",
+            dynamic_prompt: "",
+            history: &original_history,
+            eager_tool_schemas: &[],
+            activated_tool_schemas: &[],
+        };
+        let count = service.count_local(&request);
+        let max_input_tokens = count.upper_bound.saturating_sub(1);
+        let proof = service
+            .preflight_capacity_proof(&request, &count, max_input_tokens)
+            .expect("plain text request should produce a proof");
+
+        let wrong_history = vec![serde_json::json!({
+            "role": "user",
+            "content": "different",
+        })];
+        assert_eq!(
+            service.verify_compacted_capacity(&proof, &wrong_history, &[]),
+            Err(CapacityProofError::OriginalHistoryMismatch)
+        );
+        assert!(matches!(
+            service.verify_compacted_capacity(&proof, &original_history, &original_history),
+            Err(CapacityProofError::DoesNotFit { .. })
+        ));
+    }
+
+    #[test]
+    fn tier4_capacity_proof_refuses_media_unknowns() {
+        let service = TokenAccountingService::default();
+        let history = vec![serde_json::json!({
+            "role": "user",
+            "content": [{
+                "type": "input_image",
+                "image_url": "data:image/png;base64,AAAA",
+            }],
+        })];
+        let request = TokenCountRequest {
+            provider: ProviderFamily::OpenAiResponses,
+            model: "gpt-5",
+            request_shape: RequestShape::OpenAiResponses,
+            stable_prompt: "",
+            dynamic_prompt: "",
+            history: &history,
+            eager_tool_schemas: &[],
+            activated_tool_schemas: &[],
+        };
+        let count = service.count_local(&request);
+        assert!(service
+            .preflight_capacity_proof(&request, &count, 1)
+            .is_none());
     }
 
     #[test]

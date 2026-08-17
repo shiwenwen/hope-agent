@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "model-campaign-suite.v1",
+  "id": "context-compaction",
+  "version": "1.0.0",
+  "capability": "context_compaction",
+  "adapter": "hope_core_scenario",
+  "tiers": [
+    "nightly"
+  ],
+  "runnerClass": "dedicated_linux",
+  "networkPolicy": "provider_only",
+  "executionMode": "native_provider",
+  "repetitions": {
+    "nightly": 1,
+    "weekly": 1,
+    "release": 1,
+    "monthly": 1
+  },
+  "timeoutSeconds": 900,
+  "shards": 1,
+  "budget": {
+    "maxWallSeconds": 900,
+    "maxModelCalls": 16,
+    "maxInputTokens": 250000,
+    "maxOutputTokens": 16000,
+    "maxCostUsd": 5,
+    "maxToolCalls": 16,
+    "maxAgents": 1,
+    "maxConcurrency": 1
+  },
+  "scorer": {
+    "hardVerifier": "response_json_exact",
+    "milestones": true,
+    "trajectoryRules": true,
+    "llmJudge": false
+  },
+  "cases": [
+    {
+      "id": "HA-CTX-001",
+      "scenarioPath": "scenarios/HA-CTX-001/1.0.0/scenario.json",
+      "tags": [
+        "nightly",
+        "critical",
+        "context_compaction"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 1
+    },
+    {
+      "id": "HA-CTX-002",
+      "scenarioPath": "scenarios/HA-CTX-002/1.0.0/scenario.json",
+      "tags": [
+        "nightly",
+        "critical",
+        "context_compaction"
+      ],
+      "modelRoles": [
+        "anchor"
+      ],
+      "arms": [
+        "control"
+      ],
+      "timeoutSeconds": 900,
+      "repetitions": 1
+    }
+  ]
+}

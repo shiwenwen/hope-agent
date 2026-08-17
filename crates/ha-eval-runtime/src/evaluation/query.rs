@@ -6,8 +6,8 @@ use super::{
 };
 use anyhow::{anyhow, bail, Result};
 use ha_eval_spec::app::{
-    compatibility_for, ComparisonCompatibility, CompatibilityAssessment, CompatibilityFingerprint,
-    CompatibilityMetric, NetworkEnforcement,
+    compatibility_for, AppBudgetEnforcement, ComparisonCompatibility, CompatibilityAssessment,
+    CompatibilityFingerprint, CompatibilityMetric, NetworkEnforcement,
 };
 use ha_eval_spec::digest_serializable;
 use ha_eval_spec::model::{
@@ -163,6 +163,11 @@ impl EvalQueryService {
             .into_iter()
             .find(|trial| trial.campaign_id == campaign_id && trial.id == trial_id)
             .ok_or_else(|| anyhow!("evaluation trial not found"))?;
+        let unlimited_budget = self
+            .repository
+            .experiment_request(experiment_id)
+            .ok()
+            .is_some_and(|request| request.budget_enforcement == AppBudgetEnforcement::Unlimited);
         let evidence_detail = self
             .repository
             .campaign_evidence_sha256(experiment_id, campaign_id)?
@@ -175,8 +180,12 @@ impl EvalQueryService {
                     .iter()
                     .find(|suite| suite.id == record.suite_id)
                     .and_then(|suite| suite.cases.iter().find(|case| case.id == record.case_id));
-                let budget = planned_case.map(|case| case.budget.clone());
-                let timeout_seconds = planned_case.map(|case| case.timeout_seconds);
+                let budget = (!unlimited_budget)
+                    .then(|| planned_case.map(|case| case.budget.clone()))
+                    .flatten();
+                let timeout_seconds = (!unlimited_budget)
+                    .then(|| planned_case.map(|case| case.timeout_seconds))
+                    .flatten();
                 let result = evidence
                     .trial_results
                     .into_iter()

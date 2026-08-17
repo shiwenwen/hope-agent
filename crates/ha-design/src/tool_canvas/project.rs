@@ -144,6 +144,7 @@ pub fn update_project(
 
 /// Delete a canvas project: remove files and DB records.
 pub fn delete_project(db: &CanvasDB, project_id: &str) -> Result<()> {
+    let _privacy_guard = crate::artifacts::lock_privacy_transition()?;
     crate::artifacts::ensure_legacy_canvas_mutation_allowed(project_id)?;
     // Remove files
     let project_dir = paths::canvas_project_dir(project_id)?;

@@ -166,6 +166,11 @@ pub struct CommitAssistantTurn {
     pub turn_id: Option<String>,
     pub usage: Option<ModelUsageEvent>,
     pub final_seq: u64,
+    pub tier3_recovery: super::Tier3RecoveryCommit,
+    /// Request-WAL transition that must commit with the assistant/context
+    /// materialization. A successful Provider response is not terminal until
+    /// this transaction wins.
+    pub request_plan: RequestPlanCommit,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +187,64 @@ pub struct CommitInterruptedTurn {
     pub interrupt_reason: Option<String>,
     pub error: Option<String>,
     pub recovery_event: Option<NewMessage>,
+    /// Request-WAL convergence owned by this same terminal transaction.
+    pub request_plan: RequestPlanCommit,
+}
+
+/// Known terminal interpretation of a request for which response headers were
+/// durably observed. `SendUnknown` is deliberately absent: an ambiguous send
+/// can only be preserved here and requires a separate explicit resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestPlanResponseOutcome {
+    CancelledAfterResponse,
+    ResponseIncomplete,
+}
+
+impl RequestPlanResponseOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::CancelledAfterResponse => "cancelled_after_response",
+            Self::ResponseIncomplete => "response_incomplete",
+        }
+    }
+}
+
+/// Exact state the live coordinator observed before an interrupted turn is
+/// committed. The SQLite transaction re-checks this expectation so a stale
+/// runtime snapshot cannot silently terminalize or replay a different request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptedRequestPlanState {
+    Unsent,
+    Dispatching,
+    ResponseStarted,
+    SendUnknown,
+}
+
+/// Typed request-plan work folded into a turn terminal transaction.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum RequestPlanCommit {
+    /// Valid only when the run owns no nonterminal main request plan. Used by
+    /// local/synthetic replies and compatibility runs which never dispatched.
+    #[default]
+    None,
+    /// Successful assistant materialization. The named main plan must be the
+    /// response-started plan for the selected attempt.
+    CompleteResponseStarted {
+        request_plan_id: String,
+        attempt_no: u32,
+    },
+    /// Stop/failure convergence for the one live main request. The expected
+    /// state is checked and mapped forward only; no transition can enable an
+    /// automatic retry.
+    ConvergeInterrupted {
+        request_plan_id: String,
+        attempt_no: u32,
+        expected_state: InterruptedRequestPlanState,
+        response_outcome: RequestPlanResponseOutcome,
+    },
+    /// Startup recovery scans the entire run, including attempts other than
+    /// the journal prefix chosen for visible recovery.
+    RecoverAllForRun,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +268,367 @@ fn mark_typed_resource_snapshots_pending(
         params![run_id, session_id],
     )
     .map_err(Into::into)
+}
+
+fn request_plan_row(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    run_id: &str,
+    request_plan_id: &str,
+    attempt_no: u32,
+) -> Result<(String, Option<String>)> {
+    tx.query_row(
+        "SELECT state, terminal_outcome
+           FROM request_projection_plans
+          WHERE session_id = ?1 AND run_id = ?2 AND request_plan_id = ?3
+            AND attempt_no = ?4 AND request_role = 'main_continuation'",
+        params![session_id, run_id, request_plan_id, i64::from(attempt_no)],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()?
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "request plan {request_plan_id} does not belong to run {run_id} attempt {attempt_no}"
+        )
+    })
+}
+
+fn revoke_terminal_request_epoch_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    request_plan_id: &str,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE context_projection_epochs
+            SET state = 'revoked'
+          WHERE session_id = ?1 AND scope = 'request_local'
+            AND owner_request_plan_id = ?2 AND state = 'active'",
+        params![session_id, request_plan_id],
+    )?;
+    Ok(())
+}
+
+fn claim_request_payload_scrub_tx(
+    tx: &Transaction<'_>,
+    request_plan_id: &str,
+    reason: &str,
+    now: &str,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE request_payload_objects
+            SET object_state = 'scrub_pending', retention_state = 'release_pending',
+                scrub_reason = ?2, updated_at = ?3
+          WHERE owner_id = ?1 AND object_state = 'live'",
+        params![request_plan_id, reason, now],
+    )?;
+    Ok(())
+}
+
+fn hold_request_payload_send_unknown_tx(
+    tx: &Transaction<'_>,
+    request_plan_id: &str,
+    now: &str,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE request_payload_owners
+            SET owner_state = 'send_unknown', updated_at = ?2
+          WHERE owner_id = ?1 AND owner_state IN ('active', 'send_unknown')",
+        params![request_plan_id, now],
+    )?;
+    Ok(())
+}
+
+fn require_no_other_nonterminal_main_plan(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    run_id: &str,
+    except_request_plan_id: Option<&str>,
+) -> Result<()> {
+    let count = tx.query_row(
+        "SELECT COUNT(*)
+           FROM request_projection_plans
+          WHERE session_id = ?1 AND run_id = ?2
+            AND request_role = 'main_continuation'
+            AND state NOT IN ('terminal', 'superseded')
+            AND (?3 IS NULL OR request_plan_id != ?3)",
+        params![session_id, run_id, except_request_plan_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if count != 0 {
+        anyhow::bail!("run {run_id} has {count} additional nonterminal main request plan(s)");
+    }
+    Ok(())
+}
+
+/// Fold request-WAL convergence into the surrounding turn transaction. Every
+/// transition is forward-only and the trigger-backed state machine remains the
+/// final guard. This helper is intentionally transaction-scoped: using the
+/// public standalone request-plan APIs here would recreate the crash window
+/// between Provider terminal state and assistant/context materialization.
+fn apply_request_plan_commit_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    run_id: Option<&str>,
+    selected_attempt_no: u32,
+    request_plan: &RequestPlanCommit,
+    now: &str,
+) -> Result<()> {
+    let Some(run_id) = run_id else {
+        if !matches!(request_plan, RequestPlanCommit::None) {
+            anyhow::bail!("nonpersistent turn cannot commit a persistent request plan");
+        }
+        return Ok(());
+    };
+
+    match request_plan {
+        RequestPlanCommit::None => {
+            require_no_other_nonterminal_main_plan(tx, session_id, run_id, None)?;
+        }
+        RequestPlanCommit::CompleteResponseStarted {
+            request_plan_id,
+            attempt_no,
+        } => {
+            if *attempt_no != selected_attempt_no {
+                anyhow::bail!(
+                    "successful request plan attempt {} does not match selected attempt {}",
+                    attempt_no,
+                    selected_attempt_no
+                );
+            }
+            let (state, terminal_outcome) =
+                request_plan_row(tx, session_id, run_id, request_plan_id, *attempt_no)?;
+            match state.as_str() {
+                "response_started" => {
+                    let changed = tx.execute(
+                        "UPDATE request_projection_plans
+                            SET state = 'terminal', terminal_outcome = 'success', updated_at = ?1
+                          WHERE session_id = ?2 AND run_id = ?3 AND request_plan_id = ?4
+                            AND attempt_no = ?5 AND request_role = 'main_continuation'
+                            AND state = 'response_started'",
+                        params![
+                            now,
+                            session_id,
+                            run_id,
+                            request_plan_id,
+                            i64::from(*attempt_no)
+                        ],
+                    )?;
+                    if changed != 1 {
+                        anyhow::bail!("successful request plan transition lost its state CAS");
+                    }
+                    revoke_terminal_request_epoch_tx(tx, session_id, request_plan_id)?;
+                    claim_request_payload_scrub_tx(tx, request_plan_id, "request_terminal", now)?;
+                }
+                "terminal" if terminal_outcome.as_deref() == Some("success") => {}
+                _ => anyhow::bail!(
+                    "successful request plan requires response_started proof; found {state}"
+                ),
+            }
+            require_no_other_nonterminal_main_plan(tx, session_id, run_id, Some(request_plan_id))?;
+        }
+        RequestPlanCommit::ConvergeInterrupted {
+            request_plan_id,
+            attempt_no,
+            expected_state,
+            response_outcome,
+        } => {
+            // The selected journal prefix may intentionally come from an
+            // earlier attempt when the current attempt crossed dispatch but
+            // emitted no durable event. Validate the request's own attempt
+            // identity, but do not equate it with the visible-prefix attempt.
+            let (state, terminal_outcome) =
+                request_plan_row(tx, session_id, run_id, request_plan_id, *attempt_no)?;
+            match expected_state {
+                InterruptedRequestPlanState::Unsent => match state.as_str() {
+                    "prepared" | "context_committed" => {
+                        let changed = tx.execute(
+                            "UPDATE request_projection_plans
+                                SET state = 'superseded',
+                                    terminal_outcome = 'interrupted_before_dispatch', updated_at = ?1
+                              WHERE session_id = ?2 AND run_id = ?3 AND request_plan_id = ?4
+                                AND attempt_no = ?5 AND request_role = 'main_continuation'
+                                AND state IN ('prepared', 'context_committed')",
+                            params![
+                                now,
+                                session_id,
+                                run_id,
+                                request_plan_id,
+                                i64::from(*attempt_no)
+                            ],
+                        )?;
+                        if changed != 1 {
+                            anyhow::bail!("unsent request plan transition lost its state CAS");
+                        }
+                        revoke_terminal_request_epoch_tx(tx, session_id, request_plan_id)?;
+                        claim_request_payload_scrub_tx(
+                            tx,
+                            request_plan_id,
+                            "request_superseded",
+                            now,
+                        )?;
+                    }
+                    "superseded"
+                        if terminal_outcome.as_deref() == Some("interrupted_before_dispatch") => {}
+                    _ => anyhow::bail!(
+                        "interrupted request plan expected an unsent state; found {state}"
+                    ),
+                },
+                InterruptedRequestPlanState::Dispatching => match state.as_str() {
+                    "dispatching" => {
+                        let changed = tx.execute(
+                            "UPDATE request_projection_plans
+                                SET state = 'send_unknown',
+                                    terminal_outcome = 'dispatch_result_unknown', updated_at = ?1
+                              WHERE session_id = ?2 AND run_id = ?3 AND request_plan_id = ?4
+                                AND attempt_no = ?5 AND request_role = 'main_continuation'
+                                AND state = 'dispatching'",
+                            params![
+                                now,
+                                session_id,
+                                run_id,
+                                request_plan_id,
+                                i64::from(*attempt_no)
+                            ],
+                        )?;
+                        if changed != 1 {
+                            anyhow::bail!("dispatch-unknown transition lost its state CAS");
+                        }
+                        hold_request_payload_send_unknown_tx(tx, request_plan_id, now)?;
+                    }
+                    "send_unknown"
+                        if terminal_outcome.as_deref() == Some("dispatch_result_unknown") => {}
+                    _ => anyhow::bail!(
+                        "interrupted request plan expected dispatching; found {state}"
+                    ),
+                },
+                InterruptedRequestPlanState::ResponseStarted => {
+                    let outcome = response_outcome.as_str();
+                    match state.as_str() {
+                        "response_started" => {
+                            let changed = tx.execute(
+                                "UPDATE request_projection_plans
+                                    SET state = 'terminal', terminal_outcome = ?1, updated_at = ?2
+                                  WHERE session_id = ?3 AND run_id = ?4 AND request_plan_id = ?5
+                                    AND attempt_no = ?6 AND request_role = 'main_continuation'
+                                    AND state = 'response_started'",
+                                params![
+                                    outcome,
+                                    now,
+                                    session_id,
+                                    run_id,
+                                    request_plan_id,
+                                    i64::from(*attempt_no)
+                                ],
+                            )?;
+                            if changed != 1 {
+                                anyhow::bail!(
+                                    "interrupted response terminal transition lost its state CAS"
+                                );
+                            }
+                            revoke_terminal_request_epoch_tx(tx, session_id, request_plan_id)?;
+                            claim_request_payload_scrub_tx(
+                                tx,
+                                request_plan_id,
+                                "request_terminal",
+                                now,
+                            )?;
+                        }
+                        "terminal" if terminal_outcome.as_deref() == Some(outcome) => {}
+                        _ => anyhow::bail!(
+                            "interrupted request plan expected response_started; found {state}"
+                        ),
+                    }
+                }
+                InterruptedRequestPlanState::SendUnknown => {
+                    if state != "send_unknown" || terminal_outcome.is_none() {
+                        anyhow::bail!("ambiguous request must remain send_unknown; found {state}");
+                    }
+                }
+            }
+            require_no_other_nonterminal_main_plan(tx, session_id, run_id, Some(request_plan_id))?;
+        }
+        RequestPlanCommit::RecoverAllForRun => {
+            // Each statement follows an allowed edge in the trigger-backed
+            // state machine. SendUnknown is retained as an explicit manual
+            // resolution boundary and can never be replayed automatically.
+            tx.execute(
+                "UPDATE request_projection_plans
+                    SET state = 'superseded',
+                        terminal_outcome = 'crash_recovered_unsent', updated_at = ?1
+                  WHERE session_id = ?2 AND run_id = ?3
+                    AND state IN ('prepared', 'context_committed')",
+                params![now, session_id, run_id],
+            )?;
+            tx.execute(
+                "UPDATE request_projection_plans
+                    SET state = 'send_unknown',
+                        terminal_outcome = 'crash_recovery_dispatch_unknown', updated_at = ?1
+                  WHERE session_id = ?2 AND run_id = ?3 AND state = 'dispatching'",
+                params![now, session_id, run_id],
+            )?;
+            tx.execute(
+                "UPDATE request_projection_plans
+                    SET state = 'terminal',
+                        terminal_outcome = 'response_incomplete_crash_recovered', updated_at = ?1
+                  WHERE session_id = ?2 AND run_id = ?3 AND state = 'response_started'",
+                params![now, session_id, run_id],
+            )?;
+            tx.execute(
+                "UPDATE request_payload_objects
+                    SET object_state = 'scrub_pending', retention_state = 'release_pending',
+                        scrub_reason = CASE
+                            WHEN EXISTS (
+                                SELECT 1 FROM request_projection_plans plan
+                                 WHERE plan.request_plan_id = request_payload_objects.owner_id
+                                   AND plan.state = 'superseded'
+                            ) THEN 'request_superseded'
+                            ELSE 'request_terminal'
+                        END,
+                        updated_at = ?1
+                  WHERE object_state = 'live'
+                    AND owner_id IN (
+                        SELECT request_plan_id FROM request_projection_plans
+                         WHERE session_id = ?2 AND run_id = ?3
+                           AND state IN ('terminal', 'superseded')
+                    )",
+                params![now, session_id, run_id],
+            )?;
+            tx.execute(
+                "UPDATE request_payload_owners
+                    SET owner_state = 'send_unknown', updated_at = ?1
+                  WHERE owner_id IN (
+                      SELECT request_plan_id FROM request_projection_plans
+                       WHERE session_id = ?2 AND run_id = ?3 AND state = 'send_unknown'
+                  )
+                    AND owner_state IN ('active', 'send_unknown')",
+                params![now, session_id, run_id],
+            )?;
+            tx.execute(
+                "UPDATE context_projection_epochs
+                    SET state = 'revoked'
+                  WHERE session_id = ?1 AND scope = 'request_local' AND state = 'active'
+                    AND owner_request_plan_id IN (
+                        SELECT request_plan_id FROM request_projection_plans
+                         WHERE session_id = ?1 AND run_id = ?2
+                           AND state IN ('terminal', 'superseded')
+                    )",
+                params![session_id, run_id],
+            )?;
+            let unsafe_count = tx.query_row(
+                "SELECT COUNT(*) FROM request_projection_plans
+                  WHERE session_id = ?1 AND run_id = ?2
+                    AND state IN ('prepared', 'context_committed', 'dispatching', 'response_started')",
+                params![session_id, run_id],
+                |row| row.get::<_, i64>(0),
+            )?;
+            if unsafe_count != 0 {
+                anyhow::bail!(
+                    "startup recovery left {unsafe_count} request plan(s) unconverged for run {run_id}"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 impl SessionDB {
@@ -424,6 +848,27 @@ impl SessionDB {
                 input.session_id
             );
         };
+        // `chat_turns` covers Desktop/HTTP/SessionTool while sources such as
+        // ACP own only this durable stream row. Check both tables under the
+        // same IMMEDIATE transaction so either admission order is serialized
+        // across processes. A regular run may see its own pre-created turn.
+        super::turns::ensure_no_competing_durable_chat_work(
+            &tx,
+            &input.session_id,
+            input.turn_id.as_deref(),
+        )?;
+        if input.source == crate::chat_engine::ChatSource::SessionTool.as_str()
+            && tx.query_row(
+                super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
+                params![input.session_id],
+                |row| row.get::<_, i64>(0),
+            )? != 0
+        {
+            anyhow::bail!(
+                "Target session '{}' is paused; use Continue before starting its delegated stream",
+                input.session_id
+            );
+        }
         let (admitted_stop_epoch, admitted_global_stop_epoch, admitted_global_stop_receipt_count) =
             if let Some(admission) = stop_admission {
                 if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
@@ -562,7 +1007,11 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        // The request send-state fence and the attempt/context rollback must
+        // share one writer transaction. A read-then-write sequence here would
+        // allow a dispatch claim to land between the two operations and make
+        // a possibly-sent request eligible for blind failover.
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = chrono::Utc::now().to_rfc3339();
         let session_id: String = tx.query_row(
             "SELECT session_id FROM chat_stream_runs
@@ -570,6 +1019,17 @@ impl SessionDB {
             params![run_id],
             |row| row.get(0),
         )?;
+        if !super::context_projection::supersede_unsent_run_attempt_in_tx(
+            &tx,
+            &session_id,
+            run_id,
+            attempt_no,
+            "provider_attempt_superseded",
+        )? {
+            anyhow::bail!(
+                "cannot supersede stream attempt {attempt_no}: a Provider request may have been sent"
+            );
+        }
         let changed = tx.execute(
             "UPDATE chat_stream_attempts
              SET status = 'superseded', ended_at = ?1, error = ?2
@@ -624,6 +1084,7 @@ impl SessionDB {
         expected_revision: i64,
         context_json: &str,
         through_seq: u64,
+        tier3_recovery: super::Tier3RecoveryCommit,
     ) -> Result<i64> {
         let mut conn = self
             .conn
@@ -698,6 +1159,7 @@ impl SessionDB {
         if changed_run != 1 {
             anyhow::bail!("run checkpoint update affected {changed_run} rows");
         }
+        Self::apply_tier3_recovery_commit(&tx, &session_id, tier3_recovery)?;
         tx.commit()?;
         Ok(expected_revision.saturating_add(1))
     }
@@ -722,6 +1184,18 @@ impl SessionDB {
                 anyhow::bail!("persistence run belongs to another session");
             }
             if status == "committed" {
+                // Idempotent replay must still verify that the request WAL
+                // converged with the original successful transaction. This
+                // also repairs the only safe legacy edge (response_started ->
+                // terminal) without touching assistant/context state.
+                apply_request_plan_commit_tx(
+                    &tx,
+                    &input.session_id,
+                    input.run_id.as_deref(),
+                    input.attempt_no,
+                    &input.request_plan,
+                    &now,
+                )?;
                 let assistant_message_id = tx.query_row(
                     "SELECT id FROM messages
                      WHERE persistence_run_id = ?1 AND role = 'assistant'
@@ -823,6 +1297,21 @@ impl SessionDB {
         if let Some(usage) = input.usage.as_ref().filter(|_| persistent) {
             insert_usage_tx(&tx, usage, assistant_id, &input.session_id, &now)?;
         }
+
+        // The recovery state changes with the same provider-native context
+        // that proves it. A Tier 3 summary therefore cannot clear the marker
+        // before its history is durable, and a Tier 4 recovery cannot leave a
+        // completed turn without scheduling its semantic follow-up.
+        Self::apply_tier3_recovery_commit(&tx, &input.session_id, input.tier3_recovery)?;
+
+        apply_request_plan_commit_tx(
+            &tx,
+            &input.session_id,
+            input.run_id.as_deref(),
+            input.attempt_no,
+            &input.request_plan,
+            &now,
+        )?;
 
         if let Some(run_id) = input.run_id.as_deref() {
             let changed_attempt = tx.execute(
@@ -934,6 +1423,18 @@ impl SessionDB {
             )?;
             if run_status != "running" {
                 if matches!(run_status.as_str(), "interrupted" | "failed" | "recovered") {
+                    // A prior turn transaction may have committed while its
+                    // caller crashed before observing the result. Never let
+                    // this idempotent fast path skip request-WAL validation or
+                    // startup-wide convergence.
+                    apply_request_plan_commit_tx(
+                        &tx,
+                        &input.session_id,
+                        input.run_id.as_deref(),
+                        input.attempt_no,
+                        &input.request_plan,
+                        &now,
+                    )?;
                     let assistant_message_id = tx
                         .query_row(
                             "SELECT id FROM messages
@@ -1058,6 +1559,14 @@ impl SessionDB {
                 anyhow::bail!("interrupted chat turn update affected {changed} rows");
             }
         }
+        apply_request_plan_commit_tx(
+            &tx,
+            &input.session_id,
+            input.run_id.as_deref(),
+            input.attempt_no,
+            &input.request_plan,
+            &now,
+        )?;
         if let Some(run_id) = input.run_id.as_deref() {
             let recovered = matches!(
                 input.interrupt_reason.as_deref(),
@@ -1657,17 +2166,119 @@ impl SessionDB {
     }
 
     pub fn gc_stream_journals(&self, older_than: &str) -> Result<usize> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
-        conn.execute(
-            "DELETE FROM chat_stream_runs
-             WHERE status IN ('committed','recovered','interrupted','failed')
-               AND ended_at IS NOT NULL AND ended_at < ?1",
-            params![older_than],
-        )
-        .map_err(Into::into)
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let run_ids = {
+            let mut stmt = tx.prepare(
+                "SELECT run.run_id FROM chat_stream_runs run
+                  WHERE run.status IN ('committed','recovered','interrupted','failed')
+                    AND run.ended_at IS NOT NULL AND run.ended_at < ?1
+                    -- Possibly-sent/ambiguous plans retain the run identity,
+                    -- journal and user-visible recovery evidence until an
+                    -- owner explicitly resolves them.
+                    AND NOT EXISTS (
+                        SELECT 1 FROM request_projection_plans plan
+                         WHERE plan.run_id = run.run_id
+                           AND plan.state NOT IN ('terminal', 'superseded')
+                    )
+                    -- A stored exact body must finish physical scrub before
+                    -- its plan/run locator can be removed. Unavailable plans
+                    -- have no payload owner and need no extra hold.
+                    AND NOT EXISTS (
+                        SELECT 1 FROM request_projection_plans plan
+                         WHERE plan.run_id = run.run_id
+                           AND plan.payload_availability = 'stored'
+                           AND NOT EXISTS (
+                               SELECT 1
+                                 FROM request_payload_objects object
+                                 JOIN request_payload_owners owner
+                                   ON owner.owner_id = object.owner_id
+                                WHERE object.owner_id = plan.request_plan_id
+                                  AND object.object_state IN ('scrubbed', 'lost')
+                                  AND owner.owner_state = 'released'
+                           )
+                    )
+                  ORDER BY run.ended_at, run.run_id",
+            )?;
+            let rows = stmt.query_map(params![older_than], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut deleted_runs = 0usize;
+        for run_id in run_ids {
+            let plans = {
+                let mut stmt = tx.prepare(
+                    "SELECT request_plan_id, projection_epoch_id
+                       FROM request_projection_plans
+                      WHERE run_id = ?1 AND state IN ('terminal', 'superseded')",
+                )?;
+                let rows = stmt.query_map(params![run_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for (request_plan_id, _) in &plans {
+                tx.execute(
+                    "DELETE FROM request_payload_objects
+                      WHERE owner_id = ?1 AND object_state IN ('scrubbed', 'lost')",
+                    params![request_plan_id],
+                )?;
+                tx.execute(
+                    "DELETE FROM request_payload_reservations
+                      WHERE owner_id = ?1 AND quota_state = 'released'",
+                    params![request_plan_id],
+                )?;
+                tx.execute(
+                    "DELETE FROM request_payload_owners
+                      WHERE owner_id = ?1 AND owner_state = 'released'
+                        AND NOT EXISTS (
+                            SELECT 1 FROM request_payload_objects object
+                             WHERE object.owner_id = ?1
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM request_payload_reservations reservation
+                             WHERE reservation.owner_id = ?1
+                        )",
+                    params![request_plan_id],
+                )?;
+            }
+            tx.execute(
+                "DELETE FROM request_projection_plans
+                  WHERE run_id = ?1 AND state IN ('terminal', 'superseded')",
+                params![run_id],
+            )?;
+            for (_, epoch_id) in plans {
+                let Some(epoch_id) = epoch_id else {
+                    continue;
+                };
+                tx.execute(
+                    "DELETE FROM context_projection_epochs
+                      WHERE epoch_id = ?1 AND scope = 'request_local'
+                        AND NOT EXISTS (
+                            SELECT 1 FROM request_projection_plans plan
+                             WHERE plan.projection_epoch_id = ?1
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM session_projection_heads head
+                             WHERE head.epoch_id = ?1
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM context_projection_epochs child
+                             WHERE child.parent_epoch_id = ?1
+                        )",
+                    params![epoch_id],
+                )?;
+            }
+            deleted_runs += tx.execute(
+                "DELETE FROM chat_stream_runs WHERE run_id = ?1",
+                params![run_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(deleted_runs)
     }
 
     pub fn assistant_message_id_for_run(&self, run_id: &str) -> Result<Option<i64>> {
@@ -2539,6 +3150,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn session_tool_stream_cannot_start_behind_an_active_stop_fence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = SessionDB::open(&dir.path().join("paused-session-tool.db")).expect("open db");
+        let session = db.create_session("ha-main").expect("session");
+        db.prepare_session_autonomy_pause(&session.id)
+            .expect("pause session");
+
+        let error = db
+            .create_stream_run(&CreateStreamRun {
+                run_id: "paused-session-tool-run".to_string(),
+                session_id: session.id,
+                source: crate::chat_engine::ChatSource::SessionTool
+                    .as_str()
+                    .to_string(),
+                stream_id: None,
+                turn_id: None,
+                provider_shape: None,
+            })
+            .expect_err("paused delegated stream must fail closed");
+
+        assert!(error.to_string().contains("use Continue"));
+    }
+
     fn success_commit(fixture: &RunFixture, placeholder_id: Option<i64>) -> CommitAssistantTurn {
         let mut usage = ModelUsageEvent::new(crate::model_usage::KIND_CHAT).with_usage(11, 7, 0, 0);
         usage.session_id = Some(fixture.session_id.clone());
@@ -2554,6 +3189,8 @@ mod tests {
             turn_id: Some(fixture.turn_id.clone()),
             usage: Some(usage),
             final_seq: fixture.final_seq,
+            tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+            request_plan: RequestPlanCommit::None,
         }
     }
 
@@ -3142,6 +3779,16 @@ mod tests {
     #[test]
     fn turn_scoped_snapshot_never_selects_a_newer_session_run() {
         let fixture = fixture("turn-scoped-run");
+        fixture
+            .db
+            .interrupt_stream_run(
+                &fixture.run_id,
+                1,
+                ChatTurnStatus::Interrupted,
+                Some(ChatTurnInterruptReason::RuntimeCancel.as_str()),
+                None,
+            )
+            .expect("finish older run");
         let newer_turn = fixture
             .db
             .create_chat_turn(&fixture.session_id, "desktop", Some("stream-new"), None)
@@ -3298,6 +3945,7 @@ mod tests {
                 fixture.context_revision,
                 r#"[{"role":"assistant","content":"attempt one"}]"#,
                 5,
+                crate::session::Tier3RecoveryCommit::Unchanged,
             )
             .expect("attempt one checkpoint");
         assert_eq!(
@@ -3446,6 +4094,7 @@ mod tests {
                 interrupt_reason: Some("provider_failed".to_string()),
                 error: Some("attempt two failed before output".to_string()),
                 recovery_event: None,
+                request_plan: RequestPlanCommit::None,
             })
             .expect("converge from prior visible attempt");
         let terminal = fixture
@@ -3484,6 +4133,7 @@ mod tests {
             interrupt_reason: Some("user_stop".to_string()),
             error: None,
             recovery_event: None,
+            request_plan: RequestPlanCommit::None,
         };
         fixture
             .db
@@ -3655,6 +4305,8 @@ mod tests {
                 turn_id: None,
                 usage: None,
                 final_seq: seq,
+                tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+                request_plan: RequestPlanCommit::None,
             };
             for _ in 0..10 {
                 db.commit_assistant_turn(&commit)
@@ -3724,6 +4376,7 @@ mod tests {
                 registration.context_revision + (seq as i64 - 1),
                 "[]",
                 seq,
+                crate::session::Tier3RecoveryCommit::Unchanged,
             )
             .expect("checkpoint");
         }
@@ -3783,7 +4436,14 @@ mod tests {
         })
         .expect("first journal block");
         let revision_a = db
-            .checkpoint_stream_context(&run_id, 1, registration.context_revision, context_a, 1)
+            .checkpoint_stream_context(
+                &run_id,
+                1,
+                registration.context_revision,
+                context_a,
+                1,
+                crate::session::Tier3RecoveryCommit::Unchanged,
+            )
             .expect("first checkpoint");
         db.append_stream_journal_batch(&JournalBatch {
             run_id: run_id.clone(),
@@ -3798,7 +4458,14 @@ mod tests {
         })
         .expect("second journal block");
         let revision_ab = db
-            .checkpoint_stream_context(&run_id, 1, revision_a, context_ab, 2)
+            .checkpoint_stream_context(
+                &run_id,
+                1,
+                revision_a,
+                context_ab,
+                2,
+                crate::session::Tier3RecoveryCommit::Unchanged,
+            )
             .expect("second checkpoint");
 
         db.conn
@@ -3840,6 +4507,7 @@ mod tests {
             interrupt_reason: Some("journal_corrupt".to_string()),
             error: integrity_error,
             recovery_event: None,
+            request_plan: RequestPlanCommit::RecoverAllForRun,
         })
         .expect("recover valid prefix");
 
@@ -3915,6 +4583,8 @@ mod tests {
             turn_id: None,
             usage: Some(usage),
             final_seq: 0,
+            tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+            request_plan: RequestPlanCommit::None,
         })
         .expect("incognito in-session commit");
         let usage_count: i64 = db

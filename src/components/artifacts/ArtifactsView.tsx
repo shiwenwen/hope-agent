@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner"
 
 import type { ArtifactExportFormat, ArtifactRecord, ArtifactVersionSummary } from "@/lib/transport"
+import type { PendingFileQuote } from "@/types/chat"
 import { downloadBlob } from "@/lib/fileDownload"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
@@ -41,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import ArtifactViewer from "./ArtifactViewer"
+import ArtifactViewer, { type ArtifactTextSelection } from "./ArtifactViewer"
 import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { FileTarget } from "@/components/chat/files/types"
 import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
@@ -49,6 +50,8 @@ import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 interface ArtifactsViewProps {
   /** 顶层侧边栏当前是否正在展示产物空间；组件本身会跨视图常驻。 */
   isViewVisible: boolean
+  /** Stage a selected Artifact excerpt in the currently active main-chat draft. */
+  onAddQuoteToChat?: (quote: PendingFileQuote) => void
 }
 
 const PAGE_SIZE = 30
@@ -244,7 +247,7 @@ function ArtifactListRow({
   )
 }
 
-export default function ArtifactsView({ isViewVisible }: ArtifactsViewProps) {
+export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: ArtifactsViewProps) {
   const { t } = useTranslation()
   const enumLabel = (value: string | null | undefined): string => {
     const normalized = value?.trim().toLowerCase() || "unknown"
@@ -316,6 +319,21 @@ export default function ArtifactsView({ isViewVisible }: ArtifactsViewProps) {
     selectedIdRef.current = artifactId
     setSelectedId(artifactId)
   }, [])
+
+  const quoteArtifactSelection = useCallback(
+    (selection: ArtifactTextSelection) => {
+      if (!selected || !onAddQuoteToChat) return
+      onAddQuoteToChat({
+        path: `artifact:${selected.id}@v${selected.currentVersion}`,
+        name: selected.title,
+        startLine: 0,
+        endLine: 0,
+        content: selection.text,
+        revealable: false,
+      })
+    },
+    [onAddQuoteToChat, selected],
+  )
 
   const clearSelectedArtifact = useCallback(() => {
     selectedIdRef.current = null
@@ -935,6 +953,7 @@ export default function ArtifactsView({ isViewVisible }: ArtifactsViewProps) {
                   projectPath={selected.projectPath}
                   title={selected.title}
                   refreshKey={refreshKey}
+                  onQuoteSelection={onAddQuoteToChat ? quoteArtifactSelection : undefined}
                 />
               </div>
               <div

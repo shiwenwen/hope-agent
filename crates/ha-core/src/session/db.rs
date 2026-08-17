@@ -1172,6 +1172,22 @@ impl SessionDB {
         let direct_turn_locks_dir = db_path.with_extension("turn-locks");
         std::fs::create_dir_all(&direct_turn_locks_dir)?;
         Self::ensure_turn_message_queue_table(&conn)?;
+        // Result/payload/projection rows and guards are all scoped by
+        // `sessions.incognito`.
+        // Legacy databases do not have that column, so install it at this
+        // dependency boundary before any of those schemas read `sessions`.
+        let has_incognito = conn
+            .prepare("SELECT incognito FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_incognito {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        Self::ensure_result_store_tables(&conn)?;
+        Self::ensure_request_payload_store_tables(&conn)?;
+        Self::ensure_context_projection_tables(&conn)?;
+        Self::ensure_context_compaction_recovery_table(&conn)?;
         Self::recover_turn_message_queue(&conn, &direct_turn_locks_dir)?;
         crate::goal::ensure_tables(&conn)?;
         crate::worktree::ensure_tables(&conn)?;
@@ -1349,17 +1365,6 @@ impl SessionDB {
             .is_ok();
         if !has_awareness_cfg {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;")?;
-        }
-
-        // Migration: per-session incognito mode for disabling passive memory /
-        // awareness features and automatic memory extraction.
-        let has_incognito = conn
-            .prepare("SELECT incognito FROM sessions LIMIT 1")
-            .is_ok();
-        if !has_incognito {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
-            )?;
         }
 
         // Migration: per-session working directory for directing the model's
@@ -2315,7 +2320,40 @@ impl SessionDB {
     ) -> Result<SessionMeta> {
         crate::memory_extract::flush_all_idle_extractions();
         let incognito = incognito.unwrap_or(false) && project_id.is_none();
-        self.create_session_full_with_origin(agent_id, None, project_id, incognito, Some(origin))
+        self.create_session_full_checked(
+            agent_id,
+            None,
+            project_id,
+            incognito,
+            Some(origin),
+            None,
+            None,
+        )?
+        .ok_or_else(|| anyhow::anyhow!("session creation unexpectedly rejected without a source"))
+    }
+
+    /// Create a durable regular session only while the source session is
+    /// still non-incognito. The source check and target INSERT share one
+    /// `IMMEDIATE` transaction, so an incognito transition and cross-session
+    /// creation have a single durable ordering point across processes.
+    /// `None` means the source became incognito and no target row was written.
+    pub(crate) fn create_session_with_project_if_source_not_incognito(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        source_session_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<Option<SessionMeta>> {
+        crate::memory_extract::flush_all_idle_extractions();
+        self.create_session_full_checked(
+            agent_id,
+            None,
+            project_id,
+            false,
+            None,
+            source_session_id,
+            title,
+        )
     }
 
     /// Fully-parameterized session creator. Private helper called by the other
@@ -2328,23 +2366,28 @@ impl SessionDB {
         project_id: Option<&str>,
         incognito: bool,
     ) -> Result<SessionMeta> {
-        self.create_session_full_with_origin(
+        self.create_session_full_checked(
             agent_id,
             parent_session_id,
             project_id,
             incognito,
             None,
-        )
+            None,
+            None,
+        )?
+        .ok_or_else(|| anyhow::anyhow!("session creation unexpectedly rejected without a source"))
     }
 
-    fn create_session_full_with_origin(
+    fn create_session_full_checked(
         &self,
         agent_id: &str,
         parent_session_id: Option<&str>,
         project_id: Option<&str>,
         incognito: bool,
         origin: Option<&crate::session::SessionOrigin>,
-    ) -> Result<SessionMeta> {
+        source_session_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<Option<SessionMeta>> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         let origin_json = origin.map(serde_json::to_string).transpose()?;
@@ -2387,15 +2430,32 @@ impl SessionDB {
             .clone()
             .unwrap_or_else(|| app_config.reasoning_effort.clone());
 
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "INSERT INTO sessions (id, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito, origin_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(source_session_id) = source_session_id {
+            let source_incognito = tx
+                .query_row(
+                    "SELECT incognito FROM sessions WHERE id = ?1",
+                    params![source_session_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Source session '{}' no longer exists", source_session_id)
+                })?;
+            if source_incognito {
+                return Ok(None);
+            }
+        }
+        tx.execute(
+            "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito, origin_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 id,
+                title,
                 agent_id,
                 initial_model.as_ref().map(|model| model.provider_id.as_str()),
                 initial_provider_name.as_deref(),
@@ -2412,10 +2472,11 @@ impl SessionDB {
                 origin_json,
             ],
         )?;
+        tx.commit()?;
 
-        Ok(SessionMeta {
+        Ok(Some(SessionMeta {
             id,
-            title: None,
+            title: title.map(str::to_string),
             title_source: crate::session_title::TITLE_SOURCE_MANUAL.to_string(),
             agent_id: agent_id.to_string(),
             provider_id: initial_model
@@ -2453,7 +2514,7 @@ impl SessionDB {
             working_dir: None,
             kind: SessionKind::Regular,
             autonomy_paused: false,
-        })
+        }))
     }
 
     /// Fork a regular user-facing session into a new first-class session.
@@ -2556,6 +2617,8 @@ impl SessionDB {
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+            // Serialize the active-turn check with every other foreground
+            // admission across database handles/processes.
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             if let Some(admission) = stop_admission {
                 if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
@@ -8710,7 +8773,14 @@ mod tests {
         ])
         .to_string();
         let checkpoint_revision = db
-            .checkpoint_stream_context(run_id, 1, registration.context_revision, &checkpoint, 0)
+            .checkpoint_stream_context(
+                run_id,
+                1,
+                registration.context_revision,
+                &checkpoint,
+                0,
+                crate::session::Tier3RecoveryCommit::Unchanged,
+            )
             .expect("checkpoint user boundary");
         let final_context = serde_json::json!([
             {"role": "user", "content": "earlier prompt\n\nexpanded provider prompt"},
@@ -8729,6 +8799,8 @@ mod tests {
             turn_id: Some(turn_id.to_string()),
             usage: None,
             final_seq: 0,
+            tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+            request_plan: crate::session::RequestPlanCommit::None,
         })
         .expect("commit assistant turn");
         db.append_message(&session.id, &NewMessage::event("discarded trailing event"))
