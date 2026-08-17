@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { INCOGNITO_TOGGLE_ON_CLASSES } from "./incognitoStyles"
+import { TITLE_BAR_ICON_BUTTON } from "../titleBarStyles"
 
 export type IncognitoDisabledReason = "project" | "channel"
 
@@ -49,7 +50,7 @@ export default function IncognitoToggle({
         onClick={() => onChange(!enabled)}
         className={cn(
           titlebar
-            ? "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            ? cn(TITLE_BAR_ICON_BUTTON, "disabled:cursor-not-allowed disabled:opacity-50")
             : "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
           saving && "disabled:cursor-wait disabled:opacity-70",
           enabled && !disabled

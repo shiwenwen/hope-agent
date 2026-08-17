@@ -83,14 +83,13 @@ function sessionMeta(patch: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-function renderTitleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}) {
-  const sessions = props.sessions ?? [sessionMeta()]
-  return render(
+function titleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}) {
+  return (
     <ChatTitleBar
       agentName="Hope"
       currentAgentId="ha-main"
       currentSessionId="s1"
-      sessions={sessions}
+      sessions={props.sessions ?? [sessionMeta()]}
       messages={[]}
       activeModel={null}
       availableModels={[]}
@@ -98,8 +97,16 @@ function renderTitleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>
       loading={false}
       compacting={false}
       {...props}
-    />,
+    />
   )
+}
+
+function renderTitleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}) {
+  return render(titleBar(props))
+}
+
+function statusToggle(): HTMLElement {
+  return screen.getByRole("button", { name: "chat.sessionStatus" })
 }
 
 afterEach(() => {
@@ -253,6 +260,31 @@ describe("ChatTitleBar workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Maximize" }))
     expect(onToggleWorkbenchMaximize).toHaveBeenCalledOnce()
+  })
+
+  test("pins the session-status card until its own button is clicked again", () => {
+    renderTitleBar({})
+
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(statusToggle())
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.mouseDown(document.body)
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(statusToggle())
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
+  })
+
+  test("re-shows a still-pinned status card once the layout has room again", () => {
+    const { rerender } = renderTitleBar({})
+    fireEvent.click(statusToggle())
+
+    rerender(titleBar({ suppressStatus: true }))
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
+
+    rerender(titleBar({ suppressStatus: false }))
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
   })
 
   test("never clips the title row, so its drop-down surfaces stay visible", () => {

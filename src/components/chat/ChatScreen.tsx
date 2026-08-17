@@ -18,6 +18,7 @@ import {
 } from "./message/messageFork"
 import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
+import { useViewportWidth } from "@/hooks/useViewportWidth"
 import { useReadableSurface } from "@/hooks/useReadableSurface"
 import { cn } from "@/lib/utils"
 import {
@@ -164,11 +165,7 @@ import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { WorkbenchResizeHandle } from "./workbench/WorkbenchResizeHandle"
 import { WorkbenchSurface } from "./workbench/WorkbenchSurface"
-import {
-  CHAT_INITIAL_RESERVE,
-  useWorkbenchSizing,
-  workbenchCollapseThreshold,
-} from "./workbench/useWorkbenchSizing"
+import { CHAT_IDEAL_MIN, useWorkbenchSizing } from "./workbench/useWorkbenchSizing"
 import type { WorkbenchPanelId, WorkbenchTabItem } from "./workbench/types"
 import { TerminalPanel } from "./terminal/TerminalPanel"
 import { useProjects } from "./project/hooks/useProjects"
@@ -371,7 +368,6 @@ const PERSISTENT_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
 /** From the column's right edge: 316 card + 16 card offset + 16 gutter. */
 const ENVIRONMENT_CARD_LANE_PX = 348
-const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
 const RESPONSIVE_PANEL_HYSTERESIS = 120
 
 interface MacControlFrameOpenHint {
@@ -3297,19 +3293,18 @@ export default function ChatScreen({
     [openExclusiveRightPanels, rightPanelVisibility, storedWorkbenchOrder],
   )
   const workbenchOpen = hasOpenExclusiveRightPanel && !rightPanelCollapsed
-  // The environment card floats over the conversation's right edge, so while it
-  // is open the conversation's ideal minimum has to cover it too.
-  const chatIdealMinWidth =
-    CHAT_INITIAL_RESERVE + (environmentPopoverOpen ? ENVIRONMENT_CARD_LANE_PX : 0)
   const {
     containerRef: workbenchContainerRef,
     availableWidth: workbenchAvailableWidth,
     width: rightPanelWidth,
     layoutMode: workbenchLayoutMode,
+    shouldCollapse: workbenchOutOfRoom,
+    collapseThreshold: workbenchCollapseAt,
+    cardFits: environmentCardFits,
     setManualWidth: setRightPanelWidth,
     commitManualWidth: commitRightPanelWidth,
     resetAutomaticWidth: resetRightPanelWidth,
-  } = useWorkbenchSizing(workbenchOpen, chatIdealMinWidth)
+  } = useWorkbenchSizing(workbenchOpen, ENVIRONMENT_CARD_LANE_PX, environmentPopoverOpen)
   const previousHasOpenRightPanelRef = useRef(false)
   const animateRightPanelOnMount =
     hasOpenExclusiveRightPanel && !previousHasOpenRightPanelRef.current
@@ -3602,14 +3597,12 @@ export default function ChatScreen({
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
-  // Responsive give-up order, each step measured on the space that step owns:
-  //   1. conversation + workbench shrink together (useWorkbenchSizing)
-  //   2. both past their ideal minimum  → collapse the workbench
-  //   3. the conversation alone can no longer host the card → close the card
-  //   4. the conversation is at its floor → squeeze, then collapse, the sidebar
-  const workbenchCollapseAt = workbenchCollapseThreshold(chatIdealMinWidth)
-  const shouldAutoCollapseWorkbench =
-    hasOpenExclusiveRightPanel && workbenchAvailableWidth < workbenchCollapseAt
+  // Give-up order as the window narrows (steps 1-3 live in useWorkbenchSizing):
+  //   1. conversation + workbench shrink together, down to their ideal minimums
+  //   2. the card's lane goes first, handing its space back to both columns
+  //   3. the workbench shrinks alone, then collapses
+  //   4. the sidebar squeezes to its minimum, then collapses
+  const shouldAutoCollapseWorkbench = hasOpenExclusiveRightPanel && workbenchOutOfRoom
   const shouldAutoExpandWorkbench =
     workbenchAvailableWidth >= workbenchCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
 
@@ -3642,21 +3635,19 @@ export default function ChatScreen({
     shouldAutoExpandWorkbench,
   ])
 
-  // Even with the workbench gone the conversation may not fit content + card.
-  const environmentCardFits = workbenchAvailableWidth >= chatIdealMinWidth
-  const suppressEnvironmentCard = environmentPopoverOpen && !environmentCardFits
+  const suppressEnvironmentCard = !environmentCardFits
 
+  // Last step of the cascade, measured on the window since the sidebar hugs its
+  // edge: squeeze it for as long as it has slack, and only then give it up.
+  const viewportWidth = useViewportWidth()
+  const sidebarSqueezedWidth = Math.round(
+    Math.min(panelWidth, Math.max(CHAT_SIDEBAR_MIN_WIDTH, viewportWidth - CHAT_IDEAL_MIN)),
+  )
   const sidebarCollapseAt = CHAT_SIDEBAR_MIN_WIDTH + CHAT_MAIN_MIN_INTERACTIVE_WIDTH
-  const sidebarExpandAt =
-    panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
   const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
   const shouldAutoExpandSidebar = useViewportMediaQuery(
-    `(min-width: ${sidebarExpandAt + RESPONSIVE_PANEL_HYSTERESIS}px)`,
+    `(min-width: ${sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS}px)`,
   )
-  // Squeeze the sidebar toward its minimum before giving up on it entirely.
-  const sidebarSqueezedWidth = useViewportMediaQuery(`(max-width: ${sidebarExpandAt}px)`)
-    ? CHAT_SIDEBAR_MIN_WIDTH
-    : panelWidth
 
   useEffect(() => {
     if (shouldAutoExpandSidebar) {

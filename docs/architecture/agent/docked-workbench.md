@@ -135,40 +135,42 @@ split 布局的左侧文件列表可整列收起（工具栏的 `PanelLeftClose`
 
 尺寸算法只读取会话侧栏之后的实际内容宽度 `L`，实现见 [`useWorkbenchSizing.ts`](../../../src/components/chat/workbench/useWorkbenchSizing.ts)。
 
-| Token                     |      值 | 含义                             |
-| ------------------------- | ------: | -------------------------------- |
-| `CHAT_INITIAL_RESERVE`    |  560 px | 自动初始宽度给对话保留的舒适空间 |
-| `CHAT_HARD_MIN`           |  360 px | 用户手动拖宽时仍须保留的交互下限 |
-| `WORKBENCH_MIN`           |  420 px | docked 工作台最低宽度            |
-| `WORKBENCH_MAX`           | 1280 px | 超宽屏绝对上限                   |
-| `WORKBENCH_INITIAL_RATIO` |    0.68 | 自动宽度占 `L` 的上限            |
-| `WORKBENCH_MANUAL_RATIO`  |    0.78 | 手动宽度占 `L` 的上限            |
+| Token                     |      值 | 含义                                       |
+| ------------------------- | ------: | ------------------------------------------ |
+| `CHAT_IDEAL_MIN`          |  560 px | 对话列的**理想**下限（卡片打开时另加通道） |
+| `CHAT_HARD_MIN`           |  360 px | 对话列绝对下限，stage 阈值用               |
+| `WORKBENCH_IDEAL_MIN`     |  560 px | 工作台的**理想**下限                       |
+| `WORKBENCH_MIN`           |  420 px | 工作台绝对下限，低于此即收起               |
+| `WORKBENCH_MAX`           | 1280 px | 超宽屏绝对上限                             |
+| `WORKBENCH_DEFAULT_RATIO` |     0.5 | 未拖拽时的分配比例（对半分）               |
 
-自动模式：
+`resolveWorkbenchLayout({ available, ratio, chatIdeal })` 是**两栏宽度与「该收起了」的唯一裁决**：
 
 ```ts
-width = clamp(
-  WORKBENCH_MIN,
-  min(WORKBENCH_MAX, floor(L * 0.68), L - CHAT_INITIAL_RESERVE),
-  L - CHAT_HARD_MIN,
-)
+if (L < chatIdeal + WORKBENCH_MIN) return { collapse: true }
+upper = min(WORKBENCH_MAX, L - chatIdeal) // 对话列的理想永远优先扣除
+lower = L >= chatIdeal + WORKBENCH_IDEAL_MIN ? WORKBENCH_IDEAL_MIN : WORKBENCH_MIN
+width = clamp(round(L * ratio), min(lower, upper), upper)
 ```
 
-因此宽屏首次打开不会固定为旧的小面板宽度，而是在保留舒适对话列的前提下尽可能放大。用户拖拽后进入 manual 模式，最大值为 `min(1280, floor(L * 0.78), L - 360)`；双击分隔线恢复 auto。
+`lower` 这一项就是「两栏同时缩」的实现：只要两边都还撑得住理想下限，工作台的下限就是 `WORKBENCH_IDEAL_MIN`，`ratio` 在这个区间里自由分配；一旦 `L` 掉到两个理想之和以下，下限才松到 `WORKBENCH_MIN`，于是**只有工作台继续变窄**、对话列稳在自己的理想值。
 
-`widthMode` 和手动像素宽度保存在窗口级 localStorage，不进入 `AppConfig`。窗口缩小时会钳位，重新变大只恢复用户请求宽度；auto 模式才持续按空间重算。
+**手动宽度必须存成比例而不是像素**（`hope.chat.workbench.manualRatio`）。存像素的话窗口一变窄工作台纹丝不动，收缩全由对话列买单——用户看到的就是「聊天区一路被压，右侧一直很大，然后突然消失」。同理，比例也不能给工作台更高的默认值（曾用 0.68），否则宽屏上它一直顶着 `WORKBENCH_MAX`，效果一样。拖拽落点先过一遍上面同一个函数再换算成比例存盘，所以手动值同样守两条理想下限；双击分隔线恢复 auto。
+
+`widthMode` 与该比例保存在窗口级 localStorage，不进入 `AppConfig`。
 
 ### 收缩让位顺序
 
-窗口变窄时按固定顺序放弃空间，每一步只在自己那层的实测宽度上判定：
+窗口变窄时按固定顺序放弃空间。前三步都由 `resolveWorkbenchLayout` 在实测的 `L` 上裁决，第四步归 ChatScreen（侧栏贴着窗口左缘，只能按 viewport 量）：
 
-1. **两栏同时缩**：auto 模式的对话列与工作台按比例一起变窄。
-2. **谁先到理想下限谁先冻结**，另一栏继续吸收。对话列的理想下限是 `CHAT_INITIAL_RESERVE`；**会话信息卡片打开时要额外加上它的通道宽度**（卡片浮在对话列右缘，不算进去等于把对话挤成不可读）。
-3. **两栏都到下限**（`L < chatReserve + WORKBENCH_MIN`）→ **自动收起工作台**，不是进 stage。
-4. 再窄到对话列自己也放不下正文 + 卡片（`L < chatReserve`）→ **自动关掉会话信息卡片**。
-5. 再窄 → 先把侧栏压到 `CHAT_SIDEBAR_MIN_WIDTH`，压不动了再自动收起侧栏。
+1. **两栏同时缩**，直到各自的理想下限。
+2. **卡片先让**：会话信息卡片浮在对话列右缘，打开时它的通道要计进对话列的理想下限（`chatIdeal = CHAT_IDEAL_MIN + lane`）。`L` 不足 `CHAT_IDEAL_MIN + lane + WORKBENCH_IDEAL_MIN` 时先关掉卡片——它腾出的空间立刻回到两栏，所以两栏会一起变宽一截。
+3. **工作台单独让**：从 `WORKBENCH_IDEAL_MIN` 一路缩到 `WORKBENCH_MIN`，再窄就**自动收起工作台**（不是进 stage）。
+4. **最后动侧栏**：先连续压到 `CHAT_SIDEBAR_MIN_WIDTH`，压不动了再自动收起。
 
-自动与手动必须分开记账：只有自动收起的才允许自动展开（`autoCollapsedRightPanelRef`），窄屏下用户手动展开工作台要能扛住下一次 resize（`manualRightPanelExpandedOverrideRef`），此时由 stage 负责呈现。每一级都带 `RESPONSIVE_PANEL_HYSTERESIS` 回滞，避免在阈值上抖动。
+`cardFits` 刻意**不依赖卡片当前是否打开**，否则窄窗口里点开卡片会在同一次点击里把自己关掉。窄窗口下用户仍可手动打开，此时卡片直接盖在正文上（见 [`environmentInset.ts`](../../../src/components/chat/environmentInset.ts)）。
+
+自动与手动必须分开记账：只有自动收起的才允许自动展开（`autoCollapsedRightPanelRef`），窄屏下用户手动展开工作台要能扛住下一次 resize（`manualRightPanelExpandedOverrideRef`），此时由 stage 负责呈现。收起/展开与侧栏两级都带 `RESPONSIVE_PANEL_HYSTERESIS` 回滞，避免在阈值上抖动。
 
 ### Stage
 
@@ -193,14 +195,16 @@ width = clamp(
 
 ## 5. 环境信息投影
 
-环境按钮仍在对话标题段，弹层由该按钮的相对容器定位，不 portal 到 `document.body`。其宽度上限使用对话标题段的 container query，因此右边界不会越过对话 / 工作台 divider。
+环境卡是**可常驻面板，不是 popover**：按钮是开关，点别处不关闭，入口紧挨终端。标题栏右端所有图标动作共用 [`titleBarStyles.ts`](../../../src/components/chat/titleBarStyles.ts) 的同一个 28×28 方钮外壳，靠 `gap-1` 排成一条均匀的节奏；一次性动作与开关的唯一差别是**开关多一层选中填充**（搜索、无痕、环境卡、终端、工作台入口）。新增标题栏图标按钮直接复用该常量，别再手写一套尺寸或补 `ml-*`。因此 `ChatTitleBar` 里只有 `statusPinned`（用户意图）是状态，**是否真的显示是派生的**：`showStatus = statusPinned && !suppressStatus`。窗口太窄时 `suppressStatus` 只是把它藏起来，拉大后仍被 pin 的卡片自动回来——别改成「收起时清掉 statusPinned」，那正是「缩小收起后拉大不出现」的老 bug。卡片内那几个跳走的操作（compact、查看上下文 / 系统提示、打开 Workspace）显式 unpin。
 
-弹层有两种呈现：
+弹层由整个右侧操作组的相对容器定位（不是按钮自己，否则会比预留通道多探出几个按钮的宽度），不 portal 到 `document.body`；宽度上限用对话标题段的 container query，右边界不会越过对话 / 工作台 divider。
 
-- 对话实际宽度至少 964 px 时进入 reserved：`MessageList` 增加 332 px right inset，composer 同步缩进，环境卡占据对话右侧保留带，尽量不盖住消息和输入框。
-- 空间不足时进入 overlay：不继续压窄对话，弹层只覆盖对话右上区域；工作台仍不受遮挡。
+正文让位有两种呈现，判定见 [`environmentInset.ts`](../../../src/components/chat/environmentInset.ts)：
 
-环境卡继续提供版本、模型 / 鉴权类型、Context / compact、Memory policy、Agent、会话 ID、消息数、reasoning effort、更新时间和系统提示入口。底部“Workspace”按钮关闭环境卡并激活完整 `workspace` 标签。
+- 居中正文列会撞上卡片、且让位后仍留得下可读宽度 → 预留 348 px（316 卡片 + 16 偏移 + 16 间距）。`MessageList` 与 composer 用**同一个盒子**、以 inline padding 施加，两者才会同轴移动；写成 class 会被 `cn` 的 padding 合并吃掉。
+- 让位后剩余宽度不足 → 保持不动，卡片直接盖在正文上。
+
+环境卡继续提供版本、模型 / 鉴权类型、Context / compact、Memory policy、Agent、会话 ID、消息数、reasoning effort、更新时间和系统提示入口。
 
 环境卡与 Workspace 读取相同会话 / 模型 / memory / context 状态，不保存凭据；API Key、OAuth token 和 Owner token 不进入投影 props 或 DOM。
 

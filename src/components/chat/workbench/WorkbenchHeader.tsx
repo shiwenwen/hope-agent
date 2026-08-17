@@ -13,6 +13,7 @@ import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
 import { WindowModeIcon } from "@/components/common/WindowModeIcon"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { cn } from "@/lib/utils"
+import { TITLE_BAR_ICON_BUTTON } from "../titleBarStyles"
 import type { WorkbenchLayoutMode, WorkbenchPanelId, WorkbenchTabItem } from "./types"
 
 interface WorkbenchHeaderProps {
@@ -304,7 +305,7 @@ export function WorkbenchOpenButton({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="relative ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+              className={cn("relative", TITLE_BAR_ICON_BUTTON)}
               aria-label={t("chat.rightPanel.dock")}
             >
               <PanelRightOpen className="h-4 w-4" />
@@ -331,7 +332,7 @@ export function WorkbenchOpenButton({
     <IconTip label={t("chat.rightPanel.expand")}>
       <button
         type="button"
-        className="relative ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+        className={cn("relative", TITLE_BAR_ICON_BUTTON)}
         aria-label={t("chat.rightPanel.expand")}
         onClick={onOpen}
       >

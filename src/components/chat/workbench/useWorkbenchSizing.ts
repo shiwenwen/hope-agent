@@ -1,52 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { WorkbenchLayoutMode, WorkbenchWidthMode } from "./types"
 
-export const CHAT_INITIAL_RESERVE = 560
+/** Ideal minimum for the conversation; the card's lane is added on top of it. */
+export const CHAT_IDEAL_MIN = 560
 export const CHAT_HARD_MIN = 360
+/** Ideal minimum for the workbench — it only goes below this once the chat is
+ *  already at its own ideal minimum. */
+export const WORKBENCH_IDEAL_MIN = 560
 export const WORKBENCH_MIN = 420
 export const WORKBENCH_MAX = 1280
-export const WORKBENCH_INITIAL_RATIO = 0.68
-export const WORKBENCH_MANUAL_RATIO = 0.78
+/** Even split, so narrowing takes from both columns instead of only the chat. */
+export const WORKBENCH_DEFAULT_RATIO = 0.5
 export const WORKBENCH_STAGE_THRESHOLD = WORKBENCH_MIN + CHAT_HARD_MIN
 export const WORKBENCH_LAYOUT_HYSTERESIS = 80
 
 const WIDTH_MODE_KEY = "hope.chat.workbench.widthMode"
-const MANUAL_WIDTH_KEY = "hope.chat.workbench.manualWidth"
+const MANUAL_RATIO_KEY = "hope.chat.workbench.manualRatio"
 
-function finitePositive(value: string | null): number | null {
+function finiteRatio(value: string | null): number | null {
   if (!value) return null
   const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 1 ? parsed : null
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
 }
 
-export function automaticWorkbenchWidth(
-  availableWidth: number,
-  chatReserve: number = CHAT_INITIAL_RESERVE,
-): number {
-  const preferred = Math.min(
-    WORKBENCH_MAX,
-    Math.floor(availableWidth * WORKBENCH_INITIAL_RATIO),
-    availableWidth - chatReserve,
-  )
-  return clamp(preferred, WORKBENCH_MIN, availableWidth - CHAT_HARD_MIN)
+export interface WorkbenchLayoutInput {
+  /** Content width right of the session sidebar. */
+  available: number
+  /** Share of `available` the workbench wants — the drag ratio, or the default. */
+  ratio: number
+  /** The conversation's ideal minimum, card lane included when it is open. */
+  chatIdeal: number
 }
 
-/** Below this both columns are past their ideal minimum; the caller collapses. */
-export function workbenchCollapseThreshold(chatReserve: number = CHAT_INITIAL_RESERVE): number {
-  return chatReserve + WORKBENCH_MIN
+export interface WorkbenchLayout {
+  width: number
+  /** No room left for the chat's ideal plus the workbench's hard minimum. */
+  collapse: boolean
 }
 
-export function manualWorkbenchWidth(availableWidth: number, requestedWidth: number): number {
-  const maximum = Math.min(
-    WORKBENCH_MAX,
-    Math.floor(availableWidth * WORKBENCH_MANUAL_RATIO),
-    availableWidth - CHAT_HARD_MIN,
-  )
-  return clamp(requestedWidth, WORKBENCH_MIN, maximum)
+/**
+ * Both columns shrink together while each is still above its ideal minimum.
+ * Past that the workbench is the one that gives — first down to its own
+ * minimum, then away entirely — so the conversation keeps its ideal width.
+ */
+export function resolveWorkbenchLayout({
+  available,
+  ratio,
+  chatIdeal,
+}: WorkbenchLayoutInput): WorkbenchLayout {
+  if (available < chatIdeal + WORKBENCH_MIN) return { width: WORKBENCH_MIN, collapse: true }
+  const upper = Math.min(WORKBENCH_MAX, available - chatIdeal)
+  const lower = available >= chatIdeal + WORKBENCH_IDEAL_MIN ? WORKBENCH_IDEAL_MIN : WORKBENCH_MIN
+  return {
+    width: clamp(Math.round(available * ratio), Math.min(lower, upper), upper),
+    collapse: false,
+  }
 }
 
 export function nextWorkbenchLayoutMode(
@@ -71,6 +83,12 @@ interface WorkbenchSizing {
   width: number
   widthMode: WorkbenchWidthMode
   layoutMode: WorkbenchLayoutMode
+  /** The chat's ideal minimum no longer fits beside a minimum workbench. */
+  shouldCollapse: boolean
+  /** Width `shouldCollapse` flips at, so callers can add their own hysteresis. */
+  collapseThreshold: number
+  /** There is still room for the environment card's lane. */
+  cardFits: boolean
   setManualWidth: (width: number) => void
   commitManualWidth: (width: number) => void
   resetAutomaticWidth: () => void
@@ -78,7 +96,8 @@ interface WorkbenchSizing {
 
 export function useWorkbenchSizing(
   open: boolean,
-  chatReserve: number = CHAT_INITIAL_RESERVE,
+  cardLane: number = 0,
+  cardOpen: boolean = false,
 ): WorkbenchSizing {
   const containerRef = useRef<HTMLDivElement>(null)
   const [availableWidth, setAvailableWidth] = useState(() =>
@@ -88,9 +107,11 @@ export function useWorkbenchSizing(
     if (typeof window === "undefined") return "auto"
     return window.localStorage.getItem(WIDTH_MODE_KEY) === "manual" ? "manual" : "auto"
   })
-  const [requestedManualWidth, setRequestedManualWidth] = useState(() => {
-    if (typeof window === "undefined") return 720
-    return finitePositive(window.localStorage.getItem(MANUAL_WIDTH_KEY)) ?? 720
+  // Stored as a share of the container, not pixels: a remembered pixel width
+  // would sit still while the window narrows, making the chat pay for all of it.
+  const [manualRatio, setManualRatio] = useState(() => {
+    if (typeof window === "undefined") return WORKBENCH_DEFAULT_RATIO
+    return finiteRatio(window.localStorage.getItem(MANUAL_RATIO_KEY)) ?? WORKBENCH_DEFAULT_RATIO
   })
 
   useEffect(() => {
@@ -116,29 +137,49 @@ export function useWorkbenchSizing(
   const [storedLayoutMode, setStoredLayoutMode] = useState<WorkbenchLayoutMode>("docked")
   const layoutMode = nextWorkbenchLayoutMode(storedLayoutMode, open, availableWidth)
   if (layoutMode !== storedLayoutMode) setStoredLayoutMode(layoutMode)
-  const width = useMemo(() => {
-    if (layoutMode === "stage") return availableWidth
-    return widthMode === "manual"
-      ? manualWorkbenchWidth(availableWidth, requestedManualWidth)
-      : automaticWorkbenchWidth(availableWidth, chatReserve)
-  }, [availableWidth, chatReserve, layoutMode, requestedManualWidth, widthMode])
+  // The card is given up before the workbench is: it only keeps its lane while
+  // both columns can still hold their ideal minimums beside it. Deliberately
+  // independent of `cardOpen` — otherwise opening the card in a narrow window
+  // would flip this and close it again on the same click.
+  const cardFits = availableWidth >= CHAT_IDEAL_MIN + cardLane + (open ? WORKBENCH_IDEAL_MIN : 0)
+  const chatIdeal = CHAT_IDEAL_MIN + (cardOpen && cardFits ? cardLane : 0)
+  const layout = useMemo(
+    () =>
+      resolveWorkbenchLayout({
+        available: availableWidth,
+        ratio: widthMode === "manual" ? manualRatio : WORKBENCH_DEFAULT_RATIO,
+        chatIdeal,
+      }),
+    [availableWidth, chatIdeal, manualRatio, widthMode],
+  )
+  const width = layoutMode === "stage" ? availableWidth : layout.width
 
-  const setManualWidth = useCallback((nextWidth: number) => {
-    setWidthMode("manual")
-    setRequestedManualWidth(nextWidth)
-  }, [])
+  const setManualWidth = useCallback(
+    (nextWidth: number) => {
+      if (availableWidth <= 0) return
+      setWidthMode("manual")
+      setManualRatio(nextWidth / availableWidth)
+    },
+    [availableWidth],
+  )
 
   const commitManualWidth = useCallback(
     (nextWidth: number) => {
-      const committedWidth = manualWorkbenchWidth(availableWidth, nextWidth)
+      if (availableWidth <= 0) return
+      const committed = resolveWorkbenchLayout({
+        available: availableWidth,
+        ratio: nextWidth / availableWidth,
+        chatIdeal,
+      }).width
+      const ratio = committed / availableWidth
       setWidthMode("manual")
-      setRequestedManualWidth(committedWidth)
+      setManualRatio(ratio)
       if (typeof window !== "undefined") {
         window.localStorage.setItem(WIDTH_MODE_KEY, "manual")
-        window.localStorage.setItem(MANUAL_WIDTH_KEY, String(Math.round(committedWidth)))
+        window.localStorage.setItem(MANUAL_RATIO_KEY, ratio.toFixed(4))
       }
     },
-    [availableWidth],
+    [availableWidth, chatIdeal],
   )
 
   const resetAutomaticWidth = useCallback(() => {
@@ -154,6 +195,9 @@ export function useWorkbenchSizing(
     width,
     widthMode,
     layoutMode,
+    shouldCollapse: layout.collapse,
+    collapseThreshold: chatIdeal + WORKBENCH_MIN,
+    cardFits,
     setManualWidth,
     commitManualWidth,
     resetAutomaticWidth,

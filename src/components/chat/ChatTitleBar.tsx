@@ -42,6 +42,7 @@ import {
   runViewContext,
 } from "./sessionStatus"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
+import { TITLE_BAR_ICON_BUTTON, TITLE_BAR_ICON_BUTTON_ACTIVE } from "./titleBarStyles"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./input/IncognitoToggle"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
@@ -209,8 +210,11 @@ export default function ChatTitleBar({
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
-  const [showStatus, setShowStatus] = useState(false)
-  const statusRef = useRef<HTMLDivElement>(null)
+  // The status card is pinned by its button, not dismissed by clicking away.
+  // `suppressStatus` only hides it while the layout has no room, so widening
+  // the window brings a still-pinned card straight back.
+  const [statusPinned, setStatusPinned] = useState(false)
+  const showStatus = statusPinned && !suppressStatus
   const [memoryPolicy, setMemoryPolicy] = useState<SessionMemoryPolicy | null>(null)
   const [memoryPolicySaving, setMemoryPolicySaving] = useState(false)
   const [coreMemoryReloading, setCoreMemoryReloading] = useState(false)
@@ -336,25 +340,9 @@ export default function ChatTitleBar({
     setEditingTitle(false)
   }, [])
 
-  // Close status popover on outside click
-  useEffect(() => {
-    if (!showStatus) return
-    const handler = (e: MouseEvent) => {
-      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
-        setShowStatus(false)
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [showStatus])
-
   useEffect(() => {
     onStatusOpenChange?.(showStatus)
   }, [onStatusOpenChange, showStatus])
-
-  useEffect(() => {
-    if (suppressStatus) setShowStatus(false)
-  }, [suppressStatus])
 
   useEffect(() => {
     return () => {
@@ -551,25 +539,50 @@ export default function ChatTitleBar({
           {currentSessionId && onOpenSearch && (
             <IconTip label={t("chat.sessionSearch")}>
               <button
-                className={cn(
-                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                  searchOpen && "text-foreground",
-                )}
+                type="button"
+                aria-label={t("chat.sessionSearch")}
+                className={cn(TITLE_BAR_ICON_BUTTON, searchOpen && TITLE_BAR_ICON_BUTTON_ACTIVE)}
                 onClick={onOpenSearch}
               >
                 <Search className="h-4 w-4" />
               </button>
             </IconTip>
           )}
+          {/* Export Button — open the export-conversation dialog. */}
+          {currentSessionId && (
+            <IconTip label={t("chat.exportSession.menuItem")}>
+              <button
+                type="button"
+                aria-label={t("chat.exportSession.menuItem")}
+                className={TITLE_BAR_ICON_BUTTON}
+                onClick={() => setExportOpen(true)}
+              >
+                <Share2 className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
+          {/* Handover Button — push the current session to an IM chat. */}
+          {onOpenHandover && currentSessionId && (
+            <IconTip label={t("chat.handover.button")}>
+              <button
+                type="button"
+                aria-label={t("chat.handover.button")}
+                className={TITLE_BAR_ICON_BUTTON}
+                onClick={() => onOpenHandover(currentSessionId)}
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
           {/* Not `relative` — the menus position against the action group. */}
-          <div ref={statusRef}>
+          <div>
             <IconTip label={t("chat.sessionStatus")}>
               <button
-                className={cn(
-                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                  showStatus && "text-foreground",
-                )}
-                onClick={() => setShowStatus((v) => !v)}
+                type="button"
+                aria-label={t("chat.sessionStatus")}
+                aria-pressed={showStatus}
+                className={cn(TITLE_BAR_ICON_BUTTON, showStatus && TITLE_BAR_ICON_BUTTON_ACTIVE)}
+                onClick={() => setStatusPinned((v) => !v)}
               >
                 <BarChart3 className="h-4 w-4" />
               </button>
@@ -579,7 +592,7 @@ export default function ChatTitleBar({
               positionClassName="top-full right-0 mt-1.5"
               originClassName="origin-top-right"
               className="ha-menu-from-top w-[316px] max-w-[calc(100cqw-24px)] max-h-[calc(100vh-72px)] overflow-y-auto p-3.5"
-              onEscapeKeyDown={() => setShowStatus(false)}
+              onEscapeKeyDown={() => setStatusPinned(false)}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="space-y-2 text-xs">
@@ -722,7 +735,7 @@ export default function ChatTitleBar({
                                 3000,
                               )
                               if (result.messagesAffected > 0) {
-                                setShowStatus(false)
+                                setStatusPinned(false)
                               }
                             } catch (e) {
                               logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
@@ -745,7 +758,7 @@ export default function ChatTitleBar({
                           if (!currentSessionId) return
                           try {
                             const result = await runViewContext(currentSessionId, currentAgentId)
-                            setShowStatus(false)
+                            setStatusPinned(false)
                             onCommandAction?.(result)
                           } catch (e) {
                             logger.error(
@@ -891,7 +904,7 @@ export default function ChatTitleBar({
                       disabled={systemPromptLoading}
                       onClick={() => {
                         onViewSystemPrompt()
-                        setShowStatus(false)
+                        setStatusPinned(false)
                       }}
                     >
                       {systemPromptLoading ? (
@@ -911,7 +924,7 @@ export default function ChatTitleBar({
                       className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-secondary/60 px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
                       onClick={() => {
                         onOpenWorkspace()
-                        setShowStatus(false)
+                        setStatusPinned(false)
                       }}
                     >
                       <LayoutDashboard className="h-3.5 w-3.5" />
@@ -943,28 +956,6 @@ export default function ChatTitleBar({
               ) : null}
             </FloatingMenu>
           </div>
-          {/* Export Button — open the export-conversation dialog. */}
-          {currentSessionId && (
-            <IconTip label={t("chat.exportSession.menuItem")}>
-              <button
-                className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setExportOpen(true)}
-              >
-                <Share2 className="h-4 w-4" />
-              </button>
-            </IconTip>
-          )}
-          {/* Handover Button — push the current session to an IM chat. */}
-          {onOpenHandover && currentSessionId && (
-            <IconTip label={t("chat.handover.button")}>
-              <button
-                className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => onOpenHandover(currentSessionId)}
-              >
-                <Send className="h-4 w-4" />
-              </button>
-            </IconTip>
-          )}
           {onToggleTerminal && (
             <IconTip
               label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
@@ -973,10 +964,7 @@ export default function ChatTitleBar({
                 type="button"
                 aria-label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
                 aria-pressed={terminalOpen}
-                className={cn(
-                  "ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground",
-                  terminalOpen && "bg-secondary text-foreground hover:bg-secondary/85",
-                )}
+                className={cn(TITLE_BAR_ICON_BUTTON, terminalOpen && TITLE_BAR_ICON_BUTTON_ACTIVE)}
                 onClick={onToggleTerminal}
               >
                 <SquareTerminal className="h-4 w-4" />
