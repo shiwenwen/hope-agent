@@ -1033,10 +1033,7 @@
       "expand": "Mở rộng bảng bên phải",
       "switch": "Chuyển bảng bên phải",
       "dock": "Thanh panel bên phải",
-      "openPanel": "Mở {{panel}}",
-      "switchToPanel": "Chuyển sang {{panel}}",
-      "collapsePanel": "Thu gọn {{panel}}",
-      "expandPanel": "Mở rộng {{panel}}",
+      "resize": "Điều chỉnh chiều rộng bàn làm việc",
       "workflowActiveCount": "{{count}} quy trình đang hoạt động",
       "workflowAttentionCount": "{{count}} quy trình cần chú ý",
       "backgroundRunningCount": "{{count}} tác vụ nền đang chạy",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "Xem trước",
-    "resizePanel": "Đổi kích thước bảng xem trước"
+    "resizePanel": "Đổi kích thước bảng xem trước",
+    "pathBreadcrumb": "Đường dẫn tệp",
+    "revealFolder": "Hiển thị thư mục trong bảng Tệp",
+    "copyPath": "Sao chép đường dẫn đầy đủ"
   },
   "fileBrowser": {
     "panelTitle": "Tệp",
@@ -2815,7 +2815,10 @@
     "zoomOut": "Thu nhỏ",
     "zoomIn": "Phóng to",
     "fitWidth": "Vừa chiều rộng",
-    "officeNoContent": "Không thể trích xuất nội dung từ tệp này."
+    "officeNoContent": "Không thể trích xuất nội dung từ tệp này.",
+    "openInNewTab": "Mở trong tab mới",
+    "collapseTree": "Ẩn danh sách tệp",
+    "expandTree": "Hiện danh sách tệp"
   },
   "diffPanel": {
     "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",

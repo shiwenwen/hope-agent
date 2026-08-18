@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { Eye, FolderOpen, Layers, LayoutDashboard } from "lucide-react"
+import { Eye, FolderOpen, Globe, Layers, LayoutDashboard } from "lucide-react"
 
 import ChatTitleBar from "./ChatTitleBar"
 import type { SessionMeta } from "@/types/chat"
@@ -31,11 +31,17 @@ vi.mock("react-i18next", () => ({
         "chat.rightPanel.collapsePanel": "Collapse {{panel}}",
         "chat.rightPanel.expandPanel": "Expand {{panel}}",
         "chat.rightPanel.workflowAttentionCount": "{{count}} workflows need attention",
+        "chat.rightPanel.expand": "Expand workbench",
+        "chat.rightPanel.collapse": "Collapse workbench",
+        "chat.controlPanel.floatWindow": "Float window",
+        "common.close": "Close",
         "workspace.panelTitle": "Workspace",
         "fileBrowser.panelTitle": "Files",
         "backgroundJobs.panelTitle": "Background Tasks",
         "filePreview.panelTitle": "Preview",
         "cron.scheduleSession": "Schedule this chat",
+        "fileBrowser.maximize": "Maximize",
+        "fileBrowser.minimize": "Restore",
       }
       const template = translations[key] ?? (typeof options === "string" ? options : key)
       if (!options || typeof options === "string") return template
@@ -78,23 +84,33 @@ function sessionMeta(patch: Partial<SessionMeta> = {}): SessionMeta {
   }
 }
 
-function renderTitleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}) {
-  const sessions = props.sessions ?? [sessionMeta()]
-  return render(
+function titleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}) {
+  return (
     <ChatTitleBar
       agentName="Hope"
       currentAgentId="ha-main"
       currentSessionId="s1"
-      sessions={sessions}
+      sessions={props.sessions ?? [sessionMeta()]}
       messages={[]}
       activeModel={null}
       availableModels={[]}
       reasoningEffort="medium"
       loading={false}
       compacting={false}
+      // The strip only renders with a docked panel under it; tests that care
+      // about the empty / floating-only case override this.
+      workbenchDocked={(props.workbenchTabs?.length ?? 0) > 0}
       {...props}
-    />,
+    />
   )
+}
+
+function renderTitleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}) {
+  return render(titleBar(props))
+}
+
+function statusToggle(): HTMLElement {
+  return screen.getByRole("button", { name: "chat.sessionStatus" })
 }
 
 afterEach(() => {
@@ -104,7 +120,7 @@ afterEach(() => {
   transportMock.listen.mockImplementation(() => () => {})
 })
 
-describe("ChatTitleBar right-panel dock", () => {
+describe("ChatTitleBar workbench", () => {
   test("opens the locked schedule form for the current session", () => {
     const onScheduleSession = vi.fn()
     renderTitleBar({ onScheduleSession })
@@ -113,38 +129,47 @@ describe("ChatTitleBar right-panel dock", () => {
     expect(onScheduleSession).toHaveBeenCalledWith("s1")
   })
 
-  test("renders a single icon entry for each panel and dispatches its id", () => {
-    const onRightPanelAction = vi.fn()
+  test("renders open tabs in the single title row and dispatches their ids", () => {
+    const onSelectWorkbenchTab = vi.fn()
+    const tabs = [
+      {
+        id: "workspace",
+        panelId: "workspace" as const,
+        labelKey: "workspace.panelTitle",
+        icon: LayoutDashboard,
+        open: true,
+      },
+      {
+        id: "background-jobs",
+        panelId: "background-jobs" as const,
+        labelKey: "backgroundJobs.panelTitle",
+        icon: Layers,
+        open: true,
+      },
+    ]
     renderTitleBar({
-      onRightPanelAction,
-      rightPanels: [
-        {
-          id: "workspace",
-          labelKey: "workspace.panelTitle",
-          icon: LayoutDashboard,
-          open: false,
-        },
-        {
-          id: "background-jobs",
-          labelKey: "backgroundJobs.panelTitle",
-          icon: Layers,
-          open: false,
-        },
-      ],
+      workbenchWidth: 720,
+      workbenchTabs: tabs,
+      workbenchLaunchItems: tabs,
+      activeWorkbenchTabId: "workspace",
+      onSelectWorkbenchTab,
+      onCollapseWorkbench: vi.fn(),
     })
 
-    expect(screen.getByRole("toolbar", { name: "Right panel dock" })).toBeTruthy()
-    expect(screen.getAllByRole("button", { name: "Open Workspace" })).toHaveLength(1)
-    fireEvent.click(screen.getByRole("button", { name: "Open Workspace" }))
-    expect(onRightPanelAction).toHaveBeenCalledWith("workspace")
+    expect(screen.getByRole("tablist", { name: "Right panel dock" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("tab", { name: /Background Tasks/ }))
+    expect(onSelectWorkbenchTab).toHaveBeenCalledWith("background-jobs")
   })
 
   test("uses a neutral selected state and localizes the badge label", () => {
     renderTitleBar({
-      activeRightPanelId: "workspace",
-      rightPanels: [
+      workbenchWidth: 720,
+      activeWorkbenchTabId: "workspace",
+      onCollapseWorkbench: vi.fn(),
+      workbenchTabs: [
         {
           id: "workspace",
+          panelId: "workspace",
           labelKey: "workspace.panelTitle",
           icon: LayoutDashboard,
           open: true,
@@ -157,43 +182,163 @@ describe("ChatTitleBar right-panel dock", () => {
       ],
     })
 
-    const workspaceButton = screen.getByRole("button", { name: "Collapse Workspace" })
-    expect(workspaceButton.className.split(" ")).toContain("text-foreground")
-    expect(workspaceButton.dataset.panelState).toBe("active")
+    const workspaceTab = screen.getByRole("tab", { name: /Workspace/ })
+    expect(workspaceTab.className.split(" ")).toContain("text-foreground")
+    expect(workspaceTab.getAttribute("aria-selected")).toBe("true")
     expect(screen.getByLabelText("1 workflows need attention")).toBeTruthy()
   })
 
-  test("keeps open transient panels in the same dock", () => {
-    const onRightPanelAction = vi.fn()
+  test("keeps multiple file preview tabs in the same workbench", () => {
+    const onSelectWorkbenchTab = vi.fn()
     renderTitleBar({
-      activeRightPanelId: "workspace",
-      onRightPanelAction,
-      rightPanels: [
+      workbenchWidth: 720,
+      activeWorkbenchTabId: "workspace",
+      onSelectWorkbenchTab,
+      onCollapseWorkbench: vi.fn(),
+      workbenchTabs: [
         {
           id: "workspace",
+          panelId: "workspace",
           labelKey: "workspace.panelTitle",
           icon: LayoutDashboard,
           open: true,
         },
-        { id: "preview", labelKey: "filePreview.panelTitle", icon: Eye, open: true },
+        {
+          id: "preview:readme",
+          panelId: "preview",
+          label: "README.md",
+          icon: Eye,
+          open: true,
+        },
       ],
     })
 
-    const previewButton = screen.getByRole("button", { name: "Switch to Preview" })
-    fireEvent.click(previewButton)
-    expect(onRightPanelAction).toHaveBeenCalledWith("preview")
+    fireEvent.click(screen.getByRole("tab", { name: /README.md/ }))
+    expect(onSelectWorkbenchTab).toHaveBeenCalledWith("preview:readme")
   })
 
-  test("labels the active icon as expand when the rail is collapsed", () => {
+  test("keeps a workbench reopen entry while the surface is collapsed", () => {
+    const onExpandWorkbench = vi.fn()
     renderTitleBar({
-      activeRightPanelId: "files",
-      rightPanelCollapsed: true,
-      rightPanels: [
-        { id: "files", labelKey: "fileBrowser.panelTitle", icon: FolderOpen, open: true },
+      workbenchCollapsed: true,
+      workbenchTabs: [
+        {
+          id: "files",
+          panelId: "files",
+          labelKey: "fileBrowser.panelTitle",
+          icon: FolderOpen,
+          open: true,
+        },
+      ],
+      workbenchLaunchItems: [
+        {
+          id: "files",
+          panelId: "files",
+          labelKey: "fileBrowser.panelTitle",
+          icon: FolderOpen,
+          open: true,
+        },
+      ],
+      onExpandWorkbench,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand workbench" }))
+    expect(onExpandWorkbench).toHaveBeenCalledOnce()
+  })
+
+  test("owns maximize and floating-window controls at the workbench level", () => {
+    const onToggleWorkbenchTabWindow = vi.fn()
+    const onToggleWorkbenchMaximize = vi.fn()
+    renderTitleBar({
+      workbenchWidth: 720,
+      activeWorkbenchTabId: "browser",
+      onCollapseWorkbench: vi.fn(),
+      onToggleWorkbenchTabWindow,
+      onToggleWorkbenchMaximize,
+      workbenchTabs: [
+        {
+          id: "browser",
+          panelId: "browser",
+          label: "Browser",
+          icon: Globe,
+          open: true,
+          windowMode: "docked",
+        },
       ],
     })
 
-    expect(screen.getByRole("button", { name: "Expand Files" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Float window" }))
+    expect(onToggleWorkbenchTabWindow).toHaveBeenCalledWith("browser")
+
+    fireEvent.click(screen.getByRole("button", { name: "Maximize" }))
+    expect(onToggleWorkbenchMaximize).toHaveBeenCalledOnce()
+  })
+
+  test("pins the session-status card until its own button is clicked again", () => {
+    renderTitleBar({})
+
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(statusToggle())
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.mouseDown(document.body)
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(statusToggle())
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
+  })
+
+  test("keeps the pinned status card open at widths with no room for its lane", () => {
+    // The narrow-window fallback is overlap, not suppression: a toggle that
+    // silently does nothing is worse than a card over the transcript.
+    const { rerender } = renderTitleBar({})
+    fireEvent.click(statusToggle())
+
+    rerender(titleBar({ workbenchWidth: 720 }))
+    expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
+  })
+
+  test("hides the tab strip when every listed panel is floating", () => {
+    renderTitleBar({
+      workbenchWidth: 720,
+      workbenchDocked: false,
+      onCollapseWorkbench: vi.fn(),
+      workbenchTabs: [
+        {
+          id: "browser",
+          panelId: "browser",
+          label: "Browser",
+          icon: Globe,
+          open: true,
+          windowMode: "floating",
+        },
+      ],
+      workbenchLaunchItems: [
+        {
+          id: "browser",
+          panelId: "browser",
+          label: "Browser",
+          icon: Globe,
+          open: true,
+          windowMode: "floating",
+        },
+      ],
+      onExpandWorkbench: vi.fn(),
+    })
+
+    expect(screen.queryByRole("tablist", { name: "Right panel dock" })).toBeNull()
+    // …and the reopen entry stays reachable so the mirror can be docked back.
+    expect(screen.getByRole("button", { name: "Expand workbench" })).toBeTruthy()
+  })
+
+  test("never clips the title row, so its drop-down surfaces stay visible", () => {
+    const { container } = renderTitleBar({})
+
+    const row = container.firstElementChild as HTMLElement
+    expect(row.className).toContain("h-10")
+    expect(row.className.split(" ")).not.toContain("overflow-hidden")
+    const wrapper = row.firstElementChild as HTMLElement
+    expect(wrapper.className.split(" ")).not.toContain("overflow-hidden")
   })
 
   test("still shows the localized working-directory chip", () => {

@@ -253,6 +253,8 @@ export interface MessageBubbleProps {
   hideOwnFooterFiles?: boolean
   goalCompletionReportOverride?: GoalCompletionReport | null
   suppressGoalCompletionFooter?: boolean
+  /** 折叠详情里的中间步骤：底部操作条属于整轮回复，一轮只留最终回复那一条。 */
+  hideActionBar?: boolean
   forceExpandUserContent?: boolean
   onForceExpandedUserContentDismiss?: () => void
 }
@@ -1475,6 +1477,7 @@ function MessageBubbleInner({
   hideOwnFooterFiles = false,
   goalCompletionReportOverride,
   suppressGoalCompletionFooter = false,
+  hideActionBar = false,
   forceExpandUserContent = false,
   onForceExpandedUserContentDismiss,
 }: MessageBubbleProps) {
@@ -2160,34 +2163,37 @@ function MessageBubbleInner({
               )}
             </div>
           )}
-          <div
-            className={cn(
-              "ml-7 mt-0.5 flex h-6 items-center gap-0.5",
-              (!hasToolbarActions || !(isHovered || isCopied || detailsIndex === index)) &&
-                "invisible",
-            )}
-          >
-            {msg.content && (
-              <IconTip label={t("chat.copy")}>
-                <button
-                  type="button"
-                  onClick={() => onCopy(msg.content, index)}
-                  className={toolbarButtonClass}
-                >
-                  {isCopied ? (
-                    <Check className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </IconTip>
-            )}
-            {editButton}
-            {addQuickPromptButton}
-            {forkButton}
-            {renderToggleButton}
-            {detailsButton}
-          </div>
+          {!hideActionBar && (
+            <div
+              data-testid="message-action-bar"
+              className={cn(
+                "ml-7 mt-0.5 flex h-6 items-center gap-0.5",
+                (!hasToolbarActions || !(isHovered || isCopied || detailsIndex === index)) &&
+                  "invisible",
+              )}
+            >
+              {msg.content && (
+                <IconTip label={t("chat.copy")}>
+                  <button
+                    type="button"
+                    onClick={() => onCopy(msg.content, index)}
+                    className={toolbarButtonClass}
+                  >
+                    {isCopied ? (
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </IconTip>
+              )}
+              {editButton}
+              {addQuickPromptButton}
+              {forkButton}
+              {renderToggleButton}
+              {detailsButton}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -2334,35 +2340,38 @@ function MessageBubbleInner({
          * the same gap to the row's bottom. Without the placeholder height
          * the gap to bottom jumps from 16px to 42px the moment the first
          * token arrives. */}
-        <div
-          className={cn(
-            "flex items-center gap-0.5 mt-0.5 h-6",
-            isUserAligned ? "justify-end" : "justify-start",
-            (!hasToolbarActions || !(isHovered || isCopied || detailsIndex === index)) &&
-              "invisible",
-          )}
-        >
-          {msg.content && (
-            <IconTip label={t("chat.copy")}>
-              <button
-                type="button"
-                onClick={() => onCopy(msg.content, index)}
-                className={toolbarButtonClass}
-              >
-                {isCopied ? (
-                  <Check className="h-3.5 w-3.5 text-green-500" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
-            </IconTip>
-          )}
-          {editButton}
-          {addQuickPromptButton}
-          {forkButton}
-          {renderToggleButton}
-          {detailsButton}
-        </div>
+        {!hideActionBar && (
+          <div
+            data-testid="message-action-bar"
+            className={cn(
+              "flex items-center gap-0.5 mt-0.5 h-6",
+              isUserAligned ? "justify-end" : "justify-start",
+              (!hasToolbarActions || !(isHovered || isCopied || detailsIndex === index)) &&
+                "invisible",
+            )}
+          >
+            {msg.content && (
+              <IconTip label={t("chat.copy")}>
+                <button
+                  type="button"
+                  onClick={() => onCopy(msg.content, index)}
+                  className={toolbarButtonClass}
+                >
+                  {isCopied ? (
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </IconTip>
+            )}
+            {editButton}
+            {addQuickPromptButton}
+            {forkButton}
+            {renderToggleButton}
+            {detailsButton}
+          </div>
+        )}
       </div>
     </div>
   )

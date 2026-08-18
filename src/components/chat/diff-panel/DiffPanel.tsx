@@ -741,16 +741,18 @@ export function DiffPanel({
             </button>
           </IconTip>
         </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0"
-          onClick={onClose}
-          aria-label={t("common.close", "关闭")}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        {!embedded && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            onClick={onClose}
+            aria-label={t("common.close", "关闭")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {gitContext ? (

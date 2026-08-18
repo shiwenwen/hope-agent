@@ -1033,10 +1033,7 @@
       "expand": "قم بتوسيع اللوحة اليمنى",
       "switch": "تبديل اللوحة اليمنى",
       "dock": "شريط اللوحات الجانبية",
-      "openPanel": "فتح {{panel}}",
-      "switchToPanel": "التبديل إلى {{panel}}",
-      "collapsePanel": "طي {{panel}}",
-      "expandPanel": "توسيع {{panel}}",
+      "resize": "تغيير عرض مساحة العمل",
       "workflowActiveCount": "{{count}} من مهام سير العمل النشطة",
       "workflowAttentionCount": "{{count}} من مهام سير العمل تحتاج إلى الانتباه",
       "backgroundRunningCount": "{{count}} من المهام في الخلفية قيد التشغيل",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "معاينة",
-    "resizePanel": "تغيير حجم لوحة المعاينة"
+    "resizePanel": "تغيير حجم لوحة المعاينة",
+    "pathBreadcrumb": "مسار الملف",
+    "revealFolder": "إظهار المجلد في لوحة الملفات",
+    "copyPath": "نسخ المسار الكامل"
   },
   "fileBrowser": {
     "panelTitle": "الملفات",
@@ -2815,7 +2815,10 @@
     "zoomOut": "تصغير",
     "zoomIn": "تكبير",
     "fitWidth": "ملاءمة العرض",
-    "officeNoContent": "تعذّر استخراج المحتوى من هذا الملف."
+    "officeNoContent": "تعذّر استخراج المحتوى من هذا الملف.",
+    "openInNewTab": "فتح في علامة تبويب جديدة",
+    "collapseTree": "إخفاء قائمة الملفات",
+    "expandTree": "إظهار قائمة الملفات"
   },
   "diffPanel": {
     "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",

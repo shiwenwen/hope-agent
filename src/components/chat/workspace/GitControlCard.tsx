@@ -1083,7 +1083,7 @@ export function PullRequestDetailsContent({
   feedback: GitPullRequestFeedback | null
   loading: boolean
   refreshError?: string | null
-  onClose: () => void
+  onClose?: () => void
   onRefresh: () => void
   onFixAll?: () => void
   onFixChecks?: (checks: GitPullRequestCheck[]) => void
@@ -1128,14 +1128,16 @@ export function PullRequestDetailsContent({
             >
               <ExternalLink className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-              onClick={onClose}
-              aria-label={t("common.close", "关闭")}
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {onClose ? (
+              <button
+                type="button"
+                className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                onClick={onClose}
+                aria-label={t("common.close", "关闭")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
         </div>
 

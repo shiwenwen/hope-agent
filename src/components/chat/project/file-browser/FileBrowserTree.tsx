@@ -16,7 +16,7 @@ import {
   type KeyboardEvent,
 } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronRight, Loader2 } from "lucide-react"
+import { ChevronRight, Loader2, SquarePlus } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -59,6 +59,9 @@ interface TreeContext {
   expansion: UseTreeExpansion
   selectedPath: string | null
   onSelectFile: (entry: WorkspaceEntry) => void
+  onPreviewFile?: (target: PreviewTarget) => void
+  /** Explicit "open in a new tab"; the context-menu entry is hidden without it. */
+  onOpenInNewTab?: (target: PreviewTarget) => void
   editable: boolean
   renaming: string | null
   setRenaming: (p: string | null) => void
@@ -88,7 +91,12 @@ export interface FileBrowserTreeProps {
   fs: ProjectFsApi
   expansion: UseTreeExpansion
   selectedPath: string | null
+  /** A selected directory expands itself on reveal, not just its ancestors. */
+  selectedIsDir?: boolean
   onSelectFile: (entry: WorkspaceEntry) => void
+  onPreviewFile?: (target: PreviewTarget) => void
+  /** Explicit "open in a new tab"; the context-menu entry is hidden without it. */
+  onOpenInNewTab?: (target: PreviewTarget) => void
   editable?: boolean
   /** Draft "new file/folder" row, owned by the parent so the toolbar and the
    *  context menu can both trigger it. */
@@ -104,7 +112,10 @@ export function FileBrowserTree({
   fs,
   expansion,
   selectedPath,
+  selectedIsDir = false,
   onSelectFile,
+  onPreviewFile,
+  onOpenInNewTab,
   editable = false,
   draft,
   onDraftChange,
@@ -169,7 +180,8 @@ export function FileBrowserTree({
   useEffect(() => {
     if (!selectedPath) return
     const parts = selectedPath.split("/").filter(Boolean)
-    parts.pop() // ancestors only — drop the file name
+    // Ancestors only, unless the target is itself a directory.
+    if (!selectedIsDir) parts.pop()
     let dir = ""
     for (const part of parts) {
       dir = dir ? `${dir}/${part}` : part
@@ -179,13 +191,15 @@ export function FileBrowserTree({
       // level by level (which can stall before reaching a deep target).
       if (!fs.getDir(dir)) void fs.loadDir(dir)
     }
-  }, [selectedPath, expansion, fs])
+  }, [selectedPath, selectedIsDir, expansion, fs])
 
   const ctx: TreeContext = {
     fs,
     expansion,
     selectedPath,
     onSelectFile,
+    onPreviewFile,
+    onOpenInNewTab,
     editable,
     renaming,
     setRenaming,
@@ -310,7 +324,10 @@ function TreeNode({
     [entry, fs.scope.scope, fs.scope.scopeId],
   )
   const fileActions = useFileResource(fileTarget, {
-    onPreviewFile: () => ctx.onSelectFile(entry),
+    onPreviewFile: () => {
+      ctx.onSelectFile(entry)
+      ctx.onPreviewFile?.(fileTarget)
+    },
     onEditFile: () => ctx.onEditFile?.(entry),
     onGuidedAction: () => ctx.onGuidedWrite?.(),
     workspaceAccess: fs.access ?? undefined,
@@ -439,6 +456,15 @@ function TreeNode({
                 }}
               >
                 {t("fileBrowser.newFolder", "New Folder")}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null}
+          {!entry.isDir && ctx.onOpenInNewTab ? (
+            <>
+              <ContextMenuItem onSelect={() => ctx.onOpenInNewTab?.(fileTarget)}>
+                <SquarePlus className="mr-2 h-3.5 w-3.5" />
+                {t("fileBrowser.openInNewTab", "Open in a new tab")}
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>

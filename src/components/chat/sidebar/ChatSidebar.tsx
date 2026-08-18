@@ -3,6 +3,7 @@ import { flushSync } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { SearchInput } from "@/components/ui/search-input"
 import { cn } from "@/lib/utils"
 import {
@@ -69,6 +70,7 @@ export default function ChatSidebar({
   sessionsLoading = false,
   totalUnreadCount,
   panelWidth,
+  renderedWidth,
   sidebarCollapsed,
   onPanelWidthChange,
   onSidebarCollapsedChange,
@@ -96,6 +98,7 @@ export default function ChatSidebar({
   const [projectsExpanded, setProjectsExpandedState] = useState(() =>
     readStoredBoolean(PROJECTS_EXPANDED_STORAGE_KEY, true),
   )
+  const layoutWidth = renderedWidth ?? panelWidth
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarDisplayMode, setSidebarDisplayMode] = useState<SidebarDisplayMode>(
@@ -341,12 +344,14 @@ export default function ChatSidebar({
   // Drag handler for resizable panel
   const isDragging = useRef(false)
   const [isResizing, setIsResizing] = useState(false)
-  const [isResizeHandleHovered, setIsResizeHandleHovered] = useState(false)
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault()
     isDragging.current = true
     setIsResizing(true)
     const startX = e.clientX
+    // Drag from the stored preference, not from a responsively squeezed
+    // render width — otherwise every nudge in a narrow window rewrites the
+    // preference to whatever the squeeze happened to allow.
     const startWidth = panelWidth
 
     const onMouseMove = (ev: MouseEvent) => {
@@ -534,7 +539,7 @@ export default function ChatSidebar({
   return (
     <>
       <div
-        style={{ width: sidebarCollapsed ? 0 : panelWidth }}
+        style={{ width: sidebarCollapsed ? 0 : layoutWidth }}
         className={cn(
           "relative h-full shrink-0",
           !isResizing &&
@@ -544,18 +549,13 @@ export default function ChatSidebar({
       >
         <div className="h-full overflow-hidden">
           <div
-            style={{ width: panelWidth }}
+            style={{ width: layoutWidth }}
             aria-hidden={sidebarCollapsed}
             inert={sidebarCollapsed ? true : undefined}
             onPointerDownCapture={enableSidebarMotion}
             onKeyDownCapture={enableSidebarMotion}
             className={cn(
-              "h-full border-r bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
-              isResizing
-                ? "border-r-primary/50"
-                : isResizeHandleHovered
-                  ? "border-r-primary/35"
-                  : "border-r-border-soft",
+              "h-full border-r border-r-border-soft bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
               !sidebarMotionDisabled &&
                 "transition-[opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
               sidebarCollapsed
@@ -564,11 +564,12 @@ export default function ChatSidebar({
             )}
           >
             {/* Title bar */}
-            <div className="h-12 flex items-end px-3.5 shrink-0" data-tauri-drag-region>
-              <h2 className="text-sm font-semibold text-foreground pb-2">
+            {/* Both sides are h-7 boxes so the title centers on the icon row. */}
+            <div className="h-12 flex items-end px-3.5 pb-2 shrink-0" data-tauri-drag-region>
+              <h2 className="flex h-7 items-center text-sm font-semibold text-foreground">
                 {t("chat.conversations")}
               </h2>
-              <div className="ml-auto flex items-center gap-1 pb-2">
+              <div className="ml-auto flex h-7 items-center gap-1">
                 <IconTip label={t("chat.collapseSidebar")}>
                   <button
                     className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-surface-subtle"
@@ -756,7 +757,7 @@ export default function ChatSidebar({
                       onNewChat={onNewChat}
                       onEditAgent={onEditAgent}
                       onReorderAgents={onReorderAgents}
-                      panelWidth={panelWidth}
+                      panelWidth={layoutWidth}
                       displayMode={sidebarDisplayMode}
                       motionDisabled={sidebarMotionDisabled}
                       stickyHeaderCount={Number(showPinnedSection)}
@@ -813,14 +814,14 @@ export default function ChatSidebar({
             existing border provides the visual hover/drag affordance. */}
         <div
           className={cn(
-            "absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
+            "group absolute inset-y-0 right-0 z-20 translate-x-full cursor-col-resize",
             !sidebarMotionDisabled && "transition-[width,opacity] duration-200 ease-out",
             sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-3 opacity-100",
           )}
           onMouseDown={handleDragStart}
-          onMouseEnter={() => setIsResizeHandleHovered(true)}
-          onMouseLeave={() => setIsResizeHandleHovered(false)}
-        />
+        >
+          <ResizeHandleGlow active={isResizing} className="inset-y-0 left-0 w-px" />
+        </div>
       </div>
     </>
   )

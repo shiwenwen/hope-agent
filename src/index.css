@@ -54,6 +54,9 @@
   --ha-focus-halo: rgb(0 111 214 / 0.16);
   --ha-markdown-link: #339cff;
   --ha-markdown-link-hover: #168af7;
+  /* Resize-handle glow: same accent, pre-multiplied so the shadow utility can
+     stay a token reference instead of a literal. */
+  --ha-resize-glow: rgb(51 156 255 / 0.5);
 }
 
 /* Dark theme overrides */
@@ -63,6 +66,7 @@
   --ha-focus-halo: rgb(112 182 255 / 0.2);
   --ha-markdown-link: #339cff;
   --ha-markdown-link-hover: #66b5ff;
+  --ha-resize-glow: rgb(51 156 255 / 0.55);
   --color-background: hsl(0 0% 7%);
   --color-foreground: hsl(0 0% 90%);
   --color-card: hsl(0 0% 13%);

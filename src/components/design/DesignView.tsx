@@ -126,6 +126,7 @@ import { DesignRepoBinding } from "@/components/design/DesignRepoBinding"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import { RadioPills } from "@/components/ui/radio-pills"
 import { TogglePills } from "@/components/ui/toggle-pills"
 import { Progress } from "@/components/ui/progress"
@@ -773,7 +774,7 @@ export default function DesignView({
   }, [chatWidth])
   // 统一 resize 把手（对齐主分支 #458）：共享 useDragWidth——拖拽期挂起全部 iframe 指针事件
   //（预览 iframe 不再吃 mousemove，等效替代旧 setPointerCapture）、window blur 兜底收尾、
-  // min/max 钳制；isChatResizing 驱动分隔线拖拽态颜色（bg-primary/50）。
+  // min/max 钳制；isChatResizing 驱动共享蓝色光晕分隔线的拖拽态。
   const [isChatResizing, setIsChatResizing] = useState(false)
   const startChatResize = useDragWidth({
     width: chatWidth,
@@ -5445,15 +5446,14 @@ export default function DesignView({
           </div>
           {chatOpen && (
             <div
-              className={cn(
-                "relative w-px shrink-0 cursor-col-resize transition-colors",
-                isChatResizing ? "bg-primary/50" : "bg-border hover:bg-primary/35",
-              )}
+              // Structural rule stays; the glow on top is only the drag affordance.
+              className={cn("group relative w-px shrink-0 cursor-col-resize bg-border-soft")}
               onMouseDown={startChatResize}
               role="separator"
               aria-orientation="vertical"
               aria-label={t("design.chat.resize", "Resize chat panel")}
             >
+              <ResizeHandleGlow active={isChatResizing} className="inset-0" />
               {/* Wider invisible hit area around the 1px divider. */}
               <div className="absolute inset-y-0 -left-1 -right-1" />
             </div>

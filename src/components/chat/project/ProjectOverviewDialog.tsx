@@ -36,6 +36,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import {
   Sheet,
   SheetContent,
@@ -289,7 +290,10 @@ export default function ProjectOverviewDialog({
           onPointerCancel={finishResize}
           className="group absolute inset-y-0 left-0 z-20 hidden w-3 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center outline-none sm:flex"
         >
-          <span className="h-full w-px bg-transparent transition-colors group-hover:bg-primary/50 group-focus-visible:bg-primary group-data-[dragging=true]:bg-primary" />
+          <ResizeHandleGlow
+            active={resizing}
+            className="inset-y-0 left-1/2 w-px -translate-x-1/2"
+          />
         </div>
         <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
           <div className="flex items-start gap-3">

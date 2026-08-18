@@ -1033,10 +1033,7 @@
       "expand": "Развернуть правую панель",
       "switch": "Переключить правую панель",
       "dock": "Панель закрепления справа",
-      "openPanel": "Открыть {{panel}}",
-      "switchToPanel": "Переключиться на {{panel}}",
-      "collapsePanel": "Свернуть {{panel}}",
-      "expandPanel": "Развернуть {{panel}}",
+      "resize": "Изменить ширину рабочей области",
       "workflowActiveCount": "Активных процессов: {{count}}",
       "workflowAttentionCount": "Требуют внимания: {{count}}",
       "backgroundRunningCount": "Фоновых задач выполняется: {{count}}",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "Просмотр",
-    "resizePanel": "Изменить размер панели просмотра"
+    "resizePanel": "Изменить размер панели просмотра",
+    "pathBreadcrumb": "Путь к файлу",
+    "revealFolder": "Показать папку в панели файлов",
+    "copyPath": "Копировать полный путь"
   },
   "fileBrowser": {
     "panelTitle": "Файлы",
@@ -2815,7 +2815,10 @@
     "zoomOut": "Уменьшить",
     "zoomIn": "Увеличить",
     "fitWidth": "По ширине",
-    "officeNoContent": "Не удалось извлечь содержимое из этого файла."
+    "officeNoContent": "Не удалось извлечь содержимое из этого файла.",
+    "openInNewTab": "Открыть в новой вкладке",
+    "collapseTree": "Скрыть список файлов",
+    "expandTree": "Показать список файлов"
   },
   "diffPanel": {
     "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",

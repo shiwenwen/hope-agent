@@ -10,6 +10,7 @@ import {
 } from "react"
 import { cn } from "@/lib/utils"
 import { UI_MOTION } from "@/components/ui/motion"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 
 interface RightPanelShellProps {
   width: number
@@ -30,6 +31,8 @@ interface RightPanelShellProps {
   fullscreenTransitionRef?: RefCallback<HTMLDivElement>
   /** Animate the rail from zero width when it is the first right panel to open. */
   animateOnMount?: boolean
+  /** The shared workbench owns sizing, border and resize affordances. */
+  integrated?: boolean
 }
 
 export function RightPanelShell({
@@ -49,6 +52,7 @@ export function RightPanelShell({
   bodyClassName,
   fullscreenTransitionRef,
   animateOnMount = false,
+  integrated = false,
 }: RightPanelShellProps) {
   const shellRef = useRef<HTMLDivElement>(null)
   const resolvedContentKey = contentKey ?? "right-panel-content"
@@ -181,13 +185,15 @@ export function RightPanelShell({
   )
 
   const availableWidthCss = `max(0px, calc(100% - ${reservedMainWidth}px))`
-  const panelStyle: CSSProperties = visuallyCollapsed
-    ? { width: 0, minWidth: 0, maxWidth: 0 }
-    : {
-        width: `min(${width}px, ${availableWidthCss})`,
-        minWidth: `min(${minWidth}px, ${availableWidthCss})`,
-        maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
-      }
+  const panelStyle: CSSProperties | undefined = integrated
+    ? undefined
+    : visuallyCollapsed
+      ? { width: 0, minWidth: 0, maxWidth: 0 }
+      : {
+          width: `min(${width}px, ${availableWidthCss})`,
+          minWidth: `min(${minWidth}px, ${availableWidthCss})`,
+          maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
+        }
 
   const fullscreenSurface = (maximized || overlay) && !collapsed
 
@@ -198,30 +204,39 @@ export function RightPanelShell({
         "flex min-h-0 flex-col overflow-hidden bg-surface-app",
         fullscreenSurface
           ? "fixed inset-0 z-50"
-          : "relative h-full shrink-0 bg-transparent",
+          : integrated
+            ? "absolute inset-0 h-full w-full min-w-0 bg-background"
+            : "relative h-full shrink-0 bg-transparent",
         !fullscreenSurface &&
+          !integrated &&
           !isResizing &&
           "transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
         fullscreenSurface
           ? overlay && !maximized
             ? "p-2 sm:p-3"
             : "p-0"
-          : visuallyCollapsed
-            ? "min-w-0 max-w-0 p-0 pointer-events-none"
-            : "p-3 pl-2",
+          : integrated
+            ? "p-0"
+            : visuallyCollapsed
+              ? "min-w-0 max-w-0 p-0 pointer-events-none"
+              : "p-3 pl-2",
         fullscreenSurface &&
           animateOnMount &&
           "animate-in fade-in-0 slide-in-from-right-2 duration-[250ms] motion-reduce:animate-none",
         surfaceClassName,
+        visuallyCollapsed && "pointer-events-none",
+        // Integrated shells stack absolutely: a collapsed one still paints over
+        // the active panel. Must stay last so `cn` keeps it.
+        integrated && visuallyCollapsed && "bg-transparent",
       )}
       style={fullscreenSurface ? undefined : panelStyle}
       aria-hidden={visuallyCollapsed ? true : undefined}
       inert={visuallyCollapsed ? true : undefined}
     >
-      {!fullscreenSurface && (
+      {!fullscreenSurface && !integrated && (
         <div
           className={cn(
-            "peer absolute left-0 top-3 bottom-3 z-10 w-4",
+            "peer group absolute left-0 top-3 bottom-3 z-10 w-4",
             onWidthChange && !visuallyCollapsed && "cursor-col-resize",
             visuallyCollapsed && "hidden",
           )}
@@ -229,15 +244,20 @@ export function RightPanelShell({
           role="separator"
           aria-orientation="vertical"
           aria-label={resizeLabel}
-        />
+        >
+          {onWidthChange && !visuallyCollapsed && (
+            <ResizeHandleGlow active={isResizing} className="inset-y-0 left-2 w-px" />
+          )}
+        </div>
       )}
       <div
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden transition-[opacity,transform,border-color,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
-          maximized
-            ? "rounded-none border-0 bg-surface-app shadow-none"
-            : "rounded-2xl border border-border-soft bg-surface-panel shadow-panel peer-hover:bg-secondary/20",
-          isResizing && "border-l-primary/50",
+          integrated
+            ? "rounded-none border-0 bg-background shadow-none"
+            : maximized
+              ? "rounded-none border-0 bg-surface-app shadow-none"
+              : "rounded-2xl border border-border-soft bg-surface-panel shadow-panel peer-hover:bg-secondary/20",
           visuallyCollapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,
         )}
@@ -252,7 +272,9 @@ export function RightPanelShell({
           </div>
           <div
             className={cn(
-              "pointer-events-none absolute inset-0 z-20 bg-surface-panel transition-opacity ease-out motion-reduce:hidden",
+              "pointer-events-none absolute inset-0 z-20 transition-opacity ease-out motion-reduce:hidden",
+              // Must match the shell it veils, or a tab switch flashes.
+              integrated ? "bg-background" : "bg-surface-panel",
               transitionVeilVisible ? "opacity-100" : "opacity-0",
             )}
             style={{ transitionDuration: `${UI_MOTION.panelContentExit}ms` }}

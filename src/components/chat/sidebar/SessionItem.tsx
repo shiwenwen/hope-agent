@@ -240,13 +240,13 @@ export default function SessionItem({
               {displayUnreadCount > 0 && (
                 <span
                   aria-hidden="true"
-                  className="absolute -right-0.5 -top-0.5 z-10 h-2.5 w-2.5 rounded-full border-2 border-background bg-destructive pointer-events-none"
+                  className="absolute -right-0.5 -top-0.5 z-10 h-2 w-2 rounded-full border border-background bg-destructive pointer-events-none"
                 />
               )}
               {displayChannelUnreadCount > 0 && (
                 <span
                   aria-hidden="true"
-                  className="absolute -right-0.5 -top-0.5 z-10 h-2.5 w-2.5 rounded-full border-2 border-background bg-sky-500 pointer-events-none"
+                  className="absolute -right-0.5 -top-0.5 z-10 h-2 w-2 rounded-full border border-background bg-sky-500 pointer-events-none"
                 />
               )}
               {hasPending && (
@@ -374,13 +374,13 @@ export default function SessionItem({
                   {displayUnreadCount > 0 && (
                     <span
                       aria-hidden="true"
-                      className="inline-flex h-2.5 w-2.5 rounded-full bg-destructive"
+                      className="inline-flex h-2 w-2 rounded-full bg-destructive"
                     />
                   )}
                   {displayChannelUnreadCount > 0 && (
                     <span
                       aria-hidden="true"
-                      className="inline-flex h-2.5 w-2.5 rounded-full bg-sky-500"
+                      className="inline-flex h-2 w-2 rounded-full bg-sky-500"
                     />
                   )}
                   {pendingCountdown && (

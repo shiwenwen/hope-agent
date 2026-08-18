@@ -1033,10 +1033,7 @@
       "expand": "오른쪽 패널 펼치기",
       "switch": "오른쪽 패널 전환",
       "dock": "오른쪽 패널 도크",
-      "openPanel": "{{panel}} 열기",
-      "switchToPanel": "{{panel}} 패널로 전환",
-      "collapsePanel": "{{panel}} 접기",
-      "expandPanel": "{{panel}} 펼치기",
+      "resize": "작업대 너비 조절",
       "workflowActiveCount": "활성 워크플로 {{count}}개",
       "workflowAttentionCount": "주의가 필요한 워크플로 {{count}}개",
       "backgroundRunningCount": "백그라운드 작업 {{count}}개 실행 중",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "미리보기",
-    "resizePanel": "미리보기 패널 크기 조정"
+    "resizePanel": "미리보기 패널 크기 조정",
+    "pathBreadcrumb": "파일 경로",
+    "revealFolder": "파일 패널에서 이 폴더 표시",
+    "copyPath": "전체 경로 복사"
   },
   "fileBrowser": {
     "panelTitle": "파일",
@@ -2815,7 +2815,10 @@
     "zoomOut": "축소",
     "zoomIn": "확대",
     "fitWidth": "너비 맞춤",
-    "officeNoContent": "이 파일에서 콘텐츠를 추출할 수 없습니다"
+    "officeNoContent": "이 파일에서 콘텐츠를 추출할 수 없습니다",
+    "openInNewTab": "새 탭에서 열기",
+    "collapseTree": "파일 목록 숨기기",
+    "expandTree": "파일 목록 표시"
   },
   "diffPanel": {
     "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",

@@ -18,6 +18,7 @@ export interface BrowserPanelContentProps {
   active?: boolean
   onClose: () => void
   onFloat?: () => void
+  integrated?: boolean
 }
 
 /**
@@ -32,6 +33,7 @@ export function BrowserPanelContent({
   active = true,
   onClose,
   onFloat,
+  integrated = false,
 }: BrowserPanelContentProps) {
   const { t } = useTranslation()
   const [paused, setPaused] = useState(false)
@@ -81,6 +83,7 @@ export function BrowserPanelContent({
         onFloat={onFloat}
         onRefresh={() => void refresh()}
         onClose={onClose}
+        showFrameControls={!integrated}
       />
       {frame?.url && (
         <div className="truncate bg-muted/40 px-3 py-1 text-xs text-muted-foreground">

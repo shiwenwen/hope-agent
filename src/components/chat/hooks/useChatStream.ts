@@ -341,6 +341,11 @@ export interface UseChatStreamOptions {
    *  don't otherwise route through `handleSwitchSession` (new-session
    *  rename in particular). */
   touchSessionCacheLru?: (sessionId: string) => void
+  /** The draft this screen was on just became `sessionId`. Surfaces that keep
+   *  draft-scoped state (workbench tabs, file previews) re-address it here
+   *  instead of watching `currentSessionId` flip, which can't tell a promotion
+   *  from navigating to some other session. */
+  onSessionPromoted?: (sessionId: string) => void
   sessions: Pick<SessionMeta, "id" | "title" | "workingDir" | "permissionMode" | "sandboxMode">[]
   agents: AgentSummaryForSidebar[]
   /** Display-only compatibility input; never converted into a strict override. */
@@ -515,6 +520,7 @@ export function useChatStream({
   sessionCacheRef,
   capMessagesForSession,
   touchSessionCacheLru,
+  onSessionPromoted,
   sessions,
   agents,
   manualModelOverrideRef,
@@ -2364,6 +2370,9 @@ export function useChatStream({
         // bookkeeping done by `handleSwitchSession` and could be evicted
         // before the user even sees the first response.
         touchSessionCacheLru?.(event.session_id)
+        // Same rename, one layer up: the draft's workbench tabs / previews are
+        // this conversation's and must follow it instead of being dropped.
+        onSessionPromoted?.(event.session_id)
         loadingSessionsRef.current.add(event.session_id)
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
         setCurrentSessionId(event.session_id)

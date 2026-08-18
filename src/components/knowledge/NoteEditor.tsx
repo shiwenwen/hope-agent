@@ -28,6 +28,7 @@ import { MessageSquareQuote, Sparkles } from "lucide-react"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import type { NoteEditorMode } from "@/types/knowledge"
 
 import { fetchNoteRef } from "./noteRefFetch"
@@ -496,12 +497,14 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       )}
       {splitActive && (
         <div
-          className={`relative w-px shrink-0 cursor-col-resize transition-colors ${isSplitResizing ? "bg-primary/50" : "bg-border-soft/60 hover:bg-primary/35"}`}
+          // Structural rule stays; the glow on top is only the drag affordance.
+          className="group relative w-px shrink-0 cursor-col-resize bg-border-soft"
           onMouseDown={onSplitDragStart}
           role="separator"
           aria-orientation="vertical"
           aria-label={t("knowledge.resizeSplit", "Resize split")}
         >
+          <ResizeHandleGlow active={isSplitResizing} className="inset-0" />
           {/* Wider invisible hit area around the 1px divider. */}
           <div className="absolute inset-y-0 -left-1 -right-1" />
         </div>

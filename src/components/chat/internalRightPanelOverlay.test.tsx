@@ -111,6 +111,14 @@ describe("internal right-panel overlay contract", () => {
     expectOverlay(container)
   })
 
+  test("integrated BrowserPanel keeps refresh but delegates float and close to the workbench", () => {
+    renderPanel(<BrowserPanel integrated onClose={() => {}} onFloat={() => {}} />)
+
+    expect(screen.getByRole("button", { name: "chat.browserPanel.refresh" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "chat.controlPanel.floatWindow" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "chat.browserPanel.close" })).toBeNull()
+  })
+
   test("FileBrowserPanel uses the shared fixed overlay surface", () => {
     const { container } = renderPanel(
       <FileBrowserPanel

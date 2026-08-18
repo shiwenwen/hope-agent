@@ -1033,10 +1033,7 @@
       "expand": "右側のパネルを展開します",
       "switch": "右パネルを切り替えます",
       "dock": "右パネルドック",
-      "openPanel": "{{panel}}を開く",
-      "switchToPanel": "{{panel}}に切り替える",
-      "collapsePanel": "{{panel}}を折りたたむ",
-      "expandPanel": "{{panel}}を展開する",
+      "resize": "ワークベンチの幅を調整",
       "workflowActiveCount": "{{count}}件のアクティブなワークフロー",
       "workflowAttentionCount": "{{count}}件のワークフローに対応が必要です",
       "backgroundRunningCount": "{{count}}件のバックグラウンドタスクが実行中",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "プレビュー",
-    "resizePanel": "プレビューパネルの幅を調整"
+    "resizePanel": "プレビューパネルの幅を調整",
+    "pathBreadcrumb": "ファイルパス",
+    "revealFolder": "ファイルパネルでこのフォルダーを表示",
+    "copyPath": "フルパスをコピー"
   },
   "fileBrowser": {
     "panelTitle": "ファイル",
@@ -2815,7 +2815,10 @@
     "zoomOut": "縮小",
     "zoomIn": "拡大",
     "fitWidth": "幅に合わせる",
-    "officeNoContent": "このファイルから内容を抽出できませんでした"
+    "officeNoContent": "このファイルから内容を抽出できませんでした",
+    "openInNewTab": "新しいタブで開く",
+    "collapseTree": "ファイル一覧を隠す",
+    "expandTree": "ファイル一覧を表示"
   },
   "diffPanel": {
     "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",

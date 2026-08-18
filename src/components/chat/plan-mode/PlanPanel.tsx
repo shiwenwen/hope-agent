@@ -359,17 +359,19 @@ export function PlanPanel({
                 <WindowModeIcon action="reattach" className="h-3.5 w-3.5" />
               </button>
             </IconTip>
-            <IconTip label={t("common.close")}>
-              <button
-                onClick={() => {
-                  handleReattach()
-                  onClose()
-                }}
-                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </IconTip>
+            {!embedded && (
+              <IconTip label={t("common.close")}>
+                <button
+                  onClick={() => {
+                    handleReattach()
+                    onClose()
+                  }}
+                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            )}
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
@@ -419,7 +421,7 @@ export function PlanPanel({
               </button>
             </IconTip>
           )}
-          {desktopMode && (
+          {desktopMode && !embedded && (
             <IconTip label={maximized ? t("planMode.minimize") : t("planMode.maximize")}>
               <button
                 onClick={toggleFullscreen}
@@ -434,14 +436,16 @@ export function PlanPanel({
               </button>
             </IconTip>
           )}
-          <IconTip label={t("common.close")}>
-            <button
-              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-              onClick={onClose}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
+          {!embedded && (
+            <IconTip label={t("common.close")}>
+              <button
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                onClick={onClose}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          )}
         </div>
       </div>
 

@@ -221,6 +221,7 @@ ArrowUp/ArrowDown、移动端数字键盘提示和屏幕阅读器数值语义；
 - `model_fallback` 的 live stream 与持久化 `role=event` 共用同一个 `FallbackEvent` 解析契约；历史重载或展开“已处理”消息时继续渲染紧凑 `FallbackBanner`，禁止把原始事件 JSON 当 Markdown 气泡展示。完整错误只在 banner 详情中以可换行、有界高度的诊断文本出现。
 - 完成回合的“已处理”摘要与详情必须位于同一个 `AnimatedCollapse` 生命周期中：展开/收起使用共享高度与透明度动效，并由折叠容器在正常文档流中推动其后的最终回复及后续内容整体位移；用户手动切换期间须暂挂消息列表的 follow-bottom 滚动钉住，禁止用滚动补偿抵消该布局动画，动画结束后再重新判定是否位于底部。`visible-when-open` 只允许在高度完成过渡并稳定为 `auto` 后释放 overflow，展开增长和收起阶段必须保持裁剪，避免详情穿出容器与后续消息重叠。收起开始即 `aria-hidden + inert`，退出动画结束后 `unmountOnExit` 销毁 Markdown、工具卡和事件提示子树。禁止为保留动画而把隐藏详情永久留在 DOM。
 - “已处理”摘要触发器不设置视觉 hover 态：分隔线由外层静态承载，鼠标经过不改变背景或文字颜色；仍保留可点击光标、公共 `Button` 的键盘焦点协议和箭头展开动画。
+- 底部操作条（复制 / 编辑 / 分叉 / 详情）以**一轮回复一条**为准：折叠只是呈现，展开“已处理”详情后其中的中间步骤消息一律不渲染自己的操作条（`MessageBubble` 的 `hideActionBar`），操作条只留在本轮最终回复气泡上；折叠详情里也不保留其占位高度。
 - 状态至少区分“执行中”“请求已接受”“已完成”“被拒绝”“失败”。取消类调用返回成功只证明请求被接受；只有原生运行记录确认终态后才能显示“已关闭”。已经终态或没有可关闭目标时使用独立 no-op 文案，不冒充本次关闭成果。
 - 能力驱动文案：普通 Subagent、Async Job 和 Process 没有暂停语义；Team/Workflow/Cron 只有在调用其真实 `pause/resume` 动作时才显示暂停或恢复。
 - 聚合只改变呈现，不授予工具权限；所有 owner/session 校验仍在执行层完成。
@@ -275,6 +276,14 @@ Tooltip 是补充说明，不是可访问名称——这条边界要一直守住
 - 标题使用紧凑字号；副标题与标题同行、允许截断，使用弱化前景色，不再占据独立行高；
 - 右侧刷新、设置、创建等操作统一使用紧凑按钮，窄宽度下优先压缩或隐藏次要说明；
 - 标题栏可保留固定结构分隔线，但 hover、selected、open 等状态不得改变该分隔线。
+
+### 对话分栏工作台标题行
+
+主聊天的 [`Docked Workbench`](../agent/docked-workbench.md) 也遵守单行 `h-10`，但同一行按下方真实分栏拆成 conversation header 与 workbench tabs 两段。两段边界必须与内容 resize separator 对齐；工作台关闭时 conversation 段自然占满，禁止为标签再增加第二条应用级标题栏。面板内部只保留 URL、Git、文件、Plan 等业务工具栏，不能再建立另一条顶层 chrome。
+
+工作台分隔线及其它拖拽尺寸区域统一使用 `ResizeHandleGlow`：命中区可以放宽，但 idle 时不得显示视觉线；hover / keyboard focus / drag 时才显示 1 px 的低对比蓝色光晕，且不改变 border 宽度或布局。键盘可聚焦的 separator 必须提供方向键调整与当前值 ARIA。
+
+分栏工作台使用两级 chrome 归属：重复面板名称、关闭、最大化和容器浮动属于 workbench frame，统一进入顶部标签行；文件路径 / 操作、PR 分支、Diff hunk、Plan 版本、Canvas 类型 / 刷新、Browser URL / 刷新等属于当前内容，保留一层内容工具栏。禁止因为“已有标签”而删除后者，也禁止把 frame controls 复制到每个内容工具栏。
 
 ### 主侧栏工作区生命周期
 
@@ -355,6 +364,8 @@ Canvas、文件浏览器、单文件预览、Plan、产物阅读器等从局部�
 - 遵守 `prefers-reduced-motion: reduce`，此时直接切换布局，不播放动画；
 - 共用 `RightPanelShell` 的面板通过 `fullscreenTransitionRef` 接入，业务组件不得再复制一套
   `Element.animate` / `flushSync` 编排。
+
+当这些内容集成到 Docked Workbench 时是明确例外：内容组件不得再拥有私有最大化按钮，统一由 workbench frame 最大化整个标签容器；独立窗口或其它 standalone 宿主仍沿用上述 `useFullscreenTransition` 契约。
 
 ## 焦点可见性
 
@@ -458,6 +469,12 @@ prompt dock 内的 `ModelSelector` 是工具栏 ghost 按钮，不是表单字�
 内部 `Input` / `Textarea` 必须使用 `surface="embedded"`；典型入口包括 `SessionSearchBar`、
 `AllowlistTagInput`、项目指令 / 自动记忆编辑器及各列表行内改名。不得在普通表单字段上复用该变体；
 复合控件仍须保留清晰外壳和统一焦点协议。
+
+**列宽拖拽手柄**——[`ResizeHandleGlow`](../../../src/components/ui/resize-handle-glow.tsx) 是唯一入口，
+也是「hover 只加深背景、不动 border / ring / shadow」的唯一例外：它本身就是拖拽反馈，idle 完全透明，
+hover / 键盘 focus / 拖拽中才显示 1px 强调色光晕（`--ha-markdown-link` + `--ha-resize-glow`，**禁止再写
+死十六进制**）。它叠在 1px `border-border-soft` 结构线之上，**不得用「有手柄」当作省掉结构线的理由**；
+该例外不扩散到任何非拖拽控件。
 
 **内嵌终端**——由 xterm.js 管理 canvas、viewport 和输入层的第三方复合控件：允许导入上游
 `xterm.css`，并在 `chat/terminal/terminal.css` 内用 `.hope-terminal` 作用域补齐内部层尺寸、主题

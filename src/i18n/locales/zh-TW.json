@@ -1033,10 +1033,7 @@
       "expand": "展開右側面板",
       "switch": "切換右側面板",
       "dock": "右側面板停駐列",
-      "openPanel": "開啟{{panel}}",
-      "switchToPanel": "切換至{{panel}}",
-      "collapsePanel": "收合{{panel}}",
-      "expandPanel": "展開{{panel}}",
+      "resize": "調整工作檯寬度",
       "workflowActiveCount": "{{count}} 個作用中的工作流",
       "workflowAttentionCount": "{{count}} 個工作流需要處理",
       "backgroundRunningCount": "{{count}} 個背景任務正在執行",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "預覽",
-    "resizePanel": "調整預覽面板寬度"
+    "resizePanel": "調整預覽面板寬度",
+    "pathBreadcrumb": "檔案路徑",
+    "revealFolder": "在檔案面板中顯示此資料夾",
+    "copyPath": "複製完整路徑"
   },
   "fileBrowser": {
     "panelTitle": "檔案",
@@ -2815,7 +2815,10 @@
     "zoomOut": "縮小",
     "zoomIn": "放大",
     "fitWidth": "符合寬度",
-    "officeNoContent": "無法從該檔案擷取內容"
+    "officeNoContent": "無法從該檔案擷取內容",
+    "openInNewTab": "在新分頁中開啟",
+    "collapseTree": "隱藏檔案清單",
+    "expandTree": "顯示檔案清單"
   },
   "diffPanel": {
     "fileTooLarge": "檔案過大，僅渲染前 256KB",

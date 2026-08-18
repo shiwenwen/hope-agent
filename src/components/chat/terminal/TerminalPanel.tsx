@@ -3,7 +3,7 @@ import { FitAddon } from "@xterm/addon-fit"
 import { Terminal } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 import "./terminal.css"
-import { GripHorizontal, Maximize2, Minimize2, Plus, SquareTerminal, X } from "lucide-react"
+import { Maximize2, Minimize2, Plus, SquareTerminal, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
@@ -12,6 +12,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { IconTip } from "@/components/ui/tooltip"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 
 export interface TerminalSummary {
   id: string
@@ -292,13 +293,13 @@ export function TerminalPanel({ open, workingDir, onOpenChange }: TerminalPanelP
       {open ? (
         <>
           <div
-            className="group absolute inset-x-0 top-0 z-20 flex h-2 cursor-ns-resize items-start justify-center"
+            className="group absolute inset-x-0 top-0 z-20 h-2 cursor-ns-resize"
             onPointerDown={beginResize}
             role="separator"
             aria-orientation="horizontal"
             aria-label={t("terminal.resize", "调整终端高度")}
           >
-            <GripHorizontal className="mt-0.5 h-3.5 w-3.5 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/70" />
+            <ResizeHandleGlow active={dragging} className="inset-x-0 top-0 h-px" />
           </div>
 
           <header className="flex h-9 items-center border-b border-border/70 bg-muted/20 pl-2 pr-1">

@@ -64,6 +64,7 @@ export function WorkspaceTextEditor({
   onClose,
   onSavedAs,
   onGuidedWrite,
+  dirtyOwnerId,
 }: {
   fs: ProjectFsApi
   entry: WorkspaceEntry
@@ -71,6 +72,9 @@ export function WorkspaceTextEditor({
   onClose: () => void
   onSavedAs: (entry: WorkspaceEntry) => void
   onGuidedWrite?: () => void
+  /** Surface that owns this editor (a workbench file tab), so closing that one
+   *  surface only guards its own unsaved buffer. */
+  dirtyOwnerId?: string
 }) {
   const { t } = useTranslation()
   const transport = useTransport()
@@ -120,9 +124,9 @@ export function WorkspaceTextEditor({
   useEffect(() => setMarkdownPreview(false), [entry.relPath])
 
   useEffect(() => {
-    setFileEditorDirty(dirtyRegistryId, dirty)
+    setFileEditorDirty(dirtyRegistryId, dirty, dirtyOwnerId)
     return () => clearFileEditorDirty(dirtyRegistryId)
-  }, [dirty, dirtyRegistryId])
+  }, [dirty, dirtyOwnerId, dirtyRegistryId])
 
   useEffect(
     () =>

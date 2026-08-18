@@ -4,7 +4,7 @@
 
 **关联源码**
 
-- 右侧面板槽：`src/components/chat/ChatScreen.tsx`
+- 分栏工作台宿主：`src/components/chat/workbench/`、`src/components/chat/ChatScreen.tsx`
 - 工作台主组件：`src/components/chat/workspace/WorkspacePanel.tsx`
 - 产物混合数据源：`src/components/chat/workspace/useWorkspaceArtifacts.ts`（前端合并）、`crates/ha-core/src/session/artifacts.rs`（后端聚合）、`useSessionFileChanges.ts` / `useSessionUrlSources.ts` / `useSessionBrowserActivity.ts`（前端 live tail）
 - Git / PR：`src/components/chat/workspace/GitControlCard.tsx`、`PullRequestPanel.tsx`、`src/components/chat/diff-panel/DiffPanel.tsx`
@@ -16,7 +16,7 @@
 
 主聊天是一条线性的对话流，但每个会话背后还挂着一大堆**状态**：当前目标进度、正在跑的工作流、按时触发的循环、后台任务、碰过的文件与引用来源、Git / PR 状况、各类诊断结果。这些东西如果全塞进对话流，会把对话本身淹没；可用户又确实需要一个「这个会话此刻到底怎么样、有没有需要我处理的东西」的总览，以及少量必要的控制入口。
 
-工作台就是为这件事存在的：主聊天右侧一块**可开关的控制面**，只做三件事——**聚合展示、必要控制、异常入口**。
+Workspace 就是为这件事存在的：它是主聊天右侧分栏工作台中的完整控制面，只做三件事——**聚合展示、必要控制、异常入口**。分栏、标签与环境摘要的外层契约见 [`docked-workbench.md`](docked-workbench.md)。
 
 关键的克制在于：**它不是第二套执行引擎**。工作台不发起模型回合、不绕过权限引擎、不自行解释 Goal 的完成语义，也不从聊天文本里反扫重建控制面事实。所有「真相」仍然归各控制面后端所有，工作台只是它们的一面镜子加几个按钮。
 
@@ -35,13 +35,13 @@
 
 ```mermaid
 flowchart TB
-    subgraph shell["右侧面板槽 · ChatScreen"]
+    subgraph shell["分栏工作台 · ChatScreen / WorkbenchSurface"]
         direction LR
         WS["workspace 面板"]
         PR["pull-request 面板"]
         OTHER["diff / files / browser / canvas / plan / …"]
     end
-    shell -->|互斥切换 · 同时只开一个| WP
+    shell -->|多标签切换 · 打开项保活| WP
 
     subgraph WP["WorkspacePanel · 聚合与展示"]
         SEC["各 Section 组合<br/>顺序 = 产品契约"]
@@ -64,7 +64,7 @@ flowchart TB
 
 | 层 | 位置 | 职责 |
 | --- | --- | --- |
-| 右侧面板壳 | `ChatScreen.tsx` | 管理互斥的右侧面板槽，可打开/关闭 `workspace` 与 `pull-request`，并与 diff / files / browser / canvas 等面板互斥切换（同时只显示一个）。 |
+| 分栏工作台壳 | `chat/workbench/`、`ChatScreen.tsx` | 管理真实分栏、标签顺序、活动项、尺寸与 stage；Workspace、PR、diff、files、browser、canvas 等可同时保持打开，活动项可见、其余项保活。 |
 | 工作台主组件 | `workspace/WorkspacePanel.tsx` | 组合各 section，管理 section 间跳转、共享 hooks、增量渲染与高级诊断排序。 |
 | 任务进度 | `tasks/TaskProgressPanel.tsx`、`workspace/taskExecutionState.ts` | 展示会话 task snapshot；Task 是进度叶子，不是 Goal / Workflow / Loop 本体。 |
 | 输入框联动 | `chat/input/ChatInput.tsx` | Goal / Workflow / Plan 等输入模式与工作台状态联动；不提前创建空会话。 |
@@ -145,7 +145,7 @@ flowchart TB
 2. 当前运行位置（Local / Managed Worktree）和安全 Handoff 菜单。
 3. 当前分支；detached 时显示「创建分支」。
 4. 按 dirty / ahead 状态显示「提交」或「推送 N 个提交」。
-5. 创建 Pull Request；已有 PR 时打开独立的右侧 PR 面板。
+5. 创建 Pull Request；已有 PR 时打开独立的 PR 工作台标签。
 6. 当前 PR checks 汇总与逐项详情。
 7. requested reviewers、顶层 Review 结论，以及未解决、未过期的行内评论。
 8. 合并冲突状态与修复入口。
@@ -153,7 +153,7 @@ flowchart TB
 
 版本、模型、权限、项目来源等低频环境信息继续放在详细信息区，不与 Git 主操作竞争。分支、变更、同步、最后提交、运行位置以及 Managed Worktree 的创建 / 恢复 / 归档等生命周期入口**只允许出现在 Git 卡中**，详细信息区不得重复展示第二套 Git / Worktree 状态。运行位置菜单负责 Local / Worktree 安全 Handoff，紧邻的托管工作树区域负责生命周期管理，二者共享同一张 Git 卡边界。非 Git 工作目录不渲染伪造的分支或 Worktree 操作，也不隐式执行 `git init`。
 
-PR 详情、Checks 与 Review 评论属于当前 Session / HEAD / branch 的**网络状态**：只在存在 GitHub remote、附着本地分支且本机 `gh` 可用时读取；每 30 秒有界刷新，同键的手动刷新与轮询共享同一个带错误收口的请求，切换会话或分支后丢弃旧结果。Checks 与行内评论两个通道**独立**展示错误——检查接口失败不能遮蔽已经读到的评论，反之亦然；完整刷新失败时旧数据必须标记为可能过期并暂停修复 / 自动合并。独立 PR 面板展示标题、描述、head / base、增删行、reviewers、每位审阅者最新的顶层 review、merge state 和自动合并状态；它注册为 `pull-request` 面板，复用标题栏切换、共享宽度、响应式折叠和 overlay，并在会话切换时关闭。查看已有 PR 的能力不依赖「能否创建 PR」这一 capability。
+PR 详情、Checks 与 Review 评论属于当前 Session / HEAD / branch 的**网络状态**：只在存在 GitHub remote、附着本地分支且本机 `gh` 可用时读取；每 30 秒有界刷新，同键的手动刷新与轮询共享同一个带错误收口的请求，切换会话或分支后丢弃旧结果。Checks 与行内评论两个通道**独立**展示错误——检查接口失败不能遮蔽已经读到的评论，反之亦然；完整刷新失败时旧数据必须标记为可能过期并暂停修复 / 自动合并。PR 标签展示标题、描述、head / base、增删行、reviewers、每位审阅者最新的顶层 review、merge state 和自动合并状态；它注册为 `pull-request` 工作台面，复用顶部标签、共享分栏宽度与 stage，并在会话切换时关闭。查看已有 PR 的能力不依赖「能否创建 PR」这一 capability。
 
 **「修复」不是直接执行按钮。** PR 标题、描述、分支、检查描述、评审与评论等外部字段都留在不可信数据信封内；修复入口只把经过长度限制和转义的任务**填入当前 composer**。用户确认发送后才进入正常聊天、权限与工具流程。按钮不得自动 commit、push、回复、resolve Review 评论或合并 PR。
 

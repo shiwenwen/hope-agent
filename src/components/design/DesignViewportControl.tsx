@@ -2,6 +2,7 @@ import { Frame, Monitor, Smartphone, Tablet } from "lucide-react"
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
+import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
 import {
   Select,
   SelectContent,
@@ -207,7 +208,7 @@ export function DesignViewportResizeHandles({
         onKeyDown={(event) => handleKeyDown("width", event)}
         className="group absolute -right-2 top-7 bottom-7 z-30 w-4 cursor-ew-resize touch-none"
       >
-        <span className="absolute right-1 top-1/2 h-10 w-1 -translate-y-1/2 rounded-full bg-foreground/20 transition-colors group-hover:bg-primary/70" />
+        <ResizeHandleGlow className="right-1 top-1/2 h-10 w-px -translate-y-1/2" />
       </div>
       <div
         role="separator"
@@ -221,7 +222,7 @@ export function DesignViewportResizeHandles({
         onKeyDown={(event) => handleKeyDown("height", event)}
         className="group absolute -bottom-2 left-7 right-7 z-30 h-4 cursor-ns-resize touch-none"
       >
-        <span className="absolute bottom-1 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-foreground/20 transition-colors group-hover:bg-primary/70" />
+        <ResizeHandleGlow className="bottom-1 left-1/2 h-px w-10 -translate-x-1/2" />
       </div>
       <div
         role="button"
@@ -231,7 +232,8 @@ export function DesignViewportResizeHandles({
         onKeyDown={handleCornerKeyDown}
         className="group absolute -bottom-2 -right-2 z-40 h-5 w-5 cursor-nwse-resize touch-none"
       >
-        <span className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-br border-b-2 border-r-2 border-foreground/30 transition-colors group-hover:bg-primary/15" />
+        <ResizeHandleGlow className="bottom-1 right-1 h-px w-3" />
+        <ResizeHandleGlow className="bottom-1 right-1 h-3 w-px" />
       </div>
     </>
   )

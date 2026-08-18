@@ -1033,10 +1033,7 @@
       "expand": "Expandir el panel derecho",
       "switch": "Cambiar panel derecho",
       "dock": "Barra de paneles derechos",
-      "openPanel": "Abrir {{panel}}",
-      "switchToPanel": "Cambiar a {{panel}}",
-      "collapsePanel": "Contraer {{panel}}",
-      "expandPanel": "Expandir {{panel}}",
+      "resize": "Ajustar ancho del área de trabajo",
       "workflowActiveCount": "{{count}} flujos de trabajo activos",
       "workflowAttentionCount": "{{count}} flujos de trabajo requieren atención",
       "backgroundRunningCount": "{{count}} tareas en segundo plano en ejecución",
@@ -2756,7 +2753,10 @@
   },
   "filePreview": {
     "panelTitle": "Vista previa",
-    "resizePanel": "Redimensionar panel de vista previa"
+    "resizePanel": "Redimensionar panel de vista previa",
+    "pathBreadcrumb": "Ruta del archivo",
+    "revealFolder": "Mostrar la carpeta en Archivos",
+    "copyPath": "Copiar la ruta completa"
   },
   "fileBrowser": {
     "panelTitle": "Archivos",
@@ -2815,7 +2815,10 @@
     "zoomOut": "Alejar",
     "zoomIn": "Acercar",
     "fitWidth": "Ajustar al ancho",
-    "officeNoContent": "No se pudo extraer contenido de este archivo."
+    "officeNoContent": "No se pudo extraer contenido de este archivo.",
+    "openInNewTab": "Abrir en una pestaña nueva",
+    "collapseTree": "Ocultar la lista de archivos",
+    "expandTree": "Mostrar la lista de archivos"
   },
   "diffPanel": {
     "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",

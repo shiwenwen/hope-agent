@@ -6,10 +6,11 @@ const SRC_ROOT = resolve(process.cwd(), "src")
 const SOURCE_FILE = /\.(?:css|ts|tsx)$/
 const TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx)$/
 const HOVER_BORDER_UTILITY = /(?:hover|group-hover|peer-hover):(?:border|ring)(?:-|\b)/g
+// `shadow-none` is the flat state these rules are asking for, not a violation.
 const RADIX_STATE_SHADOW_UTILITY =
-  /data-\[state=(?:active|checked|on|open)\]:shadow(?:-[a-z0-9-]+)?\b/g
+  /data-\[state=(?:active|checked|on|open)\]:shadow(?!-none\b)(?:-[a-z0-9-]+)?\b/g
 const CONDITIONAL_SELECTION_SHADOW =
-  /(?:\?|&&)\s*"[^"\n]*\bbg-(?:background|secondary)(?:\/\d+)?\b[^"\n]*\bshadow(?:-[a-z0-9-]+)?\b[^"\n]*"/g
+  /(?:\?|&&)\s*"[^"\n]*\bbg-(?:background|secondary)(?:\/\d+)?\b[^"\n]*\bshadow(?!-none\b)(?:-[a-z0-9-]+)?\b[^"\n]*"/g
 const WEAK_SELECTION_BACKGROUND =
   /(?:\?|&&)\s*"[^"\n]*(?<!:)\bbg-secondary\/\d+\b[^"\n]*"|data-\[state=(?:active|checked|on|open)\]:bg-secondary\/\d+\b/g
 

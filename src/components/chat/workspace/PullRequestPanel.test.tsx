@@ -182,6 +182,15 @@ describe("PullRequestPanel", () => {
     expect(screen.queryByRole("button", { name: "启用自动合并" })).toBeNull()
   })
 
+  it("keeps PR context actions but omits the duplicate close control when integrated", async () => {
+    call.mockResolvedValue(feedback())
+    render(<PullRequestPanel sessionId="session-1" onClose={vi.fn()} integrated />)
+
+    expect(await screen.findByText("Lifecycle details")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "在 GitHub 打开" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "关闭" })).toBeNull()
+  })
+
   it("enables auto-merge only after explicit confirmation", async () => {
     const prFeedback = feedback()
     call.mockImplementation((command: string) => {

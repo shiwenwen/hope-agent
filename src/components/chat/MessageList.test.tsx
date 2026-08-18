@@ -23,6 +23,7 @@ vi.mock("./MessageBubble", () => ({
     executionState,
     goalCompletionReportOverride,
     suppressGoalCompletionFooter,
+    hideActionBar,
     forceExpandUserContent,
     index,
     onContextMenu,
@@ -31,6 +32,7 @@ vi.mock("./MessageBubble", () => ({
     executionState?: string | null
     goalCompletionReportOverride?: { status?: string } | null
     suppressGoalCompletionFooter?: boolean
+    hideActionBar?: boolean
     forceExpandUserContent?: boolean
     index: number
     onContextMenu: (event: ReactMouseEvent, index: number) => void
@@ -41,6 +43,7 @@ vi.mock("./MessageBubble", () => ({
       data-execution-state={executionState ?? "none"}
       data-goal-report-status={goalCompletionReportOverride?.status ?? ""}
       data-suppress-goal-footer={suppressGoalCompletionFooter ? "true" : "false"}
+      data-hide-action-bar={hideActionBar ? "true" : "false"}
       data-force-expand-user-content={forceExpandUserContent ? "true" : "false"}
       onContextMenuCapture={(event) => onContextMenu(event, index)}
     >
@@ -263,6 +266,27 @@ describe("MessageList", () => {
     fireEvent.contextMenu(bubbles[0], { clientX: 20, clientY: 30 })
 
     expect(screen.queryByText("chat.messageQuote.addToChat")).toBeNull()
+  })
+
+  test.each([
+    ["default", undefined],
+    ["timeline", "timeline" as const],
+  ])("reserves the environment lane in %s mode", (_label, displayMode) => {
+    render(
+      <MessageList
+        messages={[baseMessage({ role: "user", content: "hello", dbId: 1 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        displayMode={displayMode}
+        environmentInsetPx={348}
+      />,
+    )
+
+    expect(getScroller().style.paddingRight).toBe("348px")
   })
 
   test("renders non-meta messages and hides isMeta entries", () => {
@@ -692,6 +716,43 @@ describe("MessageList", () => {
     act(() => vi.runAllTimers())
     expect(screen.queryByText("step one")).toBeNull()
     expect(screen.queryByTestId("completed-turn-details")).toBeNull()
+  })
+
+  test("drops the per-message action bar inside the expanded processed fold", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "question", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "step one", dbId: 2 }),
+          baseMessage({ role: "assistant", content: "step two", dbId: 3 }),
+          baseMessage({ role: "assistant", content: "final answer", dbId: 4 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { expanded: false }))
+    const folded = Array.from(
+      screen
+        .getByTestId("completed-turn-details")
+        .querySelectorAll('[data-testid="message-bubble"]'),
+    )
+    expect(folded.map((bubble) => bubble.getAttribute("data-message-db-id"))).toEqual(["2", "3"])
+    for (const bubble of folded) {
+      expect(bubble.getAttribute("data-hide-action-bar")).toBe("true")
+    }
+    for (const dbId of ["1", "4"]) {
+      expect(
+        document
+          .querySelector(`[data-message-id="${dbId}"] [data-testid="message-bubble"]`)
+          ?.getAttribute("data-hide-action-bar"),
+      ).toBe("false")
+    }
   })
 
   test("does not collapse completed turns when the preference is disabled", () => {

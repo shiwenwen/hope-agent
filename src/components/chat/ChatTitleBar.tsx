@@ -24,7 +24,7 @@ import {
   PanelLeftDashed,
   SquareTerminal,
   Timer,
-  type LucideIcon,
+  LayoutDashboard,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -43,6 +43,7 @@ import {
   runViewContext,
 } from "./sessionStatus"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
+import { TITLE_BAR_ICON_BUTTON, TITLE_BAR_ICON_BUTTON_ACTIVE } from "./titleBarStyles"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./input/IncognitoToggle"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
@@ -62,18 +63,8 @@ import type {
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import { requestCronTaskFocus } from "@/components/cron/cronNavigation"
-
-interface RightPanelTitleBarItem {
-  id: string
-  labelKey: string
-  icon: LucideIcon
-  open: boolean
-  badge?: {
-    count: number
-    labelKey: string
-    tone: "attention" | "running" | "neutral"
-  }
-}
+import { WorkbenchHeader, WorkbenchOpenButton } from "./workbench/WorkbenchHeader"
+import type { WorkbenchLayoutMode, WorkbenchPanelId, WorkbenchTabItem } from "./workbench/types"
 
 type SessionMemoryPolicyValue = "inherit" | "allow" | "deny"
 
@@ -141,14 +132,28 @@ interface ChatTitleBarProps {
   incognitoSaving?: boolean
   incognitoDisabledReason?: IncognitoDisabledReason
   onIncognitoChange?: (enabled: boolean) => void
-  /** Available persistent entries plus currently-open transient right panels. */
-  rightPanels?: RightPanelTitleBarItem[]
-  /** Active right-side panel id. */
-  activeRightPanelId?: string | null
-  /** Whether the active right-side panel is collapsed. */
-  rightPanelCollapsed?: boolean
-  /** Open, select, collapse or expand a right-side panel. */
-  onRightPanelAction?: (panelId: string) => void
+  workbenchWidth?: number
+  workbenchLayoutMode?: WorkbenchLayoutMode
+  workbenchTabs?: WorkbenchTabItem[]
+  workbenchLaunchItems?: WorkbenchTabItem[]
+  activeWorkbenchTabId?: string | null
+  workbenchCollapsed?: boolean
+  workbenchResizing?: boolean
+  workbenchMaximized?: boolean
+  onSelectWorkbenchTab?: (tabId: string) => void
+  onOpenWorkbenchPanel?: (panelId: WorkbenchPanelId) => void
+  onCloseWorkbenchTab?: (tabId: string) => void
+  onReorderWorkbenchTabs?: (source: string, target: string) => void
+  onToggleWorkbenchTabWindow?: (tabId: string) => void
+  onToggleWorkbenchMaximize?: () => void
+  onCollapseWorkbench?: () => void
+  onExpandWorkbench?: () => void
+  onStatusOpenChange?: (open: boolean) => void
+  /** No room left for the session-status card; close it. */
+  /** A docked panel is actually open — the tab strip has a body under it. */
+  workbenchDocked?: boolean
+  /** Opens the complete Workspace from the compact environment projection. */
+  onOpenWorkspace?: () => void
   /** Bottom embedded terminal state and toggle. */
   terminalOpen?: boolean
   onToggleTerminal?: () => void
@@ -187,17 +192,36 @@ export default function ChatTitleBar({
   incognitoSaving = false,
   incognitoDisabledReason,
   onIncognitoChange,
-  rightPanels = [],
-  activeRightPanelId,
-  rightPanelCollapsed = false,
-  onRightPanelAction,
+  workbenchWidth = 0,
+  workbenchLayoutMode = "docked",
+  workbenchTabs = [],
+  workbenchLaunchItems = [],
+  activeWorkbenchTabId,
+  workbenchCollapsed = false,
+  workbenchResizing = false,
+  workbenchMaximized = false,
+  onSelectWorkbenchTab,
+  onOpenWorkbenchPanel,
+  onCloseWorkbenchTab,
+  onReorderWorkbenchTabs,
+  onToggleWorkbenchTabWindow,
+  onToggleWorkbenchMaximize,
+  onCollapseWorkbench,
+  onExpandWorkbench,
+  onStatusOpenChange,
+  workbenchDocked = false,
+  onOpenWorkspace,
   terminalOpen = false,
   onToggleTerminal,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
-  const [showStatus, setShowStatus] = useState(false)
-  const statusRef = useRef<HTMLDivElement>(null)
+  // The status card is pinned by its button, not dismissed by clicking away.
+  // A narrow window only drops its reserved lane (see `environmentInsetWidth`);
+  // the card still opens and overlaps the transcript, because a toggle that
+  // silently does nothing is worse than an overlap.
+  const [statusPinned, setStatusPinned] = useState(false)
+  const showStatus = statusPinned
   const [memoryPolicy, setMemoryPolicy] = useState<SessionMemoryPolicy | null>(null)
   const [memoryPolicySaving, setMemoryPolicySaving] = useState(false)
   const [coreMemoryReloading, setCoreMemoryReloading] = useState(false)
@@ -323,17 +347,9 @@ export default function ChatTitleBar({
     setEditingTitle(false)
   }, [])
 
-  // Close status popover on outside click
   useEffect(() => {
-    if (!showStatus) return
-    const handler = (e: MouseEvent) => {
-      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
-        setShowStatus(false)
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [showStatus])
+    onStatusOpenChange?.(showStatus)
+  }, [onStatusOpenChange, showStatus])
 
   useEffect(() => {
     return () => {
@@ -406,164 +422,103 @@ export default function ChatTitleBar({
     </IconTip>
   ) : null
   const shouldShowWorkingDirChip = !project || workingDirSource === "session"
-  const rightPanelControls =
-    rightPanels.length > 0 ? (
-      <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
-        <div
-          className="flex h-9 max-w-[248px] items-center gap-0.5 overflow-x-auto pb-0.5 pl-0.5 pr-1.5 pt-1.5"
-          role="toolbar"
-          aria-label={t("chat.rightPanel.dock")}
-        >
-          {rightPanels.map((panel) => {
-            const PanelIcon = panel.icon
-            const active = panel.id === activeRightPanelId
-            const panelLabel = t(panel.labelKey)
-            const actionLabel = active
-              ? t(
-                  rightPanelCollapsed
-                    ? "chat.rightPanel.expandPanel"
-                    : "chat.rightPanel.collapsePanel",
-                  { panel: panelLabel },
-                )
-              : t(panel.open ? "chat.rightPanel.switchToPanel" : "chat.rightPanel.openPanel", {
-                  panel: panelLabel,
-                })
-            const badgeTone =
-              panel.badge?.tone === "attention"
-                ? "bg-amber-500 text-white"
-                : panel.badge?.tone === "running"
-                  ? "bg-blue-500 text-white"
-                  : "bg-muted-foreground text-background"
-            const badgeDescriptionId = panel.badge
-              ? `right-panel-${panel.id}-badge-description`
-              : undefined
-            return (
-              <IconTip key={panel.id} label={actionLabel}>
-                <button
-                  type="button"
-                  aria-label={actionLabel}
-                  aria-pressed={active}
-                  aria-expanded={active ? !rightPanelCollapsed : undefined}
-                  aria-describedby={badgeDescriptionId}
-                  data-panel-id={panel.id}
-                  data-panel-state={active ? "active" : panel.open ? "open" : "closed"}
-                  className={cn(
-                    "group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:text-foreground",
-                    // Background-only: hover/selected must never add a border or ring.
-                    active
-                      ? "bg-secondary text-foreground hover:bg-secondary"
-                      : panel.open
-                        ? "bg-muted hover:bg-secondary/60"
-                        : "hover:bg-secondary/40",
-                  )}
-                  onClick={() => onRightPanelAction?.(panel.id)}
-                >
-                  <PanelIcon className="h-4 w-4" strokeWidth={active ? 2.15 : 1.9} />
-                  {panel.badge && panel.badge.count > 0 ? (
-                    <span
-                      id={badgeDescriptionId}
-                      className={cn(
-                        "absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background px-0.5 text-[9px] font-semibold leading-none tabular-nums",
-                        badgeTone,
-                      )}
-                      aria-label={t(panel.badge.labelKey, { count: panel.badge.count })}
-                    >
-                      {panel.badge.count > 99 ? "99+" : panel.badge.count}
-                    </span>
-                  ) : null}
-                </button>
-              </IconTip>
-            )
-          })}
-        </div>
-      </div>
-    ) : null
-
   return (
-    <div
-      className="h-10 flex items-end justify-between px-4 bg-background shrink-0"
-      data-tauri-drag-region
-    >
-      <div className="flex items-end gap-2 min-w-0 pb-1.5">
-        {sidebarCollapsed && onExpandSidebar && (
-          <IconTip label={t("chat.expandSidebar")}>
-            <button
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
-              aria-label={t("chat.expandSidebar")}
-              onClick={onExpandSidebar}
-            >
-              <PanelLeftDashed className="h-4 w-4" />
-            </button>
-          </IconTip>
+    // No `overflow-hidden` here or on the wrapper: the drop-downs below open
+    // outside this 40px row and would be clipped away.
+    <div className="flex h-10 shrink-0 bg-background" data-tauri-drag-region>
+      <div
+        className={cn(
+          "min-w-0 flex-1 items-end justify-between px-4 [container-type:inline-size]",
+          workbenchLayoutMode === "stage" && !workbenchCollapsed && workbenchTabs.length > 0
+            ? "hidden"
+            : "flex",
         )}
-        {project && (
-          <>
-            <div className="inline-flex items-center gap-1 shrink-0 min-w-0">
+        // Tauri only drags from the element under the cursor, so this wrapper
+        // needs its own region.
+        data-tauri-drag-region
+      >
+        <div className="flex items-end gap-2 min-w-0 pb-1.5">
+          {sidebarCollapsed && onExpandSidebar && (
+            <IconTip label={t("chat.expandSidebar")}>
               <button
-                onClick={() => onOpenProjectSettings?.(project)}
-                className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
-                data-ha-title-tip={project.description ?? project.name}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                aria-label={t("chat.expandSidebar")}
+                onClick={onExpandSidebar}
               >
-                <Folder className={cn("h-3.5 w-3.5 shrink-0", projectFolderColorClass)} />
-                <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
+                <PanelLeftDashed className="h-4 w-4" />
               </button>
-            </div>
-            <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
-          </>
-        )}
-        <AgentSwitcher
-          agents={agents}
-          currentAgentId={currentAgentId}
-          agentName={agentName || t("chat.mainAgent")}
-          compactLabel={compactTitleAgent}
-          // Allow switching only before any messages exist — system prompt
-          // and history are pinned to the agent once a message is sent.
-          disabled={messages.length > 0 || !onChangeAgent}
-          onSelect={(agentId) => onChangeAgent?.(agentId)}
-        />
-        {currentSessionId && (
-          <>
-            <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
-            {editingTitle ? (
-              <div className="flex items-center gap-1 min-w-0">
-                <Input
-                  ref={titleInputRef}
-                  surface="embedded"
-                  className="h-auto w-auto min-w-[80px] max-w-[300px] border-b border-primary px-0 py-0 text-sm text-foreground/80"
-                  value={titleValue}
-                  onChange={(e) => setTitleValue(e.target.value)}
-                  onBlur={commitTitle}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      commitTitle()
-                    } else if (e.key === "Escape") {
-                      e.preventDefault()
-                      cancelEditTitle()
-                    }
-                  }}
-                  placeholder={t("chat.renameSessionPlaceholder")}
-                />
+            </IconTip>
+          )}
+          {project && (
+            <>
+              <div className="inline-flex items-center gap-1 shrink-0 min-w-0">
+                <button
+                  onClick={() => onOpenProjectSettings?.(project)}
+                  className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
+                  data-ha-title-tip={project.description ?? project.name}
+                >
+                  <Folder className={cn("h-3.5 w-3.5 shrink-0", projectFolderColorClass)} />
+                  <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
+                </button>
               </div>
-            ) : (
-              <button
-                className="group flex items-center gap-1 min-w-0 text-sm text-foreground/60 hover:text-foreground transition-colors truncate"
-                onClick={startEditTitle}
-              >
-                <span className="truncate max-w-[300px]">{sessionTitle || t("chat.newChat")}</span>
-                <Pencil className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
-              </button>
-            )}
-            {currentSession?.channelInfo && (
-              <span className="inline-flex items-center gap-1 shrink-0 text-[11px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">
-                <ChannelIcon channelId={currentSession.channelInfo.channelId} />
-                {currentSession.channelInfo.channelId}
-                {currentSession.channelInfo.senderName && (
-                  <span className="text-blue-400">· {currentSession.channelInfo.senderName}</span>
-                )}
-              </span>
-            )}
-            {currentSession?.origin?.kind === "cron" && (
+              <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
+            </>
+          )}
+          <AgentSwitcher
+            agents={agents}
+            currentAgentId={currentAgentId}
+            agentName={agentName || t("chat.mainAgent")}
+            compactLabel={compactTitleAgent}
+            // Allow switching only before any messages exist — system prompt
+            // and history are pinned to the agent once a message is sent.
+            disabled={messages.length > 0 || !onChangeAgent}
+            onSelect={(agentId) => onChangeAgent?.(agentId)}
+          />
+          {currentSessionId && (
+            <>
+              <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
+              {editingTitle ? (
+                <div className="flex items-center gap-1 min-w-0">
+                  <Input
+                    ref={titleInputRef}
+                    surface="embedded"
+                    className="h-auto w-auto min-w-[80px] max-w-[300px] border-b border-primary px-0 py-0 text-sm text-foreground/80"
+                    value={titleValue}
+                    onChange={(e) => setTitleValue(e.target.value)}
+                    onBlur={commitTitle}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        commitTitle()
+                      } else if (e.key === "Escape") {
+                        e.preventDefault()
+                        cancelEditTitle()
+                      }
+                    }}
+                    placeholder={t("chat.renameSessionPlaceholder")}
+                  />
+                </div>
+              ) : (
+                <button
+                  className="group flex items-center gap-1 min-w-0 text-sm text-foreground/60 hover:text-foreground transition-colors truncate"
+                  onClick={startEditTitle}
+                >
+                  <span className="truncate max-w-[300px]">
+                    {sessionTitle || t("chat.newChat")}
+                  </span>
+                  <Pencil className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
+                </button>
+              )}
+              {currentSession?.channelInfo && (
+                <span className="inline-flex items-center gap-1 shrink-0 text-[11px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                  <ChannelIcon channelId={currentSession.channelInfo.channelId} />
+                  {currentSession.channelInfo.channelId}
+                  {currentSession.channelInfo.senderName && (
+                    <span className="text-blue-400">· {currentSession.channelInfo.senderName}</span>
+                  )}
+                </span>
+              )}
+              {currentSession?.origin?.kind === "cron" && (
               <IconTip label={t("chat.scheduledOrigin", { name: currentSession.origin.label })}>
                 <button
                   type="button"
@@ -576,449 +531,509 @@ export default function ChatTitleBar({
               </IconTip>
             )}
             {currentSession?.incognito && (
-              <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
-                <Ghost className="h-3 w-3" strokeWidth={1.75} />
-                {t("chat.incognito")}
-              </span>
-            )}
-            {shouldShowWorkingDirChip && workingDirChip}
-          </>
-        )}
-      </div>
-      <div className="flex items-end gap-1">
-        {showIncognitoToggle && (
-          <IncognitoToggle
-            sessionId={null}
-            enabled={incognitoEnabled}
-            saving={incognitoSaving}
-            disabledReason={incognitoDisabledReason}
-            variant="titlebar"
-            showLabel={false}
-            onChange={onIncognitoChange}
-          />
-        )}
-        {currentSessionId && onScheduleSession && (
-          <IconTip label={t("cron.scheduleSession")}>
-            <button
-              aria-label={t("cron.scheduleSession")}
-              className="pb-1.5 text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => onScheduleSession(currentSessionId)}
-            >
-              <Timer className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {/* In-session Search Button */}
-        {currentSessionId && onOpenSearch && (
-          <IconTip label={t("chat.sessionSearch")}>
-            <button
-              className={cn(
-                "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                searchOpen && "text-foreground",
+                <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
+                  <Ghost className="h-3 w-3" strokeWidth={1.75} />
+                  {t("chat.incognito")}
+                </span>
               )}
-              onClick={onOpenSearch}
+              {shouldShowWorkingDirChip && workingDirChip}
+            </>
+          )}
+        </div>
+        {/* Anchors the drop-downs to the group's right edge, matching the lane
+            the conversation reserves for them. */}
+        <div className="relative flex shrink-0 items-end gap-1">
+          {showIncognitoToggle && (
+            <IncognitoToggle
+              sessionId={null}
+              enabled={incognitoEnabled}
+              saving={incognitoSaving}
+              disabledReason={incognitoDisabledReason}
+              variant="titlebar"
+              showLabel={false}
+              onChange={onIncognitoChange}
+            />
+          )}
+          {currentSessionId && onScheduleSession && (
+            <IconTip label={t("cron.scheduleSession")}>
+              <button
+                aria-label={t("cron.scheduleSession")}
+                className="pb-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => onScheduleSession(currentSessionId)}
+              >
+                <Timer className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
+          {/* In-session Search Button */}
+          {currentSessionId && onOpenSearch && (
+            <IconTip label={t("chat.sessionSearch")}>
+              <button
+                type="button"
+                aria-label={t("chat.sessionSearch")}
+                className={cn(TITLE_BAR_ICON_BUTTON, searchOpen && TITLE_BAR_ICON_BUTTON_ACTIVE)}
+                onClick={onOpenSearch}
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
+          {/* Export Button — open the export-conversation dialog. */}
+          {currentSessionId && (
+            <IconTip label={t("chat.exportSession.menuItem")}>
+              <button
+                type="button"
+                aria-label={t("chat.exportSession.menuItem")}
+                className={TITLE_BAR_ICON_BUTTON}
+                onClick={() => setExportOpen(true)}
+              >
+                <Share2 className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
+          {/* Handover Button — push the current session to an IM chat. */}
+          {onOpenHandover && currentSessionId && (
+            <IconTip label={t("chat.handover.button")}>
+              <button
+                type="button"
+                aria-label={t("chat.handover.button")}
+                className={TITLE_BAR_ICON_BUTTON}
+                onClick={() => onOpenHandover(currentSessionId)}
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
+          {/* Not `relative` — the menus position against the action group. */}
+          <div>
+            <IconTip label={t("chat.sessionStatus")}>
+              <button
+                type="button"
+                aria-label={t("chat.sessionStatus")}
+                aria-pressed={showStatus}
+                className={cn(TITLE_BAR_ICON_BUTTON, showStatus && TITLE_BAR_ICON_BUTTON_ACTIVE)}
+                onClick={() => setStatusPinned((v) => !v)}
+              >
+                <BarChart3 className="h-4 w-4" />
+              </button>
+            </IconTip>
+            <FloatingMenu
+              open={showStatus}
+              positionClassName="top-full right-0 mt-1.5"
+              originClassName="origin-top-right"
+              className="ha-menu-from-top w-[316px] max-w-[calc(100cqw-24px)] max-h-[calc(100vh-72px)] overflow-y-auto p-3.5"
+              onEscapeKeyDown={() => setStatusPinned(false)}
+              onClick={(e) => e.stopPropagation()}
             >
-              <Search className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {/* Session Status Button */}
-        <div className="relative" ref={statusRef}>
-          <IconTip label={t("chat.sessionStatus")}>
-            <button
-              className={cn(
-                "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                showStatus && "text-foreground",
-              )}
-              onClick={() => setShowStatus((v) => !v)}
-            >
-              <BarChart3 className="h-4 w-4" />
-            </button>
-          </IconTip>
-          <FloatingMenu
-            open={showStatus}
-            positionClassName="top-full right-0 mt-1.5"
-            originClassName="origin-top-right"
-            className="ha-menu-from-top min-w-[260px] p-3.5"
-            onEscapeKeyDown={() => setShowStatus(false)}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="space-y-2 text-xs">
-              {/* App version */}
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">🖥️ Hope Agent</span>
-                <span className="font-medium text-foreground tabular-nums">v{appVersion}</span>
-              </div>
-              <div className="border-t border-border" />
-              {currentSessionId && memoryPolicy && (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-foreground">
-                        🧠 {t("chat.memoryPolicy.title")}
-                      </span>
-                      {memoryPolicySaving && <Loader2 className="h-3 w-3 animate-spin" />}
-                    </div>
-                    <label className="flex items-center justify-between gap-3 text-[11px]">
-                      <span className="text-muted-foreground">{t("chat.memoryPolicy.use")}</span>
-                      <select
-                        value={memoryPolicy.useMemories}
-                        disabled={memoryPolicySaving || !!currentSession?.incognito}
-                        onChange={(event) =>
-                          void updateMemoryPolicy({
-                            useMemories: event.target.value as SessionMemoryPolicyValue,
-                          })
-                        }
-                        className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
-                      >
-                        <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
-                        <option value="allow">{t("chat.memoryPolicy.allow")}</option>
-                        <option value="deny">{t("chat.memoryPolicy.deny")}</option>
-                      </select>
-                    </label>
-                    <label className="flex items-center justify-between gap-3 text-[11px]">
-                      <span className="text-muted-foreground">
-                        {t("chat.memoryPolicy.contribute")}
-                      </span>
-                      <select
-                        value={memoryPolicy.contributeToMemories}
-                        disabled={memoryPolicySaving || !!currentSession?.incognito}
-                        onChange={(event) =>
-                          void updateMemoryPolicy({
-                            contributeToMemories: event.target.value as SessionMemoryPolicyValue,
-                          })
-                        }
-                        className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
-                      >
-                        <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
-                        <option value="allow">{t("chat.memoryPolicy.allow")}</option>
-                        <option value="deny">{t("chat.memoryPolicy.deny")}</option>
-                      </select>
-                    </label>
-                    <p className="text-[10px] leading-4 text-muted-foreground">
-                      {currentSession?.incognito
-                        ? t("chat.memoryPolicy.incognito")
-                        : t("chat.memoryPolicy.desc")}
-                    </p>
-                    <button
-                      type="button"
-                      disabled={coreMemoryReloading || !!currentSession?.incognito}
-                      onClick={() => void reloadCoreMemory()}
-                      className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-border bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                    >
-                      <RefreshCw className={cn("h-3 w-3", coreMemoryReloading && "animate-spin")} />
-                      {t("chat.memoryPolicy.reloadCore")}
-                    </button>
-                  </div>
-                  <div className="border-t border-border" />
-                </>
-              )}
-              {/* Model + Auth */}
-              {(() => {
-                const modelLabel = currentModel
-                  ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
-                  : activeModel?.modelId || "—"
-                const apiType = currentModel?.apiType || "—"
-                const authLabel = apiType === "codex" ? "oauth" : "api-key"
-                return (
+              <div className="space-y-2 text-xs">
+                {/* App version */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">🖥️ Hope Agent</span>
+                  <span className="font-medium text-foreground tabular-nums">v{appVersion}</span>
+                </div>
+                <div className="border-t border-border" />
+                {currentSessionId && memoryPolicy && (
                   <>
-                    <div className="flex items-start gap-2">
-                      <span className="text-muted-foreground shrink-0">
-                        🧠 {t("chat.statusModel")}
-                      </span>
-                      <span className="font-medium text-foreground text-right ml-auto">
-                        {modelLabel}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">🔑 {t("chat.statusAuth")}</span>
-                      <span className="font-medium text-foreground">{authLabel}</span>
-                    </div>
-                  </>
-                )
-              })()}
-              {/* Context window usage. See `getContextUsageTokens` for the
-               *  cumulative-vs-last-round rule. */}
-              {(() => {
-                const usage =
-                  contextUsageOverride ??
-                  (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null)
-                if (!usage) return null
-                const { usedTokens, usedK, ctxK, pct } = usage
-                const barColor = contextUsageBarClass(pct)
-                return (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
-                      <span className="font-medium text-foreground tabular-nums">
-                        {usedK}k/{ctxK}k ({pct}%)
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${barColor}`}
-                        style={{ width: `${Math.min(pct, 100)}%` }}
-                      />
-                    </div>
-                    {currentSessionId && usedTokens > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-foreground">
+                          🧠 {t("chat.memoryPolicy.title")}
+                        </span>
+                        {memoryPolicySaving && <Loader2 className="h-3 w-3 animate-spin" />}
+                      </div>
+                      <label className="flex items-center justify-between gap-3 text-[11px]">
+                        <span className="text-muted-foreground">{t("chat.memoryPolicy.use")}</span>
+                        <select
+                          value={memoryPolicy.useMemories}
+                          disabled={memoryPolicySaving || !!currentSession?.incognito}
+                          onChange={(event) =>
+                            void updateMemoryPolicy({
+                              useMemories: event.target.value as SessionMemoryPolicyValue,
+                            })
+                          }
+                          className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
+                        >
+                          <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
+                          <option value="allow">{t("chat.memoryPolicy.allow")}</option>
+                          <option value="deny">{t("chat.memoryPolicy.deny")}</option>
+                        </select>
+                      </label>
+                      <label className="flex items-center justify-between gap-3 text-[11px]">
+                        <span className="text-muted-foreground">
+                          {t("chat.memoryPolicy.contribute")}
+                        </span>
+                        <select
+                          value={memoryPolicy.contributeToMemories}
+                          disabled={memoryPolicySaving || !!currentSession?.incognito}
+                          onChange={(event) =>
+                            void updateMemoryPolicy({
+                              contributeToMemories: event.target.value as SessionMemoryPolicyValue,
+                            })
+                          }
+                          className="h-7 rounded border border-input bg-background px-1.5 text-[11px] text-foreground"
+                        >
+                          <option value="inherit">{t("chat.memoryPolicy.inherit")}</option>
+                          <option value="allow">{t("chat.memoryPolicy.allow")}</option>
+                          <option value="deny">{t("chat.memoryPolicy.deny")}</option>
+                        </select>
+                      </label>
+                      <p className="text-[10px] leading-4 text-muted-foreground">
+                        {currentSession?.incognito
+                          ? t("chat.memoryPolicy.incognito")
+                          : t("chat.memoryPolicy.desc")}
+                      </p>
                       <button
-                        className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
-                        disabled={compacting || loading}
+                        type="button"
+                        disabled={coreMemoryReloading || !!currentSession?.incognito}
+                        onClick={() => void reloadCoreMemory()}
+                        className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-border bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          className={cn("h-3 w-3", coreMemoryReloading && "animate-spin")}
+                        />
+                        {t("chat.memoryPolicy.reloadCore")}
+                      </button>
+                    </div>
+                    <div className="border-t border-border" />
+                  </>
+                )}
+                {/* Model + Auth */}
+                {(() => {
+                  const modelLabel = currentModel
+                    ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
+                    : activeModel?.modelId || "—"
+                  const apiType = currentModel?.apiType || "—"
+                  const authLabel = apiType === "codex" ? "oauth" : "api-key"
+                  return (
+                    <>
+                      <div className="flex items-start gap-2">
+                        <span className="text-muted-foreground shrink-0">
+                          🧠 {t("chat.statusModel")}
+                        </span>
+                        <span className="font-medium text-foreground text-right ml-auto">
+                          {modelLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">🔑 {t("chat.statusAuth")}</span>
+                        <span className="font-medium text-foreground">{authLabel}</span>
+                      </div>
+                    </>
+                  )
+                })()}
+                {/* Context window usage. See `getContextUsageTokens` for the
+                 *  cumulative-vs-last-round rule. */}
+                {(() => {
+                  const usage =
+                    contextUsageOverride ??
+                    (currentModel
+                      ? computeContextUsage(messages, currentModel.contextWindow)
+                      : null)
+                  if (!usage) return null
+                  const { usedTokens, usedK, ctxK, pct } = usage
+                  const barColor = contextUsageBarClass(pct)
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {usedK}k/{ctxK}k ({pct}%)
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                      {currentSessionId && usedTokens > 0 && (
+                        <button
+                          className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+                          disabled={compacting || loading}
+                          onClick={async () => {
+                            if (!currentSessionId) return
+                            try {
+                              const result = await onCompactContext?.()
+                              if (!result) return
+                              if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
+                              setCompactToast({
+                                success: true,
+                                message: compactResultMessage(t, result),
+                              })
+                              compactToastTimer.current = setTimeout(
+                                () => setCompactToast(null),
+                                3000,
+                              )
+                              if (result.messagesAffected > 0) {
+                                setStatusPinned(false)
+                              }
+                            } catch (e) {
+                              logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
+                              if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
+                              setCompactToast({ success: false, message: t("chat.compactFailed") })
+                              compactToastTimer.current = setTimeout(
+                                () => setCompactToast(null),
+                                3000,
+                              )
+                            }
+                          }}
+                        >
+                          {compacting ? t("chat.compacting") : t("chat.compactNow")}
+                        </button>
+                      )}
+                      {/* View context breakdown */}
+                      <button
+                        className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors flex items-center justify-center gap-1"
                         onClick={async () => {
                           if (!currentSessionId) return
                           try {
-                            const result = await onCompactContext?.()
-                            if (!result) return
-                            if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                            setCompactToast({
-                              success: true,
-                              message: compactResultMessage(t, result),
-                            })
-                            compactToastTimer.current = setTimeout(
-                              () => setCompactToast(null),
-                              3000,
-                            )
-                            if (result.messagesAffected > 0) {
-                              setShowStatus(false)
-                            }
+                            const result = await runViewContext(currentSessionId, currentAgentId)
+                            setStatusPinned(false)
+                            onCommandAction?.(result)
                           } catch (e) {
-                            logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
-                            if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                            setCompactToast({ success: false, message: t("chat.compactFailed") })
-                            compactToastTimer.current = setTimeout(
-                              () => setCompactToast(null),
-                              3000,
+                            logger.error(
+                              "ui",
+                              "ChatTitleBar::viewContext",
+                              "View context failed",
+                              e,
                             )
                           }
                         }}
                       >
-                        {compacting ? t("chat.compacting") : t("chat.compactNow")}
+                        <BarChart3 className="h-3 w-3" />
+                        {t("chat.viewContext", "View context")}
                       </button>
-                    )}
-                    {/* View context breakdown */}
-                    <button
-                      className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors flex items-center justify-center gap-1"
-                      onClick={async () => {
-                        if (!currentSessionId) return
-                        try {
-                          const result = await runViewContext(currentSessionId, currentAgentId)
-                          setShowStatus(false)
-                          onCommandAction?.(result)
-                        } catch (e) {
-                          logger.error("ui", "ChatTitleBar::viewContext", "View context failed", e)
-                        }
-                      }}
-                    >
-                      <BarChart3 className="h-3 w-3" />
-                      {t("chat.viewContext", "View context")}
-                    </button>
-                  </div>
-                )
-              })()}
-              {/* Cache info (Anthropic) */}
-              {(() => {
-                const cache = computeCacheStats(messages)
-                if (!cache) return null
-                const { created, read, lastInput } = cache
-                return (
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">
-                        🗄️ {t("chat.statusCache")} · {t("chat.statusCumulative")}
-                      </span>
-                      <span className="font-medium text-foreground tabular-nums">
-                        {formatCacheUsageDisplay({
-                          created,
-                          read,
-                          writeLabel: t("chat.statusCacheWrite"),
-                          hitLabel: t("chat.statusCacheHit"),
-                        })}
-                      </span>
-                    </div>
-                    {lastInput != null && (
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="text-muted-foreground">
-                          {t("chat.lastRoundInputTokens")}
-                        </span>
-                        <span className="font-medium text-foreground tabular-nums">
-                          {formatCompactTokenCount(lastInput)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-              <div className="border-t border-border" />
-              {/* Agent */}
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">🤖 {t("chat.statusAgent")}</span>
-                <span className="font-medium text-foreground">
-                  {agentName || t("chat.mainAgent")}
-                </span>
-              </div>
-              {/* Session */}
-              <div className="flex items-start gap-2">
-                <span className="text-muted-foreground shrink-0">🧵 {t("chat.statusSession")}</span>
-                <span className="font-medium text-foreground text-right ml-auto truncate max-w-[160px]">
-                  {currentSessionId
-                    ? (() => {
-                        const sess = sessions.find((s) => s.id === currentSessionId)
-                        return sess?.title || currentSessionId.slice(0, 8)
-                      })()
-                    : t("chat.statusNewSession")}
-                </span>
-              </div>
-              {/* Session ID */}
-              {currentSessionId && (
-                <div className="flex items-center justify-between gap-2 overflow-hidden">
-                  <span className="text-muted-foreground shrink-0">
-                    🆔 {t("chat.statusSessionId")}
-                  </span>
-                  <IconTip label={sessionIdCopied ? t("chat.copied") : t("chat.copy")}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className={cn(
-                        "flex items-center gap-1.5 ml-auto overflow-hidden cursor-pointer transition-colors group",
-                        sessionIdCopied
-                          ? "text-green-600 dark:text-green-500"
-                          : "text-muted-foreground/80 hover:text-foreground",
-                      )}
-                      onClick={handleCopySessionId}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault()
-                          handleCopySessionId()
-                        }
-                      }}
-                    >
-                      <span className="font-mono text-[11px] truncate select-all">
-                        {currentSessionId}
-                      </span>
-                      {sessionIdCopied ? (
-                        <Check className="h-3.5 w-3.5 shrink-0" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </IconTip>
-                </div>
-              )}
-              {/* Message count */}
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">
-                  📊 {t("chat.statusMessages", { count: messages.length })}
-                </span>
-              </div>
-              <div className="border-t border-border" />
-              {/* Runtime: Thinking */}
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">⚙️ {t("chat.statusThinking")}</span>
-                <span className="font-medium text-foreground">
-                  {t(`effort.${reasoningEffort}`)}
-                </span>
-              </div>
-              {/* Updated */}
-              {currentSessionId &&
-                (() => {
-                  const sess = sessions.find((s) => s.id === currentSessionId)
-                  if (!sess) return null
-                  return (
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">🕒 {t("chat.statusUpdated")}</span>
-                      <span className="font-medium text-foreground tabular-nums">
-                        {formatMessageTime(sess.updatedAt)}
-                      </span>
                     </div>
                   )
                 })()}
-              {/* View System Prompt */}
-              {onViewSystemPrompt && (
-                <>
-                  <div className="border-t border-border" />
-                  <button
-                    className="w-full px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-                    disabled={systemPromptLoading}
-                    onClick={() => {
-                      onViewSystemPrompt()
-                      setShowStatus(false)
-                    }}
-                  >
-                    {systemPromptLoading ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <FileText className="h-3 w-3" />
-                    )}
-                    {t("chat.viewSystemPrompt")}
-                  </button>
-                </>
-              )}
-            </div>
-          </FloatingMenu>
-          <FloatingMenu
-            open={compactToast !== null}
-            positionClassName="top-full right-0 mt-1.5"
-            originClassName="origin-top-right"
-            className={cn(
-              "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
-              compactToast?.success === false &&
-                "border-destructive/30 bg-destructive/10 text-destructive",
-            )}
-          >
-            {compactToast ? (
-              <div className="flex items-center gap-1.5">
-                {compactToast.success ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <X className="h-3 w-3" />
+                {/* Cache info (Anthropic) */}
+                {(() => {
+                  const cache = computeCacheStats(messages)
+                  if (!cache) return null
+                  const { created, read, lastInput } = cache
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          🗄️ {t("chat.statusCache")} · {t("chat.statusCumulative")}
+                        </span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatCacheUsageDisplay({
+                            created,
+                            read,
+                            writeLabel: t("chat.statusCacheWrite"),
+                            hitLabel: t("chat.statusCacheHit"),
+                          })}
+                        </span>
+                      </div>
+                      {lastInput != null && (
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="text-muted-foreground">
+                            {t("chat.lastRoundInputTokens")}
+                          </span>
+                          <span className="font-medium text-foreground tabular-nums">
+                            {formatCompactTokenCount(lastInput)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+                <div className="border-t border-border" />
+                {/* Agent */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">🤖 {t("chat.statusAgent")}</span>
+                  <span className="font-medium text-foreground">
+                    {agentName || t("chat.mainAgent")}
+                  </span>
+                </div>
+                {/* Session */}
+                <div className="flex items-start gap-2">
+                  <span className="text-muted-foreground shrink-0">
+                    🧵 {t("chat.statusSession")}
+                  </span>
+                  <span className="font-medium text-foreground text-right ml-auto truncate max-w-[160px]">
+                    {currentSessionId
+                      ? (() => {
+                          const sess = sessions.find((s) => s.id === currentSessionId)
+                          return sess?.title || currentSessionId.slice(0, 8)
+                        })()
+                      : t("chat.statusNewSession")}
+                  </span>
+                </div>
+                {/* Session ID */}
+                {currentSessionId && (
+                  <div className="flex items-center justify-between gap-2 overflow-hidden">
+                    <span className="text-muted-foreground shrink-0">
+                      🆔 {t("chat.statusSessionId")}
+                    </span>
+                    <IconTip label={sessionIdCopied ? t("chat.copied") : t("chat.copy")}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={cn(
+                          "flex items-center gap-1.5 ml-auto overflow-hidden cursor-pointer transition-colors group",
+                          sessionIdCopied
+                            ? "text-green-600 dark:text-green-500"
+                            : "text-muted-foreground/80 hover:text-foreground",
+                        )}
+                        onClick={handleCopySessionId}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            handleCopySessionId()
+                          }
+                        }}
+                      >
+                        <span className="font-mono text-[11px] truncate select-all">
+                          {currentSessionId}
+                        </span>
+                        {sessionIdCopied ? (
+                          <Check className="h-3.5 w-3.5 shrink-0" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
+                        )}
+                      </div>
+                    </IconTip>
+                  </div>
                 )}
-                {compactToast.message}
+                {/* Message count */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    📊 {t("chat.statusMessages", { count: messages.length })}
+                  </span>
+                </div>
+                <div className="border-t border-border" />
+                {/* Runtime: Thinking */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">⚙️ {t("chat.statusThinking")}</span>
+                  <span className="font-medium text-foreground">
+                    {t(`effort.${reasoningEffort}`)}
+                  </span>
+                </div>
+                {/* Updated */}
+                {currentSessionId &&
+                  (() => {
+                    const sess = sessions.find((s) => s.id === currentSessionId)
+                    if (!sess) return null
+                    return (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">🕒 {t("chat.statusUpdated")}</span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatMessageTime(sess.updatedAt)}
+                        </span>
+                      </div>
+                    )
+                  })()}
+                {/* View System Prompt */}
+                {onViewSystemPrompt && (
+                  <>
+                    <div className="border-t border-border" />
+                    <button
+                      className="w-full px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      disabled={systemPromptLoading}
+                      onClick={() => {
+                        onViewSystemPrompt()
+                        setStatusPinned(false)
+                      }}
+                    >
+                      {systemPromptLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <FileText className="h-3 w-3" />
+                      )}
+                      {t("chat.viewSystemPrompt")}
+                    </button>
+                  </>
+                )}
+                {onOpenWorkspace && (
+                  <>
+                    <div className="border-t border-border" />
+                    <button
+                      type="button"
+                      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-secondary/60 px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+                      onClick={() => {
+                        onOpenWorkspace()
+                        setStatusPinned(false)
+                      }}
+                    >
+                      <LayoutDashboard className="h-3.5 w-3.5" />
+                      {t("workspace.panelTitle")}
+                    </button>
+                  </>
+                )}
               </div>
-            ) : null}
-          </FloatingMenu>
-        </div>
-        {/* Export Button — open the export-conversation dialog. */}
-        {currentSessionId && (
-          <IconTip label={t("chat.exportSession.menuItem")}>
-            <button
-              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => setExportOpen(true)}
-            >
-              <Share2 className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {/* Handover Button — push the current session to an IM chat. */}
-        {onOpenHandover && currentSessionId && (
-          <IconTip label={t("chat.handover.button")}>
-            <button
-              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => onOpenHandover(currentSessionId)}
-            >
-              <Send className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {onToggleTerminal && (
-          <IconTip
-            label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
-          >
-            <button
-              type="button"
-              aria-label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
-              aria-pressed={terminalOpen}
+            </FloatingMenu>
+            <FloatingMenu
+              open={compactToast !== null}
+              positionClassName="top-full right-0 mt-1.5"
+              originClassName="origin-top-right"
               className={cn(
-                "ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground",
-                terminalOpen && "bg-secondary text-foreground hover:bg-secondary/85",
+                "ha-menu-from-top whitespace-nowrap px-2.5 py-1.5 text-xs",
+                compactToast?.success === false &&
+                  "border-destructive/30 bg-destructive/10 text-destructive",
               )}
-              onClick={onToggleTerminal}
             >
-              <SquareTerminal className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {rightPanelControls}
+              {compactToast ? (
+                <div className="flex items-center gap-1.5">
+                  {compactToast.success ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                  ) : (
+                    <X className="h-3 w-3" />
+                  )}
+                  {compactToast.message}
+                </div>
+              ) : null}
+            </FloatingMenu>
+          </div>
+          {onToggleTerminal && (
+            <IconTip
+              label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
+            >
+              <button
+                type="button"
+                aria-label={`${terminalOpen ? t("terminal.hide", "隐藏终端") : t("terminal.show", "显示终端")} (⌘/Ctrl+J)`}
+                aria-pressed={terminalOpen}
+                className={cn(TITLE_BAR_ICON_BUTTON, terminalOpen && TITLE_BAR_ICON_BUTTON_ACTIVE)}
+                onClick={onToggleTerminal}
+              >
+                <SquareTerminal className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
+          {(workbenchCollapsed || !workbenchDocked || workbenchTabs.length === 0) &&
+            workbenchLaunchItems.length > 0 &&
+            onExpandWorkbench && (
+              <WorkbenchOpenButton
+                tabs={workbenchTabs}
+                launchItems={workbenchLaunchItems}
+                onOpen={onExpandWorkbench}
+                onOpenPanel={(panelId) => onOpenWorkbenchPanel?.(panelId)}
+              />
+            )}
+        </div>
       </div>
+      {/* Gated on a docked panel, not on tabs: a floating Browser / Mac mirror
+          still lists a tab, and a strip with no surface under it is unusable. */}
+      {workbenchDocked && workbenchTabs.length > 0 && onCollapseWorkbench && (
+        <WorkbenchHeader
+          width={workbenchWidth}
+          layoutMode={workbenchLayoutMode}
+          collapsed={workbenchCollapsed}
+          resizing={workbenchResizing}
+          maximized={workbenchMaximized}
+          tabs={workbenchTabs}
+          launchItems={workbenchLaunchItems}
+          activeId={activeWorkbenchTabId ?? null}
+          onSelect={(id) => onSelectWorkbenchTab?.(id)}
+          onOpen={(id) => onOpenWorkbenchPanel?.(id)}
+          onCloseTab={(id) => onCloseWorkbenchTab?.(id)}
+          onReorder={(source, target) => onReorderWorkbenchTabs?.(source, target)}
+          onToggleTabWindow={(id) => onToggleWorkbenchTabWindow?.(id)}
+          onToggleMaximize={onToggleWorkbenchMaximize}
+          onCloseWorkbench={onCollapseWorkbench}
+        />
+      )}
       {currentSessionId && exportOpen && (
         <ExportSessionDialog
           open={exportOpen}

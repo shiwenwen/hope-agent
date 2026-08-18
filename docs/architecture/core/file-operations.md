@@ -188,6 +188,7 @@ flowchart TB
 - [`FileActionMenu.tsx`](../../../src/components/chat/files/FileActionMenu.tsx)：右键与 `⋯` 的统一视图。
 - [`previewSource.ts`](../../../src/components/chat/files/previewSource.ts)：把不同存储后端收敛成 `readText` / `extractDoc` / `rawUrl`。
 - [`useObjectUrlLease.ts`](../../../src/components/chat/files/useObjectUrlLease.ts)：客户端 Blob URL 的唯一租约；替换、移除、关闭预览及卸载时 revoke。
+- [`useFilePreview.ts`](../../../src/components/chat/files/useFilePreview.ts)：对话内 [分栏工作台](../agent/docked-workbench.md) 的多文件标签集合；按稳定 `FileTarget` provenance 去重、按会话隔离并保留各预览 renderer。Files 树与搜索结果也走这个入口。
 
 两个共享模块位于 `src/lib/`，供资源层与文件浏览器共用：
 
@@ -343,7 +344,7 @@ stateDiagram-v2
 
 ## 8. 预览、打开与文档提取的三条路径
 
-[`FilePreviewPane`](../../../src/components/chat/project/file-browser/FilePreviewPane.tsx) 是统一预览视图，按 `fileKindOf` 结果分派（外壳 `FilePreviewPanel.tsx` 负责 target 切换与全屏，两者不是同一文件）：
+[`FilePreviewPane`](../../../src/components/chat/project/file-browser/FilePreviewPane.tsx) 是统一预览视图，按 `fileKindOf` 结果分派（外壳 `FilePreviewPanel.tsx` 负责单个 target 与全屏，`useFilePreview.ts` 负责工作台多标签；三者不是同一个文件）：
 
 - code/text/Markdown：文本与语法高亮；Markdown 与普通 HTML 可切换渲染/源码。普通 HTML 默认显示高亮源码，渲染视图会先移除脚本、refresh、外部资源和导航属性，再放进无脚本 sandbox 并注入与 Canvas 静态页面一致的离线 CSP；受管 Artifact HTML 仍走独立的 `allow-scripts` 预览链路。
 - image/PDF/audio/video：浏览器原生预览。

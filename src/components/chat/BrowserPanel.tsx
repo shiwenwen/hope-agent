@@ -15,6 +15,7 @@ interface BrowserPanelProps {
   onClose: () => void
   /** Switch to the in-app floating window. */
   onFloat?: () => void
+  integrated?: boolean
 }
 
 /** Docked container: RightPanelShell + shared BrowserPanelContent. The live
@@ -30,6 +31,7 @@ export default function BrowserPanel({
   animateOnMount = false,
   onClose,
   onFloat,
+  integrated = false,
 }: BrowserPanelProps) {
   const { t } = useTranslation()
   return (
@@ -41,6 +43,7 @@ export default function BrowserPanel({
       collapsed={collapsed}
       overlay={overlay}
       animateOnMount={animateOnMount}
+      integrated={integrated}
       contentKey="browser"
     >
       <BrowserPanelContent
@@ -49,6 +52,7 @@ export default function BrowserPanel({
         active={!collapsed}
         onClose={onClose}
         onFloat={onFloat}
+        integrated={integrated}
       />
     </RightPanelShell>
   )
