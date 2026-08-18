@@ -6,7 +6,10 @@ import {
   deferActiveTurnRelease,
   discardChatAttachmentUploads,
   loadingStateAfterPreparationRelease,
+  isTerminalTurnStatus,
   isUnmaterializedComposerDraftKey,
+  settledTurnStatus,
+  shouldReconcileAfterStop,
   shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
 } from "./chatPreparation"
@@ -41,6 +44,75 @@ describe("deferActiveTurnRelease", () => {
     await Promise.resolve()
 
     expect(turns.get("session")).toBe("replacement-turn")
+  })
+})
+
+describe("settledTurnStatus", () => {
+  it("keeps a genuine terminal status", () => {
+    expect(settledTurnStatus("completed", "completed")).toBe("completed")
+    expect(settledTurnStatus("failed", "failed")).toBe("failed")
+    expect(settledTurnStatus("interrupted", "interrupted")).toBe("interrupted")
+  })
+
+  it("never republishes a non-terminal row when nothing is admitted", () => {
+    // `SessionStreamState.status` is not terminal-filtered, so an orphaned
+    // `running` row (crash on a Secondary that skips startup recovery) or a
+    // mid-convergence `cancelling` reaches us verbatim. Publishing either while
+    // clearing `loading` pins the status bar "running" with no Stop button.
+    expect(settledTurnStatus("running", null)).toBe("interrupted")
+    expect(settledTurnStatus("cancelling", null)).toBe("interrupted")
+    expect(settledTurnStatus("running", undefined)).toBe("interrupted")
+  })
+
+  it("falls back to the filtered terminal status the backend does provide", () => {
+    expect(settledTurnStatus("running", "failed")).toBe("failed")
+    expect(settledTurnStatus(null, "completed")).toBe("completed")
+  })
+
+  it("defaults to interrupted when the backend knows nothing", () => {
+    expect(settledTurnStatus(null, null)).toBe("interrupted")
+  })
+
+  it("agrees with the Rust is_terminal set", () => {
+    expect(isTerminalTurnStatus("completed")).toBe(true)
+    expect(isTerminalTurnStatus("interrupted")).toBe(true)
+    expect(isTerminalTurnStatus("failed")).toBe(true)
+    expect(isTerminalTurnStatus("running")).toBe(false)
+    expect(isTerminalTurnStatus("cancelling")).toBe(false)
+    expect(isTerminalTurnStatus(null)).toBe(false)
+  })
+})
+
+describe("shouldReconcileAfterStop", () => {
+  const base = {
+    latched: false,
+    completionSealed: false,
+    terminalEventPending: false,
+  }
+
+  it("reconciles the crash-recovered stale turn that reported no work to stop", () => {
+    // stopped=false, turn_mismatch=false, runtime_cancellations=0 — the exact
+    // signature from issue #657's logs.
+    expect(shouldReconcileAfterStop({ ...base, stopped: false, activeTurnFound: false })).toBe(true)
+  })
+
+  it("reconciles a session Stop that only wrote a durable pause receipt", () => {
+    // stopped=true, but no turn existed to broadcast a terminal event for.
+    expect(shouldReconcileAfterStop({ ...base, stopped: true, autonomyPaused: true })).toBe(true)
+  })
+
+  it("keeps waiting whenever a terminal event is still coming", () => {
+    expect(shouldReconcileAfterStop({ ...base, terminalEventPending: true })).toBe(false)
+    expect(shouldReconcileAfterStop({ ...base, completionSealed: true })).toBe(false)
+  })
+
+  it("never mistakes a pre-registration latch for stale state", () => {
+    expect(shouldReconcileAfterStop({ ...base, latched: true })).toBe(false)
+  })
+
+  it("does nothing without a result", () => {
+    expect(shouldReconcileAfterStop(null)).toBe(false)
+    expect(shouldReconcileAfterStop(undefined)).toBe(false)
   })
 })
 

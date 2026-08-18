@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { reloadAndMergeSessionMessages } from "../chatUtils"
+import { settledTurnStatus } from "./chatPreparation"
 import { PAGE_SIZE } from "../useChatSession"
 import type { ChatTurnInterruptReason, ChatTurnStatus, Message } from "@/types/chat"
 import {
@@ -68,6 +69,9 @@ export interface UseChatStreamReattachDeps {
     status?: ChatTurnStatus | null,
     interruptReason?: ChatTurnInterruptReason | null,
     turnId?: string | null,
+    /** Set only by the polling reconcile, which re-read the authoritative
+     *  snapshot: the backend admits no turn for this session at all. */
+    backendConfirmedIdle?: boolean,
   ) => boolean
 }
 
@@ -332,10 +336,12 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         if (state.turnId && state.active) {
           onTurnStarted?.(sid, state.turnId)
         } else {
+          // Reached only when the backend admits no live turn, so a raw
+          // non-terminal `status` here is a stale row, never live work.
           const appliesToCurrentTurn =
             onTurnEnded?.(
               sid,
-              state.status ?? state.lastTerminalStatus ?? null,
+              settledTurnStatus(state.status, state.lastTerminalStatus),
               state.interruptReason ?? null,
               state.turnId ?? null,
             ) ?? true
@@ -619,12 +625,17 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         if (recheck.active || !loadingSessionsRef.current.has(sid)) return
 
         // Terminal but the stream_end never landed → run the same teardown.
+        // Two authoritative reads agreeing that no turn is admitted makes a
+        // turn-id mismatch proof that OUR id is the stale one (a crash-
+        // recovered turn, say). Without this the reconcile bails every tick
+        // and the session stays `loading` until a restart.
         const appliesToCurrentTurn =
           onTurnEnded?.(
             sid,
-            recheck.status ?? recheck.lastTerminalStatus ?? null,
+            settledTurnStatus(recheck.status, recheck.lastTerminalStatus),
             recheck.interruptReason ?? null,
             recheck.turnId ?? null,
+            recheck.admissionActive === false,
           ) ?? true
         if (!appliesToCurrentTurn) return
         markStreamEnded(endedStreamIdsRef.current, sid, recheck.streamId)

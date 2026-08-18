@@ -847,6 +847,35 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 后台清理。全局停止同样走 core `stop_all_sessions`，HTTP / Tauri 只先翻转 transport-local
 cancel handle。精确 `turnId` 不匹配时 fail closed，不得误停同 session 的新回合。
 
+`stop_chat` 与 `POST /api/chat/stop` 返回**同一个** `ha_core::chat_engine::stop::StopChatResult`
+（camelCase），两个适配器不得各自造形状：
+
+```ts
+{
+  stopped: boolean
+  scope: "request" | "session" | "all"
+  reason?: string | null
+  turnMismatch: boolean          // 精确 turn 打到了另一个在跑的 turn
+  activeTurnFound: boolean       // 后端 registry 当时确实有前台 turn
+  completionSealed: boolean      // executor 已越过取消点，终态事件仍在路上
+  terminalEventPending: boolean  // 本次调用武装了 cancelling 广播 + watchdog
+  latched: boolean               // 预注册闩锁吃下了本次 Stop，turn 稍后才注册
+  runtimeCancellations: CancelRuntimeTaskResult[]
+  runtimeCancellationError?: string | null
+  autonomyPaused: boolean
+  autonomyPause?: SessionAutonomyPause | null
+  autonomyPauseError?: string | null
+  stoppedSessionCount?: number   // 仅全局停止
+}
+```
+
+**Stop 只回答「这次调用做了什么」，绝不回答「会话现在什么状态」**——后者恒由
+`get_session_stream_state` 唯一负责，否则两个真相源必然漂移。`latched` /
+`completionSealed` / `terminalEventPending` **三者全为 false 即证明不会再有任何终态事件**
+（例如请求的 turn 已是 `interrupted / crash_recovery`，或 session-only Stop 时根本没有活跃
+turn），调用方必须据此自行收敛本地活动状态，不得继续空等（见
+[chat-engine](../core/chat-engine.md)）。
+
 `chat` / `/api/chat` 的可选 `incomingTurn` 是 typed composer sidecar，当前契约为 `promptContractVersion=3`、`mentionWireVersion=1`。它必须携带 canonical user text、SHA-256 digest、UTF-8 source anchor 与 `file|plan|note|skill|plugin|connector|agent` binding；后端逐项校验正文 token 与来源，typed 请求不回退为字符串猜测。`plan` 只由 Plans 页的 first-party 引用动作产生：服务端独立重解析 registry path、核对附件 canonical path 并 open-once 冻结。没有 sidecar 的普通或粘贴 `@...`（包括 `@plan:`）不产生引用，`[[note]]` 只作为单独登记的只读兼容语法。File/Plan binding 必须在 direct/queue 持久化前分别与 `source=mention|plan_mention` 的附件按 unique target 精确对齐（重复相同 target 只需一个附件）；typed attachment 禁止预装 `data`、upload/quote metadata，且 name/MIME/path 受有界元数据校验。额外、缺失或无 sidecar 的 typed source 直接返回 400/IPC error。队列入口把 `incomingTurn` 与显式 Skill 的 `skillAllowedTools` 一起持久化；编辑排队消息会在同一 DB 事务清除旧 binding/ceiling 和 `mention|plan_mention` 附件、保留普通 upload/quote，避免把旧 provenance 套到新正文或留下无法派发的无 sidecar typed source。
 
 #### Chat `attachments` wire format

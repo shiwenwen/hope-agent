@@ -2540,7 +2540,8 @@ pub async fn cancel_queued_turn_user_message(
 pub async fn stop_chat(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<StopChatRequest>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<ha_core::chat_engine::stop::StopChatResult>, AppError> {
+    use ha_core::chat_engine::stop::StopChatResult;
     let request_scoped_stop =
         body.client_request_id.is_some() && (body.session_id.is_none() || body.turn_id.is_none());
     let _bootstrap_signalled = body
@@ -2561,13 +2562,14 @@ pub async fn stop_chat(
         request_cancel.as_ref(),
         Some(ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::SessionMismatch)
     ) {
-        return Ok(Json(json!({
-            "stopped": false,
-            "scope": if body.session_id.is_some() { "session" } else { "request" },
-            "reason": "client request is not owned by the target session",
-            "runtimeCancellations": [],
-            "runtimeCancellationError": Value::Null,
-        })));
+        return Ok(Json(StopChatResult::no_target(
+            if body.session_id.is_some() {
+                "session"
+            } else {
+                "request"
+            },
+            Some("client request is not owned by the target session"),
+        )));
     }
     if matches!(
         request_cancel.as_ref(),
@@ -2577,13 +2579,7 @@ pub async fn stop_chat(
         // authoritatively represented by the in-memory request latch; a session id supplied
         // by the caller is only an ownership constraint, not permission to
         // cancel a different active turn in that session.
-        return Ok(Json(json!({
-            "stopped": true,
-            "scope": "request",
-            "reason": Value::Null,
-            "runtimeCancellations": [],
-            "runtimeCancellationError": Value::Null,
-        })));
+        return Ok(Json(StopChatResult::latched()));
     }
     let request_target = request_cancel.as_ref().and_then(|outcome| match outcome {
         ha_core::chat_engine::active_turn::ClientRequestCancelOutcome::Active(active) => {
@@ -2628,26 +2624,22 @@ pub async fn stop_chat(
             already_signalled,
         )
         .await;
-        return Ok(Json(json!({
-            "stopped": outcome.stopped,
-            "scope": if body.session_id.is_some() { "session" } else { "request" },
-            "reason": if outcome.stopped { Value::Null } else { json!("no matching active chat for target") },
-            "runtimeCancellations": outcome.runtime_cancellations,
-            "runtimeCancellationError": outcome.runtime_cancellation_error,
-            "autonomyPaused": outcome.autonomy_pause.is_some(),
-            "autonomyPause": outcome.autonomy_pause,
-            "autonomyPauseError": outcome.autonomy_pause_error,
-        })));
+        return Ok(Json(StopChatResult::from_session_outcome(
+            if body.session_id.is_some() {
+                "session"
+            } else {
+                "request"
+            },
+            outcome,
+        )));
     }
 
     if !global_stop {
-        return Ok(Json(json!({
-            "stopped": already_signalled,
-            "scope": "request",
-            "reason": if already_signalled { Value::Null } else { json!("no matching active chat for target") },
-            "runtimeCancellations": [],
-            "runtimeCancellationError": Value::Null,
-        })));
+        return Ok(Json(if already_signalled {
+            StopChatResult::latched()
+        } else {
+            StopChatResult::no_target("request", Some("no matching active chat for target"))
+        }));
     }
 
     // Signal transport-local handles before the shared service's first await.
@@ -2666,13 +2658,7 @@ pub async fn stop_chat(
         false,
     )
     .await;
-    Ok(Json(json!({
-        "stopped": outcome.stopped,
-        "scope": "all",
-        "count": outcome.stopped_session_count,
-        "runtimeCancellations": outcome.runtime_cancellations,
-        "runtimeCancellationError": outcome.runtime_cancellation_error,
-    })))
+    Ok(Json(StopChatResult::from_all_outcome(outcome)))
 }
 
 /// `POST /api/chat/continue` — resume the exact controllers captured by the
