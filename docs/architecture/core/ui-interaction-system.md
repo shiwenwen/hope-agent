@@ -470,6 +470,12 @@ prompt dock 内的 `ModelSelector` 是工具栏 ghost 按钮，不是表单字�
 `AllowlistTagInput`、项目指令 / 自动记忆编辑器及各列表行内改名。不得在普通表单字段上复用该变体；
 复合控件仍须保留清晰外壳和统一焦点协议。
 
+**列宽拖拽手柄**——[`ResizeHandleGlow`](../../../src/components/ui/resize-handle-glow.tsx) 是唯一入口，
+也是「hover 只加深背景、不动 border / ring / shadow」的唯一例外：它本身就是拖拽反馈，idle 完全透明，
+hover / 键盘 focus / 拖拽中才显示 1px 强调色光晕（`--ha-markdown-link` + `--ha-resize-glow`，**禁止再写
+死十六进制**）。它叠在 1px `border-border-soft` 结构线之上，**不得用「有手柄」当作省掉结构线的理由**；
+该例外不扩散到任何非拖拽控件。
+
 **内嵌终端**——由 xterm.js 管理 canvas、viewport 和输入层的第三方复合控件：允许导入上游
 `xterm.css`，并在 `chat/terminal/terminal.css` 内用 `.hope-terminal` 作用域补齐内部层尺寸、主题
 token 和滚动条适配。面板拖拽高度依赖运行时测量，可设置动态像素 `height`；拖拽期间也可临时设置

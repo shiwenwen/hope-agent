@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { UI_EASING, UI_MOTION } from "@/components/ui/motion"
 import { cn } from "@/lib/utils"
 import type { WorkbenchLayoutMode } from "./types"
+import { WORKBENCH_MAXIMIZED_BODY_TOP } from "./useWorkbenchSizing"
 
 interface WorkbenchSurfaceProps {
   width: number
@@ -9,6 +10,10 @@ interface WorkbenchSurfaceProps {
   collapsed?: boolean
   resizing?: boolean
   maximized?: boolean
+  /** No panel is open. The surface stays mounted — panels that own their own
+   *  open signal (Canvas listens for `canvas_show`) must keep listening — but
+   *  takes no layout, not even the 1px column border. */
+  empty?: boolean
   children: ReactNode
 }
 
@@ -18,6 +23,7 @@ export function WorkbenchSurface({
   collapsed = false,
   resizing = false,
   maximized = false,
+  empty = false,
   children,
 }: WorkbenchSurfaceProps) {
   return (
@@ -29,15 +35,17 @@ export function WorkbenchSurface({
         !resizing && "transition-[width,opacity,border-color] motion-reduce:transition-none",
         layoutMode === "stage" && "border-l-0",
         collapsed && "pointer-events-none border-l-transparent border-t-transparent opacity-0",
-        maximized && "fixed inset-x-0 bottom-0 top-[72px] z-50 h-auto border-l-0",
+        maximized &&
+          cn("fixed inset-x-0 bottom-0 z-50 h-auto border-l-0", WORKBENCH_MAXIMIZED_BODY_TOP),
+        empty && "hidden",
       )}
       style={{
         width: maximized ? "100%" : collapsed ? 0 : width,
         transitionDuration: !resizing ? `${UI_MOTION.panelWidth}ms` : undefined,
         transitionTimingFunction: !resizing ? UI_EASING.emphasized : undefined,
       }}
-      aria-hidden={collapsed ? true : undefined}
-      inert={collapsed ? true : undefined}
+      aria-hidden={collapsed || empty ? true : undefined}
+      inert={collapsed || empty ? true : undefined}
     >
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
     </section>

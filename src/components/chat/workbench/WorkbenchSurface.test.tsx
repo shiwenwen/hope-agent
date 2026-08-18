@@ -33,4 +33,18 @@ describe("WorkbenchSurface", () => {
     expect(surface?.className).toContain("fixed")
     expect(surface?.className).toContain("top-[72px]")
   })
+
+  it("keeps children mounted but out of layout while no panel is open", () => {
+    const { container } = render(
+      <WorkbenchSurface width={720} layoutMode="docked" empty>
+        <div>Workbench content</div>
+      </WorkbenchSurface>,
+    )
+
+    // Mounted: panels that own their own open signal must keep listening.
+    const surface = container.querySelector("section")
+    expect(surface?.textContent).toContain("Workbench content")
+    expect(surface?.className.split(" ")).toContain("hidden")
+    expect(surface).toHaveAttribute("aria-hidden", "true")
+  })
 })

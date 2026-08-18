@@ -100,14 +100,15 @@ interface WorkbenchTabItem {
 [`WorkbenchHeader`](../../../src/components/chat/workbench/WorkbenchHeader.tsx) 提供：
 
 - 单击激活；中键或关闭按钮关闭。
-- 原生拖拽重排；顺序按会话保存在 renderer 生命周期内。
+- 原生拖拽重排；顺序按会话保存在 renderer 生命周期内。拖拽必须 `setData` 才能在 WebKit / Gecko 里真正开始，并且**必须有 `onDragEnd` 兜底清理**——取消的拖拽留下的 source 会让之后任意一次 drop（包括从系统拖进来的文件）静默重排。
 - roving focus：左右键移动焦点，Enter / Space 激活，Delete 关闭。
-- `Alt+Shift+Left/Right` 可用键盘重排。
+- `Alt+Shift+Left/Right` 可用键盘重排；**重排在两端停住不回绕**（焦点移动才回绕），否则一次「往左一格」会把首标签甩到末尾。
 - 活动标签自动滚入可见范围；标签过多时标签轨道横向滚动。
 - `+` 菜单打开当前上下文可用的工作台面。
 - 右上角统一控制整个工作台的最大化 / 恢复和收起；最大化不是当前内容组件的私有状态。
-- Browser / Mac Control 标签带窗口模式按钮，在 docked 与 floating 间切换；浮动后标签仍留在轨道中。
+- Browser / Mac Control 标签带窗口模式按钮，在 docked 与 floating 间切换；浮动后标签仍留在轨道中，**点它必须先 dock 回来**再激活，否则激活的是别的面板。
 - 工作台完全没有打开标签时，顶部工作台入口直接展示同一启动菜单；收起但仍有标签时，入口一键恢复原工作台。
+- **标签轨道与工作台主体同一个开关**：只剩浮动镜像时没有 docked 面板，轨道整条不渲染（否则会留下一条底下什么都没有、收起按钮还会被复位 effect 立刻撤销的空条），此时由启动入口负责把镜像 dock 回来。
 
 标签轨道与 [`ChatTitleBar`](../../../src/components/chat/ChatTitleBar.tsx) 的左半区共同占满标题栏那一行，因此**两者都必须自带 `data-tauri-drag-region`**：Tauri 只认直接接收 mousedown 的那个元素，父级有属性并不会传给子容器，漏标即标签旁的空白无法拖动窗口、也无法双击最大化。
 
@@ -125,9 +126,9 @@ Workspace、Workflow、Background Jobs 和 Subagents 的 badge 继续读取各�
 
 因此 Files 在工作台内只保留 `FileBrowserView` 的文件工具栏；宿主层的重复 `Files + close + maximize` 行不再渲染，独立窗口入口追加到文件工具栏。文件 Preview 保留文件名 / 路径及打开、下载、编辑、引用等操作，但关闭与最大化由顶层标签和工作台负责。
 
-split 布局的左侧文件列表可整列收起（工具栏的 `PanelLeftClose`）。收起后**必须留一条带展开按钮的窄轨**——展开入口本来就长在被收起的那一列里，只把列宽变成 0 会把它一起藏掉、再也回不来。
+split 布局的左侧文件列表可整列收起（工具栏的 `PanelLeftClose`）。收起后**必须留一条带展开按钮的窄轨**——展开入口本来就长在被收起的那一列里，只把列宽变成 0 会把它一起藏掉、再也回不来。窄轨同时要带上宿主注入的 `toolbarTrailing`：集成态下「独立窗口」只有文件工具栏这一个入口，跟着列一起收掉就没了。
 
-预览头的路径行是可点面包屑（[`FilePathBreadcrumb`](../../../src/components/chat/files/FilePathBreadcrumb.tsx)，纯拆分逻辑在 [`filePathSegments.ts`](../../../src/components/chat/files/filePathSegments.ts)）：目录段跳到 Files 面板并展开选中该目录，文件名段复制完整路径。**可达性由宿主判定、不可留死链接**——ChatScreen 把绝对路径按最长前缀匹配到 `effectiveWorkingDir` 或项目源目录，workspace 目标则要求 scope 与当前 Files 面板一致；解析不出来的段渲染成纯文本。URL / `blob:` / `data:` 一类不透明标识不走面包屑。Diff、PR、Plan、Canvas、Browser、Mac Control 与 Subagent detail 同理保留自己的内容语义行。
+预览头的路径行是可点面包屑（[`FilePathBreadcrumb`](../../../src/components/chat/files/FilePathBreadcrumb.tsx)，纯拆分逻辑在 [`filePathSegments.ts`](../../../src/components/chat/files/filePathSegments.ts)）：目录段跳到 Files 面板并展开选中该目录，文件名段复制完整路径。**可达性由宿主判定、不可留死链接**——ChatScreen 把绝对路径按最长前缀匹配到 `effectiveWorkingDir` 或项目源目录，workspace 目标则要求 scope 与当前 Files 面板一致；解析不出来的段渲染成纯文本。同一条解析链服务「在新标签中打开」，因此它**必须复用 `openFileTarget` 的预览兜底**：多源文件夹或 worktree 根下的文件解析不成 browsable，没有兜底就是一次完全无反馈的点击。解析结果还要带上 `revealLines`，否则从 Diff 跳行会打开文件却不定位、不高亮。URL / `blob:` / `data:` 一类不透明标识不走面包屑。Diff、PR、Plan、Canvas、Browser、Mac Control 与 Subagent detail 同理保留自己的内容语义行。
 
 独立窗口不是普通 close / maximize：它改变资源承载窗口并有自己的生命周期，所以 Files / Plan / Canvas 仍可从内容工具栏 detach / reattach；Browser / Mac Control 的轻量浮动属于工作台布局模式，入口放在标签上。
 
@@ -166,7 +167,7 @@ width = clamp(round(L * ratio), min(lower, upper), upper)
 1. **两栏同时缩**，直到各自的理想下限。
 2. **卡片先让**：会话信息卡片浮在对话列右缘，打开时它的通道要计进对话列的理想下限（`chatIdeal = CHAT_IDEAL_MIN + lane`）。`L` 不足 `CHAT_IDEAL_MIN + lane + WORKBENCH_IDEAL_MIN` 时先关掉卡片——它腾出的空间立刻回到两栏，所以两栏会一起变宽一截。
 3. **工作台单独让**：从 `WORKBENCH_IDEAL_MIN` 一路缩到 `WORKBENCH_MIN`，再窄就**自动收起工作台**（不是进 stage）。
-4. **最后动侧栏**：先连续压到 `CHAT_SIDEBAR_MIN_WIDTH`，压不动了再自动收起。
+4. **最后动侧栏**：先连续压到 `CHAT_SIDEBAR_MIN_WIDTH`，压不动了再自动收起。挤压只是**渲染宽度**（`renderedWidth`），拖拽仍以存储的偏好 `panelWidth` 为基准——拿被挤压后的值当基准，窄窗口里随手一拖就把偏好永久改小了。
 
 `cardFits` 刻意**不依赖卡片当前是否打开**，否则窄窗口里点开卡片会在同一次点击里把自己关掉。窄窗口下用户仍可手动打开，此时卡片直接盖在正文上（见 [`environmentInset.ts`](../../../src/components/chat/environmentInset.ts)）。
 
@@ -182,7 +183,8 @@ width = clamp(round(L * ratio), min(lower, upper), upper)
 
 - `WorkbenchHeader` 固定在窗口顶端，macOS overlay 区保留 28 px，标签和统一控制仍在唯一顶部行。
 - `WorkbenchSurface` 覆盖 header 下方的全部应用内容，活动标签保持原组件实例；其它标签继续 warm mount + `inert`。
-- resize handle 暂停渲染，恢复后回到原 docked 宽度；按 `Escape` 或右上角恢复按钮退出。
+- resize handle 暂停渲染，恢复后回到原 docked 宽度；按 `Escape`（**已被弹层消费的按键不算**）或右上角恢复按钮退出。
+- **收起前一律先退出最大化**，响应式自动收起也不例外：留着 `maximized` 会让下次展开变成盖住整屏的浮层而不是原来的分栏；同理手动最大化要记 `manualRightPanelExpandedOverrideRef`，否则下一次 resize tick 会把它自动收走。
 - 收起、关闭最后一个标签或切换会话都会先退出最大化，不能把 frame 状态泄漏给下一会话。
 
 ### 分隔线
@@ -191,11 +193,13 @@ width = clamp(round(L * ratio), min(lower, upper), upper)
 
 列边界本身是 1 px `border-border-soft` 结构线，**任何时候都在**；拖拽反馈另有一层视觉宽度 1 px、命中宽度 10 px 的 [`ResizeHandleGlow`](../../../src/components/ui/resize-handle-glow.tsx) 叠在它上面，idle 完全透明，只有 hover、键盘 focus 或正在拖拽时才显示细蓝色光晕。两者职责分开：**别用「有拖拽手柄」当作省掉结构线的理由**（Files 树右缘曾因此看不到边界）。拖拽以 rAF 合并宽度更新，拖拽期间临时关闭 iframe pointer events，并在 pointer up、cancel、窗口失焦和卸载时恢复。
 
-分隔线具有 `role="separator"`、`aria-valuemin/max/now`。方向键每次 16 px，Shift + 方向键 48 px，Home 到最小值，End 到当前允许上限。
+分隔线具有 `role="separator"`、`aria-valuemin/max/now`，可访问名是「调整工作台宽度」而不是标签轨道的停靠栏名称（两者曾共用一个 key）。方向键每次 16 px，Shift + 方向键 48 px，Home 到最小值，End 到当前允许上限。拖拽要过 3 px 阈值才算数——1 px 抖动会把 `widthMode` 永久钉成 `manual`。
+
+`widthMode` 与比例的读写一律走 try/catch 包装：`useState` 初始化里裸读 localStorage，在被策略禁用或配额爆掉的环境里会直接把整个 ChatScreen 打成白屏。
 
 ## 5. 环境信息投影
 
-环境卡是**可常驻面板，不是 popover**：按钮是开关，点别处不关闭，入口紧挨终端。标题栏右端所有图标动作共用 [`titleBarStyles.ts`](../../../src/components/chat/titleBarStyles.ts) 的同一个 28×28 方钮外壳，靠 `gap-1` 排成一条均匀的节奏；一次性动作与开关的唯一差别是**开关多一层选中填充**（搜索、无痕、环境卡、终端、工作台入口）。新增标题栏图标按钮直接复用该常量，别再手写一套尺寸或补 `ml-*`。因此 `ChatTitleBar` 里只有 `statusPinned`（用户意图）是状态，**是否真的显示是派生的**：`showStatus = statusPinned && !suppressStatus`。窗口太窄时 `suppressStatus` 只是把它藏起来，拉大后仍被 pin 的卡片自动回来——别改成「收起时清掉 statusPinned」，那正是「缩小收起后拉大不出现」的老 bug。卡片内那几个跳走的操作（compact、查看上下文 / 系统提示、打开 Workspace）显式 unpin。
+环境卡是**可常驻面板，不是 popover**：按钮是开关，点别处不关闭，入口紧挨终端。标题栏右端所有图标动作共用 [`titleBarStyles.ts`](../../../src/components/chat/titleBarStyles.ts) 的同一个 28×28 方钮外壳，靠 `gap-1` 排成一条均匀的节奏；一次性动作与开关的唯一差别是**开关多一层选中填充**（搜索、无痕、环境卡、终端、工作台入口）。新增标题栏图标按钮直接复用该常量，别再手写一套尺寸或补 `ml-*`。因此 `ChatTitleBar` 里只有 `statusPinned`（用户意图）是状态：`showStatus = statusPinned`。窗口太窄时**只是不再预留通道**（`environmentInsetWidth` 返回 0），卡片照常打开、直接盖在正文上——按钮点了没反应比盖住正文更糟，而 `cardFits` 的阈值（约 1468 px）在常见笔记本宽度上根本达不到。也**别改成「收起时清掉 statusPinned」**，那是「缩小后拉大不出现」的老 bug。卡片内那几个跳走的操作（compact、查看上下文 / 系统提示、打开 Workspace）显式 unpin。
 
 弹层由整个右侧操作组的相对容器定位（不是按钮自己，否则会比预留通道多探出几个按钮的宽度），不 portal 到 `document.body`；宽度上限用对话标题段的 container query，右边界不会越过对话 / 工作台 divider。
 
@@ -230,9 +234,13 @@ width = clamp(round(L * ratio), min(lower, upper), upper)
 
 Browser / Mac 转成 floating 后离开 docked surface，但标签仍留在顶部用于定位；点击标签上的 reattach 或直接选择该标签会 dock 回工作台。浮窗继续使用共享 frame store，切换容器不重新订阅或中断帧。
 
+WorkbenchSurface **恒挂载**（没有打开面板时 `empty` → `hidden`，不占布局也不占那 1 px 列边框）。Canvas 面板自己持有 `canvas_show` 监听与会话 canvas 恢复，`canvasPanelOpen` 又由它回调驱动：把它挂在「有面板打开」这个条件下就成了自引用——默认状态下没人听 `canvas_show`，canvas 再也打不开；而它随其它面板重新挂载时又会重新认领最新 canvas，把用户刚关掉的标签弹回来。同理，Canvas 把主窗口最小宽度顶到 1280 的那个 effect **必须有卸载兜底**，否则组件先被卸载、复位分支永远跑不到，窗口就一直缩不回去了。
+
 Files / Canvas 独立窗口的 handle 保持在原组件内。关闭顶部 Files 标签会先触发同一个外部关闭事件，使独立窗口 reattach / close 并复位 fullscreen；不能绕过已有窗口清理。
 
-关闭 Files 或文件标签前统一调用 `confirmDiscardDirtyFileEditors`。用户取消后标签和编辑器保持不变；会话导航与新建会话继续使用同一个全局 guard。
+关闭 Files 或文件标签前统一调用 `confirmDiscardDirtyFileEditors`，**并带上被关标签的 owner**（`FileBrowserPanel` 的 `instanceKey`）：这是进程级注册表，不带 owner 的话关掉一个干净标签会把其它标签的未保存缓冲一起 discard，弹窗还指着一个用户没在离开的文件。用户取消后标签和编辑器保持不变；会话导航、新建会话与 Transport 切换继续使用同一个全局（无 owner）guard。
+
+文件浏览器的 reveal 也是导航：`revealFile` / `revealDirectory` 两条 render-phase 通道都必须走 `editorDirty` 判定，命中就转成 `pendingNavigation` 等用户确认——尤其目录 reveal 还得清 `editing`，否则编辑器会被指到一个目录上 `readFile`。
 
 ## 7. 自动打开与会话隔离
 
@@ -244,6 +252,8 @@ Files / Canvas 独立窗口的 handle 保持在原组件内。关闭顶部 Files
 - 文件、Diff、PR、Plan 和深链属于用户显式前景打开。
 
 普通会话切换时，renderer 缓存以下会话级视图状态：安全标签集合、标签顺序、活动标签、工作台收起状态、文件预览集合以及 Browser / Mac / Workspace / Jobs 的 dismissed 状态。返回原会话时恢复这些状态。
+
+草稿会话用 `__draft__` 作 scope key。**首条消息把草稿变成真会话时是重命名、不是切换**：`session_created` 经 `onSessionPromoted` 把工作台缓存、标签顺序与两个文件 scope 一起改址（[`useScopedTabState`](../../../src/components/chat/files/useScopedTabState.ts) 的 `renameScope`）。当成普通切换处理会有两个后果——回合一开始所有已开文件标签凭空消失，而遗留的 `__draft__` 桶会在下一次「新建对话」里被恢复出来，预览还指着上一个会话的工作目录。
 
 Browser / Mac 浮窗在会话切换时仍关闭。PR 是 HEAD / branch 相关网络状态，切换时关闭并由目标会话重新打开。文件 target 保存原 provenance，不能重绑定到目标会话。
 
@@ -277,5 +287,7 @@ Incognito 会话不写入会话工作台缓存；切离时不留下文件资源�
 - [`ChatTitleBar.test.tsx`](../../../src/components/chat/ChatTitleBar.test.tsx)：单顶部行标签、badge、多文件标签与收起恢复入口。
 - [`WorkbenchSurface.test.tsx`](../../../src/components/chat/workbench/WorkbenchSurface.test.tsx)：docked / collapsed / maximized 的几何与无障碍状态。
 - [`RightPanelShell.test.tsx`](../../../src/components/chat/right-panel/RightPanelShell.test.tsx)：兼容 shell 的 resize / mount / fullscreen 行为。
+- [`fileDirtyRegistry.test.ts`](../../../src/components/chat/files/fileDirtyRegistry.test.ts)：按 owner 收窄的未保存 guard，以及仍然覆盖全部编辑器的全局 guard。
+- [`useFileTabs.test.ts`](../../../src/components/chat/files/useFileTabs.test.ts)：reveal 复用活动标签、会话保留 / 无痕丢弃，以及草稿转正的 scope 改址。
 
 人工验收至少覆盖：2560、1920、1440、1280、1024、800 px；侧栏开关；工作台 auto / manual / stage；环境卡 reserved / overlay；Terminal；Browser / Mac float；Files / Canvas detach；文件 dirty guard；正常与 Incognito 会话切换。

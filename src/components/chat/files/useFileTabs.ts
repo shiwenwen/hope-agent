@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import type {
   ProjectFileQuoteReveal,
   ProjectFolderIdentity,
 } from "@/components/chat/project/fileQuoteTarget"
 import type { FileBrowserDirectoryReveal } from "@/components/chat/project/file-browser/FileBrowserView"
+import { useScopedTabState, type ScopeSwitchOptions } from "./useScopedTabState"
 
 /** What a tab's browser currently has selected — drives its label and icon. */
 export interface FileTabSelection {
@@ -32,12 +33,7 @@ export interface FileTabEntry {
   selection: FileTabSelection | null
 }
 
-export interface FileTabScopeSwitchOptions {
-  /** Restore a previously retained destination set. Defaults to true. */
-  restore?: boolean
-  /** Retain the set being left. Incognito callers must pass false. */
-  cacheCurrent?: boolean
-}
+export type FileTabScopeSwitchOptions = ScopeSwitchOptions
 
 export interface UseFileTabs {
   tabs: FileTabEntry[]
@@ -59,6 +55,8 @@ export interface UseFileTabs {
   reorderTabs: (source: string, target: string) => void
   setTabSelection: (id: string, selection: FileTabSelection | null) => void
   switchScope: (scopeKey: string, options?: FileTabScopeSwitchOptions) => void
+  /** Re-address the open set when a draft chat becomes a real session. */
+  renameScope: (from: string, to: string) => void
 }
 
 interface FileTabsState {
@@ -113,26 +111,31 @@ function withRevealInActiveTab(
  * always derive a consistent pair.
  */
 export function useFileTabs(): UseFileTabs {
-  const [state, setState] = useState<FileTabsState>(EMPTY_STATE)
+  const { state, setState, switchScope, renameScope } =
+    useScopedTabState<FileTabsState>(EMPTY_STATE)
   const [openNonce, setOpenNonce] = useState(0)
-  const scopeRef = useRef("__draft__")
-  const scopeCacheRef = useRef(new Map<string, FileTabsState>())
 
-  const openTab = useCallback((reveal?: FileTabFileReveal | null) => {
-    setState((current) => {
-      const tab = createTab(reveal ? toFileReveal(reveal) : null)
-      return { tabs: [...current.tabs, tab], activeId: tab.id }
-    })
-    setOpenNonce((n) => n + 1)
-  }, [])
+  const openTab = useCallback(
+    (reveal?: FileTabFileReveal | null) => {
+      setState((current) => {
+        const tab = createTab(reveal ? toFileReveal(reveal) : null)
+        return { tabs: [...current.tabs, tab], activeId: tab.id }
+      })
+      setOpenNonce((n) => n + 1)
+    },
+    [setState],
+  )
 
-  const revealFileInActiveTab = useCallback((reveal: FileTabFileReveal) => {
-    const target = toFileReveal(reveal)
-    setState((current) =>
-      withRevealInActiveTab(current, { revealFile: target, revealDirectory: null }),
-    )
-    setOpenNonce((n) => n + 1)
-  }, [])
+  const revealFileInActiveTab = useCallback(
+    (reveal: FileTabFileReveal) => {
+      const target = toFileReveal(reveal)
+      setState((current) =>
+        withRevealInActiveTab(current, { revealFile: target, revealDirectory: null }),
+      )
+      setOpenNonce((n) => n + 1)
+    },
+    [setState],
+  )
 
   const revealDirectoryInActiveTab = useCallback(
     (relPath: string, projectRoot: ProjectFolderIdentity | null) => {
@@ -143,7 +146,7 @@ export function useFileTabs(): UseFileTabs {
       )
       setOpenNonce((n) => n + 1)
     },
-    [],
+    [setState],
   )
 
   const clearReveals = useCallback(() => {
@@ -159,91 +162,104 @@ export function useFileTabs(): UseFileTabs {
           }
         : current,
     )
-  }, [])
+  }, [setState])
 
-  const selectTab = useCallback((id: string) => {
-    setState((current) => (current.activeId === id ? current : { ...current, activeId: id }))
-  }, [])
+  const selectTab = useCallback(
+    (id: string) => {
+      setState((current) => (current.activeId === id ? current : { ...current, activeId: id }))
+    },
+    [setState],
+  )
 
-  const closeTab = useCallback((id?: string) => {
-    setState((current) => {
-      const closingId = id ?? current.activeId
-      const closingIndex = current.tabs.findIndex((tab) => tab.id === closingId)
-      if (closingIndex < 0) return current
-      const tabs = current.tabs.filter((tab) => tab.id !== closingId)
-      return {
-        tabs,
-        activeId:
-          current.activeId === closingId
-            ? (tabs[Math.min(closingIndex, tabs.length - 1)]?.id ?? null)
-            : current.activeId,
-      }
-    })
-  }, [])
+  const closeTab = useCallback(
+    (id?: string) => {
+      setState((current) => {
+        const closingId = id ?? current.activeId
+        const closingIndex = current.tabs.findIndex((tab) => tab.id === closingId)
+        if (closingIndex < 0) return current
+        const tabs = current.tabs.filter((tab) => tab.id !== closingId)
+        return {
+          tabs,
+          activeId:
+            current.activeId === closingId
+              ? (tabs[Math.min(closingIndex, tabs.length - 1)]?.id ?? null)
+              : current.activeId,
+        }
+      })
+    },
+    [setState],
+  )
 
-  const closeAllTabs = useCallback(() => setState(EMPTY_STATE), [])
+  const closeAllTabs = useCallback(() => setState(EMPTY_STATE), [setState])
 
-  const reorderTabs = useCallback((source: string, target: string) => {
-    setState((current) => {
-      const sourceIndex = current.tabs.findIndex((tab) => tab.id === source)
-      const targetIndex = current.tabs.findIndex((tab) => tab.id === target)
-      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
-      const tabs = [...current.tabs]
-      const [moved] = tabs.splice(sourceIndex, 1)
-      tabs.splice(targetIndex, 0, moved)
-      return { ...current, tabs }
-    })
-  }, [])
+  const reorderTabs = useCallback(
+    (source: string, target: string) => {
+      setState((current) => {
+        const sourceIndex = current.tabs.findIndex((tab) => tab.id === source)
+        const targetIndex = current.tabs.findIndex((tab) => tab.id === target)
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
+        const tabs = [...current.tabs]
+        const [moved] = tabs.splice(sourceIndex, 1)
+        tabs.splice(targetIndex, 0, moved)
+        return { ...current, tabs }
+      })
+    },
+    [setState],
+  )
 
-  const setTabSelection = useCallback((id: string, selection: FileTabSelection | null) => {
-    setState((current) => {
-      const index = current.tabs.findIndex((tab) => tab.id === id)
-      if (index < 0) return current
-      const previous = current.tabs[index].selection
-      if (previous?.relPath === selection?.relPath && previous?.name === selection?.name) {
-        return current
-      }
-      const tabs = [...current.tabs]
-      tabs[index] = { ...tabs[index], selection }
-      return { ...current, tabs }
-    })
-  }, [])
+  const setTabSelection = useCallback(
+    (id: string, selection: FileTabSelection | null) => {
+      setState((current) => {
+        const index = current.tabs.findIndex((tab) => tab.id === id)
+        if (index < 0) return current
+        const previous = current.tabs[index].selection
+        if (previous?.relPath === selection?.relPath && previous?.name === selection?.name) {
+          return current
+        }
+        const tabs = [...current.tabs]
+        tabs[index] = { ...tabs[index], selection }
+        return { ...current, tabs }
+      })
+    },
+    [setState],
+  )
 
-  const switchScope = useCallback((scopeKey: string, options: FileTabScopeSwitchOptions = {}) => {
-    const { restore = true, cacheCurrent = true } = options
-    const previousScope = scopeRef.current
-    scopeRef.current = scopeKey
-    setState((current) => {
-      // Cache writes are idempotent, so a repeated updater call is safe.
-      if (previousScope === scopeKey) {
-        if (restore && cacheCurrent) return current
-        if (!cacheCurrent || !restore) scopeCacheRef.current.delete(scopeKey)
-        return restore ? current : EMPTY_STATE
-      }
-      if (cacheCurrent) scopeCacheRef.current.set(previousScope, current)
-      else scopeCacheRef.current.delete(previousScope)
-      if (!restore) {
-        scopeCacheRef.current.delete(scopeKey)
-        return EMPTY_STATE
-      }
-      return scopeCacheRef.current.get(scopeKey) ?? EMPTY_STATE
-    })
-  }, [])
-
-  return {
-    tabs: state.tabs,
-    activeId: state.activeId,
-    showPanel: state.tabs.length > 0,
-    openNonce,
-    openTab,
-    revealFileInActiveTab,
-    revealDirectoryInActiveTab,
-    clearReveals,
-    selectTab,
-    closeTab,
-    closeAllTabs,
-    reorderTabs,
-    setTabSelection,
-    switchScope,
-  }
+  // Memoized: this object is a dependency of the FileActionsContext value, and a
+  // fresh identity every render would push a new context value through every
+  // memo boundary in the transcript (file chips live in message bubbles).
+  return useMemo(
+    () => ({
+      tabs: state.tabs,
+      activeId: state.activeId,
+      showPanel: state.tabs.length > 0,
+      openNonce,
+      openTab,
+      revealFileInActiveTab,
+      revealDirectoryInActiveTab,
+      clearReveals,
+      selectTab,
+      closeTab,
+      closeAllTabs,
+      reorderTabs,
+      setTabSelection,
+      switchScope,
+      renameScope,
+    }),
+    [
+      clearReveals,
+      closeAllTabs,
+      closeTab,
+      openNonce,
+      openTab,
+      renameScope,
+      reorderTabs,
+      revealDirectoryInActiveTab,
+      revealFileInActiveTab,
+      selectTab,
+      setTabSelection,
+      state.activeId,
+      state.tabs,
+      switchScope,
+    ],
+  )
 }

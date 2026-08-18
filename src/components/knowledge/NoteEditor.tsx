@@ -497,7 +497,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
       )}
       {splitActive && (
         <div
-          className="group relative w-px shrink-0 cursor-col-resize"
+          // Structural rule stays; the glow on top is only the drag affordance.
+          className="group relative w-px shrink-0 cursor-col-resize bg-border-soft"
           onMouseDown={onSplitDragStart}
           role="separator"
           aria-orientation="vertical"

@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { createDraftAttachment, type DraftAttachment, type FileTarget } from "./types"
+import { useScopedTabState, type ScopeSwitchOptions } from "./useScopedTabState"
 
 export type PreviewTarget = FileTarget
 
@@ -96,14 +97,11 @@ export interface UseFilePreview {
   reorderPreviews: (source: string, target: string) => void
   /** Swap the visible tab set while retaining allowed session sets in memory. */
   switchScope: (scopeKey: string, options?: FilePreviewScopeSwitchOptions) => void
+  /** Re-address the open set when a draft chat becomes a real session. */
+  renameScope: (from: string, to: string) => void
 }
 
-export interface FilePreviewScopeSwitchOptions {
-  /** Restore a previously retained destination set. Defaults to true. */
-  restore?: boolean
-  /** Retain the set being left. Incognito callers must pass false. */
-  cacheCurrent?: boolean
-}
+export type FilePreviewScopeSwitchOptions = ScopeSwitchOptions
 
 interface FilePreviewState {
   entries: FilePreviewEntry[]
@@ -119,79 +117,66 @@ const EMPTY_STATE: FilePreviewState = { entries: [], activeId: null }
  * switching always derive a consistent pair.
  */
 export function useFilePreview(): UseFilePreview {
-  const [state, setState] = useState<FilePreviewState>(EMPTY_STATE)
+  const { state, setState, switchScope, renameScope } =
+    useScopedTabState<FilePreviewState>(EMPTY_STATE)
   const [openNonce, setOpenNonce] = useState(0)
-  const scopeRef = useRef("__draft__")
-  const scopeCacheRef = useRef(new Map<string, FilePreviewState>())
 
-  const openPreview = useCallback((next: PreviewTarget) => {
-    const entry = toEntry(next)
-    setState((current) => {
-      const index = current.entries.findIndex((item) => item.id === entry.id)
-      if (index < 0) return { entries: [...current.entries, entry], activeId: entry.id }
-      const entries = [...current.entries]
-      entries[index] = entry
-      return { entries, activeId: entry.id }
-    })
-    setOpenNonce((n) => n + 1)
-  }, [])
-
-  const selectPreview = useCallback((id: string) => {
-    setState((current) => (current.activeId === id ? current : { ...current, activeId: id }))
-  }, [])
-
-  const closePreview = useCallback((id?: string) => {
-    setState((current) => {
-      const closingId = id ?? current.activeId
-      const closingIndex = current.entries.findIndex((entry) => entry.id === closingId)
-      if (closingIndex < 0) return current
-      const entries = current.entries.filter((entry) => entry.id !== closingId)
-      return {
-        entries,
-        activeId:
-          current.activeId === closingId
-            ? (entries[Math.min(closingIndex, entries.length - 1)]?.id ?? null)
-            : current.activeId,
-      }
-    })
-  }, [])
-
-  const closeAllPreviews = useCallback(() => setState(EMPTY_STATE), [])
-
-  const reorderPreviews = useCallback((source: string, target: string) => {
-    setState((current) => {
-      const sourceIndex = current.entries.findIndex((entry) => entry.id === source)
-      const targetIndex = current.entries.findIndex((entry) => entry.id === target)
-      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
-      const entries = [...current.entries]
-      const [moved] = entries.splice(sourceIndex, 1)
-      entries.splice(targetIndex, 0, moved)
-      return { ...current, entries }
-    })
-  }, [])
-
-  const switchScope = useCallback(
-    (scopeKey: string, options: FilePreviewScopeSwitchOptions = {}) => {
-      const { restore = true, cacheCurrent = true } = options
-      const previousScope = scopeRef.current
-      scopeRef.current = scopeKey
+  const openPreview = useCallback(
+    (next: PreviewTarget) => {
+      const entry = toEntry(next)
       setState((current) => {
-        // Cache writes are idempotent, so a repeated updater call is safe.
-        if (previousScope === scopeKey) {
-          if (restore && cacheCurrent) return current
-          if (!cacheCurrent || !restore) scopeCacheRef.current.delete(scopeKey)
-          return restore ? current : EMPTY_STATE
+        const index = current.entries.findIndex((item) => item.id === entry.id)
+        if (index < 0) return { entries: [...current.entries, entry], activeId: entry.id }
+        const entries = [...current.entries]
+        entries[index] = entry
+        return { entries, activeId: entry.id }
+      })
+      setOpenNonce((n) => n + 1)
+    },
+    [setState],
+  )
+
+  const selectPreview = useCallback(
+    (id: string) => {
+      setState((current) => (current.activeId === id ? current : { ...current, activeId: id }))
+    },
+    [setState],
+  )
+
+  const closePreview = useCallback(
+    (id?: string) => {
+      setState((current) => {
+        const closingId = id ?? current.activeId
+        const closingIndex = current.entries.findIndex((entry) => entry.id === closingId)
+        if (closingIndex < 0) return current
+        const entries = current.entries.filter((entry) => entry.id !== closingId)
+        return {
+          entries,
+          activeId:
+            current.activeId === closingId
+              ? (entries[Math.min(closingIndex, entries.length - 1)]?.id ?? null)
+              : current.activeId,
         }
-        if (cacheCurrent) scopeCacheRef.current.set(previousScope, current)
-        else scopeCacheRef.current.delete(previousScope)
-        if (!restore) {
-          scopeCacheRef.current.delete(scopeKey)
-          return EMPTY_STATE
-        }
-        return scopeCacheRef.current.get(scopeKey) ?? EMPTY_STATE
       })
     },
-    [],
+    [setState],
+  )
+
+  const closeAllPreviews = useCallback(() => setState(EMPTY_STATE), [setState])
+
+  const reorderPreviews = useCallback(
+    (source: string, target: string) => {
+      setState((current) => {
+        const sourceIndex = current.entries.findIndex((entry) => entry.id === source)
+        const targetIndex = current.entries.findIndex((entry) => entry.id === target)
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
+        const entries = [...current.entries]
+        const [moved] = entries.splice(sourceIndex, 1)
+        entries.splice(targetIndex, 0, moved)
+        return { ...current, entries }
+      })
+    },
+    [setState],
   )
 
   const target = useMemo(
@@ -199,17 +184,35 @@ export function useFilePreview(): UseFilePreview {
     [state],
   )
 
-  return {
-    showPanel: state.entries.length > 0,
-    entries: state.entries,
-    activeId: state.activeId,
-    target,
-    openNonce,
-    openPreview,
-    selectPreview,
-    closePreview,
-    closeAllPreviews,
-    reorderPreviews,
-    switchScope,
-  }
+  // Memoized for the same reason as `useFileTabs`: it feeds the shared
+  // FileActionsContext value, which must not change identity every render.
+  return useMemo(
+    () => ({
+      showPanel: state.entries.length > 0,
+      entries: state.entries,
+      activeId: state.activeId,
+      target,
+      openNonce,
+      openPreview,
+      selectPreview,
+      closePreview,
+      closeAllPreviews,
+      reorderPreviews,
+      switchScope,
+      renameScope,
+    }),
+    [
+      closeAllPreviews,
+      closePreview,
+      openNonce,
+      openPreview,
+      renameScope,
+      reorderPreviews,
+      selectPreview,
+      state.activeId,
+      state.entries,
+      switchScope,
+      target,
+    ],
+  )
 }

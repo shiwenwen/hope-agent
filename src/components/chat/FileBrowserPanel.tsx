@@ -302,6 +302,9 @@ export function FileBrowserPanel({
         onSelectionChange={onSelectionChange}
         revealFile={revealFile}
         revealDirectory={revealDirectory}
+        // One workbench file tab = one editor owner, so closing this tab only
+        // guards (and discards) its own unsaved buffer.
+        editorOwnerId={instanceKey}
         className="min-h-0 flex-1"
         toolbarTrailing={
           integrated && desktopMode ? (

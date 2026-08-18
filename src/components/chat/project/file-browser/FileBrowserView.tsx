@@ -146,6 +146,9 @@ export interface FileBrowserViewProps {
   className?: string
   /** Host-level actions appended to the file toolbar (for example detach). */
   toolbarTrailing?: ReactNode
+  /** Surface that owns this browser (a workbench file tab). Scopes the unsaved
+   *  editor guard so closing one tab never discards another tab's buffer. */
+  editorOwnerId?: string
 }
 
 export function FileBrowserView({
@@ -163,6 +166,7 @@ export function FileBrowserView({
   revealDirectory,
   className,
   toolbarTrailing,
+  editorOwnerId,
 }: FileBrowserViewProps) {
   const { t } = useTranslation()
   const transport = useTransport()
@@ -415,29 +419,37 @@ export function FileBrowserView({
   if (revealFile && revealFile.nonce !== trackedRevealNonce) {
     setTrackedRevealNonce(revealFile.nonce)
     const target = resolveProjectFileQuoteTarget(revealFile, linkedRootPaths)
-    setActiveProjectRoot(target.projectRoot)
-    setActiveWorktree(target.worktreeRoot)
-    setSelected(
-      target.valid
-        ? {
-            name: revealFile.name,
-            relPath: target.path,
-            isDir: false,
-            isSymlink: false,
-            size: null,
-            modifiedMs: null,
-          }
-        : null,
-    )
-    setRevealLines(
-      target.valid
-        ? {
-            start: revealFile.startLine,
-            end: revealFile.endLine,
-            nonce: revealFile.nonce,
-          }
-        : null,
-    )
+    const applyReveal = () => {
+      setActiveProjectRoot(target.projectRoot)
+      setActiveWorktree(target.worktreeRoot)
+      setEditing(false)
+      setEditorDirty(false)
+      setSelected(
+        target.valid
+          ? {
+              name: revealFile.name,
+              relPath: target.path,
+              isDir: false,
+              isSymlink: false,
+              size: null,
+              modifiedMs: null,
+            }
+          : null,
+      )
+      setRevealLines(
+        target.valid
+          ? {
+              start: revealFile.startLine,
+              end: revealFile.endLine,
+              nonce: revealFile.nonce,
+            }
+          : null,
+      )
+    }
+    // A reveal is navigation like any other: it must not swap the editor's file
+    // out from under unsaved edits without the discard prompt.
+    if (editorDirty) setPendingNavigation(() => applyReveal)
+    else applyReveal()
   }
   // revealFile cleared (e.g. the quote chip was removed) → drop the highlight.
   if (!revealFile && revealLines) {
@@ -448,22 +460,32 @@ export function FileBrowserView({
   const [trackedRevealDirNonce, setTrackedRevealDirNonce] = useState<number | null>(null)
   if (revealDirectory && revealDirectory.nonce !== trackedRevealDirNonce) {
     setTrackedRevealDirNonce(revealDirectory.nonce)
-    setActiveProjectRoot(revealDirectory.projectRoot)
-    setActiveWorktree(null)
-    setRevealLines(null)
     const parts = revealDirectory.relPath.split("/").filter(Boolean)
-    setSelected(
-      parts.length > 0
-        ? {
-            name: parts[parts.length - 1],
-            relPath: parts.join("/"),
-            isDir: true,
-            isSymlink: false,
-            size: null,
-            modifiedMs: null,
-          }
-        : null,
-    )
+    const applyDirectoryReveal = () => {
+      setActiveProjectRoot(revealDirectory.projectRoot)
+      setActiveWorktree(null)
+      setRevealLines(null)
+      // A directory can't be edited — leaving `editing` on would point the
+      // editor at one and drop the buffer it was holding.
+      setEditing(false)
+      setEditorDirty(false)
+      // The jump is only visible with the file list on screen.
+      setTreeCollapsed(false)
+      setSelected(
+        parts.length > 0
+          ? {
+              name: parts[parts.length - 1],
+              relPath: parts.join("/"),
+              isDir: true,
+              isSymlink: false,
+              size: null,
+              modifiedMs: null,
+            }
+          : null,
+      )
+    }
+    if (editorDirty) setPendingNavigation(() => applyDirectoryReveal)
+    else applyDirectoryReveal()
   }
 
   // Read-only git context (branch + worktrees) for the active root. The
@@ -1041,7 +1063,7 @@ export function FileBrowserView({
                 {t("common.back", "Back")}
               </Button>
             </div>
-            {editing && selected ? (
+            {editing && selected && !selected.isDir ? (
               <WorkspaceTextEditor
                 fs={fs}
                 entry={selected}
@@ -1052,6 +1074,7 @@ export function FileBrowserView({
                   setEditing(true)
                 }}
                 onGuidedWrite={() => setRemoteWriteGuideOpen(true)}
+                dirtyOwnerId={editorOwnerId}
               />
             ) : (
               <FilePreviewPane
@@ -1085,7 +1108,9 @@ export function FileBrowserView({
       <div className={cn("flex h-full min-h-0", className)}>
         {treeCollapsed ? (
           // A rail keeps the reopen affordance on screen once the column goes.
-          <div className="flex w-9 shrink-0 flex-col items-center border-r border-border-soft py-1">
+          // The host's trailing actions ride along: collapsing the list must not
+          // take away the only entry to "open in a separate window".
+          <div className="flex w-9 shrink-0 flex-col items-center gap-1 border-r border-border-soft py-1">
             <IconTip label={t("fileBrowser.expandTree", "Show file list")}>
               <Button
                 size="icon"
@@ -1097,6 +1122,7 @@ export function FileBrowserView({
                 <PanelLeftOpen className="h-4 w-4" />
               </Button>
             </IconTip>
+            {toolbarTrailing}
           </div>
         ) : (
           <>
@@ -1117,7 +1143,7 @@ export function FileBrowserView({
             </div>
           </>
         )}
-        {editing && selected ? (
+        {editing && selected && !selected.isDir ? (
           <WorkspaceTextEditor
             fs={fs}
             entry={selected}
@@ -1128,6 +1154,7 @@ export function FileBrowserView({
               setEditing(true)
             }}
             onGuidedWrite={() => setRemoteWriteGuideOpen(true)}
+            dirtyOwnerId={editorOwnerId}
           />
         ) : (
           <FilePreviewPane

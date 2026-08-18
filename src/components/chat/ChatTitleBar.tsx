@@ -146,7 +146,8 @@ interface ChatTitleBarProps {
   onExpandWorkbench?: () => void
   onStatusOpenChange?: (open: boolean) => void
   /** No room left for the session-status card; close it. */
-  suppressStatus?: boolean
+  /** A docked panel is actually open — the tab strip has a body under it. */
+  workbenchDocked?: boolean
   /** Opens the complete Workspace from the compact environment projection. */
   onOpenWorkspace?: () => void
   /** Bottom embedded terminal state and toggle. */
@@ -203,7 +204,7 @@ export default function ChatTitleBar({
   onCollapseWorkbench,
   onExpandWorkbench,
   onStatusOpenChange,
-  suppressStatus = false,
+  workbenchDocked = false,
   onOpenWorkspace,
   terminalOpen = false,
   onToggleTerminal,
@@ -211,10 +212,11 @@ export default function ChatTitleBar({
   const { t } = useTranslation()
   const appVersion = useAppVersion()
   // The status card is pinned by its button, not dismissed by clicking away.
-  // `suppressStatus` only hides it while the layout has no room, so widening
-  // the window brings a still-pinned card straight back.
+  // A narrow window only drops its reserved lane (see `environmentInsetWidth`);
+  // the card still opens and overlaps the transcript, because a toggle that
+  // silently does nothing is worse than an overlap.
   const [statusPinned, setStatusPinned] = useState(false)
-  const showStatus = statusPinned && !suppressStatus
+  const showStatus = statusPinned
   const [memoryPolicy, setMemoryPolicy] = useState<SessionMemoryPolicy | null>(null)
   const [memoryPolicySaving, setMemoryPolicySaving] = useState(false)
   const [coreMemoryReloading, setCoreMemoryReloading] = useState(false)
@@ -971,7 +973,7 @@ export default function ChatTitleBar({
               </button>
             </IconTip>
           )}
-          {(workbenchCollapsed || workbenchTabs.length === 0) &&
+          {(workbenchCollapsed || !workbenchDocked || workbenchTabs.length === 0) &&
             workbenchLaunchItems.length > 0 &&
             onExpandWorkbench && (
               <WorkbenchOpenButton
@@ -983,7 +985,9 @@ export default function ChatTitleBar({
             )}
         </div>
       </div>
-      {workbenchTabs.length > 0 && onCollapseWorkbench && (
+      {/* Gated on a docked panel, not on tabs: a floating Browser / Mac mirror
+          still lists a tab, and a strip with no surface under it is unusable. */}
+      {workbenchDocked && workbenchTabs.length > 0 && onCollapseWorkbench && (
         <WorkbenchHeader
           width={workbenchWidth}
           layoutMode={workbenchLayoutMode}

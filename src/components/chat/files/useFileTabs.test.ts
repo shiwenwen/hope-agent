@@ -97,4 +97,23 @@ describe("useFileTabs", () => {
     act(() => result.current.switchScope("incognito:x", { restore: false }))
     expect(result.current.tabs).toHaveLength(0)
   })
+
+  it("carries the draft's tabs into the session it becomes", () => {
+    const { result } = renderHook(() => useFileTabs())
+
+    // The draft scope is the initial one; a first message renames it.
+    act(() => result.current.openTab({ path: "src/a.ts", name: "a.ts" }))
+    act(() => result.current.renameScope("__draft__", "session-a"))
+
+    // The open set stays put …
+    expect(result.current.tabs).toHaveLength(1)
+    // … and it is now addressed as the session, not as a stale draft that the
+    // next new chat would inherit.
+    act(() => result.current.switchScope("session-b"))
+    expect(result.current.tabs).toHaveLength(0)
+    act(() => result.current.switchScope("__draft__"))
+    expect(result.current.tabs).toHaveLength(0)
+    act(() => result.current.switchScope("session-a"))
+    expect(result.current.tabs[0].revealFile?.path).toBe("src/a.ts")
+  })
 })

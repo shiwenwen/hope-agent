@@ -96,6 +96,9 @@ function titleBar(props: Partial<React.ComponentProps<typeof ChatTitleBar>> = {}
       reasoningEffort="medium"
       loading={false}
       compacting={false}
+      // The strip only renders with a docked panel under it; tests that care
+      // about the empty / floating-only case override this.
+      workbenchDocked={(props.workbenchTabs?.length ?? 0) > 0}
       {...props}
     />
   )
@@ -276,15 +279,47 @@ describe("ChatTitleBar workbench", () => {
     expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
   })
 
-  test("re-shows a still-pinned status card once the layout has room again", () => {
+  test("keeps the pinned status card open at widths with no room for its lane", () => {
+    // The narrow-window fallback is overlap, not suppression: a toggle that
+    // silently does nothing is worse than a card over the transcript.
     const { rerender } = renderTitleBar({})
     fireEvent.click(statusToggle())
 
-    rerender(titleBar({ suppressStatus: true }))
-    expect(statusToggle().getAttribute("aria-pressed")).toBe("false")
-
-    rerender(titleBar({ suppressStatus: false }))
+    rerender(titleBar({ workbenchWidth: 720 }))
     expect(statusToggle().getAttribute("aria-pressed")).toBe("true")
+  })
+
+  test("hides the tab strip when every listed panel is floating", () => {
+    renderTitleBar({
+      workbenchWidth: 720,
+      workbenchDocked: false,
+      onCollapseWorkbench: vi.fn(),
+      workbenchTabs: [
+        {
+          id: "browser",
+          panelId: "browser",
+          label: "Browser",
+          icon: Globe,
+          open: true,
+          windowMode: "floating",
+        },
+      ],
+      workbenchLaunchItems: [
+        {
+          id: "browser",
+          panelId: "browser",
+          label: "Browser",
+          icon: Globe,
+          open: true,
+          windowMode: "floating",
+        },
+      ],
+      onExpandWorkbench: vi.fn(),
+    })
+
+    expect(screen.queryByRole("tablist", { name: "Right panel dock" })).toBeNull()
+    // …and the reopen entry stays reachable so the mirror can be docked back.
+    expect(screen.getByRole("button", { name: "Expand workbench" })).toBeTruthy()
   })
 
   test("never clips the title row, so its drop-down surfaces stay visible", () => {

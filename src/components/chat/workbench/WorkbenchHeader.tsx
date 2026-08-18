@@ -15,6 +15,7 @@ import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { cn } from "@/lib/utils"
 import { TITLE_BAR_ICON_BUTTON } from "../titleBarStyles"
 import type { WorkbenchLayoutMode, WorkbenchPanelId, WorkbenchTabItem } from "./types"
+import { WORKBENCH_MAXIMIZED_HEADER_H } from "./useWorkbenchSizing"
 
 interface WorkbenchHeaderProps {
   width: number
@@ -84,20 +85,26 @@ export function WorkbenchHeader({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
     event.preventDefault()
     const delta = event.key === "ArrowLeft" ? -1 : 1
-    const nextId = tabIds[(index + delta + tabIds.length) % tabIds.length]
     if (event.altKey && event.shiftKey) {
-      onReorder(id, nextId)
+      // Reorder stops at the ends — wrapping would teleport an edge tab across
+      // the whole strip on what reads as a one-step nudge.
+      const swapId = tabIds[index + delta]
+      if (swapId) onReorder(id, swapId)
       return
     }
+    const nextId = tabIds[(index + delta + tabIds.length) % tabIds.length]
     const next = document.querySelector<HTMLElement>(`[data-workbench-tab="${CSS.escape(nextId)}"]`)
     next?.focus()
   }
 
   const handleDrop = (event: DragEvent<HTMLDivElement>, target: string) => {
-    event.preventDefault()
     const source = draggedIdRef.current
+    // Only claim drops that started on this strip; a file dragged in from the
+    // OS must keep falling through to whatever else handles it.
+    if (!source) return
+    event.preventDefault()
     draggedIdRef.current = null
-    if (source && source !== target) onReorder(source, target)
+    if (source !== target) onReorder(source, target)
   }
 
   return (
@@ -108,7 +115,10 @@ export function WorkbenchHeader({
         layoutMode === "stage" && "border-l-0",
         collapsed && "pointer-events-none border-l-transparent opacity-0",
         maximized &&
-          "fixed inset-x-0 top-0 z-[60] h-[72px] border-l-0 bg-background pt-7 shadow-sm",
+          cn(
+            "fixed inset-x-0 top-0 z-[60] border-l-0 bg-background pt-7 shadow-sm",
+            WORKBENCH_MAXIMIZED_HEADER_H,
+          ),
       )}
       style={{
         width: maximized ? "100%" : collapsed ? 0 : width,
@@ -137,10 +147,20 @@ export function WorkbenchHeader({
               tabIndex={active ? 0 : -1}
               aria-selected={active}
               draggable
-              onDragStart={() => {
+              onDragStart={(event) => {
                 draggedIdRef.current = tab.id
+                // WebKit / Gecko only start a drag once the payload is set.
+                event.dataTransfer.effectAllowed = "move"
+                event.dataTransfer.setData("text/plain", tab.id)
               }}
-              onDragOver={(event) => event.preventDefault()}
+              // 拖拽结束（无论落到哪 / 是否取消）统一清理，避免残留 source 让
+              // 之后任意一次 drop 静默重排。
+              onDragEnd={() => {
+                draggedIdRef.current = null
+              }}
+              onDragOver={(event) => {
+                if (draggedIdRef.current) event.preventDefault()
+              }}
               onDrop={(event) => handleDrop(event, tab.id)}
               onClick={() => onSelect(tab.id)}
               onAuxClick={(event) => {

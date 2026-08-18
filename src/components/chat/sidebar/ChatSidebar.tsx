@@ -70,6 +70,7 @@ export default function ChatSidebar({
   sessionsLoading = false,
   totalUnreadCount,
   panelWidth,
+  renderedWidth,
   sidebarCollapsed,
   onPanelWidthChange,
   onSidebarCollapsedChange,
@@ -97,6 +98,7 @@ export default function ChatSidebar({
   const [projectsExpanded, setProjectsExpandedState] = useState(() =>
     readStoredBoolean(PROJECTS_EXPANDED_STORAGE_KEY, true),
   )
+  const layoutWidth = renderedWidth ?? panelWidth
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [sidebarDisplayMode, setSidebarDisplayMode] = useState<SidebarDisplayMode>(
@@ -347,6 +349,9 @@ export default function ChatSidebar({
     isDragging.current = true
     setIsResizing(true)
     const startX = e.clientX
+    // Drag from the stored preference, not from a responsively squeezed
+    // render width — otherwise every nudge in a narrow window rewrites the
+    // preference to whatever the squeeze happened to allow.
     const startWidth = panelWidth
 
     const onMouseMove = (ev: MouseEvent) => {
@@ -534,7 +539,7 @@ export default function ChatSidebar({
   return (
     <>
       <div
-        style={{ width: sidebarCollapsed ? 0 : panelWidth }}
+        style={{ width: sidebarCollapsed ? 0 : layoutWidth }}
         className={cn(
           "relative h-full shrink-0",
           !isResizing &&
@@ -544,7 +549,7 @@ export default function ChatSidebar({
       >
         <div className="h-full overflow-hidden">
           <div
-            style={{ width: panelWidth }}
+            style={{ width: layoutWidth }}
             aria-hidden={sidebarCollapsed}
             inert={sidebarCollapsed ? true : undefined}
             onPointerDownCapture={enableSidebarMotion}
@@ -752,7 +757,7 @@ export default function ChatSidebar({
                       onNewChat={onNewChat}
                       onEditAgent={onEditAgent}
                       onReorderAgents={onReorderAgents}
-                      panelWidth={panelWidth}
+                      panelWidth={layoutWidth}
                       displayMode={sidebarDisplayMode}
                       motionDisabled={sidebarMotionDisabled}
                       stickyHeaderCount={Number(showPinnedSection)}

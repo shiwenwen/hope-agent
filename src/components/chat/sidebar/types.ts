@@ -27,7 +27,11 @@ export interface ChatSidebarProps {
   sessionsLoading?: boolean
   /** Authoritative whole-database regular unread-session aggregate. */
   totalUnreadCount: number
+  /** The user's stored width preference; also the base a resize drag starts from. */
   panelWidth: number
+  /** Width to actually lay out at, when the window is too narrow for the
+   *  preference. Defaults to `panelWidth`; a drag still edits the preference. */
+  renderedWidth?: number
   sidebarCollapsed: boolean
   onPanelWidthChange: (width: number) => void
   onSidebarCollapsedChange: (collapsed: boolean) => void

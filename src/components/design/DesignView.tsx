@@ -5446,7 +5446,8 @@ export default function DesignView({
           </div>
           {chatOpen && (
             <div
-              className={cn("group relative w-px shrink-0 cursor-col-resize")}
+              // Structural rule stays; the glow on top is only the drag affordance.
+              className={cn("group relative w-px shrink-0 cursor-col-resize bg-border-soft")}
               onMouseDown={startChatResize}
               role="separator"
               aria-orientation="vertical"

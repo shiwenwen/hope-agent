@@ -12,6 +12,10 @@ interface WorkbenchResizeHandleProps {
   onResizingChange?: (resizing: boolean) => void
 }
 
+/** Pointer slop before a press counts as a drag — without it a 1px jitter on
+ *  the divider commits `widthMode: "manual"` for good. */
+const DRAG_THRESHOLD_PX = 3
+
 /** Full-height divider shared by the title bar and docked workbench body. */
 export function WorkbenchResizeHandle({
   width,
@@ -54,8 +58,10 @@ export function WorkbenchResizeHandle({
         onWidthChange(nextWidthRef.current)
       }
       const handleMove = (moveEvent: PointerEvent) => {
+        const deltaX = moveEvent.clientX - startX
+        if (!moved && Math.abs(deltaX) < DRAG_THRESHOLD_PX) return
         moved = true
-        nextWidthRef.current = startWidth - (moveEvent.clientX - startX)
+        nextWidthRef.current = startWidth - deltaX
         if (frameRef.current === null) frameRef.current = window.requestAnimationFrame(flushWidth)
       }
       let cleaned = false

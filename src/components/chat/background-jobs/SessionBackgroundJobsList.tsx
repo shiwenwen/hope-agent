@@ -20,6 +20,7 @@ import {
   isBackgroundJobActive,
   isBackgroundJobCancellable,
 } from "@/types/background-jobs"
+import { fetchBackgroundJobDetail } from "./backgroundJobDetailFetch"
 import { BackgroundJobKindIcon, BackgroundJobStatusChip } from "./jobDisplay"
 import { resolveBackgroundSubagentSessionId } from "./subagentSession"
 import { isScrolledNearBottom, normalizeTerminalText, parseAnsiSegments } from "./terminalOutput"
@@ -365,13 +366,7 @@ export function SessionBackgroundJobsList({
     let timer: ReturnType<typeof setTimeout> | null = null
 
     const fetchDetails = () => {
-      Promise.all(
-        activeJobIds.map((jobId) =>
-          getTransport()
-            .call<BackgroundJobSnapshot | null>("get_background_job", { jobId })
-            .catch(() => null),
-        ),
-      )
+      Promise.all(activeJobIds.map((jobId) => fetchBackgroundJobDetail(jobId)))
         .then((rows) => {
           if (!alive) return
           const byId = new Map(

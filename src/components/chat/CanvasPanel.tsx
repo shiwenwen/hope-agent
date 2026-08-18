@@ -161,6 +161,17 @@ export default function CanvasPanel({
     }
   }, [canvas, detached])
 
+  // The width bump is a canvas-only constraint: hand the window its real
+  // minimum back on unmount, or it stays pinned for the rest of the session.
+  useEffect(() => {
+    if (!isTauriMode()) return
+    return () => {
+      getCurrentWindow()
+        .setMinSize(new LogicalSize(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT))
+        .catch(() => {})
+    }
+  }, [])
+
   useEffect(() => {
     onOpenChange?.(!!canvas)
   }, [canvas, onOpenChange])

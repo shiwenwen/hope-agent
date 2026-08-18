@@ -14,6 +14,11 @@ export const WORKBENCH_DEFAULT_RATIO = 0.5
 export const WORKBENCH_STAGE_THRESHOLD = WORKBENCH_MIN + CHAT_HARD_MIN
 export const WORKBENCH_LAYOUT_HYSTERESIS = 80
 
+/** Maximized chrome: the fixed tab strip's height and the surface's top offset
+ *  are the same number. Tailwind needs literals, so the pair lives here. */
+export const WORKBENCH_MAXIMIZED_HEADER_H = "h-[72px]"
+export const WORKBENCH_MAXIMIZED_BODY_TOP = "top-[72px]"
+
 const WIDTH_MODE_KEY = "hope.chat.workbench.widthMode"
 const MANUAL_RATIO_KEY = "hope.chat.workbench.manualRatio"
 
@@ -21,6 +26,26 @@ function finiteRatio(value: string | null): number | null {
   if (!value) return null
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 && parsed < 1 ? parsed : null
+}
+
+// Same try/catch + quota-safe pattern as `useFileBrowserSplit`: a blocked or
+// full store must fall back to the default, never take the screen down with it.
+function readStored(key: string): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    /* storage unavailable — the in-memory value still drives this session */
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -103,16 +128,14 @@ export function useWorkbenchSizing(
   const [availableWidth, setAvailableWidth] = useState(() =>
     typeof window === "undefined" ? 1200 : window.innerWidth,
   )
-  const [widthMode, setWidthMode] = useState<WorkbenchWidthMode>(() => {
-    if (typeof window === "undefined") return "auto"
-    return window.localStorage.getItem(WIDTH_MODE_KEY) === "manual" ? "manual" : "auto"
-  })
+  const [widthMode, setWidthMode] = useState<WorkbenchWidthMode>(() =>
+    readStored(WIDTH_MODE_KEY) === "manual" ? "manual" : "auto",
+  )
   // Stored as a share of the container, not pixels: a remembered pixel width
   // would sit still while the window narrows, making the chat pay for all of it.
-  const [manualRatio, setManualRatio] = useState(() => {
-    if (typeof window === "undefined") return WORKBENCH_DEFAULT_RATIO
-    return finiteRatio(window.localStorage.getItem(MANUAL_RATIO_KEY)) ?? WORKBENCH_DEFAULT_RATIO
-  })
+  const [manualRatio, setManualRatio] = useState(
+    () => finiteRatio(readStored(MANUAL_RATIO_KEY)) ?? WORKBENCH_DEFAULT_RATIO,
+  )
 
   useEffect(() => {
     const node = containerRef.current
@@ -174,19 +197,15 @@ export function useWorkbenchSizing(
       const ratio = committed / availableWidth
       setWidthMode("manual")
       setManualRatio(ratio)
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(WIDTH_MODE_KEY, "manual")
-        window.localStorage.setItem(MANUAL_RATIO_KEY, ratio.toFixed(4))
-      }
+      writeStored(WIDTH_MODE_KEY, "manual")
+      writeStored(MANUAL_RATIO_KEY, ratio.toFixed(4))
     },
     [availableWidth, chatIdeal],
   )
 
   const resetAutomaticWidth = useCallback(() => {
     setWidthMode("auto")
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(WIDTH_MODE_KEY, "auto")
-    }
+    writeStored(WIDTH_MODE_KEY, "auto")
   }, [])
 
   return {
