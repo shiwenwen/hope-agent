@@ -267,7 +267,17 @@ export default function SessionItem({
           )}
 
           {/* Title + meta */}
-          <div className="flex-1 min-w-0">
+          <div
+            className={cn(
+              "flex-1 min-w-0",
+              !isCompact &&
+                (onTogglePinned && !session.incognito
+                  ? "group-hover:pr-10"
+                  : !session.incognito
+                    ? "group-hover:pr-5"
+                    : undefined),
+            )}
+          >
             <div
               className={cn(
                 "text-[13px] font-medium text-foreground truncate flex items-center gap-1",
@@ -469,10 +479,10 @@ export default function SessionItem({
             <IconTip label={session.pinnedAt ? t("chat.unpinSession") : t("chat.pinSession")}>
               <button
                 className={cn(
-                  "shrink-0 p-0.5 transition-colors",
+                  "absolute right-7 top-1/2 hidden shrink-0 -translate-y-1/2 p-0.5 transition-colors group-hover:block",
                   isCompact
-                    ? "absolute right-7 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-foreground group-hover:block"
-                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-foreground",
+                    ? "text-muted-foreground/50 hover:!text-foreground"
+                    : "text-muted-foreground/40 hover:!text-foreground",
                 )}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -495,10 +505,10 @@ export default function SessionItem({
             <IconTip label={t("chat.archiveSession")}>
               <button
                 className={cn(
-                  "shrink-0 transition-colors p-0.5",
+                  "absolute right-2 top-1/2 hidden shrink-0 -translate-y-1/2 p-0.5 transition-colors group-hover:block",
                   isCompact
-                    ? "absolute right-2 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-foreground group-hover:block"
-                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-foreground",
+                    ? "text-muted-foreground/50 hover:!text-foreground"
+                    : "text-muted-foreground/40 hover:!text-foreground",
                 )}
                 onClick={(e) => onArchiveClick(session.id, e)}
                 aria-label={t("chat.archiveSession")}
