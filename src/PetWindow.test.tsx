@@ -10,7 +10,12 @@ const mocks = vi.hoisted(() => ({
   listeners: new Map<string, (payload: unknown) => void>(),
   listen: vi.fn((event: string, handler: (payload: unknown) => void) => {
     mocks.listeners.set(event, handler)
-    return () => mocks.listeners.delete(event)
+    // Only drop our own handler: an unconditional delete lets a stale cleanup
+    // wipe a freshly re-subscribed listener, which reads as a flaky "the bridge
+    // event did nothing" failure.
+    return () => {
+      if (mocks.listeners.get(event) === handler) mocks.listeners.delete(event)
+    }
   }),
   startChat: vi.fn(() => Promise.resolve("ok")),
   startDragging: vi.fn(() => Promise.resolve()),
@@ -418,6 +423,9 @@ describe("PetWindow pointer interactions", () => {
     await waitFor(() =>
       expect(screen.getByTestId("pet-sprite")).toHaveAttribute("data-src", "builtin/hope-default"),
     )
+    // The bridge subscription has to be live before it can be driven; asserting
+    // on its effects while it is still settling is what made this flaky.
+    await waitFor(() => expect(mocks.listeners.has("pet:inactive_pointer")).toBe(true))
     vi.useFakeTimers()
 
     act(() => mocks.listeners.get("pet:inactive_pointer")?.({ inside: true, x: 50, y: 50 }))
