@@ -70,6 +70,8 @@ function Harness({
   onTurnEnded,
   expectedTurnId,
   initialMessages = [],
+  initiallyLoading = false,
+  onLoadingChange,
 }: {
   onMessages: (messages: Message[]) => void
   initialMessages?: Message[]
@@ -79,8 +81,12 @@ function Harness({
     status?: ChatTurnStatus | null,
     interruptReason?: ChatTurnInterruptReason | null,
     turnId?: string | null,
+    backendConfirmedIdle?: boolean,
   ) => boolean
   expectedTurnId?: string | null
+  /** Seed the "session believed running" state the reconcile poll gates on. */
+  initiallyLoading?: boolean
+  onLoadingChange?: (loading: boolean) => void
 }) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [, setLoading] = useState(false)
@@ -88,7 +94,7 @@ function Harness({
   const currentSessionIdRef = useRef<string | null>("s1")
   const lastSeqRef = useRef(new Map<string, number>())
   const endedStreamIdsRef = useRef(new Map<string, Set<string>>())
-  const loadingSessionsRef = useRef(new Set<string>())
+  const loadingSessionsRef = useRef(new Set<string>(initiallyLoading ? ["s1"] : []))
   const sessionCacheRef = useRef(
     new Map<string, Message[]>(initialMessages.length > 0 ? [["s1", initialMessages]] : []),
   )
@@ -109,7 +115,10 @@ function Harness({
     updateSessionMessages,
     setShowCodexAuthExpired: () => {},
     setMessages,
-    setLoading,
+    setLoading: (value) => {
+      setLoading(value)
+      if (typeof value === "boolean") onLoadingChange?.(value)
+    },
     loadingSessionsRef,
     setLoadingSessionIds,
     sessionCacheRef,
@@ -717,5 +726,115 @@ describe("useChatStreamReattach durable snapshot handshake", () => {
 
     expect(latest.at(-1)?.content).toBe("new reply")
     expect(mocks.reload).toHaveBeenCalledTimes(reloadsBeforeEnd)
+  })
+})
+
+// Issue #657: a crash-recovered turn emits no terminal event, so this poll is
+// the only thing that can release the spinner. Both reads must reach
+// `onTurnEnded`, and the second must carry the authoritative "no turn is
+// admitted" verdict — otherwise a turn-id mismatch makes the caller reject
+// every tick and the session stays busy until a restart.
+describe("useChatStreamReattach stuck-loading reconcile", () => {
+  const IDLE_STATE = {
+    active: false,
+    admissionActive: false,
+    lastSeq: 4,
+    acceptedSeq: 4,
+    durableSeq: 4,
+    committedSeq: 4,
+    streamId: "stream-recovered",
+    turnId: "turn-recovered",
+    status: "interrupted" as const,
+    lastTerminalStatus: "interrupted" as const,
+    interruptReason: "crash_recovery" as const,
+  }
+
+  async function driveReconcile(state: Record<string, unknown>) {
+    const onTurnEnded = vi.fn(() => true)
+    const loadingChanges: boolean[] = []
+    render(
+      <Harness
+        initiallyLoading
+        onMessages={() => {}}
+        onTurnEnded={onTurnEnded}
+        onLoadingChange={(value) => loadingChanges.push(value)}
+      />,
+    )
+    // First poll tick.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000)
+    })
+    await act(async () => {
+      mocks.pending.get("get_session_stream_state")?.(state)
+      await Promise.resolve()
+    })
+    // Confirm delay, then the re-read.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    await act(async () => {
+      mocks.pending.get("get_session_stream_state")?.(state)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    return { onTurnEnded, loadingChanges }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test("tells the caller the backend admits no turn, so a stale id is ours", async () => {
+    const { onTurnEnded, loadingChanges } = await driveReconcile(IDLE_STATE)
+
+    expect(onTurnEnded).toHaveBeenCalledWith(
+      "s1",
+      "interrupted",
+      "crash_recovery",
+      "turn-recovered",
+      true,
+    )
+    expect(loadingChanges).toContain(false)
+  })
+
+  test("never republishes an orphaned running row as the settled status", async () => {
+    // `status` is not terminal-filtered by the backend. Publishing `running`
+    // here while clearing `loading` pins the workspace status bar to "running"
+    // with the Stop button already hidden — worse than the stall it replaces.
+    const { onTurnEnded } = await driveReconcile({
+      ...IDLE_STATE,
+      status: "running",
+      lastTerminalStatus: null,
+      interruptReason: null,
+    })
+
+    expect(onTurnEnded).toHaveBeenCalledWith("s1", "interrupted", null, "turn-recovered", true)
+  })
+
+  test("withholds that verdict while a turn is still admitted", async () => {
+    const { onTurnEnded } = await driveReconcile({ ...IDLE_STATE, admissionActive: true })
+
+    expect(onTurnEnded).toHaveBeenCalledWith(
+      "s1",
+      "interrupted",
+      "crash_recovery",
+      "turn-recovered",
+      false,
+    )
+  })
+
+  test("never tears down a session the backend still reports as active", async () => {
+    const { onTurnEnded, loadingChanges } = await driveReconcile({
+      ...IDLE_STATE,
+      active: true,
+      admissionActive: true,
+    })
+
+    expect(onTurnEnded).not.toHaveBeenCalled()
+    expect(loadingChanges).not.toContain(false)
   })
 })

@@ -304,6 +304,8 @@ interface ChatInputProps {
   onForceInsertPending?: (id: string) => void
   onCancelForceInsertPending?: (id: string) => void
   onStop?: () => void
+  /** A Stop is already in flight for this session; drop repeat clicks. */
+  stopPending?: boolean
   autonomyPaused?: boolean
   onContinue?: () => void
   // Slash command support
@@ -538,6 +540,7 @@ export default function ChatInput({
   onForceInsertPending,
   onCancelForceInsertPending,
   onStop,
+  stopPending = false,
   autonomyPaused = false,
   onContinue,
   currentSessionId,
@@ -3301,6 +3304,7 @@ export default function ChatInput({
                         variant="destructive"
                         className="h-7 w-7 shrink-0 rounded-full"
                         onClick={onStop}
+                        disabled={stopPending}
                         aria-label={t("chat.stopReply")}
                       >
                         <Square className="h-4 w-4 fill-white stroke-white" />

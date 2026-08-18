@@ -36,6 +36,7 @@ import type {
   SessionMode,
   ChatTurnStatus,
   ChatTurnInterruptReason,
+  StopChatResult,
 } from "@/types/chat"
 import { quoteReferencePath } from "@/components/chat/project/fileQuoteTarget"
 import { parseSessionMessages } from "../chatUtils"
@@ -94,6 +95,8 @@ import {
   isChatPreparationCancelled,
   isUnmaterializedComposerDraftKey,
   loadingStateAfterPreparationRelease,
+  settledTurnStatus,
+  shouldReconcileAfterStop,
   shouldRollbackNonPersistedStoppedSend,
   validateChatAttachmentCount,
 } from "./chatPreparation"
@@ -102,6 +105,12 @@ const ACTIVE_STREAM_ERROR_CODE = "active_stream"
 const QUEUED_MESSAGE_UNAVAILABLE_ERROR_CODE = "queued_message_unavailable"
 const CHAT_CANCELLED_DURING_PREFLIGHT_CODE = "chat_cancelled_during_preflight"
 const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
+
+// Re-confirm an idle backend after this delay before tearing down local chat
+// activity. `loading` is flagged optimistically before `startChat` returns, so
+// a just-sent turn can briefly look idle; it flips to active well inside this
+// window, while a genuinely stale turn stays idle across both reads.
+const STALE_ACTIVITY_RECONCILE_CONFIRM_MS = 1_500
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -482,8 +491,13 @@ export interface UseChatStreamReturn {
     status?: ChatTurnStatus | null,
     interruptReason?: ChatTurnInterruptReason | null,
     turnId?: string | null,
+    backendConfirmedIdle?: boolean,
   ) => boolean
   executionStateBySession: Map<string, ChatTurnStatus>
+  /** Sessions with a Stop request in flight. Repeated clicks are dropped and
+   *  the button is disabled so one user intent cannot fan out into dozens of
+   *  durable Stop generations. */
+  stopPendingSessions: Set<string>
 }
 
 export function useChatStream({
@@ -954,6 +968,12 @@ export function useChatStream({
   const lastTurnStatusBySessionRef = useRef<
     Map<string, { status: ChatTurnStatus; interruptReason?: ChatTurnInterruptReason | null }>
   >(new Map())
+  // One Stop per session at a time. Repeated clicks on a session whose backend
+  // state is already terminal used to fan out into dozens of identical calls,
+  // each of which publishes a fresh durable Stop generation for nothing.
+  const stopInFlightRef = useRef<Set<string>>(new Set())
+  const [stopPendingSessions, setStopPendingSessions] = useState<Set<string>>(() => new Set())
+  const staleActivityReconcileRef = useRef<Set<string>>(new Set())
 
   // Persist the new mode to the session row whenever the title-bar switcher
   // changes it. Backend re-reads the column at the start of each tool round,
@@ -1418,8 +1438,123 @@ export function useChatStream({
     }
   }, [currentSessionIdRef, wakeOwnerlessPendingReplayIfIdle])
 
+  /** Read the authoritative snapshot and report it only when the backend owns
+   *  no foreground work at all. `admissionActive` must be an explicit `false`:
+   *  an older backend that omits the field is treated as possibly-busy. */
+  const readIdleStreamState = useCallback(async (sessionId: string) => {
+    const state = await getTransport().call<SessionStreamState>("get_session_stream_state", {
+      sessionId,
+    })
+    return !state.active && state.admissionActive === false ? state : null
+  }, [])
+
+  /** Converge a session the backend has nothing left to stop.
+   *
+   *  Stop legitimately settles nothing when the requested turn is already
+   *  durable-terminal (crash recovery, a lost terminal event) — there is no
+   *  runtime to cancel, so no `chat:stream_end` / `chat:turn_status` can ever
+   *  arrive and the local `loading` / `cancelling` state would wait forever.
+   *  The double read with a confirm delay in between, plus the request-owner
+   *  check, keeps a turn that is merely still registering from being mistaken
+   *  for stale activity. */
+  const reconcileStaleSessionActivity = useCallback(
+    async (sid: string) => {
+      if (staleActivityReconcileRef.current.has(sid)) return
+      staleActivityReconcileRef.current.add(sid)
+      try {
+        if (chatRequestOwnerBySessionRef.current.has(sid)) return
+        if (!(await readIdleStreamState(sid))) return
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, STALE_ACTIVITY_RECONCILE_CONFIRM_MS),
+        )
+        // A send started while we waited; it owns the lifecycle from here.
+        if (chatRequestOwnerBySessionRef.current.has(sid)) return
+        const state = await readIdleStreamState(sid)
+        if (!state) return
+
+        activeTurnBySessionRef.current.delete(sid)
+        const status = settledTurnStatus(state.status, state.lastTerminalStatus)
+        lastTurnStatusBySessionRef.current.set(sid, {
+          status,
+          interruptReason: state.interruptReason ?? null,
+        })
+        setExecutionStateBySession((prev) => new Map(prev).set(sid, status))
+        markStreamEnded(endedStreamIdsRef.current, sid, state.streamId ?? undefined)
+        discardPendingStreamDeltas(sid, deltaBuffersRef, state.streamId ?? null)
+        loadingSessionsRef.current.delete(sid)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        if (currentSessionIdRef.current === sid) setLoading(false)
+        // Drop a placeholder the stale turn never wrote into; SQLite already
+        // holds whatever that turn did manage to persist.
+        updateSessionMessages(sid, (prev) => {
+          const last = prev[prev.length - 1]
+          if (
+            !last ||
+            last.role !== "assistant" ||
+            typeof last.dbId === "number" ||
+            last.content ||
+            last.toolCalls?.length ||
+            last.contentBlocks?.length
+          ) {
+            return prev
+          }
+          return prev.slice(0, -1)
+        })
+        logger.info(
+          "chat",
+          "useChatStream::staleActivityReconcile",
+          `Converged stale activity for ${sid} to ${status}`,
+        )
+        await reloadSessions()
+      } catch (error) {
+        logger.warn(
+          "chat",
+          "useChatStream::staleActivityReconcile",
+          "Failed to reconcile stale chat activity",
+          error,
+        )
+      } finally {
+        staleActivityReconcileRef.current.delete(sid)
+      }
+    },
+    [
+      currentSessionIdRef,
+      endedStreamIdsRef,
+      loadingSessionsRef,
+      readIdleStreamState,
+      reloadSessions,
+      setLoading,
+      setLoadingSessionIds,
+      updateSessionMessages,
+    ],
+  )
+
+  /** A Stop that armed no terminal event leaves nothing to wait for. Awaited by
+   *  the caller so the Stop button stays disabled for the whole reconciliation
+   *  rather than re-arming between the response and the teardown. */
+  const settleStopResult = useCallback(
+    async (sid: string, result: StopChatResult | null | undefined) => {
+      if (!shouldReconcileAfterStop(result)) return
+      await reconcileStaleSessionActivity(sid)
+    },
+    [reconcileStaleSessionActivity],
+  )
+
   async function handleStop() {
     const sid = currentSessionIdRef.current ?? currentSessionId ?? null
+    const stopKey = sid ?? "__pending__"
+    if (stopInFlightRef.current.has(stopKey)) return
+    stopInFlightRef.current.add(stopKey)
+    setStopPendingSessions(new Set(stopInFlightRef.current))
+    try {
+      await runStop(sid)
+    } finally {
+      stopInFlightRef.current.delete(stopKey)
+      setStopPendingSessions(new Set(stopInFlightRef.current))
+    }
+  }
+
+  async function runStop(sid: string | null) {
     if (!sid) {
       const pendingRequestOwner = chatRequestOwnerBySessionRef.current.get("__pending__")
       if (pendingRequestOwner) {
@@ -1461,12 +1596,13 @@ export function useChatStream({
       }
       setExecutionStateBySession((prev) => new Map(prev).set(activeSid, "cancelling"))
       try {
-        await getTransport().call("stop_chat", {
+        const result = await getTransport().call<StopChatResult>("stop_chat", {
           sessionId: activeSid,
           turnId: activeTurnId,
           clientRequestId: requestOwner,
         })
         await reloadSessions()
+        await settleStopResult(activeSid, result)
       } catch (e) {
         logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
       }
@@ -1483,12 +1619,13 @@ export function useChatStream({
     }
     setExecutionStateBySession((prev) => new Map(prev).set(sid, "cancelling"))
     try {
-      await getTransport().call("stop_chat", {
+      const result = await getTransport().call<StopChatResult>("stop_chat", {
         sessionId: sid,
         turnId: activeTurnId,
         clientRequestId: requestOwner,
       })
       await reloadSessions()
+      await settleStopResult(sid, result)
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
@@ -1515,12 +1652,22 @@ export function useChatStream({
       status?: ChatTurnStatus | null,
       interruptReason?: ChatTurnInterruptReason | null,
       turnId?: string | null,
+      /** The caller re-read the authoritative snapshot and it reports no live
+       *  turn at all. A turn-id mismatch then means our own id is the stale
+       *  one, not that a newer turn is running — without this the polling
+       *  reconcile bails on every tick and the session never leaves `loading`. */
+      backendConfirmedIdle?: boolean,
     ) => {
       const currentTurnId = activeTurnBySessionRef.current.get(sessionId)
-      if (turnId && !currentTurnId && chatRequestOwnerBySessionRef.current.has(sessionId)) {
+      const hasRequestOwner = chatRequestOwnerBySessionRef.current.has(sessionId)
+      if (turnId && !currentTurnId && hasRequestOwner) {
         return false
       }
-      if (turnId && currentTurnId && currentTurnId !== turnId) return false
+      if (turnId && currentTurnId && currentTurnId !== turnId) {
+        // A live request may be between preparation and turn registration, so
+        // its optimistic loading state is still its own to clear.
+        if (!backendConfirmedIdle || hasRequestOwner) return false
+      }
       activeTurnBySessionRef.current.delete(sessionId)
       if (status) {
         lastTurnStatusBySessionRef.current.set(sessionId, {
@@ -2841,5 +2988,6 @@ export function useChatStream({
     handleTurnStarted,
     handleTurnEnded,
     executionStateBySession,
+    stopPendingSessions,
   }
 }

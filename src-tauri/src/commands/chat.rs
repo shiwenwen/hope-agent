@@ -1800,7 +1800,8 @@ pub async fn stop_chat(
     turn_id: Option<String>,
     client_request_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<Option<ha_core::session::SessionAutonomyPause>, CmdError> {
+) -> Result<ha_core::chat_engine::stop::StopChatResult, CmdError> {
+    use ha_core::chat_engine::stop::StopChatResult;
     // `turn_id` is not known until the backend announces turn_started. During
     // that pre-registration window, use the request id even for an existing
     // session; otherwise Stop can race ahead of active-turn acquisition and be
@@ -1830,7 +1831,14 @@ pub async fn stop_chat(
             client_request_id,
             session_id
         );
-        return Ok(None);
+        return Ok(StopChatResult::no_target(
+            if session_id.is_some() {
+                "session"
+            } else {
+                "request"
+            },
+            Some("client request is not owned by the target session"),
+        ));
     }
     if matches!(
         request_cancel.as_ref(),
@@ -1847,7 +1855,7 @@ pub async fn stop_chat(
             session_id,
             bootstrap_signalled
         );
-        return Ok(None);
+        return Ok(StopChatResult::latched());
     }
     let request_target = request_cancel.as_ref().and_then(|outcome| match outcome {
         crate::chat_engine::active_turn::ClientRequestCancelOutcome::Active(active) => {
@@ -1885,18 +1893,28 @@ pub async fn stop_chat(
         app_info!(
             "chat",
             "stop_chat",
-            "Stop chat requested; stopped={} approvals_denied={} questions_cancelled={} runtime cancellations attempted: {}",
+            "Stop chat requested; stopped={} active_turn_found={} completion_sealed={} terminal_event_pending={} approvals_denied={} questions_cancelled={} runtime cancellations attempted: {}",
             outcome.stopped,
+            outcome.active_turn_found,
+            outcome.completion_sealed,
+            outcome.terminal_event_pending,
             outcome.denied_approvals,
             outcome.cancelled_questions,
             outcome.runtime_cancellations.len()
         );
-        return Ok(outcome.autonomy_pause);
+        return Ok(StopChatResult::from_session_outcome(
+            if session_id.is_some() {
+                "session"
+            } else {
+                "request"
+            },
+            outcome,
+        ));
     }
     if !global_stop {
         // A request-scoped Stop that arrived before lazy session creation is
         // latched in active_turn and will be consumed by registration.
-        return Ok(None);
+        return Ok(StopChatResult::latched());
     }
     // Legacy/emergency callers without a target still flip the shell-level
     // flag synchronously. Core owns every other Stop semantic so this path
@@ -1918,7 +1936,7 @@ pub async fn stop_chat(
         outcome.cancelled_questions,
         outcome.runtime_cancellations.len()
     );
-    Ok(None)
+    Ok(StopChatResult::from_all_outcome(outcome))
 }
 
 #[tauri::command]

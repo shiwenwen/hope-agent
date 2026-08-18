@@ -1,4 +1,5 @@
 import type { ChatAttachment, Transport } from "@/lib/transport"
+import type { ChatTurnStatus, StopChatResult } from "@/types/chat"
 
 /** Composer drafts are isolated by materialized session or lazy project.
  * Project A's typed filesystem bindings must never become Project B's active
@@ -115,6 +116,59 @@ export function shouldRollbackNonPersistedStoppedSend(
   return (
     preflightStopError || (requestWasUserStopped && (preparationCancelled || activeStreamError))
   )
+}
+
+/**
+ * Decide whether a completed Stop leaves the UI with nothing to wait for.
+ *
+ * Issue #657: an exact Stop for a turn that is already durable-terminal (crash
+ * recovery, a lost terminal event) settles nothing and arms no broadcast, and a
+ * session-scoped Stop with no live turn only writes a durable pause receipt.
+ * Neither can produce a `chat:stream_end` / `chat:turn_status`, so a busy-
+ * looking session must reconcile itself against the authoritative snapshot
+ * instead of waiting forever. The three "keep waiting" signals are exhaustive:
+ * a pre-registration latch registers its turn shortly, a sealed completion is
+ * already on its way to a terminal state, and an armed watchdog guarantees one.
+ */
+export function shouldReconcileAfterStop(
+  result: Partial<StopChatResult> | null | undefined,
+): boolean {
+  // A backend too old to report these fields never promises a terminal event
+  // either; the reconcile is idempotent and re-reads authoritative state, so
+  // running it is the safe default.
+  if (!result) return false
+  return !result.latched && !result.completionSealed && !result.terminalEventPending
+}
+
+/** Mirrors `ChatTurnStatus::is_terminal` in `crates/ha-core/src/session/turns.rs`. */
+export function isTerminalTurnStatus(
+  status: ChatTurnStatus | null | undefined,
+): status is "completed" | "interrupted" | "failed" {
+  return status === "completed" || status === "interrupted" || status === "failed"
+}
+
+/**
+ * Pick the status to publish when tearing down a session the backend reports as
+ * idle.
+ *
+ * `SessionStreamState.status` is NOT terminal-filtered — only
+ * `lastTerminalStatus` is. With no admitted turn it degrades to the latest
+ * turn's raw status, which is still `running` for a row orphaned by a crash
+ * (a Secondary such as `hope-agent server` never runs startup recovery) or
+ * `cancelling` while a watchdog is mid-convergence. Publishing that verbatim
+ * while clearing `loading` is worse than the stall it replaces:
+ * `resolveWorkspaceTaskExecutionState` returns `running` regardless of
+ * `loading`, so the status bar pins "running" forever with the Stop button
+ * already gone. A session with nothing admitted is interrupted, whatever its
+ * stale row says.
+ */
+export function settledTurnStatus(
+  status: ChatTurnStatus | null | undefined,
+  lastTerminalStatus: ChatTurnStatus | null | undefined,
+): ChatTurnStatus {
+  if (isTerminalTurnStatus(status)) return status
+  if (isTerminalTurnStatus(lastTerminalStatus)) return lastTerminalStatus
+  return "interrupted"
 }
 
 export async function validateChatAttachmentCount(

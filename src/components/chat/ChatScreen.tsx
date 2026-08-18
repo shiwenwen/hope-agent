@@ -4516,6 +4516,9 @@ export default function ChatScreen({
                         onForceInsertPending={stream.forceInsertPendingSend}
                         onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
                         onStop={stream.handleStop}
+                        stopPending={stream.stopPendingSessions.has(
+                          session.currentSessionId ?? "__pending__",
+                        )}
                         autonomyPaused={currentSessionMeta?.autonomyPaused ?? false}
                         onContinue={stream.handleContinue}
                         currentSessionId={session.currentSessionId}
