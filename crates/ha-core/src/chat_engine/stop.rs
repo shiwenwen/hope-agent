@@ -104,12 +104,108 @@ fn autonomy_stop_pending(session_id: &str) -> bool {
 pub struct StopSessionOutcome {
     pub stopped: bool,
     pub turn_mismatch: bool,
+    /// The active-turn registry still held an entry for this session. `false`
+    /// proves the backend had no live foreground turn to stop, which is the
+    /// signal a stale UI needs to converge itself: no terminal stream event can
+    /// arrive for a turn that is already durable-terminal.
+    pub active_turn_found: bool,
+    /// The executor crossed its cancellation point before this Stop claimed the
+    /// registry. Semantically distinct from a stale/vanished turn: a terminal
+    /// event is still on its way, so callers must keep waiting.
+    pub completion_sealed: bool,
+    /// This Stop armed the `cancelling` broadcast plus the durable watchdog for
+    /// a user-visible turn, so a terminal stream event will follow. When it is
+    /// `false` and nothing was sealed, no event can ever arrive and a UI still
+    /// showing activity must reconcile itself against the authoritative state.
+    pub terminal_event_pending: bool,
     pub denied_approvals: usize,
     pub cancelled_questions: usize,
     pub runtime_cancellations: Vec<CancelRuntimeTaskResult>,
     pub runtime_cancellation_error: Option<String>,
     pub autonomy_pause: Option<crate::session::SessionAutonomyPause>,
     pub autonomy_pause_error: Option<String>,
+}
+
+/// Wire shape shared by the Tauri command and `POST /api/chat/stop`. Stop
+/// reports only what this call did; "what is the session doing now" stays the
+/// sole responsibility of `get_session_stream_state` so the two cannot drift.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopChatResult {
+    pub stopped: bool,
+    /// `request` | `session` | `all`.
+    pub scope: String,
+    pub reason: Option<String>,
+    pub turn_mismatch: bool,
+    pub active_turn_found: bool,
+    pub completion_sealed: bool,
+    pub terminal_event_pending: bool,
+    /// A pre-registration latch consumed this Stop. The turn has not announced
+    /// itself yet, so an idle-looking backend here is expected and callers must
+    /// not treat it as stale state.
+    pub latched: bool,
+    pub runtime_cancellations: Vec<CancelRuntimeTaskResult>,
+    pub runtime_cancellation_error: Option<String>,
+    pub autonomy_paused: bool,
+    pub autonomy_pause: Option<crate::session::SessionAutonomyPause>,
+    pub autonomy_pause_error: Option<String>,
+    /// Global Stop only: how many sessions were settled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stopped_session_count: Option<usize>,
+}
+
+impl StopChatResult {
+    /// Terminal outcome for a Stop that found no target at all.
+    pub fn no_target(scope: &str, reason: Option<&str>) -> Self {
+        Self {
+            scope: scope.to_string(),
+            reason: reason.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// The opaque client request was latched before its turn registered.
+    pub fn latched() -> Self {
+        Self {
+            stopped: true,
+            scope: "request".to_string(),
+            latched: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn from_session_outcome(scope: &str, outcome: StopSessionOutcome) -> Self {
+        Self {
+            stopped: outcome.stopped,
+            scope: scope.to_string(),
+            reason: (!outcome.stopped).then(|| "no matching active chat for target".to_string()),
+            turn_mismatch: outcome.turn_mismatch,
+            active_turn_found: outcome.active_turn_found,
+            completion_sealed: outcome.completion_sealed,
+            terminal_event_pending: outcome.terminal_event_pending,
+            latched: false,
+            runtime_cancellations: outcome.runtime_cancellations,
+            runtime_cancellation_error: outcome.runtime_cancellation_error,
+            autonomy_paused: outcome.autonomy_pause.is_some(),
+            autonomy_pause: outcome.autonomy_pause,
+            autonomy_pause_error: outcome.autonomy_pause_error,
+            stopped_session_count: None,
+        }
+    }
+
+    pub fn from_all_outcome(outcome: StopAllOutcome) -> Self {
+        Self {
+            stopped: outcome.stopped,
+            scope: "all".to_string(),
+            reason: (!outcome.stopped).then(|| "no running chat".to_string()),
+            // A global Stop never targets one turn, so the exact-turn fields
+            // stay false and callers fall back to the session-scoped reconcile.
+            runtime_cancellations: outcome.runtime_cancellations,
+            runtime_cancellation_error: outcome.runtime_cancellation_error,
+            stopped_session_count: Some(outcome.stopped_session_count),
+            ..Default::default()
+        }
+    }
 }
 
 fn prepare_and_pause_session_autonomy_blocking(
@@ -1173,11 +1269,15 @@ pub async fn stop_session(
     let mut matched_active = false;
     let mut active_not_found = false;
     let mut durable_turn_id = None;
+    let mut exact_cron_turn = false;
 
     match super::active_turn::cancel_current(session_id, expected_turn_id) {
         super::active_turn::ActiveTurnCancelOutcome::Cancelled(active) => {
             matched_active = true;
             outcome.stopped = true;
+            outcome.active_turn_found = true;
+            exact_cron_turn =
+                expected_turn_id.is_some() && matches!(active.source, super::ChatSource::Cron);
 
             // Channel has its own stream lifecycle bus and deliberately does
             // not create a GUI chat_turn row. Desktop/HTTP use the normal
@@ -1197,11 +1297,20 @@ pub async fn stop_session(
                     active.turn_id.clone(),
                     active.source,
                 );
+                outcome.terminal_event_pending = true;
                 durable_turn_id = Some(active.turn_id);
             }
         }
         super::active_turn::ActiveTurnCancelOutcome::TurnMismatch => {
             outcome.turn_mismatch = true;
+            outcome.active_turn_found = true;
+        }
+        super::active_turn::ActiveTurnCancelOutcome::CompletionSealed => {
+            // Completion and Stop serialize through the active-turn registry.
+            // The executor crossed its cancellation point first, so this exact
+            // Stop must not claim success or fall through to durable recovery.
+            outcome.active_turn_found = true;
+            outcome.completion_sealed = true;
         }
         super::active_turn::ActiveTurnCancelOutcome::NotFound => {
             active_not_found = true;
@@ -1213,6 +1322,9 @@ pub async fn stop_session(
     } else {
         None
     };
+    exact_cron_turn |= recovered_not_found_turn
+        .as_ref()
+        .is_some_and(|(_, source)| matches!(source, super::ChatSource::Cron));
 
     // A session-only Stop is authoritative even if the active entry vanished
     // between UI observation and this call. An exact stale turn must not tear
@@ -1228,6 +1340,10 @@ pub async fn stop_session(
         || matched_active
         || already_signalled
         || recovered_not_found_turn.is_some();
+    // Stopping one exact Cron occurrence must not create a session-wide pause:
+    // later scheduled occurrences remain eligible while this turn still gets
+    // the ordinary exact-turn cancellation and runtime cleanup below.
+    let persist_autonomy_pause = settle_session && !exact_cron_turn;
     let autonomy_stop_claim =
         settle_session.then(|| Arc::new(begin_session_autonomy_stop(session_id)));
     if !settle_session {
@@ -1255,6 +1371,7 @@ pub async fn stop_session(
                 turn_id.clone(),
                 source,
             );
+            outcome.terminal_event_pending = true;
         }
         durable_turn_id = Some(turn_id);
     }
@@ -1262,7 +1379,7 @@ pub async fn stop_session(
     // Publish the durable pause fence before taking the runtime snapshot. A
     // Workflow recovery or Goal wakeup racing this Stop must observe the fence
     // even if controller-specific convergence later times out.
-    if settle_session {
+    if persist_autonomy_pause {
         match tokio::time::timeout(
             STOP_DB_MARK_TIMEOUT,
             prepare_and_pause_session_autonomy(
@@ -1741,6 +1858,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exact_stop_after_completion_seal_does_not_claim_success() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db, session_id, turn_id) = fixture();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let guard = crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Cron,
+            turn_id.clone(),
+            cancel.clone(),
+        )
+        .expect("active turn");
+        assert!(guard.seal_completion(&turn_id));
+
+        let outcome = stop_session(db.clone(), &session_id, Some(&turn_id), false).await;
+
+        assert!(!outcome.stopped);
+        assert!(!outcome.turn_mismatch);
+        assert!(!cancel.load(Ordering::SeqCst));
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            ChatTurnStatus::Running
+        );
+    }
+
+    #[tokio::test]
+    async fn exact_cron_stop_does_not_pause_future_session_work() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("cron-stop.db"))
+                .expect("session db"),
+        );
+        let session = db.create_session("ha-main").expect("session");
+        let turn = db
+            .create_chat_turn(&session.id, "cron", None, None)
+            .expect("turn");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            crate::chat_engine::ChatSource::Cron,
+            turn.id.clone(),
+            cancel.clone(),
+        )
+        .expect("active cron turn");
+
+        let outcome = stop_session(db.clone(), &session.id, Some(&turn.id), false).await;
+
+        assert!(outcome.stopped);
+        assert!(cancel.load(Ordering::SeqCst));
+        assert!(outcome.autonomy_pause.is_none());
+        assert!(!db.is_session_autonomy_paused(&session.id).unwrap());
+    }
+
+    #[tokio::test]
     async fn exact_stale_stop_does_not_cancel_a_newer_turn() {
         let _lock = crate::chat_engine::active_turn::test_lock();
         let (_dir, db, session_id, turn_id) = fixture();
@@ -2150,6 +2321,7 @@ mod tests {
             workflow_mode: None,
             incoming_turn: None,
             skill_allowed_tools: Vec::new(),
+            ui_dispatch_fingerprint: None,
             source: crate::session::QueuedTurnMessageSource::Channel,
             channel_origin: Some(serde_json::json!({"channelId": "wechat"})),
         })
@@ -2241,13 +2413,19 @@ mod tests {
             workflow_mode: None,
             incoming_turn: None,
             skill_allowed_tools: Vec::new(),
+            ui_dispatch_fingerprint: None,
             source: crate::session::QueuedTurnMessageSource::Desktop,
             channel_origin: None,
         })
         .expect("enqueue");
-        db.claim_queued_turn_message_for_dispatch(&session.id, "queued-request", "stopped-turn")
-            .expect("claim queue row")
-            .expect("queued row");
+        db.claim_queued_turn_message_for_dispatch(
+            &session.id,
+            "queued-request",
+            "stopped-turn",
+            crate::session::QueuedTurnMessageSource::Desktop,
+        )
+        .expect("claim queue row")
+        .expect("queued row");
 
         let cleanup = PreTurnCancelCleanup::begin(
             db.clone(),
@@ -2275,5 +2453,140 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         )
         .expect("cleanup gate must be released");
+    }
+
+    /// Issue #657: a crash-recovered turn is durable-terminal, so Stop settles
+    /// nothing and — critically — arms no broadcast/watchdog. The outcome must
+    /// say so, otherwise a UI still showing the spinner waits for an event that
+    /// can never arrive and the user is left clicking Stop forever.
+    #[tokio::test]
+    async fn exact_stop_on_a_crash_recovered_turn_reports_nothing_to_await() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db, session_id, turn_id) = fixture();
+        assert_eq!(db.recover_stale_chat_turns().expect("recover"), 1);
+        let recovered = db.get_chat_turn(&turn_id).unwrap().unwrap();
+        assert_eq!(recovered.status, ChatTurnStatus::Interrupted);
+        assert_eq!(
+            recovered.interrupt_reason,
+            Some(ChatTurnInterruptReason::CrashRecovery)
+        );
+
+        let outcome = stop_session(db.clone(), &session_id, Some(&turn_id), false).await;
+
+        assert!(!outcome.stopped);
+        assert!(!outcome.turn_mismatch);
+        assert!(!outcome.active_turn_found);
+        assert!(!outcome.completion_sealed);
+        assert!(!outcome.terminal_event_pending);
+        // A stale exact Stop still must not fence autonomous work created by a
+        // newer generation.
+        assert!(outcome.autonomy_pause.is_none());
+        assert!(!db.is_session_autonomy_paused(&session_id).unwrap());
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            ChatTurnStatus::Interrupted
+        );
+    }
+
+    /// The session-scoped variant does settle the session (durable pause), but
+    /// there is no turn to broadcast for, so it too promises no terminal event.
+    #[tokio::test]
+    async fn session_stop_without_a_live_turn_reports_nothing_to_await() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db, session_id, turn_id) = fixture();
+        db.recover_stale_chat_turns().expect("recover");
+
+        let outcome = stop_session(db.clone(), &session_id, None, false).await;
+
+        assert!(outcome.stopped);
+        assert!(!outcome.active_turn_found);
+        assert!(!outcome.terminal_event_pending);
+        assert!(outcome.autonomy_pause.is_some());
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            ChatTurnStatus::Interrupted
+        );
+    }
+
+    /// Positive control for the two cases above: a live user-visible turn arms
+    /// the `cancelling` broadcast plus the watchdog, so callers must keep
+    /// waiting instead of reconciling the session out from under it.
+    #[tokio::test]
+    async fn live_turn_stop_promises_a_terminal_event() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db, session_id, turn_id) = fixture();
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Desktop,
+            turn_id.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("active turn");
+
+        let outcome = stop_session(db, &session_id, Some(&turn_id), false).await;
+
+        assert!(outcome.stopped);
+        assert!(outcome.active_turn_found);
+        assert!(outcome.terminal_event_pending);
+        assert!(!outcome.completion_sealed);
+    }
+
+    /// A sealed completion is not stale state: the executor is already on its
+    /// way to a terminal event, so it must stay distinguishable from the
+    /// crash-recovery case above.
+    #[tokio::test]
+    async fn completion_sealed_stop_is_distinguishable_from_a_stale_turn() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db, session_id, turn_id) = fixture();
+        let guard = crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Desktop,
+            turn_id.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("active turn");
+        assert!(guard.seal_completion(&turn_id));
+
+        let outcome = stop_session(db, &session_id, Some(&turn_id), false).await;
+
+        assert!(!outcome.stopped);
+        assert!(outcome.active_turn_found);
+        assert!(outcome.completion_sealed);
+        assert!(!outcome.terminal_event_pending);
+    }
+
+    #[test]
+    fn stop_chat_result_projects_the_session_outcome_faithfully() {
+        let latched = StopChatResult::latched();
+        assert!(latched.stopped && latched.latched);
+        assert!(!latched.terminal_event_pending);
+
+        let stale = StopChatResult::from_session_outcome(
+            "session",
+            StopSessionOutcome {
+                stopped: false,
+                ..Default::default()
+            },
+        );
+        assert!(!stale.stopped);
+        assert!(!stale.latched);
+        assert!(!stale.active_turn_found);
+        assert!(!stale.terminal_event_pending);
+        assert_eq!(
+            stale.reason.as_deref(),
+            Some("no matching active chat for target")
+        );
+
+        let live = StopChatResult::from_session_outcome(
+            "session",
+            StopSessionOutcome {
+                stopped: true,
+                active_turn_found: true,
+                terminal_event_pending: true,
+                ..Default::default()
+            },
+        );
+        assert!(live.stopped && live.terminal_event_pending);
+        assert!(live.reason.is_none());
     }
 }

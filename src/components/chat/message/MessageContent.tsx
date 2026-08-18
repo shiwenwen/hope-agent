@@ -7,6 +7,7 @@ import RuntimeControlActivityGroup from "./RuntimeControlActivityGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import ProcessedBlockGroup from "./ProcessedBlockGroup"
+import ScheduleEntityCard from "./ScheduleEntityCard"
 import InterruptedMark from "./InterruptedMark"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import {
@@ -102,6 +103,19 @@ interface RenderUnit {
 
 function processUnitToolsComplete(tools: ToolCall[]): boolean {
   return tools.every((tool) => getToolExecutionState(tool) !== "running")
+}
+
+/** Keep durable schedule cards outside collapsible tool/process groups. */
+function pushScheduleCardUnits(units: RenderUnit[], tools: ToolCall[]): void {
+  for (const tool of tools) {
+    const metadata = tool.metadata
+    if (metadata?.kind !== "schedule_entity") continue
+    units.push({
+      key: `schedule-${tool.callId}`,
+      markerAlign: "control",
+      node: <ScheduleEntityCard key={tool.callId} metadata={metadata} />,
+    })
+  }
 }
 
 function hasTextFrom(blocks: ContentBlock[], start: number): boolean {
@@ -609,6 +623,7 @@ export function AssistantContentBlocks({
             />
           ),
         })
+        pushScheduleCardUnits(units, tools)
       } else {
         // Single tool — render individually
         units.push({
@@ -626,6 +641,7 @@ export function AssistantContentBlocks({
             />
           ),
         })
+        pushScheduleCardUnits(units, [block.tool])
       }
       i = j
     } else {

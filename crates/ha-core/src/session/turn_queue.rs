@@ -11,11 +11,23 @@ use crate::agent::Attachment;
 
 use super::SessionDB;
 
+fn try_direct_turn_lock_in(
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Result<Option<std::fs::File>> {
+    let name = blake3::hash(session_id.as_bytes()).to_hex().to_string();
+    Ok(crate::platform::try_acquire_exclusive_lock(
+        &dir.join(name),
+    )?)
+}
+
 pub const EVENT_TURN_QUEUE_CHANGED: &str = "chat:turn_queue_changed";
 pub const MAX_QUEUED_TURN_MESSAGES_PER_SESSION: i64 = 100;
 const MAX_QUEUED_MESSAGE_BYTES: usize = 1024 * 1024;
 const MAX_QUEUED_ATTACHMENTS: usize = 64;
 const MAX_QUEUED_ATTACHMENTS_JSON_BYTES: usize = 8 * 1024 * 1024;
+pub const SCHEDULED_TARGET_INELIGIBLE_ERROR: &str =
+    "scheduled turns require an active regular non-Channel session";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +62,7 @@ pub enum QueuedTurnMessageSource {
     Desktop,
     Http,
     Channel,
+    Scheduled,
 }
 
 impl QueuedTurnMessageSource {
@@ -57,6 +70,7 @@ impl QueuedTurnMessageSource {
         match value {
             "http" => Self::Http,
             "channel" => Self::Channel,
+            "scheduled" => Self::Scheduled,
             _ => Self::Desktop,
         }
     }
@@ -66,11 +80,12 @@ impl QueuedTurnMessageSource {
             Self::Desktop => "desktop",
             Self::Http => "http",
             Self::Channel => "channel",
+            Self::Scheduled => "scheduled",
         }
     }
 
-    pub fn is_channel_managed(self) -> bool {
-        matches!(self, Self::Channel)
+    pub fn is_backend_managed(self) -> bool {
+        matches!(self, Self::Channel | Self::Scheduled)
     }
 }
 
@@ -104,6 +119,8 @@ pub struct QueuedTurnMessageRecord {
     /// Frozen execution ceiling for server-expanded explicit Skill commands
     /// (notably IM). First-party typed turns re-resolve their Skill binding.
     pub skill_allowed_tools: Vec<String>,
+    /// Original bundled-UI request fingerprint retained across queue replay.
+    pub ui_dispatch_fingerprint: Option<String>,
     /// Fail-closed durable marker derived from the raw options JSON. A typed
     /// turn only requires full dispatch when it carries mention semantics; a
     /// valid empty typed envelope may be inserted as ordinary text. A future
@@ -114,6 +131,8 @@ pub struct QueuedTurnMessageRecord {
     /// dispatched with an accidentally widened execution ceiling.
     sidecar_decode_error: Option<QueuedSidecarDecodeError>,
     pub source: QueuedTurnMessageSource,
+    /// Stable decimal `cron_run_logs.id` for a Scheduled-managed row.
+    pub source_ref: Option<String>,
     /// Minimal, credential-free routing envelope for a Channel-managed row.
     /// Provider tokens and raw webhook payloads must never be stored here.
     pub channel_origin: Option<serde_json::Value>,
@@ -121,9 +140,15 @@ pub struct QueuedTurnMessageRecord {
     pub status: QueuedTurnMessageStatus,
     pub created_at: String,
     pub updated_at: String,
+    _direct_process_lock: Option<std::sync::Arc<std::fs::File>>,
+    stop_admission: Option<super::ForegroundStopAdmission>,
 }
 
 impl QueuedTurnMessageRecord {
+    pub fn foreground_stop_admission(&self) -> Option<super::ForegroundStopAdmission> {
+        self.stop_admission
+    }
+
     /// Typed mention bindings and a frozen Skill tool ceiling are resolved only
     /// while constructing a complete chat turn. Injecting either sidecar as a
     /// raw mid-turn user message would silently discard its semantics.
@@ -144,7 +169,7 @@ impl QueuedTurnMessageRecord {
     /// The execution path repeats these checks transactionally; this projection
     /// only prevents clients from offering an action the backend must reject.
     fn can_force_insert(&self) -> bool {
-        !self.source.is_channel_managed()
+        !self.source.is_backend_managed()
             && self.sidecar_decode_error.is_none()
             && !self.requires_full_turn_dispatch()
             && matches!(
@@ -192,6 +217,8 @@ pub struct QueuedTurnMessageView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_allowed_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub managed_by: Option<&'static str>,
     /// Backend-authoritative projection of whether this row may be requested
     /// for tool-boundary insertion in its current state.
@@ -228,7 +255,12 @@ impl From<&QueuedTurnMessageRecord> for QueuedTurnMessageView {
             incoming_turn: value.incoming_turn.clone(),
             skill_allowed_tools: (!value.skill_allowed_tools.is_empty())
                 .then(|| value.skill_allowed_tools.clone()),
-            managed_by: value.source.is_channel_managed().then_some("channel"),
+            source_ref: value.source_ref.clone(),
+            managed_by: match value.source {
+                QueuedTurnMessageSource::Channel => Some("channel"),
+                QueuedTurnMessageSource::Scheduled => Some("scheduled"),
+                _ => None,
+            },
             can_force_insert: value.can_force_insert(),
             mode: value.mode,
             status: value.status,
@@ -252,6 +284,7 @@ pub struct NewQueuedTurnMessage {
     pub workflow_mode: Option<String>,
     pub incoming_turn: Option<crate::prompt_context::IncomingTurnWire>,
     pub skill_allowed_tools: Vec<String>,
+    pub ui_dispatch_fingerprint: Option<String>,
     pub source: QueuedTurnMessageSource,
     pub channel_origin: Option<serde_json::Value>,
 }
@@ -260,6 +293,39 @@ pub struct NewQueuedTurnMessage {
 pub struct EnqueueQueuedTurnMessageOutcome {
     pub item: QueuedTurnMessageView,
     pub inserted: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewScheduledTurnMessage {
+    pub request_id: String,
+    pub session_id: String,
+    /// Decimal `cron_run_logs.id`; this is the exact occurrence identity.
+    pub source_ref: String,
+    pub message: String,
+}
+
+/// Minimal cross-database identity used by Cron startup reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledTurnQueueIdentity {
+    pub queue_row_id: i64,
+    pub request_id: String,
+    pub session_id: String,
+    pub run_log_id: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectTurnAdmission {
+    pub session_id: String,
+    pub turn_id: String,
+    pub source: QueuedTurnMessageSource,
+    process_lock: std::sync::Arc<std::fs::File>,
+    stop_admission: super::ForegroundStopAdmission,
+}
+
+impl DirectTurnAdmission {
+    pub fn foreground_stop_admission(&self) -> super::ForegroundStopAdmission {
+        self.stop_admission
+    }
 }
 
 pub(super) fn emit_changed(session_id: &str, request_id: Option<&str>, operation: &str) {
@@ -273,6 +339,15 @@ pub(super) fn emit_changed(session_id: &str, request_id: Option<&str>, operation
             }),
         );
     }
+}
+
+/// Notify queue consumers only after exact active-turn admission is gone.
+///
+/// Unlike ordinary queue mutations, this signal is emitted by the in-memory
+/// active-turn registry. Callers must release that registry's lock first so an
+/// event handler can immediately attempt the next durable FIFO claim.
+pub(crate) fn emit_turn_released(session_id: &str) {
+    emit_changed(session_id, None, "turn_released");
 }
 
 fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRecord> {
@@ -331,9 +406,10 @@ fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRe
         None
     };
     let source: String = row.get(10)?;
-    let channel_origin_json: Option<String> = row.get(11)?;
-    let mode: String = row.get(12)?;
-    let status: String = row.get(13)?;
+    let source_ref: Option<String> = row.get(11)?;
+    let channel_origin_json: Option<String> = row.get(12)?;
+    let mode: String = row.get(13)?;
+    let status: String = row.get(14)?;
     Ok(QueuedTurnMessageRecord {
         request_id: row.get(0)?,
         session_id: row.get(1)?,
@@ -354,6 +430,10 @@ fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRe
             .map(str::to_string),
         incoming_turn,
         skill_allowed_tools,
+        ui_dispatch_fingerprint: options
+            .get("uiDispatchFingerprint")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
         structured_sidecar_present: options_parse_failed
             || options_shape_invalid
             || incoming_turn_decode_failed
@@ -362,19 +442,92 @@ fn parse_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTurnMessageRe
             || skill_ceiling_present,
         sidecar_decode_error,
         source: QueuedTurnMessageSource::parse(&source),
+        source_ref,
         channel_origin: channel_origin_json.and_then(|raw| serde_json::from_str(&raw).ok()),
         mode: QueuedTurnMessageMode::parse(&mode),
         status: QueuedTurnMessageStatus::parse(&status),
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        _direct_process_lock: None,
+        stop_admission: None,
     })
 }
 
 const RECORD_SELECT: &str = "SELECT request_id, session_id, turn_id, message, display_text,
     attachments_json, is_plan_trigger, goal_trigger, plan_comment_json, options_json, source,
-    channel_origin_json, mode, status, created_at, updated_at FROM queued_turn_user_messages";
+    source_ref, channel_origin_json, mode, status, created_at, updated_at
+    FROM queued_turn_user_messages";
+
+fn validate_scheduled_source_ref(source_ref: &str) -> Result<()> {
+    let value = source_ref
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| anyhow!("scheduled source_ref must be a positive decimal run log id"))?;
+    if value.to_string() != source_ref {
+        return Err(anyhow!(
+            "scheduled source_ref must be a canonical decimal run log id"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn consume_direct_turn_admission(
+    tx: &rusqlite::Transaction<'_>,
+    session_id: &str,
+    turn_id: &str,
+    source: &str,
+) -> Result<bool> {
+    let reservation: Option<(String, String)> = tx
+        .query_row(
+            "SELECT turn_id, source FROM direct_turn_admissions WHERE session_id = ?1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((reserved_turn_id, reserved_source)) = reservation else {
+        return Ok(false);
+    };
+    if reserved_turn_id != turn_id || reserved_source != source {
+        return Err(anyhow!("direct turn does not own the durable admission"));
+    }
+    let removed = tx.execute(
+        "DELETE FROM direct_turn_admissions
+         WHERE session_id = ?1 AND turn_id = ?2 AND source = ?3",
+        params![session_id, turn_id, source],
+    )?;
+    Ok(removed == 1)
+}
 
 impl SessionDB {
+    fn try_direct_turn_lock(&self, session_id: &str) -> Result<Option<std::fs::File>> {
+        try_direct_turn_lock_in(&self.direct_turn_locks_dir, session_id)
+    }
+
+    fn clear_stale_direct_turn_admissions(&self) -> Result<()> {
+        let session_ids = {
+            let conn = self.read_conn()?;
+            let mut stmt = conn.prepare("SELECT session_id FROM direct_turn_admissions")?;
+            let rows = stmt
+                .query_map([], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            rows
+        };
+        for session_id in session_ids {
+            let Some(_lock) = self.try_direct_turn_lock(&session_id)? else {
+                continue;
+            };
+            self.conn
+                .lock()
+                .map_err(|e| anyhow!("Lock error: {e}"))?
+                .execute(
+                    "DELETE FROM direct_turn_admissions WHERE session_id = ?1",
+                    params![session_id],
+                )?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn ensure_turn_message_queue_table(conn: &rusqlite::Connection) -> Result<()> {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS queued_turn_user_messages (
@@ -390,6 +543,7 @@ impl SessionDB {
                 plan_comment_json TEXT,
                 options_json TEXT,
                 source TEXT NOT NULL DEFAULT 'desktop',
+                source_ref TEXT,
                 channel_origin_json TEXT,
                 mode TEXT NOT NULL DEFAULT 'queue',
                 status TEXT NOT NULL DEFAULT 'queued',
@@ -400,7 +554,13 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_queued_turn_messages_session_fifo
                 ON queued_turn_user_messages(session_id, id);
             CREATE INDEX IF NOT EXISTS idx_queued_turn_messages_turn_status
-                ON queued_turn_user_messages(session_id, turn_id, status);",
+                ON queued_turn_user_messages(session_id, turn_id, status);
+            CREATE TABLE IF NOT EXISTS direct_turn_admissions (
+                session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                turn_id TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );",
         )?;
         if conn
             .prepare("SELECT options_json FROM queued_turn_user_messages LIMIT 1")
@@ -419,6 +579,19 @@ impl SessionDB {
             )?;
         }
         if conn
+            .prepare("SELECT source_ref FROM queued_turn_user_messages LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch(
+                "ALTER TABLE queued_turn_user_messages ADD COLUMN source_ref TEXT;",
+            )?;
+        }
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_queued_turn_messages_scheduled_source_ref
+             ON queued_turn_user_messages(source_ref)
+             WHERE source = 'scheduled' AND source_ref IS NOT NULL;",
+        )?;
+        if conn
             .prepare("SELECT channel_origin_json FROM queued_turn_user_messages LIMIT 1")
             .is_err()
         {
@@ -429,7 +602,10 @@ impl SessionDB {
         Ok(())
     }
 
-    pub(crate) fn recover_turn_message_queue(conn: &rusqlite::Connection) -> Result<()> {
+    pub(crate) fn recover_turn_message_queue(
+        conn: &rusqlite::Connection,
+        locks_dir: &std::path::Path,
+    ) -> Result<()> {
         conn.execute(
             "DELETE FROM queued_turn_user_messages
              WHERE request_id IN (
@@ -437,23 +613,94 @@ impl SessionDB {
              )",
             [],
         )?;
-        conn.execute(
-            "UPDATE queued_turn_user_messages
-             SET mode = 'queue', status = CASE
-                    WHEN status IN ('waiting_tool_boundary', 'inserting')
-                        THEN 'fallback_after_reply'
-                    ELSE 'queued'
-                 END,
-                 turn_id = NULL, updated_at = ?1
-             WHERE status IN ('waiting_tool_boundary', 'inserting', 'dispatching')",
-            params![chrono::Utc::now().to_rfc3339()],
-        )?;
+        let session_ids = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT session_id FROM queued_turn_user_messages
+                 WHERE status IN ('waiting_tool_boundary','inserting','dispatching')",
+            )?;
+            let rows = stmt
+                .query_map([], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            rows
+        };
+        for session_id in session_ids {
+            let Some(_lock) = try_direct_turn_lock_in(locks_dir, &session_id)? else {
+                continue;
+            };
+            conn.execute(
+                "UPDATE queued_turn_user_messages
+                 SET mode = 'queue', status = CASE
+                        WHEN status IN ('waiting_tool_boundary','inserting')
+                            THEN 'fallback_after_reply' ELSE 'queued' END,
+                     turn_id = NULL, updated_at = ?1
+                 WHERE session_id = ?2
+                   AND status IN ('waiting_tool_boundary','inserting','dispatching')",
+                params![chrono::Utc::now().to_rfc3339(), session_id],
+            )?;
+        }
         Ok(())
     }
 
     pub fn enqueue_turn_user_message(
         &self,
         input: NewQueuedTurnMessage,
+    ) -> Result<EnqueueQueuedTurnMessageOutcome> {
+        if input.source == QueuedTurnMessageSource::Scheduled {
+            return Err(anyhow!(
+                "Scheduled-managed messages require the typed scheduled enqueue"
+            ));
+        }
+        self.enqueue_turn_user_message_inner(input, None, None)
+    }
+
+    pub fn enqueue_turn_user_message_with_stop_admission(
+        &self,
+        input: NewQueuedTurnMessage,
+        admission: super::ForegroundStopAdmission,
+    ) -> Result<EnqueueQueuedTurnMessageOutcome> {
+        if input.source == QueuedTurnMessageSource::Scheduled {
+            return Err(anyhow!(
+                "Scheduled-managed messages require the typed scheduled enqueue"
+            ));
+        }
+        self.enqueue_turn_user_message_inner(input, None, Some(admission))
+    }
+
+    pub fn enqueue_scheduled_turn_message(
+        &self,
+        input: NewScheduledTurnMessage,
+        stop_admission: super::ForegroundStopAdmission,
+    ) -> Result<EnqueueQueuedTurnMessageOutcome> {
+        let source_ref = input.source_ref.as_str();
+        validate_scheduled_source_ref(source_ref)?;
+        self.enqueue_turn_user_message_inner(
+            NewQueuedTurnMessage {
+                request_id: input.request_id,
+                session_id: input.session_id,
+                message: input.message,
+                display_text: None,
+                attachments: Vec::new(),
+                is_plan_trigger: false,
+                goal_trigger: false,
+                plan_comment: None,
+                plan_mode: None,
+                workflow_mode: None,
+                incoming_turn: None,
+                skill_allowed_tools: Vec::new(),
+                ui_dispatch_fingerprint: None,
+                source: QueuedTurnMessageSource::Scheduled,
+                channel_origin: None,
+            },
+            Some(source_ref.to_string()),
+            Some(stop_admission),
+        )
+    }
+
+    fn enqueue_turn_user_message_inner(
+        &self,
+        input: NewQueuedTurnMessage,
+        source_ref: Option<String>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<EnqueueQueuedTurnMessageOutcome> {
         crate::attachments::validate_typed_resource_attachment_bindings(
             &input.message,
@@ -466,12 +713,28 @@ impl SessionDB {
                     "Channel-managed queued message requires routing origin"
                 ));
             }
-            (QueuedTurnMessageSource::Desktop | QueuedTurnMessageSource::Http, true) => {
+            (
+                QueuedTurnMessageSource::Desktop
+                | QueuedTurnMessageSource::Http
+                | QueuedTurnMessageSource::Scheduled,
+                true,
+            ) => {
                 return Err(anyhow!(
                     "non-Channel queued message cannot carry routing origin"
                 ));
             }
             _ => {}
+        }
+        if input
+            .ui_dispatch_fingerprint
+            .as_deref()
+            .is_some_and(|value| {
+                input.source != QueuedTurnMessageSource::Http
+                    || value.len() != 64
+                    || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        {
+            return Err(anyhow!("invalid queued UI dispatch fingerprint"));
         }
         if input.message.len() > MAX_QUEUED_MESSAGE_BYTES
             || input
@@ -491,35 +754,93 @@ impl SessionDB {
             return Err(anyhow!("queued attachment metadata is too large"));
         }
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let session_exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
             params![input.session_id],
             |row| row.get(0),
         )?;
         if !session_exists {
+            if input.source == QueuedTurnMessageSource::Scheduled {
+                return Err(anyhow!(SCHEDULED_TARGET_INELIGIBLE_ERROR));
+            }
             return Err(anyhow!("session does not exist"));
         }
-        let existing_session: Option<String> = tx
-            .query_row(
-                "SELECT session_id FROM queued_turn_user_messages WHERE request_id = ?1",
-                params![input.request_id],
+        if input.source == QueuedTurnMessageSource::Scheduled {
+            let eligible: bool = tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM sessions
+                    WHERE id = ?1 AND is_cron = 0 AND parent_session_id IS NULL
+                      AND incognito = 0 AND kind = 'regular' AND archived_at IS NULL
+                 )",
+                params![input.session_id],
                 |row| row.get(0),
+            )?;
+            let channel_table_exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master
+                 WHERE type = 'table' AND name = 'channel_conversations')",
+                [],
+                |row| row.get(0),
+            )?;
+            let channel_bound = channel_table_exists
+                && tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM channel_conversations WHERE session_id = ?1)",
+                    params![input.session_id],
+                    |row| row.get::<_, bool>(0),
+                )?;
+            if !eligible || channel_bound {
+                return Err(anyhow!(SCHEDULED_TARGET_INELIGIBLE_ERROR));
+            }
+        }
+        let existing: Option<(String, String, String, Option<String>, String, Option<String>)> = tx
+            .query_row(
+                "SELECT request_id, session_id, source, source_ref, message,
+                        json_extract(options_json, '$.uiDispatchFingerprint')
+                 FROM queued_turn_user_messages
+                 WHERE request_id = ?1 OR (?2 IS NOT NULL AND source = 'scheduled' AND source_ref = ?2)
+                 ORDER BY request_id = ?1 DESC LIMIT 1",
+                params![input.request_id, source_ref],
+                |row| {
+                    Ok((
+                        row.get(0)?, row.get(1)?, row.get(2)?,
+                        row.get(3)?, row.get(4)?, row.get(5)?,
+                    ))
+                },
             )
             .optional()?;
-        if let Some(existing_session) = existing_session {
-            if existing_session != input.session_id {
-                return Err(anyhow!("request id already belongs to another session"));
+        if let Some((request_id, session_id, source, existing_ref, message, fingerprint)) = existing
+        {
+            if request_id != input.request_id
+                || session_id != input.session_id
+                || source != input.source.as_str()
+                || existing_ref != source_ref
+                || fingerprint != input.ui_dispatch_fingerprint
+                || (input.source == QueuedTurnMessageSource::Scheduled && message != input.message)
+            {
+                return Err(anyhow!("queued message idempotency conflict"));
             }
-            tx.commit()?;
-            drop(conn);
-            let record = self
-                .get_queued_turn_user_message(&input.session_id, &input.request_id)?
+            let record = tx
+                .query_row(
+                    &format!("{RECORD_SELECT} WHERE request_id = ?1"),
+                    params![input.request_id],
+                    parse_record,
+                )
+                .optional()?
                 .ok_or_else(|| anyhow!("queued message disappeared during idempotent enqueue"))?;
+            tx.commit()?;
             return Ok(EnqueueQueuedTurnMessageOutcome {
                 item: QueuedTurnMessageView::from(&record),
                 inserted: false,
             });
+        }
+        if let Some(admission) = stop_admission {
+            if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                &tx,
+                &input.session_id,
+                admission,
+            )? {
+                return Err(anyhow!(super::FOREGROUND_STOP_FENCE_ERROR));
+            }
         }
         let count: i64 = tx.query_row(
             "SELECT COUNT(*) FROM queued_turn_user_messages WHERE session_id = ?1",
@@ -542,9 +863,9 @@ impl SessionDB {
             "INSERT INTO queued_turn_user_messages (
                 request_id, session_id, turn_id, message, display_text, attachments_json,
                 is_plan_trigger, goal_trigger, plan_comment_json, options_json, source,
-                channel_origin_json, mode, status, created_at, updated_at
-             ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                       'queue', 'queued', ?12, ?12)
+                source_ref, channel_origin_json, mode, status, created_at, updated_at
+             ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                       'queue', 'queued', ?13, ?13)
              ON CONFLICT(request_id) DO NOTHING",
             params![
                 input.request_id,
@@ -564,17 +885,24 @@ impl SessionDB {
                     "workflowMode": input.workflow_mode,
                     "incomingTurn": input.incoming_turn,
                     "skillAllowedTools": input.skill_allowed_tools,
+                    "uiDispatchFingerprint": input.ui_dispatch_fingerprint,
                 }))?,
                 input.source.as_str(),
+                source_ref,
                 channel_origin_json,
                 now,
             ],
         )? > 0;
+        let record = tx
+            .query_row(
+                &format!("{RECORD_SELECT} WHERE request_id = ?1"),
+                params![input.request_id],
+                parse_record,
+            )
+            .optional()?
+            .ok_or_else(|| anyhow!("failed to read queued message after insert"))?;
         tx.commit()?;
         drop(conn);
-        let record = self
-            .get_queued_turn_user_message(&input.session_id, &input.request_id)?
-            .ok_or_else(|| anyhow!("failed to read queued message after insert"))?;
         if inserted {
             emit_changed(&input.session_id, Some(&input.request_id), "enqueued");
         }
@@ -594,12 +922,107 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
+    /// Reserve a direct Desktop/HTTP turn in the same durable FIFO domain as
+    /// queued turns. `BEGIN IMMEDIATE` is the linearization point: a racing
+    /// enqueue/claim either commits before this check and blocks it, or commits
+    /// after the reservation and must wait for its turn.
+    pub fn reserve_direct_turn_admission(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        source: QueuedTurnMessageSource,
+        requested_stop_admission: Option<super::ForegroundStopAdmission>,
+    ) -> Result<Option<DirectTurnAdmission>> {
+        if !matches!(
+            source,
+            QueuedTurnMessageSource::Desktop | QueuedTurnMessageSource::Http
+        ) {
+            return Err(anyhow!("direct admission requires Desktop or HTTP source"));
+        }
+        let Some(process_lock) = self.try_direct_turn_lock(session_id)? else {
+            return Ok(None);
+        };
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let stop_admission = match requested_stop_admission {
+            Some(admission) => {
+                if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                    &tx, session_id, admission,
+                )? {
+                    return Err(anyhow!(super::FOREGROUND_STOP_FENCE_ERROR));
+                }
+                admission
+            }
+            None => {
+                super::autonomy_pause::foreground_stop_admission_with_conn(&tx, Some(session_id))?
+            }
+        };
+        tx.execute(
+            "DELETE FROM direct_turn_admissions WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        let inserted = tx.execute(
+            "INSERT INTO direct_turn_admissions (session_id, turn_id, source, created_at)
+             SELECT ?1, ?2, ?3, ?4
+             WHERE EXISTS(SELECT 1 FROM sessions WHERE id = ?1)
+               AND NOT EXISTS(
+                   SELECT 1 FROM queued_turn_user_messages
+                   WHERE session_id = ?1
+                     AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )
+               AND NOT EXISTS(
+                   SELECT 1 FROM chat_turns
+                   WHERE session_id = ?1 AND status IN ('running','cancelling')
+               )
+               AND NOT EXISTS(
+                   SELECT 1 FROM direct_turn_admissions WHERE session_id = ?1
+               )",
+            params![
+                session_id,
+                turn_id,
+                source.as_str(),
+                chrono::Utc::now().to_rfc3339()
+            ],
+        )? > 0;
+        tx.commit()?;
+        if !inserted {
+            return Ok(None);
+        }
+        Ok(Some(DirectTurnAdmission {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            source,
+            process_lock: std::sync::Arc::new(process_lock),
+            stop_admission,
+        }))
+    }
+
+    pub fn release_direct_turn_admission(&self, admission: DirectTurnAdmission) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let changed = conn.execute(
+            "DELETE FROM direct_turn_admissions
+             WHERE session_id = ?1 AND turn_id = ?2 AND source = ?3",
+            params![
+                admission.session_id,
+                admission.turn_id,
+                admission.source.as_str()
+            ],
+        )? > 0;
+        drop(conn);
+        drop(admission.process_lock);
+        if changed {
+            emit_changed(&admission.session_id, None, "direct_admission_released");
+        }
+        Ok(changed)
+    }
+
     pub fn has_channel_turn_messages(&self, session_id: &str) -> Result<bool> {
         let conn = self.read_conn()?;
         conn.query_row(
             "SELECT EXISTS(
                 SELECT 1 FROM queued_turn_user_messages
                 WHERE session_id = ?1 AND source = 'channel'
+                  AND status IN ('queued','fallback_after_reply')
              )",
             params![session_id],
             |row| row.get(0),
@@ -669,12 +1092,12 @@ impl SessionDB {
             return Err(anyhow!("queued message is empty or too large"));
         }
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let attachments_json = tx
             .query_row(
                 "SELECT attachments_json FROM queued_turn_user_messages
                  WHERE session_id = ?1 AND request_id = ?2
-                   AND source != 'channel'
+                   AND source IN ('desktop','http')
                    AND status IN ('queued', 'waiting_tool_boundary', 'fallback_after_reply')",
                 params![session_id, request_id],
                 |row| row.get::<_, String>(0),
@@ -711,7 +1134,7 @@ impl SessionDB {
                     END,
                     updated_at = ?4
              WHERE session_id = ?5 AND request_id = ?6
-               AND source != 'channel'
+               AND source IN ('desktop','http')
                AND status IN ('queued', 'waiting_tool_boundary', 'fallback_after_reply')",
             params![
                 message,
@@ -758,7 +1181,7 @@ impl SessionDB {
             .optional()?;
         let changed = tx.execute(
             "DELETE FROM queued_turn_user_messages WHERE session_id = ?1 AND request_id = ?2
-               AND source != 'channel'
+               AND source IN ('desktop','http')
                AND status NOT IN ('inserting', 'dispatching')",
             params![session_id, request_id],
         )? > 0;
@@ -784,12 +1207,18 @@ impl SessionDB {
         turn_id: &str,
     ) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // Classify the row itself — deliberately WITHOUT the head-of-queue
+        // restriction. A sidecar-incapable row (typed mentions, skill tools)
+        // must still be marked `fallback_after_reply` even when it sits behind
+        // another queued message; gating the lookup on MIN(id) left it silently
+        // `queued`. The FIFO fence lives on the force-insert UPDATE below, which
+        // is what must never jump the queue.
         let record = tx
             .query_row(
                 &format!(
                     "{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2
-                     AND source != 'channel'
+                     AND source IN ('desktop','http')
                      AND status IN ('queued', 'fallback_after_reply')"
                 ),
                 params![session_id, request_id],
@@ -805,7 +1234,7 @@ impl SessionDB {
                 "UPDATE queued_turn_user_messages
                  SET mode = 'queue', status = 'fallback_after_reply', turn_id = NULL,
                      updated_at = ?1
-                 WHERE session_id = ?2 AND request_id = ?3 AND source != 'channel'
+                 WHERE session_id = ?2 AND request_id = ?3 AND source IN ('desktop','http')
                    AND status IN ('queued', 'fallback_after_reply')",
                 params![now, session_id, request_id],
             )?;
@@ -822,7 +1251,7 @@ impl SessionDB {
                 "UPDATE queued_turn_user_messages
                  SET mode = 'queue', status = 'fallback_after_reply', turn_id = NULL,
                      updated_at = ?1
-                 WHERE session_id = ?2 AND request_id = ?3 AND source != 'channel'
+                 WHERE session_id = ?2 AND request_id = ?3 AND source IN ('desktop','http')
                    AND status IN ('queued', 'fallback_after_reply')",
                 params![now, session_id, request_id],
             )?;
@@ -832,8 +1261,13 @@ impl SessionDB {
                 "UPDATE queued_turn_user_messages
                  SET mode = 'force_insert', status = 'waiting_tool_boundary',
                      turn_id = ?1, updated_at = ?2
-                 WHERE session_id = ?3 AND request_id = ?4 AND source != 'channel'
-                   AND status IN ('queued', 'fallback_after_reply')",
+                 WHERE session_id = ?3 AND request_id = ?4 AND source IN ('desktop','http')
+                   AND status IN ('queued', 'fallback_after_reply')
+                   AND id = (
+                       SELECT MIN(id) FROM queued_turn_user_messages
+                       WHERE session_id = ?3
+                         AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+                   )",
                 params![turn_id, now, session_id, request_id],
             )? > 0
         };
@@ -854,7 +1288,7 @@ impl SessionDB {
         turn_id: &str,
     ) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let record = tx
             .query_row(
                 &format!(
@@ -863,7 +1297,8 @@ impl SessionDB {
                      AND status IN ('queued', 'fallback_after_reply')
                      AND id = (
                          SELECT MIN(id) FROM queued_turn_user_messages
-                         WHERE session_id = ?1 AND source = 'channel'
+                         WHERE session_id = ?1
+                           AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
                      )"
                 ),
                 params![session_id, request_id],
@@ -914,7 +1349,8 @@ impl SessionDB {
                    AND status IN ('queued', 'fallback_after_reply')
                    AND id = (
                        SELECT MIN(id) FROM queued_turn_user_messages
-                       WHERE session_id = ?3 AND source = 'channel'
+                       WHERE session_id = ?3
+                         AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
                    )",
                 params![turn_id, now, session_id, request_id],
             )? > 0
@@ -938,7 +1374,11 @@ impl SessionDB {
             "SELECT request_id FROM queued_turn_user_messages
              WHERE session_id = ?1 AND source = 'channel'
                AND status IN ('queued', 'fallback_after_reply')
-             ORDER BY id ASC LIMIT 1",
+               AND id = (
+                   SELECT MIN(id) FROM queued_turn_user_messages
+                   WHERE session_id = ?1
+                     AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )",
             params![session_id],
             |row| row.get(0),
         )
@@ -956,7 +1396,7 @@ impl SessionDB {
         let changed = conn.execute(
             "UPDATE queued_turn_user_messages SET mode = 'queue', status = 'queued', turn_id = NULL,
                  updated_at = ?1 WHERE session_id = ?2 AND request_id = ?3 AND turn_id = ?4
-               AND source != 'channel'
+               AND source IN ('desktop','http')
                AND status = 'waiting_tool_boundary'",
             params![chrono::Utc::now().to_rfc3339(), session_id, request_id, turn_id],
         )? > 0;
@@ -977,7 +1417,15 @@ impl SessionDB {
         let candidates = {
             let mut stmt = tx.prepare(&format!(
                 "{RECORD_SELECT} WHERE session_id = ?1 AND turn_id = ?2
-                 AND status = 'waiting_tool_boundary' ORDER BY id ASC"
+                 AND status = 'waiting_tool_boundary'
+                 AND source IN ('desktop','http','channel')
+                 AND NOT EXISTS (
+                     SELECT 1 FROM queued_turn_user_messages earlier
+                     WHERE earlier.session_id = ?1
+                       AND earlier.id < queued_turn_user_messages.id
+                       AND earlier.status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+                 )
+                 ORDER BY id ASC"
             ))?;
             let rows = stmt
                 .query_map(params![session_id, turn_id], parse_record)?
@@ -991,7 +1439,7 @@ impl SessionDB {
         let mut records = Vec::with_capacity(candidates.len());
         for record in candidates {
             if record.sidecar_decode_error.is_some() {
-                let channel_managed = record.source.is_channel_managed();
+                let channel_managed = record.source == QueuedTurnMessageSource::Channel;
                 let target_status = if channel_managed {
                     "held_after_stop"
                 } else {
@@ -1056,31 +1504,50 @@ impl SessionDB {
         record: &QueuedTurnMessageRecord,
         message: &super::NewMessage,
     ) -> Result<i64> {
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(admission) = record.stop_admission {
+            if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                &tx,
+                &record.session_id,
+                admission,
+            )? {
+                return Err(anyhow!(super::FOREGROUND_STOP_FENCE_ERROR));
+            }
+        }
         let mut message = message.clone();
         message.queue_request_id = Some(record.request_id.clone());
-        let message_id = self.append_message(&record.session_id, &message)?;
-        if let Err(remove_error) =
-            self.remove_consumed_turn_message(&record.session_id, &record.request_id)
+        let now = chrono::Utc::now().to_rfc3339();
+        let timestamp = if message.timestamp.is_empty() {
+            now.as_str()
+        } else {
+            message.timestamp.as_str()
+        };
+        let message_id =
+            super::db::insert_message_row(&tx, &record.session_id, &message, timestamp)?;
+        if tx.execute(
+            "DELETE FROM queued_turn_user_messages
+             WHERE session_id = ?1 AND request_id = ?2 AND turn_id IS ?3
+               AND status IN ('inserting','dispatching')",
+            params![record.session_id, record.request_id, record.turn_id],
+        )? != 1
         {
-            // The user message is already durable. Never report this as an
-            // insertion failure (the caller would correctly discard files for
-            // a pre-persist failure). Reconcile by the message commit marker;
-            // startup recovery provides the same idempotent fallback.
-            let reconcile_error = self
-                .reconcile_failed_turn_message_dispatch(
-                    &record.session_id,
-                    &record.request_id,
-                    record.turn_id.as_deref().unwrap_or_default(),
-                )
-                .err();
-            crate::app_warn!(
-                "session",
-                "turn_queue_consume_after_insert",
-                "queued user message persisted but queue cleanup failed: {}; reconcile={:?}",
-                remove_error,
-                reconcile_error
-            );
+            return Err(anyhow!("queued turn lost its exact insertion ownership"));
         }
+        tx.execute(
+            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+            params![now, record.session_id],
+        )?;
+        let resolved_timestamp = timestamp.to_string();
+        tx.commit()?;
+        drop(conn);
+        self.mirror_persisted_message_for_hooks(
+            &record.session_id,
+            message_id,
+            &message,
+            &resolved_timestamp,
+        );
+        emit_changed(&record.session_id, Some(&record.request_id), "consumed");
         Ok(message_id)
     }
 
@@ -1113,19 +1580,6 @@ impl SessionDB {
         Ok(())
     }
 
-    /// Remove a queue row only after its user message has been durably saved.
-    /// Attachment files now belong to that message and must remain on disk.
-    fn remove_consumed_turn_message(&self, session_id: &str, request_id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        conn.execute(
-            "DELETE FROM queued_turn_user_messages WHERE session_id = ?1 AND request_id = ?2",
-            params![session_id, request_id],
-        )?;
-        drop(conn);
-        emit_changed(session_id, Some(request_id), "consumed");
-        Ok(())
-    }
-
     pub fn fallback_turn_message_insertions(&self, session_id: &str, turn_id: &str) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let changed = conn.execute(
@@ -1146,19 +1600,45 @@ impl SessionDB {
         session_id: &str,
         request_id: &str,
         turn_id: &str,
+        source: QueuedTurnMessageSource,
     ) -> Result<Option<QueuedTurnMessageRecord>> {
+        if !matches!(
+            source,
+            QueuedTurnMessageSource::Desktop | QueuedTurnMessageSource::Http
+        ) {
+            return Err(anyhow!("GUI dispatch requires Desktop or HTTP source"));
+        }
+        let Some(process_lock) = self.try_direct_turn_lock(session_id)? else {
+            return Ok(None);
+        };
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "DELETE FROM direct_turn_admissions WHERE session_id = ?1",
+            params![session_id],
+        )?;
         let candidate = tx
             .query_row(
                 &format!(
                     "{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2
-                     AND source != 'channel'
+                     AND source IN ('desktop','http')
                      AND status IN ('queued', 'fallback_after_reply')
                      AND id = (
                          SELECT MIN(id) FROM queued_turn_user_messages
-                         WHERE session_id = ?1 AND source != 'channel'
-                           AND status IN ('queued', 'fallback_after_reply')
+                         WHERE session_id = ?1
+                           AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM direct_turn_admissions WHERE session_id = ?1
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM chat_turns
+                         WHERE session_id = ?1 AND status IN ('running','cancelling')
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM queued_turn_user_messages busy
+                         WHERE busy.session_id = ?1
+                           AND busy.status IN ('inserting','dispatching')
                      )"
                 ),
                 params![session_id, request_id],
@@ -1175,16 +1655,38 @@ impl SessionDB {
         let changed = tx.execute(
             "UPDATE queued_turn_user_messages SET mode = 'queue', status = 'dispatching', turn_id = ?1,
                  updated_at = ?2 WHERE session_id = ?3 AND request_id = ?4
-               AND source != 'channel'
                AND status IN ('queued', 'fallback_after_reply')
                AND id = (
                    SELECT MIN(id) FROM queued_turn_user_messages
-                   WHERE session_id = ?3 AND source != 'channel'
-                     AND status IN ('queued', 'fallback_after_reply')
+                   WHERE session_id = ?3
+                     AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )
+               AND source IN ('desktop','http')
+               AND NOT EXISTS (
+                   SELECT 1 FROM direct_turn_admissions WHERE session_id = ?3
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM chat_turns
+                   WHERE session_id = ?3 AND status IN ('running','cancelling')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM queued_turn_user_messages busy
+                   WHERE busy.session_id = ?3
+                     AND busy.status IN ('inserting','dispatching')
                )",
-            params![turn_id, chrono::Utc::now().to_rfc3339(), session_id, request_id],
+            params![
+                turn_id,
+                chrono::Utc::now().to_rfc3339(),
+                session_id,
+                request_id
+            ],
         )? > 0;
-        let record = if changed {
+        let stop_admission = changed
+            .then(|| {
+                super::autonomy_pause::foreground_stop_admission_with_conn(&tx, Some(session_id))
+            })
+            .transpose()?;
+        let mut record = if changed {
             tx.query_row(
                 &format!("{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2"),
                 params![session_id, request_id],
@@ -1194,6 +1696,10 @@ impl SessionDB {
         } else {
             None
         };
+        if let Some(record) = record.as_mut() {
+            record._direct_process_lock = Some(std::sync::Arc::new(process_lock));
+            record.stop_admission = stop_admission;
+        }
         tx.commit()?;
         drop(conn);
         if changed {
@@ -1210,8 +1716,15 @@ impl SessionDB {
         session_id: &str,
         turn_id: &str,
     ) -> Result<Option<QueuedTurnMessageRecord>> {
+        let Some(process_lock) = self.try_direct_turn_lock(session_id)? else {
+            return Ok(None);
+        };
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "DELETE FROM direct_turn_admissions WHERE session_id = ?1",
+            params![session_id],
+        )?;
         let candidate = tx
             .query_row(
                 &format!(
@@ -1219,15 +1732,21 @@ impl SessionDB {
                      AND status IN ('queued', 'fallback_after_reply')
                      AND id = (
                          SELECT MIN(id) FROM queued_turn_user_messages
-                         WHERE session_id = ?1 AND source = 'channel'
+                         WHERE session_id = ?1
+                           AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
                      )
                      AND NOT EXISTS (
-                         SELECT 1 FROM queued_turn_user_messages active_claim
-                         WHERE active_claim.session_id = ?1
-                           AND active_claim.source = 'channel'
-                           AND active_claim.status = 'dispatching'
+                         SELECT 1 FROM direct_turn_admissions WHERE session_id = ?1
                      )
-                     ORDER BY id ASC LIMIT 1"
+                     AND NOT EXISTS (
+                         SELECT 1 FROM chat_turns
+                         WHERE session_id = ?1 AND status IN ('running','cancelling')
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM queued_turn_user_messages busy
+                         WHERE busy.session_id = ?1
+                           AND busy.status IN ('inserting','dispatching')
+                     )"
                 ),
                 params![session_id],
                 parse_record,
@@ -1256,7 +1775,24 @@ impl SessionDB {
             "UPDATE queued_turn_user_messages
              SET mode = 'queue', status = 'dispatching', turn_id = ?1, updated_at = ?2
              WHERE session_id = ?3 AND request_id = ?4 AND source = 'channel'
-               AND status IN ('queued', 'fallback_after_reply')",
+               AND status IN ('queued', 'fallback_after_reply')
+               AND id = (
+                   SELECT MIN(id) FROM queued_turn_user_messages
+                   WHERE session_id = ?3
+                     AND status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM direct_turn_admissions WHERE session_id = ?3
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM chat_turns
+                   WHERE session_id = ?3 AND status IN ('running','cancelling')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM queued_turn_user_messages busy
+                   WHERE busy.session_id = ?3
+                     AND busy.status IN ('inserting','dispatching')
+               )",
             params![
                 turn_id,
                 chrono::Utc::now().to_rfc3339(),
@@ -1264,7 +1800,12 @@ impl SessionDB {
                 request_id
             ],
         )? > 0;
-        let record = if changed {
+        let stop_admission = changed
+            .then(|| {
+                super::autonomy_pause::foreground_stop_admission_with_conn(&tx, Some(session_id))
+            })
+            .transpose()?;
+        let mut record = if changed {
             tx.query_row(
                 &format!("{RECORD_SELECT} WHERE session_id = ?1 AND request_id = ?2"),
                 params![session_id, request_id],
@@ -1274,6 +1815,10 @@ impl SessionDB {
         } else {
             None
         };
+        if let Some(record) = record.as_mut() {
+            record._direct_process_lock = Some(std::sync::Arc::new(process_lock));
+            record.stop_admission = stop_admission;
+        }
         tx.commit()?;
         drop(conn);
         if let Some(record) = record.as_ref() {
@@ -1283,6 +1828,7 @@ impl SessionDB {
     }
 
     pub fn list_channel_queued_session_ids(&self) -> Result<Vec<String>> {
+        self.clear_stale_direct_turn_admissions()?;
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT q.session_id FROM queued_turn_user_messages q
@@ -1290,7 +1836,17 @@ impl SessionDB {
                AND q.status IN ('queued', 'fallback_after_reply')
                AND q.id = (
                    SELECT MIN(head.id) FROM queued_turn_user_messages head
-                   WHERE head.session_id = q.session_id AND head.source = 'channel'
+                   WHERE head.session_id = q.session_id
+                     AND head.status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM direct_turn_admissions direct
+                   WHERE direct.session_id = q.session_id
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM chat_turns turn
+                   WHERE turn.session_id = q.session_id
+                     AND turn.status IN ('running','cancelling')
                )
              ORDER BY q.session_id",
         )?;
@@ -1298,6 +1854,323 @@ impl SessionDB {
             .query_map([], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
+    }
+
+    pub fn get_scheduled_turn_message(
+        &self,
+        source_ref: &str,
+    ) -> Result<Option<QueuedTurnMessageRecord>> {
+        validate_scheduled_source_ref(source_ref)?;
+        let conn = self.read_conn()?;
+        conn.query_row(
+            &format!("{RECORD_SELECT} WHERE source = 'scheduled' AND source_ref = ?1"),
+            params![source_ref],
+            parse_record,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    /// Page through Scheduled queue custody without exposing the SessionDB
+    /// connection. Invalid legacy identities stop recovery fail-closed.
+    pub fn list_scheduled_turn_queue_identities(
+        &self,
+        after_queue_row_id: i64,
+        limit: usize,
+    ) -> Result<Vec<ScheduledTurnQueueIdentity>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, request_id, session_id, source_ref
+             FROM queued_turn_user_messages
+             WHERE id > ?1 AND source = 'scheduled'
+             ORDER BY id LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![after_queue_row_id, limit.min(256) as i64], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(queue_row_id, request_id, session_id, source_ref)| {
+                validate_scheduled_source_ref(&source_ref)?;
+                let run_log_id = source_ref
+                    .parse::<i64>()
+                    .map_err(|_| anyhow!("scheduled source_ref exceeds SQLite run log range"))?;
+                Ok(ScheduledTurnQueueIdentity {
+                    queue_row_id,
+                    request_id,
+                    session_id,
+                    run_log_id,
+                })
+            })
+            .collect()
+    }
+
+    /// Resolve an unconsumed bundled-HTTP request before upload staging. This
+    /// is the durable lost-ACK lookup; public HTTP never creates these rows.
+    pub fn get_queued_ui_dispatch(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<QueuedTurnMessageRecord>> {
+        let conn = self.read_conn()?;
+        conn.query_row(
+            &format!("{RECORD_SELECT} WHERE request_id = ?1 AND source = 'http'"),
+            params![request_id],
+            parse_record,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    /// Sessions whose globally oldest executable queue row belongs to
+    /// Scheduled. The pump may still lose the subsequent exact claim race and
+    /// must treat an empty claim as ordinary contention.
+    pub fn list_scheduled_queued_session_ids(&self) -> Result<Vec<String>> {
+        self.clear_stale_direct_turn_admissions()?;
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT q.session_id FROM queued_turn_user_messages q
+             WHERE q.source = 'scheduled'
+               AND q.status IN ('queued','fallback_after_reply')
+               AND q.id = (
+                   SELECT MIN(head.id) FROM queued_turn_user_messages head
+                   WHERE head.session_id = q.session_id
+                     AND head.status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM direct_turn_admissions direct
+                   WHERE direct.session_id = q.session_id
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM chat_turns turn
+                   WHERE turn.session_id = q.session_id
+                     AND turn.status IN ('running','cancelling')
+               )
+             ORDER BY q.session_id",
+        )?;
+        let rows: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn claim_scheduled_turn_message_for_dispatch(
+        &self,
+        request_id: &str,
+        source_ref: &str,
+        turn_id: &str,
+    ) -> Result<Option<QueuedTurnMessageRecord>> {
+        validate_scheduled_source_ref(source_ref)?;
+        let session_id = {
+            let conn = self.read_conn()?;
+            conn.query_row(
+                "SELECT session_id FROM queued_turn_user_messages
+                 WHERE request_id = ?1 AND source = 'scheduled' AND source_ref = ?2",
+                params![request_id, source_ref],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        };
+        let Some(session_id) = session_id else {
+            return Ok(None);
+        };
+        let Some(process_lock) = self.try_direct_turn_lock(&session_id)? else {
+            return Ok(None);
+        };
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "DELETE FROM direct_turn_admissions WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        let paused = tx.query_row(
+            super::autonomy_pause::SESSION_LINEAGE_PAUSE_EXISTS_SQL,
+            params![session_id],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if paused {
+            tx.commit()?;
+            return Ok(None);
+        }
+        let changed = tx.execute(
+            "UPDATE queued_turn_user_messages
+             SET status = 'dispatching', turn_id = ?1, updated_at = ?2
+             WHERE request_id = ?3 AND source = 'scheduled' AND source_ref = ?4
+               AND status IN ('queued','fallback_after_reply')
+               AND id = (
+                   SELECT MIN(head.id) FROM queued_turn_user_messages head
+                   WHERE head.session_id = queued_turn_user_messages.session_id
+                     AND head.status IN ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM direct_turn_admissions direct
+                   WHERE direct.session_id = queued_turn_user_messages.session_id
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM chat_turns turn
+                   WHERE turn.session_id = queued_turn_user_messages.session_id
+                     AND turn.status IN ('running','cancelling')
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM queued_turn_user_messages busy
+                   WHERE busy.session_id = queued_turn_user_messages.session_id
+                     AND busy.status IN ('inserting','dispatching')
+               )",
+            params![
+                turn_id,
+                chrono::Utc::now().to_rfc3339(),
+                request_id,
+                source_ref
+            ],
+        )? > 0;
+        let stop_admission = changed
+            .then(|| {
+                super::autonomy_pause::foreground_stop_admission_with_conn(&tx, Some(&session_id))
+            })
+            .transpose()?;
+        let mut record = if changed {
+            tx.query_row(
+                &format!(
+                    "{RECORD_SELECT} WHERE request_id = ?1 AND source = 'scheduled' AND source_ref = ?2"
+                ),
+                params![request_id, source_ref],
+                parse_record,
+            )
+            .optional()?
+        } else {
+            None
+        };
+        if let Some(record) = record.as_mut() {
+            record._direct_process_lock = Some(std::sync::Arc::new(process_lock));
+            record.stop_admission = stop_admission;
+        }
+        tx.commit()?;
+        if let Some(record) = record.as_ref() {
+            emit_changed(&record.session_id, Some(request_id), "dispatching");
+        }
+        Ok(record)
+    }
+
+    pub fn release_scheduled_turn_message_dispatch(
+        &self,
+        request_id: &str,
+        source_ref: &str,
+        turn_id: &str,
+    ) -> Result<bool> {
+        validate_scheduled_source_ref(source_ref)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let session_id = conn
+            .query_row(
+                "UPDATE queued_turn_user_messages
+                 SET status = 'queued', turn_id = NULL, updated_at = ?1
+                 WHERE request_id = ?2 AND source = 'scheduled' AND source_ref = ?3
+                   AND turn_id = ?4 AND status = 'dispatching'
+                 RETURNING session_id",
+                params![
+                    chrono::Utc::now().to_rfc3339(),
+                    request_id,
+                    source_ref,
+                    turn_id
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        drop(conn);
+        if let Some(session_id) = session_id {
+            emit_changed(&session_id, Some(request_id), "dispatch_released");
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Cancel wins atomically over ChatTurn creation: deleting a dispatching
+    /// row makes the queue ownership check in `create_chat_turn` fail closed.
+    pub fn cancel_scheduled_turn_message(
+        &self,
+        request_id: &str,
+        source_ref: &str,
+    ) -> Result<bool> {
+        validate_scheduled_source_ref(source_ref)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let session_id = conn
+            .query_row(
+                "DELETE FROM queued_turn_user_messages
+                 WHERE request_id = ?1 AND source = 'scheduled' AND source_ref = ?2
+                   AND status IN ('queued','fallback_after_reply','dispatching','held_after_stop')
+                 RETURNING session_id",
+                params![request_id, source_ref],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        drop(conn);
+        if let Some(session_id) = session_id {
+            emit_changed(&session_id, Some(request_id), "cancelled");
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub fn reconcile_failed_scheduled_turn_message_dispatch(
+        &self,
+        request_id: &str,
+        source_ref: &str,
+        turn_id: &str,
+    ) -> Result<bool> {
+        validate_scheduled_source_ref(source_ref)?;
+        let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let session_id = tx
+            .query_row(
+                "SELECT session_id FROM queued_turn_user_messages
+                 WHERE request_id = ?1 AND source = 'scheduled' AND source_ref = ?2
+                   AND turn_id = ?3 AND status = 'dispatching'",
+                params![request_id, source_ref, turn_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(session_id) = session_id else {
+            tx.commit()?;
+            return Ok(false);
+        };
+        let persisted: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages
+             WHERE session_id = ?1 AND queue_request_id = ?2)",
+            params![session_id, request_id],
+            |row| row.get(0),
+        )?;
+        let operation = if persisted {
+            tx.execute(
+                "DELETE FROM queued_turn_user_messages
+                 WHERE request_id = ?1 AND source = 'scheduled' AND source_ref = ?2",
+                params![request_id, source_ref],
+            )?;
+            "dispatch_reconciled_consumed"
+        } else {
+            tx.execute(
+                "UPDATE queued_turn_user_messages
+                 SET status = 'queued', turn_id = NULL, updated_at = ?1
+                 WHERE request_id = ?2 AND source = 'scheduled' AND source_ref = ?3
+                   AND turn_id = ?4 AND status = 'dispatching'",
+                params![
+                    chrono::Utc::now().to_rfc3339(),
+                    request_id,
+                    source_ref,
+                    turn_id
+                ],
+            )?;
+            "dispatch_reconciled_released"
+        };
+        tx.commit()?;
+        emit_changed(&session_id, Some(request_id), operation);
+        Ok(true)
     }
 
     /// Preserve backend-managed IM rows after an explicit user Stop. They are
@@ -1470,6 +2343,7 @@ mod tests {
             workflow_mode: None,
             incoming_turn: None,
             skill_allowed_tools: Vec::new(),
+            ui_dispatch_fingerprint: None,
             source: QueuedTurnMessageSource::Desktop,
             channel_origin: None,
         }
@@ -1486,6 +2360,23 @@ mod tests {
             })),
             ..queued(session_id, request_id)
         }
+    }
+
+    fn scheduled(session_id: &str, request_id: &str, source_ref: &str) -> NewScheduledTurnMessage {
+        NewScheduledTurnMessage {
+            request_id: request_id.into(),
+            session_id: session_id.into(),
+            source_ref: source_ref.into(),
+            message: format!("message-{request_id}"),
+        }
+    }
+
+    fn enqueue_scheduled(
+        db: &SessionDB,
+        input: NewScheduledTurnMessage,
+    ) -> Result<EnqueueQueuedTurnMessageOutcome> {
+        let admission = db.foreground_stop_admission(Some(&input.session_id))?;
+        db.enqueue_scheduled_turn_message(input, admission)
     }
 
     fn incoming_turn_for(message: &str) -> crate::prompt_context::IncomingTurnWire {
@@ -1597,6 +2488,196 @@ mod tests {
     }
 
     #[test]
+    fn scheduled_rows_are_exact_idempotent_and_owner_immutable() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let first = enqueue_scheduled(&db, scheduled(&session_id, "scheduled-7", "7")).unwrap();
+        assert!(first.inserted);
+        assert_eq!(first.item.source_ref.as_deref(), Some("7"));
+        assert_eq!(first.item.managed_by, Some("scheduled"));
+        assert!(!first.item.can_force_insert);
+        assert!(
+            !enqueue_scheduled(&db, scheduled(&session_id, "scheduled-7", "7"))
+                .unwrap()
+                .inserted
+        );
+        let mut conflict = scheduled(&session_id, "scheduled-7", "7");
+        conflict.message = "different".into();
+        assert!(enqueue_scheduled(&db, conflict).is_err());
+        assert!(enqueue_scheduled(&db, scheduled(&session_id, "scheduled-08", "08")).is_err());
+        assert!(!db
+            .update_queued_turn_user_message(&session_id, "scheduled-7", "edit", None)
+            .unwrap());
+        assert!(!db
+            .delete_queued_turn_user_message(&session_id, "scheduled-7")
+            .unwrap());
+        assert!(!db
+            .request_turn_message_insertion(&session_id, "scheduled-7", "active")
+            .unwrap());
+        assert!(db
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "scheduled-7",
+                "gui",
+                QueuedTurnMessageSource::Desktop,
+            )
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn scheduled_enqueue_rejects_a_stop_after_occurrence_admission() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let admission = db.foreground_stop_admission(Some(&session_id)).unwrap();
+        db.prepare_session_autonomy_pause(&session_id).unwrap();
+
+        let error = db
+            .enqueue_scheduled_turn_message(
+                scheduled(&session_id, "scheduled-stop", "12"),
+                admission,
+            )
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains(super::super::FOREGROUND_STOP_FENCE_ERROR));
+        assert!(db.get_scheduled_turn_message("12").unwrap().is_none());
+    }
+
+    #[test]
+    fn scheduled_queue_identities_are_typed_and_cursor_paginated() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        db.enqueue_turn_user_message(queued(&session_id, "desktop"))
+            .unwrap();
+        enqueue_scheduled(&db, scheduled(&session_id, "scheduled-7", "7")).unwrap();
+        enqueue_scheduled(&db, scheduled(&session_id, "scheduled-8", "8")).unwrap();
+
+        let first = db.list_scheduled_turn_queue_identities(0, 1).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].request_id, "scheduled-7");
+        assert_eq!(first[0].session_id, session_id);
+        assert_eq!(first[0].run_log_id, 7);
+
+        let second = db
+            .list_scheduled_turn_queue_identities(first[0].queue_row_id, 1)
+            .unwrap();
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].request_id, "scheduled-8");
+        assert_eq!(second[0].run_log_id, 8);
+        assert!(db
+            .list_scheduled_turn_queue_identities(second[0].queue_row_id, 1)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn all_sources_share_one_fifo_head_and_scheduled_controls_are_exact() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        db.enqueue_turn_user_message(queued(&session_id, "desktop-first"))
+            .unwrap();
+        enqueue_scheduled(&db, scheduled(&session_id, "scheduled-9", "9")).unwrap();
+        assert!(db.list_scheduled_queued_session_ids().unwrap().is_empty());
+        assert!(db
+            .claim_scheduled_turn_message_for_dispatch("scheduled-9", "9", "scheduled-turn")
+            .unwrap()
+            .is_none());
+        // GUI ownership follows the current shell: a bundled HTTP surface can
+        // resume a row originally queued by Desktop (and vice versa).
+        db.claim_queued_turn_message_for_dispatch(
+            &session_id,
+            "desktop-first",
+            "http-turn",
+            QueuedTurnMessageSource::Http,
+        )
+        .unwrap()
+        .unwrap();
+        db.remove_claimed_turn_message(&session_id, "desktop-first")
+            .unwrap();
+        assert_eq!(
+            db.list_scheduled_queued_session_ids().unwrap(),
+            [session_id]
+        );
+        db.claim_scheduled_turn_message_for_dispatch("scheduled-9", "9", "scheduled-turn")
+            .unwrap()
+            .unwrap();
+        assert!(db
+            .release_scheduled_turn_message_dispatch("scheduled-9", "9", "scheduled-turn")
+            .unwrap());
+        db.claim_scheduled_turn_message_for_dispatch("scheduled-9", "9", "scheduled-turn-2")
+            .unwrap()
+            .unwrap();
+        assert!(db
+            .cancel_scheduled_turn_message("scheduled-9", "9")
+            .unwrap());
+    }
+
+    #[test]
+    fn direct_reservation_and_scheduled_commit_have_no_admission_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
+        let session_id = db.create_session("ha-main").unwrap().id;
+        let direct = db
+            .reserve_direct_turn_admission(
+                &session_id,
+                "direct-turn",
+                QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        enqueue_scheduled(&db, scheduled(&session_id, "scheduled-11", "11")).unwrap();
+        assert!(db.list_scheduled_queued_session_ids().unwrap().is_empty());
+        db.append_message_and_create_chat_turn_with_id_surface_dispatch(
+            "direct-turn",
+            &session_id,
+            "desktop",
+            None,
+            &crate::session::NewMessage::user("direct"),
+            None,
+            None,
+            None,
+            Some(direct.foreground_stop_admission()),
+        )
+        .unwrap();
+        assert!(!db.release_direct_turn_admission(direct).unwrap());
+        db.finish_chat_turn_once(
+            "direct-turn",
+            crate::session::ChatTurnStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let claimed = db
+            .claim_scheduled_turn_message_for_dispatch("scheduled-11", "11", "scheduled-turn")
+            .unwrap()
+            .unwrap();
+        let mut message = crate::session::NewMessage::user(&claimed.message);
+        message.queue_request_id = Some(claimed.request_id.clone());
+        db.append_message_and_create_chat_turn_with_id_surface_dispatch(
+            "scheduled-turn",
+            &session_id,
+            "cron",
+            None,
+            &message,
+            None,
+            None,
+            None,
+            claimed.foreground_stop_admission(),
+        )
+        .unwrap();
+        assert!(db.get_scheduled_turn_message("11").unwrap().is_none());
+        assert!(db.queue_request_was_consumed("scheduled-11").unwrap());
+    }
+
+    #[test]
     fn insertion_claim_wins_over_late_cancel() {
         let dir = tempfile::tempdir().unwrap();
         let db = SessionDB::open(&dir.path().join("sessions.db")).unwrap();
@@ -1677,7 +2758,12 @@ mod tests {
                 .unwrap();
             assert_eq!(held.status, QueuedTurnMessageStatus::FallbackAfterReply);
             let dispatched = db
-                .claim_queued_turn_message_for_dispatch(&session_id, request_id, "next-turn")
+                .claim_queued_turn_message_for_dispatch(
+                    &session_id,
+                    request_id,
+                    "next-turn",
+                    QueuedTurnMessageSource::Desktop,
+                )
                 .unwrap()
                 .unwrap();
             assert_eq!(dispatched.message, message);
@@ -1753,14 +2839,27 @@ mod tests {
         }
 
         let desktop = db
-            .claim_queued_turn_message_for_dispatch(&session_id, "desktop-typed", "next-turn")
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "desktop-typed",
+                "next-turn",
+                QueuedTurnMessageSource::Desktop,
+            )
             .unwrap()
             .unwrap();
         assert!(desktop.incoming_turn.is_some());
         db.remove_claimed_turn_message(&session_id, "desktop-typed")
             .unwrap();
+        // A claimed record owns the session's single-dispatch process lock until
+        // the dispatcher drops it; the next claim can only proceed after that.
+        drop(desktop);
         let http = db
-            .claim_queued_turn_message_for_dispatch(&session_id, "http-skill", "next-turn")
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "http-skill",
+                "next-turn",
+                QueuedTurnMessageSource::Http,
+            )
             .unwrap()
             .unwrap();
         assert_eq!(http.skill_allowed_tools, vec!["read"]);
@@ -1803,7 +2902,12 @@ mod tests {
         assert_eq!(edited.attachments[0].upload_id, ordinary.upload_id);
 
         let dispatched = db
-            .claim_queued_turn_message_for_dispatch(&session_id, "edit-typed", "repaired-turn")
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "edit-typed",
+                "repaired-turn",
+                QueuedTurnMessageSource::Desktop,
+            )
             .unwrap()
             .unwrap();
         assert_eq!(dispatched.message, "repaired message");
@@ -1856,7 +2960,12 @@ mod tests {
             assert!(held.turn_id.is_none());
 
             let dispatch_error = db
-                .claim_queued_turn_message_for_dispatch(&session_id, request_id, "next-turn")
+                .claim_queued_turn_message_for_dispatch(
+                    &session_id,
+                    request_id,
+                    "next-turn",
+                    QueuedTurnMessageSource::Http,
+                )
                 .unwrap_err();
             assert!(dispatch_error
                 .to_string()
@@ -1869,7 +2978,12 @@ mod tests {
                 .update_queued_turn_user_message(&session_id, request_id, "repaired message", None,)
                 .unwrap());
             let dispatched = db
-                .claim_queued_turn_message_for_dispatch(&session_id, request_id, "repaired-turn")
+                .claim_queued_turn_message_for_dispatch(
+                    &session_id,
+                    request_id,
+                    "repaired-turn",
+                    QueuedTurnMessageSource::Http,
+                )
                 .unwrap()
                 .unwrap();
             assert!(dispatched.incoming_turn.is_none());
@@ -2030,25 +3144,44 @@ mod tests {
     fn startup_consumes_persisted_queue_request_and_recovers_uncommitted_claim() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
-        let session_id = {
+        let (session_id, direct_session_id) = {
             let db = SessionDB::open(&path).unwrap();
             let session_id = db.create_session("ha-main").unwrap().id;
+            let direct_session_id = db.create_session("ha-main").unwrap().id;
             db.enqueue_turn_user_message(queued(&session_id, "persisted"))
                 .unwrap();
-            db.enqueue_turn_user_message(queued(&session_id, "retry"))
-                .unwrap();
+            enqueue_scheduled(&db, scheduled(&session_id, "retry", "13")).unwrap();
             let persisted = db
-                .claim_queued_turn_message_for_dispatch(&session_id, "persisted", "turn-a")
+                .claim_queued_turn_message_for_dispatch(
+                    &session_id,
+                    "persisted",
+                    "turn-a",
+                    QueuedTurnMessageSource::Desktop,
+                )
                 .unwrap()
                 .unwrap();
             assert_eq!(persisted.request_id, "persisted");
             let mut message = super::super::NewMessage::user("persisted");
             message.queue_request_id = Some("persisted".to_string());
             db.append_message(&session_id, &message).unwrap();
-            db.claim_queued_turn_message_for_dispatch(&session_id, "retry", "turn-b")
+            db.reconcile_failed_turn_message_dispatch(&session_id, "persisted", "turn-a")
+                .unwrap();
+            // The failed dispatch's record still owns the session's
+            // single-dispatch process lock; release it as the dispatcher would
+            // before the scheduled occurrence claims the session.
+            drop(persisted);
+            db.claim_scheduled_turn_message_for_dispatch("retry", "13", "turn-b")
                 .unwrap()
                 .unwrap();
-            session_id
+            db.reserve_direct_turn_admission(
+                &direct_session_id,
+                "uncommitted-direct",
+                QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+            (session_id, direct_session_id)
         };
         let reopened = SessionDB::open(&path).unwrap();
         let items = reopened
@@ -2056,7 +3189,17 @@ mod tests {
             .unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].request_id, "retry");
+        assert_eq!(items[0].source_ref.as_deref(), Some("13"));
         assert_eq!(items[0].status, QueuedTurnMessageStatus::Queued);
+        assert!(reopened
+            .reserve_direct_turn_admission(
+                &direct_session_id,
+                "recovered-direct",
+                QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -2068,19 +3211,27 @@ mod tests {
             .unwrap();
         db.enqueue_turn_user_message(queued(&session_id, "retry"))
             .unwrap();
-        db.claim_queued_turn_message_for_dispatch(&session_id, "committed", "turn-a")
-            .unwrap()
-            .unwrap();
-        db.claim_queued_turn_message_for_dispatch(&session_id, "retry", "turn-b")
-            .unwrap()
-            .unwrap();
-
+        db.claim_queued_turn_message_for_dispatch(
+            &session_id,
+            "committed",
+            "turn-a",
+            QueuedTurnMessageSource::Desktop,
+        )
+        .unwrap()
+        .unwrap();
         let mut message = super::super::NewMessage::user("committed");
         message.queue_request_id = Some("committed".to_string());
         db.append_message(&session_id, &message).unwrap();
-
         db.reconcile_failed_turn_message_dispatch(&session_id, "committed", "turn-a")
             .unwrap();
+        db.claim_queued_turn_message_for_dispatch(
+            &session_id,
+            "retry",
+            "turn-b",
+            QueuedTurnMessageSource::Desktop,
+        )
+        .unwrap()
+        .unwrap();
         db.reconcile_failed_turn_message_dispatch(&session_id, "retry", "turn-b")
             .unwrap();
 
@@ -2101,11 +3252,21 @@ mod tests {
             .unwrap();
 
         assert!(db
-            .claim_queued_turn_message_for_dispatch(&session_id, "second", "turn-b")
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "second",
+                "turn-b",
+                QueuedTurnMessageSource::Desktop,
+            )
             .unwrap()
             .is_none());
         assert!(db
-            .claim_queued_turn_message_for_dispatch(&session_id, "first", "turn-a")
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "first",
+                "turn-a",
+                QueuedTurnMessageSource::Desktop,
+            )
             .unwrap()
             .is_some());
     }
@@ -2123,7 +3284,12 @@ mod tests {
         assert!(db.has_channel_turn_messages(&session_id).unwrap());
 
         assert!(db
-            .claim_queued_turn_message_for_dispatch(&session_id, "channel-first", "gui-turn")
+            .claim_queued_turn_message_for_dispatch(
+                &session_id,
+                "channel-first",
+                "gui-turn",
+                QueuedTurnMessageSource::Desktop,
+            )
             .unwrap()
             .is_none());
         let first = db
@@ -2149,6 +3315,9 @@ mod tests {
         assert!(!db
             .channel_dispatch_claim_is_active(&session_id, "channel-first", "channel-turn-a")
             .unwrap());
+        // The claimed record owns the session's single-dispatch process lock
+        // until the worker drops it, so release it before claiming the next one.
+        drop(first);
         let second = db
             .claim_next_channel_turn_message_for_dispatch(&session_id, "channel-turn-b")
             .unwrap()

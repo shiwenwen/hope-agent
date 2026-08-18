@@ -39,6 +39,7 @@ vi.mock("react-i18next", () => ({
         "fileBrowser.panelTitle": "Files",
         "backgroundJobs.panelTitle": "Background Tasks",
         "filePreview.panelTitle": "Preview",
+        "cron.scheduleSession": "Schedule this chat",
         "fileBrowser.maximize": "Maximize",
         "fileBrowser.minimize": "Restore",
       }
@@ -120,6 +121,14 @@ afterEach(() => {
 })
 
 describe("ChatTitleBar workbench", () => {
+  test("opens the locked schedule form for the current session", () => {
+    const onScheduleSession = vi.fn()
+    renderTitleBar({ onScheduleSession })
+
+    fireEvent.click(screen.getByRole("button", { name: "Schedule this chat" }))
+    expect(onScheduleSession).toHaveBeenCalledWith("s1")
+  })
+
   test("renders open tabs in the single title row and dispatches their ids", () => {
     const onSelectWorkbenchTab = vi.fn()
     const tabs = [

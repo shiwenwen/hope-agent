@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { logger } from "@/lib/logger"
 import type { ManagedWorktree } from "@/lib/transport"
+import type { CronWorkspaceResource } from "@/components/cron/CronJobForm.types"
 import { getTransport } from "@/lib/transport-provider"
 
 export interface ManagedWorktreesState {
   worktrees: ManagedWorktree[]
+  resourcesByWorktreeId: Record<string, CronWorkspaceResource>
   loading: boolean
   error: string | null
   refresh: () => void
@@ -27,6 +29,9 @@ export function useManagedWorktrees(
 ): ManagedWorktreesState {
   const { incognito = false, turnActive = false } = opts
   const [worktrees, setWorktrees] = useState<ManagedWorktree[]>([])
+  const [resourcesByWorktreeId, setResourcesByWorktreeId] = useState<
+    Record<string, CronWorkspaceResource>
+  >({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const reqRef = useRef(0)
@@ -37,6 +42,7 @@ export function useManagedWorktrees(
       if (!sessionId || incognito) {
         reqRef.current += 1
         setWorktrees([])
+        setResourcesByWorktreeId({})
         setLoading(false)
         setError(null)
         return
@@ -47,15 +53,29 @@ export function useManagedWorktrees(
       if (fetchOpts.clear) setWorktrees([])
       getTransport()
         .call<ManagedWorktree[]>("list_managed_worktrees", { sessionId })
-        .then((next) => {
+        .then(async (next) => {
           if (reqRef.current !== req) return
-          setWorktrees(Array.isArray(next) ? next : [])
+          const rows = Array.isArray(next) ? next : []
+          const taskIds = Array.from(
+            new Set(rows.map((row) => row.scheduledTaskId).filter((id): id is string => !!id)),
+          )
+          const resourceGroups = await Promise.all(
+            taskIds.map((jobId) =>
+              getTransport().call<CronWorkspaceResource[]>("cron_workspace_resources", { jobId }),
+            ),
+          )
+          if (reqRef.current !== req) return
+          setWorktrees(rows)
+          setResourcesByWorktreeId(
+            Object.fromEntries(resourceGroups.flat().map((resource) => [resource.worktree.id, resource])),
+          )
           setLoading(false)
         })
         .catch((e) => {
           if (reqRef.current !== req) return
           const message = e instanceof Error ? e.message : String(e)
           logger.error("ui", "useManagedWorktrees", "Failed to load managed worktrees", e)
+          setResourcesByWorktreeId({})
           setError(message)
           setLoading(false)
         })
@@ -99,7 +119,12 @@ export function useManagedWorktrees(
       }, MANAGED_WORKTREE_EVENT_REFRESH_DEBOUNCE_MS)
     }
     const maybeRefresh = (payload: unknown) => {
-      if (isManagedWorktreePayload(payload) && payload.sessionId !== sessionId) return
+      if (
+        isManagedWorktreePayload(payload) &&
+        !payload.purpose.startsWith("scheduled_") &&
+        payload.sessionId !== sessionId
+      )
+        return
       scheduleRefresh()
     }
     const offCreated = transport.listen("worktree:created", maybeRefresh)
@@ -122,5 +147,5 @@ export function useManagedWorktrees(
     }
   }, [fetchWorktrees, incognito, sessionId])
 
-  return { worktrees, loading, error, refresh: fetchWorktrees }
+  return { worktrees, resourcesByWorktreeId, loading, error, refresh: fetchWorktrees }
 }

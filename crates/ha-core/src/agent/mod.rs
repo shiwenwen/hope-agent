@@ -25,6 +25,8 @@ mod side_query;
 mod side_query_stream;
 mod streaming_adapter;
 mod streaming_loop;
+pub(crate) use streaming_adapter::ProviderDispatchUnknown;
+pub use streaming_loop::CurrentUserMessageState;
 pub(crate) mod token_manifest;
 mod types;
 mod vision_bridge;
@@ -421,6 +423,8 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
+            tier3_summary_applied_this_turn: std::sync::atomic::AtomicBool::new(false),
+            tier3_summary_publication_pending: std::sync::atomic::AtomicBool::new(false),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             agent_binding_refs: Vec::new(),
@@ -502,6 +506,8 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
+            tier3_summary_applied_this_turn: std::sync::atomic::AtomicBool::new(false),
+            tier3_summary_publication_pending: std::sync::atomic::AtomicBool::new(false),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             agent_binding_refs: Vec::new(),
@@ -709,6 +715,8 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             compaction_provider: None,
+            tier3_summary_applied_this_turn: std::sync::atomic::AtomicBool::new(false),
+            tier3_summary_publication_pending: std::sync::atomic::AtomicBool::new(false),
             activated_tool_names: std::sync::Mutex::new(Vec::new()),
             session_id: None,
             agent_binding_refs: Vec::new(),
@@ -788,6 +796,17 @@ impl AssistantAgent {
     pub(crate) fn reset_chat_flags(&self) {
         self.manual_memory_saved
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.tier3_summary_applied_this_turn
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.tier3_summary_publication_pending
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        // Tier 0/2 currently live only in this request's projection. Carrying
+        // their cache-TTL timestamp into a new chat dispatch would suppress
+        // rebuilding a projection that no longer exists.
+        *self
+            .last_tier2_compaction_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         self.refresh_incognito_cache();
         // Drop the per-turn KB-access memo so this turn's identity (session /
         // source / incognito, just refreshed above) re-resolves once and is then
@@ -837,6 +856,34 @@ impl AssistantAgent {
         // Record user activity so the Dreaming idle trigger has a fresh
         // "last activity" timestamp. Must be cheap — it's just an atomic store.
         crate::memory::dreaming::touch_activity();
+    }
+
+    pub(crate) fn tier3_summary_applied_this_turn(&self) -> bool {
+        self.tier3_summary_applied_this_turn
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    pub(crate) fn tier3_summary_publication_pending(&self) -> bool {
+        self.tier3_summary_publication_pending
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Restore the two in-memory Tier-3 publication flags after a summary
+    /// candidate is rejected before its durable publication barrier.
+    ///
+    /// This is intentionally narrower than `reset_chat_flags`: capacity
+    /// recovery may already have request-only Tier 0/2 edits which must remain
+    /// available for the current request. Callers must restore the exact
+    /// pre-attempt values rather than blindly clearing either flag.
+    pub(crate) fn restore_unpublished_tier3_summary_state(
+        &self,
+        summary_applied: bool,
+        publication_pending: bool,
+    ) {
+        self.tier3_summary_applied_this_turn
+            .store(summary_applied, std::sync::atomic::Ordering::Release);
+        self.tier3_summary_publication_pending
+            .store(publication_pending, std::sync::atomic::Ordering::Release);
     }
 
     /// Reload `sessions.incognito` once and store it in the agent-local atomic
@@ -3579,7 +3626,7 @@ impl AssistantAgent {
             })
     }
 
-    /// Record that a Tier 2+ compaction just happened (resets cache-TTL timer).
+    /// Record a Tier 2+ projection in this request (resets its TTL timer).
     pub fn touch_compaction_timer(&self) {
         *self
             .last_tier2_compaction_at
@@ -4872,6 +4919,29 @@ impl AssistantAgent {
         cancel: Arc<AtomicBool>,
         on_delta: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(String, Option<String>)> {
+        self.chat_with_user_message_state(
+            message,
+            attachments,
+            CurrentUserMessageState::MissingFromHistory,
+            reasoning_effort,
+            cancel,
+            on_delta,
+        )
+        .await
+    }
+
+    /// Dispatch using explicit provenance for whether the restored attempt
+    /// base already contains this turn's user item. Shells with their own
+    /// failover loop (notably ACP) must use this instead of guessing from text.
+    pub async fn chat_with_user_message_state(
+        &self,
+        message: &str,
+        attachments: &[Attachment],
+        current_user_message_state: CurrentUserMessageState,
+        reasoning_effort: Option<&str>,
+        cancel: Arc<AtomicBool>,
+        on_delta: impl Fn(&str) + Send + Sync + 'static,
+    ) -> Result<(String, Option<String>)> {
         // Log agent chat dispatch
         if let Some(logger) = crate::get_logger() {
             let (provider_type, model_name) = match &self.provider {
@@ -4924,6 +4994,7 @@ impl AssistantAgent {
                     model,
                     message,
                     attachments,
+                    current_user_message_state,
                     reasoning_effort,
                     &cancel,
                     &on_delta,
@@ -4941,6 +5012,7 @@ impl AssistantAgent {
                     model,
                     message,
                     attachments,
+                    current_user_message_state,
                     reasoning_effort,
                     &cancel,
                     &on_delta,
@@ -4958,6 +5030,7 @@ impl AssistantAgent {
                     model,
                     message,
                     attachments,
+                    current_user_message_state,
                     reasoning_effort,
                     &cancel,
                     &on_delta,
@@ -4975,6 +5048,7 @@ impl AssistantAgent {
                     model,
                     message,
                     attachments,
+                    current_user_message_state,
                     reasoning_effort,
                     &cancel,
                     &on_delta,
@@ -5240,6 +5314,25 @@ mod tests {
         // Turn boundary clears it so the next turn re-resolves.
         agent.reset_chat_flags();
         assert!(!lock(&agent), "reset_chat_flags clears the per-turn memo");
+    }
+
+    #[test]
+    fn request_projection_ttl_does_not_escape_the_chat_dispatch() {
+        let agent = super::AssistantAgent::new_anthropic("test-key");
+        agent.touch_compaction_timer();
+        assert!(agent
+            .last_tier2_compaction_at
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some());
+
+        agent.reset_chat_flags();
+
+        assert!(agent
+            .last_tier2_compaction_at
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_none());
     }
 
     #[tokio::test]

@@ -101,7 +101,11 @@ pub fn handle_clear(
     // delete so the hook still resolves the session's working dir / transcript
     // path; afterwards the row is gone and cwd would fall back to home.
     crate::hooks::fire_session_end(sid, "clear");
-    session_db.delete_session(sid).map_err(|e| e.to_string())?;
+    match crate::get_cron_db() {
+        Some(cron_db) => cron_db.delete_conversation_and_run_logs(session_db, sid),
+        None => session_db.delete_session(sid),
+    }
+    .map_err(|e| e.to_string())?;
     Ok(CommandResult {
         content: "Session cleared.".into(),
         action: Some(CommandAction::SessionCleared),

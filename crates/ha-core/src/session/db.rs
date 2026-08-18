@@ -79,6 +79,7 @@ pub struct SessionDB {
     readers: Vec<Mutex<Connection>>,
     /// Round-robin cursor into `readers`.
     reader_idx: AtomicUsize,
+    pub(super) direct_turn_locks_dir: PathBuf,
 }
 
 /// Log at `app_info!` when `align_window_to_user_boundary` extends a page by
@@ -237,7 +238,7 @@ fn unread_domain_for_session(conn: &Connection, session_id: &str) -> Result<Opti
     }))
 }
 
-fn insert_message_row(
+pub(super) fn insert_message_row(
     conn: &Connection,
     session_id: &str,
     msg: &NewMessage,
@@ -387,6 +388,42 @@ pub(crate) fn regular_unread_predicate_sql(session_alias: &str) -> String {
     )
 }
 
+/// Scheduled is a filtered projection over two generations of the same
+/// Session read watermark: hidden legacy `is_cron` rows and ordinary
+/// conversations whose display-only origin is `cron`.
+fn scheduled_session_scope_sql(session_alias: &str) -> String {
+    let valid_origin = format!(
+        "CASE WHEN json_valid({session_alias}.origin_json) \
+              THEN {session_alias}.origin_json ELSE NULL END"
+    );
+    format!(
+        "{session_alias}.archived_at IS NULL
+         AND (
+             {session_alias}.is_cron = 1
+             OR (
+                 {}
+                 AND json_extract({valid_origin}, '$.kind') = 'cron'
+             )
+         )",
+        regular_session_scope_sql(session_alias)
+    )
+}
+
+fn scheduled_unread_exists_sql(session_alias: &str) -> String {
+    format!(
+        "EXISTS (
+             SELECT 1 FROM messages m_scheduled_unread
+              WHERE m_scheduled_unread.session_id = {session_alias}.id
+                AND m_scheduled_unread.id > COALESCE({session_alias}.last_read_message_id, 0)
+                AND m_scheduled_unread.role = 'assistant'
+                AND (
+                    {session_alias}.is_cron = 1
+                    OR COALESCE(m_scheduled_unread.source, 'desktop') != 'channel'
+                )
+         )"
+    )
+}
+
 /// Shared SELECT for every query that hydrates a full `SessionMeta`. Column
 /// positions are locked to the parser in `SessionDB::row_to_session_meta`;
 /// when adding a column, append it and update both the mapper and tests.
@@ -428,7 +465,8 @@ fn session_meta_select() -> String {
            EXISTS(
              SELECT 1 FROM session_autonomy_pauses sap
               WHERE sap.session_id = s.id AND sap.resumed_at IS NULL
-           ) as autonomy_paused
+           ) as autonomy_paused,
+           s.origin_json
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id"
     )
@@ -513,6 +551,7 @@ impl SessionDB {
                 title_source TEXT NOT NULL DEFAULT 'manual',
                 pinned_at TEXT,
                 archived_at TEXT,
+                origin_json TEXT,
                 kind TEXT NOT NULL DEFAULT 'regular',
                 execution_mode TEXT NOT NULL DEFAULT 'off',
                 workflow_mode TEXT NOT NULL DEFAULT 'off',
@@ -1070,6 +1109,13 @@ impl SessionDB {
              WHERE archived_at IS NOT NULL;",
         )?;
 
+        let has_origin_json = conn
+            .prepare("SELECT origin_json FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_origin_json {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN origin_json TEXT;")?;
+        }
+
         Self::ensure_model_usage_table(&conn)?;
         const SCHEMA_FLAG_MODEL_USAGE_BACKFILLED: i64 = 0x4;
         let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -1123,8 +1169,26 @@ impl SessionDB {
              WHERE persistence_run_id IS NOT NULL AND logical_block_seq IS NOT NULL;",
         )?;
         Self::ensure_stream_persistence_tables(&conn)?;
+        let direct_turn_locks_dir = db_path.with_extension("turn-locks");
+        std::fs::create_dir_all(&direct_turn_locks_dir)?;
         Self::ensure_turn_message_queue_table(&conn)?;
-        Self::recover_turn_message_queue(&conn)?;
+        // Result/payload/projection rows and guards are all scoped by
+        // `sessions.incognito`.
+        // Legacy databases do not have that column, so install it at this
+        // dependency boundary before any of those schemas read `sessions`.
+        let has_incognito = conn
+            .prepare("SELECT incognito FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_incognito {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        Self::ensure_result_store_tables(&conn)?;
+        Self::ensure_request_payload_store_tables(&conn)?;
+        Self::ensure_context_projection_tables(&conn)?;
+        Self::ensure_context_compaction_recovery_table(&conn)?;
+        Self::recover_turn_message_queue(&conn, &direct_turn_locks_dir)?;
         crate::goal::ensure_tables(&conn)?;
         crate::worktree::ensure_tables(&conn)?;
         crate::project_bootstrap::ensure_tables(&conn)?;
@@ -1301,17 +1365,6 @@ impl SessionDB {
             .is_ok();
         if !has_awareness_cfg {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;")?;
-        }
-
-        // Migration: per-session incognito mode for disabling passive memory /
-        // awareness features and automatic memory extraction.
-        let has_incognito = conn
-            .prepare("SELECT incognito FROM sessions LIMIT 1")
-            .is_ok();
-        if !has_incognito {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
-            )?;
         }
 
         // Migration: per-session working directory for directing the model's
@@ -1752,6 +1805,7 @@ impl SessionDB {
             conn: Mutex::new(conn),
             readers,
             reader_idx: AtomicUsize::new(0),
+            direct_turn_locks_dir,
         })
     }
 
@@ -2255,6 +2309,29 @@ impl SessionDB {
         self.create_session_full(agent_id, None, project_id, incognito)
     }
 
+    /// Create an ordinary conversation with display-only producer provenance.
+    /// The origin is persisted in the same INSERT as the session row.
+    pub fn create_session_with_project_and_origin(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        incognito: Option<bool>,
+        origin: &crate::session::SessionOrigin,
+    ) -> Result<SessionMeta> {
+        crate::memory_extract::flush_all_idle_extractions();
+        let incognito = incognito.unwrap_or(false) && project_id.is_none();
+        self.create_session_full_checked(
+            agent_id,
+            None,
+            project_id,
+            incognito,
+            Some(origin),
+            None,
+            None,
+        )?
+        .ok_or_else(|| anyhow::anyhow!("session creation unexpectedly rejected without a source"))
+    }
+
     /// Create a durable regular session only while the source session is
     /// still non-incognito. The source check and target INSERT share one
     /// `IMMEDIATE` transaction, so an incognito transition and cross-session
@@ -2273,6 +2350,7 @@ impl SessionDB {
             None,
             project_id,
             false,
+            None,
             source_session_id,
             title,
         )
@@ -2295,6 +2373,7 @@ impl SessionDB {
             incognito,
             None,
             None,
+            None,
         )?
         .ok_or_else(|| anyhow::anyhow!("session creation unexpectedly rejected without a source"))
     }
@@ -2305,11 +2384,13 @@ impl SessionDB {
         parent_session_id: Option<&str>,
         project_id: Option<&str>,
         incognito: bool,
+        origin: Option<&crate::session::SessionOrigin>,
         source_session_id: Option<&str>,
         title: Option<&str>,
     ) -> Result<Option<SessionMeta>> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
+        let origin_json = origin.map(serde_json::to_string).transpose()?;
 
         // New sessions inherit the agent's configured default permission mode
         // (`capabilities.default_session_permission_mode`). This is the single
@@ -2370,8 +2451,8 @@ impl SessionDB {
             }
         }
         tx.execute(
-            "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito, origin_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 id,
                 title,
@@ -2387,7 +2468,8 @@ impl SessionDB {
                 project_id,
                 initial_permission_mode.as_str(),
                 initial_sandbox_mode.as_str(),
-                incognito
+                incognito,
+                origin_json,
             ],
         )?;
         tx.commit()?;
@@ -2409,6 +2491,7 @@ impl SessionDB {
             updated_at: now,
             pinned_at: None,
             archived_at: None,
+            origin: origin.cloned(),
             message_count: 0,
             unread_count: 0,
             channel_unread_count: 0,
@@ -2515,6 +2598,7 @@ impl SessionDB {
         ui_surface: Option<crate::pet::ChatUiSurface>,
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<i64> {
         let result = (|| {
             if client_request_id.is_some() != request_fingerprint.is_some() {
@@ -2536,6 +2620,22 @@ impl SessionDB {
             // Serialize the active-turn check with every other foreground
             // admission across database handles/processes.
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if let Some(admission) = stop_admission {
+                if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                    &tx, session_id, admission,
+                )? {
+                    anyhow::bail!("{}", super::FOREGROUND_STOP_FENCE_ERROR);
+                }
+            }
+            let direct_admission_consumed = super::turn_queue::consume_direct_turn_admission(
+                &tx,
+                session_id,
+                new_turn_id,
+                source,
+            )?;
+            if matches!(source, "desktop" | "http") && !direct_admission_consumed {
+                anyhow::bail!("edited turn lost its durable admission");
+            }
 
             let (target_role, target_content, target_queue_request_id): (
                 String,
@@ -2571,7 +2671,7 @@ impl SessionDB {
                 params![session_id],
                 |row| row.get(0),
             )?;
-            if queued_count > 0 {
+            if queued_count > 0 && !direct_admission_consumed {
                 anyhow::bail!("session has queued messages; wait for them before editing");
             }
 
@@ -4076,6 +4176,11 @@ impl SessionDB {
             runtime_defaults_initialized: row.get::<_, i64>(30).unwrap_or(0) != 0,
             pinned_at: row.get(25).ok().flatten(),
             archived_at: row.get(36).ok().flatten(),
+            origin: row
+                .get::<_, Option<String>>(38)
+                .ok()
+                .flatten()
+                .and_then(|raw| serde_json::from_str(&raw).ok()),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
@@ -4546,7 +4651,7 @@ impl SessionDB {
 
     /// Session ids that still have at least one `messages` row in the
     /// `orphaned` stream_status. Used by the startup sweep to finalize
-    /// IM / Cron / subagent sessions whose orphaned partials don't
+    /// IM / legacy Cron / subagent sessions whose orphaned partials don't
     /// have a matching `chat_turns` row (those entry points run with
     /// `turn_id = None`).
     pub fn sessions_with_orphaned_rows(&self) -> Result<Vec<String>> {
@@ -5719,47 +5824,76 @@ impl SessionDB {
         // gone by emit time). Done before taking the conn lock — both helpers
         // lock it themselves.
         let cleanup_ctx = self.capture_session_cleanup_context(session_id);
-        {
-            let conn = self
+        let deleted = {
+            let mut conn = self
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-            // Try direct delete (CASCADE handles messages + fires FTS trigger).
-            match conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
-                Ok(_) => {}
-                Err(e) => {
-                    // FTS index corrupted — rebuild and retry.
-                    app_warn!(
-                        "session",
-                        "db",
-                        "delete_session failed ({}), rebuilding FTS and retrying",
-                        e
-                    );
-                    let _ = conn.execute_batch(
-                        "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-                         INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
-                    );
-                    conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
-                }
+            // The scheduled queue, Cron ChatTurn commit, and Worktree custody
+            // all live in this database. Reserving the writer before checking
+            // them makes permanent deletion linearizable across processes: a
+            // competing stage/commit either lands first and blocks deletion,
+            // or observes the deleted Session through its FK and fails closed.
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(&tx, session_id)?;
+            let scheduled_custody: bool = tx.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM queued_turn_user_messages
+                     WHERE session_id=?1 AND source='scheduled'
+                 ) OR EXISTS(
+                    SELECT 1 FROM chat_turns
+                     WHERE session_id=?1 AND source='cron'
+                       AND status IN ('running','cancelling')
+                 )",
+                params![session_id],
+                |row| row.get(0),
+            )?;
+            if scheduled_custody {
+                anyhow::bail!("scheduled_session_turn_active");
             }
-        }
+            // Try direct delete (CASCADE handles messages + fires FTS trigger).
+            let removed =
+                match tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
+                    Ok(removed) => removed,
+                    Err(e) => {
+                        // FTS index corrupted — rebuild and retry.
+                        app_warn!(
+                            "session",
+                            "db",
+                            "delete_session failed ({}), rebuilding FTS and retrying",
+                            e
+                        );
+                        let _ = tx.execute_batch(
+                            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
+                         INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
+                        );
+                        tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?
+                    }
+                };
+            tx.commit()?;
+            removed > 0
+        };
 
-        if let Ok(plans_dir) = crate::paths::plans_dir() {
-            let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+        if deleted {
+            if let Ok(plans_dir) = crate::paths::plans_dir() {
+                let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+            }
+            if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
+                let _ = std::fs::remove_dir_all(att_dir);
+            }
+            self.cleanup_session_orphan_tables(session_id);
+            // Drop the Smart-mode "already edited" trust set for this session so it
+            // can't outlive the session (and doesn't accumulate in long-running
+            // server processes).
+            crate::permission::session_edits::clear(session_id);
         }
-        if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
-            let _ = std::fs::remove_dir_all(att_dir);
-        }
-        self.cleanup_session_orphan_tables(session_id);
-        // Drop the Smart-mode "already edited" trust set for this session so it
-        // can't outlive the session (and doesn't accumulate in long-running
-        // server processes).
-        crate::permission::session_edits::clear(session_id);
 
         // Emit after the conn lock is released — subscribers (cleanup_watcher
         // fan-out) may re-lock the DB.
-        if let Some(meta) = snapshot {
-            crate::session::events::emit_session_deleted(&meta, reason, &cleanup_ctx);
+        if deleted {
+            if let Some(meta) = snapshot {
+                crate::session::events::emit_session_deleted(&meta, reason, &cleanup_ctx);
+            }
         }
 
         Ok(())
@@ -6273,13 +6407,12 @@ impl SessionDB {
 
     // ── Cron timeline / unread (cron panel "conversations" view) ─────────────
 
-    /// Batch-fetch `(title, unread_flag, archived)` for the given cron session
-    /// ids — used to hydrate the cross-job run timeline (`cron_run_timeline`).
+    /// Batch-fetch `(title, unread_flag, archived)` for the given Scheduled
+    /// session ids — used to hydrate `cron_run_timeline`.
     /// Returns a map `session_id -> (title, unread, archived)`; ids whose
     /// session row is missing (purged) are simply absent, and the caller falls
-    /// back to the job name / 0. SessionLoop rows share a regular parent
-    /// session: they participate in archive filtering but keep title / unread
-    /// fallback semantics so the Cron domain never consumes regular unread.
+    /// back to the job name / 0. The unread flag projects the same
+    /// `last_read_message_id` used by ordinary Chat; no second receipt exists.
     pub fn cron_session_read_state(
         &self,
         session_ids: &[String],
@@ -6297,16 +6430,13 @@ impl SessionDB {
         let placeholders: Vec<String> = (1..=session_ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
             "SELECT s.id,
-                    CASE WHEN s.is_cron = 1 THEN s.title ELSE NULL END AS title,
-                    CASE WHEN s.is_cron = 1 THEN EXISTS(
-                      SELECT 1 FROM messages m
-                       WHERE m.session_id = s.id
-                         AND m.id > COALESCE(s.last_read_message_id, 0)
-                         AND m.role = 'assistant'
-                    ) ELSE 0 END AS unread,
+                    s.title,
+                    CASE WHEN {} THEN {} ELSE 0 END AS unread,
                     s.archived_at IS NOT NULL AS archived
              FROM sessions s
              WHERE s.id IN ({})",
+            scheduled_session_scope_sql("s"),
+            scheduled_unread_exists_sql("s"),
             placeholders.join(",")
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -6326,49 +6456,45 @@ impl SessionDB {
         Ok(map)
     }
 
-    /// Total unread cron run conversations. Each run session contributes at
-    /// most one regardless of how many assistant rows it contains.
+    /// Total unread Scheduled conversations. Each Session contributes at most
+    /// one, whether it is a legacy `is_cron` row or an ordinary Cron-origin row.
     pub fn cron_unread_total(&self) -> Result<i64> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let total: i64 = conn.query_row(
-            "SELECT COUNT(*)
-              FROM sessions s
-              WHERE s.is_cron = 1
-                AND s.archived_at IS NULL
-                AND EXISTS (
-                    SELECT 1 FROM messages m
-                     WHERE m.session_id = s.id
-                       AND m.role = 'assistant'
-                       AND m.id > COALESCE(s.last_read_message_id, 0)
-                )",
-            [],
-            |row| row.get(0),
-        )?;
+        let sql = format!(
+            "SELECT COUNT(*) FROM sessions s WHERE {} AND {}",
+            scheduled_session_scope_sql("s"),
+            scheduled_unread_exists_sql("s")
+        );
+        let total: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
         Ok(total)
     }
 
-    /// Mark every cron session as read (badge → 0). Mirrors `mark_session_read`'s
-    /// `last_read_message_id = MAX(message id)` logic, scoped to `is_cron = 1`.
-    /// Returns the number of sessions updated.
+    /// Advance the existing read watermark for every visible Scheduled
+    /// conversation. This is a bulk projection over ordinary + legacy Sessions,
+    /// not a separate Scheduled read domain. Returns the number updated.
     pub fn mark_all_cron_sessions_read(&self) -> Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let n = conn.execute(
-            "UPDATE sessions
+        let sql = format!(
+            "UPDATE sessions AS s
                 SET last_read_message_id = (
                     SELECT COALESCE(MAX(id), 0) FROM messages
-                     WHERE messages.session_id = sessions.id
+                     WHERE messages.session_id = s.id
                 )
-              WHERE is_cron = 1 AND archived_at IS NULL",
-            [],
-        )?;
+              WHERE {}",
+            scheduled_session_scope_sql("s")
+        );
+        let n = conn.execute(&sql, [])?;
         drop(conn);
-        emit_unread_changed(None, Some(UnreadDomain::Cron));
+        // Both generations may be updated, so every projection over the shared
+        // watermark must reconcile.
+        emit_unread_changed(None, None);
+        crate::pet::emit_activity_changed();
         Ok(n)
     }
 
@@ -7149,6 +7275,7 @@ mod tests {
     };
     use crate::session::{
         ChatTurnStatus, CommitAssistantTurn, CreateStreamRun, NewMessage, SessionKind,
+        SessionOrigin,
     };
     use rusqlite::{Connection, OptionalExtension};
 
@@ -8090,6 +8217,24 @@ mod tests {
             &NewMessage::assistant("project reply").with_source(ChatSource::Desktop),
         )
         .expect("append project reply");
+
+        let scheduled = db
+            .create_session_with_project_and_origin(
+                "ha-main",
+                None,
+                None,
+                &SessionOrigin {
+                    kind: "cron".into(),
+                    id: "scheduled-job".into(),
+                    label: "Scheduled job".into(),
+                },
+            )
+            .expect("ordinary scheduled session");
+        db.append_message(
+            &scheduled.id,
+            &NewMessage::assistant("scheduled reply").with_source(ChatSource::Cron),
+        )
+        .expect("append scheduled reply");
         set_session_updated_at(&db, &regular.id, "2026-01-01T00:00:00Z");
         set_session_updated_at(&db, &project.id, "2026-01-02T00:00:00Z");
 
@@ -8152,13 +8297,13 @@ mod tests {
 
         assert_eq!(
             db.regular_unread_total(None).expect("regular unread total"),
-            2,
-            "only the two top-level regular conversations count"
+            3,
+            "ordinary Scheduled sessions remain regular conversations"
         );
         assert_eq!(
             db.regular_unread_total(Some(&project.id))
                 .expect("active-excluded total"),
-            1,
+            2,
             "the active conversation is excluded from every display aggregate"
         );
         let target = db
@@ -8171,8 +8316,8 @@ mod tests {
         assert_eq!(target.list_offset, 0);
         assert_eq!(
             db.cron_unread_total().expect("cron unread total"),
-            1,
-            "multiple outputs in one cron run session count once"
+            2,
+            "legacy and ordinary Scheduled sessions each count once"
         );
 
         db.mark_all_sessions_read().expect("mark regular all read");
@@ -8180,7 +8325,48 @@ mod tests {
         assert_eq!(
             db.cron_unread_total().unwrap(),
             1,
-            "regular mark-all must not clear cron"
+            "regular mark-all clears the ordinary Scheduled watermark, not legacy Cron"
+        );
+
+        db.append_message(
+            &scheduled.id,
+            &NewMessage::assistant("scheduled again").with_source(ChatSource::Cron),
+        )
+        .expect("append another scheduled reply");
+        assert_eq!(db.cron_unread_total().unwrap(), 2);
+        db.set_session_archived(&scheduled.id, true)
+            .expect("archive scheduled session");
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            1,
+            "archive hides the ordinary Session from the Scheduled projection"
+        );
+        db.set_session_archived(&scheduled.id, false)
+            .expect("restore scheduled session");
+        db.set_session_pinned(&scheduled.id, true)
+            .expect("pin scheduled session");
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            1,
+            "restore does not invent unread state after archive advanced the watermark"
+        );
+        db.append_message(
+            &scheduled.id,
+            &NewMessage::assistant("scheduled after restore").with_source(ChatSource::Cron),
+        )
+        .expect("append scheduled reply after restore");
+        assert_eq!(
+            db.cron_unread_total().unwrap(),
+            2,
+            "pin keeps a restored Session in the Scheduled unread projection"
+        );
+        db.mark_all_cron_sessions_read()
+            .expect("mark all Scheduled read");
+        assert_eq!(db.cron_unread_total().unwrap(), 0);
+        assert_eq!(
+            db.regular_unread_total(None).unwrap(),
+            0,
+            "Scheduled mark-all advances the ordinary Session watermark too"
         );
         let channel_meta = db
             .get_session(&channel.id)
@@ -8587,7 +8773,14 @@ mod tests {
         ])
         .to_string();
         let checkpoint_revision = db
-            .checkpoint_stream_context(run_id, 1, registration.context_revision, &checkpoint, 0)
+            .checkpoint_stream_context(
+                run_id,
+                1,
+                registration.context_revision,
+                &checkpoint,
+                0,
+                crate::session::Tier3RecoveryCommit::Unchanged,
+            )
             .expect("checkpoint user boundary");
         let final_context = serde_json::json!([
             {"role": "user", "content": "earlier prompt\n\nexpanded provider prompt"},
@@ -8606,10 +8799,33 @@ mod tests {
             turn_id: Some(turn_id.to_string()),
             usage: None,
             final_seq: 0,
+            tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+            request_plan: crate::session::RequestPlanCommit::None,
         })
         .expect("commit assistant turn");
         db.append_message(&session.id, &NewMessage::event("discarded trailing event"))
             .expect("append trailing event");
+
+        // Edit-resend enters the durable FIFO as a fresh direct turn: the shell
+        // settles the previous turn and reserves an admission before replacing
+        // the message, and the replacement consumes it in the same transaction.
+        db.finish_chat_turn_once(
+            turn_id,
+            crate::session::ChatTurnStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .expect("settle the replaced turn");
+        let _admission = db
+            .reserve_direct_turn_admission(
+                &session.id,
+                "replacement-turn",
+                crate::session::QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .expect("reserve direct admission")
+            .expect("direct admission granted");
 
         let replacement_id = db
             .replace_last_user_message_for_edit(
@@ -8620,6 +8836,7 @@ mod tests {
                 "replacement-turn",
                 crate::chat_engine::ChatSource::Desktop.as_str(),
                 Some(crate::pet::ChatUiSurface::MainChat),
+                None,
                 None,
                 None,
             )
@@ -8681,6 +8898,18 @@ mod tests {
         db.append_message(&session.id, &NewMessage::user("second"))
             .expect("second user");
 
+        // Hold a valid admission so the rejection below proves the not-latest
+        // guard, not the FIFO fence in front of it.
+        let _admission = db
+            .reserve_direct_turn_admission(
+                &session.id,
+                "replacement-turn",
+                crate::session::QueuedTurnMessageSource::Desktop,
+                None,
+            )
+            .expect("reserve direct admission")
+            .expect("direct admission granted");
+
         let error = db
             .replace_last_user_message_for_edit(
                 &session.id,
@@ -8688,6 +8917,7 @@ mod tests {
                 &NewMessage::user("replacement"),
                 "replacement-turn",
                 crate::chat_engine::ChatSource::Desktop.as_str(),
+                None,
                 None,
                 None,
                 None,
@@ -8750,6 +8980,7 @@ mod tests {
             &NewMessage::user("replacement prompt"),
             "duplicate-replacement-turn",
             crate::chat_engine::ChatSource::Desktop.as_str(),
+            None,
             None,
             None,
             None,

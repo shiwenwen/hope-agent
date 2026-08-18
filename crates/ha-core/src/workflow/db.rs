@@ -574,20 +574,27 @@ impl SessionDB {
         };
         if let Some(worktree_id) = input.worktree_id.as_deref() {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-            let row: Option<(String, String)> = conn
+            let row: Option<(Option<String>, String, String)> = conn
                 .query_row(
-                    "SELECT session_id, state FROM managed_worktrees WHERE id = ?1",
+                    "SELECT owner_session_id, purpose, state
+                       FROM managed_worktrees WHERE id = ?1",
                     params![worktree_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            let (worktree_session_id, state) =
+            let (worktree_owner_session_id, purpose, state) =
                 row.ok_or_else(|| anyhow!("managed worktree not found: {worktree_id}"))?;
-            if worktree_session_id != input.session_id {
+            if !matches!(purpose.as_str(), "manual" | "workflow" | "subagent") {
+                return Err(anyhow!(
+                    "managed worktree {} cannot be attached to a workflow through the generic owner API",
+                    worktree_id
+                ));
+            }
+            if worktree_owner_session_id.as_deref() != Some(input.session_id.as_str()) {
                 return Err(anyhow!(
                     "managed worktree {} belongs to session {}; expected {}",
                     worktree_id,
-                    worktree_session_id,
+                    worktree_owner_session_id.as_deref().unwrap_or("<none>"),
                     input.session_id
                 ));
             }

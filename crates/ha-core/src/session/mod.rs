@@ -8,6 +8,8 @@ pub use acp_db::{AcpRun, AcpRunStatus};
 mod artifacts;
 mod autonomy_pause;
 pub(crate) mod cleanup_watcher;
+mod context_compaction_recovery;
+pub(crate) mod context_projection;
 pub(crate) mod db;
 mod environment;
 pub(crate) mod events;
@@ -17,6 +19,8 @@ pub(crate) use helpers::workspace_root;
 mod ide_context;
 mod pending;
 pub mod pet_activity;
+pub(crate) mod request_payload_store;
+pub(crate) mod result_store;
 mod stream_persistence;
 mod subagent_db;
 mod tasks;
@@ -25,7 +29,19 @@ mod turns;
 mod types;
 
 pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
-pub use autonomy_pause::{SessionAutonomyPause, SessionAutonomyResumeOutcome};
+pub use autonomy_pause::{
+    ForegroundStopAdmission, SessionAutonomyPause, SessionAutonomyResumeOutcome,
+    FOREGROUND_STOP_FENCE_ERROR,
+};
+pub(crate) use context_compaction_recovery::{
+    claim_incognito_tier3_recovery, clear_incognito_capacity_projection_recovery,
+    clear_incognito_tier3_recovery, exhaust_incognito_tier3_recovery,
+    incognito_tier3_recovery_requirement, purge_incognito_tier3_recovery,
+    require_incognito_tier3_after_capacity_projection, require_incognito_tier3_recovery,
+};
+pub use context_compaction_recovery::{
+    Tier3RecoveryCommit, Tier3RecoveryRequirement, Tier3RecoveryRequirementKind, Tier3RecoveryState,
+};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     sanitize_fts_query, LastAssistantTokens, ParentSessionFilter, PinnedSessionFilter,
@@ -52,29 +68,46 @@ pub use ide_context::{
     SessionIdeContextSnapshot,
 };
 pub use pending::enrich_pending_interactions;
+pub use result_store::{
+    AuthorizedResultRead, AuthorizedResultTextPage, EffectiveTextPayloadRecord,
+    ModelResultMetadata, ModelResultMetadataAccess, ModelResultReadAuthorization,
+    ModelResultReadDenial, ModelResultTextRead, NewResultObjectMetadata, NewSessionResultRef,
+    NewToolResultOccurrence, PersistentResultAvailability, ResultCaptureStatus, ResultDeliveryRole,
+    ResultObjectLifecycle, ResultObjectMetadata, ResultProvenance, ResultReadbackPolicy,
+    ResultRefCreatedFrom, ResultStorageKind, ResultTextReadDirection, ResultViewDescriptor,
+    ResultViewDirection, SessionResultRef, ToolResultExecutionPhase, ToolResultHookState,
+    ToolResultOccurrence, ZeroSessionRefResultObject, DEFAULT_RESULT_READ_BYTES,
+    MAX_EFFECTIVE_RESULT_INLINE_PREVIEW_BYTES, MAX_INLINE_RESULT_PAYLOAD_BYTES,
+    MAX_RESULT_READ_BYTES, MAX_RESUMABLE_TOOL_PAGE_BYTES,
+};
 pub(crate) use stream_persistence::TypedResourceSnapshotCleanup;
 pub use stream_persistence::{
     journal_events_have_assistant_output, select_recoverable_attempt_prefix,
     stream_attempt_context_checkpoint, trailing_text_from_journal_events, verify_block,
     ChatStreamAttempt, ChatStreamJournalBlock, ChatStreamRun, CommitAssistantTurn,
-    CommitInterruptedTurn, CommittedTurn, CreateStreamRun, JournalBatch, JournalEvent,
+    CommitInterruptedTurn, CommittedTurn, CreateStreamRun, InterruptedRequestPlanState,
+    JournalBatch, JournalEvent, RequestPlanCommit, RequestPlanResponseOutcome,
     StreamRunRegistration, StreamRunSnapshot,
 };
 pub use tasks::{
     create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
     set_task_status_and_snapshot, Task, TaskStatus,
 };
+pub(crate) use turn_queue::emit_turn_released;
 pub use turn_queue::{
-    EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage, QueuedTurnMessageMode,
-    QueuedTurnMessageRecord, QueuedTurnMessageSource, QueuedTurnMessageStatus,
-    QueuedTurnMessageView, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    DirectTurnAdmission, EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage,
+    NewScheduledTurnMessage, QueuedTurnMessageMode, QueuedTurnMessageRecord,
+    QueuedTurnMessageSource, QueuedTurnMessageStatus, QueuedTurnMessageView,
+    ScheduledTurnQueueIdentity, EVENT_TURN_QUEUE_CHANGED, MAX_QUEUED_TURN_MESSAGES_PER_SESSION,
+    SCHEDULED_TARGET_INELIGIBLE_ERROR,
 };
-pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
+pub use turns::{new_chat_turn_id, ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
     build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
     ForkSessionResult, MessageRole, NewMessage, PendingCountdown, SessionDefaultsInput,
     SessionKind, SessionMemoryPolicy, SessionMemoryPolicyValue, SessionMessage, SessionMeta,
-    UnreadSessionTarget, ATTACHMENT_META_KEY_ACTIVE_MEMORY, ATTACHMENT_META_KEY_QUEUED_MESSAGE,
-    ATTACHMENT_META_KEY_RETRIEVAL_PLANNER, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
-    ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT, ATTACHMENT_META_KEY_USED_MEMORY_REFS,
+    SessionOrigin, UnreadSessionTarget, ATTACHMENT_META_KEY_ACTIVE_MEMORY,
+    ATTACHMENT_META_KEY_QUEUED_MESSAGE, ATTACHMENT_META_KEY_RETRIEVAL_PLANNER,
+    ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS, ATTACHMENT_META_KEY_TYPED_MENTION_RECEIPT,
+    ATTACHMENT_META_KEY_USED_MEMORY_REFS,
 };

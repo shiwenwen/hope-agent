@@ -42,6 +42,12 @@ pub(super) struct CompactionRunOptions {
     pub allow_memory_flush: bool,
     pub allow_summarization: bool,
     pub force_summary: bool,
+    pub summary_reason: crate::context_compact::CompactionSummaryReason,
+    /// Capacity recovery is a summary-only operation. The index names the
+    /// earliest canonical message that must remain verbatim (the user turn
+    /// owning the pending current tool group). Ordinary ratio-driven Tier 0/2
+    /// must not run again in this mode.
+    pub summary_hard_protected_start: Option<usize>,
     pub cancel: Option<Arc<AtomicBool>>,
     pub tool_schemas: Vec<serde_json::Value>,
 }
@@ -55,6 +61,8 @@ impl CompactionRunOptions {
             allow_memory_flush: true,
             allow_summarization: true,
             force_summary: false,
+            summary_reason: crate::context_compact::CompactionSummaryReason::HighWatermark,
+            summary_hard_protected_start: None,
             cancel,
             tool_schemas: Vec::new(),
         }
@@ -68,6 +76,8 @@ impl CompactionRunOptions {
             allow_memory_flush: true,
             allow_summarization: true,
             force_summary: true,
+            summary_reason: crate::context_compact::CompactionSummaryReason::Manual,
+            summary_hard_protected_start: None,
             cancel: None,
             tool_schemas: Vec::new(),
         }
@@ -85,8 +95,14 @@ pub(super) struct CompactionRunOutcome {
     pub changed_history: bool,
     pub summary_applied: bool,
     pub summary_timed_out: bool,
+    pub summary_reason: Option<crate::context_compact::CompactionSummaryReason>,
+    pub cache_decision: Option<crate::context_compact::CacheCompactionDecision>,
     pub tokens_after: u32,
     pub cancelled: bool,
+    /// A recovery-state read/claim failure is a correctness barrier, not an
+    /// ordinary "no compaction needed" result. The streaming caller must stop
+    /// before issuing another Provider request.
+    pub fatal_error: Option<String>,
     pub compact_result: Option<crate::context_compact::CompactResult>,
 }
 
@@ -233,6 +249,95 @@ fn record_manual_recovered_tool_cleanup(
 }
 
 impl AssistantAgent {
+    fn refresh_awareness_after_prefix_rewrite(&self) {
+        let should_piggyback = self
+            .awareness
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .map(|awareness| {
+                awareness
+                    .cfg
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .refresh_on_compaction
+            })
+            .unwrap_or(true);
+        if should_piggyback {
+            self.force_refresh_awareness();
+        }
+    }
+
+    async fn pending_tier3_recovery_requirement(
+        &self,
+    ) -> Result<Option<crate::session::Tier3RecoveryRequirement>> {
+        if self.session_is_incognito() {
+            return Ok(self
+                .session_id
+                .as_deref()
+                .and_then(crate::session::incognito_tier3_recovery_requirement));
+        }
+        let Some(session_id) = self.session_id.clone().filter(|id| !id.is_empty()) else {
+            return Ok(None);
+        };
+        let db = self
+            .session_db
+            .clone()
+            .or_else(|| crate::get_session_db().cloned())
+            .ok_or_else(|| anyhow::anyhow!("Tier 3 recovery state DB unavailable"))?;
+        db.run(move |db| db.tier3_recovery_requirement(&session_id))
+            .await
+    }
+
+    /// Claim the one automatic post-Tier-4 summary before starting its model
+    /// call. A crash after this point leaves `InProgress`, so the next turn
+    /// fails closed and offers manual retry instead of silently paying again.
+    async fn claim_tier3_recovery_attempt(&self) -> Result<bool> {
+        if self.session_is_incognito() {
+            let Some(session_id) = self.session_id.as_deref() else {
+                return Ok(false);
+            };
+            return Ok(crate::session::claim_incognito_tier3_recovery(session_id));
+        }
+        let Some(session_id) = self.session_id.clone().filter(|id| !id.is_empty()) else {
+            return Ok(false);
+        };
+        let db = self
+            .session_db
+            .clone()
+            .or_else(|| crate::get_session_db().cloned())
+            .ok_or_else(|| anyhow::anyhow!("Tier 3 recovery claim DB unavailable"))?;
+        db.run(move |db| db.claim_tier3_recovery_attempt(&session_id))
+            .await
+    }
+
+    async fn exhaust_tier3_recovery_attempt(&self) -> Result<()> {
+        if self.session_is_incognito() {
+            let Some(session_id) = self.session_id.as_deref() else {
+                anyhow::bail!("incognito Tier 3 recovery session is unavailable");
+            };
+            if !crate::session::exhaust_incognito_tier3_recovery(session_id) {
+                anyhow::bail!("incognito Tier 3 recovery attempt state conflict");
+            }
+            return Ok(());
+        }
+        let Some(session_id) = self.session_id.clone().filter(|id| !id.is_empty()) else {
+            anyhow::bail!("Tier 3 recovery session is unavailable");
+        };
+        let db = self
+            .session_db
+            .clone()
+            .or_else(|| crate::get_session_db().cloned())
+            .ok_or_else(|| anyhow::anyhow!("Tier 3 recovery finalize DB unavailable"))?;
+        let finalized = db
+            .run(move |db| db.exhaust_tier3_recovery_attempt(&session_id))
+            .await?;
+        if !finalized {
+            anyhow::bail!("Tier 3 recovery attempt state conflict");
+        }
+        Ok(())
+    }
+
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
         *self
@@ -257,8 +362,8 @@ impl AssistantAgent {
     ) -> crate::context_compact::CompactResult {
         use crate::context_compact::{estimate_request_tokens, CompactResult};
 
-        let mut history = self.get_conversation_history();
-        if history.is_empty() {
+        let mut canonical_history = self.get_conversation_history();
+        if canonical_history.is_empty() {
             return CompactResult {
                 tier_applied: 0,
                 tokens_before: 0,
@@ -273,13 +378,17 @@ impl AssistantAgent {
         const MANUAL_COMPACT_MAX_OUTPUT_TOKENS: u32 = 16_384;
         let (provider_label, model) = self.current_model_for_compaction();
         let system_prompt = self.build_merged_system_prompt(&model, provider_label);
-        let tokens_before =
-            estimate_request_tokens(&system_prompt, &history, MANUAL_COMPACT_MAX_OUTPUT_TOKENS);
-        let original_history = history.clone();
+        let tokens_before = estimate_request_tokens(
+            &system_prompt,
+            &canonical_history,
+            MANUAL_COMPACT_MAX_OUTPUT_TOKENS,
+        );
+        let mut request_projection = canonical_history.clone();
 
         let outcome = self
             .run_compaction_with_options(
-                &mut history,
+                &mut request_projection,
+                &mut canonical_history,
                 &system_prompt,
                 &model,
                 MANUAL_COMPACT_MAX_OUTPUT_TOKENS,
@@ -288,8 +397,12 @@ impl AssistantAgent {
             )
             .await;
 
-        if outcome.changed_history || history != original_history {
-            self.set_conversation_history(history);
+        // Tier 0/1/2 are request projections. Manual compaction only changes
+        // the durable logical history after a Tier 3 summary is validated and
+        // installed; a failed summary must not make the synchronous preview
+        // edits canonical.
+        if outcome.summary_applied {
+            self.set_conversation_history(canonical_history);
         }
 
         outcome.compact_result.unwrap_or_else(|| CompactResult {
@@ -343,16 +456,41 @@ impl AssistantAgent {
     /// - the global `SessionDB` is not initialized yet
     pub(crate) async fn persist_round_context(&self, messages: &[serde_json::Value]) -> Result<()> {
         let Some(sid) = self.session_id.as_deref() else {
+            // Detached agents have no crash-recovery contract. Installing the
+            // validated summary in their in-memory canonical history is the
+            // publication barrier, so do not leave a durable-publication flag
+            // armed forever.
+            *self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
+            self.tier3_summary_publication_pending
+                .store(false, std::sync::atomic::Ordering::Release);
             return Ok(());
         };
-        *self
-            .conversation_history
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
 
         if let Some(sink) = self.turn_durability.as_ref() {
             let expected = sink.context_revision();
-            sink.checkpoint_context(messages, expected).await?;
+            if self.tier3_summary_publication_pending() {
+                // The summary and marker removal share one SQLite checkpoint
+                // transaction. This is deliberately a one-shot publication:
+                // later tool-round checkpoints must not promote a failed
+                // attempt's tail to the failover base.
+                sink.checkpoint_summarized_context(messages, expected)
+                    .await?;
+            } else {
+                sink.checkpoint_context(messages, expected).await?;
+            }
+            // Durable-first publication: a failed checkpoint must leave the
+            // Agent's canonical history and pending marker untouched. This
+            // single ordering protects turn-start, ordinary mid-loop, and
+            // current-group capacity-recovery Tier 3 callers alike.
+            *self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
+            self.tier3_summary_publication_pending
+                .store(false, std::sync::atomic::Ordering::Release);
             return Ok(());
         }
 
@@ -361,11 +499,33 @@ impl AssistantAgent {
             .clone()
             .or_else(|| crate::get_session_db().cloned())
         else {
+            if self.tier3_summary_publication_pending() {
+                anyhow::bail!(
+                    "cannot publish Tier 3 summary for session {sid}: durability DB unavailable"
+                );
+            }
+            *self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
             return Ok(());
         };
         let json = serde_json::to_string(messages)?;
         let (_, revision) = db.load_context_with_revision(sid)?;
-        db.save_context_at_revision(sid, revision, &json, None)?;
+        if self.tier3_summary_publication_pending() {
+            db.save_context_at_revision_and_clear_tier3_recovery(sid, revision, &json)?;
+            if self.session_is_incognito() {
+                crate::session::clear_incognito_tier3_recovery(sid);
+            }
+        } else {
+            db.save_context_at_revision(sid, revision, &json, None)?;
+        }
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
+        self.tier3_summary_publication_pending
+            .store(false, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 
@@ -374,28 +534,158 @@ impl AssistantAgent {
     /// If flush_before_compact is enabled, extracts memories from messages before they are summarized.
     pub(super) async fn run_compaction(
         &self,
-        messages: &mut Vec<serde_json::Value>,
+        request_projection: &mut Vec<serde_json::Value>,
+        canonical_history: &mut Vec<serde_json::Value>,
         system_prompt: &str,
         tool_schemas: &[serde_json::Value],
         model: &str,
         max_tokens: u32,
+        restored_attempt_base_contains_current_user: bool,
         cancel: Option<Arc<AtomicBool>>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> CompactionRunOutcome {
-        self.run_compaction_with_options(
-            messages,
-            system_prompt,
-            model,
-            max_tokens,
-            on_delta,
-            CompactionRunOptions::turn_start(cancel).with_tool_schemas(tool_schemas),
-        )
-        .await
+        // Tier 4 publishes its deterministic emergency history and the durable
+        // follow-up marker together, before retrying the same user turn. That
+        // retry already carries the exact current user in its adopted base and
+        // must not consume the marker it just created; the next user turn is
+        // the first safe boundary for the forced Tier 3 summary.
+        let recovery_state = match self.pending_tier3_recovery_requirement().await {
+            Ok(state) => state,
+            Err(error) => {
+                return CompactionRunOutcome {
+                    fatal_error: Some(format!(
+                        "cannot verify pending Tier 3 recovery state: {error}"
+                    )),
+                    ..CompactionRunOutcome::default()
+                };
+            }
+        };
+        if restored_attempt_base_contains_current_user
+            && matches!(
+                recovery_state.map(|requirement| requirement.state),
+                Some(crate::session::Tier3RecoveryState::Required)
+            )
+        {
+            // Same-turn Tier 4 retry: preserve the newly published debt and
+            // do not let the ordinary high-watermark path consume it early.
+            return CompactionRunOutcome {
+                cache_decision: Some(match recovery_state.map(|requirement| requirement.kind) {
+                    Some(crate::session::Tier3RecoveryRequirementKind::CapacityProjection) => {
+                        crate::context_compact::CacheCompactionDecision::CapacityRecovery
+                    }
+                    _ => crate::context_compact::CacheCompactionDecision::Emergency,
+                }),
+                ..CompactionRunOutcome::default()
+            };
+        }
+        if matches!(
+            recovery_state.map(|requirement| requirement.state),
+            Some(crate::session::Tier3RecoveryState::InProgress)
+        ) {
+            return CompactionRunOutcome {
+                fatal_error: Some(
+                    "Tier 3 recovery summary is in progress or its delivery is unknown; refusing concurrent Provider request"
+                        .to_string(),
+                ),
+                ..CompactionRunOutcome::default()
+            };
+        }
+        if restored_attempt_base_contains_current_user {
+            // A promoted failover base has already crossed this turn's
+            // compaction boundary: either Tier 3 published a validated
+            // summary, or Tier 4 published an emergency projection together
+            // with the Required marker handled above. Re-running routine
+            // compaction on a fallback model would pay for another summary
+            // and rewrite an otherwise stable cache prefix. Exact request
+            // accounting and the in-loop capacity ladder still run later.
+            return CompactionRunOutcome {
+                cache_decision: Some(crate::context_compact::CacheCompactionDecision::KeepPrefix),
+                ..CompactionRunOutcome::default()
+            };
+        }
+        let force_tier3_recovery = matches!(
+            recovery_state.map(|requirement| requirement.state),
+            Some(crate::session::Tier3RecoveryState::Required)
+        );
+        if force_tier3_recovery {
+            match self.claim_tier3_recovery_attempt().await {
+                Ok(true) => {}
+                Ok(false) => {
+                    return CompactionRunOutcome {
+                        fatal_error: Some(
+                            "Tier 3 recovery attempt was already claimed; refusing concurrent Provider request"
+                                .to_string(),
+                        ),
+                        ..CompactionRunOutcome::default()
+                    };
+                }
+                Err(error) => {
+                    return CompactionRunOutcome {
+                        fatal_error: Some(format!(
+                            "cannot claim pending Tier 3 recovery attempt: {error}"
+                        )),
+                        ..CompactionRunOutcome::default()
+                    };
+                }
+            }
+        }
+        let mut options = CompactionRunOptions::turn_start(cancel).with_tool_schemas(tool_schemas);
+        if force_tier3_recovery {
+            // An emergency or capacity-only projection is not a healthy
+            // long-term history. The next safe request gets one forced Tier 3
+            // attempt, bypassing ordinary watermarks and cache TTL; failure is
+            // durably exhausted below to prevent per-turn retry charges.
+            options.bypass_cache_ttl = true;
+            options.force_summary = true;
+            options.summary_reason = match recovery_state.map(|requirement| requirement.kind) {
+                Some(crate::session::Tier3RecoveryRequirementKind::CapacityProjection) => {
+                    crate::context_compact::CompactionSummaryReason::RequiredAfterRecovery
+                }
+                _ => crate::context_compact::CompactionSummaryReason::EmergencyFollowup,
+            };
+        }
+        let outcome = self
+            .run_compaction_with_options(
+                request_projection,
+                canonical_history,
+                system_prompt,
+                model,
+                max_tokens,
+                on_delta,
+                options,
+            )
+            .await;
+
+        if force_tier3_recovery && !outcome.summary_applied {
+            let visible_failure = outcome.compact_result.as_ref().is_some_and(|result| {
+                matches!(
+                    result.description.as_str(),
+                    "summarization_timed_out"
+                        | "summarization_timed_out_sync_compaction_only"
+                        | "summarization_not_applied"
+                        | "summarization_not_applied_sync_compaction_only"
+                )
+            });
+            if !visible_failure {
+                self.emit_compaction_progress(on_delta, "failed", "summary", None, None, None);
+            }
+            if let Err(error) = self.exhaust_tier3_recovery_attempt().await {
+                return CompactionRunOutcome {
+                    fatal_error: Some(format!(
+                        "cannot finalize failed Tier 3 recovery attempt: {error}"
+                    )),
+                    ..outcome
+                };
+            }
+        }
+
+        outcome
     }
 
     pub(super) async fn run_compaction_with_options(
         &self,
-        messages: &mut Vec<serde_json::Value>,
+        request_projection: &mut Vec<serde_json::Value>,
+        canonical_history: &mut Vec<serde_json::Value>,
         system_prompt: &str,
         model: &str,
         max_tokens: u32,
@@ -472,7 +762,7 @@ impl AssistantAgent {
                 matches!(*guard, Some(ts) if ts.elapsed().as_secs() < compact_config.cache_ttl_secs)
             };
             if within_ttl {
-                let tokens_now = estimate_request(messages);
+                let tokens_now = estimate_request(request_projection);
                 let usage_now = tokens_now as f64 / self.context_window as f64;
                 let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
                 if emergency {
@@ -508,15 +798,17 @@ impl AssistantAgent {
             crate::hooks::HookEvent::PreCompact,
             precompact_wd.as_deref().map(std::path::Path::new),
         ) {
-            let tokens_now = estimate_request(messages);
+            let tokens_now = estimate_request(request_projection);
             let usage_now = tokens_now as f64 / self.context_window.max(1) as f64;
-            // `run_compaction` runs every turn but is a no-op far below the
-            // reactive trigger — only consult the PreCompact hook when a
+            // `run_compaction` runs every turn but is a no-op below the
+            // summary high watermark — only consult the PreCompact hook when a
             // compaction is actually plausible, so it precedes a real
             // compaction instead of firing every idle turn.
             let sid = self.session_id.clone().unwrap_or_default();
-            if usage_now >= compact_config.reactive_trigger_ratio
+            if usage_now >= compact_config.summarization_threshold
                 || matches!(options.trigger, CompactionRunTrigger::Manual)
+                || options.force_summary
+                || options.summary_hard_protected_start.is_some()
             {
                 let input = crate::hooks::HookInput::PreCompact {
                     common: self.hook_common_input("PreCompact"),
@@ -541,13 +833,15 @@ impl AssistantAgent {
                         | crate::hooks::HookDecision::Block { .. }
                 ) || !outcome.continue_execution;
                 if blocked {
-                    if usage_now >= CACHE_TTL_EMERGENCY_RATIO {
+                    if usage_now >= CACHE_TTL_EMERGENCY_RATIO
+                        || options.force_summary
+                        || options.summary_hard_protected_start.is_some()
+                    {
                         app_warn!(
                             "hooks",
                             "dispatch",
-                            "PreCompact block overridden: usage {:.1}% >= {:.0}%, compacting anyway",
+                            "PreCompact block overridden for required compaction: usage {:.1}%, compacting anyway",
                             usage_now * 100.0,
-                            CACHE_TTL_EMERGENCY_RATIO * 100.0
                         );
                         crate::hooks::reset_precompact_blocks(&sid);
                     } else if crate::hooks::honor_precompact_block(&sid) {
@@ -589,25 +883,78 @@ impl AssistantAgent {
             cache_ttl_emergency,
             token_counter: Some(&token_counter),
         };
-        let mut compact_result = self.context_engine.compact_sync(messages, &ctx);
+        let mut compact_result = if options.summary_hard_protected_start.is_some() {
+            // The deterministic capacity ladder already ran Tier 0 and Tier 2
+            // as separate exact-counted passes. Synthesize only the Tier-3
+            // signal here; re-entering compact_sync would silently run the
+            // legacy combined Tier0/1/2 path and over-degrade the protected
+            // request projection.
+            let tokens = estimate_request(request_projection);
+            let details = crate::context_compact::CompactDetails {
+                tool_results_truncated: 0,
+                tool_results_soft_trimmed: 0,
+                tool_results_hard_cleared: 0,
+                messages_summarized: 0,
+                summary_tokens: None,
+            };
+            let boundary = crate::context_compact::boundary_snapshot(
+                request_projection,
+                compact_config.preserve_recent_rounds,
+            )
+            .boundary(
+                request_projection,
+                crate::context_compact::BoundaryMode::SummarizeUnderPressure,
+            );
+            let mut manifest = crate::context_compact::CompactionManifest::for_result_with_boundary(
+                3,
+                options.trigger.manifest_trigger(),
+                tokens,
+                tokens,
+                Some(&details),
+                &boundary,
+            );
+            manifest.protected_start_index = options.summary_hard_protected_start;
+            crate::context_compact::CompactResult {
+                tier_applied: 3,
+                tokens_before: tokens,
+                tokens_after: tokens,
+                messages_affected: 0,
+                description: "summarization_needed".to_string(),
+                details: Some(details),
+                manifest: Some(manifest),
+            }
+        } else {
+            self.context_engine
+                .compact_routine(request_projection, &ctx)
+        };
         if let Some(manifest) = compact_result.manifest.as_mut() {
             manifest.trigger = options.trigger.manifest_trigger().to_string();
         }
 
         if compact_result.tier_applied == 0 {
             return CompactionRunOutcome {
+                changed_history: compact_result.messages_affected > 0,
                 tokens_after: compact_result.tokens_after,
+                cache_decision: Some(crate::context_compact::CacheCompactionDecision::KeepPrefix),
                 compact_result: Some(compact_result),
                 ..CompactionRunOutcome::default()
             };
         }
+        let cache_decision = match compact_result.tier_applied {
+            3 => crate::context_compact::CacheCompactionDecision::SummaryOnce,
+            4 => crate::context_compact::CacheCompactionDecision::Emergency,
+            _ => crate::context_compact::CacheCompactionDecision::CompatibilityProjection,
+        };
         let mut run_outcome = CompactionRunOutcome {
             tier_applied: compact_result.tier_applied,
             changed_history: compact_result.messages_affected > 0,
             summary_applied: false,
             summary_timed_out: false,
+            summary_reason: None,
+            cache_decision: Some(cache_decision),
             tokens_after: compact_result.tokens_after,
             cancelled: false,
+            fatal_error: None,
             compact_result: None,
         };
 
@@ -617,25 +964,11 @@ impl AssistantAgent {
             self.touch_compaction_timer();
         }
 
-        // Tier 2+ already invalidated the prompt cache; piggyback and force
-        // an awareness suffix rebuild on the next turn at zero extra cost.
-        // Respect the per-session `refresh_on_compaction` flag.
-        if compact_result.tier_applied >= 2 {
-            let should_piggyback = self
-                .awareness
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .map(|a| {
-                    a.cfg
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .refresh_on_compaction
-                })
-                .unwrap_or(true);
-            if should_piggyback {
-                self.force_refresh_awareness();
-            }
+        // A compatibility Tier-2 projection has already changed the request
+        // prefix. Tier 3 is only a signal at this point; defer its refresh
+        // boundary until a validated summary is actually installed.
+        if compact_result.tier_applied == 2 {
+            self.refresh_awareness_after_prefix_rewrite();
         }
 
         // Log compaction
@@ -665,250 +998,428 @@ impl AssistantAgent {
                         .warnings
                         .push("tier3_summary_skipped_by_policy".to_string());
                 }
-            } else if let Some(mut split) =
-                context_compact::split_for_summarization(messages, compact_config)
-            {
-                let is_incognito = self.session_is_incognito();
-                if options.force_summary {
-                    let preserved_start = split.preserved_start_index.min(messages.len());
-                    let recovered_tool_cleanup =
-                        context_compact::compact_oversized_recovered_tool_results(
-                            &mut messages[preserved_start..],
-                            compact_config.soft_trim_max_chars,
-                            self.session_id.as_deref(),
-                            !is_incognito,
-                        );
-                    if recovered_tool_cleanup.changed() {
-                        split.preserved = messages[preserved_start..].to_vec();
-                        record_manual_recovered_tool_cleanup(
-                            &mut compact_result,
-                            recovered_tool_cleanup,
-                        );
-                        run_outcome.changed_history = true;
-                        app_info!(
+            } else {
+                let split = if let Some(hard_start) = options.summary_hard_protected_start {
+                    let snapshot = context_compact::boundary_snapshot(
+                        canonical_history,
+                        compact_config.preserve_recent_rounds,
+                    );
+                    let mut boundary = snapshot.boundary(
+                        canonical_history,
+                        context_compact::BoundaryMode::SummarizeUnderPressure,
+                    );
+                    // Capacity recovery has already exhausted deterministic
+                    // old-history tiers. Only the current user/tool suffix is
+                    // a hard boundary now; ordinary recent-round preferences
+                    // must not keep an otherwise reclaimable old prefix and
+                    // turn a recoverable request into a terminal C0 overflow.
+                    boundary.protected_start_index = hard_start.min(canonical_history.len());
+                    boundary
+                        .warnings
+                        .push("summary_boundary_clamped_before_current_tool_group".to_string());
+                    context_compact::split_for_summarization_with_boundary(
+                        canonical_history,
+                        &boundary,
+                    )
+                } else {
+                    context_compact::split_for_summarization(canonical_history, compact_config)
+                };
+                if let Some(mut split) = split {
+                    // Tier 0/1/2 operate on `request_projection`. Tier 3 is a
+                    // semantic history rewrite and therefore must summarize the
+                    // full canonical effective history, not the already-trimmed
+                    // request view. Build the candidate off to the side and only
+                    // publish it to both views after every validation succeeds.
+                    let mut summary_candidate = canonical_history.clone();
+                    let canonical_tokens_before = estimate_request(canonical_history);
+                    let is_incognito = self.session_is_incognito();
+                    if options.force_summary {
+                        let preserved_start =
+                            split.preserved_start_index.min(summary_candidate.len());
+                        let recovered_tool_cleanup =
+                            context_compact::compact_oversized_recovered_tool_results(
+                                &mut summary_candidate[preserved_start..],
+                                compact_config.soft_trim_max_chars,
+                                self.session_id.as_deref(),
+                                !is_incognito,
+                            );
+                        if recovered_tool_cleanup.changed() {
+                            split.preserved = summary_candidate[preserved_start..].to_vec();
+                            record_manual_recovered_tool_cleanup(
+                                &mut compact_result,
+                                recovered_tool_cleanup,
+                            );
+                            run_outcome.changed_history = true;
+                            app_info!(
                             "context",
                             "compact",
                             "Manual compaction cleaned oversized recovered tool results: hard_cleared={}, image_markers_materialized={}",
                             recovered_tool_cleanup.hard_cleared,
                             recovered_tool_cleanup.image_markers_materialized
                         );
-                    }
-                }
-
-                let runtime_ledger_snapshot = if is_incognito {
-                    context_compact::RuntimeLedgerSnapshot::default()
-                } else {
-                    self.session_id
-                        .as_deref()
-                        .filter(|sid| !sid.is_empty())
-                        .map(crate::agent::runtime_ledger::build_runtime_ledger_snapshot)
-                        .unwrap_or_default()
-                };
-                if let Some(manifest) = compact_result.manifest.as_mut() {
-                    manifest
-                        .warnings
-                        .extend(runtime_ledger_snapshot.warnings.iter().cloned());
-                    manifest
-                        .warnings
-                        .extend(split.boundary_warnings.iter().cloned());
-                }
-                // Memory Flush: extract memories from messages about to be summarized
-                {
-                    let flush_enabled = {
-                        let global = crate::memory::load_extract_config();
-                        let agent_flush = crate::agent_loader::load_agent(&self.agent_id)
-                            .ok()
-                            .and_then(|d| d.config.memory.flush_before_compact);
-                        let runtime = &crate::config::cached_config().memory;
-                        if runtime.rollout.enabled {
-                            runtime.enabled
-                                && !matches!(
-                                    runtime.learning.mode,
-                                    crate::memory::MemoryLearningMode::Manual
-                                )
-                                && agent_flush.unwrap_or(global.flush_before_compact)
-                        } else {
-                            global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
                         }
-                    } && !is_incognito
-                        && options.allow_memory_flush;
+                    }
 
-                    if flush_enabled {
-                        // Resolve provider config on the current thread before spawning
-                        let flush_provider =
-                            crate::config::cached_config().providers.first().cloned();
+                    let runtime_ledger_snapshot = if is_incognito {
+                        context_compact::RuntimeLedgerSnapshot::default()
+                    } else {
+                        self.session_id
+                            .as_deref()
+                            .filter(|sid| !sid.is_empty())
+                            .map(crate::agent::runtime_ledger::build_runtime_ledger_snapshot)
+                            .unwrap_or_default()
+                    };
+                    if let Some(manifest) = compact_result.manifest.as_mut() {
+                        manifest
+                            .warnings
+                            .extend(runtime_ledger_snapshot.warnings.iter().cloned());
+                        manifest
+                            .warnings
+                            .extend(split.boundary_warnings.iter().cloned());
+                    }
+                    // Memory Flush: extract memories from messages about to be summarized
+                    {
+                        let flush_enabled = {
+                            let global = crate::memory::load_extract_config();
+                            let agent_flush = crate::agent_loader::load_agent(&self.agent_id)
+                                .ok()
+                                .and_then(|d| d.config.memory.flush_before_compact);
+                            let runtime = &crate::config::cached_config().memory;
+                            if runtime.rollout.enabled {
+                                runtime.enabled
+                                    && !matches!(
+                                        runtime.learning.mode,
+                                        crate::memory::MemoryLearningMode::Manual
+                                    )
+                                    && agent_flush.unwrap_or(global.flush_before_compact)
+                            } else {
+                                global.enabled && agent_flush.unwrap_or(global.flush_before_compact)
+                            }
+                        } && !is_incognito
+                            && options.allow_memory_flush;
 
-                        if let Some(prov) = flush_provider {
-                            if let Some(model) = prov.models.first().cloned() {
-                                let agent_id = self.agent_id.clone();
-                                let session_id = self.session_id.clone().unwrap_or_default();
-                                let msgs = split.summarizable.clone();
-                                let model_id = model.id.clone();
-                                let session_db = self.session_db.clone();
+                        if flush_enabled {
+                            // Resolve provider config on the current thread before spawning
+                            let flush_provider =
+                                crate::config::cached_config().providers.first().cloned();
 
-                                // Use a new tokio runtime on a background thread to avoid
-                                // Send bounds issues with the parent async context.
-                                std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Builder::new_current_thread()
-                                        .enable_all()
-                                        .build();
-                                    if let Ok(rt) = rt {
-                                        let result = rt.block_on(async {
-                                            tokio::time::timeout(
-                                                std::time::Duration::from_secs(30),
-                                                crate::memory_extract::flush_before_compact(
-                                                    &msgs,
-                                                    &agent_id,
-                                                    &session_id,
-                                                    &prov,
-                                                    &model_id,
-                                                    session_db,
-                                                ),
-                                            )
-                                            .await
-                                        });
-                                        match result {
-                                            Ok(Ok(count)) if count > 0 => {
-                                                app_info!(
-                                                    "memory",
-                                                    "flush",
-                                                    "Flushed {} memories before compaction",
-                                                    count
-                                                );
+                            if let Some(prov) = flush_provider {
+                                if let Some(model) = prov.models.first().cloned() {
+                                    let agent_id = self.agent_id.clone();
+                                    let session_id = self.session_id.clone().unwrap_or_default();
+                                    let msgs = split.summarizable.clone();
+                                    let model_id = model.id.clone();
+                                    let session_db = self.session_db.clone();
+
+                                    // Use a new tokio runtime on a background thread to avoid
+                                    // Send bounds issues with the parent async context.
+                                    std::thread::spawn(move || {
+                                        let rt = tokio::runtime::Builder::new_current_thread()
+                                            .enable_all()
+                                            .build();
+                                        if let Ok(rt) = rt {
+                                            let result = rt.block_on(async {
+                                                tokio::time::timeout(
+                                                    std::time::Duration::from_secs(30),
+                                                    crate::memory_extract::flush_before_compact(
+                                                        &msgs,
+                                                        &agent_id,
+                                                        &session_id,
+                                                        &prov,
+                                                        &model_id,
+                                                        session_db,
+                                                    ),
+                                                )
+                                                .await
+                                            });
+                                            match result {
+                                                Ok(Ok(count)) if count > 0 => {
+                                                    app_info!(
+                                                        "memory",
+                                                        "flush",
+                                                        "Flushed {} memories before compaction",
+                                                        count
+                                                    );
+                                                }
+                                                Ok(Err(e)) => {
+                                                    app_warn!(
+                                                        "memory",
+                                                        "flush",
+                                                        "Memory flush failed: {}",
+                                                        e
+                                                    );
+                                                }
+                                                Err(_) => {
+                                                    app_warn!(
+                                                        "memory",
+                                                        "flush",
+                                                        "Memory flush timed out (30s)"
+                                                    );
+                                                }
+                                                _ => {}
                                             }
-                                            Ok(Err(e)) => {
-                                                app_warn!(
-                                                    "memory",
-                                                    "flush",
-                                                    "Memory flush failed: {}",
-                                                    e
-                                                );
-                                            }
-                                            Err(_) => {
-                                                app_warn!(
-                                                    "memory",
-                                                    "flush",
-                                                    "Memory flush timed out (30s)"
-                                                );
-                                            }
-                                            _ => {}
                                         }
-                                    }
-                                });
+                                    });
+                                }
                             }
                         }
                     }
-                }
 
-                if options.emit_start_event {
-                    self.emit_compaction_progress(
-                        on_delta,
-                        "preparing",
-                        "summary",
-                        Some(split.summarizable.len()),
-                        None,
-                        None,
-                    );
-                    self.emit_compaction_progress(
-                        on_delta,
-                        "summarizing",
-                        "summary",
-                        Some(split.summarizable.len()),
-                        None,
-                        None,
-                    );
-                }
-
-                let (prompt_messages, previous_summary) =
-                    context_compact::peel_previous_summary(&split.summarizable);
-                let prompt = context_compact::build_summarization_prompt(
-                    &prompt_messages,
-                    previous_summary.as_deref(),
-                    compact_config,
-                );
-
-                let summary_future = tokio::time::timeout(
-                    std::time::Duration::from_secs(compact_config.summarization_timeout_secs),
-                    self.summarize_with_model(&prompt),
-                );
-                let summary_result = if let Some(cancel) = options.cancel.clone() {
-                    tokio::select! {
-                        biased;
-                        result = summary_future => result,
-                        _ = super::providers::cancel::wait_for_cancel(&cancel) => {
-                            let tokens_after = estimate_request(messages);
-                            if let Some(manifest) = compact_result.manifest.as_mut() {
-                                manifest.warnings.push("tier3_summary_cancelled".to_string());
-                            }
-                            self.emit_compaction_progress(
-                                on_delta,
-                                "failed",
-                                "summary",
-                                Some(split.summarizable.len()),
-                                None,
-                                None,
-                            );
-                            // compact_sync already mutated `messages` in place
-                            // (Tier 0/1/2) before the awaited summary; report it so
-                            // the caller refreshes the cache-safe snapshot instead
-                            // of leaving it on the pre-prune shape.
-                            return CompactionRunOutcome::cancelled(
-                                tokens_after,
-                                compact_result.messages_affected > 0,
-                            );
-                        }
-                    }
-                } else {
-                    summary_future.await
-                };
-
-                match summary_result {
-                    Ok(Ok(summary)) => {
-                        let injection_budget_chars = ((self.context_window as f64
-                            * compact_config.max_compaction_injected_context_share)
-                            .round()
-                            as usize)
-                            .saturating_mul(context_compact::CHARS_PER_TOKEN);
-                        context_compact::apply_summary(
-                            messages,
-                            &summary,
-                            split.preserved_start_index,
-                            compact_config,
-                            Some(injection_budget_chars),
+                    if options.emit_start_event {
+                        self.emit_compaction_progress(
+                            on_delta,
+                            "preparing",
+                            "summary",
+                            Some(split.summarizable.len()),
+                            None,
+                            None,
                         );
-                        let summarized_count = split.summarizable.len();
-                        let summary_tokens = ((summary.len() + context_compact::CHARS_PER_TOKEN
-                            - 1)
-                            / context_compact::CHARS_PER_TOKEN)
-                            as u32;
-                        compact_result.messages_affected = compact_result
-                            .messages_affected
-                            .saturating_add(summarized_count);
-                        compact_result.description = "summarized".to_string();
-                        if let Some(details) = compact_result.details.as_mut() {
-                            details.messages_summarized = summarized_count;
-                            details.summary_tokens = Some(summary_tokens);
+                        self.emit_compaction_progress(
+                            on_delta,
+                            "summarizing",
+                            "summary",
+                            Some(split.summarizable.len()),
+                            None,
+                            None,
+                        );
+                    }
+
+                    // The summarization request has its own capacity boundary. It
+                    // must fit both the optional dedicated model and the
+                    // conversation-model fallback; otherwise a history overflow
+                    // simply turns into a second overflow while trying to compact.
+                    // Use the model-neutral upper bound here so CJK/code are not
+                    // reduced to the old bytes/4 approximation.
+                    let dedicated_summary_window = self
+                        .compaction_provider
+                        .as_ref()
+                        .and_then(|provider| provider.context_window())
+                        .filter(|window| *window > 0);
+                    let summary_context_window = match (
+                        (self.context_window > 0).then_some(self.context_window),
+                        dedicated_summary_window,
+                    ) {
+                        (Some(conversation), Some(dedicated)) => conversation.min(dedicated),
+                        (Some(conversation), None) => conversation,
+                        (None, Some(dedicated)) => dedicated,
+                        (None, None) => 0,
+                    };
+                    let summary_safety_headroom = u64::from(summary_context_window / 50).max(1_024);
+                    let summary_target_input_upper = u64::from(summary_context_window)
+                        .saturating_sub(u64::from(compact_config.summary_max_tokens))
+                        .saturating_sub(summary_safety_headroom);
+                    let build_summary_request = |messages: &[serde_json::Value]| {
+                        let (prompt_messages, previous_summary) =
+                            context_compact::peel_previous_summary(messages);
+                        let prompt = context_compact::build_summarization_prompt(
+                            &prompt_messages,
+                            previous_summary.as_deref(),
+                            compact_config,
+                        );
+                        let capacity_text = format!(
+                            "{}\n\n{}",
+                            context_compact::SUMMARIZATION_SYSTEM_PROMPT,
+                            prompt
+                        );
+                        let upper = crate::token_accounting::service()
+                            .count_text(
+                                crate::token_accounting::ProviderFamily::Unknown,
+                                "tier3-summary-input",
+                                &capacity_text,
+                            )
+                            .upper_bound;
+                        (prompt, upper)
+                    };
+
+                    // Prepare only the one-shot summary input. These
+                    // deterministic Tier 0/2 edits are never published to the
+                    // canonical history or the main request projection, so
+                    // they cannot churn the conversation's prompt-cache
+                    // prefix. If they are insufficient, the summary attempt
+                    // still fails closed before network I/O.
+                    let mut summary_input_messages = split.summarizable.clone();
+                    let (_, summary_input_before) = build_summary_request(&summary_input_messages);
+                    let mut summary_input_projection_used = false;
+                    if summary_context_window > 0
+                        && summary_input_before > summary_target_input_upper
+                    {
+                        let protected_start = summary_input_messages.len();
+                        for tier in [
+                            context_compact::CapacityPressureTier::Tier0,
+                            context_compact::CapacityPressureTier::Tier2,
+                        ] {
+                            let pressure = context_compact::apply_capacity_pressure_tier(
+                                &mut summary_input_messages,
+                                protected_start,
+                                compact_config,
+                                tier,
+                                summary_target_input_upper,
+                                |candidate| Ok(build_summary_request(candidate).1),
+                            );
+                            match pressure {
+                                Ok(result) => {
+                                    summary_input_projection_used |= !result.edits.is_empty();
+                                    if result.reached_target {
+                                        break;
+                                    }
+                                }
+                                Err(error) => {
+                                    if let Some(manifest) = compact_result.manifest.as_mut() {
+                                        manifest.warnings.push(format!(
+                                            "summary_input_projection_failed:{error}"
+                                        ));
+                                    }
+                                    break;
+                                }
+                            }
                         }
-                        run_outcome.summary_applied = true;
-                        run_outcome.changed_history = true;
-                        // Update cache-TTL timer after successful Tier 3 summarization
-                        self.touch_compaction_timer();
-                        // Core Memory is session-stable between refresh points.
-                        // A successful Tier 3 summary is an explicit refresh
-                        // boundary, so the next turn captures current files.
-                        self.invalidate_core_memory_snapshot();
-                        // Record the summarized range in the manifest ONLY after the
-                        // summary actually applied — on failure/timeout (arms below)
-                        // the messages are untouched, so the manifest must not claim
-                        // a summary happened.
+                    }
+                    if summary_input_projection_used {
                         if let Some(manifest) = compact_result.manifest.as_mut() {
-                            manifest.protected_start_index = Some(split.preserved_start_index);
-                            manifest.summarized_range = Some((0, split.preserved_start_index));
-                            manifest.rounds_summarized =
-                                context_compact::build_message_rounds(&split.summarizable).len();
+                            manifest
+                                .warnings
+                                .push("summary_input_projection_only".to_string());
                         }
-                        if let Some(logger) = crate::get_logger() {
-                            logger.log(
+                    }
+                    let (prompt, summary_input_upper) =
+                        build_summary_request(&summary_input_messages);
+                    let summary_total_upper = summary_input_upper
+                        .saturating_add(u64::from(compact_config.summary_max_tokens))
+                        .saturating_add(summary_safety_headroom);
+                    let prompt_capacity_error = (summary_context_window == 0
+                    || summary_total_upper > u64::from(summary_context_window))
+                .then(|| {
+                    format!(
+                        "summary request does not fit its model window: input_upper={}, output_reservation={}, safety={}, window={}",
+                        summary_input_upper,
+                        compact_config.summary_max_tokens,
+                        summary_safety_headroom,
+                        summary_context_window
+                    )
+                });
+
+                    let summary_future = tokio::time::timeout(
+                        std::time::Duration::from_secs(compact_config.summarization_timeout_secs),
+                        async {
+                            if let Some(error) = prompt_capacity_error {
+                                anyhow::bail!(error);
+                            }
+                            self.summarize_with_model(&prompt).await
+                        },
+                    );
+                    let summary_result = if let Some(cancel) = options.cancel.clone() {
+                        tokio::select! {
+                            biased;
+                            result = summary_future => result,
+                            _ = super::providers::cancel::wait_for_cancel(&cancel) => {
+                                let tokens_after = estimate_request(request_projection);
+                                if let Some(manifest) = compact_result.manifest.as_mut() {
+                                    manifest.warnings.push("tier3_summary_cancelled".to_string());
+                                }
+                                self.emit_compaction_progress(
+                                    on_delta,
+                                    "failed",
+                                    "summary",
+                                    Some(split.summarizable.len()),
+                                    None,
+                                    None,
+                                );
+                                // The synchronous tiers already changed the request
+                                // projection before the awaited summary. Canonical
+                                // history remains untouched; report the projection
+                                // change so the caller refreshes its request cache.
+                                return CompactionRunOutcome::cancelled(
+                                    tokens_after,
+                                    compact_result.messages_affected > 0,
+                                );
+                            }
+                        }
+                    } else {
+                        summary_future.await
+                    };
+
+                    'summary_attempt: {
+                        match summary_result {
+                            Ok(Ok(summary)) => {
+                                let injection_budget_chars = ((self.context_window as f64
+                                    * compact_config.max_compaction_injected_context_share)
+                                    .round()
+                                    as usize)
+                                    .saturating_mul(context_compact::CHARS_PER_TOKEN);
+                                if let Err(error) = context_compact::apply_summary(
+                                    &mut summary_candidate,
+                                    &summary,
+                                    split.preserved_start_index,
+                                    compact_config,
+                                    Some(injection_budget_chars),
+                                ) {
+                                    app_warn!(
+                                "context",
+                                "compact",
+                                "Tier 3 summary was valid but could not be installed safely: {}",
+                                error
+                            );
+                                    if let Some(manifest) = compact_result.manifest.as_mut() {
+                                        manifest
+                                            .warnings
+                                            .push("tier3_summary_install_rejected".to_string());
+                                    }
+                                    self.emit_compaction_progress(
+                                        on_delta,
+                                        "failed",
+                                        "summary",
+                                        Some(split.summarizable.len()),
+                                        None,
+                                        None,
+                                    );
+                                    break 'summary_attempt;
+                                }
+                                let summarized_count = split.summarizable.len();
+                                let summary_tokens =
+                                    ((summary.len() + context_compact::CHARS_PER_TOKEN - 1)
+                                        / context_compact::CHARS_PER_TOKEN)
+                                        as u32;
+                                compact_result.messages_affected = compact_result
+                                    .messages_affected
+                                    .saturating_add(summarized_count);
+                                compact_result.tokens_before = canonical_tokens_before;
+                                compact_result.tier_applied = compact_result.tier_applied.max(3);
+                                compact_result.description = "summarized".to_string();
+                                if let Some(details) = compact_result.details.as_mut() {
+                                    details.messages_summarized = summarized_count;
+                                    details.summary_tokens = Some(summary_tokens);
+                                }
+                                run_outcome.summary_applied = true;
+                                run_outcome.summary_reason = Some(options.summary_reason);
+                                self.tier3_summary_applied_this_turn
+                                    .store(true, std::sync::atomic::Ordering::Release);
+                                self.tier3_summary_publication_pending
+                                    .store(true, std::sync::atomic::Ordering::Release);
+                                run_outcome.changed_history = true;
+                                // Update cache-TTL timer after successful Tier 3 summarization
+                                self.touch_compaction_timer();
+                                // Core Memory is session-stable between refresh points.
+                                // A successful Tier 3 summary is an explicit refresh
+                                // boundary, so the next turn captures current files.
+                                self.invalidate_core_memory_snapshot();
+                                self.refresh_awareness_after_prefix_rewrite();
+                                // Record the summarized range in the manifest ONLY after the
+                                // summary actually applied — on failure/timeout (arms below)
+                                // the messages are untouched, so the manifest must not claim
+                                // a summary happened.
+                                if let Some(manifest) = compact_result.manifest.as_mut() {
+                                    manifest.tokens_before = canonical_tokens_before;
+                                    manifest.tier = manifest.tier.max(3);
+                                    manifest.protected_start_index =
+                                        Some(split.preserved_start_index);
+                                    manifest.summarized_range =
+                                        Some((0, split.preserved_start_index));
+                                    manifest.rounds_summarized =
+                                        context_compact::build_message_rounds(&split.summarizable)
+                                            .len();
+                                }
+                                if let Some(logger) = crate::get_logger() {
+                                    logger.log(
                                     "info",
                                     "context",
                                     "compact",
@@ -922,180 +1433,191 @@ impl AssistantAgent {
                                     None,
                                     None,
                                 );
-                        }
+                                }
 
-                        // Post-compaction file recovery: re-inject recently-edited file contents
-                        let tokens_after_summary = estimate_request(messages);
-                        let tokens_freed = compact_result
-                            .tokens_before
-                            .saturating_sub(tokens_after_summary);
-                        let summary_chars = messages
-                            .first()
-                            .map(message_content_chars)
-                            .unwrap_or(summary.len());
-                        let injection_remaining_after_summary =
-                            injection_budget_chars.saturating_sub(summary_chars);
-                        let ledger_has_live_state =
-                            !runtime_ledger_snapshot.background_jobs.is_empty()
-                                || !runtime_ledger_snapshot.subagents.is_empty()
-                                || !runtime_ledger_snapshot.warnings.is_empty();
-                        let has_file_touches = !is_incognito
-                            && !context_compact::extract_file_touches(&split.summarizable)
-                                .is_empty();
-                        let ledger_reserve = post_summary_ledger_reserve_chars(
-                            injection_remaining_after_summary,
-                            ledger_has_live_state,
-                            has_file_touches,
-                        );
-                        let recovery_budget =
-                            injection_remaining_after_summary.saturating_sub(ledger_reserve);
-                        let recovery = if is_incognito {
-                            context_compact::RecoveryResult {
-                                message: None,
-                                recovered_files: Vec::new(),
-                                skipped_files: Vec::new(),
-                                file_touches: Vec::new(),
-                            }
-                        } else {
-                            let recovery_cwd = crate::session::effective_session_working_dir(
-                                self.session_id.as_deref(),
-                            )
-                            .map(std::path::PathBuf::from);
-                            let recovery_ctx = context_compact::RecoveryContext {
-                                session_working_dir: recovery_cwd.as_deref(),
-                                tokens_freed,
-                                max_total_bytes: Some(recovery_budget),
-                                config: compact_config,
-                            };
-                            context_compact::build_recovery_message(
-                                &split.summarizable,
-                                &split.preserved,
-                                &recovery_ctx,
-                            )
-                        };
-                        let recovery_chars = recovery
-                            .message
-                            .as_ref()
-                            .map(message_content_chars)
-                            .unwrap_or(0);
-                        let ledger_budget = injection_remaining_after_summary
-                            .saturating_sub(recovery_chars)
-                            .min(8_000);
-                        let ledger_msg = if is_incognito {
-                            None
-                        } else {
-                            context_compact::build_runtime_ledger_message(
-                                &runtime_ledger_snapshot,
-                                &recovery.file_touches,
-                                ledger_budget,
-                            )
-                        };
-                        if options.emit_start_event && ledger_msg.is_some() {
-                            self.emit_compaction_progress(
-                                on_delta,
-                                "preserving_runtime_state",
-                                "summary",
-                                Some(split.summarizable.len()),
-                                None,
-                                Some(runtime_ledger_snapshot.warnings.len()),
-                            );
-                        }
-                        if options.emit_start_event && recovery.message.is_some() {
-                            self.emit_compaction_progress(
-                                on_delta,
-                                "restoring_files",
-                                "summary",
-                                Some(split.summarizable.len()),
-                                Some(recovery.recovered_files.len()),
-                                None,
-                            );
-                        }
-                        if let Some(manifest) = compact_result.manifest.as_mut() {
-                            manifest.files_recovered = recovery.recovered_files.len();
-                            for skipped in &recovery.skipped_files {
-                                manifest.warnings.push(format!(
-                                    "recovery_skipped:{}:{}",
-                                    skipped.path, skipped.reason
-                                ));
-                            }
-                            if summary_chars >= injection_budget_chars {
-                                manifest
-                                    .warnings
-                                    .push("post_compaction_injection_budget_exhausted".to_string());
-                            }
-                        }
-                        let mut insert_at =
-                            context_compact::POST_SUMMARY_INSERT_INDEX.min(messages.len());
-                        if let Some(ledger_msg) = ledger_msg {
-                            messages.insert(insert_at, ledger_msg);
-                            insert_at += 1;
-                        }
-                        if let Some(recovery_msg) = recovery.message {
-                            // Insert after summary and optional runtime ledger.
-                            let insert_at = insert_at.min(messages.len());
-                            messages.insert(insert_at, recovery_msg);
-                            app_info!(
+                                // Post-compaction file recovery: re-inject recently-edited file contents
+                                let tokens_after_summary = estimate_request(&summary_candidate);
+                                let tokens_freed =
+                                    canonical_tokens_before.saturating_sub(tokens_after_summary);
+                                let summary_chars = summary_candidate
+                                    .first()
+                                    .map(message_content_chars)
+                                    .unwrap_or(summary.len());
+                                let injection_remaining_after_summary =
+                                    injection_budget_chars.saturating_sub(summary_chars);
+                                let ledger_has_live_state =
+                                    !runtime_ledger_snapshot.background_jobs.is_empty()
+                                        || !runtime_ledger_snapshot.subagents.is_empty()
+                                        || !runtime_ledger_snapshot.warnings.is_empty();
+                                let has_file_touches = !is_incognito
+                                    && !context_compact::extract_file_touches(&split.summarizable)
+                                        .is_empty();
+                                let ledger_reserve = post_summary_ledger_reserve_chars(
+                                    injection_remaining_after_summary,
+                                    ledger_has_live_state,
+                                    has_file_touches,
+                                );
+                                let recovery_budget = injection_remaining_after_summary
+                                    .saturating_sub(ledger_reserve);
+                                let recovery = if is_incognito {
+                                    context_compact::RecoveryResult {
+                                        message: None,
+                                        recovered_files: Vec::new(),
+                                        skipped_files: Vec::new(),
+                                        file_touches: Vec::new(),
+                                    }
+                                } else {
+                                    let recovery_cwd =
+                                        crate::session::effective_session_working_dir(
+                                            self.session_id.as_deref(),
+                                        )
+                                        .map(std::path::PathBuf::from);
+                                    let recovery_ctx = context_compact::RecoveryContext {
+                                        session_working_dir: recovery_cwd.as_deref(),
+                                        // Historical tool arguments are not file-read
+                                        // authorization. The Result Store/file ledger
+                                        // will supply provenance-checked bindings; until
+                                        // then recovery deliberately returns references
+                                        // without reopening host files.
+                                        authorized_files: None,
+                                        tokens_freed,
+                                        max_total_bytes: Some(recovery_budget),
+                                        config: compact_config,
+                                    };
+                                    context_compact::build_recovery_message(
+                                        &split.summarizable,
+                                        &split.preserved,
+                                        &recovery_ctx,
+                                    )
+                                };
+                                let recovery_chars = recovery
+                                    .message
+                                    .as_ref()
+                                    .map(message_content_chars)
+                                    .unwrap_or(0);
+                                let ledger_budget = injection_remaining_after_summary
+                                    .saturating_sub(recovery_chars)
+                                    .min(8_000);
+                                let ledger_msg = if is_incognito {
+                                    None
+                                } else {
+                                    context_compact::build_runtime_ledger_message(
+                                        &runtime_ledger_snapshot,
+                                        &recovery.file_touches,
+                                        ledger_budget,
+                                    )
+                                };
+                                if options.emit_start_event && ledger_msg.is_some() {
+                                    self.emit_compaction_progress(
+                                        on_delta,
+                                        "preserving_runtime_state",
+                                        "summary",
+                                        Some(split.summarizable.len()),
+                                        None,
+                                        Some(runtime_ledger_snapshot.warnings.len()),
+                                    );
+                                }
+                                if options.emit_start_event && recovery.message.is_some() {
+                                    self.emit_compaction_progress(
+                                        on_delta,
+                                        "restoring_files",
+                                        "summary",
+                                        Some(split.summarizable.len()),
+                                        Some(recovery.recovered_files.len()),
+                                        None,
+                                    );
+                                }
+                                if let Some(manifest) = compact_result.manifest.as_mut() {
+                                    manifest.files_recovered = recovery.recovered_files.len();
+                                    for skipped in &recovery.skipped_files {
+                                        manifest.warnings.push(format!(
+                                            "recovery_skipped:{}:{}",
+                                            skipped.path, skipped.reason
+                                        ));
+                                    }
+                                    if summary_chars >= injection_budget_chars {
+                                        manifest.warnings.push(
+                                            "post_compaction_injection_budget_exhausted"
+                                                .to_string(),
+                                        );
+                                    }
+                                }
+                                let mut insert_at = context_compact::POST_SUMMARY_INSERT_INDEX
+                                    .min(summary_candidate.len());
+                                if let Some(ledger_msg) = ledger_msg {
+                                    summary_candidate.insert(insert_at, ledger_msg);
+                                    insert_at += 1;
+                                }
+                                if let Some(recovery_msg) = recovery.message {
+                                    // Insert after summary and optional runtime ledger.
+                                    let insert_at = insert_at.min(summary_candidate.len());
+                                    summary_candidate.insert(insert_at, recovery_msg);
+                                    app_info!(
                                 "context",
                                 "compact",
                                 "Post-compaction recovery: injected file contents after summary"
                             );
+                                }
+                                if options.emit_start_event {
+                                    self.emit_compaction_progress(
+                                        on_delta,
+                                        "finalizing",
+                                        "summary",
+                                        Some(split.summarizable.len()),
+                                        None,
+                                        None,
+                                    );
+                                }
+                                *canonical_history = summary_candidate.clone();
+                                *request_projection = summary_candidate;
+                            }
+                            Ok(Err(e)) => {
+                                if let Some(logger) = crate::get_logger() {
+                                    logger.log(
+                                        "warn",
+                                        "context",
+                                        "compact",
+                                        &format!("Tier 3 summarization failed: {}", e),
+                                        None,
+                                        None,
+                                        None,
+                                    );
+                                }
+                                self.emit_compaction_progress(
+                                    on_delta,
+                                    "failed",
+                                    "summary",
+                                    Some(split.summarizable.len()),
+                                    None,
+                                    None,
+                                );
+                            }
+                            Err(_) => {
+                                run_outcome.summary_timed_out = true;
+                                if let Some(logger) = crate::get_logger() {
+                                    logger.log(
+                                        "warn",
+                                        "context",
+                                        "compact",
+                                        &format!(
+                                            "Tier 3 summarization timed out after {}s",
+                                            compact_config.summarization_timeout_secs
+                                        ),
+                                        None,
+                                        None,
+                                        None,
+                                    );
+                                }
+                                self.emit_compaction_progress(
+                                    on_delta,
+                                    "failed",
+                                    "summary",
+                                    Some(split.summarizable.len()),
+                                    None,
+                                    None,
+                                );
+                            }
                         }
-                        if options.emit_start_event {
-                            self.emit_compaction_progress(
-                                on_delta,
-                                "finalizing",
-                                "summary",
-                                Some(split.summarizable.len()),
-                                None,
-                                None,
-                            );
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        if let Some(logger) = crate::get_logger() {
-                            logger.log(
-                                "warn",
-                                "context",
-                                "compact",
-                                &format!("Tier 3 summarization failed: {}", e),
-                                None,
-                                None,
-                                None,
-                            );
-                        }
-                        self.emit_compaction_progress(
-                            on_delta,
-                            "failed",
-                            "summary",
-                            Some(split.summarizable.len()),
-                            None,
-                            None,
-                        );
-                    }
-                    Err(_) => {
-                        run_outcome.summary_timed_out = true;
-                        if let Some(logger) = crate::get_logger() {
-                            logger.log(
-                                "warn",
-                                "context",
-                                "compact",
-                                &format!(
-                                    "Tier 3 summarization timed out after {}s",
-                                    compact_config.summarization_timeout_secs
-                                ),
-                                None,
-                                None,
-                                None,
-                            );
-                        }
-                        self.emit_compaction_progress(
-                            on_delta,
-                            "failed",
-                            "summary",
-                            Some(split.summarizable.len()),
-                            None,
-                            None,
-                        );
                     }
                 }
             }
@@ -1104,7 +1626,14 @@ impl AssistantAgent {
         if compact_result.description == "summarization_needed" && !run_outcome.summary_applied {
             let sync_tier = sync_tier_from_compact_result(&compact_result);
             compact_result.tier_applied = sync_tier;
-            compact_result.description = if run_outcome.summary_timed_out {
+            let summary_skipped_by_policy = !options.allow_summarization;
+            compact_result.description = if summary_skipped_by_policy {
+                if sync_tier > 0 {
+                    "summarization_skipped_by_policy_sync_compaction_only".to_string()
+                } else {
+                    "summarization_skipped_by_policy".to_string()
+                }
+            } else if run_outcome.summary_timed_out {
                 if sync_tier > 0 {
                     "summarization_timed_out_sync_compaction_only".to_string()
                 } else {
@@ -1117,27 +1646,28 @@ impl AssistantAgent {
             };
             if let Some(manifest) = compact_result.manifest.as_mut() {
                 manifest.tier = sync_tier;
-                manifest.warnings.push(
-                    if run_outcome.summary_timed_out {
-                        "tier3_summary_timed_out"
-                    } else {
-                        "tier3_summary_not_applied"
-                    }
-                    .to_string(),
-                );
+                if !summary_skipped_by_policy {
+                    manifest.warnings.push(
+                        if run_outcome.summary_timed_out {
+                            "tier3_summary_timed_out"
+                        } else {
+                            "tier3_summary_not_applied"
+                        }
+                        .to_string(),
+                    );
+                }
             }
             run_outcome.tier_applied = sync_tier;
             run_outcome.changed_history = sync_tier > 0 && compact_result.messages_affected > 0;
-            if sync_tier == 0 {
-                run_outcome.tokens_after = estimate_request(messages);
-                compact_result.tokens_after = run_outcome.tokens_after;
-                run_outcome.compact_result = Some(compact_result);
-                return run_outcome;
-            }
+            // Even when no synchronous tier changed history, continue through
+            // the final event path.  A Tier 3 timeout/provider failure is an
+            // actionable terminal outcome: persisting it keeps the manual
+            // retry affordance available after a reload instead of leaving a
+            // transient progress notice as the only evidence.
         }
 
         // Emit compaction event to frontend
-        let tokens_after = estimate_request(messages);
+        let tokens_after = estimate_request(request_projection);
         if let Some(manifest) = compact_result.manifest.as_mut() {
             manifest.tokens_after = tokens_after;
         }
@@ -1164,6 +1694,7 @@ impl AssistantAgent {
                     "tokens_after": tokens_after,
                     "messages_affected": compact_result.messages_affected,
                     "description": compact_result.description,
+                    "summary_reason": run_outcome.summary_reason.map(|reason| reason.as_str()),
                     "manifest": compact_result.manifest.clone(),
                 }
         })) {
@@ -1233,85 +1764,52 @@ impl AssistantAgent {
 
     pub(super) async fn maybe_compact_between_tool_rounds(
         &self,
-        messages: &mut Vec<serde_json::Value>,
+        request_projection: &mut Vec<serde_json::Value>,
+        canonical_history: &mut Vec<serde_json::Value>,
         system_prompt_for_budget: &str,
-        system_prompt_for_cache: &str,
-        tool_schemas: &[serde_json::Value],
+        request_tool_schemas: &[serde_json::Value],
         model: &str,
         max_tokens: u32,
         cancel: Arc<AtomicBool>,
         mid_loop_state: &mut MidLoopCompactionState,
         round: u32,
         on_delta: &(impl Fn(&str) + Send),
+        hard_protected_start: Option<usize>,
     ) -> Result<CompactionRunOutcome> {
-        let mut changed_history = false;
-
-        changed_history |= crate::context_compact::truncate_tool_results(
-            messages,
-            self.context_window,
-            &self.compact_config,
-        ) > 0;
-
-        let used_after_t1 = crate::context_compact::estimate_request_tokens_with_tools(
-            system_prompt_for_budget,
-            messages,
-            tool_schemas,
-            max_tokens,
-        );
-        let ratio_after_t1 = if self.context_window > 0 {
-            used_after_t1 as f64 / self.context_window as f64
-        } else {
-            0.0
-        };
-
-        let mut tokens_after_cheap_cleanup = used_after_t1;
-
-        if self.compact_config.enabled
-            && self.compact_config.reactive_microcompact_enabled
-            && ratio_after_t1 >= self.compact_config.reactive_trigger_ratio
-        {
-            let cleared = crate::context_compact::microcompact(messages, &self.compact_config);
-            if cleared > 0 {
-                changed_history = true;
-                app_info!(
-                    "agent",
-                    "reactive_microcompact",
-                    "cleared {} ephemeral tool_results at ratio={:.2} (threshold={:.2})",
-                    cleared,
-                    ratio_after_t1,
-                    self.compact_config.reactive_trigger_ratio
-                );
-                tokens_after_cheap_cleanup =
-                    crate::context_compact::estimate_request_tokens_with_tools(
-                        system_prompt_for_budget,
-                        messages,
-                        tool_schemas,
-                        max_tokens,
-                    );
-            }
+        if hard_protected_start.is_some() {
+            // The just-settled current group is still awaiting exact Tier-1
+            // admission. Persist its C0 canonical skeleton now, but defer all
+            // request-only reclamation to the next round's dedicated
+            // P→T0→P→T2→P→T3→P state machine, which has the real dynamic/tool
+            // lanes. The legacy combined compactor cannot safely touch it.
+            self.persist_round_context(canonical_history).await?;
+            return Ok(CompactionRunOutcome::default());
         }
 
-        let usage_after_cheap_cleanup = if self.context_window > 0 {
-            tokens_after_cheap_cleanup as f64 / self.context_window as f64
+        // Current-group Tier 1 admission already ran at PostToolUse. Routine
+        // checkpoints must not re-truncate settled history or publish Tier 0/2
+        // just because a low compatibility watermark was crossed: doing so
+        // rewrites the Provider prefix and churns prompt-cache entries. Count
+        // the unchanged request view and proceed directly to the high-watermark
+        // Tier 3 decision. Exact capacity recovery owns deterministic Tier 0/2.
+        let tokens_before_summary = crate::context_compact::estimate_request_tokens_with_tools(
+            system_prompt_for_budget,
+            request_projection,
+            request_tool_schemas,
+            max_tokens,
+        );
+        let usage_before_summary = if self.context_window > 0 {
+            tokens_before_summary as f64 / self.context_window as f64
         } else {
             0.0
         };
-
         if !self.compact_config.enabled
-            || usage_after_cheap_cleanup < self.compact_config.summarization_threshold
+            || usage_before_summary < self.compact_config.summarization_threshold
         {
-            self.persist_round_context(messages).await?;
-            if changed_history {
-                self.save_cache_safe_params(
-                    system_prompt_for_cache.to_string(),
-                    tool_schemas.to_vec(),
-                    messages.clone(),
-                    model,
-                );
-            }
+            self.persist_round_context(canonical_history).await?;
             return Ok(CompactionRunOutcome {
-                changed_history,
-                tokens_after: tokens_after_cheap_cleanup,
+                changed_history: false,
+                tokens_after: tokens_before_summary,
                 ..CompactionRunOutcome::default()
             });
         }
@@ -1326,7 +1824,8 @@ impl AssistantAgent {
         }
         let outcome = self
             .run_compaction_with_options(
-                messages,
+                request_projection,
+                canonical_history,
                 system_prompt_for_budget,
                 model,
                 max_tokens,
@@ -1338,21 +1837,15 @@ impl AssistantAgent {
                     allow_memory_flush: false,
                     allow_summarization,
                     force_summary: false,
+                    summary_reason: crate::context_compact::CompactionSummaryReason::HighWatermark,
+                    summary_hard_protected_start: None,
                     cancel: Some(cancel),
-                    tool_schemas: tool_schemas.to_vec(),
+                    tool_schemas: request_tool_schemas.to_vec(),
                 },
             )
             .await;
 
-        self.persist_round_context(messages).await?;
-        if changed_history || outcome.changed_history {
-            self.save_cache_safe_params(
-                system_prompt_for_cache.to_string(),
-                tool_schemas.to_vec(),
-                messages.clone(),
-                model,
-            );
-        }
+        self.persist_round_context(canonical_history).await?;
 
         if outcome.cancelled {
             return Ok(outcome);
@@ -1379,6 +1872,58 @@ impl AssistantAgent {
             }
         }
 
+        Ok(outcome)
+    }
+
+    /// Run the single Tier-3 step after exact-counted Tier 0 and Tier 2 could
+    /// not make the current result group's C0 request fit.
+    ///
+    /// It deliberately does not checkpoint internally. The caller validates
+    /// that the protected current user/tool suffix survived byte-for-byte and
+    /// then publishes the summary immediately, before any fallible rebuild or
+    /// replan step. This keeps a generated summary from becoming an
+    /// uncommitted in-memory side effect.
+    pub(super) async fn summarize_old_history_for_current_tool_group(
+        &self,
+        request_projection: &mut Vec<serde_json::Value>,
+        canonical_history: &mut Vec<serde_json::Value>,
+        provider_shaped_prompt: &str,
+        provider_tool_schemas: &[serde_json::Value],
+        model: &str,
+        max_tokens: u32,
+        hard_protected_start: usize,
+        cancel: Arc<AtomicBool>,
+        on_delta: &(impl Fn(&str) + Send),
+    ) -> Result<CompactionRunOutcome> {
+        if !self.compact_config.enabled {
+            anyhow::bail!("context compaction is disabled");
+        }
+        let outcome = self
+            .run_compaction_with_options(
+                request_projection,
+                canonical_history,
+                provider_shaped_prompt,
+                model,
+                max_tokens,
+                on_delta,
+                CompactionRunOptions {
+                    trigger: CompactionRunTrigger::ToolLoopCheckpoint,
+                    bypass_cache_ttl: true,
+                    emit_start_event: true,
+                    allow_memory_flush: false,
+                    allow_summarization: true,
+                    force_summary: false,
+                    summary_reason:
+                        crate::context_compact::CompactionSummaryReason::RequiredAfterRecovery,
+                    summary_hard_protected_start: Some(hard_protected_start),
+                    cancel: Some(cancel),
+                    tool_schemas: provider_tool_schemas.to_vec(),
+                },
+            )
+            .await;
+        if let Some(error) = outcome.fatal_error.as_deref() {
+            anyhow::bail!("required history recovery failed closed: {error}");
+        }
         Ok(outcome)
     }
 
@@ -1471,11 +2016,10 @@ impl AssistantAgent {
     }
 
     /// Non-streaming LLM call for context summarization.
-    /// If a CompactionProvider is configured, tries it first; on failure falls back
-    /// to side_query (prompt cache sharing) or direct HTTP call.
+    /// If a CompactionProvider is configured, tries it first; on failure falls
+    /// back to the conversation model using the same independent summarizer
+    /// request shape and bounded retry policy.
     async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
-        use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
-
         // Try pluggable CompactionProvider first (if configured)
         if let Some(ref provider) = self.compaction_provider {
             app_info!(
@@ -1488,14 +2032,19 @@ impl AssistantAgent {
                 .summarize(prompt, self.compact_config.summary_max_tokens)
                 .await
             {
-                Ok(summary) if !summary.is_empty() => return Ok(summary),
-                Ok(_) => {
-                    app_warn!(
-                        "agent",
-                        "summarize",
-                        "CompactionProvider '{}' returned empty summary, falling back to conversation model",
-                        provider.name()
-                    );
+                Ok(summary) => {
+                    match crate::context_compact::validate_summarization_output(&summary) {
+                        Ok(()) => return Ok(summary),
+                        Err(error) => {
+                            app_warn!(
+                                "agent",
+                                "summarize",
+                                "CompactionProvider '{}' returned an invalid summary: {}; falling back to conversation model",
+                                provider.name(),
+                                error
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     app_warn!(
@@ -1509,50 +2058,34 @@ impl AssistantAgent {
             }
         }
 
-        // Try cache-friendly side_query path
-        let has_cache = self
-            .cache_safe_params
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some();
-
-        if has_cache {
-            let instruction = format!(
-                "<summarization_instructions>\n{}\n</summarization_instructions>\n\n{}",
-                SUMMARIZATION_SYSTEM_PROMPT, prompt
+        // Do not reuse the main chat snapshot here. A cached side query would
+        // send the old history once as the cached prefix and a second time in
+        // `prompt`, while also demoting the summarizer system contract to a
+        // user message. Build an independent one-shot request instead. When
+        // the conversation provider has normal failover context, reuse the
+        // dedicated summarizer wrapper so transient API failures get its
+        // bounded retry policy without changing request semantics.
+        if let (Some(provider_config), Some(session_id)) =
+            (self.provider_config.clone(), self.session_id.clone())
+        {
+            let provider = DedicatedModelProvider::new(
+                provider_config,
+                self.provider.model().to_string(),
+                session_id,
+                self.user_agent.clone(),
+                format!("conversation model {}", self.provider.model()),
+                self.context_window,
             );
-            let result = self
-                .side_query(&instruction, self.compact_config.summary_max_tokens)
-                .await?;
-
-            if let Some(logger) = crate::get_logger() {
-                logger.log(
-                    "info",
-                    "agent",
-                    "side_query::summarize",
-                    &format!(
-                        "Summarization via side_query: cache_read={}, input={}, output={}",
-                        result.usage.cache_read_input_tokens,
-                        result.usage.input_tokens,
-                        result.usage.output_tokens,
-                    ),
-                    None,
-                    None,
-                    None,
-                );
-            }
-
-            if !result.text.is_empty() {
-                return Ok(result.text);
-            }
-            app_warn!(
-                "agent",
-                "side_query::summarize",
-                "Side query returned empty text, falling back to direct HTTP call"
-            );
+            return crate::context_compact::CompactionProvider::summarize(
+                &provider,
+                prompt,
+                self.compact_config.summary_max_tokens,
+            )
+            .await;
         }
 
-        // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
+        // Legacy/test constructors without provider metadata cannot safely
+        // rotate credentials; keep the independent single-attempt path.
         let mut usage_event =
             crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_SUMMARIZE);
         usage_event.operation = Some("context.summarize_direct".to_string());
@@ -1853,6 +2386,25 @@ impl AssistantAgent {
                 _ => {
                     // Role-based messages (from Anthropic/Chat)
                     if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
+                        // A Responses request may itself use a role message
+                        // whose content is an array of native input blocks.
+                        // This is the exact shape retained in the cache-safe
+                        // main-request snapshot, so do not run it through the
+                        // Anthropic text-only extractor (which would discard
+                        // both `input_text` and `input_image`).
+                        let is_native_responses_role_message =
+                            item.get("role").and_then(|role| role.as_str()).is_some()
+                                && !content_arr.is_empty()
+                                && content_arr.iter().all(|block| {
+                                    matches!(
+                                        block.get("type").and_then(|kind| kind.as_str()),
+                                        Some("input_text" | "input_image" | "input_file")
+                                    )
+                                });
+                        if is_native_responses_role_message {
+                            result.push(item.clone());
+                            continue;
+                        }
                         // Anthropic format: extract text from content blocks, skip thinking/tool blocks
                         let has_tool_use = content_arr
                             .iter()
@@ -2017,9 +2569,8 @@ pub(crate) async fn summarize_direct(
         crate::model_usage::record_model_usage_best_effort(event);
     }
 
-    if result.text.is_empty() {
-        return Err(anyhow::anyhow!("No text in summarization response"));
-    }
+    crate::context_compact::validate_summarization_output(&result.text)
+        .map_err(|error| anyhow::anyhow!("Invalid summarization response: {error}"))?;
     Ok(result.text)
 }
 
@@ -2032,14 +2583,15 @@ pub(crate) async fn summarize_direct(
 /// `summarize()` call can route through `failover::execute_with_failover`
 /// for retry-with-backoff against the configured `summarization_model`'s
 /// own auth profiles. Profile rotation is intentionally **disabled** by
-/// [`FailoverPolicy::summarize_default`] — Tier 3 must fail fast so the
-/// caller can drop to side_query / emergency_compact.
+/// [`FailoverPolicy::summarize_default`] — Tier 3 gets bounded transient
+/// retries without changing credential affinity or request semantics.
 pub struct DedicatedModelProvider {
     provider_config: std::sync::Arc<crate::provider::ProviderConfig>,
     model_id: String,
     session_id: String,
     user_agent: String,
     display_name: String,
+    context_window: u32,
 }
 
 impl DedicatedModelProvider {
@@ -2049,6 +2601,7 @@ impl DedicatedModelProvider {
         session_id: String,
         user_agent: String,
         display_name: String,
+        context_window: u32,
     ) -> Self {
         Self {
             provider_config,
@@ -2056,6 +2609,7 @@ impl DedicatedModelProvider {
             session_id,
             user_agent,
             display_name,
+            context_window,
         }
     }
 }
@@ -2108,6 +2662,10 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
     fn name(&self) -> &str {
         &self.display_name
     }
+
+    fn context_window(&self) -> Option<u32> {
+        (self.context_window > 0).then_some(self.context_window)
+    }
 }
 
 /// Parse `"providerId:modelId"` and construct a `DedicatedModelProvider`.
@@ -2137,6 +2695,7 @@ pub fn build_compaction_provider(
     };
 
     let prov_config = crate::provider::find_provider(providers, provider_id)?;
+    let model_config = prov_config.model_config(model_id)?;
     let display_name = format!("{}:{}", prov_config.name, model_id);
 
     Some(DedicatedModelProvider::new(
@@ -2145,6 +2704,7 @@ pub fn build_compaction_provider(
         session_id.to_string(),
         prov_config.user_agent.clone(),
         display_name,
+        model_config.context_window,
     ))
 }
 
@@ -2323,12 +2883,62 @@ mod mid_loop_compaction_tests {
         }
     }
 
+    struct MutatingProjectionEngine {
+        tier: u8,
+        description: &'static str,
+    }
+
+    impl ContextEngine for MutatingProjectionEngine {
+        fn compact_sync(
+            &self,
+            messages: &mut Vec<Value>,
+            _ctx: &CompactionContext<'_>,
+        ) -> CompactResult {
+            let changed = messages.iter_mut().any(|message| {
+                if message.get("role").and_then(Value::as_str) == Some("tool") {
+                    message["content"] = json!("[request projection only]");
+                    true
+                } else {
+                    false
+                }
+            });
+            CompactResult {
+                tier_applied: self.tier,
+                tokens_before: 10_000,
+                tokens_after: 5_000,
+                messages_affected: usize::from(changed),
+                description: self.description.to_string(),
+                details: None,
+                manifest: None,
+            }
+        }
+
+        fn emergency_compact(
+            &self,
+            _messages: &mut Vec<Value>,
+            _ctx: &EmergencyCompactionContext<'_>,
+        ) -> CompactResult {
+            panic!("emergency compaction should not run in this test")
+        }
+    }
+
     struct StaticSummaryProvider;
 
     #[async_trait::async_trait]
     impl crate::context_compact::CompactionProvider for StaticSummaryProvider {
         async fn summarize(&self, _prompt: &str, _max_tokens: u32) -> anyhow::Result<String> {
-            Ok("summary ok".to_string())
+            Ok(concat!(
+                "## Primary Request and Success Criteria\nsummary ok\n\n",
+                "## Current Execution State\nsummary ok\n\n",
+                "## Decisions and Rationale\nsummary ok\n\n",
+                "## Files, Symbols, and Artifacts\nsummary ok\n\n",
+                "## Tool Results Worth Preserving\nsummary ok\n\n",
+                "## Errors, Failed Attempts, and Fixes\nsummary ok\n\n",
+                "## User Feedback and Constraints\nsummary ok\n\n",
+                "## Pending Work and Next Action\nsummary ok\n\n",
+                "## Trust Boundaries and Security Notes\nsummary ok",
+            )
+            .to_string())
         }
 
         fn name(&self) -> &str {
@@ -2336,15 +2946,175 @@ mod mid_loop_compaction_tests {
         }
     }
 
+    struct CapturingSummaryProvider {
+        prompt: Arc<Mutex<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::context_compact::CompactionProvider for CapturingSummaryProvider {
+        async fn summarize(&self, prompt: &str, _max_tokens: u32) -> anyhow::Result<String> {
+            *self.prompt.lock().unwrap() = prompt.to_string();
+            StaticSummaryProvider.summarize(prompt, _max_tokens).await
+        }
+
+        fn name(&self) -> &str {
+            "capturing-test-summary"
+        }
+    }
+
+    struct FailingSummaryProvider;
+
+    #[async_trait::async_trait]
+    impl crate::context_compact::CompactionProvider for FailingSummaryProvider {
+        async fn summarize(&self, _prompt: &str, _max_tokens: u32) -> anyhow::Result<String> {
+            anyhow::bail!("synthetic summary failure")
+        }
+
+        fn name(&self) -> &str {
+            "failing-test-summary"
+        }
+    }
+
+    #[tokio::test]
+    async fn synchronous_compaction_changes_only_request_projection() {
+        let mut agent = AssistantAgent::new_anthropic("test-key");
+        agent.set_context_engine(Arc::new(MutatingProjectionEngine {
+            tier: 2,
+            description: "context_pruned",
+        }));
+        let mut canonical = vec![
+            json!({"role":"user","content":"inspect"}),
+            json!({"role":"tool","tool_call_id":"call_1","content":"FULL_EFFECTIVE_RESULT"}),
+        ];
+        let mut request_projection = canonical.clone();
+
+        let outcome = agent
+            .run_compaction_with_options(
+                &mut request_projection,
+                &mut canonical,
+                "system",
+                "test-model",
+                1024,
+                &|_| {},
+                CompactionRunOptions::turn_start(None),
+            )
+            .await;
+
+        assert_eq!(outcome.tier_applied, 2);
+        assert_eq!(
+            request_projection[1]["content"],
+            "[request projection only]"
+        );
+        assert_eq!(canonical[1]["content"], "FULL_EFFECTIVE_RESULT");
+    }
+
+    #[tokio::test]
+    async fn tier3_summarizes_canonical_not_trimmed_request_projection() {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let mut agent = AssistantAgent::new_anthropic("test-key");
+        agent.set_context_engine(Arc::new(MutatingProjectionEngine {
+            // A custom engine may signal summarization by description while
+            // reporting its highest synchronous tier. Successful async
+            // installation must normalize the public tier to Tier 3.
+            tier: 2,
+            description: "summarization_needed",
+        }));
+        agent.set_compaction_provider(Some(Arc::new(CapturingSummaryProvider {
+            prompt: captured.clone(),
+        })));
+        agent.set_compact_config(CompactConfig {
+            preserve_recent_rounds: 1,
+            ..Default::default()
+        });
+        let mut canonical = vec![
+            json!({"role":"user","content":"inspect"}),
+            json!({"role":"assistant","content":"calling","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{}"}}]}),
+            json!({"role":"tool","tool_call_id":"call_1","content":"FULL_EFFECTIVE_RESULT"}),
+            json!({"role":"user","content":"continue"}),
+            json!({"role":"assistant","content":"continuing"}),
+        ];
+        let mut request_projection = canonical.clone();
+
+        let outcome = agent
+            .run_compaction_with_options(
+                &mut request_projection,
+                &mut canonical,
+                "system",
+                "test-model",
+                1024,
+                &|_| {},
+                CompactionRunOptions::turn_start(None),
+            )
+            .await;
+
+        assert!(outcome.summary_applied);
+        assert_eq!(outcome.tier_applied, 3);
+        let prompt = captured.lock().unwrap().clone();
+        assert!(prompt.contains("FULL_EFFECTIVE_RESULT"));
+        assert!(!prompt.contains("[request projection only]"));
+        assert_eq!(canonical, request_projection);
+        assert!(serde_json::to_string(&canonical)
+            .unwrap()
+            .contains("summary ok"));
+    }
+
+    #[tokio::test]
+    async fn failed_tier3_keeps_canonical_while_retaining_safe_request_projection() {
+        let mut agent = AssistantAgent::new_anthropic("test-key");
+        agent.set_context_engine(Arc::new(MutatingProjectionEngine {
+            tier: 2,
+            description: "summarization_needed",
+        }));
+        agent.set_compaction_provider(Some(Arc::new(FailingSummaryProvider)));
+        // Force the independent summary-capacity preflight to fail before any
+        // network fallback can run; this is a deterministic failure fixture.
+        agent.context_window = 1;
+        agent.set_compact_config(CompactConfig {
+            preserve_recent_rounds: 1,
+            ..Default::default()
+        });
+        let original = vec![
+            json!({"role":"user","content":"inspect"}),
+            json!({"role":"assistant","content":"calling","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{}"}}]}),
+            json!({"role":"tool","tool_call_id":"call_1","content":"FULL_EFFECTIVE_RESULT"}),
+            json!({"role":"user","content":"continue"}),
+            json!({"role":"assistant","content":"continuing"}),
+        ];
+        let mut canonical = original.clone();
+        let mut request_projection = original.clone();
+
+        let outcome = agent
+            .run_compaction_with_options(
+                &mut request_projection,
+                &mut canonical,
+                "system",
+                "test-model",
+                1024,
+                &|_| {},
+                CompactionRunOptions::turn_start(None),
+            )
+            .await;
+
+        assert!(!outcome.summary_applied);
+        assert_eq!(canonical, original);
+        assert_eq!(
+            request_projection[2]["content"],
+            "[request projection only]"
+        );
+    }
+
     #[tokio::test]
     async fn summary_throttle_still_allows_sync_compaction() {
         let calls = Arc::new(AtomicUsize::new(0));
         let mut agent = AssistantAgent::new_anthropic("test-key");
+        // Use a genuinely constrained request budget instead of an invalid
+        // zero threshold to enter the mid-loop compaction path.
+        agent.context_window = 1_024;
         agent.set_context_engine(Arc::new(CountingTier2Engine {
             calls: calls.clone(),
         }));
         agent.set_compact_config(CompactConfig {
-            summarization_threshold: 0.0,
+            summarization_threshold: 0.71,
             ..Default::default()
         });
 
@@ -2353,11 +3123,12 @@ mod mid_loop_compaction_tests {
         assert!(state.summary_attempt_throttled(2));
 
         let mut messages = vec![json!({"role": "user", "content": "continue"})];
+        let mut canonical = messages.clone();
         let on_delta = |_event: &str| {};
         let outcome = agent
             .maybe_compact_between_tool_rounds(
                 &mut messages,
-                "system",
+                &mut canonical,
                 "system",
                 &[],
                 "test-model",
@@ -2366,6 +3137,7 @@ mod mid_loop_compaction_tests {
                 &mut state,
                 2,
                 &on_delta,
+                None,
             )
             .await
             .expect("mid-loop checkpoint");
@@ -2379,10 +3151,14 @@ mod mid_loop_compaction_tests {
     #[tokio::test]
     async fn dedicated_provider_is_allowed_for_mid_loop_summary() {
         let mut agent = AssistantAgent::new_anthropic("test-key");
+        // Keep enough room for the summary request itself while putting the
+        // conversation above the configured Tier 3 watermark.
+        agent.context_window = 12_000;
         agent.set_context_engine(Arc::new(ForceTier3Engine));
         agent.set_compaction_provider(Some(Arc::new(StaticSummaryProvider)));
         agent.set_compact_config(CompactConfig {
-            summarization_threshold: 0.0,
+            summarization_threshold: 0.71,
+            summary_max_tokens: 256,
             preserve_recent_rounds: 1,
             ..Default::default()
         });
@@ -2390,15 +3166,19 @@ mod mid_loop_compaction_tests {
         let mut state = MidLoopCompactionState::default();
         let mut messages = vec![
             json!({"role": "user", "content": "inspect the project"}),
-            json!({"role": "assistant", "content": "found context worth preserving"}),
+            json!({"role": "assistant", "content": format!(
+                "found context worth preserving: {}",
+                "a".repeat(22_000)
+            )}),
             json!({"role": "user", "content": "continue"}),
             json!({"role": "assistant", "content": "continuing"}),
         ];
+        let mut canonical = messages.clone();
         let on_delta = |_event: &str| {};
         let outcome = agent
             .maybe_compact_between_tool_rounds(
                 &mut messages,
-                "system",
+                &mut canonical,
                 "system",
                 &[],
                 "test-model",
@@ -2407,6 +3187,7 @@ mod mid_loop_compaction_tests {
                 &mut state,
                 1,
                 &on_delta,
+                None,
             )
             .await
             .expect("mid-loop checkpoint");
@@ -2415,6 +3196,7 @@ mod mid_loop_compaction_tests {
         assert!(serde_json::to_string(&messages)
             .expect("serialize messages")
             .contains("summary ok"));
+        assert_eq!(canonical, messages);
         assert_eq!(state.summary_attempt_count, 1);
     }
 
@@ -2456,6 +3238,7 @@ mod mid_loop_compaction_tests {
             json!({"role": "user", "content": "continue"}),
             json!({"role": "assistant", "content": "continuing"}),
         ];
+        let mut canonical = messages.clone();
         let events = Arc::new(Mutex::new(Vec::<String>::new()));
         let events_sink = events.clone();
         let on_delta = move |event: &str| {
@@ -2465,6 +3248,7 @@ mod mid_loop_compaction_tests {
         let outcome = agent
             .run_compaction_with_options(
                 &mut messages,
+                &mut canonical,
                 "system",
                 "test-model",
                 1024,
@@ -2475,6 +3259,7 @@ mod mid_loop_compaction_tests {
 
         assert!(outcome.summary_applied);
         let serialized = serde_json::to_string(&messages).expect("serialize messages");
+        assert_eq!(canonical, messages);
         assert!(serialized.contains("summary ok"));
         assert!(!serialized.contains("SECRET_SNAPSHOT"));
         assert!(!serialized.contains("untrusted_file_snapshot"));

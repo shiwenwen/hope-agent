@@ -115,6 +115,10 @@ export default function SessionItem({
   // onCloseAutoFocus); other menu items keep normal focus behaviour.
   const renameTriggeredRef = useRef(false)
   const isCompact = displayMode === "compact"
+  const isScheduledSession = session.isCron || session.origin?.kind === "cron"
+  const scheduledSessionLabel = session.origin
+    ? t("chat.scheduledOrigin", { name: session.origin.label })
+    : t("chat.cronTrigger")
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
   const hasPending = !isActive && !session.channelInfo && pendingInteractionCount > 0
@@ -263,7 +267,17 @@ export default function SessionItem({
           )}
 
           {/* Title + meta */}
-          <div className="flex-1 min-w-0">
+          <div
+            className={cn(
+              "flex-1 min-w-0",
+              !isCompact &&
+                (onTogglePinned && !session.incognito
+                  ? "group-hover:pr-10"
+                  : !session.incognito
+                    ? "group-hover:pr-5"
+                    : undefined),
+            )}
+          >
             <div
               className={cn(
                 "text-[13px] font-medium text-foreground truncate flex items-center gap-1",
@@ -272,11 +286,6 @@ export default function SessionItem({
             >
               {isCompact && isLoading && (
                 <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
-              )}
-              {session.isCron && (
-                <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-orange-500/15 text-orange-500">
-                  <Timer className="w-2.5 h-2.5" />
-                </span>
               )}
               {showSubagentBadge &&
                 session.parentSessionId &&
@@ -408,6 +417,13 @@ export default function SessionItem({
                       </span>
                     </>
                   )}
+                  {isScheduledSession && (
+                    <IconTip label={scheduledSessionLabel}>
+                      <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center text-orange-500/80 group-hover:hidden">
+                        <Timer className="h-2.5 w-2.5" />
+                      </span>
+                    </IconTip>
+                  )}
                 </span>
               )}
               {displayUnreadCount > 0 && <span className="sr-only">{t("chat.unreadStatus")}</span>}
@@ -416,37 +432,44 @@ export default function SessionItem({
               )}
             </div>
             {!isCompact && (
-              <div className="text-[11px] text-muted-foreground truncate">
-                {isLoading ? (
-                  <>
-                    {agent?.name || session.agentId}
-                    <span className="mx-1">·</span>
-                    <span className="text-primary animate-pulse">
-                      {t("chat.thinking")}
+              <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                <span className="min-w-0 truncate">
+                  {isLoading ? (
+                    <>
+                      {agent?.name || session.agentId}
+                      <span className="mx-1">·</span>
+                      <span className="animate-pulse text-primary">{t("chat.thinking")}</span>
+                    </>
+                  ) : hasPending ? (
+                    <span className="flex items-center gap-1 font-medium text-amber-500">
+                      {pendingCountdown ? (
+                        <PendingCountdownRing
+                          key={`${pendingCountdown.deadlineAtMs}:${pendingCountdown.serverNowMs}`}
+                          countdown={pendingCountdown}
+                        />
+                      ) : (
+                        <BellRing className="h-3 w-3 shrink-0" />
+                      )}
+                      <span className="truncate">
+                        {t("chat.pendingInteractionInline", {
+                          count: pendingInteractionCount,
+                        })}
+                      </span>
                     </span>
-                  </>
-                ) : hasPending ? (
-                  <span className="flex items-center gap-1 text-amber-500 font-medium">
-                    {pendingCountdown ? (
-                      <PendingCountdownRing
-                        key={`${pendingCountdown.deadlineAtMs}:${pendingCountdown.serverNowMs}`}
-                        countdown={pendingCountdown}
-                      />
-                    ) : (
-                      <BellRing className="h-3 w-3 shrink-0" />
-                    )}
-                    <span className="truncate">
-                      {t("chat.pendingInteractionInline", {
-                        count: pendingInteractionCount,
-                      })}
+                  ) : (
+                    <>
+                      {agent?.name || session.agentId}
+                      <span className="mx-1">·</span>
+                      {formatRelativeTime(session.updatedAt)}
+                    </>
+                  )}
+                </span>
+                {isScheduledSession && (
+                  <IconTip label={scheduledSessionLabel}>
+                    <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center text-orange-500/80">
+                      <Timer className="h-2.5 w-2.5" />
                     </span>
-                  </span>
-                ) : (
-                  <>
-                    {agent?.name || session.agentId}
-                    <span className="mx-1">·</span>
-                    {formatRelativeTime(session.updatedAt)}
-                  </>
+                  </IconTip>
                 )}
               </div>
             )}
@@ -456,10 +479,10 @@ export default function SessionItem({
             <IconTip label={session.pinnedAt ? t("chat.unpinSession") : t("chat.pinSession")}>
               <button
                 className={cn(
-                  "shrink-0 p-0.5 transition-colors",
+                  "absolute right-7 top-1/2 hidden shrink-0 -translate-y-1/2 p-0.5 transition-colors group-hover:block",
                   isCompact
-                    ? "absolute right-7 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-foreground group-hover:block"
-                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-foreground",
+                    ? "text-muted-foreground/50 hover:!text-foreground"
+                    : "text-muted-foreground/40 hover:!text-foreground",
                 )}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -482,10 +505,10 @@ export default function SessionItem({
             <IconTip label={t("chat.archiveSession")}>
               <button
                 className={cn(
-                  "shrink-0 transition-colors p-0.5",
+                  "absolute right-2 top-1/2 hidden shrink-0 -translate-y-1/2 p-0.5 transition-colors group-hover:block",
                   isCompact
-                    ? "absolute right-2 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-foreground group-hover:block"
-                    : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-foreground",
+                    ? "text-muted-foreground/50 hover:!text-foreground"
+                    : "text-muted-foreground/40 hover:!text-foreground",
                 )}
                 onClick={(e) => onArchiveClick(session.id, e)}
                 aria-label={t("chat.archiveSession")}

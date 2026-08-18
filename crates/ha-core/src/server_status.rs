@@ -9,6 +9,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
+/// Internal, non-secret handoff from the running app to its sealed Pet CLI
+/// child. The child cannot read this process's in-memory [`ServerStatus`], so
+/// activation uses this value instead of a possibly edited, not-yet-rebound
+/// configured address.
+pub const PET_CLI_LIVE_SERVER_ADDR_ENV: &str = "HOPE_AGENT_INTERNAL_PET_LIVE_SERVER_ADDR";
+
 pub struct ServerStatus {
     pub started_at: Option<Instant>,
     pub bound_addr: Option<SocketAddr>,

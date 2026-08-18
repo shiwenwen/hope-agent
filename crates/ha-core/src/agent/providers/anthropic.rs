@@ -11,6 +11,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::super::content::build_user_content_anthropic;
+use super::super::streaming_loop::CurrentUserMessageState;
 use super::super::types::AssistantAgent;
 use super::anthropic_adapter::AnthropicStreamingAdapter;
 
@@ -22,6 +23,7 @@ impl AssistantAgent {
         model: &str,
         message: &str,
         attachments: &[super::super::types::Attachment],
+        current_user_message_state: CurrentUserMessageState,
         reasoning_effort: Option<&str>,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send + Sync),
@@ -42,6 +44,7 @@ impl AssistantAgent {
             model,
             message,
             user_content,
+            current_user_message_state,
             reasoning_effort,
             cancel,
             on_delta,

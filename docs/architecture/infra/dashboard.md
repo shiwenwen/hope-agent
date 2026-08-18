@@ -250,7 +250,9 @@ flowchart TD
 
 - **用户配置优先**：按 `(provider_id, model_id)` 回查 Provider 配置单价——这是「用户实际付多少」的真相源。模板与 GUI 都存厂商价目页原价，Provider 声明 `currency = CNY` 时**只在这一处**按 `CNY_PER_USD` 换算成 USD 入账。
 - **`Some(0.0)` 与 `None` 语义不同**：`Some(0.0)` 是「明确不按 token 计费」（本地模型、包月端点），如实记 $0、**不回退**；`None`（未标价）与查不到 provider/model 一样落到估算表。只标了一侧价（另一侧 `None`）仍视为已标价，缺的一侧按 0 计。
-- **内置估算表兜底**：`estimate_cost` 按 `model_id.contains()` 子串匹配，**首次命中即返回**。因此更具体的臂必须排在通用族之前（`claude-opus-4-5`+ 是 $5/$25，须先于 `claude-opus-4` 的 $15/$75；`grok-4.5` 须先于 `grok-4`）。人民币计价厂商（qwen、豆包方舟、腾讯混元 `hy3`）的臂统一写成 `¥价 / CNY_PER_USD`，与配置路径口径一致。未命中任何臂时默认 `$3 / $15`。
+- **内置估算表兜底**：`estimate_cost` 按 `model_id.contains()` 子串匹配，**首次命中即返回**。因此更具体的臂必须排在通用族之前（`claude-opus-4-5`+ 是 $5/$25，须先于 `claude-opus-4` 的 $15/$75；`grok-4.5` 须先于 `grok-4`；`kimi-k2.7-code-highspeed` 须先于 `kimi-k2.7`；`gemini-*-flash-lite` 须先于同代 `-flash`；`qwen3.8-max` 须先于末尾的通用 `qwen` 臂）。人民币计价厂商（qwen、豆包方舟、腾讯混元 `hy3`）的臂统一写成 `¥价 / CNY_PER_USD`，与配置路径口径一致。未命中任何臂时默认 `$3 / $15`。
+- **`contains` 区分大小写**：托管方常用 HuggingFace 式 id（`hf:zai-org/GLM-5.2`、`hf:Qwen/Qwen3.6-27B`），只写小写臂会让它们整片掉进默认价（实测约 40 倍高估）。新增臂时若该模型可能以大写形式出现，须同时给出大小写两种拼写——单测 `current_generation_models_are_not_billed_at_the_default` 已按真实模板 id 钉住这一点。
+- **臂不得越界吞掉模板刻意留 `null` 的档位**：模板写 `null` 表示「厂商单价未知、走兜底」，若把通用臂放宽到覆盖它（如 `muse-spark` 覆盖 1.1、`ernie-5.0` 覆盖 `-thinking-preview`），等于把「不知道」变成一个确定的错数字。
 
 ### 估算表节选（示例，非全表）
 
@@ -259,22 +261,30 @@ flowchart TD
 | 厂商 | 匹配子串（示例） | Input $/1M | Output $/1M |
 |------|------|-------------|---------------|
 | Anthropic | `claude-fable-5` / `claude-mythos-5` | 10.00 | 50.00 |
+| | `claude-opus-5` | 5.00 | 25.00 |
 | | `claude-sonnet-5` | 3.00 | 15.00 |
 | | `claude-opus-4-5`…`4-8` | 5.00 | 25.00 |
 | | `claude-opus-4`（4 / 4.1） | 15.00 | 75.00 |
 | | `claude-haiku-4` | 1.00 | 5.00 |
-| OpenAI | `gpt-5.6` | 5.00 | 30.00 |
+| OpenAI | `gpt-5.6-terra` | 2.00 | 12.00 |
+| | `gpt-5.6-luna` | 0.20 | 1.20 |
+| | `gpt-5.6`（= Sol） | 5.00 | 30.00 |
 | | `gpt-5.4` | 2.50 | 15.00 |
 | | `gpt-4o` | 2.50 | 10.00 |
 | | `o3` | 2.00 | 8.00 |
 | Google | `gemini-3.5-pro` | 1.25 | 10.00 |
+| | `gemini-3.7-flash` / `3.6-flash`（促销价） | 0.75 | 3.75 |
 | | `gemini-3.5-flash` | 0.15 | 0.60 |
-| xAI | `grok-4.5` | 2.00 | 6.00 |
+| xAI | `grok-4.6` / `grok-4.5` | 2.00 | 6.00 |
 | | `grok-4` | 3.00 | 15.00 |
 | DeepSeek | `deepseek-chat` / `-reasoner` | 0.14 | 0.28 |
-| Qwen（CNY 换算） | `qwen-max` / `qwen3-max` | ¥2.4 / CNY_PER_USD | ¥9.6 / CNY_PER_USD |
-| Zhipu (GLM) | `glm-5` | 1.00 | 3.20 |
-| Moonshot | `kimi-k2.6` | 0.95 | 4.00 |
+| Qwen（CNY 换算） | `qwen3.8-max` | ¥12 / CNY_PER_USD | ¥36 / CNY_PER_USD |
+| | `qwen-max` / `qwen3-max` | ¥2.4 / CNY_PER_USD | ¥9.6 / CNY_PER_USD |
+| 豆包方舟（CNY 换算） | `doubao-seed-2-1-pro` / `-evolving` | ¥6 / CNY_PER_USD | ¥30 / CNY_PER_USD |
+| Zhipu (GLM) | `glm-5.3` / `glm-5.2` / `glm-5-2` | 1.40 | 4.40 |
+| | `glm-5` | 1.00 | 3.20 |
+| | `GLM-5.2` / `GLM-4.7-Flash`（HF 大小写） | 同上 | 同上 |
+| Moonshot | `kimi-k2.6` / `kimi-k2-6` | 0.95 | 4.00 |
 | （默认） | 未匹配 | 3.00 | 15.00 |
 
 ## Learning Tracker

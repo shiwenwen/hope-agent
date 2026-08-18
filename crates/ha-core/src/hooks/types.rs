@@ -449,7 +449,8 @@ pub enum HookInput {
         #[serde(flatten)]
         common: CommonHookInput,
         /// Failure category (matcher target): `provider_failed` /
-        /// `compaction_failed` / `shutdown` / `crash` / `no_profile` / `other`.
+        /// `dispatch_unknown` / `compaction_failed` / `shutdown` / `crash` /
+        /// `no_profile` / `other`.
         /// Serialized as the official `error_type` key.
         #[serde(rename = "error_type")]
         reason: String,

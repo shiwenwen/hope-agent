@@ -238,6 +238,18 @@ pub struct AssistantAgent {
     /// When Some, tried first for summarization; falls back to side_query on failure.
     pub(super) compaction_provider:
         Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
+    /// Set only after this agent has applied a validated Tier 3 summary in the
+    /// current chat dispatch. The chat-engine success transaction consumes it
+    /// to clear a pending Tier 4 follow-up together with the summarized
+    /// provider-native context.
+    pub(super) tier3_summary_applied_this_turn: std::sync::atomic::AtomicBool,
+    /// One-shot publication latch for the exact canonical Tier 3 winner.
+    ///
+    /// `tier3_summary_applied_this_turn` deliberately stays true until the
+    /// turn terminates, but only the first checkpoint after installation may
+    /// promote the summary to the failover attempt base. Promoting later tool
+    /// round tails would make a failed provider attempt canonical.
+    pub(super) tier3_summary_publication_pending: std::sync::atomic::AtomicBool,
     /// Session-scoped deferred tools already discovered by `tool_search`.
     /// Persisted for regular sessions and kept memory-only for incognito.
     pub(super) activated_tool_names: std::sync::Mutex<Vec<String>>,
@@ -365,7 +377,9 @@ pub struct AssistantAgent {
     /// leave it `false` so their caller-specified effort isn't silently
     /// overridden by the UI picker.
     pub(super) follow_global_reasoning_effort: bool,
-    /// Timestamp of last Tier 2+ compaction (cache-TTL throttle, session-scoped).
+    /// Timestamp of the last Tier 2+ projection in the current request.
+    /// Cleared at the next public chat dispatch because the current
+    /// process-local projection is not durable across turns yet.
     pub(crate) last_tier2_compaction_at: std::sync::Mutex<Option<std::time::Instant>>,
     /// Lazily-populated cache for fields read from `agent.json` on every
     /// chat/tool-loop iteration. Cleared by `set_agent_id`.

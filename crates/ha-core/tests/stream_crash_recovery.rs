@@ -163,6 +163,7 @@ fn kill_9_recovers_every_acknowledged_delta_as_one_continuous_prefix() {
         interrupt_reason: Some("crash_recovery".to_string()),
         error: None,
         recovery_event: Some(NewMessage::error_event("Recovered after crash")),
+        request_plan: ha_core::session::RequestPlanCommit::RecoverAllForRun,
     };
     let first = db.commit_interrupted_turn(&commit).expect("recover run");
     let second = db

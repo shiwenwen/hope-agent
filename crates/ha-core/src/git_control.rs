@@ -198,13 +198,16 @@ impl SessionDB {
         Ok(())
     }
 
-    /// handoff 收尾：该会话全部非 archived 管理工作树标回 active。
+    /// handoff 收尾：该会话全部 generic owner 管理工作树标回 active。
+    /// Scheduled custody 只能由 Cron 的 typed handoff API 更新。
     pub fn mark_handoff_worktrees_active(&self, session_id: &str) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         conn.execute(
             "UPDATE managed_worktrees SET state='active',handed_off_at=?2,updated_at=?2
-             WHERE session_id=?1 AND state!='archived'",
+             WHERE (owner_session_id=?1 OR child_session_id=?1)
+               AND purpose IN ('manual','workflow','subagent')
+               AND state!='archived'",
             params![session_id, now],
         )?;
         Ok(())

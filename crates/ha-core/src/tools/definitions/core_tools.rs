@@ -11,11 +11,11 @@ use super::super::{
     TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR,
     TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_MEMORY, TOOL_READ, TOOL_READ_CONTEXT_RESOURCE, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_CREATE, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE,
-    TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
-    TOOL_WRITE,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RESULT_META, TOOL_RESULT_READ, TOOL_RUNTIME_CANCEL,
+    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_CREATE, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_CONTINUE,
+    TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -165,8 +165,14 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "integer",
                         "description": "Line number to start reading from (1-based). Defaults to 1"
                     },
+                    "byte_offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "UTF-8 byte offset within the selected line. Use only with the continuation cursor returned for an oversized line."
+                    },
                     "limit": {
                         "type": "integer",
+                        "minimum": 1,
                         "description": "Maximum number of lines to read. If omitted, reads up to the internal max size"
                     }
                 },
@@ -210,6 +216,59 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["resource_ref"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_RESULT_META.into(),
+            description: "Inspect bounded metadata for an opaque tool-result handle referenced by the current session. This never returns the stored body, digest, encryption material, or a filesystem path.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
+            internal: true,
+            concurrent_safe: true,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "result_id": {
+                        "type": "string",
+                        "description": "Opaque result_id from a tool-result preview."
+                    }
+                },
+                "required": ["result_id"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_RESULT_READ.into(),
+            description: "Read a bounded UTF-8 page from a stored effective tool result referenced by the current session. Continue only with the opaque cursor returned by this tool; do not infer or request filesystem paths.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
+            internal: true,
+            concurrent_safe: true,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "result_id": {
+                        "type": "string",
+                        "description": "Opaque result_id from a tool-result preview."
+                    },
+                    "cursor": {
+                        "type": "string",
+                        "description": "Opaque continuation cursor returned by an earlier tool_result_read call."
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "minimum": 4,
+                        "maximum": 51200,
+                        "description": "Maximum UTF-8 body bytes for this page (default 16384; hard maximum 51200)."
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["forward", "backward"],
+                        "description": "Read from the beginning/continuation cursor or backwards from the end. Defaults to forward."
+                    }
+                },
+                "required": ["result_id"],
                 "additionalProperties": false
             }),
         },
@@ -575,7 +634,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Cron / Scheduled Tasks ──────────────────────────────
         ToolDefinition {
             name: TOOL_MANAGE_CRON.into(),
-            description: "Create, list, get, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.\n\nUse this for reminders, follow-ups, and repeated nudges over time. If the user asks for something like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with `exec`/`date`.\n\nProject context: pass `project_id` to bind each run's isolated session to a Project so Project instructions, Project memories, and the Project working directory are injected exactly like a normal Project chat. On create, omitting `project_id` inherits the current session's Project when there is one; pass `project_id=null` or an empty string to explicitly create a non-Project cron job. Use `action='list_projects'` to discover Project ids.\n\nResult delivery: a cron job's final output can be fanned out to one or more IM channel conversations (Telegram / WeChat / Slack / Feishu / Discord / etc.) via `delivery_targets`. Two workflows:\n\n1. When the user is chatting via an IM channel and creates a job without specifying `delivery_targets`, the job's output is delivered back to that same chat by default. Pass `delivery_targets=[]` to explicitly opt out.\n2. To fan out to other channels (or to discover target ids from a desktop chat), first call `action='list_channel_targets'` to enumerate available accounts and conversations, then pass the exact channel_id/account_id/chat_id triples.\n\nFailures are also delivered (as `⚠️ [Cron] {name} failed: {error}`) to the same targets.".into(),
+            description: "Create, list, get, update, delete, and trigger scheduled tasks (cron jobs). By default, each run starts an isolated ordinary chat with no prior history. A task can instead append every occurrence to one existing ordinary chat, sharing that chat's history, FIFO, Worktree, and live runtime context exactly like an ordinary message. Use `conversation_target='current_session'` when the user explicitly asks for this/current chat. Use `conversation_target='existing_session'` plus `target_session_id` when the user names another existing chat; call `sessions_list` first to discover its exact id and never guess. Supports one-time (at), recurring (every), and cron expression schedules.\n\nUse this for reminders, follow-ups, and repeated nudges over time. If the user asks for something like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with `exec`/`date`. Do not choose an existing-session target for a generic standalone reminder unless the user asks to return to a conversation.\n\nDiagnosing a task: `action='list'` and `action='get'` already carry the last run's outcome, and `action='runs'` returns the recent run history with each occurrence's error or result preview. Read them before explaining why a task failed. Stopping work splits in two: `action='cancel_run'` ends only the occurrence executing right now, while `action='pause'` stops future runs and leaves an in-flight one alone.\n\nProject context for new-session tasks: pass `project_id` to bind each run's isolated session to a Project so Project instructions, Project memories, and the Project working directory are injected exactly like a normal Project chat. On create, omitting `project_id` inherits the current session's Project when there is one; pass `project_id=null` or an empty string to explicitly create a non-Project cron job. Use `action='list_projects'` to discover Project ids. An existing-session task instead reads its target chat's live Agent, model, Project, knowledge spaces, working directory, permissions, and sandbox at execution time; omit `agent_id`, `project_id`, `workspace_mode`, and `workspace_base_ref`.\n\nWorkspace isolation: `workspace_mode` can run directly in the Project (`project`), create a clean managed Worktree for every run (`fresh_worktree`), or reuse one task-owned Worktree (`persistent_worktree`). A Fresh Worktree is retained after its run by default, and only an explicit owner archive or discard removes it; set `workspace_cleanup` when a task should clean up after itself instead of leaving one checkout per run behind. Worktree modes require a Git-backed Project and apply only to new-session tasks. Use `workspace_base_ref` to choose the committed baseline; omit or clear it to resolve Project HEAD when the Worktree is created. Use `action='workspace_status'` before changing an existing Persistent Worktree task. Permission and sandbox overrides remain user-only settings and are never available through this tool.\n\nResult delivery: a cron job's final output can be fanned out to one or more IM channel conversations (Telegram / WeChat / Slack / Feishu / Discord / etc.) via `delivery_targets`. Two workflows:\n\n1. When the user is chatting via an IM channel and creates a job without specifying `delivery_targets`, the job's output is delivered back to that same chat by default. Pass `delivery_targets=[]` to explicitly opt out.\n2. To fan out to other channels (or to discover target ids from a desktop chat), first call `action='list_channel_targets'` to enumerate available accounts and conversations, then pass the exact channel_id/account_id/chat_id triples.\n\nFailures are also delivered (as `⚠️ [Cron] {name} failed: {error}`) to the same targets.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: true,
             concurrent_safe: false,
@@ -586,15 +645,23 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "action": {
                         "type": "string",
                         "enum": [
-                            "create", "update", "list", "get",
-                            "delete", "pause", "resume", "run_now",
+                            "create", "update", "list", "get", "runs",
+                            "delete", "pause", "resume", "run_now", "cancel_run", "workspace_status",
                             "list_channel_targets", "list_projects"
                         ],
-                        "description": "Action to perform. 'list_channel_targets' enumerates IM channel conversations you can pass into 'delivery_targets'. 'list_projects' enumerates Projects you can pass into 'project_id'."
+                        "description": "Action to perform. 'runs' reads the task's recent run history (status, duration, error, result preview, delivery outcome) — use it to explain why a task failed instead of guessing. 'cancel_run' stops the occurrence that is executing right now and leaves the schedule alone; use 'pause' to stop future runs. 'workspace_status' reads live managed-Worktree ownership and safe actions for one task. 'list_channel_targets' enumerates IM channel conversations you can pass into 'delivery_targets'. 'list_projects' enumerates Projects you can pass into 'project_id'."
                     },
                     "id": {
                         "type": "string",
-                        "description": "Job ID (required for get/update/delete/pause/resume/run_now)"
+                        "description": "Job ID (required for get/runs/update/delete/pause/resume/run_now/cancel_run/workspace_status)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Runs to return for action='runs' (default 5, max 20; newest first)."
+                    },
+                    "run_log_id": {
+                        "type": "integer",
+                        "description": "Exact occurrence to cancel for action='cancel_run', as reported by action='runs'. Omit to cancel whichever occurrence of this task is running now."
                     },
                     "name": {
                         "type": "string",
@@ -603,6 +670,15 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "description": {
                         "type": "string",
                         "description": "Job description (optional on create/update)"
+                    },
+                    "conversation_target": {
+                        "type": "string",
+                        "enum": ["new_session", "current_session", "existing_session"],
+                        "description": "Where occurrences run. `new_session` (default) creates an isolated ordinary chat for each run. `current_session` queues into the chat invoking this tool. `existing_session` queues into `target_session_id`; call `sessions_list` first and use only the exact chat the user requested. Existing-session targets share that chat's history, FIFO, Worktree, and live context. Valid on create only."
+                    },
+                    "target_session_id": {
+                        "type": "string",
+                        "description": "Exact existing ordinary-chat id from `sessions_list`. Required only when conversation_target=`existing_session`; omit for `new_session` and `current_session`. The target is immutable after creation."
                     },
                     "schedule_type": {
                         "type": "string",
@@ -631,15 +707,29 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "prompt": {
                         "type": "string",
-                        "description": "The text prompt that the agent will execute when the job triggers. This runs as an isolated agent turn with no prior conversation history."
+                        "description": "The text prompt executed when the job triggers. For `new_session` it starts an isolated turn with no prior conversation history; for a current/existing-session target it becomes a managed message appended to that chat."
                     },
                     "agent_id": {
                         "type": "string",
-                        "description": "Explicit target agent ID. When omitted and project_id is set, the Project default agent is used before falling back to the global default."
+                        "description": "Explicit target agent ID for `new_session`. When omitted and project_id is set, the Project default agent is used before falling back to the global default. Omit for current/existing-session targets, which use the chat's live Agent."
                     },
                     "project_id": {
                         "type": ["string", "null"],
-                        "description": "Project ID for this scheduled task. On create, omit to inherit the current session's Project when present; pass null or an empty string to force no Project. On update, omit to leave unchanged; pass null or an empty string to clear."
+                        "description": "Project ID for a `new_session` task. On create, omit to inherit the current session's Project when present; pass null or an empty string to force no Project. On update, omit to leave unchanged; pass null or an empty string to clear. Omit for current/existing-session targets, which use the chat's live Project."
+                    },
+                    "workspace_mode": {
+                        "type": "string",
+                        "enum": ["project", "fresh_worktree", "persistent_worktree"],
+                        "description": "Execution workspace for `new_session`. `project` runs in the Project directory (default on create); `fresh_worktree` creates a clean managed Worktree for each run; `persistent_worktree` reuses one task-owned Worktree. Worktree modes require project_id. On update, omit to keep the current mode. A running task or unresolved Persistent Worktree blocks Project/mode/base-ref changes. Omit for current/existing-session targets, which follow the chat's live workspace."
+                    },
+                    "workspace_cleanup": {
+                        "type": "string",
+                        "enum": ["retain", "discard_if_clean", "always"],
+                        "description": "What happens to a Fresh Worktree after each run. `retain` (default) keeps every run's Worktree until the user removes it. `discard_if_clean` removes it only when the run left no changes and no new commits — safe for checks and read-only analysis that would otherwise pile up one checkout per run. `always` removes it unconditionally; only for tasks whose real output goes out through delivery. Valid only with workspace_mode=fresh_worktree."
+                    },
+                    "workspace_base_ref": {
+                        "type": ["string", "null"],
+                        "description": "Committed Git ref used when creating a Fresh Worktree or the first Persistent Worktree. Omit on update to keep it; pass null or an empty string to use the Project's HEAD at creation time. Invalid for workspace_mode=project."
                     },
                     "max_failures": {
                         "type": "integer",
@@ -2657,6 +2747,87 @@ mod tests {
                 "manage_cron schema must not expose '{forbidden}' — these overrides are owner-plane only"
             );
         }
+    }
+
+    #[test]
+    fn manage_cron_schema_exposes_managed_worktree_configuration() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_MANAGE_CRON)
+            .expect("manage_cron schema");
+        let properties = &tool.parameters["properties"];
+
+        assert_eq!(
+            properties["workspace_mode"]["enum"],
+            serde_json::json!(["project", "fresh_worktree", "persistent_worktree"])
+        );
+        assert_eq!(
+            properties["workspace_base_ref"]["type"],
+            serde_json::json!(["string", "null"])
+        );
+        assert!(properties["action"]["enum"]
+            .as_array()
+            .expect("action enum")
+            .iter()
+            .any(|value| value == "workspace_status"));
+        // Retention stays the default, and opting out is an explicit per-task
+        // policy rather than something the runtime decides on its own.
+        assert!(tool
+            .description
+            .contains("retained after its run by default"));
+        assert_eq!(
+            properties["workspace_cleanup"]["enum"],
+            serde_json::json!(["retain", "discard_if_clean", "always"])
+        );
+        assert!(tool
+            .description
+            .contains("set `workspace_cleanup` when a task should clean up after itself"));
+    }
+
+    #[test]
+    fn manage_cron_schema_exposes_run_history_and_exact_cancel() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_MANAGE_CRON)
+            .expect("manage_cron schema");
+        let properties = &tool.parameters["properties"];
+        let actions = properties["action"]["enum"]
+            .as_array()
+            .expect("action enum")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+
+        // Cancelling one occurrence must stay distinct from pausing the task.
+        assert!(actions.contains(&"runs"));
+        assert!(actions.contains(&"cancel_run"));
+        assert_eq!(properties["limit"]["type"], "integer");
+        assert_eq!(properties["run_log_id"]["type"], "integer");
+        assert!(tool.description.contains("action='runs'"));
+        assert!(tool.description.contains("action='cancel_run'"));
+    }
+
+    #[test]
+    fn manage_cron_schema_exposes_existing_session_targets() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_MANAGE_CRON)
+            .expect("manage_cron schema");
+        let properties = &tool.parameters["properties"];
+
+        assert_eq!(
+            properties["conversation_target"]["enum"],
+            serde_json::json!(["new_session", "current_session", "existing_session"])
+        );
+        assert_eq!(properties["target_session_id"]["type"], "string");
+        assert!(properties.get("session_id").is_none());
+        assert!(tool
+            .description
+            .contains("conversation_target='current_session'"));
+        assert!(tool
+            .description
+            .contains("conversation_target='existing_session'"));
+        assert!(tool.description.contains("sessions_list"));
     }
 
     #[test]

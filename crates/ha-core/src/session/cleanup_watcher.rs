@@ -132,6 +132,9 @@ async fn cleanup_session(
     descendant_session_ids: Vec<String>,
     im_chat: Option<(String, String)>,
 ) {
+    crate::session_title::cancel_generation(session_id);
+    crate::memory_extract::cancel_idle_extraction(session_id);
+    crate::memory_extract::cancel_active_extractions(session_id);
     crate::ask_user::cancel_owner_question_timeouts_for_session(session_id);
     crate::ask_user::cancel_pending_ask_user_questions_for_session(session_id, "session_deleted")
         .await;
@@ -177,6 +180,9 @@ async fn cleanup_session(
     // it owns, so deleting the parent doesn't strand an orphan approval dialog
     // (or a child-session job) with no way to resolve it.
     for child_sid in &descendant_session_ids {
+        crate::session_title::cancel_generation(child_sid);
+        crate::memory_extract::cancel_idle_extraction(child_sid);
+        crate::memory_extract::cancel_active_extractions(child_sid);
         crate::ask_user::cancel_owner_question_timeouts_for_session(child_sid);
         crate::ask_user::cancel_pending_ask_user_questions_for_session(
             child_sid,
@@ -205,9 +211,11 @@ async fn cleanup_session(
     // A-9: clear per-session allowlist rules so they don't linger (INCOG-7).
     crate::permission::allowlist::clear_session_rules(session_id);
     crate::agent::purge_incognito_tool_activations(session_id);
+    cleanup_incognito_tier3_recovery(session_id, is_purge);
     crate::memory::core_repository::invalidate_session_snapshot(session_id);
     crate::agent::token_manifest::invalidate_round_context(session_id);
     for child_sid in &descendant_session_ids {
+        cleanup_incognito_tier3_recovery(child_sid, is_purge);
         crate::memory::core_repository::invalidate_session_snapshot(child_sid);
         crate::agent::token_manifest::invalidate_round_context(child_sid);
     }
@@ -347,5 +355,47 @@ async fn cleanup_session(
             cancelled_processes,
             denied
         );
+    }
+}
+
+/// Drop an in-memory Tier 3 recovery marker for any removed session, but only
+/// burn its identity when this is an incognito close-and-burn purge. Ordinary
+/// durable session deletion cannot race a late incognito writer and must not
+/// consume the bounded tombstone capacity reserved for that privacy fence.
+fn cleanup_incognito_tier3_recovery(session_id: &str, is_purge: bool) {
+    if is_purge {
+        crate::session::purge_incognito_tier3_recovery(session_id);
+    } else {
+        crate::session::clear_incognito_tier3_recovery(session_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cleanup_incognito_tier3_recovery;
+
+    #[test]
+    fn ordinary_delete_clears_recovery_without_burning_incognito_capacity() {
+        let session_id = format!("ordinary-delete-{}", uuid::Uuid::new_v4());
+
+        crate::session::require_incognito_tier3_recovery(&session_id);
+        cleanup_incognito_tier3_recovery(&session_id, false);
+        assert!(crate::session::incognito_tier3_recovery_requirement(&session_id).is_none());
+
+        crate::session::require_incognito_tier3_recovery(&session_id);
+        assert!(crate::session::incognito_tier3_recovery_requirement(&session_id).is_some());
+        crate::session::clear_incognito_tier3_recovery(&session_id);
+    }
+
+    #[test]
+    fn incognito_purge_burns_recovery_identity() {
+        let session_id = format!("incognito-purge-{}", uuid::Uuid::new_v4());
+
+        crate::session::require_incognito_tier3_recovery(&session_id);
+        cleanup_incognito_tier3_recovery(&session_id, true);
+        assert!(crate::session::incognito_tier3_recovery_requirement(&session_id).is_none());
+
+        crate::session::require_incognito_tier3_recovery(&session_id);
+        assert!(crate::session::incognito_tier3_recovery_requirement(&session_id).is_none());
     }
 }

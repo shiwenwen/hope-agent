@@ -824,6 +824,7 @@ export function parseSessionMessages(
       let subagentResultAgentId: string | undefined
       let isCronTrigger = false
       let cronJobName: string | undefined
+      let cronJobId: string | undefined
       let isWakeupTrigger = false
       let isLoopTrigger = false
       let isProcessNotification = false
@@ -848,6 +849,7 @@ export function parseSessionMessages(
           if (meta?.cron_trigger) {
             isCronTrigger = true
             cronJobName = meta.cron_trigger.job_name
+            cronJobId = meta.cron_trigger.job_id
           }
           if (meta?.wakeup_trigger) {
             isWakeupTrigger = true
@@ -913,6 +915,7 @@ export function parseSessionMessages(
         subagentResultAgentId,
         isCronTrigger,
         cronJobName,
+        cronJobId,
         isWakeupTrigger,
         isLoopTrigger,
         isProcessNotification,

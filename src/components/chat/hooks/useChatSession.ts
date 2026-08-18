@@ -562,6 +562,14 @@ export function useChatSession({
     })
   }, [reloadAgents])
 
+  // Session creators outside ChatScreen (for example scheduled agent turns)
+  // invalidate the same ordinary sidebar projection.
+  useEffect(() => {
+    return getTransport().listen("session:list_changed", () => {
+      void reloadSessions()
+    })
+  }, [reloadSessions])
+
   // Durable assistant appends and every read-state mutation emit this event.
   // Debounce bursts from multi-round/background work and re-query instead of
   // trusting an event payload that may already be stale.

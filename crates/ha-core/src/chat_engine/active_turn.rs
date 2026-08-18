@@ -48,6 +48,7 @@ struct Entry {
     cancel: Arc<AtomicBool>,
     persistence_state: Arc<AtomicU8>,
     accepting_insertions: bool,
+    completion_sealed: bool,
 }
 
 const PERSISTENCE_PENDING: u8 = 0;
@@ -112,19 +113,76 @@ pub struct ActiveTurnGuard {
 }
 
 impl ActiveTurnGuard {
-    pub fn release(&mut self) {
+    fn remove_entry(&mut self, expected_turn_id: Option<&str>) -> bool {
         if self.released {
-            return;
+            return false;
         }
-        let mut map = registry_lock();
-        if map
-            .get(&self.session_id)
-            .map(|entry| entry.token.as_str() == self.token)
-            .unwrap_or(false)
-        {
-            map.remove(&self.session_id);
-        }
+        let removed = {
+            let mut map = registry_lock();
+            let matches = map
+                .get(&self.session_id)
+                .map(|entry| {
+                    entry.token.as_str() == self.token
+                        && expected_turn_id.is_none_or(|turn_id| entry.turn_id == turn_id)
+                })
+                .unwrap_or(false);
+            if matches {
+                map.remove(&self.session_id);
+            }
+            matches
+        };
         self.released = true;
+        removed
+    }
+
+    /// Release admission silently.
+    ///
+    /// Generic Drop paths use this because an abnormal engine/future drop may
+    /// still need durable recovery before a queued turn can safely retry.
+    pub fn release(&mut self) {
+        let _ = self.remove_entry(None);
+    }
+
+    /// Release this guard only when it still owns `expected_turn_id`, then
+    /// notify durable queue consumers that admission is genuinely available.
+    ///
+    /// This is intentionally explicit rather than part of [`Drop`]. Callers
+    /// must first prove the exact ChatTurn reached durable terminal state.
+    pub fn release_exact_and_notify(mut self, expected_turn_id: &str) -> bool {
+        let removed = self.remove_entry(Some(expected_turn_id));
+        if removed {
+            crate::session::emit_turn_released(&self.session_id);
+        }
+        removed
+    }
+
+    /// Transfer release ownership to exact durable-stream recovery.
+    ///
+    /// The caller must first drop the engine future so its `StreamLifecycle`
+    /// schedules recovery. The recovery path terminalizes the same `turn_id`
+    /// and calls [`force_release`]; keeping the registry entry until then closes
+    /// the replacement-turn window over journal convergence.
+    pub fn handoff_to_recovery(mut self) {
+        self.released = true;
+    }
+
+    /// Linearize post-model completion with exact Stop while retaining this
+    /// admission for durable recovery. A Stop that acquired the registry first
+    /// has already set `cancel` and wins; after this seal, exact Stop must report
+    /// that the turn crossed its cancellation point without flipping the flag.
+    pub fn seal_completion(&self, expected_turn_id: &str) -> bool {
+        let mut map = registry_lock();
+        let Some(entry) = map.get_mut(&self.session_id) else {
+            return false;
+        };
+        if entry.token != self.token || entry.turn_id != expected_turn_id {
+            return false;
+        }
+        if entry.cancel.load(Ordering::SeqCst) {
+            return false;
+        }
+        entry.completion_sealed = true;
+        true
     }
 }
 
@@ -252,13 +310,87 @@ pub fn stop_cleanup_active(session_id: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForegroundRequestAdmission {
     global_stop_generation: u64,
+    durable_stop_admission: Option<crate::session::ForegroundStopAdmission>,
 }
 
 /// Capture at the transport entry point, before its first await.
 pub fn begin_foreground_request() -> ForegroundRequestAdmission {
     ForegroundRequestAdmission {
         global_stop_generation: GLOBAL_STOP_GENERATION.load(Ordering::SeqCst),
+        durable_stop_admission: None,
     }
+}
+
+/// Capture both the process-local cleanup generation and the shared SQLite
+/// Stop generations before a transport performs any asynchronous staging.
+pub fn begin_durable_foreground_request(
+    db: &crate::session::SessionDB,
+    session_id: Option<&str>,
+) -> anyhow::Result<ForegroundRequestAdmission> {
+    Ok(ForegroundRequestAdmission {
+        global_stop_generation: GLOBAL_STOP_GENERATION.load(Ordering::SeqCst),
+        durable_stop_admission: Some(db.foreground_stop_admission(session_id)?),
+    })
+}
+
+impl ForegroundRequestAdmission {
+    pub fn durable_stop_admission(self) -> Option<crate::session::ForegroundStopAdmission> {
+        self.durable_stop_admission
+    }
+}
+
+fn validate_foreground_request_locked(
+    admission: ForegroundRequestAdmission,
+    session_id: &str,
+    source: ChatSource,
+    client_request_id: Option<&str>,
+) -> Result<(), ActiveTurnError> {
+    let global_stop = admission.global_stop_generation
+        != GLOBAL_STOP_GENERATION.load(Ordering::SeqCst)
+        || !global_stop_cleanups()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty();
+    let session_stop = stop_cleanups()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(session_id)
+        .is_some_and(|tokens| !tokens.is_empty());
+    let client_stop = client_request_id.is_some_and(|request_id| {
+        let mut pending = pending_client_cancels()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let matches = pending
+            .get(request_id)
+            .is_some_and(|expected| expected.as_deref().is_none_or(|value| value == session_id));
+        if matches {
+            pending.remove(request_id);
+        }
+        matches
+    });
+    if global_stop || session_stop || client_stop {
+        return Err(ActiveTurnError {
+            session_id: session_id.to_string(),
+            existing_source: source,
+            cancelled_by_global_stop: global_stop,
+        });
+    }
+    Ok(())
+}
+
+/// Validate the captured Stop generation and commit a durable queued request
+/// under the same foreground gate. Stop therefore either wins before this
+/// closure starts, or observes the committed request in its later snapshot.
+pub fn with_validated_foreground_request<T>(
+    admission: ForegroundRequestAdmission,
+    session_id: &str,
+    source: ChatSource,
+    client_request_id: Option<&str>,
+    commit: impl FnOnce(Option<crate::session::ForegroundStopAdmission>) -> anyhow::Result<T>,
+) -> Result<anyhow::Result<T>, ActiveTurnError> {
+    let _map = registry_lock();
+    validate_foreground_request_locked(admission, session_id, source, client_request_id)?;
+    Ok(commit(admission.durable_stop_admission))
 }
 
 pub fn try_acquire(
@@ -386,6 +518,7 @@ fn try_acquire_inner(
             cancel,
             persistence_state,
             accepting_insertions: true,
+            completion_sealed: false,
         },
     );
     Ok(ActiveTurnGuard {
@@ -455,6 +588,7 @@ pub fn current_for_client_request(client_request_id: &str) -> Option<ActiveTurnS
 #[derive(Debug, Clone)]
 pub enum ActiveTurnCancelOutcome {
     Cancelled(ActiveTurnSnapshot),
+    CompletionSealed,
     NotFound,
     TurnMismatch,
 }
@@ -471,6 +605,9 @@ pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> Activ
     };
     if expected_turn_id.is_some_and(|expected| expected != entry.turn_id) {
         return ActiveTurnCancelOutcome::TurnMismatch;
+    }
+    if entry.completion_sealed {
+        return ActiveTurnCancelOutcome::CompletionSealed;
     }
     entry.cancel.store(true, Ordering::SeqCst);
     let _ = entry.persistence_state.compare_exchange(
@@ -492,7 +629,10 @@ pub fn cancel_current(session_id: &str, expected_turn_id: Option<&str>) -> Activ
 pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
     let map = registry_lock();
     map.iter()
-        .map(|(session_id, entry)| {
+        .filter_map(|(session_id, entry)| {
+            if entry.completion_sealed {
+                return None;
+            }
             entry.cancel.store(true, Ordering::SeqCst);
             let _ = entry.persistence_state.compare_exchange(
                 PERSISTENCE_PENDING,
@@ -500,13 +640,13 @@ pub fn cancel_all_current() -> Vec<ActiveTurnSnapshot> {
                 Ordering::SeqCst,
                 Ordering::SeqCst,
             );
-            ActiveTurnSnapshot {
+            Some(ActiveTurnSnapshot {
                 session_id: session_id.clone(),
                 turn_id: entry.turn_id.clone(),
                 stream_id: entry.stream_id.clone(),
                 source: entry.source,
                 cancel: Arc::clone(&entry.cancel),
-            }
+            })
         })
         .collect()
 }
@@ -607,7 +747,7 @@ pub fn with_insertion_target<T>(
     with_insertion_target_for(session_id, turn_id, operation, |source| {
         matches!(
             source,
-            ChatSource::Desktop | ChatSource::Http | ChatSource::SessionTool
+            ChatSource::Desktop | ChatSource::Http | ChatSource::SessionTool | ChatSource::Cron
         )
     })
 }
@@ -773,15 +913,21 @@ pub fn all_current_turn_ids() -> Vec<String> {
 /// persistent state. The turn id guard prevents an old watchdog from clearing
 /// a newer turn that started in the same session.
 pub fn force_release(session_id: &str, turn_id: &str) -> bool {
-    let mut map = registry_lock();
-    let matches = map
-        .get(session_id)
-        .map(|entry| entry.turn_id == turn_id)
-        .unwrap_or(false);
-    if matches {
-        map.remove(session_id);
+    let removed = {
+        let mut map = registry_lock();
+        let matches = map
+            .get(session_id)
+            .map(|entry| entry.turn_id == turn_id)
+            .unwrap_or(false);
+        if matches {
+            map.remove(session_id);
+        }
+        matches
+    };
+    if removed {
+        crate::session::emit_turn_released(session_id);
     }
-    matches
+    removed
 }
 
 /// Clear all in-memory active turn entries.
@@ -1171,6 +1317,28 @@ mod tests {
     }
 
     #[test]
+    fn recovery_handoff_retains_exact_turn_until_force_release() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-recovery-handoff";
+        let guard = try_acquire(
+            sid,
+            ChatSource::Cron,
+            "turn-recovery".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        guard.handoff_to_recovery();
+        assert_eq!(
+            current(sid).map(|active| active.turn_id),
+            Some("turn-recovery".to_string())
+        );
+        assert!(!force_release(sid, "other-turn"));
+        assert!(force_release(sid, "turn-recovery"));
+        assert!(current(sid).is_none());
+    }
+
+    #[test]
     fn stop_cleanup_gate_blocks_only_until_old_snapshot_finishes() {
         let _lock = test_lock();
         let sid = "test-active-turn-stop-cleanup-gate";
@@ -1293,6 +1461,43 @@ mod tests {
     }
 
     #[test]
+    fn completion_seal_linearizes_with_exact_stop() {
+        let _lock = test_lock();
+        let sealed_sid = "test-active-turn-completion-sealed";
+        let sealed_cancel = Arc::new(AtomicBool::new(false));
+        let sealed_guard = try_acquire(
+            sealed_sid,
+            ChatSource::Cron,
+            "turn-completion-sealed".to_string(),
+            sealed_cancel.clone(),
+        )
+        .unwrap();
+        assert!(sealed_guard.seal_completion("turn-completion-sealed"));
+        assert!(matches!(
+            cancel_current(sealed_sid, Some("turn-completion-sealed")),
+            ActiveTurnCancelOutcome::CompletionSealed
+        ));
+        assert!(!sealed_cancel.load(Ordering::SeqCst));
+        drop(sealed_guard);
+
+        let cancelled_sid = "test-active-turn-stop-before-completion";
+        let cancelled_flag = Arc::new(AtomicBool::new(false));
+        let cancelled_guard = try_acquire(
+            cancelled_sid,
+            ChatSource::Cron,
+            "turn-stop-before-completion".to_string(),
+            cancelled_flag.clone(),
+        )
+        .unwrap();
+        assert!(matches!(
+            cancel_current(cancelled_sid, Some("turn-stop-before-completion")),
+            ActiveTurnCancelOutcome::Cancelled(_)
+        ));
+        assert!(!cancelled_guard.seal_completion("turn-stop-before-completion"));
+        assert!(cancelled_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
     fn persistence_does_not_hold_registry_mutex_during_slow_io() {
         let _lock = test_lock();
         let sid = "test-active-turn-persistence-nonblocking";
@@ -1369,6 +1574,23 @@ mod tests {
             assert!(
                 with_channel_insertion_target(desktop_sid, "desktop-turn", || "channel").is_err()
             );
+        }
+
+        let cron_sid = "test-active-turn-cron-insertion-domain";
+        {
+            let _guard = try_acquire(
+                cron_sid,
+                ChatSource::Cron,
+                "cron-turn".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+
+            assert_eq!(
+                with_insertion_target(cron_sid, "cron-turn", || "owner"),
+                Ok("owner")
+            );
+            assert!(with_channel_insertion_target(cron_sid, "cron-turn", || "channel").is_err());
         }
 
         let channel_sid = "test-active-turn-channel-insertion-domain";

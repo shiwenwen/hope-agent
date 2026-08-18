@@ -8,15 +8,20 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use chrono::{DateTime, SecondsFormat, Utc};
 use ha_eval_spec::app::{
-    validate_app_control_envelope, AppControlCommand, AppControlEnvelope, AppControlEvent,
-    AppControlHello, EvalAppPlan, APP_CONTROL_PROTOCOL_VERSION,
+    deterministic_campaign_id, deterministic_trial_id, validate_app_control_envelope,
+    validate_app_deterministic_evidence, AppControlCommand, AppControlEnvelope, AppControlEvent,
+    AppControlHello, AppDeterministicEvidence, EvalAppPlan, APP_CONTROL_PROTOCOL_VERSION,
+    APP_DETERMINISTIC_EVIDENCE_SCHEMA_VERSION,
 };
-use ha_eval_spec::model::{reject_embedded_secrets, CampaignBudget, ModelShardResult};
-use ha_eval_spec::{digest_file, read_json, stable_shard, write_json};
+use ha_eval_spec::model::{
+    reject_embedded_secrets, CampaignBudget, ModelCampaignOutcome, ModelShardResult,
+};
+use ha_eval_spec::{digest_file, read_json, stable_shard, write_json, CaseResult, EvalStatus};
 use rand::RngCore;
 use serde::Deserialize;
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -619,11 +624,13 @@ struct AppShardJob {
     shard_total: u16,
     output: PathBuf,
     trial_ids: Vec<String>,
+    agent_budget: Option<u32>,
 }
 
 struct AppShardCompletion {
     output: PathBuf,
     status: Option<ExitStatus>,
+    stderr_tail: Vec<u8>,
     trial_ids: Vec<String>,
 }
 
@@ -694,16 +701,33 @@ async fn emit_live_trial_progress(
     events: &mpsc::UnboundedSender<AppControlEvent>,
 ) {
     for trial_id in candidate_trial_ids {
-        let response = match client
-            .get(format!("{server_url}/api/eval/model/trials/{trial_id}"))
-            .bearer_auth(server_token)
-            .send()
-            .await
-        {
-            Ok(response) if response.status().is_success() => response,
-            _ => continue,
-        };
-        let Ok(snapshot) = response.json::<LiveTelemetrySnapshot>().await else {
+        // Product telemetry is attempt-scoped so a retry never collides with
+        // the previous attempt's still-closing Session graph. Prefer the
+        // newest attempt and retain the legacy stable ID as a compatibility
+        // fallback for older sidecars.
+        let mut snapshot = None;
+        for product_trial_id in [
+            format!("{trial_id}-attempt-2"),
+            format!("{trial_id}-attempt-1"),
+            trial_id.clone(),
+        ] {
+            let response = match client
+                .get(format!(
+                    "{server_url}/api/eval/model/trials/{product_trial_id}"
+                ))
+                .bearer_auth(server_token)
+                .send()
+                .await
+            {
+                Ok(response) if response.status().is_success() => response,
+                _ => continue,
+            };
+            if let Ok(value) = response.json::<LiveTelemetrySnapshot>().await {
+                snapshot = Some(value);
+                break;
+            }
+        }
+        let Some(snapshot) = snapshot else {
             continue;
         };
         if started_trial_ids.insert(trial_id.clone()) {
@@ -792,6 +816,53 @@ fn emit_budget_warnings(
     }
 }
 
+fn deterministic_outcome(status: EvalStatus) -> ModelCampaignOutcome {
+    match status {
+        EvalStatus::Passed => ModelCampaignOutcome::Passed,
+        EvalStatus::Failed => ModelCampaignOutcome::TaskFailed,
+        EvalStatus::InfraError => ModelCampaignOutcome::InfraError,
+    }
+}
+
+fn deterministic_aggregate(cases: &[CaseResult]) -> EvalStatus {
+    if cases.iter().any(|case| case.status == EvalStatus::Failed) {
+        EvalStatus::Failed
+    } else if cases
+        .iter()
+        .any(|case| case.status == EvalStatus::InfraError)
+    {
+        EvalStatus::InfraError
+    } else {
+        EvalStatus::Passed
+    }
+}
+
+fn experiment_phase_total_from_counts(
+    deterministic_suite_count: usize,
+    active_campaign_shard_jobs: impl IntoIterator<Item = u32>,
+) -> Result<u32> {
+    let deterministic = u32::try_from(deterministic_suite_count)?;
+    active_campaign_shard_jobs
+        .into_iter()
+        .try_fold(deterministic, |total, active_shards| {
+            let campaign_phases = active_shards
+                .checked_add(1)
+                .ok_or_else(|| anyhow!("App campaign phase count overflow"))?;
+            total
+                .checked_add(campaign_phases)
+                .ok_or_else(|| anyhow!("App experiment phase count overflow"))
+        })
+}
+
+fn experiment_phase_total(plan: &EvalAppPlan) -> Result<u32> {
+    experiment_phase_total_from_counts(
+        plan.deterministic_suites.len(),
+        plan.campaigns
+            .iter()
+            .map(|campaign| super::model::active_model_shard_job_count(&campaign.resolved_plan)),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_experiment(
     root: &Path,
@@ -806,6 +877,143 @@ async fn run_experiment(
     let experiment_root = prepare_experiment_root(&output_root, &plan.experiment_id)?;
     let app_plan_path = experiment_root.join("eval-app-plan.v1.json");
     write_json(&app_plan_path, &plan)?;
+
+    let deterministic_trial_count = plan
+        .deterministic_suites
+        .iter()
+        .map(|suite| suite.cases.len())
+        .sum::<usize>();
+    let live_trial_count = plan
+        .campaigns
+        .iter()
+        .map(|campaign| campaign.resolved_plan.trials.len())
+        .sum::<usize>();
+    let total_trials = u32::try_from(deterministic_trial_count + live_trial_count)?;
+    let total = experiment_phase_total(&plan)?;
+    let mut completed = 0u32;
+    let mut completed_trials = 0u32;
+    let mut evidence_paths = Vec::new();
+
+    // The deterministic safety track is an admission gate for the paid track.
+    // It executes in-process, with no product server and no Provider secrets,
+    // so a contract regression cannot spend model budget before being noticed.
+    for suite in &plan.deterministic_suites {
+        if *cancel.borrow() {
+            return Ok(RunCompletion::Cancelled);
+        }
+        let campaign_id = deterministic_campaign_id(suite);
+        let suite_started = Utc::now();
+        let suite_timer = Instant::now();
+        let mut cases = Vec::with_capacity(suite.cases.len());
+        for case in &suite.cases {
+            if *cancel.borrow() {
+                return Ok(RunCompletion::Cancelled);
+            }
+            let trial_id = deterministic_trial_id(&case.id);
+            let _ = events.send(AppControlEvent::TrialStarted {
+                experiment_id: plan.experiment_id.clone(),
+                campaign_id: campaign_id.clone(),
+                trial_id: trial_id.clone(),
+                completed: completed_trials,
+                total: total_trials,
+            });
+            let case_timer = Instant::now();
+            let mut result = match crate::adapters::run_context_compaction(suite, case) {
+                Ok(result) => result,
+                Err(error) => CaseResult {
+                    suite_id: suite.id.clone(),
+                    case_id: case.id.clone(),
+                    case_digest: case.digest.clone(),
+                    status: EvalStatus::InfraError,
+                    duration_ms: 0,
+                    attempt: 1,
+                    checks: Vec::new(),
+                    error: Some(safe_error(&error)),
+                },
+            };
+            result.duration_ms = u64::try_from(case_timer.elapsed().as_millis())?;
+            result.attempt = 1;
+            completed_trials = completed_trials.saturating_add(1);
+            let outcome = deterministic_outcome(result.status);
+            let failure_class = match result.status {
+                EvalStatus::Passed => None,
+                EvalStatus::Failed => Some("deterministic_contract_failed".to_string()),
+                EvalStatus::InfraError => Some("deterministic_infrastructure_error".to_string()),
+            };
+            let _ = events.send(AppControlEvent::TrialCompleted {
+                experiment_id: plan.experiment_id.clone(),
+                campaign_id: campaign_id.clone(),
+                trial_id,
+                completed: completed_trials,
+                total: total_trials,
+                outcome,
+                wall_ms: result.duration_ms,
+                input_tokens: None,
+                output_tokens: None,
+                cost_usd: Some(0.0),
+                model_calls: 0,
+                tool_calls: 0,
+                suite_id: suite.id.clone(),
+                case_id: case.id.clone(),
+                arm: "deterministic".to_string(),
+                attempt: 1,
+                failure_class,
+            });
+            cases.push(result);
+        }
+        let aggregate_status = deterministic_aggregate(&cases);
+        let evidence = AppDeterministicEvidence {
+            schema_version: APP_DETERMINISTIC_EVIDENCE_SCHEMA_VERSION.to_string(),
+            experiment_id: plan.experiment_id.clone(),
+            campaign_id: campaign_id.clone(),
+            profile_id: plan.profile_id.clone(),
+            reference: plan.reference.clone(),
+            dirty: plan.dirty,
+            app_version: plan.app_version.clone(),
+            aggregate_status,
+            started_at: suite_started.to_rfc3339_opts(SecondsFormat::Millis, true),
+            completed_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            duration_ms: u64::try_from(suite_timer.elapsed().as_millis())?,
+            suite: suite.clone(),
+            cases,
+        };
+        validate_app_deterministic_evidence(&evidence)?;
+        let evidence_path = experiment_root
+            .join("deterministic")
+            .join(&suite.id)
+            .join("eval-app-deterministic-evidence.v1.json");
+        if let Some(parent) = evidence_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        write_json(&evidence_path, &evidence)?;
+        let evidence_path_text = evidence_path.to_string_lossy().to_string();
+        evidence_paths.push(evidence_path_text.clone());
+        let _ = events.send(AppControlEvent::ArtifactWritten {
+            experiment_id: plan.experiment_id.clone(),
+            campaign_id: campaign_id.clone(),
+            path: evidence_path_text.clone(),
+            sha256: digest_file(&evidence_path)?,
+        });
+        let _ = events.send(AppControlEvent::DeterministicCampaignCompleted {
+            experiment_id: plan.experiment_id.clone(),
+            campaign_id,
+            evidence_path: evidence_path_text,
+        });
+        completed = completed.saturating_add(1);
+        let _ = events.send(AppControlEvent::Phase {
+            experiment_id: plan.experiment_id.clone(),
+            phase: "deterministic_safety".to_string(),
+            completed,
+            total,
+        });
+        if aggregate_status != EvalStatus::Passed {
+            bail!(
+                "deterministic safety suite {} failed; paid model scenarios were not started",
+                suite.id
+            );
+        }
+    }
+
     let data_dir = experiment_root.join("runtime/data");
     let home_dir = experiment_root.join("runtime/home");
     let workspace = experiment_root.join("runtime/workspace");
@@ -866,32 +1074,23 @@ async fn run_experiment(
         .context("building App live telemetry client")?;
     let mut started_trial_ids = BTreeSet::new();
 
-    let total = plan
-        .campaigns
-        .iter()
-        .flat_map(|campaign| &campaign.resolved_plan.suites)
-        .map(|suite| u32::from(suite.shards) + 1)
-        .sum::<u32>();
-    let mut completed = 0u32;
-    let total_trials = u32::try_from(
-        plan.campaigns
-            .iter()
-            .map(|campaign| campaign.resolved_plan.trials.len())
-            .sum::<usize>(),
-    )?;
-    let mut completed_trials = 0u32;
     let mut observed_model_calls = 0u64;
     let mut observed_input_tokens = 0u64;
     let mut observed_output_tokens = 0u64;
     let mut observed_tool_calls = 0u64;
     let mut observed_cost_usd = 0.0f64;
     let mut budget_warnings = BTreeSet::new();
-    let mut evidence_paths = Vec::new();
-    let max_parallel_trials = plan
-        .campaign_budget
-        .max_concurrency
-        .unwrap_or(1)
-        .clamp(1, ha_eval_spec::app::APP_MAX_CONCURRENCY) as usize;
+    let max_parallel_trials = match plan.budget_enforcement {
+        ha_eval_spec::app::AppBudgetEnforcement::Enforced => {
+            plan.campaign_budget
+                .max_concurrency
+                .unwrap_or(1)
+                .clamp(1, ha_eval_spec::app::APP_MAX_CONCURRENCY) as usize
+        }
+        ha_eval_spec::app::AppBudgetEnforcement::Unlimited => {
+            total_trials.clamp(1, ha_eval_spec::app::APP_MAX_CONCURRENCY) as usize
+        }
+    };
     for campaign in &plan.campaigns {
         let campaign_root = experiment_root
             .join("campaigns")
@@ -900,6 +1099,20 @@ async fn run_experiment(
         let child_plan_path = campaign_root.join("model-campaign-plan.v1.json");
         write_json(&child_plan_path, &campaign.resolved_plan)?;
         let mut pending_shards = VecDeque::new();
+        let shard_job_count = super::model::active_model_shard_job_count(&campaign.resolved_plan);
+        let campaign_agents = match plan.budget_enforcement {
+            ha_eval_spec::app::AppBudgetEnforcement::Enforced => Some(
+                campaign
+                    .resolved_plan
+                    .campaign_budget
+                    .max_agents
+                    .ok_or_else(|| anyhow!("enforced App campaign has no Agent budget"))?,
+            ),
+            ha_eval_spec::app::AppBudgetEnforcement::Unlimited => None,
+        };
+        if campaign_agents.is_some_and(|agents| agents < shard_job_count) {
+            bail!("App campaign Agent budget cannot cover its {shard_job_count} model shard jobs");
+        }
         for suite in &campaign.resolved_plan.suites {
             for shard in 1..=suite.shards {
                 let shard_path = campaign_root
@@ -915,6 +1128,9 @@ async fn run_experiment(
                     })
                     .map(|trial| trial.id.clone())
                     .collect::<Vec<_>>();
+                if trial_ids.is_empty() {
+                    continue;
+                }
                 pending_shards.push_back(AppShardJob {
                     suite_id: suite.id.clone(),
                     network_policy: suite.network_policy,
@@ -922,8 +1138,16 @@ async fn run_experiment(
                     shard_total: suite.shards,
                     output: shard_path,
                     trial_ids,
+                    agent_budget: None,
                 });
             }
+        }
+        for (shard_job_index, job) in pending_shards.iter_mut().enumerate() {
+            job.agent_budget = campaign_agents.map(|agents| {
+                let base = agents / shard_job_count.max(1);
+                let remainder = agents % shard_job_count.max(1);
+                base + u32::from((shard_job_index as u32) < remainder)
+            });
         }
         let mut running = tokio::task::JoinSet::new();
         let mut shard_paths = Vec::new();
@@ -981,14 +1205,21 @@ async fn run_experiment(
                     .env("HA_MODEL_EVAL_WORKSPACE", &workspace)
                     .env(PARENT_PID_ENV, std::process::id().to_string())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::inherit())
+                    .stderr(Stdio::piped())
                     .stdin(Stdio::null());
+                if let Some(agent_budget) = job.agent_budget {
+                    command.env(
+                        "HA_MODEL_EVAL_APP_SHARD_AGENT_BUDGET",
+                        agent_budget.to_string(),
+                    );
+                }
                 let mut job_cancel = cancel.clone();
                 running.spawn(async move {
-                    let status = run_cancellable(command, &mut job_cancel).await?;
+                    let output = run_cancellable_capturing_stderr(command, &mut job_cancel).await?;
                     Ok::<_, anyhow::Error>(AppShardCompletion {
                         output: job.output,
-                        status,
+                        status: output.status,
+                        stderr_tail: output.stderr_tail,
                         trial_ids: job.trial_ids,
                     })
                 });
@@ -1042,7 +1273,12 @@ async fn run_experiment(
                 running.abort_all();
                 while running.join_next().await.is_some() {}
                 supervisor.terminate(Duration::from_secs(10)).await;
-                bail!("model suite shard failed before producing evidence (status={status})");
+                let detail = safe_child_stderr_detail(&completion.stderr_tail)
+                    .map(|value| format!("; detail={value}"))
+                    .unwrap_or_default();
+                bail!(
+                    "model suite shard failed before producing evidence (status={status}){detail}"
+                );
             }
             let shard_result: ModelShardResult = read_json(&completion.output)?;
             for trial in &shard_result.trials {
@@ -1297,6 +1533,115 @@ async fn run_cancellable(
     }
 }
 
+struct CapturedChildOutput {
+    status: Option<ExitStatus>,
+    stderr_tail: Vec<u8>,
+}
+
+async fn run_cancellable_capturing_stderr(
+    command: Command,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<CapturedChildOutput> {
+    const STDERR_TAIL_BYTES: usize = 8 * 1024;
+
+    let mut child = ChildTree::spawn(command)?;
+    let stderr = child
+        .child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("evaluation child stderr was not piped"))?;
+    let reader = std::thread::spawn(move || {
+        let mut stderr = stderr;
+        let mut tail = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            let read = match stderr.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => read,
+            };
+            tail.extend_from_slice(&chunk[..read]);
+            if tail.len() > STDERR_TAIL_BYTES {
+                tail.drain(..tail.len() - STDERR_TAIL_BYTES);
+            }
+        }
+        tail
+    });
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if *cancel.borrow() {
+            child.terminate(Duration::from_secs(10)).await;
+            break None;
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+            changed = cancel.changed() => {
+                if changed.is_ok() && *cancel.borrow() {
+                    child.terminate(Duration::from_secs(10)).await;
+                    break None;
+                }
+            }
+        }
+    };
+    let stderr_tail = reader
+        .join()
+        .map_err(|_| anyhow!("joining evaluation child stderr reader failed"))?;
+    Ok(CapturedChildOutput {
+        status,
+        stderr_tail,
+    })
+}
+
+fn safe_child_stderr_detail(stderr: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(stderr);
+    let line = text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())?
+        .trim();
+    let lower = line.to_ascii_lowercase();
+    if [
+        "authorization",
+        "bearer ",
+        "api_key",
+        "api key",
+        "x-api-key",
+        "access_token",
+        "refresh_token",
+        "cookie",
+        "secret",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        return Some(
+            "child diagnostic was redacted because it may contain credentials".to_string(),
+        );
+    }
+    let category = if lower.contains("budget") || lower.contains("cost") {
+        "child evaluation stopped while applying the configured budget"
+    } else if ["schema", "digest", "plan", "evidence"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        "child evaluation rejected its immutable plan or evidence"
+    } else if ["scenario", "suite", "fixture", "asset"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        "child evaluation could not load or validate its registered assets"
+    } else if ["sidecar", "server", "connection", "runtime"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        "child evaluation could not reach its isolated runtime"
+    } else {
+        "child evaluation failed before producing evidence; inspect local diagnostics"
+    };
+    Some(category.to_string())
+}
+
 struct ChildTree {
     child: Child,
     #[cfg(windows)]
@@ -1438,6 +1783,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn phase_total_counts_only_scheduled_shards_and_one_aggregation_per_campaign() {
+        assert_eq!(experiment_phase_total_from_counts(0, [1]).unwrap(), 2);
+        assert_eq!(experiment_phase_total_from_counts(2, [1, 3]).unwrap(), 8);
+    }
+
+    #[test]
     fn tokens_are_high_entropy_and_header_safe() {
         let left = random_token();
         let right = random_token();
@@ -1451,5 +1802,19 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         assert!(prepare_experiment_root(temp.path(), "../escape").is_err());
         assert!(prepare_experiment_root(temp.path(), "exp-abcdef012345").is_ok());
+    }
+
+    #[test]
+    fn child_stderr_detail_keeps_safe_tail_and_redacts_credentials() {
+        assert_eq!(
+            safe_child_stderr_detail(b"first line\nApp child cost allocation mismatch\n")
+                .as_deref(),
+            Some("child evaluation stopped while applying the configured budget")
+        );
+        assert_eq!(
+            safe_child_stderr_detail(b"provider failed with Authorization: Bearer canary\n")
+                .as_deref(),
+            Some("child diagnostic was redacted because it may contain credentials")
+        );
     }
 }

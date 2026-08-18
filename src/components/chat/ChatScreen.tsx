@@ -85,6 +85,7 @@ import { projectSourceFoldersForSession } from "@/components/chat/project/projec
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
+import CronJobForm from "@/components/cron/CronJobForm"
 import MessageList, { CHAT_CONTENT_MAX_WIDTH_PX } from "@/components/chat/MessageList"
 import { environmentInsetWidth } from "@/components/chat/environmentInset"
 import { ChatWelcomeHero } from "@/components/chat/ChatWelcomeHero"
@@ -806,6 +807,10 @@ export default function ChatScreen({
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [systemPromptContent, setSystemPromptContent] = useState("")
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
+  const [scheduleSessionTarget, setScheduleSessionTarget] = useState<{
+    id: string
+    title: string
+  } | null>(null)
   const [draftIncognito, setDraftIncognito] = useState(false)
   // Draft working dir picked before a session exists. Materialized into the new
   // session by the backend `chat` command on first send, then cleared via the
@@ -907,6 +912,23 @@ export default function ChatScreen({
         ? (session.sessions.find((s) => s.id === session.currentSessionId) ?? null)
         : null,
     [session.sessions, session.currentSessionId],
+  )
+  const canScheduleCurrentSession =
+    !!currentSessionMeta &&
+    (currentSessionMeta.kind ?? "regular") === "regular" &&
+    !currentSessionMeta.incognito &&
+    !currentSessionMeta.channelInfo &&
+    !currentSessionMeta.parentSessionId &&
+    !currentSessionMeta.isCron
+  const openScheduleSession = useCallback(
+    (sessionId: string) => {
+      if (!canScheduleCurrentSession || currentSessionMeta?.id !== sessionId) return
+      setScheduleSessionTarget({
+        id: sessionId,
+        title: currentSessionMeta.title?.trim() || t("chat.newChat"),
+      })
+    },
+    [canScheduleCurrentSession, currentSessionMeta, t],
   )
   const forkSourceSession = useMemo(() => {
     const sourceId = currentSessionMeta?.forkedFromSessionId
@@ -4731,6 +4753,7 @@ export default function ChatScreen({
             systemPromptLoading={systemPromptLoading}
             onCommandAction={handleCommandAction}
             onOpenSearch={openSessionSearch}
+            onScheduleSession={canScheduleCurrentSession ? openScheduleSession : undefined}
             searchOpen={searchBarOpen}
             effectiveWorkingDir={effectiveWorkingDir}
             workingDirSource={workingDirSource}
@@ -4766,6 +4789,14 @@ export default function ChatScreen({
             terminalOpen={terminalOpen}
             onToggleTerminal={() => setTerminalOpen((value) => !value)}
           />
+
+          {scheduleSessionTarget && (
+            <CronJobForm
+              sessionTarget={scheduleSessionTarget}
+              onSave={() => setScheduleSessionTarget(null)}
+              onCancel={() => setScheduleSessionTarget(null)}
+            />
+          )}
 
           <BrowserExtensionNudge
             sessionId={session.currentSessionId}
@@ -5087,6 +5118,9 @@ export default function ChatScreen({
                         onForceInsertPending={stream.forceInsertPendingSend}
                         onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
                         onStop={stream.handleStop}
+                        stopPending={stream.stopPendingSessions.has(
+                          session.currentSessionId ?? "__pending__",
+                        )}
                         autonomyPaused={currentSessionMeta?.autonomyPaused ?? false}
                         onContinue={stream.handleContinue}
                         currentSessionId={session.currentSessionId}

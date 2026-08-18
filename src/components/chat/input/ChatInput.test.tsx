@@ -629,6 +629,33 @@ describe("ChatInput", () => {
     expect(within(tailRow).queryByRole("button", { name: "chat.pendingSendNow" })).toBeNull()
   })
 
+  test("renders Scheduled rows read-only and does not skip their global FIFO head", () => {
+    const onSendPending = vi.fn()
+    renderChatInput({
+      loading: false,
+      pendingSends: [
+        pendingSend({
+          id: "scheduled-head",
+          text: "Scheduled copy",
+          managedBy: "scheduled",
+          canForceInsert: false,
+        }),
+        pendingSend({ id: "desktop-tail", text: "Desktop copy" }),
+      ],
+      onSendPending,
+      onDiscardPendingItem: vi.fn(),
+      onEditPending: vi.fn(() => Promise.resolve(true)),
+    })
+
+    const scheduled = screen.getByText("Scheduled copy").closest('[role="listitem"]') as HTMLElement
+    const desktop = screen.getByText("Desktop copy").closest('[role="listitem"]') as HTMLElement
+    expect(scheduled.querySelector(".lucide-timer")).toBeTruthy()
+    expect(within(scheduled).queryByRole("button", { name: "chat.pendingSendNow" })).toBeNull()
+    expect(within(scheduled).queryByRole("button", { name: "chat.pendingMoreActions" })).toBeNull()
+    expect(within(desktop).queryByRole("button", { name: "chat.pendingSendNow" })).toBeNull()
+    expect(onSendPending).not.toHaveBeenCalled()
+  })
+
   test("lets a waiting insertion return to send-after-reply from its menu", async () => {
     const onCancelForceInsertPending = vi.fn()
     renderChatInput({

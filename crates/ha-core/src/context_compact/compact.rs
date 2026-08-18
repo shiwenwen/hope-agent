@@ -2,8 +2,8 @@
 
 use super::config::CompactConfig;
 use super::estimation::{
-    build_tool_id_to_name_map, estimate_request_tokens, estimate_tokens, get_tool_name_for_result,
-    get_tool_result_text, is_tool_result, set_tool_result_text,
+    build_tool_id_to_name_map, estimate_request_tokens, estimate_tokens,
+    get_tool_name_for_result_unit, set_tool_result_unit_text, tool_result_units,
 };
 use super::pruning::prune_old_context_with_boundary;
 use super::round_grouping::{is_recovered_round, ROUND_KEY};
@@ -58,22 +58,19 @@ fn microcompact_with_boundary(
 
     // Clear ephemeral tool results before the boundary
     for msg in &mut messages[..protected_start_index] {
-        if !is_tool_result(msg) {
-            continue;
-        }
-
-        // Extract tool_use_id from the tool result message
-        let tool_name = get_tool_name_for_result(msg, &tool_id_to_name);
-        let is_ephemeral = match &tool_name {
-            Some(name) => config.is_eager(name),
-            None => false,
-        };
-
-        if is_ephemeral {
-            if let Some(text) = get_tool_result_text(msg) {
-                if text.len() > placeholder.len() + 10 {
-                    set_tool_result_text(msg, placeholder);
-                    cleared += 1;
+        let units = tool_result_units(msg);
+        for unit in units {
+            let tool_name = get_tool_name_for_result_unit(&unit, &tool_id_to_name);
+            if tool_name
+                .as_deref()
+                .is_some_and(|name| config.is_eager(name))
+            {
+                if let Some(text) = unit.text {
+                    if text.len() > placeholder.len() + 10 {
+                        if set_tool_result_unit_text(msg, unit.locator, placeholder) {
+                            cleared += 1;
+                        }
+                    }
                 }
             }
         }
@@ -113,48 +110,54 @@ pub(crate) fn compact_oversized_recovered_tool_results(
             .get(ROUND_KEY)
             .and_then(|v| v.as_str())
             .is_some_and(is_recovered_round);
-        if !recovered || !is_tool_result(msg) {
+        if !recovered {
             continue;
         }
 
-        let Some(text) = get_tool_result_text(msg) else {
-            continue;
-        };
-        if text.len() <= threshold {
-            continue;
-        }
+        let units = tool_result_units(msg);
+        for unit in units {
+            let Some(text) = unit.text else {
+                continue;
+            };
+            if text.len() <= threshold {
+                continue;
+            }
 
-        if crate::tools::image_markers::contains_image_marker(&text) {
-            if crate::tools::image_markers::has_valid_image_markers(&text) {
-                if materialize_image_markers {
-                    if let Ok(Some(compacted)) =
-                        crate::tools::image_markers::materialize_base64_image_markers(
-                            &text, session_id,
-                        )
-                    {
-                        set_tool_result_text(msg, &compacted);
-                        cleanup.image_markers_materialized =
-                            cleanup.image_markers_materialized.saturating_add(1);
+            if crate::tools::image_markers::contains_image_marker(&text) {
+                if crate::tools::image_markers::has_valid_image_markers(&text) {
+                    if materialize_image_markers {
+                        if let Ok(Some(compacted)) =
+                            crate::tools::image_markers::materialize_base64_image_markers(
+                                &text, session_id,
+                            )
+                        {
+                            if set_tool_result_unit_text(msg, unit.locator, &compacted) {
+                                cleanup.image_markers_materialized =
+                                    cleanup.image_markers_materialized.saturating_add(1);
+                            }
+                        }
                     }
+                    continue;
+                }
+
+                let placeholder = format!(
+                    "[Invalid or truncated recovered image tool result cleared during manual context compaction: original content was {} chars. Re-run the tool if exact output is needed.]",
+                    text.len()
+                );
+                if set_tool_result_unit_text(msg, unit.locator, &placeholder) {
+                    cleanup.hard_cleared = cleanup.hard_cleared.saturating_add(1);
                 }
                 continue;
             }
 
             let placeholder = format!(
-                "[Invalid or truncated recovered image tool result cleared during manual context compaction: original content was {} chars. Re-run the tool if exact output is needed.]",
+                "[Recovered tool result cleared during manual context compaction: original content was {} chars. Re-run the tool if exact output is needed.]",
                 text.len()
             );
-            set_tool_result_text(msg, &placeholder);
-            cleanup.hard_cleared = cleanup.hard_cleared.saturating_add(1);
-            continue;
+            if set_tool_result_unit_text(msg, unit.locator, &placeholder) {
+                cleanup.hard_cleared = cleanup.hard_cleared.saturating_add(1);
+            }
         }
-
-        let placeholder = format!(
-            "[Recovered tool result cleared during manual context compaction: original content was {} chars. Re-run the tool if exact output is needed.]",
-            text.len()
-        );
-        set_tool_result_text(msg, &placeholder);
-        cleanup.hard_cleared = cleanup.hard_cleared.saturating_add(1);
     }
 
     cleanup
@@ -175,11 +178,14 @@ pub fn emergency_compact(
 
     // Phase 1: Clear all tool results
     for msg in messages.iter_mut() {
-        if is_tool_result(msg) {
-            if let Some(text) = get_tool_result_text(msg) {
+        let units = tool_result_units(msg);
+        for unit in units {
+            if let Some(text) = unit.text {
                 if text.len() > config.hard_clear_placeholder.len() + 10 {
-                    set_tool_result_text(msg, &config.hard_clear_placeholder);
-                    affected += 1;
+                    if set_tool_result_unit_text(msg, unit.locator, &config.hard_clear_placeholder)
+                    {
+                        affected += 1;
+                    }
                 }
             }
         }
@@ -299,7 +305,7 @@ pub fn compact_if_needed_with_counter(
         .boundary(messages, BoundaryMode::ProtectRecent);
 
     // Tier 0: Microcompact ephemeral tool results (zero cost, always runs first)
-    let _tier0_count = microcompact_with_boundary(messages, config, boundary.protected_start_index);
+    let tier0_count = microcompact_with_boundary(messages, config, boundary.protected_start_index);
 
     // Tier 1: Truncate individual oversized tool results
     let tier1_count = truncate_tool_results(messages, context_window, config);
@@ -313,7 +319,7 @@ pub fn compact_if_needed_with_counter(
                 tier_applied: 1,
                 tokens_before,
                 tokens_after: tokens_after_t1,
-                messages_affected: tier1_count,
+                messages_affected: tier0_count + tier1_count,
                 description: "tool_results_truncated".to_string(),
                 details: Some(CompactDetails {
                     tool_results_truncated: tier1_count,
@@ -338,6 +344,7 @@ pub fn compact_if_needed_with_counter(
             max_output_tokens,
             config,
             &boundary,
+            token_counter,
         );
         let tokens_after_t2 = estimate(messages);
         let ratio_after_t2 = tokens_after_t2 as f64 / context_window as f64;
@@ -349,7 +356,10 @@ pub fn compact_if_needed_with_counter(
                         tier_applied: 2,
                         tokens_before,
                         tokens_after: tokens_after_t2,
-                        messages_affected: tier1_count + prune.soft_trimmed + prune.hard_cleared,
+                        messages_affected: tier0_count
+                            + tier1_count
+                            + prune.soft_trimmed
+                            + prune.hard_cleared,
                         description: "context_pruned".to_string(),
                         details: Some(CompactDetails {
                             tool_results_truncated: tier1_count,
@@ -373,7 +383,10 @@ pub fn compact_if_needed_with_counter(
                     tier_applied: 3,
                     tokens_before,
                     tokens_after: tokens_after_t2,
-                    messages_affected: tier1_count + prune.soft_trimmed + prune.hard_cleared,
+                    messages_affected: tier0_count
+                        + tier1_count
+                        + prune.soft_trimmed
+                        + prune.hard_cleared,
                     description: "summarization_needed".to_string(),
                     details: Some(CompactDetails {
                         tool_results_truncated: tier1_count,
@@ -397,7 +410,7 @@ pub fn compact_if_needed_with_counter(
                 tier_applied: 1,
                 tokens_before,
                 tokens_after: estimate(messages),
-                messages_affected: tier1_count,
+                messages_affected: tier0_count + tier1_count,
                 description: "tool_results_truncated".to_string(),
                 details: Some(CompactDetails {
                     tool_results_truncated: tier1_count,
@@ -413,12 +426,17 @@ pub fn compact_if_needed_with_counter(
         );
     }
 
+    let tokens_after = estimate(messages);
     CompactResult {
         tier_applied: 0,
         tokens_before,
-        tokens_after: tokens_before,
-        messages_affected: 0,
-        description: "no_action_needed".to_string(),
+        tokens_after,
+        messages_affected: tier0_count,
+        description: if tier0_count > 0 {
+            "ephemeral_tool_results_cleared".to_string()
+        } else {
+            "no_action_needed".to_string()
+        },
         details: None,
         manifest: None,
     }
@@ -464,6 +482,80 @@ mod tests {
     }
 
     #[test]
+    fn microcompact_applies_policy_per_anthropic_result_unit() {
+        let mut messages = vec![
+            json!({ "role": "user", "content": "old request" }),
+            json!({
+                "role": "assistant",
+                "content": [
+                    {"type":"tool_use","id":"toolu_eager","name":"tool_search","input":{}},
+                    {"type":"tool_use","id":"toolu_protected","name":"web_fetch","input":{}}
+                ]
+            }),
+            json!({
+                "role": "user",
+                "content": [
+                    {"type":"tool_result","tool_use_id":"toolu_eager","content":"ephemeral ".repeat(20)},
+                    {"type":"tool_result","tool_use_id":"toolu_protected","content":"protected ".repeat(20)}
+                ]
+            }),
+            json!({ "role": "user", "content": "latest request" }),
+            json!({ "role": "assistant", "content": "latest reply" }),
+        ];
+        let config = CompactConfig {
+            preserve_recent_rounds: 1,
+            ..CompactConfig::default()
+        };
+
+        let cleared = microcompact(&mut messages, &config);
+
+        assert_eq!(cleared, 1);
+        let blocks = messages[2]["content"].as_array().unwrap();
+        assert_eq!(blocks[0]["content"], "[Ephemeral tool result cleared]");
+        assert!(blocks[1]["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("protected "));
+    }
+
+    #[test]
+    fn tier0_only_outcome_reports_progress_and_recounts_tokens() {
+        let mut messages = vec![
+            json!({ "role": "user", "content": "search the workspace" }),
+            json!({
+                "type": "function_call",
+                "call_id": "fc_old",
+                "name": "tool_search",
+                "arguments": "{\"query\":\"context compact\"}"
+            }),
+            json!({
+                "type": "function_call_output",
+                "call_id": "fc_old",
+                "output": "x ".repeat(3_000)
+            }),
+            json!({ "role": "user", "content": "latest request" }),
+            json!({ "role": "assistant", "content": "latest reply" }),
+        ];
+        let config = CompactConfig {
+            soft_trim_ratio: 0.30,
+            max_tool_result_context_share: 0.60,
+            preserve_recent_rounds: 1,
+            ..CompactConfig::default()
+        };
+        let context_window = estimate_request_tokens("", &messages, 0)
+            .saturating_mul(3)
+            .max(1);
+
+        let result = compact_if_needed(&mut messages, "", context_window, 0, &config);
+
+        assert_eq!(result.tier_applied, 0);
+        assert_eq!(result.description, "ephemeral_tool_results_cleared");
+        assert!(result.messages_affected > 0);
+        assert!(result.tokens_after < result.tokens_before);
+        assert_eq!(messages[2]["output"], "[Ephemeral tool result cleared]");
+    }
+
+    #[test]
     fn emergency_compact_makes_progress_when_boundary_fail_closes() {
         // Few large non-tool rounds → recent_boundary fail-closes (live rounds
         // <= preserve_recent_rounds) and returns protected_start_index = 0.
@@ -484,6 +576,119 @@ mod tests {
             messages.len() < before,
             "emergency_compact must shrink history even when the boundary fail-closes"
         );
+    }
+
+    #[test]
+    fn emergency_compact_reports_no_progress_for_one_oversized_current_user() {
+        let mut messages = vec![json!({
+            "role": "user",
+            "content": "x".repeat(100_000),
+        })];
+
+        let result = emergency_compact(&mut messages, &CompactConfig::default(), None);
+
+        assert_eq!(result.messages_affected, 0);
+        assert_eq!(result.tokens_after, result.tokens_before);
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn emergency_compact_preserves_current_user_across_tool_result_shapes() {
+        let large_result = "tool output ".repeat(1_000);
+        let cases = vec![
+            (
+                "openai_chat",
+                vec![
+                    json!({"role":"user","content":"old request"}),
+                    json!({"role":"assistant","content":"old reply"}),
+                    json!({"role":"user","content":"current request"}),
+                    json!({
+                        "role":"assistant",
+                        "content":null,
+                        "tool_calls":[{
+                            "id":"call_1",
+                            "type":"function",
+                            "function":{"name":"read_file","arguments":"{}"}
+                        }],
+                        "_oc_round":"r0"
+                    }),
+                    json!({
+                        "role":"tool",
+                        "tool_call_id":"call_1",
+                        "content":large_result.clone(),
+                        "_oc_round":"r0"
+                    }),
+                ],
+            ),
+            (
+                "openai_responses",
+                vec![
+                    json!({"role":"user","content":"old request"}),
+                    json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":"old reply"}]}),
+                    json!({"role":"user","content":"current request"}),
+                    json!({
+                        "type":"function_call",
+                        "call_id":"fc_1",
+                        "name":"read_file",
+                        "arguments":"{}",
+                        "_oc_round":"r0"
+                    }),
+                    json!({
+                        "type":"function_call_output",
+                        "call_id":"fc_1",
+                        "output":large_result.clone(),
+                        "_oc_round":"r0"
+                    }),
+                ],
+            ),
+            (
+                "anthropic",
+                vec![
+                    json!({"role":"user","content":"old request"}),
+                    json!({"role":"assistant","content":"old reply"}),
+                    json!({"role":"user","content":"current request"}),
+                    json!({
+                        "role":"assistant",
+                        "content":[{
+                            "type":"tool_use",
+                            "id":"toolu_1",
+                            "name":"read_file",
+                            "input":{}
+                        }],
+                        "_oc_round":"r0"
+                    }),
+                    json!({
+                        "role":"user",
+                        "content":[{
+                            "type":"tool_result",
+                            "tool_use_id":"toolu_1",
+                            "content":large_result.clone()
+                        }],
+                        "_oc_round":"r0"
+                    }),
+                ],
+            ),
+        ];
+
+        for (shape, mut messages) in cases {
+            let anchor = crate::context_compact::latest_user_request_anchor(&messages)
+                .expect("current user anchor");
+            let config = CompactConfig {
+                preserve_recent_rounds: 8,
+                ..CompactConfig::default()
+            };
+
+            let result = emergency_compact(&mut messages, &config, None);
+
+            assert!(
+                anchor.is_preserved_exactly_once(&messages),
+                "current user was not preserved exactly once for {shape}"
+            );
+            assert!(
+                result.messages_affected > 0,
+                "emergency projection should still make progress for {shape}"
+            );
+        }
     }
 
     #[test]

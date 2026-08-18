@@ -16,6 +16,7 @@ import {
   Info,
   Network,
   Timer,
+  ArrowUpRight,
   AlarmClock,
   PlayCircle,
   ChevronDown,
@@ -53,6 +54,7 @@ import ModelRecoveryBanner from "@/components/chat/ModelRecoveryBanner"
 import ContextCompactedBanner from "@/components/chat/ContextCompactedBanner"
 import RoundLimitReachedBanner from "@/components/chat/RoundLimitReachedBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
+import { requestCronTaskFocus } from "@/components/cron/cronNavigation"
 import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
 import { fallbackEventFromPayload } from "../fallbackEvent"
@@ -398,35 +400,48 @@ function getAsyncResultTone(status: string): {
   }
 }
 
-function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => string }) {
-  const [expanded, setExpanded] = useState(false)
+function CronTriggerBubble({ msg, t }: { msg: Message; t: TFunction }) {
+  const [expanded, setExpanded] = useState(true)
   return (
-    <div className="flex flex-col items-center gap-1 max-w-[80%]">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/8 border border-amber-500/20 text-xs text-amber-400/80 hover:bg-amber-500/15 transition-colors cursor-pointer"
-      >
-        <Timer className="w-3 h-3 shrink-0 text-amber-500" />
-        <span className="font-medium text-amber-500">
-          {msg.cronJobName || t("chat.cronTrigger")}
-        </span>
-        <span className="text-amber-400/50">·</span>
-        <span>{t("chat.cronTaskStarted")}</span>
-        <svg
-          className={cn(
-            "w-3 h-3 shrink-0 text-amber-500/60 transition-transform duration-200",
-            expanded && "rotate-180",
-          )}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+    <div className="flex max-w-[80%] flex-col items-center gap-1">
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/8 border border-amber-500/20 text-xs text-amber-400/80 hover:bg-amber-500/15 transition-colors cursor-pointer"
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
+          <Timer className="w-3 h-3 shrink-0 text-amber-500" />
+          <span className="font-medium text-amber-500">
+            {msg.cronJobName || t("chat.cronTrigger")}
+          </span>
+          <span className="text-amber-400/50">·</span>
+          <span>{t("chat.cronTaskStarted")}</span>
+          <svg
+            className={cn(
+              "w-3 h-3 shrink-0 text-amber-500/60 transition-transform duration-200",
+              expanded && "rotate-180",
+            )}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+        {msg.cronJobId && (
+          <IconTip label={t("chat.scheduledOrigin", { name: msg.cronJobName || "" })}>
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/8 text-amber-500 transition-colors hover:bg-amber-500/15"
+              onClick={() => requestCronTaskFocus(msg.cronJobId!)}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+        )}
+      </div>
       <AnimatedCollapse open={expanded}>
         <div className="w-full px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/15 text-xs text-foreground/80 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150">
           {msg.content}
@@ -1830,6 +1845,8 @@ function MessageBubbleInner({
       return (
         <ContextCompactedBanner
           event={data as ContextCompactedEvent & ContextCompactionProgressEvent}
+          compacting={compacting}
+          onRetry={onCompactContext}
         />
       )
     }

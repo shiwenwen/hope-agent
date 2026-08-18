@@ -17,6 +17,11 @@ export type ChatTurnInterruptReason =
   | "crash_recovery"
   | "tool_cancel"
   | "runtime_cancel"
+  | "no_profile"
+  | "provider_failed"
+  | "current_tool_group_overflow"
+  | "dispatch_unknown"
+  | "compaction_failed"
   | "unknown"
 
 /** Structured media item emitted by tools (e.g. send_attachment) — richer than
@@ -102,7 +107,9 @@ export interface PendingSendPreview {
   editable?: boolean
   /** Backend-owned rows are visible for status only; the GUI must not claim,
    * edit, delete, or force-insert them. */
-  managedBy?: "channel"
+  managedBy?: "channel" | "scheduled"
+  /** Opaque owner reference; Scheduled uses the canonical run-log id. */
+  sourceRef?: string
 }
 
 export interface MessageAttachment {
@@ -176,11 +183,27 @@ export interface BrowserActivityMetadata {
   at?: number | null
 }
 
+/** Durable card attached to a successful model-created scheduled task. */
+export interface ScheduleEntityMetadata {
+  kind: "schedule_entity"
+  entityType: "cronTask"
+  entityId: string
+  sessionId?: string | null
+  title?: string | null
+  state?: string | null
+  nextRunAt?: string | null
+  schedule?: import("@/components/cron/CronJobForm.types").CronSchedule | null
+  projectId?: string | null
+  workspaceMode?: import("@/components/cron/CronJobForm.types").CronWorkspaceMode | null
+  workspaceBaseRef?: string | null
+}
+
 export type ToolMetadata =
   | FileChangeMetadata
   | FileChangesMetadata
   | FileReadMetadata
   | BrowserActivityMetadata
+  | ScheduleEntityMetadata
 
 export interface ToolCall {
   callId: string
@@ -360,6 +383,8 @@ export interface Message {
   isMeta?: boolean
   /** The cron job name that triggered this message */
   cronJobName?: string
+  /** The scheduled task that triggered this message. */
+  cronJobId?: string
   /** If set, this user message came from an IM channel */
   channelInbound?: {
     channelId: string
@@ -553,6 +578,67 @@ export type SessionMode = "default" | "smart" | "yolo"
  */
 export type SandboxMode = "off" | "standard" | "isolated" | "workspace" | "trusted"
 
+export interface SessionOrigin {
+  kind: string
+  id: string
+  label: string
+}
+
+/** Durable Stop receipt; `id` is the exact pause a Continue must consume. */
+export interface SessionAutonomyPause {
+  id: string
+  sessionId: string
+  goalId?: string | null
+  workflowRunIds: string[]
+  subagentRunIds: string[]
+  createdAt: string
+  resumedAt?: string | null
+}
+
+/** One session-owned runtime unit Stop tried to cancel; mirrors the Rust
+ *  `ha_core::runtime_tasks::CancelRuntimeTaskResult`. `accepted` is
+ *  deliberately separate from `finalStatus`: an accepted best-effort request
+ *  does not prove the target reached a terminal state. */
+export interface RuntimeCancelResult {
+  kind: string
+  id: string
+  accepted: boolean
+  disposition: "requested" | "already_terminal" | "refused" | string
+  status: string
+  reason?: string | null
+  finalStatus?: string | null
+  message: string
+}
+
+/** Result of `stop_chat` / `POST /api/chat/stop`; mirrors the Rust
+ *  `ha_core::chat_engine::stop::StopChatResult`. It reports what the call did,
+ *  never what the session is doing now — that stays with
+ *  `get_session_stream_state` so the two cannot disagree. */
+export interface StopChatResult {
+  stopped: boolean
+  scope: "request" | "session" | "all"
+  reason?: string | null
+  /** An exact-turn Stop targeted a turn that is no longer the live one. */
+  turnMismatch: boolean
+  /** The backend still held a live foreground turn for this session. */
+  activeTurnFound: boolean
+  /** The executor passed its cancellation point before Stop claimed it. */
+  completionSealed: boolean
+  /** A `cancelling` broadcast plus stop watchdog were armed, so a terminal
+   *  stream event will follow. When false (and nothing was sealed or latched)
+   *  no event can arrive and a busy-looking UI must reconcile itself. */
+  terminalEventPending: boolean
+  /** A pre-registration latch consumed the Stop; the turn registers shortly. */
+  latched: boolean
+  runtimeCancellations: RuntimeCancelResult[]
+  runtimeCancellationError?: string | null
+  autonomyPaused: boolean
+  autonomyPause?: SessionAutonomyPause | null
+  autonomyPauseError?: string | null
+  /** Global Stop only. */
+  stoppedSessionCount?: number
+}
+
 export interface SessionMeta {
   id: string
   /** A durable Stop receipt fences autonomous work until explicit Continue. */
@@ -572,6 +658,8 @@ export interface SessionMeta {
   pinnedAt?: string | null
   /** Retained but hidden from active chat surfaces until restored. */
   archivedAt?: string | null
+  /** Display-only producer provenance; never an execution or permission input. */
+  origin?: SessionOrigin | null
   messageCount: number
   /** Regular-conversation unread flag encoded as 0 or 1. */
   unreadCount: number

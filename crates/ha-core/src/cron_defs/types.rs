@@ -33,6 +33,10 @@ pub enum CronPayload {
         prompt: String,
         agent_id: Option<String>,
     },
+    /// Queue one ordinary turn into an existing regular conversation. Runtime
+    /// context is resolved from the live session when the queue row reaches the
+    /// session-wide FIFO head; no task-scoped agent/workspace overrides apply.
+    SessionTurn { session_id: String, prompt: String },
     /// Fire a managed `/loop` trigger back into an existing parent session.
     ///
     /// This reuses cron's durable scheduling and recovery, but executes through
@@ -53,13 +57,103 @@ pub enum CronPayload {
 #[serde(rename_all = "camelCase")]
 pub enum CronPayloadType {
     AgentTurn,
+    SessionTurn,
     SessionLoop,
+}
+
+/// Filesystem location used by an independent scheduled turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CronWorkspaceMode {
+    #[default]
+    Project,
+    Fresh,
+    Persistent,
+}
+
+/// What happens to a Fresh Worktree once its run settles. Retention is the
+/// default because a run's uncommitted output is often the whole point; the
+/// other two exist because one Worktree per occurrence otherwise accumulates a
+/// full checkout per run forever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CronWorkspaceCleanup {
+    /// Keep every run's Worktree until the user archives or discards it.
+    #[default]
+    Retain,
+    /// Discard only when the run left nothing behind — no staged, unstaged,
+    /// untracked, or conflicted files and no commits ahead of the base. Removes
+    /// empty husks without ever destroying work.
+    DiscardIfClean,
+    /// Always discard at settle. For sandbox-style tasks whose real output goes
+    /// out through delivery rather than the filesystem.
+    Always,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CronWorkspacePolicy {
+    #[serde(default)]
+    pub mode: CronWorkspaceMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_ref: Option<String>,
+    /// Only meaningful for `Fresh`: `Persistent` is defined by reuse, and
+    /// `Project` never creates a Worktree to clean up.
+    #[serde(default)]
+    pub cleanup: CronWorkspaceCleanup,
+}
+
+impl CronWorkspacePolicy {
+    pub fn normalized(mut self) -> Self {
+        self.base_ref = self
+            .base_ref
+            .take()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if self.mode == CronWorkspaceMode::Project {
+            self.base_ref = None;
+        }
+        if self.mode != CronWorkspaceMode::Fresh {
+            self.cleanup = CronWorkspaceCleanup::Retain;
+        }
+        self
+    }
+}
+
+/// Immutable Git facts recorded on one scheduled occurrence.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CronWorkspaceSnapshot {
+    pub mode: CronWorkspaceMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub staged: u32,
+    #[serde(default)]
+    pub unstaged: u32,
+    #[serde(default)]
+    pub untracked: u32,
+    #[serde(default)]
+    pub conflicted: u32,
+    #[serde(default)]
+    pub head_diverged: bool,
+    #[serde(default)]
+    pub retained: bool,
 }
 
 impl From<&CronPayload> for CronPayloadType {
     fn from(payload: &CronPayload) -> Self {
         match payload {
             CronPayload::AgentTurn { .. } => Self::AgentTurn,
+            CronPayload::SessionTurn { .. } => Self::SessionTurn,
             CronPayload::SessionLoop { .. } => Self::SessionLoop,
         }
     }
@@ -103,11 +197,17 @@ impl CronJobStatus {
 #[serde(rename_all = "camelCase")]
 pub struct CronJob {
     pub id: String,
+    /// Owner-edit generation. Runtime scheduling/bookkeeping writes do not
+    /// advance it, so an open form conflicts only with another owner mutation.
+    #[serde(default = "default_cron_revision")]
+    pub revision: u64,
     pub name: String,
     pub description: Option<String>,
     /// Optional Project context to attach each isolated cron run session to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub workspace_policy: CronWorkspacePolicy,
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub status: CronJobStatus,
@@ -154,6 +254,35 @@ pub struct CronJob {
     pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
 }
 
+/// Compact "what happened last time" for a task list row. Deliberately not the
+/// full [`CronRunLog`]: the list only needs enough to show — and search — the
+/// most recent outcome and to link into that exact occurrence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronLastRunSummary {
+    pub run_log_id: i64,
+    pub session_id: String,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub error: Option<String>,
+    pub result_preview: Option<String>,
+    pub delivery_status: Option<String>,
+}
+
+/// Read-only view of one task **including its tombstone**. Deleting a task only
+/// stops future occurrences: the ledger row is retained so retained history (a
+/// chat card, a run log) can still name what ran and seed a copy of it. Never
+/// feed a `deleted` snapshot back into a live scheduling surface — it is a
+/// display + draft source, not an editable job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronJobSnapshot {
+    pub job: CronJob,
+    /// `true` when the task has been logically deleted (no future occurrences).
+    pub deleted: bool,
+}
+
 /// A cron job execution lease. Constructed only after the DB atomically marks
 /// a job as running, so executors do not need to claim it again.
 #[derive(Debug, Clone)]
@@ -165,6 +294,19 @@ pub struct ClaimedCronJob {
     /// delivers but must NOT mutate the job's status / schedule / failure count
     /// (no reviving a disabled job on success, no auto-disable on a test failure,
     /// no rescheduling the next occurrence).
+    pub immediate: bool,
+}
+
+/// Durable identity of one SessionTurn occurrence while it moves through the
+/// ordinary session queue. `started_at` is the task-overlap claim timestamp;
+/// execution timing begins only after the queued row is dispatched.
+#[derive(Debug, Clone)]
+pub struct SessionTurnRunEnvelope {
+    pub run_log_id: i64,
+    pub job_id: String,
+    pub session_id: String,
+    pub request_id: String,
+    pub started_at: String,
     pub immediate: bool,
 }
 
@@ -199,6 +341,22 @@ pub struct CronRunLog {
     pub id: i64,
     pub job_id: String,
     pub session_id: String,
+    /// Exact ordinary ChatTurn for standalone AgentTurn runs. Legacy and
+    /// SessionLoop rows intentionally leave this empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Durable idempotency identity shared with the managed session queue row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Wall-clock execution start. SessionTurn queue wait is intentionally not
+    /// charged against the task execution timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_started_at: Option<String>,
+    /// User message committed by this exact occurrence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_message_id: Option<i64>,
+    #[serde(default)]
+    pub immediate: bool,
     pub status: String,
     pub started_at: String,
     pub finished_at: Option<String>,
@@ -211,6 +369,54 @@ pub struct CronRunLog {
     /// `"failed"` (no target received it). Surfaced in the GUI run-log list.
     #[serde(default)]
     pub delivery_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_snapshot: Option<CronWorkspaceSnapshot>,
+}
+
+fn default_cron_revision() -> u64 {
+    1
+}
+
+pub const CRON_REVISION_CONFLICT_CODE: &str = "cron_revision_conflict";
+
+/// Transport-neutral result for an owner edit. Conflicts are data, not an
+/// opaque error string, so Desktop and HTTP can preserve the user's draft.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronUpdateResult {
+    pub updated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_job: Option<CronJob>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronRunCancelResult {
+    pub run_log_id: i64,
+    pub status: String,
+    pub terminal: bool,
+    pub cancel_requested: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+/// Internal lookup shape for exact occurrence cancellation.
+#[derive(Debug, Clone)]
+pub struct CronRunCancelTarget {
+    pub run_log_id: i64,
+    pub job_id: String,
+    pub session_id: String,
+    pub started_at: String,
+    pub turn_id: Option<String>,
+    pub request_id: Option<String>,
+    pub status: String,
+    pub finished_at: Option<String>,
 }
 
 /// One row of the global cron-run timeline (a single run of any job), surfaced
@@ -228,6 +434,10 @@ pub struct CronTimelineRow {
     pub session_id: String,
     pub job_id: String,
     pub job_name: String,
+    /// The task definition was logically deleted after this run. Historical
+    /// run logs and their ordinary conversations remain navigable.
+    #[serde(default)]
+    pub job_deleted: bool,
     /// Payload discriminator from the owning job. `None` is reserved for
     /// orphaned legacy run rows whose job record no longer exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -236,6 +446,16 @@ pub struct CronTimelineRow {
     pub started_at: String,
     pub finished_at: Option<String>,
     pub result_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_message_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_snapshot: Option<CronWorkspaceSnapshot>,
     /// Session title from `SessionDB`; defaults to `job_name` when absent.
     #[serde(default)]
     pub title: Option<String>,
@@ -253,6 +473,8 @@ pub struct NewCronJob {
     /// Optional Project context to attach each isolated cron run session to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub workspace_policy: CronWorkspacePolicy,
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub max_failures: Option<u32>,

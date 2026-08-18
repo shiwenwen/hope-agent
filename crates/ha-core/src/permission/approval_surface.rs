@@ -16,10 +16,11 @@
 //! can approve**. Any plausible surface (desktop window, connected web client,
 //! IM-attached chat) yields [`ApprovalSurface::Attended`] so a legitimate
 //! interactive approval is never silently denied. The one deliberate exception
-//! is **cron**: cron sessions are excluded from the desktop's interactive
-//! approval prompt (it filters by the current session id), so a cron approval
-//! has no reliable interactive surface even on desktop — cron is treated as
-//! unattended regardless, matching the DEADLOCK-4 recommendation. Users who
+//! is **cron**: an occurrence fires on its own schedule with nobody watching it,
+//! so it is treated as unattended even on desktop, matching the DEADLOCK-4
+//! recommendation. The signal is the live turn (see [`session_runs_cron_turn`]),
+//! not the Session row — a scheduled run now lives in an ordinary chat, and the
+//! user's own later turns there stay attended. Users who
 //! want privileged cron/headless runs set `unattendedApprovalAction = proceed`
 //! or give that agent YOLO / `auto_approve_tools`.
 
@@ -108,7 +109,7 @@ pub fn register_reattachable_ui_child_session(
 ) -> Option<ReattachableUiSessionGuard> {
     let parent_meta =
         crate::get_session_db().and_then(|db| db.get_session(parent_session_id).ok().flatten());
-    if parent_meta.as_ref().is_some_and(|meta| meta.is_cron) {
+    if session_runs_cron_turn(parent_session_id, parent_meta.as_ref()) {
         return None;
     }
     if session_has_reattachable_ui_surface(parent_session_id)
@@ -206,8 +207,9 @@ pub fn evaluate_approval_surface(session_id: Option<&str>) -> ApprovalSurface {
     let meta = session_id.and_then(load_session_meta);
 
     // 1. Cron — unattended by definition (see module note), regardless of any
-    //    desktop window, because cron sessions never reach the interactive prompt.
-    if meta.as_ref().is_some_and(|m| m.is_cron) {
+    //    desktop window: nobody is watching a 3am occurrence even when the app is
+    //    open, so the decision must be deterministic rather than a hung prompt.
+    if session_id.is_some_and(|sid| session_runs_cron_turn(sid, meta.as_ref())) {
         return Unattended(UnattendedReason::Cron);
     }
 
@@ -279,6 +281,22 @@ fn load_session_meta(session_id: &str) -> Option<crate::session::SessionMeta> {
     crate::get_session_db().and_then(|db| db.get_session(session_id).ok().flatten())
 }
 
+/// Is this session running a scheduled occurrence right now?
+///
+/// A scheduled run is an ordinary Session (`is_cron = 0`), so cron-ness lives on
+/// the turn, not the row: the live turn's `ChatSource::Cron` is the signal, and
+/// it is necessarily live while its own tool asks for approval. Turn-scoped on
+/// purpose — the user's own later turns in that same chat are Desktop/HTTP and
+/// stay attended. `is_cron` still covers legacy hidden cron sessions.
+/// (`SessionMeta.origin` is display-only and must never gate permissions.)
+fn session_runs_cron_turn(session_id: &str, meta: Option<&crate::session::SessionMeta>) -> bool {
+    if meta.is_some_and(|m| m.is_cron) {
+        return true;
+    }
+    crate::chat_engine::active_turn::current(session_id)
+        .is_some_and(|turn| turn.source == crate::chat_engine::ChatSource::Cron)
+}
+
 /// True iff `session_id` is currently attached to an IM channel conversation
 /// (the authoritative 1:1 attach table is the source of truth; falls back to the
 /// denormalized `channel_info` on the session row if the channel DB is absent).
@@ -309,7 +327,7 @@ fn subagent_chain_has_im_surface(child: Option<&crate::session::SessionMeta>) ->
         let Ok(Some(parent)) = db.get_session(&parent_id) else {
             return false;
         };
-        if parent.is_cron {
+        if session_runs_cron_turn(&parent_id, Some(&parent)) {
             return false;
         }
         if session_is_im_attached(&parent_id, Some(&parent)) {
@@ -339,7 +357,7 @@ fn subagent_chain_has_reattachable_ui_surface(child: Option<&crate::session::Ses
         let Ok(Some(parent)) = db.get_session(&parent_id) else {
             return false;
         };
-        if parent.is_cron {
+        if session_runs_cron_turn(&parent_id, Some(&parent)) {
             return false;
         }
         next_parent = parent.parent_session_id;
@@ -356,10 +374,12 @@ fn subagent_chain_roots_at_cron(child: Option<&crate::session::SessionMeta>) -> 
         return false;
     };
     chain_roots_at_cron_with(child.and_then(|m| m.parent_session_id.clone()), |id| {
-        db.get_session(id)
-            .ok()
-            .flatten()
-            .map(|p| (p.is_cron, p.parent_session_id))
+        db.get_session(id).ok().flatten().map(|parent| {
+            (
+                session_runs_cron_turn(id, Some(&parent)),
+                parent.parent_session_id,
+            )
+        })
     })
 }
 
@@ -463,6 +483,54 @@ mod tests {
 
         drop(child_guard);
         assert!(!session_has_reattachable_ui_surface(&child_id));
+    }
+
+    #[test]
+    fn a_live_scheduled_turn_is_unattended_even_in_an_ordinary_session() {
+        // A scheduled run is an ordinary Session (`is_cron = 0`), so cron-ness has
+        // to come from the live turn — otherwise the 3am occurrence would wait on
+        // an approval dialog instead of deciding fail-closed.
+        let session_id = format!("scheduled-run-{}", uuid::Uuid::new_v4());
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let guard = crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Cron,
+            "turn-cron".to_string(),
+            cancel.clone(),
+        )
+        .expect("acquire scheduled turn");
+        assert!(session_runs_cron_turn(&session_id, None));
+        assert_eq!(
+            evaluate_approval_surface(Some(&session_id)),
+            ApprovalSurface::Unattended(UnattendedReason::Cron)
+        );
+        // A cron parent never lends its UI lease to a background child.
+        let child_id = format!("scheduled-child-{}", uuid::Uuid::new_v4());
+        let _lease = register_reattachable_ui_session(&session_id);
+        assert!(register_reattachable_ui_child_session(&session_id, &child_id).is_none());
+        drop(guard);
+    }
+
+    #[test]
+    fn the_users_own_turn_in_that_chat_stays_attended() {
+        // Turn-scoped, not session-scoped: replying in the same chat is a Desktop
+        // turn with a human right there, so it must keep the normal Ask path.
+        let session_id = format!("scheduled-run-{}", uuid::Uuid::new_v4());
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let guard = crate::chat_engine::active_turn::try_acquire(
+            &session_id,
+            crate::chat_engine::ChatSource::Desktop,
+            "turn-user".to_string(),
+            cancel.clone(),
+        )
+        .expect("acquire user turn");
+        assert!(!session_runs_cron_turn(&session_id, None));
+        let _lease = register_reattachable_ui_session(&session_id);
+        assert_eq!(
+            evaluate_approval_surface(Some(&session_id)),
+            ApprovalSurface::Attended
+        );
+        drop(guard);
     }
 
     #[test]

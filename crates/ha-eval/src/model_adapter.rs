@@ -28,6 +28,11 @@ const SERVER_TOKEN_ENV: &str = "HA_MODEL_EVAL_SERVER_TOKEN";
 const SUPERVISOR_URL_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_URL";
 const SUPERVISOR_TOKEN_ENV: &str = "HA_MODEL_EVAL_SUPERVISOR_TOKEN";
 const TRIAL_CLEANUP_GRACE_SECONDS: u64 = 10;
+// This is an infrastructure deadlock fuse, not a campaign budget. Unlimited
+// evaluations bypass user budget dimensions but must still terminate if the
+// isolated Hope process cannot converge after explicit cancellation.
+const TRIAL_CLEANUP_SAFETY_FUSE_SECONDS: u64 = 75;
+pub(crate) const CLEANUP_INCOMPLETE_FAILURE_CLASS: &str = "cleanup_incomplete_after_evidence";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +46,7 @@ struct ChatResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ScriptedUserFlow {
+struct ScriptedUserFlowV1 {
     schema_version: String,
     #[serde(default)]
     turns: Vec<ScriptedUserTurn>,
@@ -53,6 +58,38 @@ struct ScriptedUserTurn {
     message: String,
     #[serde(default)]
     delay_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ScriptedUserFlowV2 {
+    schema_version: String,
+    #[serde(default)]
+    steps: Vec<ScriptedUserStep>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+enum ScriptedUserStep {
+    Message {
+        message: String,
+        #[serde(default, rename = "delayMs")]
+        delay_ms: u64,
+    },
+    CompactContext {
+        #[serde(rename = "expectedTier")]
+        expected_tier: u8,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompactContextResponse {
+    tier_applied: u8,
+    tokens_before: u32,
+    tokens_after: u32,
+    messages_affected: usize,
+    description: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +132,7 @@ pub async fn run_registered_trial(
     trial: &PlannedModelTrial,
     model: &ModelProfile,
     attempt: u8,
+    unlimited_budget: bool,
 ) -> ModelTrialResult {
     let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let started = Instant::now();
@@ -134,7 +172,17 @@ pub async fn run_registered_trial(
     }
     let execution = match adapter {
         ModelCampaignAdapter::HopeCoreScenario => {
-            run_hope_core_scenario(root, scenario_path, scenario, planned_case, trial, model).await
+            run_hope_core_scenario(
+                root,
+                scenario_path,
+                scenario,
+                planned_case,
+                trial,
+                model,
+                attempt,
+                unlimited_budget,
+            )
+            .await
         }
         other => Err(anyhow!(
             "registered adapter {other:?} has no installed harness implementation"
@@ -317,20 +365,50 @@ struct ObservedTrial {
     error: Option<String>,
 }
 
+fn compact_context_contract_check(
+    response: &CompactContextResponse,
+    expected_tier: u8,
+    action_index: usize,
+    response_hash: String,
+) -> ModelCampaignCheck {
+    let passed = response.tier_applied == expected_tier
+        && response.description == "summarized"
+        && response.tokens_after < response.tokens_before
+        && response.messages_affected > 0;
+    ModelCampaignCheck {
+        id: format!("scripted_compact_context_{action_index}"),
+        passed,
+        blocking: true,
+        detail: format!(
+            "manual compaction tier={}, description={}, tokens {}→{}, messagesAffected={}",
+            response.tier_applied,
+            response.description,
+            response.tokens_before,
+            response.tokens_after,
+            response.messages_affected,
+        ),
+        metric: Some(f64::from(
+            response.tokens_before.saturating_sub(response.tokens_after),
+        )),
+        artifact_hashes: vec![response_hash],
+    }
+}
+
 async fn timed_out_chat_result(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
     trial: &PlannedModelTrial,
+    product_trial_id: &str,
     stage: &str,
 ) -> ObservedTrial {
     let telemetry = match tokio::time::timeout(
         Duration::from_secs(TRIAL_CLEANUP_GRACE_SECONDS.saturating_sub(2).max(1)),
-        cleanup_after_failed_chat(client, server_url, token, trial),
+        cleanup_after_failed_chat(client, server_url, token, trial, product_trial_id),
     )
     .await
     {
-        Ok(Ok(telemetry)) => telemetry,
+        Ok((telemetry, _)) => telemetry,
         _ => fallback_telemetry(trial, 0),
     };
     ObservedTrial {
@@ -351,10 +429,16 @@ async fn run_hope_core_scenario(
     planned_case: &PlannedModelCase,
     trial: &PlannedModelTrial,
     model: &ModelProfile,
+    attempt: u8,
+    unlimited_budget: bool,
 ) -> Result<ObservedTrial> {
     let server_url = std::env::var(SERVER_URL_ENV)
         .with_context(|| format!("{SERVER_URL_ENV} is required for hope_core_scenario"))?;
     let server_url = server_url.trim_end_matches('/');
+    // A runner retry is a new product execution attempt. The evidence model
+    // keeps the stable planned trial ID, while the in-process product registry
+    // must not reuse an earlier attempt's root Session or still-closing work.
+    let product_trial_id = format!("{}-attempt-{attempt}", trial.id);
     if !server_url.starts_with("http://127.0.0.1:")
         && !server_url.starts_with("http://localhost:")
         && !server_url.starts_with("https://")
@@ -391,12 +475,15 @@ async fn run_hope_core_scenario(
         _ => {}
     }
 
-    let request_timeout_seconds = planned_case
-        .timeout_seconds
-        .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS)
-        .max(1);
-    let client = Client::builder()
-        .timeout(Duration::from_secs(request_timeout_seconds))
+    let mut client_builder = Client::builder();
+    if !unlimited_budget {
+        let request_timeout_seconds = planned_case
+            .timeout_seconds
+            .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS)
+            .max(1);
+        client_builder = client_builder.timeout(Duration::from_secs(request_timeout_seconds));
+    }
+    let client = client_builder
         .build()
         .context("building model eval HTTP client")?;
     let mut required_signals = vec!["model".to_string()];
@@ -455,10 +542,13 @@ async fn run_hope_core_scenario(
         "suiteDigest": trial.suite_digest,
         "caseId": trial.case_id,
         "caseDigest": trial.case_digest,
-        "trialId": trial.id,
+        "trialId": product_trial_id.clone(),
         "trialIndex": trial.trial_index,
-        "traceId": format!("trace_{}", trial.id),
-        "rootSpanId": format!("span_{}", &trial.id[trial.id.len().saturating_sub(16)..]),
+        "traceId": format!("trace_{product_trial_id}"),
+        "rootSpanId": format!(
+            "span_{}",
+            &product_trial_id[product_trial_id.len().saturating_sub(16)..]
+        ),
         "modelRole": trial.model_role,
         "arm": trial.arm,
         "faultProfile": trial.fault_profile,
@@ -513,7 +603,7 @@ async fn run_hope_core_scenario(
     });
     let mut request = client
         .post(format!("{server_url}/api/chat"))
-        .header("x-hope-eval-trial", &trial.id)
+        .header("x-hope-eval-trial", &product_trial_id)
         .header("x-hope-eval-case", &trial.case_id)
         .json(&body);
     if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
@@ -528,6 +618,7 @@ async fn run_hope_core_scenario(
                 server_url,
                 token.as_deref(),
                 trial,
+                &product_trial_id,
                 "Hope chat",
             )
             .await);
@@ -549,16 +640,26 @@ async fn run_hope_core_scenario(
                     "invalid_harness_request",
                 )
             };
+        let (telemetry, cleanup_error) = cleanup_after_failed_chat(
+            &client,
+            server_url,
+            token.as_deref(),
+            trial,
+            &product_trial_id,
+        )
+        .await;
         return Ok(ObservedTrial {
             outcome,
             failure_class: Some(classification.to_string()),
-            telemetry: cleanup_after_failed_chat(&client, server_url, token.as_deref(), trial)
-                .await?,
+            telemetry,
             artifacts: Vec::new(),
-            error: Some(format!(
-                "Hope server returned HTTP {}; body sha256:{}",
-                status,
-                sha256_bytes(&bytes)
+            error: Some(format_failure_with_cleanup(
+                format!(
+                    "Hope server returned HTTP {}; body sha256:{}",
+                    status,
+                    sha256_bytes(&bytes)
+                ),
+                cleanup_error,
             )),
         });
     }
@@ -571,19 +672,20 @@ async fn run_hope_core_scenario(
     let mut user_event_precondition_check = None;
     let mut restart_wait_ms = 0;
     let mut scripted_wait_ms = 0u64;
+    let mut scripted_action_checks = Vec::new();
     if !request_blocked {
         let user_event_is_fault = scenario
             .faults
             .iter()
             .any(|fault| fault.kind == FaultKind::UserEvent);
-        let mut scripted_turns =
+        let mut scripted_steps =
             if trial.fault_profile == FaultProfile::Chaos || !user_event_is_fault {
-                load_scripted_user_turns(scenario_dir, scenario)?
+                load_scripted_user_steps(scenario_dir, scenario)?
             } else {
                 Vec::new()
             };
         if let Some(trigger) = user_event_trigger {
-            let before = fetch_telemetry(&client, server_url, token.as_deref(), trial)
+            let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
                 .await
                 .ok_or_else(|| anyhow!("pre-user-event Hope telemetry is unavailable"))?;
             user_event_precondition_check = Some(user_event_precondition_observed(
@@ -591,7 +693,7 @@ async fn run_hope_core_scenario(
             ));
         }
         if process_restart_fault {
-            let before = fetch_telemetry(&client, server_url, token.as_deref(), trial)
+            let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
                 .await
                 .ok_or_else(|| anyhow!("pre-restart Hope telemetry is unavailable"))?;
             let trigger = process_restart_trigger
@@ -609,98 +711,188 @@ async fn run_hope_core_scenario(
                     .expect("pre-restart telemetry was just recorded"),
                 restart_wait_ms,
             );
-            scripted_turns.insert(
+            scripted_steps.insert(
                 0,
-                ScriptedUserTurn {
+                ScriptedUserStep::Message {
                     message: "Hope 已按评测计划重启。请从持久化状态恢复，不要重复已经提交的副作用；检查 Goal/Workflow checkpoint，只继续尚未完成的工作并重新验证终态。".to_string(),
                     delay_ms: 0,
                 },
             );
         }
-        for turn in scripted_turns {
-            if turn.delay_ms > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(turn.delay_ms)).await;
-                scripted_wait_ms = scripted_wait_ms.saturating_add(turn.delay_ms);
-            }
-            let body = json!({
-                "message": turn.message,
-                "sessionId": chat.session_id.clone(),
-                "modelOverride": format!("{}::{}", model.provider_id, model.model_id),
-                "temperatureOverride": model.temperature,
-                "reasoningEffort": model.reasoning_effort,
-                "evalContext": continuation_eval_context.clone(),
-            });
-            let mut request = client
-                .post(format!("{server_url}/api/chat"))
-                .header("x-hope-eval-trial", &trial.id)
-                .header("x-hope-eval-case", &trial.case_id)
-                .json(&body);
-            if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
-                request = request.bearer_auth(token);
-            }
-            let response = match request.send().await {
-                Ok(response) => response,
-                Err(error) if error.is_timeout() => {
-                    return Ok(timed_out_chat_result(
-                        &client,
-                        server_url,
-                        token.as_deref(),
-                        trial,
-                        "Hope scripted user turn",
-                    )
-                    .await);
+        let mut compact_action_index = 0usize;
+        for step in scripted_steps {
+            match step {
+                ScriptedUserStep::Message { message, delay_ms } => {
+                    if delay_ms > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        scripted_wait_ms = scripted_wait_ms.saturating_add(delay_ms);
+                    }
+                    let body = json!({
+                        "message": message,
+                        "sessionId": chat.session_id.clone(),
+                        "modelOverride": format!("{}::{}", model.provider_id, model.model_id),
+                        "temperatureOverride": model.temperature,
+                        "reasoningEffort": model.reasoning_effort,
+                        "evalContext": continuation_eval_context.clone(),
+                    });
+                    let mut request = client
+                        .post(format!("{server_url}/api/chat"))
+                        .header("x-hope-eval-trial", &product_trial_id)
+                        .header("x-hope-eval-case", &trial.case_id)
+                        .json(&body);
+                    if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
+                        request = request.bearer_auth(token);
+                    }
+                    let response = match request.send().await {
+                        Ok(response) => response,
+                        Err(error) if error.is_timeout() => {
+                            return Ok(timed_out_chat_result(
+                                &client,
+                                server_url,
+                                token.as_deref(),
+                                trial,
+                                &product_trial_id,
+                                "Hope scripted user turn",
+                            )
+                            .await);
+                        }
+                        Err(error) => return Err(error).context("calling Hope scripted user turn"),
+                    };
+                    let status = response.status();
+                    let bytes = response
+                        .bytes()
+                        .await
+                        .context("reading Hope scripted user turn response")?;
+                    if !status.is_success() {
+                        let (telemetry, cleanup_error) = cleanup_after_failed_chat(
+                            &client,
+                            server_url,
+                            token.as_deref(),
+                            trial,
+                            &product_trial_id,
+                        )
+                        .await;
+                        return Ok(ObservedTrial {
+                            outcome: if status == StatusCode::TOO_MANY_REQUESTS
+                                || status.is_server_error()
+                            {
+                                ModelCampaignOutcome::InfraError
+                            } else {
+                                ModelCampaignOutcome::BenchmarkDefect
+                            },
+                            failure_class: Some(if status.is_server_error() {
+                                "provider_or_server_error".to_string()
+                            } else {
+                                "scripted_turn_rejected".to_string()
+                            }),
+                            telemetry,
+                            artifacts: Vec::new(),
+                            error: Some(format_failure_with_cleanup(
+                                format!(
+                                    "Hope scripted turn returned HTTP {status}; body sha256:{}",
+                                    sha256_bytes(&bytes)
+                                ),
+                                cleanup_error,
+                            )),
+                        });
+                    }
+                    chat = serde_json::from_slice(&bytes)
+                        .context("parsing Hope scripted user turn response")?;
+                    response_hashes.push(sha256_bytes(chat.response.as_bytes()));
+                    if chat.blocked_reason.is_some() {
+                        request_blocked = true;
+                        break;
+                    }
                 }
-                Err(error) => return Err(error).context("calling Hope scripted user turn"),
-            };
-            let status = response.status();
-            let bytes = response
-                .bytes()
-                .await
-                .context("reading Hope scripted user turn response")?;
-            if !status.is_success() {
-                let telemetry =
-                    cleanup_after_failed_chat(&client, server_url, token.as_deref(), trial).await?;
-                return Ok(ObservedTrial {
-                    outcome: if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
-                    {
-                        ModelCampaignOutcome::InfraError
+                ScriptedUserStep::CompactContext { expected_tier } => {
+                    compact_action_index += 1;
+                    let mut request = client
+                        .post(format!(
+                            "{server_url}/api/sessions/{}/compact",
+                            chat.session_id
+                        ))
+                        .header("x-hope-eval-trial", &product_trial_id)
+                        .header("x-hope-eval-case", &trial.case_id);
+                    if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
+                        request = request.bearer_auth(token);
+                    }
+                    let response = match request.send().await {
+                        Ok(response) => response,
+                        Err(error) if error.is_timeout() => {
+                            return Ok(timed_out_chat_result(
+                                &client,
+                                server_url,
+                                token.as_deref(),
+                                trial,
+                                &product_trial_id,
+                                "Hope scripted compact_context action",
+                            )
+                            .await);
+                        }
+                        Err(error) => {
+                            return Err(error)
+                                .context("calling Hope scripted compact_context action")
+                        }
+                    };
+                    let status = response.status();
+                    let bytes = response
+                        .bytes()
+                        .await
+                        .context("reading Hope scripted compact_context response")?;
+                    let response_hash = sha256_bytes(&bytes);
+                    let check = if status.is_success() {
+                        match serde_json::from_slice::<CompactContextResponse>(&bytes) {
+                            Ok(result) => compact_context_contract_check(
+                                &result,
+                                expected_tier,
+                                compact_action_index,
+                                response_hash,
+                            ),
+                            Err(_) => ModelCampaignCheck {
+                                id: format!(
+                                    "scripted_compact_context_{compact_action_index}"
+                                ),
+                                passed: false,
+                                blocking: true,
+                                detail: "manual compaction response is not the registered camelCase contract"
+                                    .to_string(),
+                                metric: None,
+                                artifact_hashes: vec![response_hash],
+                            },
+                        }
                     } else {
-                        ModelCampaignOutcome::BenchmarkDefect
-                    },
-                    failure_class: Some(if status.is_server_error() {
-                        "provider_or_server_error".to_string()
-                    } else {
-                        "scripted_turn_rejected".to_string()
-                    }),
-                    telemetry,
-                    artifacts: Vec::new(),
-                    error: Some(format!(
-                        "Hope scripted turn returned HTTP {status}; body sha256:{}",
-                        sha256_bytes(&bytes)
-                    )),
-                });
-            }
-            chat = serde_json::from_slice(&bytes)
-                .context("parsing Hope scripted user turn response")?;
-            response_hashes.push(sha256_bytes(chat.response.as_bytes()));
-            if chat.blocked_reason.is_some() {
-                request_blocked = true;
-                break;
+                        ModelCampaignCheck {
+                            id: format!("scripted_compact_context_{compact_action_index}"),
+                            passed: false,
+                            blocking: true,
+                            detail: format!(
+                                "manual compaction returned HTTP {status}; body sha256:{response_hash}"
+                            ),
+                            metric: None,
+                            artifact_hashes: vec![response_hash],
+                        }
+                    };
+                    let passed = check.passed;
+                    scripted_action_checks.push(check);
+                    if !passed {
+                        break;
+                    }
+                }
             }
         }
     }
-    finish_trial_for_scoring(&client, server_url, token.as_deref(), trial).await?;
+    finish_trial_for_scoring(&client, server_url, token.as_deref(), &product_trial_id).await?;
     let agent_wall_ms = elapsed_ms(agent_started);
     let response_hash = response_hashes
         .last()
         .cloned()
         .unwrap_or_else(|| sha256_bytes(b""));
-    let mut telemetry = fetch_telemetry(&client, server_url, token.as_deref(), trial)
+    let mut telemetry = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
         .await
         .ok_or_else(|| anyhow!("Hope model-eval telemetry endpoint is unavailable"))?;
     let active_work_at_response =
         telemetry.trace.orphan_span_count > u64::from(telemetry.background_model_work);
-    let mut checks = Vec::new();
+    let mut checks = scripted_action_checks;
     if let Some((passed, detail)) = pre_restart_trigger_check {
         checks.push(ModelCampaignCheck {
             id: "process_restart_trigger_observed".to_string(),
@@ -752,8 +944,19 @@ async fn run_hope_core_scenario(
         }
     }
     let cleanup_started = Instant::now();
-    let final_telemetry =
-        cleanup_and_wait_for_trial(&client, server_url, token.as_deref(), trial).await?;
+    let (final_telemetry, cleanup_error) =
+        match cleanup_and_wait_for_trial(&client, server_url, token.as_deref(), &product_trial_id)
+            .await
+        {
+            Ok(final_telemetry) => (final_telemetry, None),
+            Err(error) => {
+                let detail = format!("{error:#}");
+                telemetry
+                    .warnings
+                    .push(format!("trial cleanup remained incomplete: {detail}"));
+                (telemetry, Some(detail))
+            }
+        };
     let environment_cleanup_ms = elapsed_ms(cleanup_started);
     // Use the post-cleanup snapshot for complete usage/terminal metrics, while
     // retaining checks observed at the assistant response boundary. Active
@@ -841,7 +1044,12 @@ async fn run_hope_core_scenario(
         .iter()
         .chain(&telemetry.invariants)
         .any(|check| check.blocking && !check.passed);
-    let (mut outcome, mut failure_class) = if request_blocked {
+    let (mut outcome, mut failure_class) = if cleanup_error.is_some() {
+        (
+            ModelCampaignOutcome::InfraError,
+            Some(CLEANUP_INCOMPLETE_FAILURE_CLASS.to_string()),
+        )
+    } else if request_blocked {
         (
             ModelCampaignOutcome::PolicyFailed,
             Some("request_blocked".to_string()),
@@ -876,7 +1084,7 @@ async fn run_hope_core_scenario(
         failure_class,
         telemetry,
         artifacts,
-        error: None,
+        error: cleanup_error,
     })
 }
 
@@ -1209,9 +1417,11 @@ async fn fetch_telemetry(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
-    trial: &PlannedModelTrial,
+    product_trial_id: &str,
 ) -> Option<TelemetrySnapshot> {
-    let mut request = client.get(format!("{server_url}/api/eval/model/trials/{}", trial.id));
+    let mut request = client.get(format!(
+        "{server_url}/api/eval/model/trials/{product_trial_id}"
+    ));
     if let Some(token) = token.filter(|value| !value.is_empty()) {
         request = request.bearer_auth(token);
     }
@@ -1529,10 +1739,70 @@ fn close_restart_interrupted_spans(events: &mut Vec<ModelCampaignEvent>, timesta
     }
 }
 
-fn load_scripted_user_turns(
+fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<ScriptedUserStep>> {
+    let schema_version = value
+        .get("schemaVersion")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("scripted user flow requires schemaVersion"))?;
+    let steps = match schema_version {
+        "scripted-user-flow.v1" => {
+            let flow: ScriptedUserFlowV1 =
+                serde_json::from_value(value).context("parsing scripted-user-flow.v1")?;
+            if flow.schema_version != "scripted-user-flow.v1" {
+                bail!("scripted user flow schema is invalid");
+            }
+            flow.turns
+                .into_iter()
+                .map(|turn| ScriptedUserStep::Message {
+                    message: turn.message,
+                    delay_ms: turn.delay_ms,
+                })
+                .collect::<Vec<_>>()
+        }
+        "scripted-user-flow.v2" => {
+            let flow: ScriptedUserFlowV2 =
+                serde_json::from_value(value).context("parsing scripted-user-flow.v2")?;
+            if flow.schema_version != "scripted-user-flow.v2" {
+                bail!("scripted user flow schema is invalid");
+            }
+            flow.steps
+        }
+        other => bail!("unsupported scripted user flow schema {other}"),
+    };
+
+    let message_steps = steps
+        .iter()
+        .filter(|step| matches!(step, ScriptedUserStep::Message { .. }))
+        .count();
+    if message_steps + 1 > usize::from(max_turns) {
+        bail!("scripted user flow turn count is invalid");
+    }
+    let mut compact_actions = 0usize;
+    for step in &steps {
+        match step {
+            ScriptedUserStep::Message { message, delay_ms } => {
+                if message.trim().is_empty() || message.len() > 32_000 || *delay_ms > 30_000 {
+                    bail!("scripted user flow contains an invalid message step");
+                }
+            }
+            ScriptedUserStep::CompactContext { expected_tier } => {
+                compact_actions += 1;
+                if *expected_tier != 3 {
+                    bail!("compact_context currently requires expectedTier=3");
+                }
+            }
+        }
+    }
+    if compact_actions > 1 {
+        bail!("scripted user flow may compact context at most once");
+    }
+    Ok(steps)
+}
+
+fn load_scripted_user_steps(
     scenario_dir: &Path,
     scenario: &LiveAgentScenario,
-) -> Result<Vec<ScriptedUserTurn>> {
+) -> Result<Vec<ScriptedUserStep>> {
     match scenario.user_simulator.kind {
         UserSimulatorKind::None => Ok(Vec::new()),
         UserSimulatorKind::ScriptedFsm | UserSimulatorKind::Replay => {
@@ -1543,22 +1813,8 @@ fn load_scripted_user_turns(
                 .ok_or_else(|| anyhow!("scripted/replay user simulator requires scriptPath"))?;
             let path = resolve_contained(scenario_dir, relative)?;
             let value = ha_eval_spec::model::read_json_or_yaml(&path)?;
-            let flow: ScriptedUserFlow = serde_json::from_value(value)
-                .with_context(|| format!("parsing user simulator {}", path.display()))?;
-            if flow.schema_version != "scripted-user-flow.v1"
-                || flow.turns.len() + 1 > usize::from(scenario.user_simulator.max_turns)
-            {
-                bail!("scripted user flow schema or turn count is invalid");
-            }
-            for turn in &flow.turns {
-                if turn.message.trim().is_empty()
-                    || turn.message.len() > 32_000
-                    || turn.delay_ms > 30_000
-                {
-                    bail!("scripted user flow contains an invalid turn");
-                }
-            }
-            Ok(flow.turns)
+            parse_scripted_user_flow(value, scenario.user_simulator.max_turns)
+                .with_context(|| format!("parsing user simulator {}", path.display()))
         }
         UserSimulatorKind::Llm => {
             bail!("LLM user simulator is not installed in the registered v1 Hope Harness")
@@ -1570,11 +1826,10 @@ async fn finish_trial_for_scoring(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
-    trial: &PlannedModelTrial,
+    product_trial_id: &str,
 ) -> Result<()> {
     let mut request = client.post(format!(
-        "{server_url}/api/eval/model/trials/{}/finish",
-        trial.id
+        "{server_url}/api/eval/model/trials/{product_trial_id}/finish"
     ));
     if let Some(token) = token.filter(|value| !value.is_empty()) {
         request = request.bearer_auth(token);
@@ -1602,25 +1857,33 @@ async fn cleanup_after_failed_chat(
     server_url: &str,
     token: Option<&str>,
     trial: &PlannedModelTrial,
-) -> Result<TelemetrySnapshot> {
-    if fetch_telemetry(client, server_url, token, trial)
-        .await
-        .is_none()
-    {
-        return Ok(fallback_telemetry(trial, 0));
+    product_trial_id: &str,
+) -> (TelemetrySnapshot, Option<String>) {
+    let before_cleanup = fetch_telemetry(client, server_url, token, product_trial_id).await;
+    let Some(before_cleanup) = before_cleanup else {
+        return (fallback_telemetry(trial, 0), None);
+    };
+    match cleanup_and_wait_for_trial(client, server_url, token, product_trial_id).await {
+        Ok(telemetry) => (telemetry, None),
+        Err(error) => {
+            let detail = format!("{error:#}");
+            let mut telemetry = before_cleanup;
+            telemetry
+                .warnings
+                .push(format!("trial cleanup remained incomplete: {detail}"));
+            (telemetry, Some(detail))
+        }
     }
-    cleanup_and_wait_for_trial(client, server_url, token, trial).await
 }
 
 async fn cleanup_and_wait_for_trial(
     client: &Client,
     server_url: &str,
     token: Option<&str>,
-    trial: &PlannedModelTrial,
+    product_trial_id: &str,
 ) -> Result<TelemetrySnapshot> {
     let mut request = client.post(format!(
-        "{server_url}/api/eval/model/trials/{}/cleanup",
-        trial.id
+        "{server_url}/api/eval/model/trials/{product_trial_id}/cleanup"
     ));
     if let Some(token) = token.filter(|value| !value.is_empty()) {
         request = request.bearer_auth(token);
@@ -1641,18 +1904,135 @@ async fn cleanup_and_wait_for_trial(
         );
     }
 
-    let deadline = Instant::now() + std::time::Duration::from_secs(15);
+    let deadline =
+        Instant::now() + std::time::Duration::from_secs(TRIAL_CLEANUP_SAFETY_FUSE_SECONDS);
+    let mut last_snapshot = None;
     loop {
-        if let Some(snapshot) = fetch_telemetry(client, server_url, token, trial).await {
+        if let Some(snapshot) = fetch_telemetry(client, server_url, token, product_trial_id).await {
             if snapshot.trace.closed && snapshot.trace.orphan_span_count == 0 {
                 return Ok(snapshot);
             }
+            last_snapshot = Some(snapshot);
         }
         if Instant::now() >= deadline {
-            bail!("Hope model-eval cleanup did not close all trial work within 15 seconds");
+            if let Some(snapshot) = last_snapshot {
+                bail!(
+                    "Hope model-eval cleanup did not close all trial work within {} seconds (traceClosed={}, orphanSpans={}, activeChildren={}, backgroundModelWork={})",
+                    TRIAL_CLEANUP_SAFETY_FUSE_SECONDS,
+                    snapshot.trace.closed,
+                    snapshot.trace.orphan_span_count,
+                    snapshot.active_children,
+                    snapshot.background_model_work,
+                );
+            }
+            bail!(
+                "Hope model-eval cleanup did not close all trial work within {} seconds and no final telemetry snapshot was available",
+                TRIAL_CLEANUP_SAFETY_FUSE_SECONDS,
+            );
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
+}
+
+fn format_failure_with_cleanup(primary: String, cleanup_error: Option<String>) -> String {
+    match cleanup_error {
+        Some(cleanup_error) => format!("{primary}; cleanup also failed: {cleanup_error}"),
+        None => primary,
+    }
+}
+
+fn tool_result_digest_sequence_check(
+    config: &Value,
+    telemetry: &TelemetrySnapshot,
+) -> Result<(bool, String)> {
+    let tool_name = config
+        .get("toolName")
+        .and_then(Value::as_str)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+        })
+        .ok_or_else(|| anyhow!("tool_result_digest_sequence requires a safe toolName"))?;
+    let expected = config
+        .get("resultDigests")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("tool_result_digest_sequence requires resultDigests[]"))?;
+    if expected.is_empty() || expected.len() > 128 {
+        bail!("tool_result_digest_sequence requires 1..=128 result digests");
+    }
+    let expected = expected
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|digest| {
+                    digest.len() == 64
+                        && digest
+                            .chars()
+                            .all(|ch| ch.is_ascii_digit() || ('a'..='f').contains(&ch))
+                })
+                .ok_or_else(|| {
+                    anyhow!("tool_result_digest_sequence values must be lowercase SHA-256")
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let event_name = format!("tool.{tool_name}");
+    let only_target_tool = match config.get("onlyTargetTool") {
+        Some(Value::Bool(value)) => *value,
+        Some(_) => bail!("tool_result_digest_sequence onlyTargetTool must be boolean"),
+        None => false,
+    };
+    let observed = telemetry
+        .events
+        .iter()
+        .filter(|event| event.event == event_name)
+        .collect::<Vec<_>>();
+    let unexpected_tool_events = if only_target_tool {
+        telemetry
+            .events
+            .iter()
+            .filter(|event| event.event.starts_with("tool.") && event.event != event_name)
+            .count()
+    } else {
+        0
+    };
+    let first_mismatch = (0..expected.len().max(observed.len())).find(|index| {
+        let Some(expected) = expected.get(*index) else {
+            return true;
+        };
+        let Some(actual) = observed.get(*index) else {
+            return true;
+        };
+        actual.status != "succeeded"
+            || actual
+                .attributes
+                .get("resultDigest")
+                .and_then(Value::as_str)
+                != Some(*expected)
+    });
+    let passed = first_mismatch.is_none() && unexpected_tool_events == 0;
+    Ok((
+        passed,
+        if unexpected_tool_events > 0 {
+            format!(
+                "tool {tool_name} was not exclusive; observed {unexpected_tool_events} other tool event(s)"
+            )
+        } else if let Some(index) = first_mismatch {
+            format!(
+                "tool {tool_name} result digest sequence mismatch at index {index}; observed {}, expected {}",
+                observed.len(),
+                expected.len()
+            )
+        } else {
+            format!(
+                "tool {tool_name} observed the exact {}-result successful digest sequence",
+                expected.len()
+            )
+        },
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1869,6 +2249,13 @@ async fn evaluate_registered_verifier(
                 format!("{missing} required telemetry signal(s) missing"),
             )
         }
+        (
+            VerifierKind::TraceAssertion | VerifierKind::EventAssertion,
+            "tool_result_digest_sequence",
+        ) => {
+            let config = read_verifier_config(verifier, scenario_dir)?;
+            tool_result_digest_sequence_check(&config, telemetry)?
+        }
         (VerifierKind::TraceAssertion, "trace_closed") => {
             let task_orphans = telemetry
                 .trace
@@ -1915,6 +2302,20 @@ async fn evaluate_registered_verifier(
                     "assistant JSON must contain the configured subset".to_string(),
                 ),
                 Err(_) => (false, "assistant response is not valid JSON".to_string()),
+            }
+        }
+        (VerifierKind::HttpAssertion, "response_json_exact") => {
+            let expected = read_verifier_config(verifier, scenario_dir)?;
+            match parse_semantically_exact_json_response(&chat.response) {
+                Ok(actual) => (
+                    json_exact(&expected, &actual),
+                    "assistant JSON must exactly match the configured value".to_string(),
+                ),
+                Err(_) => (
+                    false,
+                    "assistant response is neither raw JSON nor a single JSON code fence"
+                        .to_string(),
+                ),
             }
         }
         (_, other) => bail!(
@@ -2134,6 +2535,31 @@ fn json_subset(expected: &Value, actual: &Value) -> bool {
             .all(|value| actual.iter().any(|actual| json_subset(value, actual))),
         _ => expected == actual,
     }
+}
+
+fn json_exact(expected: &Value, actual: &Value) -> bool {
+    expected == actual
+}
+
+/// Parse one semantically exact JSON document while tolerating the common
+/// presentation-only Markdown wrapper produced by otherwise-correct models.
+/// Prose before/after the fence, multiple fences, extra object keys and array
+/// reordering remain failures; only the outer `json` fence is ignored.
+fn parse_semantically_exact_json_response(response: &str) -> Result<Value> {
+    let trimmed = response.trim();
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Ok(value);
+    }
+    let fenced = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```JSON"))
+        .and_then(|value| value.strip_suffix("```"))
+        .ok_or_else(|| anyhow!("response is not a single JSON document"))?
+        .trim();
+    if fenced.contains("```") {
+        bail!("response contains more than one code fence");
+    }
+    serde_json::from_str(fenced).context("parsing fenced assistant JSON")
 }
 
 fn fallback_telemetry(trial: &PlannedModelTrial, span_count: u64) -> TelemetrySnapshot {
@@ -2370,6 +2796,18 @@ mod tests {
     }
 
     #[test]
+    fn exact_json_rejects_extra_keys_and_array_order_or_cardinality_changes() {
+        let expected = json!({"items": ["a", "b"]});
+        assert!(json_exact(&expected, &json!({"items": ["a", "b"]})));
+        assert!(!json_exact(
+            &expected,
+            &json!({"items": ["a", "b"], "extra": true})
+        ));
+        assert!(!json_exact(&expected, &json!({"items": ["b", "a"]})));
+        assert!(!json_exact(&expected, &json!({"items": ["a", "b", "b"]})));
+    }
+
+    #[test]
     fn sanitize_error_removes_bearer_and_provider_keys() {
         let value = sanitize_error("Bearer secret token=abc sk-test\nnext");
         assert!(!value.contains("secret"));
@@ -2433,6 +2871,125 @@ mod tests {
                 workspace.path(),
             )
             .0
+        );
+    }
+
+    #[test]
+    fn scripted_user_flow_v1_remains_compatible_and_v2_registers_compaction() {
+        let v1 = parse_scripted_user_flow(
+            json!({
+                "schemaVersion": "scripted-user-flow.v1",
+                "turns": [{"message": "继续", "delayMs": 5}]
+            }),
+            2,
+        )
+        .unwrap();
+        assert!(matches!(
+            &v1[0],
+            ScriptedUserStep::Message { message, delay_ms }
+                if message == "继续" && *delay_ms == 5
+        ));
+
+        let v2 = parse_scripted_user_flow(
+            json!({
+                "schemaVersion": "scripted-user-flow.v2",
+                "steps": [
+                    {"action": "message", "message": "记录事实"},
+                    {"action": "compact_context", "expectedTier": 3},
+                    {"action": "message", "message": "复述事实"}
+                ]
+            }),
+            3,
+        )
+        .unwrap();
+        assert!(matches!(
+            &v2[1],
+            ScriptedUserStep::CompactContext { expected_tier: 3 }
+        ));
+        assert!(parse_scripted_user_flow(
+            json!({
+                "schemaVersion": "scripted-user-flow.v2",
+                "steps": [{"action": "compact_context", "expectedTier": 4}]
+            }),
+            1,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn compact_context_action_requires_a_real_reducing_tier_three_summary() {
+        let valid = CompactContextResponse {
+            tier_applied: 3,
+            tokens_before: 8_000,
+            tokens_after: 2_000,
+            messages_affected: 8,
+            description: "summarized".to_string(),
+        };
+        assert!(compact_context_contract_check(&valid, 3, 1, "a".repeat(64)).passed);
+
+        let no_reduction = CompactContextResponse {
+            tokens_after: valid.tokens_before,
+            ..valid
+        };
+        assert!(!compact_context_contract_check(&no_reduction, 3, 1, "b".repeat(64)).passed);
+    }
+
+    #[test]
+    fn tool_result_digest_sequence_is_exact_and_requires_success() {
+        let mut telemetry = restart_telemetry();
+        let expected = ["a".repeat(64), "b".repeat(64)];
+        telemetry.events = expected
+            .iter()
+            .enumerate()
+            .map(|(index, digest)| ModelCampaignEvent {
+                seq: index as u64 + 1,
+                event: "tool.read".to_string(),
+                timestamp_ms: index as u64,
+                span_id: format!("span_read_{index}"),
+                parent_span_id: "span_restart".to_string(),
+                key: Some(format!("call-{index}")),
+                status: "succeeded".to_string(),
+                duration_ms: 1,
+                attributes: std::collections::BTreeMap::from([(
+                    "resultDigest".to_string(),
+                    Value::String(digest.clone()),
+                )]),
+            })
+            .collect();
+        let config = json!({
+            "toolName": "read",
+            "resultDigests": expected,
+            "onlyTargetTool": true
+        });
+        assert!(
+            tool_result_digest_sequence_check(&config, &telemetry)
+                .unwrap()
+                .0
+        );
+
+        telemetry.events[1].status = "failed".to_string();
+        assert!(
+            !tool_result_digest_sequence_check(&config, &telemetry)
+                .unwrap()
+                .0
+        );
+
+        telemetry.events[1].status = "succeeded".to_string();
+        telemetry.events.push(ModelCampaignEvent {
+            seq: 3,
+            event: "tool.grep".to_string(),
+            timestamp_ms: 3,
+            span_id: "span_grep".to_string(),
+            parent_span_id: "span_restart".to_string(),
+            key: Some("call-grep".to_string()),
+            status: "succeeded".to_string(),
+            duration_ms: 1,
+            attributes: std::collections::BTreeMap::new(),
+        });
+        assert!(
+            !tool_result_digest_sequence_check(&config, &telemetry)
+                .unwrap()
+                .0
         );
     }
 

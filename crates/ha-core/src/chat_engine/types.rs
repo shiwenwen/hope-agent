@@ -578,12 +578,12 @@ pub struct ChatEngineParams {
     // Basic
     pub session_id: String,
     pub agent_id: String,
-    /// Persisted chat turn id for user-facing desktop / HTTP turns.
+    /// Persisted chat turn id for user-facing desktop / HTTP turns and
+    /// standalone scheduled turns.
     ///
-    /// `None` is intentional for non-interactive sources such as cron,
-    /// subagent, parent injection, and IM channel worker turns: those entry
-    /// points already own their cancellation and delivery lifecycles, so they
-    /// must not be tied to the GUI/HTTP active-turn registry.
+    /// `None` is intentional for sources such as subagent, parent injection,
+    /// and IM channel worker turns that own separate cancellation/delivery
+    /// lifecycles.
     pub turn_id: Option<String>,
     pub message: String,
     /// Optional typed-composer sidecar bound to the exact canonical message.
@@ -615,6 +615,9 @@ pub struct ChatEngineParams {
     pub run_context: Option<crate::prompt_context::RunInstructionContext>,
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
+    /// Stop generation captured at the transport/queue admission boundary.
+    /// Stream durability revalidates it transactionally before model work.
+    pub foreground_stop_admission: Option<crate::session::ForegroundStopAdmission>,
     /// Spawn-supplied Plan-mode override. `Some` means the caller is the
     /// source of truth and the chat engine must NOT consult this session's
     /// backend `plan_mode` (used by `spawn_plan_subagent`: the child
@@ -752,6 +755,16 @@ mod tests {
             output_coverage,
             reserved_output_tokens,
             has_media: false,
+            cache_compaction_decision: None,
+            cache_identity_hash: None,
+            projection_action_count: 0,
+            reclaimed_tokens_upper: 0,
+            invalidated_suffix_tokens_upper: None,
+            cache_read_input_tokens: None,
+            cache_creation_input_tokens: None,
+            break_even_turns: None,
+            prefix_rewrite_count: 0,
+            summary_reason: None,
         }
     }
 

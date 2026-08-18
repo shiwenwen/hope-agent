@@ -9,7 +9,9 @@ use super::model::{
     validate_campaign_budget, CampaignBudget, ModelCampaignOutcome, ModelCampaignPlan,
     ModelCampaignSource, ModelCampaignTier, ModelProfile,
 };
-use super::{digest_serializable, validate_identifier, ArtifactDigest};
+use super::{
+    digest_serializable, validate_identifier, ArtifactDigest, CaseResult, EvalStatus, PlannedSuite,
+};
 use anyhow::{bail, Result};
 use base64::Engine;
 use chrono::DateTime;
@@ -24,6 +26,7 @@ pub const APP_PLAN_SCHEMA_VERSION: &str = "eval-app-plan.v1";
 pub const EVIDENCE_BUNDLE_SCHEMA_VERSION: &str = "eval-evidence-bundle.v1";
 pub const EVIDENCE_TRUST_SCHEMA_VERSION: &str = "eval-evidence-trust.v1";
 pub const APP_CONTROL_PROTOCOL_VERSION: &str = "eval-app-control.v1";
+pub const APP_DETERMINISTIC_EVIDENCE_SCHEMA_VERSION: &str = "eval-app-deterministic-evidence.v1";
 
 pub const APP_MAX_MODELS: usize = 4;
 pub const APP_MAX_TRIALS: usize = 500;
@@ -59,6 +62,29 @@ pub enum AppDebugRetention {
 pub enum AppArmMode {
     OneControlPerCase,
     AllAllowed,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppBudgetMode {
+    /// Registered suite/scenario limits remain the per-trial ceilings.
+    #[default]
+    RegisteredCeiling,
+    /// A local diagnostic may use explicit per-case budgets under the aggregate
+    /// ceiling chosen by the user. Registered budgets provide defaults only.
+    UserConfigurable,
+}
+
+fn is_registered_budget_mode(mode: &AppBudgetMode) -> bool {
+    *mode == AppBudgetMode::RegisteredCeiling
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppBudgetEnforcement {
+    #[default]
+    Enforced,
+    Unlimited,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +130,10 @@ pub struct EvalAppProfile {
     pub description: String,
     pub base_tier: ModelCampaignTier,
     pub suites: Vec<AppProfileSuiteSelection>,
+    /// Zero-network suites that are part of this profile's blocking result but
+    /// do not consume Provider budget or real-model trial slots.
+    #[serde(default)]
+    pub deterministic_suites: Vec<String>,
     pub allowed_arms: Vec<String>,
     pub arm_mode: AppArmMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,9 +143,17 @@ pub struct EvalAppProfile {
     pub max_trials: u16,
     pub max_models: u8,
     pub max_concurrency: u16,
+    pub default_concurrency: u16,
     pub max_cost_usd: f64,
-    /// Optional App-only ceiling for one trial. Registered suite/scenario
-    /// limits remain authoritative when they are stricter.
+    /// Recommended initial value shown by the App. It is not a ceiling; the
+    /// user's explicit value is persisted in the immutable run plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "is_registered_budget_mode")]
+    pub budget_mode: AppBudgetMode,
+    /// Legacy wire field retained for decoding older profiles. Current local
+    /// App profiles must leave it unset so user-selected trial time remains
+    /// authoritative.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_trial_seconds: Option<u64>,
     #[serde(default)]
@@ -132,6 +170,27 @@ pub struct AppSuiteRequest {
     pub arms: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repetitions: Option<u16>,
+}
+
+/// User-selected aggregate cost ceiling for one suite/case across every
+/// selected model, arm, and repetition in the local App experiment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppCaseCostBudget {
+    pub suite_id: String,
+    pub case_id: String,
+    pub max_cost_usd: f64,
+}
+
+/// User-selected per-trial resource ceilings for one App suite/case. Cost is
+/// allocated separately because it is an aggregate across every selected
+/// model, arm, and repetition; the remaining dimensions apply to each trial.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppCaseResourceBudget {
+    pub suite_id: String,
+    pub case_id: String,
+    pub budget: CampaignBudget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,6 +222,8 @@ impl AppModelSelection {
 pub struct AppEvalConsent {
     pub model_costs: bool,
     pub synthetic_tool_execution: bool,
+    #[serde(default)]
+    pub unlimited_budget_risk: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -171,7 +232,13 @@ pub struct EvalAppRunRequest {
     pub schema_version: String,
     pub profile_id: String,
     #[serde(default)]
+    pub budget_enforcement: AppBudgetEnforcement,
+    #[serde(default)]
     pub suite_selections: Vec<AppSuiteRequest>,
+    #[serde(default)]
+    pub case_cost_budgets: Vec<AppCaseCostBudget>,
+    #[serde(default)]
+    pub case_resource_budgets: Vec<AppCaseResourceBudget>,
     pub models: Vec<AppModelSelection>,
     pub campaign_budget: CampaignBudget,
     #[serde(default)]
@@ -233,8 +300,39 @@ pub struct EvalAppPlan {
     pub asset_root_digest: String,
     pub runtime_environment: RuntimeEnvironmentSnapshot,
     pub debug_retention: AppDebugRetention,
+    #[serde(default)]
+    pub budget_enforcement: AppBudgetEnforcement,
     pub campaign_budget: CampaignBudget,
+    #[serde(default)]
+    pub deterministic_suites: Vec<PlannedSuite>,
     pub campaigns: Vec<AppResolvedCampaign>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppDeterministicEvidence {
+    pub schema_version: String,
+    pub experiment_id: String,
+    pub campaign_id: String,
+    pub profile_id: String,
+    pub reference: String,
+    pub dirty: bool,
+    pub app_version: String,
+    pub aggregate_status: EvalStatus,
+    pub started_at: String,
+    pub completed_at: String,
+    pub duration_ms: u64,
+    pub suite: PlannedSuite,
+    pub cases: Vec<CaseResult>,
+}
+
+pub fn deterministic_campaign_id(suite: &PlannedSuite) -> String {
+    let prefix = suite.digest.get(..24).unwrap_or(&suite.digest);
+    format!("dcampaign_{prefix}")
+}
+
+pub fn deterministic_trial_id(case_id: &str) -> String {
+    format!("dtrial-{case_id}")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,7 +457,7 @@ pub struct AppControlHello {
     pub adapters: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppEvalCaseCatalog {
     pub id: String,
@@ -367,9 +465,13 @@ pub struct AppEvalCaseCatalog {
     pub tags: Vec<String>,
     pub arms: Vec<String>,
     pub timeout_seconds: u64,
+    /// Registered per-trial cost used only to suggest an initial allocation.
+    pub registered_cost_micros: u64,
+    pub repetitions: u16,
+    pub registered_budget: CampaignBudget,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppEvalSuiteCatalog {
     pub id: String,
@@ -537,6 +639,11 @@ pub enum AppControlEvent {
         campaign_id: String,
         evidence_path: String,
     },
+    DeterministicCampaignCompleted {
+        experiment_id: String,
+        campaign_id: String,
+        evidence_path: String,
+    },
     Completed {
         experiment_id: String,
         evidence_paths: Vec<String>,
@@ -566,7 +673,8 @@ impl AppControlEvent {
             | Self::TrialProgress { campaign_id, .. }
             | Self::TrialCompleted { campaign_id, .. }
             | Self::ArtifactWritten { campaign_id, .. }
-            | Self::CampaignCompleted { campaign_id, .. } => Some(campaign_id),
+            | Self::CampaignCompleted { campaign_id, .. }
+            | Self::DeterministicCampaignCompleted { campaign_id, .. } => Some(campaign_id),
             Self::Error { experiment_id, .. } => experiment_id.as_deref(),
             Self::Hello { .. }
             | Self::Ready
@@ -626,6 +734,7 @@ pub fn validate_app_profile(profile: &EvalAppProfile) -> Result<()> {
     if !(1..=APP_MAX_TRIALS as u16).contains(&profile.max_trials)
         || !(1..=APP_MAX_MODELS as u8).contains(&profile.max_models)
         || !(1..=APP_MAX_CONCURRENCY as u16).contains(&profile.max_concurrency)
+        || !(1..=profile.max_concurrency).contains(&profile.default_concurrency)
         || !profile.max_cost_usd.is_finite()
         || !(0.0..=APP_MAX_COST_USD).contains(&profile.max_cost_usd)
         || profile.max_cost_usd == 0.0
@@ -639,10 +748,19 @@ pub fn validate_app_profile(profile: &EvalAppProfile) -> Result<()> {
         bail!("app profile repetitions must be 1..=5");
     }
     if profile
-        .max_trial_seconds
-        .is_some_and(|value| !(30..=900).contains(&value))
+        .default_cost_usd
+        .is_some_and(|value| !value.is_finite() || value <= 0.0 || value > profile.max_cost_usd)
     {
-        bail!("app profile maxTrialSeconds must be 30..=900");
+        bail!("app profile default cost must be within its protocol ceiling");
+    }
+    if profile.budget_mode != AppBudgetMode::UserConfigurable || profile.default_cost_usd.is_none()
+    {
+        bail!(
+            "local App profiles must expose a user-controlled total cost and per-case allocation"
+        );
+    }
+    if profile.max_trial_seconds.is_some() {
+        bail!("local App profiles may recommend, but may not cap, user-selected trial time");
     }
     let mut suites = BTreeSet::new();
     for suite in &profile.suites {
@@ -652,6 +770,13 @@ pub fn validate_app_profile(profile: &EvalAppProfile) -> Result<()> {
         }
         for tag in &suite.case_tags {
             validate_identifier("app profile case tag", tag)?;
+        }
+    }
+    let mut deterministic_suites = BTreeSet::new();
+    for suite in &profile.deterministic_suites {
+        validate_identifier("app profile deterministic suite id", suite)?;
+        if !deterministic_suites.insert(suite.as_str()) {
+            bail!("app profile contains duplicate deterministic suite {suite}");
         }
     }
     let mut arms = BTreeSet::new();
@@ -711,6 +836,50 @@ pub fn validate_app_request(request: &EvalAppRunRequest) -> Result<()> {
             validate_identifier("app request arm", arm)?;
         }
     }
+    let mut case_budgets = BTreeSet::new();
+    let mut allocated_cost = 0.0f64;
+    for budget in &request.case_cost_budgets {
+        validate_identifier("app request budget suite id", &budget.suite_id)?;
+        validate_identifier("app request budget case id", &budget.case_id)?;
+        if !budget.max_cost_usd.is_finite()
+            || budget.max_cost_usd <= 0.0
+            || budget.max_cost_usd > APP_MAX_COST_USD
+        {
+            bail!("app request case cost budget is invalid");
+        }
+        if !case_budgets.insert((budget.suite_id.as_str(), budget.case_id.as_str())) {
+            bail!(
+                "app request contains duplicate case budget {}/{}",
+                budget.suite_id,
+                budget.case_id
+            );
+        }
+        allocated_cost += budget.max_cost_usd;
+    }
+    let mut case_resource_budgets = BTreeSet::new();
+    for resource in &request.case_resource_budgets {
+        validate_identifier("app request resource budget suite id", &resource.suite_id)?;
+        validate_identifier("app request resource budget case id", &resource.case_id)?;
+        if !case_resource_budgets.insert((resource.suite_id.as_str(), resource.case_id.as_str())) {
+            bail!(
+                "app request contains duplicate resource budget {}/{}",
+                resource.suite_id,
+                resource.case_id
+            );
+        }
+        validate_campaign_budget(&resource.budget, "app case resource")?;
+        if resource.budget.max_cost_usd.is_some()
+            || resource.budget.max_wall_seconds.is_none()
+            || resource.budget.max_model_calls.is_none()
+            || resource.budget.max_input_tokens.is_none()
+            || resource.budget.max_output_tokens.is_none()
+            || resource.budget.max_tool_calls.is_none()
+            || resource.budget.max_agents.is_none()
+            || resource.budget.max_concurrency.is_none()
+        {
+            bail!("app case resource budgets must provide every non-cost dimension");
+        }
+    }
     validate_campaign_budget(&request.campaign_budget, "app campaign")?;
     if request
         .campaign_budget
@@ -723,11 +892,42 @@ pub fn validate_app_request(request: &EvalAppRunRequest) -> Result<()> {
     {
         bail!("app campaign budget exceeds local safety limits");
     }
-    if request.campaign_budget.max_cost_usd.is_none()
-        && request.campaign_budget.max_input_tokens.is_none()
-        && request.campaign_budget.max_model_calls.is_none()
-    {
-        bail!("app campaign requires a cost, token, or model-call hard limit");
+    match request.budget_enforcement {
+        AppBudgetEnforcement::Enforced => {
+            if request.campaign_budget.max_wall_seconds.is_none()
+                || request.campaign_budget.max_model_calls.is_none()
+                || request.campaign_budget.max_input_tokens.is_none()
+                || request.campaign_budget.max_output_tokens.is_none()
+                || request.campaign_budget.max_cost_usd.is_none()
+                || request.campaign_budget.max_tool_calls.is_none()
+                || request.campaign_budget.max_agents.is_none()
+                || request.campaign_budget.max_concurrency.is_none()
+            {
+                bail!("bounded local App campaigns must provide every budget dimension");
+            }
+            if request.consent.unlimited_budget_risk {
+                bail!("bounded App request may not claim unlimited-budget consent");
+            }
+            if !request.case_cost_budgets.is_empty()
+                && request
+                    .campaign_budget
+                    .max_cost_usd
+                    .is_none_or(|total| allocated_cost > total + 0.000_001)
+            {
+                bail!("app request case cost budgets exceed the campaign cost ceiling");
+            }
+        }
+        AppBudgetEnforcement::Unlimited => {
+            if request.campaign_budget != CampaignBudget::default()
+                || !request.case_cost_budgets.is_empty()
+                || !request.case_resource_budgets.is_empty()
+            {
+                bail!("unlimited App request must not retain hidden budget ceilings");
+            }
+            if !request.consent.unlimited_budget_risk {
+                bail!("unlimited App request requires explicit risk acknowledgement");
+            }
+        }
     }
     Ok(())
 }
@@ -781,14 +981,37 @@ pub fn validate_app_plan(plan: &EvalAppPlan) -> Result<()> {
         bail!("app plan runtime and asset digests differ");
     }
     validate_campaign_budget(&plan.campaign_budget, "app plan campaign")?;
+    match plan.budget_enforcement {
+        AppBudgetEnforcement::Enforced => {}
+        AppBudgetEnforcement::Unlimited if plan.campaign_budget == CampaignBudget::default() => {}
+        AppBudgetEnforcement::Unlimited => {
+            bail!("unlimited App plan contains a hidden campaign budget")
+        }
+    }
     if plan.campaigns.is_empty() || plan.campaigns.len() > APP_MAX_MODELS {
         bail!("app plan requires 1..={APP_MAX_MODELS} child campaigns");
     }
     let mut campaign_ids = BTreeSet::new();
     let mut total_trials = 0usize;
+    let mut deterministic_ids = BTreeSet::new();
+    for suite in &plan.deterministic_suites {
+        validate_identifier("app deterministic suite id", &suite.id)?;
+        if suite.cases.is_empty()
+            || suite.adapter != super::EvalAdapter::ContextCompactionContract
+            || !deterministic_ids.insert(suite.id.as_str())
+        {
+            bail!("app plan contains an invalid deterministic suite");
+        }
+        validate_sha256(&suite.digest, "app deterministic suite")?;
+        let campaign_id = deterministic_campaign_id(suite);
+        if !campaign_ids.insert(campaign_id) {
+            bail!("app plan contains a duplicate deterministic campaign id");
+        }
+        total_trials = total_trials.saturating_add(suite.cases.len());
+    }
     for campaign in &plan.campaigns {
         if campaign.campaign_id.trim().is_empty()
-            || !campaign_ids.insert(campaign.campaign_id.as_str())
+            || !campaign_ids.insert(campaign.campaign_id.clone())
         {
             bail!("app plan contains an invalid or duplicate campaign id");
         }
@@ -822,6 +1045,54 @@ pub fn validate_app_plan(plan: &EvalAppPlan) -> Result<()> {
     }
     if total_trials > APP_MAX_TRIALS {
         bail!("app plan exceeds the {APP_MAX_TRIALS}-trial safety limit");
+    }
+    Ok(())
+}
+
+pub fn validate_app_deterministic_evidence(evidence: &AppDeterministicEvidence) -> Result<()> {
+    validate_sha256(&evidence.suite.digest, "deterministic App evidence suite")?;
+    if evidence.schema_version != APP_DETERMINISTIC_EVIDENCE_SCHEMA_VERSION
+        || evidence.experiment_id.trim().is_empty()
+        || evidence.profile_id.trim().is_empty()
+        || evidence.reference.trim().is_empty()
+        || evidence.app_version.trim().is_empty()
+        || evidence.campaign_id != deterministic_campaign_id(&evidence.suite)
+        || evidence.cases.len() != evidence.suite.cases.len()
+    {
+        bail!("deterministic App evidence identity is invalid");
+    }
+    let planned = evidence
+        .suite
+        .cases
+        .iter()
+        .map(|case| (case.id.as_str(), case.digest.as_str()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut found = BTreeSet::new();
+    for case in &evidence.cases {
+        if case.suite_id != evidence.suite.id
+            || planned.get(case.case_id.as_str()).copied() != Some(case.case_digest.as_str())
+            || !found.insert(case.case_id.as_str())
+        {
+            bail!("deterministic App evidence contains an unplanned case");
+        }
+    }
+    let expected = if evidence
+        .cases
+        .iter()
+        .any(|case| case.status == EvalStatus::Failed)
+    {
+        EvalStatus::Failed
+    } else if evidence
+        .cases
+        .iter()
+        .any(|case| case.status == EvalStatus::InfraError)
+    {
+        EvalStatus::InfraError
+    } else {
+        EvalStatus::Passed
+    };
+    if evidence.aggregate_status != expected {
+        bail!("deterministic App evidence aggregate status is inconsistent");
     }
     Ok(())
 }
@@ -1151,7 +1422,10 @@ mod tests {
         let request = EvalAppRunRequest {
             schema_version: APP_REQUEST_SCHEMA_VERSION.into(),
             profile_id: "quick".into(),
+            budget_enforcement: AppBudgetEnforcement::Enforced,
             suite_selections: vec![],
+            case_cost_budgets: vec![],
+            case_resource_budgets: vec![],
             models: vec![AppModelSelection {
                 provider_id: "provider".into(),
                 model_id: "model".into(),
@@ -1160,19 +1434,90 @@ mod tests {
                 max_output_tokens: None,
             }],
             campaign_budget: CampaignBudget {
+                max_wall_seconds: Some(60),
                 max_model_calls: Some(10),
-                ..CampaignBudget::default()
+                max_input_tokens: Some(100_000),
+                max_output_tokens: Some(10_000),
+                max_cost_usd: Some(10.0),
+                max_tool_calls: Some(10),
+                max_agents: Some(2),
+                max_concurrency: Some(1),
             },
             debug_retention: AppDebugRetention::Redacted,
             consent: AppEvalConsent {
                 model_costs: true,
                 synthetic_tool_execution: true,
+                unlimited_budget_risk: false,
             },
         };
         validate_app_request(&request).unwrap();
         assert!(request.redacted().models[0]
             .credential_profile_ref
             .is_none());
+    }
+
+    #[test]
+    fn unlimited_request_requires_an_empty_budget_and_explicit_risk_consent() {
+        let mut request = EvalAppRunRequest {
+            schema_version: APP_REQUEST_SCHEMA_VERSION.into(),
+            profile_id: "quick".into(),
+            budget_enforcement: AppBudgetEnforcement::Unlimited,
+            suite_selections: vec![],
+            case_cost_budgets: vec![],
+            case_resource_budgets: vec![],
+            models: vec![AppModelSelection {
+                provider_id: "provider".into(),
+                model_id: "model".into(),
+                credential_profile_ref: None,
+                reasoning_effort: None,
+                max_output_tokens: None,
+            }],
+            campaign_budget: CampaignBudget::default(),
+            debug_retention: AppDebugRetention::Redacted,
+            consent: AppEvalConsent {
+                model_costs: true,
+                synthetic_tool_execution: true,
+                unlimited_budget_risk: true,
+            },
+        };
+        validate_app_request(&request).unwrap();
+
+        request.consent.unlimited_budget_risk = false;
+        assert!(validate_app_request(&request).is_err());
+        request.consent.unlimited_budget_risk = true;
+        request.campaign_budget.max_cost_usd = Some(1.0);
+        assert!(validate_app_request(&request).is_err());
+    }
+
+    #[test]
+    fn user_configurable_profile_uses_a_default_without_turning_it_into_a_ceiling() {
+        let mut profile: EvalAppProfile = serde_json::from_value(serde_json::json!({
+            "schemaVersion": APP_PROFILE_SCHEMA_VERSION,
+            "id": "context-compaction",
+            "version": "1.0.1",
+            "title": "上下文压缩专项",
+            "description": "synthetic local diagnostic",
+            "baseTier": "nightly",
+            "suites": [{"suiteId": "context-compaction", "caseTags": []}],
+            "allowedArms": ["control"],
+            "armMode": "one_control_per_case",
+            "useSuiteRepetitions": false,
+            "maxTrials": 2,
+            "maxModels": 1,
+            "maxConcurrency": 1,
+            "defaultConcurrency": 1,
+            "maxCostUsd": 1000000,
+            "defaultCostUsd": 5,
+            "budgetMode": "user_configurable",
+            "allowCustom": false
+        }))
+        .unwrap();
+        validate_app_profile(&profile).unwrap();
+
+        profile.default_cost_usd = Some(profile.max_cost_usd + 1.0);
+        assert!(validate_app_profile(&profile).is_err());
+        profile.default_cost_usd = None;
+        assert!(validate_app_profile(&profile).is_err());
     }
 
     #[test]

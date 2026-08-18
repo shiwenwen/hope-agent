@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use rusqlite::OptionalExtension;
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::automation::{self, ModelTaskSpec};
@@ -13,8 +14,10 @@ pub const TITLE_SOURCE_MANUAL: &str = "manual";
 const GOAL_TRIGGER_META_KEY: &str = "goal_trigger";
 const LOOP_TRIGGER_META_KEY: &str = "loop_trigger";
 
-static TITLE_GENERATION_IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static TITLE_GENERATION_IN_FLIGHT: LazyLock<
+    Mutex<HashMap<String, (u64, tokio::sync::watch::Sender<bool>)>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static TITLE_GENERATION_ID: AtomicU64 = AtomicU64::new(1);
 
 // 类型已下沉 ha-config-schema，原地再导出保持路径不变。
 pub use ha_config_schema::session_title::SessionTitleConfig;
@@ -136,10 +139,13 @@ fn maybe_schedule(
         .unwrap_or_default();
     chain.push(chat_model);
 
-    if !claim_title_generation(&session_id) {
+    let Some((generation_id, cancel_rx)) = claim_title_generation(&session_id) else {
         return;
-    }
-    let lease = TitleGenerationLease(session_id.clone());
+    };
+    let lease = TitleGenerationLease {
+        session_id: session_id.clone(),
+        generation_id,
+    };
     let eval_model_guard = match crate::eval_context::retain_model_automation(&session_id) {
         Ok(guard) => guard,
         Err(error) => {
@@ -178,6 +184,7 @@ fn maybe_schedule(
             agent_id,
             chain,
             require_assistant,
+            cancel_rx,
         )) {
             app_warn!(
                 "session",
@@ -189,21 +196,47 @@ fn maybe_schedule(
     });
 }
 
-fn claim_title_generation(session_id: &str) -> bool {
+fn claim_title_generation(session_id: &str) -> Option<(u64, tokio::sync::watch::Receiver<bool>)> {
+    let mut in_flight = TITLE_GENERATION_IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if in_flight.contains_key(session_id) {
+        return None;
+    }
+    let generation_id = TITLE_GENERATION_ID.fetch_add(1, Ordering::Relaxed);
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    in_flight.insert(session_id.to_string(), (generation_id, cancel_tx));
+    Some((generation_id, cancel_rx))
+}
+
+/// Cancel the background title request for one Session. The generation stays
+/// registered until its worker has actually unwound, so a replacement cannot
+/// race the cancelled request and write a stale title.
+pub fn cancel_generation(session_id: &str) -> bool {
     TITLE_GENERATION_IN_FLIGHT
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .insert(session_id.to_string())
+        .get(session_id)
+        .map(|(_, cancel_tx)| cancel_tx.send(true).is_ok())
+        .unwrap_or(false)
 }
 
-struct TitleGenerationLease(String);
+struct TitleGenerationLease {
+    session_id: String,
+    generation_id: u64,
+}
 
 impl Drop for TitleGenerationLease {
     fn drop(&mut self) {
-        TITLE_GENERATION_IN_FLIGHT
+        let mut in_flight = TITLE_GENERATION_IN_FLIGHT
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(&self.0);
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if in_flight
+            .get(&self.session_id)
+            .is_some_and(|(generation_id, _)| *generation_id == self.generation_id)
+        {
+            in_flight.remove(&self.session_id);
+        }
     }
 }
 
@@ -343,6 +376,7 @@ async fn generate_and_update_title(
     _agent_id: String,
     chain: Vec<ActiveModel>,
     require_assistant: bool,
+    mut cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let messages = collect_title_messages(&db, &session_id)?;
     let user_count = messages
@@ -355,14 +389,22 @@ async fn generate_and_update_title(
     }
 
     let prompt = build_title_prompt(&messages);
-    let response = automation::run(ModelTaskSpec {
-        purpose: "session_title",
-        chain,
-        session_key: &session_id,
-        instruction: &prompt,
-        max_tokens: 64,
-    })
-    .await
+    if *cancel_rx.borrow() {
+        return Err(anyhow!("session title generation cancelled"));
+    }
+    let response = tokio::select! {
+        changed = cancel_rx.changed() => {
+            let _ = changed;
+            return Err(anyhow!("session title generation cancelled"));
+        }
+        response = automation::run(ModelTaskSpec {
+            purpose: "session_title",
+            chain,
+            session_key: &session_id,
+            instruction: &prompt,
+            max_tokens: 64,
+        }) => response,
+    }
     .map_err(|e| {
         anyhow!(
             "session title generation failed (session={}): {}",

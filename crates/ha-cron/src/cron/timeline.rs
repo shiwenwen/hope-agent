@@ -100,42 +100,222 @@ pub fn visible_cron_run_logs(
 }
 
 /// Permanently delete one conversation and any Cron run-log rows that point at
-/// it. The run logs must go first: timeline hydration intentionally keeps
-/// missing Session rows for legacy/purged history, so leaving them behind would
-/// make a user-deleted conversation reappear as an unopenable shell.
+/// it. CronDB holds its cross-process writer fence while SessionDB atomically
+/// checks Worktree/queue/ChatTurn custody and deletes the Session; run logs are
+/// removed only after that succeeds.
 pub fn delete_conversation_and_run_logs(
     cron_db: &Arc<CronDB>,
     session_db: &Arc<SessionDB>,
     session_id: &str,
 ) -> anyhow::Result<()> {
-    cron_db.delete_run_logs_for_session(session_id)?;
-    session_db.delete_session(session_id)
+    ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+        cron_db.delete_conversation_and_run_logs(session_db, session_id)
+    })
 }
 
-/// Delete a cron job AND its run conversations. Cron run sessions live in
-/// `sessions.db` but are hidden from the main sidebar / search, so once the job
-/// (and its CASCADE-deleted `cron_run_logs`) is gone they'd be both unreachable
-/// AND a permanent orphan leak. Collect the session ids first (before the
-/// cascade), delete the job, then purge those sessions. Session deletes are
-/// best-effort so a single failure can't block removing the job.
-pub fn delete_job_and_sessions(
+/// Logically delete a cron job while retaining its run logs and every linked
+/// conversation, including legacy hidden Cron sessions. Historical readers can
+/// therefore keep navigating completed and cancelled runs after task removal.
+pub async fn delete_job_and_legacy_sessions(
     cron_db: &Arc<CronDB>,
     session_db: &Arc<SessionDB>,
     id: &str,
 ) -> anyhow::Result<()> {
-    let session_ids = cron_db.session_ids_for_job(id).unwrap_or_default();
-    cron_db.delete_job(id)?;
-    for sid in session_ids {
-        if let Err(e) = session_db.delete_session(&sid) {
-            app_warn!(
-                "cron",
-                "delete",
-                "failed to delete cron run session {} of job {}: {:#}",
-                sid,
-                id,
-                e
-            );
+    let db = cron_db.clone();
+    let sessions = session_db.clone();
+    let job_id = id.to_string();
+    let active_run = ha_core::blocking::run_blocking(move || {
+        ha_core::agent_lifecycle::with_lifecycle_gate(|| {
+            db.delete_job_with_session_turn_cleanup(&sessions, &job_id)
+        })
+    })
+    .await?;
+
+    if let Some(run_log_id) = active_run {
+        for attempt in 0..4 {
+            let outcome = super::executor::cancel_run(run_log_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("deleted task's active run disappeared"))?;
+            if outcome.terminal || outcome.cancel_requested {
+                return Ok(());
+            }
+            if attempt < 3 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
         }
+        // The task tombstone is itself polled by the exact occurrence runner;
+        // durable Stop is the fast path, not the sole cancellation owner. This
+        // also keeps delete idempotent in the run-log→ChatTurn commit window.
+        app_warn!(
+            "cron",
+            "delete_job",
+            "Task {} was deleted before exact run {} became stoppable; its durable occurrence fence will cancel it",
+            id,
+            run_log_id
+        );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ha_core::cron::{CronPayload, CronSchedule, NewCronJob};
+
+    /// The regular-session scope joins `channel_conversations`, but that table is
+    /// created by the channel subsystem at startup rather than by the Session
+    /// schema. A bare fixture DB therefore needs it before any session read.
+    fn ensure_channel_conversations_table(db: &SessionDB) {
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )?;
+            Ok(())
+        })
+        .expect("create channel conversations table");
+    }
+
+    #[tokio::test]
+    async fn ordinary_run_sessions_keep_title_and_survive_task_delete() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cron_db = Arc::new(CronDB::open(&dir.path().join("cron.db")).expect("cron db"));
+        let session_db =
+            Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        ensure_channel_conversations_table(&session_db);
+        let job = cron_db
+            .add_job(&NewCronJob {
+                name: "Scheduled chat".into(),
+                description: None,
+                project_id: None,
+                workspace_policy: Default::default(),
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "run".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+
+        let ordinary = session_db
+            .create_session_with_project_and_origin(
+                ha_core::agent_loader::DEFAULT_AGENT_ID,
+                None,
+                None,
+                &ha_core::session::SessionOrigin {
+                    kind: "cron".into(),
+                    id: job.id.clone(),
+                    label: job.name.clone(),
+                },
+            )
+            .expect("ordinary session");
+        session_db
+            .update_session_title(&ordinary.id, "Ordinary run title")
+            .expect("title ordinary");
+        session_db
+            .append_message(
+                &ordinary.id,
+                &ha_core::session::NewMessage::assistant("done"),
+            )
+            .expect("ordinary assistant");
+
+        let legacy = session_db
+            .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
+            .expect("legacy session");
+        session_db
+            .update_session_title(&legacy.id, "Legacy run title")
+            .expect("title legacy");
+        session_db
+            .mark_session_cron(&legacy.id)
+            .expect("mark legacy cron");
+        session_db
+            .append_message(
+                &legacy.id,
+                &ha_core::session::NewMessage::assistant("legacy done"),
+            )
+            .expect("legacy assistant");
+
+        for session_id in [&ordinary.id, &legacy.id] {
+            let live = cron_db.get_job(&job.id).unwrap().unwrap();
+            let claimed = cron_db
+                .claim_immediate_job_for_execution(&live)
+                .expect("claim run")
+                .expect("claimed run");
+            let run_id = cron_db
+                .add_running_run_log(&job.id, session_id, &claimed.claimed_at)
+                .expect("open run log");
+            cron_db
+                .finalize_run_log(
+                    run_id,
+                    "success",
+                    &chrono::Utc::now().to_rfc3339(),
+                    Some(1),
+                    Some("done"),
+                    None,
+                    None,
+                )
+                .expect("finish run log");
+            cron_db.clear_running(&job.id).expect("release run");
+        }
+
+        let state = session_db
+            .cron_session_read_state(&[ordinary.id.clone(), legacy.id.clone()])
+            .expect("hydrate timeline state");
+        assert_eq!(
+            state.get(&ordinary.id),
+            Some(&(Some("Ordinary run title".to_string()), 1, false)),
+            "ordinary Scheduled unread projects the regular Session watermark"
+        );
+        assert_eq!(
+            state.get(&legacy.id),
+            Some(&(Some("Legacy run title".to_string()), 1, false))
+        );
+
+        delete_job_and_legacy_sessions(&cron_db, &session_db, &job.id)
+            .await
+            .expect("delete job");
+        assert!(cron_db.get_job(&job.id).expect("load job").is_none());
+        assert!(session_db
+            .get_session(&ordinary.id)
+            .expect("load ordinary")
+            .is_some());
+        assert!(session_db
+            .get_session(&legacy.id)
+            .expect("load legacy")
+            .is_some());
+        assert_eq!(
+            cron_db
+                .get_run_logs(&job.id, 10, 0)
+                .expect("retained run logs")
+                .len(),
+            2
+        );
+        let timeline = cron_db.list_run_timeline(10, 0).expect("timeline");
+        assert_eq!(timeline.len(), 2);
+        assert!(timeline.iter().all(|row| row.job_deleted));
+    }
 }

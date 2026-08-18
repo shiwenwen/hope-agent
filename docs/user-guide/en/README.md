@@ -44,7 +44,7 @@ By default all data is stored on your own computer (`~/.hope-agent/`), and model
 | [06 · Design Space](06-design-space.md) | Generating 10+ kinds of artifacts—web pages, prototypes, presentations, and more—from a sentence, an image, or a URL, with live preview, fine-tuning, versions, export, and handoff to code | Doing design and deliverable artifacts |
 | [07 · Tools & Permissions](07-tools-and-permissions.md) | The built-in toolbox, the three permission modes, the approval dialog, protected paths and dangerous commands, the Docker Sandbox, browser control, and computer control | Governing the AI's operating permissions |
 | [08 · Autonomous Tasks](08-autonomous-tasks.md) | Goals to define results, workflows to orchestrate execution, Loop for continued scheduled progress, Plan Mode, task progress, and execution modes | Letting the AI push work forward in the background over the long term |
-| [09 · Multi-Agent & Scheduled Tasks](09-multi-agent-and-scheduling.md) | Sub-Agents, Agent Teams, natural-language scheduled tasks, background jobs, and self-wakeup | Parallel collaboration and periodic tasks |
+| [09 · Multi-Agent & Scheduled Tasks](09-multi-agent-and-scheduling.md) | Sub-Agents, Agent Teams, natural-language / current-chat scheduling, run history, Worktrees, background jobs, and self-wakeup | Parallel collaboration and periodic tasks |
 | [10 · IM Channels](10-im-channels.md) | Connecting Telegram / Discord / Slack / Feishu and more, multimodal, approvals, streaming mirror, and session handover | Using the AI inside chat tools |
 | [11 · Connect & Extend](11-connect-and-extend.md) | The MCP client and platform server, Hooks lifecycle hooks, and the skill system | Connecting external tools and customizing behavior |
 | [12 · Projects & Insights](12-projects-and-insights.md) | Project containers, Agent configuration, Dashboard cost and health, and Recap reports | Organizing work, reviewing, and managing cost |
@@ -91,7 +91,7 @@ Understanding the following groups of concepts will help you quickly make sense 
 | Make a web page / poster / slide deck | [06 · Design Space](06-design-space.md) |
 | Stop clicking "Allow" every time | [07 · Tools & Permissions · Permission modes](07-tools-and-permissions.md) |
 | Have the AI keep working on something for me in the background | [08 · Autonomous Tasks](08-autonomous-tasks.md) |
-| Do something on a daily schedule and send it to WeChat / Feishu | [09 · Multi-Agent & Scheduled Tasks · Scheduled tasks](09-multi-agent-and-scheduling.md#94-scheduled-tasks-cron) |
+| Schedule work in a new or current chat and send it to WeChat / Feishu | [09 · Multi-Agent & Scheduled Tasks · Scheduled tasks](09-multi-agent-and-scheduling.md#94-scheduled-tasks-cron) |
 | Use it inside Telegram / Feishu | [10 · IM Channels](10-im-channels.md) |
 | Connect external tools (MCP) | [11 · Connect & Extend](11-connect-and-extend.md) |
 | See how much money / how many tokens I've spent | [12 · Projects & Insights · Dashboard](12-projects-and-insights.md) |

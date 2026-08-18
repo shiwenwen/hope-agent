@@ -337,6 +337,13 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         // ordinary config.json. `load_managed_token` also migrates legacy data.
         let store = ha_core::config::cached_config();
         let api_key = ha_core::server_auth::load_managed_token()?;
+        let pet_app = app.handle().clone();
+        let pet_activate: ha_server::PetActivateHandler = Arc::new(move |pet_ref| {
+            let app = pet_app.clone();
+            Box::pin(async move {
+                crate::commands::pet::activate_pet(&app, pet_ref, "http-pet-activate").await
+            })
+        });
         let ctx = Arc::new(ha_server::AppContext {
             session_db,
             project_db,
@@ -345,6 +352,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 .expect("init_runtime contract")
                 .clone(),
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            pet_activate: Some(pet_activate),
         });
         let config = ha_server::ServerConfig {
             bind_addr: store.server.bind_addr.clone(),

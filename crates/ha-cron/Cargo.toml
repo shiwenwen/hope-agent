@@ -1,6 +1,6 @@
 [package]
 name = "ha-cron"
-version = "0.32.0"
+version = "0.33.0"
 description = "Hope Agent scheduling feature — cron scheduler, executor, delivery and manage_cron tool"
 license.workspace = true
 authors.workspace = true
@@ -15,6 +15,7 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 futures-util = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]

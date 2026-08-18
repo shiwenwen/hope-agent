@@ -1,6 +1,6 @@
 [package]
 name = "ha-media"
-version = "0.32.0"
+version = "0.33.0"
 description = "Hope Agent media feature — image/audio generation adapters, STT provider engines, image_generate/audio_generate tools"
 license.workspace = true
 authors.workspace = true

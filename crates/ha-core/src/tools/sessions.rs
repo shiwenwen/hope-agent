@@ -1307,6 +1307,7 @@ async fn run_agent_for_session(
             )?),
             reasoning_effort: Some(runtime_defaults.reasoning_effort),
             cancel,
+            foreground_stop_admission: None,
             plan_context_override: None,
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),

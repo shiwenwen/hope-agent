@@ -7,7 +7,10 @@ use super::types::{
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use ha_core::event_bus::EventBus;
-use ha_eval_spec::app::{AppDebugRetention, EvalAppPlan, EvalAppProfile};
+use ha_eval_spec::app::{
+    validate_app_deterministic_evidence, AppDebugRetention, AppDeterministicEvidence, EvalAppPlan,
+    EvalAppProfile,
+};
 use ha_eval_spec::model::{validate_evidence_shape, ModelCampaignEvidence};
 use std::path::Component;
 use std::path::Path;
@@ -90,7 +93,12 @@ impl<R: EvalWorkerRuntime> EvalOrchestrator<R> {
             .campaigns
             .iter()
             .map(|campaign| campaign.resolved_plan.trials.len())
-            .sum();
+            .sum::<usize>()
+            + plan
+                .deterministic_suites
+                .iter()
+                .map(|suite| suite.cases.len())
+                .sum::<usize>();
         Ok(EvalPreview {
             max_cost_usd: plan.campaign_budget.max_cost_usd,
             max_wall_seconds: plan.campaign_budget.max_wall_seconds,
@@ -452,6 +460,42 @@ impl<R: EvalWorkerRuntime> EvalOrchestrator<R> {
                 self.repository
                     .index_evidence(run_id, &evidence, &artifact)?;
                 self.index_local_campaign_artifacts(run_id, path, &evidence)?;
+                self.emit(run_id, "campaign_completed");
+                Ok(false)
+            }
+            EvalWorkerEvent::DeterministicEvidence {
+                experiment_id: _,
+                campaign_id,
+                evidence_path,
+            } => {
+                let path = Path::new(&evidence_path);
+                let artifact = self.artifacts.put_file(path, 64 * 1024 * 1024)?;
+                let evidence: AppDeterministicEvidence =
+                    serde_json::from_slice(&std::fs::read(path)?)?;
+                validate_app_deterministic_evidence(&evidence)?;
+                let experiment = self
+                    .repository
+                    .get_experiment(run_id)?
+                    .ok_or_else(|| anyhow!("evaluation experiment disappeared"))?;
+                let plan_digest = experiment
+                    .plan_digest
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("evaluation experiment has no plan digest"))?;
+                let plan_prefix = plan_digest
+                    .get(..20)
+                    .ok_or_else(|| anyhow!("evaluation experiment has an invalid plan digest"))?;
+                let expected_experiment_id = format!("exp-{plan_prefix}");
+                if evidence.experiment_id != expected_experiment_id
+                    || evidence.campaign_id != campaign_id
+                    || evidence.profile_id != experiment.profile_id
+                    || evidence.reference != experiment.reference
+                    || evidence.dirty != experiment.dirty
+                    || evidence.app_version != experiment.app_version
+                {
+                    bail!("deterministic worker evidence identity does not match the experiment");
+                }
+                self.repository
+                    .index_deterministic_evidence(run_id, &evidence, &artifact)?;
                 self.emit(run_id, "campaign_completed");
                 Ok(false)
             }

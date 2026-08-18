@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 use super::db::SessionDB;
 use super::types::NewMessage;
 
+/// Generate the opaque durable identity shared by chat entry points.
+pub fn new_chat_turn_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 pub(super) fn ensure_no_competing_durable_chat_work(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -101,6 +106,14 @@ pub enum ChatTurnInterruptReason {
     /// All `model_chain` attempts failed at the provider layer.
     /// `chat_turns.error` carries the raw last-attempt message.
     ProviderFailed,
+    /// The current tool-result group's cheapest protocol-legal envelope still
+    /// exceeded capacity after the bounded recovery ladder. This terminal
+    /// application verdict must survive independently of display/error text.
+    CurrentToolGroupOverflow,
+    /// The exact Provider request crossed the dispatch claim, but no response
+    /// proof was observed. This verdict must remain typed across reconnect and
+    /// crash recovery so no caller silently turns it into an automatic retry.
+    DispatchUnknown,
     /// Emergency context compaction ran but the history still exceeds
     /// the hard threshold; the turn cannot continue.
     CompactionFailed,
@@ -117,6 +130,8 @@ impl ChatTurnInterruptReason {
             Self::RuntimeCancel => "runtime_cancel",
             Self::NoProfile => "no_profile",
             Self::ProviderFailed => "provider_failed",
+            Self::CurrentToolGroupOverflow => "current_tool_group_overflow",
+            Self::DispatchUnknown => "dispatch_unknown",
             Self::CompactionFailed => "compaction_failed",
             Self::Unknown => "unknown",
         }
@@ -131,6 +146,8 @@ impl ChatTurnInterruptReason {
             "runtime_cancel" => Some(Self::RuntimeCancel),
             "no_profile" => Some(Self::NoProfile),
             "provider_failed" => Some(Self::ProviderFailed),
+            "current_tool_group_overflow" => Some(Self::CurrentToolGroupOverflow),
+            "dispatch_unknown" => Some(Self::DispatchUnknown),
             "compaction_failed" => Some(Self::CompactionFailed),
             "unknown" => Some(Self::Unknown),
             _ => None,
@@ -168,6 +185,7 @@ pub struct UiChatDispatchRecord {
     pub request_fingerprint: String,
     pub session_id: String,
     pub turn_id: String,
+    pub queue_request_id: Option<String>,
 }
 
 impl SessionDB {
@@ -295,7 +313,7 @@ impl SessionDB {
         stream_id: Option<&str>,
         user_message_id: Option<i64>,
     ) -> Result<ChatTurn> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_chat_turn_id();
         self.create_chat_turn_with_id(&id, session_id, source, stream_id, user_message_id)
     }
 
@@ -434,6 +452,7 @@ impl SessionDB {
         ui_surface: Option<crate::pet::ChatUiSurface>,
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<(i64, ChatTurn)> {
         self.append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
             id,
@@ -444,6 +463,7 @@ impl SessionDB {
             ui_surface,
             client_request_id,
             request_fingerprint,
+            stop_admission,
             None,
         )
     }
@@ -469,6 +489,7 @@ impl SessionDB {
             None,
             None,
             None,
+            None,
             Some((expected_global_stop_epoch, source_session_id)),
         )
     }
@@ -484,6 +505,7 @@ impl SessionDB {
         ui_surface: Option<crate::pet::ChatUiSurface>,
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
         session_tool_admission: Option<(u64, Option<&str>)>,
     ) -> Result<(i64, ChatTurn)> {
         if client_request_id.is_some() != request_fingerprint.is_some() {
@@ -547,6 +569,20 @@ impl SessionDB {
             }
         }
         ensure_no_competing_durable_chat_work(&tx, session_id, None)?;
+        if let Some(admission) = stop_admission {
+            if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
+                &tx, session_id, admission,
+            )? {
+                anyhow::bail!("{}", super::FOREGROUND_STOP_FENCE_ERROR);
+            }
+        }
+        if message.queue_request_id.is_none() {
+            let consumed =
+                super::turn_queue::consume_direct_turn_admission(&tx, session_id, id, source)?;
+            if matches!(source, "desktop" | "http") && !consumed {
+                anyhow::bail!("direct turn lost its durable admission");
+            }
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if message.timestamp.is_empty() {
             now.as_str()
@@ -677,15 +713,17 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.query_row(
-            "SELECT request_fingerprint, session_id, id
-               FROM chat_turns
-              WHERE client_request_id = ?1",
+            "SELECT ct.request_fingerprint, ct.session_id, ct.id, m.queue_request_id
+               FROM chat_turns ct
+               LEFT JOIN messages m ON m.id = ct.user_message_id
+              WHERE ct.client_request_id = ?1",
             params![client_request_id],
             |row| {
                 Ok(UiChatDispatchRecord {
                     request_fingerprint: row.get(0)?,
                     session_id: row.get(1)?,
                     turn_id: row.get(2)?,
+                    queue_request_id: row.get(3)?,
                 })
             },
         )
@@ -1021,6 +1059,21 @@ mod tests {
         SessionDB::open_ephemeral_for_test(&path).unwrap()
     }
 
+    /// A Desktop/HTTP turn only persists after it owns a durable admission —
+    /// both shells reserve one before calling the append helper, and the append
+    /// consumes it in the same transaction. Mirror that here so these tests run
+    /// the same FIFO path production does instead of a shape that cannot occur.
+    fn admit_direct_turn(
+        db: &SessionDB,
+        session_id: &str,
+        turn_id: &str,
+        source: super::super::QueuedTurnMessageSource,
+    ) -> super::super::DirectTurnAdmission {
+        db.reserve_direct_turn_admission(session_id, turn_id, source, None)
+            .expect("reserve direct admission")
+            .expect("direct admission granted")
+    }
+
     #[test]
     fn terminal_status_is_written_once() {
         let db = temp_db();
@@ -1157,6 +1210,37 @@ mod tests {
     }
 
     #[test]
+    fn current_tool_group_terminal_reason_survives_chat_turn_storage() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-c0"), Some(1))
+            .unwrap();
+
+        assert!(db
+            .finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(ChatTurnInterruptReason::CurrentToolGroupOverflow),
+                Some("display text intentionally has no classifier token"),
+                None,
+            )
+            .unwrap());
+
+        let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+        assert_eq!(
+            persisted.interrupt_reason,
+            Some(ChatTurnInterruptReason::CurrentToolGroupOverflow)
+        );
+        assert_eq!(
+            persisted.error.as_deref(),
+            Some("display text intentionally has no classifier token")
+        );
+    }
+
+    #[test]
     fn regular_turn_rejects_an_active_session_tool_turn_across_database_handles() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
@@ -1181,6 +1265,7 @@ mod tests {
                 crate::chat_engine::ChatSource::Http.as_str(),
                 None,
                 &NewMessage::user("regular"),
+                None,
                 None,
                 None,
                 None,
@@ -1302,6 +1387,37 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_unknown_terminal_reason_survives_chat_turn_storage() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-send-unknown"), Some(1))
+            .unwrap();
+
+        assert!(db
+            .finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(ChatTurnInterruptReason::DispatchUnknown),
+                Some("display text intentionally has no classifier token"),
+                None,
+            )
+            .unwrap());
+
+        let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+        assert_eq!(
+            persisted.interrupt_reason,
+            Some(ChatTurnInterruptReason::DispatchUnknown)
+        );
+        assert_eq!(
+            persisted.error.as_deref(),
+            Some("display text intentionally has no classifier token")
+        );
+    }
+
+    #[test]
     fn typed_mention_receipt_merges_only_onto_turn_user_message() {
         let db = temp_db();
         let session = db
@@ -1309,6 +1425,12 @@ mod tests {
             .unwrap();
         let mut message = NewMessage::user("@README.md");
         message.attachments_meta = Some(r#"{"plan_trigger":true}"#.into());
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "typed-turn",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "typed-turn",
@@ -1316,6 +1438,7 @@ mod tests {
                 "desktop",
                 None,
                 &message,
+                None,
                 None,
                 None,
                 None,
@@ -1349,6 +1472,12 @@ mod tests {
             .create_session_with_project("ha-main", None, None)
             .unwrap();
         let persisted_message = NewMessage::user("@README.md rewritten by hook");
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "typed-turn-rewritten",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "typed-turn-rewritten",
@@ -1356,6 +1485,7 @@ mod tests {
                 "desktop",
                 None,
                 &persisted_message,
+                None,
                 None,
                 None,
                 None,
@@ -1385,6 +1515,12 @@ mod tests {
         let session = db
             .create_session_with_project("ha-main", None, None)
             .unwrap();
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "typed-turn-invalid-span",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "typed-turn-invalid-span",
@@ -1392,6 +1528,7 @@ mod tests {
                 "desktop",
                 None,
                 &NewMessage::user("@README.md"),
+                None,
                 None,
                 None,
                 None,
@@ -1417,6 +1554,12 @@ mod tests {
         let session = db
             .create_session_with_project("ha-main", None, Some(true))
             .unwrap();
+        let _admission = admit_direct_turn(
+            &db,
+            &session.id,
+            "incognito-typed-turn",
+            super::super::QueuedTurnMessageSource::Desktop,
+        );
         let (message_id, turn) = db
             .append_message_and_create_chat_turn_with_id_surface_dispatch(
                 "incognito-typed-turn",
@@ -1424,6 +1567,7 @@ mod tests {
                 "desktop",
                 None,
                 &NewMessage::user("@README.md"),
+                None,
                 None,
                 None,
                 None,
@@ -1476,6 +1620,12 @@ mod tests {
                 .create_session_with_project("ha-main", None, None)
                 .unwrap();
             session_id = session.id.clone();
+            let _admission = admit_direct_turn(
+                &db,
+                &session.id,
+                "turn-1",
+                super::super::QueuedTurnMessageSource::Http,
+            );
             let (message_id, turn) = db
                 .append_message_and_create_chat_turn_with_id_surface_dispatch(
                     "turn-1",
@@ -1486,9 +1636,15 @@ mod tests {
                     Some(crate::pet::ChatUiSurface::MainChat),
                     Some("request-1"),
                     Some("fingerprint-1"),
+                    None,
                 )
                 .unwrap();
             assert_eq!(turn.user_message_id, Some(message_id));
+            // A second admission is only grantable once the first turn settles;
+            // the duplicate below must fail on the request id, not on the fence.
+            assert!(db
+                .finish_chat_turn_once(&turn.id, ChatTurnStatus::Completed, None, None, None)
+                .unwrap());
         }
 
         let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
@@ -1498,7 +1654,14 @@ mod tests {
                 request_fingerprint: "fingerprint-1".to_string(),
                 session_id: session_id.clone(),
                 turn_id: "turn-1".to_string(),
+                queue_request_id: None,
             })
+        );
+        let _duplicate_admission = admit_direct_turn(
+            &db,
+            &session_id,
+            "turn-2",
+            super::super::QueuedTurnMessageSource::Http,
         );
         let duplicate = db.append_message_and_create_chat_turn_with_id_surface_dispatch(
             "turn-2",
@@ -1509,6 +1672,7 @@ mod tests {
             Some(crate::pet::ChatUiSurface::MainChat),
             Some("request-1"),
             Some("fingerprint-1"),
+            None,
         );
         assert!(duplicate.is_err(), "request id must be globally unique");
         let messages = db.load_session_messages(&session_id).unwrap();

@@ -306,7 +306,11 @@ fn validate_frame_layout(
     if transparent_rgb_residue > 0 {
         issues.push(PetValidationIssue {
             code: "sprite_transparent_rgb_residue".to_string(),
-            severity: PetValidationSeverity::Error,
+            // RGB values behind a zero alpha channel are invisible and do
+            // not violate the atlas layout. Some image exporters retain
+            // these values for most of the transparent canvas, so report the
+            // residue without blocking an otherwise valid import.
+            severity: PetValidationSeverity::Warning,
             message: format!(
                 "spritesheet has {transparent_rgb_residue} fully transparent pixels with non-zero RGB residue"
             ),
@@ -600,6 +604,22 @@ mod tests {
             .issues
             .iter()
             .any(|issue| issue.code == "sprite_unused_frame_not_transparent"));
+    }
+
+    #[test]
+    fn transparent_rgb_residue_does_not_block_import() {
+        let mut atlas = compliant_atlas(PetSpriteVersion::V1);
+        atlas.put_pixel(0, 0, image::Rgba([200, 10, 30, 0]));
+        let package = validate_package(manifest(PetSpriteVersion::V1), encode_png(atlas)).unwrap();
+
+        assert!(package.issues.iter().any(|issue| {
+            issue.code == "sprite_transparent_rgb_residue"
+                && issue.severity == PetValidationSeverity::Warning
+        }));
+        assert!(!package
+            .issues
+            .iter()
+            .any(|issue| issue.severity == PetValidationSeverity::Error));
     }
 
     #[test]

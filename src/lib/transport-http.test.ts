@@ -560,6 +560,36 @@ test("HttpTransport.startChat bridges session_created for a synchronous response
   ])
 })
 
+test("HttpTransport.startChat bridges a durable FIFO fallback as turn_queued", async () => {
+  const transport = new HttpTransport("http://localhost:8420")
+  const events: string[] = []
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        sessionId: "session-123",
+        response: "",
+        turnId: "",
+        accepted: false,
+        queuedRequestId: "request-789",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  )
+
+  await expect(
+    transport.startChat({ message: "hello", attachments: [], sessionId: "session-123" }, (event) =>
+      events.push(event),
+    ),
+  ).resolves.toBe("")
+  expect(events).toEqual([
+    JSON.stringify({
+      type: "turn_queued",
+      session_id: "session-123",
+      request_id: "request-789",
+    }),
+  ])
+})
+
 test("HttpTransport.startChat generates a request id without crypto.randomUUID", async () => {
   vi.stubGlobal("crypto", {
     getRandomValues(bytes: Uint8Array) {

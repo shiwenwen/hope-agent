@@ -2,6 +2,8 @@
 // Depends on ha-core for business logic, uses axum 0.8 for HTTP.
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
@@ -59,6 +61,11 @@ pub fn wire_features() {
 
 // ── AppContext ───────────────────────────────────────────────────
 
+pub type PetActivateFuture =
+    Pin<Box<dyn Future<Output = anyhow::Result<ha_pet::PetConfig>> + Send + 'static>>;
+pub type PetActivateHandler =
+    Arc<dyn Fn(ha_pet::PetRef) -> PetActivateFuture + Send + Sync + 'static>;
+
 /// Shared application state passed to all handlers via `State<Arc<AppContext>>`.
 pub struct AppContext {
     pub session_db: Arc<SessionDB>,
@@ -67,6 +74,9 @@ pub struct AppContext {
     pub terminal_manager: Arc<ha_core::terminal::TerminalManager>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Desktop-only bridge to the Tauri-owned native PetWindow lifecycle.
+    /// Headless servers leave this unset and the activation route fails closed.
+    pub pet_activate: Option<PetActivateHandler>,
 }
 
 /// Browser provenance required by the product-UI chat endpoint. Product
@@ -1030,6 +1040,7 @@ fn build_router_with_cors(
             get(routes::pet::get_config).put(routes::pet::save_config),
         )
         .route("/pets/enabled", post(routes::pet::set_enabled))
+        .route("/pets/activate", post(routes::pet::activate))
         .route("/pets/asset", get(routes::pet::asset_descriptor))
         .route("/pets/sprite", get(routes::pet::sprite))
         .route("/pets/codex-candidates", get(routes::pet::codex_candidates))
@@ -2011,11 +2022,20 @@ fn build_router_with_cors(
         // Cron
         .route("/cron/jobs", get(routes::cron::list_jobs))
         .route("/cron/jobs", post(routes::cron::create_job))
+        .route("/cron/preflight", post(routes::cron::preflight))
         .route("/cron/jobs/{id}", get(routes::cron::get_job))
+        .route(
+            "/cron/jobs/{id}/snapshot",
+            get(routes::cron::get_job_snapshot),
+        )
         .route("/cron/jobs/{id}", put(routes::cron::update_job))
         .route("/cron/jobs/{id}", delete(routes::cron::delete_job))
         .route("/cron/jobs/{id}/toggle", post(routes::cron::toggle_job))
         .route("/cron/jobs/{id}/run", post(routes::cron::run_now))
+        .route(
+            "/cron/runs/{run_log_id}/cancel",
+            post(routes::cron::cancel_run),
+        )
         .route("/cron/jobs/{id}/logs", get(routes::cron::get_run_logs))
         .route(
             "/cron/jobs-referencing-account/{account_id}",
@@ -2025,6 +2045,27 @@ fn build_router_with_cors(
         .route("/cron/timeline", get(routes::cron::run_timeline))
         .route("/cron/unread", get(routes::cron::unread_total))
         .route("/cron/read-all", post(routes::cron::mark_all_read))
+        .route("/cron/workspaces", get(routes::cron::workspace_resources))
+        .route(
+            "/cron/runs/{run_log_id}/workspace",
+            get(routes::cron::workspace_resource_for_run),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/takeover",
+            post(routes::cron::workspace_takeover),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/return",
+            post(routes::cron::workspace_return),
+        )
+        .route(
+            "/cron/runs/{run_log_id}/workspace/discard",
+            post(routes::cron::workspace_discard_run),
+        )
+        .route(
+            "/cron/jobs/{id}/workspace/discard",
+            post(routes::cron::workspace_discard_task),
+        )
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))

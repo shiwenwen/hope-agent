@@ -1,6 +1,6 @@
 # 进程与并发模型
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-13
 > 关联源码：[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)、[`app_init.rs`](../../../crates/ha-core/src/app_init.rs)、[`guardian.rs`](../../../crates/ha-core/src/guardian.rs)、[`runtime_lock.rs`](../../../crates/ha-base/src/runtime_lock.rs)、[`blocking.rs`](../../../crates/ha-base/src/blocking.rs)、[`logging/app_logger.rs`](../../../crates/ha-base/src/logging/app_logger.rs)、[`cron/scheduler.rs`](../../../crates/ha-cron/src/cron/scheduler.rs)
 
 ## 核心思想
@@ -60,6 +60,7 @@ flowchart TD
 | `--tcc-probe <id>` | `main()` 内联 | macOS TCC 探针短命进程：打印一行握手 token 后退出，**不初始化任何运行时**。由系统权限子系统 spawn（新进程才看得到运行期新授的录屏权限），详见 [系统权限](../infra/macos-permissions.md)。**分派须早于 Guardian / `--child-mode`**——落到 Guardian 会每次探针拉起一整个 GUI |
 | `knowledge-mcp [...]` | `run_knowledge_mcp` | 把知识空间 Agent Access API 暴露成 stdio MCP server |
 | `mcp [...]` | `run_mcp` | 把平台子系统（当前为设计空间）暴露成 stdio MCP server；默认只读，`--allow-writes` 才注册写工具 |
+| `pet <capabilities\|activate\|list\|preview\|import> [...]` | `run_pet_cli` | 宠物库一次性 CLI：短期 async runtime 复用 ha-pet preview / commit，activate 转发当前 desktop Pet API；不进 `init_runtime`、不开 sessions.db 或后台任务 |
 | `acp [...]` | `run_acp_server` | stdio ACP 子进程（被 IDE / Claude Code 等拉起） |
 | `server [...]` | `run_server` | 前台 HTTP/WS 守护进程；`install` / `uninstall` / `status` / `stop` / `setup` / `token` 走同入口分派子命令 |
 | `auth [...]` | `cli_auth::run` | 终端里的授权流程（如 `auth codex`） |
@@ -75,6 +76,7 @@ flowchart TD
     TCC -->|"是"| TE["打印握手 token 退出<br/>不初始化运行时"]
     TCC -->|"否"| SUB{"子命令?"}
     SUB -->|"knowledge-mcp / mcp"| MCP["stdio MCP server"]
+    SUB -->|"pet"| PET["run_pet_cli<br/>一次性 preview / commit"]
     SUB -->|"acp"| ACPM["run_acp_server"]
     SUB -->|"server (+install/status/…)"| SRVM["run_server"]
     SUB -->|"auth"| AUTHM["cli_auth"]

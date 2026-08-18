@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -6,6 +6,12 @@ import { Button } from "@/components/ui/button"
 import { SearchInput } from "@/components/ui/search-input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -28,19 +34,21 @@ import {
   Plus,
   CalendarDays,
   List as ListIcon,
-  MessagesSquare,
   Loader2,
   Search,
   Send,
   AlertTriangle,
   Settings,
+  FolderGit2,
+  ChevronDown,
+  MessageCircle,
+  Pencil,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
-import CronConversationsPanel from "./CronConversationsPanel"
 import CronLoopBadge from "./CronLoopBadge"
-import type { CronJob, CalendarEvent } from "./CronJobForm.types"
+import type { CronJob, CalendarEvent, CronWorkspaceResource } from "./CronJobForm.types"
 import {
   statusColor,
   statusLabel,
@@ -48,15 +56,16 @@ import {
   runStatusDisplay,
   formatSchedule,
   deliveryStatusColor,
+  cronAttention,
   cronDisplayTitle,
   cronDisplayStatus,
+  cronSearchHaystack,
 } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { SettingsSection } from "@/components/settings/types"
-import { useReadableSurface } from "@/hooks/useReadableSurface"
 
-type ViewMode = "calendar" | "list" | "conversations"
+type ViewMode = "calendar" | "list"
 
 const VIEW_MODE_STORAGE_KEY = "cron_view_mode"
 
@@ -64,10 +73,13 @@ const VIEW_MODE_STORAGE_KEY = "cron_view_mode"
 // set), so paginate the *rendered* rows: show this many, "load more" adds more.
 const JOBS_PAGE = 100
 
+/** Pseudo status filter: every task the user still has to deal with. */
+const ATTENTION_FILTER = "attention"
+
 function readStoredViewMode(): ViewMode {
   try {
     const v = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    if (v === "list" || v === "conversations" || v === "calendar") return v
+    if (v === "list" || v === "calendar") return v
   } catch {
     // localStorage may be unavailable (private mode) — fall through.
   }
@@ -78,17 +90,29 @@ interface CronCalendarViewProps {
   /** 顶层侧边栏当前是否正在展示日历；隐藏时保留状态并暂停实时刷新。 */
   isViewVisible: boolean
   defaultProjectId?: string | null
+  /** Cross-surface request to open one scheduled task. */
+  taskFocus?: { jobId: string; nonce: number } | null
+  onTaskFocusHandled?: (nonce: number) => void
+  /** Open a new-task draft seeded from a retained (possibly deleted) task. */
+  taskDraft?: { seed: CronJob; nonce: number } | null
+  onTaskDraftHandled?: (nonce: number) => void
   /** Open the main Settings page deep-linked to a section (e.g. "cron"). */
   onOpenSettings?: (section: SettingsSection) => void
+  /** Open the ordinary chat surface with a conversational task-creation prompt. */
+  onCreateWithModel: (prompt: string) => void
 }
 
 export default function CronCalendarView({
   isViewVisible,
   defaultProjectId,
+  taskFocus,
+  onTaskFocusHandled,
+  taskDraft,
+  onTaskDraftHandled,
   onOpenSettings,
+  onCreateWithModel,
 }: CronCalendarViewProps) {
   const { t } = useTranslation()
-  const isSurfaceReadable = useReadableSurface(isViewVisible)
   // Remember the last mode the user left the cron panel in across re-entries.
   const [mode, setMode] = useState<ViewMode>(readStoredViewMode)
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -96,7 +120,14 @@ export default function CronCalendarView({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
+  // Copy-as-new-task seed, never an edit target.
+  const [seedJob, setSeedJob] = useState<CronJob | null>(null)
+  const handledHandoffRef = useRef<{ focus: number | null; draft: number | null }>({
+    focus: null,
+    draft: null,
+  })
   const [detailJobId, setDetailJobId] = useState<string | null>(null)
+  const [pendingWorkspaces, setPendingWorkspaces] = useState<CronWorkspaceResource[] | null>([])
 
   // List-view state
   const [jobs, setJobs] = useState<CronJob[]>([])
@@ -112,9 +143,7 @@ export default function CronCalendarView({
   // rendered as an embedded CronJobDetail on the right (separate from the
   // calendar's full-screen detailJobId).
   const [selectedListJobId, setSelectedListJobId] = useState<string | null>(null)
-  // Agents power message-bubble identities inside CronJobDetail. Fetched once
-  // here (job-independent) and passed down, so re-selecting list rows — which
-  // remounts CronJobDetail via key — doesn't refetch the roster on every click.
+  // Kept job-independent so row selection doesn't refetch the same agent list.
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
 
   const year = currentDate.getFullYear()
@@ -148,6 +177,12 @@ export default function CronCalendarView({
     }
   }, [year, month])
 
+  const fetchPendingWorkspaces = useCallback(async () => {
+    const resources = await getTransport()
+      .call<CronWorkspaceResource[]>("cron_workspace_resources", {})
+      .catch(() => null)
+    setPendingWorkspaces(resources?.filter((resource) => resource.mode === "persistent") ?? null)
+  }, [])
   const fetchJobs = useCallback(async () => {
     setListLoading(true)
     try {
@@ -158,12 +193,49 @@ export default function CronCalendarView({
       setJobs(result)
       setProjects(Array.isArray(projectList) ? projectList : [])
       setJobsLoaded(true)
+      return result
     } catch {
-      // ignore
+      return null
     } finally {
       setListLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    const jobId = taskFocus?.jobId
+    if (!isViewVisible || !jobId) return
+    if (handledHandoffRef.current.focus === taskFocus?.nonce) return
+    handledHandoffRef.current.focus = taskFocus?.nonce ?? null
+    let cancelled = false
+    void fetchJobs().then((latestJobs) => {
+      if (cancelled) return
+      if (latestJobs?.some((job) => job.id === jobId)) {
+        setDetailJobId(jobId)
+      } else {
+        // A retained conversation may outlive its deleted task. Never navigate
+        // to an unresolvable detail surface; keep the remaining task list visible.
+        setDetailJobId(null)
+        setMode("list")
+      }
+      if (taskFocus) onTaskFocusHandled?.(taskFocus.nonce)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [fetchJobs, isViewVisible, onTaskFocusHandled, taskFocus])
+
+  useEffect(() => {
+    const seed = taskDraft?.seed
+    if (!isViewVisible || !seed) return
+    // Consume the handoff: this view stays mounted, so an unconsumed nonce would
+    // re-open the seeded form on every return to Scheduled.
+    if (handledHandoffRef.current.draft === taskDraft?.nonce) return
+    handledHandoffRef.current.draft = taskDraft?.nonce ?? null
+    setEditingJob(null)
+    setSeedJob(seed)
+    setShowForm(true)
+    if (taskDraft) onTaskDraftHandled?.(taskDraft.nonce)
+  }, [isViewVisible, onTaskDraftHandled, taskDraft])
 
   const refreshAll = useCallback(() => {
     fetchEvents()
@@ -173,7 +245,8 @@ export default function CronCalendarView({
   useEffect(() => {
     if (!isViewVisible) return
     fetchEvents()
-  }, [fetchEvents, isViewVisible])
+    void fetchPendingWorkspaces()
+  }, [fetchEvents, fetchPendingWorkspaces, isViewVisible])
 
   // Entering or returning to list mode refreshes the data without resetting its UI state.
   useEffect(() => {
@@ -187,9 +260,10 @@ export default function CronCalendarView({
     if (!isViewVisible) return
     return getTransport().listen("cron:run_completed", () => {
       fetchEvents()
+      void fetchPendingWorkspaces()
       if (jobsLoaded) fetchJobs()
     })
-  }, [fetchEvents, fetchJobs, isViewVisible, jobsLoaded])
+  }, [fetchEvents, fetchJobs, fetchPendingWorkspaces, isViewVisible, jobsLoaded])
 
   // Load the agent roster once (job-independent); shared by both the embedded
   // and full-screen CronJobDetail so row switches don't refetch it.
@@ -259,11 +333,18 @@ export default function CronCalendarView({
   const filteredJobs = useMemo(
     () =>
       jobs.filter((job) => {
-        if (search && !job.name.toLowerCase().includes(search.toLowerCase())) return false
+        // Search covers the last outcome too: hunting a failure by its error
+        // text is the common case, and the task name rarely contains it.
+        if (search && !cronSearchHaystack(job).includes(search.toLowerCase().trim())) return false
+        if (statusFilter === ATTENTION_FILTER) return cronAttention(job) !== null
         if (statusFilter !== "all" && cronDisplayStatus(job) !== statusFilter) return false
         return true
       }),
     [jobs, search, statusFilter],
+  )
+  const attentionCount = useMemo(
+    () => jobs.filter((job) => cronAttention(job) !== null).length,
+    [jobs],
   )
   const visibleJobs = filteredJobs.slice(0, visibleJobsCount)
 
@@ -297,11 +378,27 @@ export default function CronCalendarView({
 
   function handleNewJob() {
     setEditingJob(null)
+    setSeedJob(null)
     setShowForm(true)
+  }
+
+  function handleCreateWithModel() {
+    onCreateWithModel(t("cron.createWithModelPrompt"))
+  }
+
+  /** One-click fix for an auto-disabled task: re-enable and refresh in place. */
+  async function handleResumeJob(job: CronJob) {
+    try {
+      await getTransport().call("cron_toggle_job", { id: job.id, enabled: true })
+      refreshAll()
+    } catch (error) {
+      toast.error(t("cron.resume"), { description: String(error) })
+    }
   }
 
   function handleEditJob(job: CronJob) {
     setEditingJob(job)
+    setSeedJob(null)
     setShowForm(true)
     setDetailJobId(null)
   }
@@ -309,6 +406,7 @@ export default function CronCalendarView({
   function handleFormClose() {
     setShowForm(false)
     setEditingJob(null)
+    setSeedJob(null)
     refreshAll()
   }
 
@@ -381,7 +479,6 @@ export default function CronCalendarView({
             jobId={detailJobId}
             agents={agents}
             isViewVisible={isViewVisible}
-            isSurfaceReadable={isSurfaceReadable}
             onBack={() => setDetailJobId(null)}
             onEdit={handleEditJob}
             onDelete={handleDelete}
@@ -390,12 +487,14 @@ export default function CronCalendarView({
           {showForm && (
             <CronJobForm
               job={editingJob}
+              seedJob={seedJob}
               defaultDate={mode === "calendar" ? selectedDate : null}
               defaultProjectId={defaultProjectId}
               onSave={handleFormClose}
               onCancel={() => {
                 setShowForm(false)
                 setEditingJob(null)
+                setSeedJob(null)
               }}
             />
           )}
@@ -428,13 +527,35 @@ export default function CronCalendarView({
             <ListIcon className="h-3.5 w-3.5" />
             {t("cron.viewList")}
           </TabsTrigger>
-          <TabsTrigger value="conversations" className="h-7 gap-1.5 px-2.5 text-xs">
-            <MessagesSquare className="h-3.5 w-3.5" />
-            {t("cron.viewConversations")}
-          </TabsTrigger>
         </TabsList>
 
         <div className="flex-1" />
+
+        {(pendingWorkspaces === null || pendingWorkspaces.length > 0) && (
+          <IconTip
+            label={
+              pendingWorkspaces === null
+                ? t("workspace.environment.unavailable")
+                : t("workspace.goal.detailWorktrees")
+            }
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setMode("list")}
+            >
+              {pendingWorkspaces === null ? (
+                <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+              ) : (
+                <FolderGit2 className="h-3.5 w-3.5" />
+              )}
+              {pendingWorkspaces === null
+                ? t("common.error")
+                : t("workspace.environment.worktreeCount", { count: pendingWorkspaces.length })}
+            </Button>
+          </IconTip>
+        )}
 
         {mode === "calendar" && (
           <>
@@ -478,18 +599,38 @@ export default function CronCalendarView({
           </IconTip>
         )}
 
-        <Button size="sm" className="h-8 gap-1.5 rounded-lg px-3 text-xs" onClick={handleNewJob}>
-          <Plus className="h-3.5 w-3.5" />
-          {t("cron.newJob")}
-        </Button>
+        <div className="inline-flex">
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 rounded-l-lg rounded-r-none px-3 text-xs"
+            onClick={handleCreateWithModel}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("cron.newJob")}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                className="h-8 w-8 rounded-l-none rounded-r-lg border-l border-primary-foreground/20"
+                aria-label={t("cron.createWithModel")}
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" variant="floating" className="w-48">
+              <DropdownMenuItem onSelect={handleCreateWithModel} className="gap-2">
+                <MessageCircle className="h-4 w-4" />
+                {t("cron.createWithModel")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleNewJob} className="gap-2">
+                <Pencil className="h-4 w-4" />
+                {t("cron.manualSetup")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-
-      <TabsContent value="conversations" className="mt-0 min-h-0 flex-1">
-        <CronConversationsPanel
-          isViewVisible={isViewVisible}
-          isSurfaceReadable={isSurfaceReadable}
-        />
-      </TabsContent>
 
       <TabsContent value="calendar" className="mt-0 min-h-0 flex-1">
         <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -675,6 +816,10 @@ export default function CronCalendarView({
                   <SelectItem value="all" className="text-xs">
                     {t("cron.filterAll")}
                   </SelectItem>
+                  <SelectItem value={ATTENTION_FILTER} className="text-xs">
+                    {t("cron.filterAttention")}
+                    {attentionCount > 0 ? ` (${attentionCount})` : ""}
+                  </SelectItem>
                   <SelectItem value="active" className="text-xs">
                     {t("cron.active")}
                   </SelectItem>
@@ -706,60 +851,120 @@ export default function CronCalendarView({
                     const isLoop = job.payload.type === "sessionLoop"
                     const title = cronDisplayTitle(job.name, job.payload.type)
                     const displayStatus = cronDisplayStatus(job)
+                    const attention = cronAttention(job)
                     return (
-                      <button
+                      <div
                         key={job.id}
-                        onClick={() => setSelectedListJobId(job.id)}
                         className={cn(
-                          "w-full rounded-xl px-3 py-3 text-left transition-colors",
+                          "rounded-xl transition-colors",
                           isActive ? "bg-secondary" : "hover:bg-secondary/40",
                         )}
                       >
-                        <div className="flex items-center gap-2">
-                          <IconTip label={statusLabel(displayStatus, t)}>
-                            <span
-                              className={cn(
-                                "inline-block h-2 w-2 shrink-0 rounded-full",
-                                statusColor(displayStatus),
-                              )}
-                            />
-                          </IconTip>
-                          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
-                            {isLoop && <CronLoopBadge />}
-                            <span className="truncate">{title}</span>
-                          </span>
-                        </div>
-                        <div className="mt-1.5 truncate pl-4 text-[10px] text-muted-foreground">
-                          {formatSchedule(job.schedule, t)}
-                          {` · ${projectLabel(job.projectId)}`}
-                        </div>
-                        {job.nextRunAt && (
-                          <div className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground">
-                            {t("cron.nextRun")}: {new Date(job.nextRunAt).toLocaleString()}
-                          </div>
-                        )}
-                        {(job.deliveryTargets.length > 0 || job.consecutiveFailures > 0) && (
-                          <div className="mt-1 flex items-center gap-2 pl-4 text-[10px] text-muted-foreground">
-                            {job.deliveryTargets.length > 0 && (
+                        <button
+                          onClick={() => setSelectedListJobId(job.id)}
+                          className="w-full px-3 py-3 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <IconTip label={statusLabel(displayStatus, t)}>
                               <span
                                 className={cn(
-                                  "inline-flex items-center gap-1",
-                                  job.deliveryTargets.some((tg) => tg.stale) && "text-red-500",
+                                  "inline-block h-2 w-2 shrink-0 rounded-full",
+                                  statusColor(displayStatus),
                                 )}
+                              />
+                            </IconTip>
+                            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
+                              {isLoop && <CronLoopBadge />}
+                              <span className="truncate">{title}</span>
+                            </span>
+                          </div>
+                          <div className="mt-1.5 truncate pl-4 text-[10px] text-muted-foreground">
+                            {formatSchedule(job.schedule, t)}
+                            {` · ${projectLabel(job.projectId)}`}
+                          </div>
+                          {job.nextRunAt && (
+                            <div className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground">
+                              {t("cron.nextRun")}: {new Date(job.nextRunAt).toLocaleString()}
+                            </div>
+                          )}
+                          {(job.deliveryTargets.length > 0 || job.consecutiveFailures > 0) && (
+                            <div className="mt-1 flex items-center gap-2 pl-4 text-[10px] text-muted-foreground">
+                              {job.deliveryTargets.length > 0 && (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1",
+                                    job.deliveryTargets.some((tg) => tg.stale) && "text-red-500",
+                                  )}
+                                >
+                                  <Send className="h-3 w-3" />
+                                  {job.deliveryTargets.length}
+                                </span>
+                              )}
+                              {job.consecutiveFailures > 0 && (
+                                <span className="inline-flex items-center gap-1 text-amber-500">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {job.consecutiveFailures}/{job.maxFailures}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </button>
+                        {/* The failure and its fix live on the row itself: an
+                          auto-disabled task has stopped running entirely, and
+                          finding that out should not require opening details. */}
+                        {attention && (
+                          <div className="flex items-start gap-2 px-3 pb-2.5 pl-7">
+                            <div
+                              className={cn(
+                                "min-w-0 flex-1 text-[10px] leading-4",
+                                attention.kind === "autoDisabled"
+                                  ? "text-destructive"
+                                  : "text-amber-600 dark:text-amber-400",
+                              )}
+                            >
+                              <div className="truncate font-medium">
+                                {t(`cron.attention.${attention.kind}`, {
+                                  failures: attention.failures,
+                                  max: attention.maxFailures,
+                                })}
+                              </div>
+                              {attention.error && (
+                                <div className="truncate text-muted-foreground">
+                                  {attention.error}
+                                </div>
+                              )}
+                            </div>
+                            {attention.kind === "autoDisabled" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => void handleResumeJob(job)}
                               >
-                                <Send className="h-3 w-3" />
-                                {job.deliveryTargets.length}
-                              </span>
-                            )}
-                            {job.consecutiveFailures > 0 && (
-                              <span className="inline-flex items-center gap-1 text-amber-500">
-                                <AlertTriangle className="h-3 w-3" />
-                                {job.consecutiveFailures}/{job.maxFailures}
-                              </span>
+                                {t("cron.resume")}
+                              </Button>
+                            ) : attention.kind === "deliveryStale" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => handleEditJob(job)}
+                              >
+                                {t("common.edit")}
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => setSelectedListJobId(job.id)}
+                              >
+                                {t("cron.runHistory")}
+                              </Button>
                             )}
                           </div>
                         )}
-                      </button>
+                      </div>
                     )
                   })}
                   {filteredJobs.length > visibleJobs.length && (
@@ -787,7 +992,6 @@ export default function CronCalendarView({
                 jobId={selectedListJobId}
                 agents={agents}
                 isViewVisible={isViewVisible}
-                isSurfaceReadable={isSurfaceReadable}
                 embedded
                 onBack={() => setSelectedListJobId(null)}
                 onEdit={handleEditJob}
@@ -814,12 +1018,14 @@ export default function CronCalendarView({
       {showForm && (
         <CronJobForm
           job={editingJob}
+          seedJob={seedJob}
           defaultDate={mode === "calendar" ? selectedDate : null}
           defaultProjectId={defaultProjectId}
           onSave={handleFormClose}
           onCancel={() => {
             setShowForm(false)
             setEditingJob(null)
+            setSeedJob(null)
           }}
         />
       )}

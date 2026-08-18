@@ -56,6 +56,7 @@ async fn enqueue_channel_message(
     user_text: &str,
     skill_allowed_tools: &[String],
     cancel: &Arc<AtomicBool>,
+    foreground_fence: Option<ha_core::chat_engine::active_turn::ForegroundRequestAdmission>,
     attempt_insert: bool,
 ) -> anyhow::Result<()> {
     let channel_id = msg.channel_id.to_string();
@@ -138,11 +139,32 @@ async fn enqueue_channel_message(
         workflow_mode: None,
         incoming_turn: None,
         skill_allowed_tools: skill_allowed_tools.to_vec(),
+        ui_dispatch_fingerprint: None,
         source: ha_core::session::QueuedTurnMessageSource::Channel,
         channel_origin: Some(serde_json::to_value(origin)?),
     };
+    let fence_session_id = session_id.to_string();
     let enqueue = session_db
-        .run(move |db| db.enqueue_turn_user_message(queue_input))
+        .run(move |db| {
+            if let Some(admission) = foreground_fence {
+                return ha_core::chat_engine::active_turn::with_validated_foreground_request(
+                    admission,
+                    &fence_session_id,
+                    ha_core::chat_engine::stream_seq::ChatSource::Channel,
+                    None,
+                    |stop_admission| {
+                        db.enqueue_turn_user_message_with_stop_admission(
+                            queue_input,
+                            stop_admission.ok_or_else(|| {
+                                anyhow::anyhow!("durable Stop admission was not captured")
+                            })?,
+                        )
+                    },
+                )
+                .map_err(anyhow::Error::new)?;
+            }
+            db.enqueue_turn_user_message(queue_input)
+        })
         .await;
     let outcome = match enqueue {
         Ok(outcome) => outcome,
@@ -152,6 +174,13 @@ async fn enqueue_channel_message(
                 &request_id,
                 &cleanup_attachments,
             );
+            if error
+                .downcast_ref::<ha_core::chat_engine::active_turn::ActiveTurnError>()
+                .is_some()
+            {
+                emit_channel_update(session_id);
+                return Ok(());
+            }
             let target = DeliveryTarget {
                 account_id: &account.id,
                 chat_id: &msg.chat_id,
@@ -581,11 +610,25 @@ async fn handle_inbound_message_inner(
     queued_record: Option<ha_core::session::QueuedTurnMessageRecord>,
 ) -> anyhow::Result<()> {
     let is_queued_replay = queued_record.is_some();
+    let session_db =
+        ha_core::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
+    let admission_session_id = match queued_record.as_ref() {
+        Some(record) => Some(record.session_id.clone()),
+        None => channel_db.get_session(
+            &msg.channel_id.to_string(),
+            &msg.account_id,
+            &msg.chat_id,
+            msg.thread_id.as_deref(),
+        )?,
+    };
     // Capture before approval/ask-user routing performs its first await. A
     // process-wide Stop that runs during those preludes must still reject this
     // inbound if it later reaches active-turn registration after the bounded
     // global cleanup gate has already closed.
-    let foreground_admission = ha_core::chat_engine::active_turn::begin_foreground_request();
+    let foreground_admission = ha_core::chat_engine::active_turn::begin_durable_foreground_request(
+        session_db.as_ref(),
+        admission_session_id.as_deref(),
+    )?;
     let channel_id_str = msg.channel_id.to_string();
     let sender_label = msg
         .sender_name
@@ -811,8 +854,6 @@ async fn handle_inbound_message_inner(
         ChatType::Dm => None,
     };
 
-    let session_db =
-        ha_core::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
     let session_id = if let Some(record) = queued_record.as_ref() {
         let channel_db_for_lookup = channel_db.clone();
         let lookup_session_id = record.session_id.clone();
@@ -1091,31 +1132,25 @@ async fn handle_inbound_message_inner(
         return Ok(());
     }
 
-    // An idle session may still have a backend-owned FIFO head between the
-    // pump's DB claim and its active-turn admission (especially at restart).
-    // A fresh inbound must join behind that durable head rather than starting
-    // a newer turn merely because the in-memory active registry is empty.
-    if !is_queued_replay && !resumed_held_messages {
-        let sid = session_id.clone();
-        if session_db
-            .run(move |db| db.has_channel_turn_messages(&sid))
-            .await?
-        {
-            enqueue_channel_message(
-                &plugin,
-                &account,
-                &mut msg,
-                &session_db,
-                &session_id,
-                &engine_message,
-                &user_text,
-                &explicit_skill_allowed_tools,
-                &cancel,
-                false,
-            )
-            .await?;
-            return Ok(());
-        }
+    // Every fresh inbound first joins the durable all-source FIFO. The Primary
+    // pump immediately claims an idle head, while a Desktop/HTTP reservation
+    // or an older queued row remains a cross-process ordering barrier.
+    if !is_queued_replay {
+        enqueue_channel_message(
+            &plugin,
+            &account,
+            &mut msg,
+            &session_db,
+            &session_id,
+            &engine_message,
+            &user_text,
+            &explicit_skill_allowed_tools,
+            &cancel,
+            Some(foreground_admission),
+            !resumed_held_messages,
+        )
+        .await?;
+        return Ok(());
     }
 
     // Acquire before the user message becomes durable. Besides enforcing
@@ -1169,6 +1204,7 @@ async fn handle_inbound_message_inner(
                 &user_text,
                 &explicit_skill_allowed_tools,
                 &cancel,
+                Some(foreground_admission),
                 !resumed_held_messages,
             )
             .await?;
@@ -1227,6 +1263,7 @@ async fn handle_inbound_message_inner(
             &user_text,
             &explicit_skill_allowed_tools,
             &cancel,
+            Some(foreground_admission),
             false,
         )
         .await?;
@@ -1622,26 +1659,6 @@ async fn handle_inbound_message_inner(
     let event_sink = pipeline.event_sink.clone();
     let reasoning_effort = Some(runtime_defaults.reasoning_effort);
 
-    // Snapshot whether the *entire* fallback chain is Codex before
-    // `model_chain` is moved into engine_params. Drives the `🔐 Codex
-    // session expired` headline in the error path below.
-    //
-    // Conservative `all` rather than `primary-only`: engine returns
-    // `Result<_, String>` and erases which model in the chain actually
-    // failed. With a mixed chain (e.g. OpenAI primary +
-    // Codex fallback) we'd guess wrong either way — falling through to
-    // the generic Auth headline ("re-check the API key in settings") is
-    // strictly better than directing the user to re-auth Codex when the
-    // OpenAI primary actually 401'd.
-    let chain_is_all_codex = !model_chain.is_empty()
-        && model_chain.iter().all(|m| {
-            store
-                .providers
-                .iter()
-                .find(|p| p.id == m.provider_id)
-                .is_some_and(|p| p.api_type.is_codex())
-        });
-
     let engine_params = ha_core::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
         agent_id: agent_id.clone(),
@@ -1671,6 +1688,9 @@ async fn handle_inbound_message_inner(
         // Shared with the single-flight guard above (registered once in the
         // channel cancel registry); removal is handled by `_cancel_handle_guard`.
         cancel: cancel.clone(),
+        foreground_stop_admission: queued_record
+            .as_ref()
+            .and_then(|record| record.foreground_stop_admission()),
         plan_context_override: None,
         skill_allowed_tools: explicit_skill_allowed_tools,
         denied_tools: Vec::new(),
@@ -1700,7 +1720,7 @@ async fn handle_inbound_message_inner(
 
     emit_stream_lifecycle("channel:stream_start", &session_id);
 
-    let result = ha_core::chat_engine::run_chat_engine(engine_params).await;
+    let result = ha_core::chat_engine::run_chat_engine_classified(engine_params).await;
 
     // (channel cancel handle removal now happens via `_cancel_handle_guard` on
     // every exit path, including early bails above.)
@@ -1780,19 +1800,18 @@ async fn handle_inbound_message_inner(
                 e
             );
 
-            // Classify on the way out — engine erases the typed reason when
-            // it folds `ExecutorError` into `String`. IM-inbound has
-            // `abort_on_cancel=false`, so any error reaching here is a real
-            // failure (not a user cancel).
             let raw = e.to_string();
-            let reason = ha_core::failover::classify_error(&raw);
-            let is_codex_auth =
-                matches!(reason, ha_core::failover::FailoverReason::Auth) && chain_is_all_codex;
+            // Preserve the engine's typed verdict. Display text is deliberately
+            // not a recovery protocol and may omit the evidence that proved an
+            // application-level terminal such as CurrentToolGroupOverflow.
+            let reason = e
+                .reason()
+                .unwrap_or(ha_core::failover::FailoverReason::Unknown);
             let body = ha_core::chat_engine::im_error_message::format_im_engine_error(
                 ha_core::chat_engine::im_error_message::ImErrorContext {
                     reason,
                     raw: &raw,
-                    is_codex_auth,
+                    is_codex_auth: e.is_codex_auth(),
                 },
             );
             let err_target = DeliveryTarget {

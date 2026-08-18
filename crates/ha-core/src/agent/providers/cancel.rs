@@ -19,17 +19,6 @@ pub(super) async fn wait_for_cancel_flag(cancel: &AtomicBool) {
     }
 }
 
-pub(super) async fn sleep_or_cancel(duration: Duration, cancel: &Arc<AtomicBool>) -> bool {
-    if cancel.load(Ordering::SeqCst) {
-        return true;
-    }
-    tokio::select! {
-        biased;
-        _ = wait_for_cancel(cancel) => true,
-        _ = tokio::time::sleep(duration) => cancel.load(Ordering::SeqCst),
-    }
-}
-
 pub(super) async fn next_chunk_or_cancel<S>(
     stream: &mut S,
     cancel: &Arc<AtomicBool>,

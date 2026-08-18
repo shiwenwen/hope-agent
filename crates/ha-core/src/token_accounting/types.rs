@@ -155,6 +155,28 @@ pub struct TokenAccountingObservation {
     #[serde(default)]
     pub reserved_output_tokens: u64,
     pub has_media: bool,
+    /// Shadow-only cache/compaction diagnostics. These fields contain counts,
+    /// typed decisions and keyed identities only; never prompt or tool text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_compaction_decision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_identity_hash: Option<String>,
+    #[serde(default)]
+    pub projection_action_count: u64,
+    #[serde(default)]
+    pub reclaimed_tokens_upper: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalidated_suffix_tokens_upper: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_even_turns: Option<u64>,
+    #[serde(default)]
+    pub prefix_rewrite_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_reason: Option<String>,
 }
 
 impl TokenCount {
@@ -252,11 +274,79 @@ impl UsageCoverage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Immutable evidence captured from the exact local preflight request that
+/// overflowed. Tier 4 may use this certificate to prove that replacing only
+/// the history lane with a compacted projection brings the complete request
+/// back under the same input ceiling without rebuilding dynamic prompt or
+/// tool-schema lanes.
+///
+/// The certificate deliberately carries counts and a content fingerprint, not
+/// prompt/tool text. A fingerprint mismatch, tokenizer drift, media, or an
+/// insufficient reduction invalidates the proof and must fail closed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PreflightCapacityProof {
+    pub provider: ProviderFamily,
+    pub model: String,
+    pub request_shape: RequestShape,
+    pub tokenizer_id: Option<TokenizerId>,
+    pub tokenizer_registry_version: u32,
+    pub original_history_fingerprint: String,
+    pub fixed_non_history_upper_bound: u64,
+    pub original_history_upper_bound: u64,
+    pub original_raw_tokens: u64,
+    pub original_local_upper_bound: u64,
+    pub max_input_tokens: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CapacityProofError {
+    OriginalHistoryMismatch,
+    TokenizerDrift,
+    UnsupportedUnknownContent,
+    InvalidCertificate,
+    DoesNotFit {
+        projected_input_upper: u64,
+        max_input_tokens: u64,
+    },
+}
+
+impl fmt::Display for CapacityProofError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OriginalHistoryMismatch => {
+                f.write_str("preflight capacity proof history fingerprint mismatch")
+            }
+            Self::TokenizerDrift => {
+                f.write_str("preflight capacity proof tokenizer identity changed")
+            }
+            Self::UnsupportedUnknownContent => f.write_str(
+                "preflight capacity proof cannot conservatively account for media or unknown content",
+            ),
+            Self::InvalidCertificate => {
+                f.write_str("preflight capacity proof certificate is internally inconsistent")
+            }
+            Self::DoesNotFit {
+                projected_input_upper,
+                max_input_tokens,
+            } => write!(
+                f,
+                "compacted request upper bound {projected_input_upper} still exceeds max input {max_input_tokens}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CapacityProofError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreflightOverflow {
     pub input_tokens: u64,
     pub max_input_tokens: u64,
     pub source: TokenCountSource,
+    /// Present only when the *local complete request* count itself overflowed.
+    /// A provider-only count cannot prove how much a local history rewrite
+    /// removes and therefore cannot authorize Tier 4 by itself.
+    pub capacity_proof: Option<PreflightCapacityProof>,
 }
 
 impl fmt::Display for PreflightOverflow {

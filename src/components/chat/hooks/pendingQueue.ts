@@ -4,7 +4,7 @@ export interface PendingQueueItemLike {
   id: string
   sessionId: string
   status: PendingSendStatus
-  managedBy?: "channel"
+  managedBy?: "channel" | "scheduled"
 }
 
 export function shouldApplyPendingQueueSnapshot(
@@ -17,11 +17,10 @@ export function shouldApplyPendingQueueSnapshot(
 export function nextDispatchablePending<T extends PendingQueueItemLike>(
   items: readonly T[],
 ): T | undefined {
-  return items.find(
-    (item) =>
-      item.managedBy !== "channel" &&
-      (item.status === "queued" || item.status === "fallback_after_reply"),
+  const head = items.find(
+    (item) => item.status === "queued" || item.status === "fallback_after_reply",
   )
+  return head?.managedBy == null ? head : undefined
 }
 
 export function shouldReplayNextPending(
@@ -32,6 +31,24 @@ export function shouldReplayNextPending(
   },
 ): boolean {
   return !wasLocallyStopped && turnState?.interruptReason !== "user_stop"
+}
+
+export function canClaimOwnerlessPendingReplay(
+  currentSessionId: string | null,
+  endedSessionId: string,
+  hasRequestOwner: boolean,
+  isLoading: boolean,
+  turnState?: {
+    status: ChatTurnStatus
+    interruptReason?: ChatTurnInterruptReason | null
+  },
+): boolean {
+  return (
+    currentSessionId === endedSessionId &&
+    !hasRequestOwner &&
+    !isLoading &&
+    shouldReplayNextPending(false, turnState)
+  )
 }
 
 export function hasSendableChatPayload(

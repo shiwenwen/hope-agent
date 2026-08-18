@@ -23,6 +23,7 @@ import {
   Share2,
   PanelLeftDashed,
   SquareTerminal,
+  Timer,
   LayoutDashboard,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
@@ -61,6 +62,7 @@ import type {
   AgentSummaryForSidebar,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
+import { requestCronTaskFocus } from "@/components/cron/cronNavigation"
 import { WorkbenchHeader, WorkbenchOpenButton } from "./workbench/WorkbenchHeader"
 import type { WorkbenchLayoutMode, WorkbenchPanelId, WorkbenchTabItem } from "./workbench/types"
 
@@ -95,6 +97,8 @@ interface ChatTitleBarProps {
   onCommandAction?: (result: import("@/components/chat/slash-commands/types").CommandResult) => void
   /** Opens or refocuses the in-session "find in page" search bar. */
   onOpenSearch?: () => void
+  /** Opens a locked Scheduled form targeting this ordinary session. */
+  onScheduleSession?: (sessionId: string) => void
   /** Whether the in-session search bar is currently open (controls active styling). */
   searchOpen?: boolean
   /**
@@ -173,6 +177,7 @@ export default function ChatTitleBar({
   systemPromptLoading,
   onCommandAction,
   onOpenSearch,
+  onScheduleSession,
   searchOpen,
   effectiveWorkingDir,
   workingDirSource,
@@ -513,7 +518,19 @@ export default function ChatTitleBar({
                   )}
                 </span>
               )}
-              {currentSession?.incognito && (
+              {currentSession?.origin?.kind === "cron" && (
+              <IconTip label={t("chat.scheduledOrigin", { name: currentSession.origin.label })}>
+                <button
+                  type="button"
+                  className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+                  onClick={() => requestCronTaskFocus(currentSession.origin!.id)}
+                >
+                  <Timer className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{currentSession.origin.label}</span>
+                </button>
+              </IconTip>
+            )}
+            {currentSession?.incognito && (
                 <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
                   <Ghost className="h-3 w-3" strokeWidth={1.75} />
                   {t("chat.incognito")}
@@ -536,6 +553,17 @@ export default function ChatTitleBar({
               showLabel={false}
               onChange={onIncognitoChange}
             />
+          )}
+          {currentSessionId && onScheduleSession && (
+            <IconTip label={t("cron.scheduleSession")}>
+              <button
+                aria-label={t("cron.scheduleSession")}
+                className="pb-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => onScheduleSession(currentSessionId)}
+              >
+                <Timer className="h-4 w-4" />
+              </button>
+            </IconTip>
           )}
           {/* In-session Search Button */}
           {currentSessionId && onOpenSearch && (

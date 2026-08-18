@@ -351,6 +351,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_pet_config_cmd: { method: "GET", path: "/api/pets/config" },
   save_pet_config_cmd: { method: "PUT", path: "/api/pets/config" },
   pet_set_enabled_cmd: { method: "POST", path: "/api/pets/enabled" },
+  pet_activate_cmd: { method: "POST", path: "/api/pets/activate" },
   pet_list_cmd: { method: "GET", path: "/api/pets" },
   pet_asset_path_cmd: { method: "GET", path: "/api/pets/asset" },
   pet_codex_candidates_cmd: { method: "GET", path: "/api/pets/codex-candidates" },
@@ -1254,11 +1255,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Cron --
   cron_list_jobs: { method: "GET", path: "/api/cron/jobs" },
   cron_get_job: { method: "GET", path: "/api/cron/jobs/{id}" },
+  cron_get_job_snapshot: { method: "GET", path: "/api/cron/jobs/{id}/snapshot" },
+  cron_preflight: { method: "POST", path: "/api/cron/preflight" },
   cron_create_job: { method: "POST", path: "/api/cron/jobs" },
   cron_update_job: { method: "PUT", path: "/api/cron/jobs/{id}" },
   cron_toggle_job: { method: "POST", path: "/api/cron/jobs/{id}/toggle" },
   cron_delete_job: { method: "DELETE", path: "/api/cron/jobs/{id}" },
   cron_run_now: { method: "POST", path: "/api/cron/jobs/{id}/run" },
+  cron_cancel_run: { method: "POST", path: "/api/cron/runs/{runLogId}/cancel" },
   cron_jobs_referencing_account: {
     method: "GET",
     path: "/api/cron/jobs-referencing-account/{accountId}",
@@ -1268,6 +1272,27 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cron_run_timeline: { method: "GET", path: "/api/cron/timeline" },
   cron_unread_total: { method: "GET", path: "/api/cron/unread" },
   cron_mark_all_read: { method: "POST", path: "/api/cron/read-all" },
+  cron_workspace_resources: { method: "GET", path: "/api/cron/workspaces" },
+  cron_workspace_resource_for_run: {
+    method: "GET",
+    path: "/api/cron/runs/{runLogId}/workspace",
+  },
+  cron_workspace_takeover: {
+    method: "POST",
+    path: "/api/cron/jobs/{jobId}/workspace/takeover",
+  },
+  cron_workspace_return: {
+    method: "POST",
+    path: "/api/cron/jobs/{jobId}/workspace/return",
+  },
+  cron_workspace_discard_run: {
+    method: "POST",
+    path: "/api/cron/runs/{runLogId}/workspace/discard",
+  },
+  cron_workspace_discard_task: {
+    method: "POST",
+    path: "/api/cron/jobs/{jobId}/workspace/discard",
+  },
 
   // -- Dashboard --
   dashboard_overview: { method: "POST", path: "/api/dashboard/overview" },
@@ -1996,6 +2021,12 @@ function normalizeHttpCommandArgs(
   command: string,
   args: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
+  if (command === "cron_update_job") {
+    const job = args?.job
+    if (job && typeof job === "object" && !Array.isArray(job)) {
+      return { ...args, id: (job as Record<string, unknown>).id }
+    }
+  }
   if (command === "import_artifact") {
     const request = args?.request
     return request && typeof request === "object" && !Array.isArray(request)
@@ -2568,6 +2599,21 @@ export class HttpTransport implements Transport {
     })
 
     if (!response.ok) {
+      // Preserve the transport-neutral CAS result so the form can keep its
+      // draft and offer reload/retry. External HTTP callers still receive 409.
+      if (command === "cron_update_job" && response.status === 409) {
+        const conflict = await response
+          .clone()
+          .json()
+          .catch(() => null)
+        if (
+          conflict &&
+          typeof conflict === "object" &&
+          (conflict as { code?: unknown }).code === "cron_revision_conflict"
+        ) {
+          return conflict as T
+        }
+      }
       const text = await response.text().catch(() => "")
       this.handleAuthFailure(response.status, auth.revision)
       throw new HttpTransportResponseError(
@@ -2652,6 +2698,7 @@ export class HttpTransport implements Transport {
       blockedReason?: string
       sessionDeleted?: boolean
       accepted?: boolean
+      queuedRequestId?: string
     }>("chat", requestArgs)
     // `sessionDeleted` is set when a blocked first message on a design/knowledge
     // lazy-created session dropped that session before returning. Suppress the
@@ -2676,6 +2723,17 @@ export class HttpTransport implements Transport {
         JSON.stringify({
           type: "text",
           text: resp.blockedReason,
+        }),
+      )
+    }
+    // `accepted=false` is omitted by the Rust serializer; the durable queue id
+    // is the positive wire signal for this accepted-as-pending outcome.
+    if (resp.queuedRequestId) {
+      onEvent(
+        JSON.stringify({
+          type: "turn_queued",
+          session_id: resp.sessionId,
+          request_id: resp.queuedRequestId,
         }),
       )
     }

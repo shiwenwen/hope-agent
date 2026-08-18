@@ -2071,6 +2071,10 @@ fn recover_durable_chat_streams(
             }),
             error: recovery_error.clone(),
             recovery_event: Some(recovery_event),
+            // Scan the entire run, not only the journal attempt selected for
+            // visible recovery. A newer attempt may have crossed the Provider
+            // dispatch boundary without emitting a checksum-valid event.
+            request_plan: crate::session::RequestPlanCommit::RecoverAllForRun,
         };
         match session_db.commit_interrupted_turn(&commit) {
             Ok(_) => {
@@ -2279,6 +2283,44 @@ fn spawn_chat_stream_journal_gc(repeat_daily: bool) {
                     error
                 ),
             }
+            let payload_db = db.clone();
+            match crate::blocking::run_blocking(move || {
+                payload_db.reconcile_exact_request_payloads()
+            })
+            .await
+            {
+                Ok(report)
+                    if report.capability_available
+                        && (report.tombstones_claimed != 0
+                            || report.terminal_payloads_claimed != 0
+                            || report.orphan_payloads_claimed != 0
+                            || report.expired_claimed != 0
+                            || report.payloads_scrubbed != 0
+                            || report.payloads_marked_lost != 0
+                            || report.stale_reservations_released != 0
+                            || report.orphan_blobs_removed != 0) =>
+                {
+                    app_info!(
+                        "request_payload",
+                        "retention_gc",
+                        "reconciled exact request payloads: tombstones={} terminal={} orphan={} expired={} scrubbed={} lost={} reservations={} blobs={}",
+                        report.tombstones_claimed,
+                        report.terminal_payloads_claimed,
+                        report.orphan_payloads_claimed,
+                        report.expired_claimed,
+                        report.payloads_scrubbed,
+                        report.payloads_marked_lost,
+                        report.stale_reservations_released,
+                        report.orphan_blobs_removed,
+                    );
+                }
+                Ok(_) => {}
+                Err(error) => app_warn!(
+                    "request_payload",
+                    "retention_gc",
+                    "exact request payload retention sweep failed: {error:#}"
+                ),
+            }
             match crate::blocking::run_blocking(|| {
                 crate::chat_engine::spool::gc_quarantined(std::time::Duration::from_secs(
                     24 * 60 * 60,
@@ -2311,6 +2353,32 @@ fn spawn_chat_stream_journal_gc(repeat_daily: bool) {
 fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runtime_lock::Tier) {
     if tier != crate::runtime_lock::Tier::Primary {
         return;
+    }
+
+    // Exact request bodies live in a separate encrypted object lifecycle. Run
+    // its reconciliation before request-plan/stream recovery so terminal or
+    // orphaned holds are claimed and scrubbed, while SendUnknown remains
+    // deliberately retained for explicit resolution.
+    match session_db.reconcile_exact_request_payloads() {
+        Ok(report) if report.capability_available => app_info!(
+            "request_payload",
+            "startup_recovery",
+            "reconciled exact request payloads: tombstones={} terminal={} orphan={} expired={} scrubbed={} lost={} reservations={} blobs={}",
+            report.tombstones_claimed,
+            report.terminal_payloads_claimed,
+            report.orphan_payloads_claimed,
+            report.expired_claimed,
+            report.payloads_scrubbed,
+            report.payloads_marked_lost,
+            report.stale_reservations_released,
+            report.orphan_blobs_removed,
+        ),
+        Ok(_) => {}
+        Err(error) => app_warn!(
+            "request_payload",
+            "startup_recovery",
+            "failed to reconcile exact request payloads: {error:#}"
+        ),
     }
 
     match session_db.reconcile_interrupted_project_bootstraps() {
@@ -2387,6 +2455,17 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
     // the legacy sweep sees those turns already terminal and cannot overwrite
     // the richer durable reconstruction.
     recover_durable_chat_streams(session_db, cause);
+    // Stream recovery above creates fresh terminal/superseded request-plan
+    // outcomes. Run the object reconciler again in this startup pass so their
+    // encrypted holds do not wait until the next process launch. SendUnknown
+    // owners were retained atomically by the turn recovery transaction.
+    if let Err(error) = session_db.reconcile_exact_request_payloads() {
+        app_warn!(
+            "request_payload",
+            "startup_recovery",
+            "post-stream exact request payload reconciliation failed: {error:#}"
+        );
+    }
 
     // 2. Collect every chat_turn left in `running` / `cancelling` state.
     //    finalize will set the terminal status itself; we don't UPDATE
@@ -2438,7 +2517,7 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
         covered_sessions.insert(turn.session_id.clone());
     }
 
-    // IM / Cron / Subagent entry points run with `turn_id = None`, so
+    // IM / Subagent and legacy Cron entry points run with `turn_id = None`, so
     // they leave no `chat_turns` row for the sweep above to act on.
     // Their partial output still ends up in `messages` with
     // `stream_status='orphaned'` after the previous step's promotion,
