@@ -7,6 +7,7 @@ import type {
   DomainQualityRunSnapshot,
   RunDomainQualityInput,
 } from "@/lib/transport"
+import { usePanelVisible } from "@/components/chat/right-panel/panelVisibility"
 
 export interface DomainQualityRunsState {
   runs: DomainQualityRun[]
@@ -51,6 +52,8 @@ export function useDomainQualityRuns(
   opts: { incognito?: boolean; turnActive?: boolean; disabled?: boolean } = {},
 ): DomainQualityRunsState {
   const { incognito = false, turnActive = false, disabled = false } = opts
+  // Warm-mounted behind another tab: nobody reads these polls, so drop them.
+  const panelVisible = usePanelVisible()
   const [runs, setRuns] = useState<DomainQualityRun[]>([])
   const [snapshot, setSnapshot] = useState<DomainQualityRunSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -169,10 +172,10 @@ export function useDomainQualityRuns(
 
   const hasActiveRun = useMemo(() => runs.some(runActive), [runs])
   useEffect(() => {
-    if (disabled || !sessionId || incognito || !hasActiveRun) return
+    if (disabled || !sessionId || incognito || !hasActiveRun || !panelVisible) return
     const timer = window.setInterval(() => fetchRuns(), DOMAIN_QUALITY_ACTIVE_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [disabled, fetchRuns, hasActiveRun, incognito, sessionId])
+  }, [disabled, fetchRuns, hasActiveRun, incognito, panelVisible, sessionId])
 
   const runDomainQuality = useCallback(
     async (args: Partial<Omit<RunDomainQualityInput, "sessionId">> = {}) => {

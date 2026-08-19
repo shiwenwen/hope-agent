@@ -16,28 +16,16 @@ import type { ResumeTeamResult } from "./teamTypes"
 
 interface TeamPanelProps {
   teamId: string
-  panelWidth?: number
-  onPanelWidthChange?: (w: number) => void
-  reservedMainWidth?: number
   collapsed?: boolean
-  overlay?: boolean
   animateOnMount?: boolean
   onClose: () => void
   onViewSession?: (sessionId: string) => void
   integrated?: boolean
 }
 
-const MIN_WIDTH = 320
-const MAX_WIDTH = 800
-const DEFAULT_WIDTH = 420
-
 export function TeamPanel({
   teamId,
-  panelWidth,
-  onPanelWidthChange,
-  reservedMainWidth,
   collapsed = false,
-  overlay = false,
   animateOnMount = false,
   onClose,
   onViewSession,
@@ -52,8 +40,6 @@ export function TeamPanel({
     result: ResumeTeamResult | null
   }>({ teamId, result: null })
   const resumeResult = resumeState.teamId === teamId ? resumeState.result : null
-
-  const width = panelWidth ?? DEFAULT_WIDTH
   const resumeNotNeeded =
     team?.status === "paused" &&
     members.length > 0 &&
@@ -109,16 +95,8 @@ export function TeamPanel({
   if (!team) {
     return (
       <RightPanelShell
-        width={width}
-        onWidthChange={onPanelWidthChange}
-        resizeLabel={t("team.resizePanel", "Resize team panel")}
-        minWidth={MIN_WIDTH}
-        maxWidth={MAX_WIDTH}
-        reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
-        overlay={overlay}
         animateOnMount={animateOnMount}
-        integrated={integrated}
         contentKey="team-loading"
       >
         <div className="flex h-full min-h-0 w-full items-center justify-center text-sm text-muted-foreground">
@@ -130,16 +108,8 @@ export function TeamPanel({
 
   return (
     <RightPanelShell
-      width={width}
-      onWidthChange={onPanelWidthChange}
-      resizeLabel={t("team.resizePanel", "Resize team panel")}
-      minWidth={MIN_WIDTH}
-      maxWidth={MAX_WIDTH}
-      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
-      overlay={overlay}
       animateOnMount={animateOnMount}
-      integrated={integrated}
       contentKey="team"
     >
       <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">

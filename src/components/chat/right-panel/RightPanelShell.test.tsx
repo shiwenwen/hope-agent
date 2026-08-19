@@ -1,93 +1,53 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { render, screen } from "@testing-library/react"
+import { describe, expect, it } from "vitest"
 import { RightPanelShell } from "./RightPanelShell"
 
 describe("RightPanelShell", () => {
-  it("uses a fixed overlay surface on narrow user-expanded layouts", () => {
+  it("stacks its content absolutely so tabs can share one surface", () => {
     const { container } = render(
-      <RightPanelShell
-        width={520}
-        resizeLabel="Resize panel"
-        reservedMainWidth={420}
-        overlay
-      >
-        <div>Workspace Control Panel</div>
-      </RightPanelShell>,
-    )
-
-    const shell = container.firstElementChild
-    expect(shell?.className).toContain("fixed")
-    expect(shell?.className).toContain("inset-0")
-    expect(screen.getByText("Workspace Control Panel")).toBeTruthy()
-  })
-
-  it("suspends the width transition while resizing", () => {
-    const { container } = render(
-      <RightPanelShell width={520} onWidthChange={vi.fn()} resizeLabel="Resize panel">
-        <div>Workspace Control Panel</div>
+      <RightPanelShell>
+        <div>Panel body</div>
       </RightPanelShell>,
     )
 
     const shell = container.firstElementChild as HTMLElement
-    expect(shell.className).toContain("transition-[width,min-width,max-width,padding]")
-
-    fireEvent.mouseDown(screen.getByRole("separator", { name: "Resize panel" }), {
-      clientX: 500,
-    })
-    expect(shell.className).not.toContain("transition-[width,min-width,max-width,padding]")
-
-    fireEvent.mouseUp(document)
-    expect(shell.className).toContain("transition-[width,min-width,max-width,padding]")
+    expect(shell.className.split(" ")).toContain("absolute")
+    expect(screen.getByText("Panel body")).toBeTruthy()
   })
 
-  it("stops painting a surface when an integrated shell is collapsed", () => {
+  it("stops painting a surface and leaves the a11y tree when collapsed", () => {
     const { container: active } = render(
-      <RightPanelShell width={520} resizeLabel="Resize panel" integrated>
-        <div>Active panel</div>
+      <RightPanelShell>
+        <div>Active</div>
       </RightPanelShell>,
     )
     const { container: collapsed } = render(
-      <RightPanelShell width={520} resizeLabel="Resize panel" integrated collapsed>
-        <div>Background panel</div>
+      <RightPanelShell collapsed>
+        <div>Collapsed</div>
       </RightPanelShell>,
     )
 
-    const activeClasses = (active.firstElementChild as HTMLElement).className.split(" ")
-    const collapsedClasses = (collapsed.firstElementChild as HTMLElement).className.split(" ")
-    expect(activeClasses).toContain("bg-background")
-    expect(collapsedClasses).toContain("bg-transparent")
-    expect(collapsedClasses).not.toContain("bg-background")
-    expect(collapsedClasses).toContain("pointer-events-none")
+    const activeShell = active.firstElementChild as HTMLElement
+    const collapsedShell = collapsed.firstElementChild as HTMLElement
+    expect(activeShell.className.split(" ")).not.toContain("bg-transparent")
+    expect(collapsedShell.className.split(" ")).toContain("bg-transparent")
+    expect(collapsedShell.className.split(" ")).toContain("pointer-events-none")
+    expect(collapsedShell).toHaveAttribute("aria-hidden", "true")
+    expect(collapsedShell.hasAttribute("inert")).toBe(true)
   })
 
-  it("animates the first panel mount from zero to its configured width", () => {
-    let enterFrame: FrameRequestCallback | null = null
-    const requestFrame = vi
-      .spyOn(window, "requestAnimationFrame")
-      .mockImplementation((callback) => {
-        enterFrame = callback
-        return 1
-      })
-    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
-
+  it("holds the first mount back one frame so it can fade in", () => {
     const { container } = render(
-      <RightPanelShell width={520} resizeLabel="Resize panel" animateOnMount>
-        <div>Workspace Control Panel</div>
+      <RightPanelShell animateOnMount>
+        <div>Body</div>
       </RightPanelShell>,
     )
 
+    // Before the entry frame lands the shell is treated exactly like a
+    // collapsed one, so it never flashes at full opacity.
     const shell = container.firstElementChild as HTMLElement
-    expect(shell.style.width).toBe("0px")
-    expect(shell.getAttribute("aria-hidden")).toBe("true")
-
-    act(() => enterFrame?.(0))
-
-    expect(shell.getAttribute("aria-hidden")).toBeNull()
-    expect(shell.className.split(" ")).toContain("p-3")
-    expect(shell.lastElementChild?.className).toContain("opacity-100")
-    requestFrame.mockRestore()
-    cancelFrame.mockRestore()
+    expect(shell.hasAttribute("inert")).toBe(true)
   })
 })

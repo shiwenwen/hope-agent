@@ -30,6 +30,10 @@ import {
   isActionableReview,
   pullRequestUnavailableReason,
 } from "./gitPullRequestUtils"
+import {
+  usePanelRevealRefresh,
+  usePanelVisible,
+} from "@/components/chat/right-panel/panelVisibility"
 
 interface PullRequestPanelProps {
   sessionId: string
@@ -47,6 +51,7 @@ export function PullRequestPanel({
   integrated = false,
 }: PullRequestPanelProps) {
   const { t } = useTranslation()
+  const panelVisible = usePanelVisible()
   const [feedback, setFeedback] = useState<GitPullRequestFeedback | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -102,13 +107,16 @@ export function PullRequestPanel({
     }
   }, [loadFeedback])
 
+  // Pure poll with no event feed behind it: stand down while the tab is hidden.
+  // `usePanelRevealRefresh` covers the catch-up on the way back.
   useEffect(() => {
-    if (currentPullRequestNumber === null) return
+    if (currentPullRequestNumber === null || !panelVisible) return
     const timer = window.setInterval(() => void loadFeedback(), 30_000)
     return () => {
       window.clearInterval(timer)
     }
-  }, [currentPullRequestNumber, loadFeedback])
+  }, [currentPullRequestNumber, loadFeedback, panelVisible])
+  usePanelRevealRefresh(() => void loadFeedback())
 
   const fillPrompt = useCallback((prompt: string) => {
     if (!onFillInput) return

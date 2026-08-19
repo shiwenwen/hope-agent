@@ -69,6 +69,10 @@ import {
   isActionableReview,
   pullRequestUnavailableReason,
 } from "./gitPullRequestUtils"
+import {
+  usePanelRevealRefresh,
+  usePanelVisible,
+} from "@/components/chat/right-panel/panelVisibility"
 
 interface GitControlCardProps {
   sessionId: string
@@ -106,6 +110,7 @@ export function GitControlCard({
   managedWorktreeControls,
 }: GitControlCardProps) {
   const { t } = useTranslation()
+  const panelVisible = usePanelVisible()
   const snapshot = state.snapshot
   const hasGithubRemote = Boolean(snapshot?.remotes.some((remote) => remote.isGithub))
   const prContextKey = snapshot && !snapshot.detached && snapshot.branch
@@ -236,13 +241,16 @@ export function GitControlCard({
   }, [loadPrFeedback, prContextKey, prFeedbackKey])
 
   const currentPrNumber = prFeedback?.preflight.current?.number ?? null
+  // Same as the PR panel: no event feed, so pause while hidden; the reveal hook
+  // below refreshes once when the tab is shown again.
   useEffect(() => {
-    if (!prFeedbackKey || currentPrNumber === null) return
+    if (!prFeedbackKey || currentPrNumber === null || !panelVisible) return
     const timer = window.setInterval(() => void loadPrFeedback(), 30_000)
     return () => {
       window.clearInterval(timer)
     }
-  }, [currentPrNumber, loadPrFeedback, prFeedbackKey])
+  }, [currentPrNumber, loadPrFeedback, panelVisible, prFeedbackKey])
+  usePanelRevealRefresh(() => void loadPrFeedback())
 
   const fillFixPrompt = useCallback(
     (value: string) => {

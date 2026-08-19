@@ -214,7 +214,13 @@ width = clamp(round(L * ratio), min(lower, upper), upper)
 
 ## 6. 面板生命周期与非退化契约
 
-工作台打开过的业务面默认 warm mount。集成态 [`RightPanelShell`](../../../src/components/chat/right-panel/RightPanelShell.tsx) 是绝对定位的兼容宿主：活动项可见，非活动项 `aria-hidden + inert + pointer-events-none`。它不再拥有右侧宽度、分隔线、圆角卡片或普通 panel shadow；这些由 WorkbenchSurface 统一负责。
+工作台打开过的业务面默认 warm mount。[`RightPanelShell`](../../../src/components/chat/right-panel/RightPanelShell.tsx) 是绝对定位的兼容宿主：活动项可见，非活动项 `aria-hidden + inert + pointer-events-none`。宽度、分隔线、圆角卡片、panel shadow 与最大化全部归 WorkbenchSurface，**这些能力已从 shell 的 API 里删除**（`width` / `onWidthChange` / `resizeLabel` / `minWidth` / `maxWidth` / `reservedMainWidth` / `overlay` / `maximized` / `integrated`），面板不得再自带一套；同理各面板自己的最大化按钮与 FLIP 过渡也已随之下线。
+
+**warm mount 不等于后台照跑**：hidden 标签没有读者，它的轮询就该停。shell 通过 [`PanelVisibilityContext`](../../../src/components/chat/right-panel/panelVisibility.ts) 向下广播「当前内容是否可见」，`usePanelVisible()` 是唯一读取入口，shell 之外（浮窗、设置页、对话框）默认可见、行为不变。规则：
+
+- **有事件源兜底的轮询**（Workflow / Loop / Review / Verification / Domain Quality、后台任务 1Hz 输出尾）hidden 即停，靠既有 `transport.listen` 保持新鲜，重新显示时 effect 自然重跑。
+- **没有事件源的纯轮询**（PR 检查 30s，含 Workspace 里的 Git 卡片）hidden 即停，并用 `usePanelRevealRefresh` 在「重新可见」那一刻补一次——**只在 hidden→visible 的沿上触发，不在挂载时触发**，否则每次挂载都会和初始加载打架、多打一次请求。
+- 标签条上的 badge 不受影响：它们的数据源在 ChatScreen 层，不在面板内部。
 
 | 能力                    | 工作台行为             | 保留的原生命周期                                                         |
 | ----------------------- | ---------------------- | ------------------------------------------------------------------------ |
