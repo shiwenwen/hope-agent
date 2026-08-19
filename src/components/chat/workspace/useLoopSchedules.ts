@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { usePanelVisible } from "@/components/chat/right-panel/panelVisibility"
 
 export type LoopState = "active" | "paused" | "completed" | "cancelled" | "blocked"
 export type LoopRunState =
@@ -162,6 +163,8 @@ export function useLoopSchedules(
   opts: { incognito?: boolean; turnActive?: boolean; disabled?: boolean } = {},
 ): LoopSchedulesState {
   const { incognito = false, turnActive = false, disabled = false } = opts
+  // Warm-mounted behind another tab: nobody reads these polls, so drop them.
+  const panelVisible = usePanelVisible()
   const [schedules, setSchedules] = useState<LoopSchedule[]>([])
   const [watchdogFindings, setWatchdogFindings] = useState<LoopWatchdogFinding[]>([])
   const [loading, setLoading] = useState(false)
@@ -278,10 +281,10 @@ export function useLoopSchedules(
   const activeCount = useMemo(() => schedules.filter(loopIsActive).length, [schedules])
 
   useEffect(() => {
-    if (disabled || !sessionId || incognito || activeCount === 0) return
+    if (disabled || !sessionId || incognito || activeCount === 0 || !panelVisible) return
     const id = window.setInterval(fetchSchedules, LOOP_ACTIVE_POLL_MS)
     return () => window.clearInterval(id)
-  }, [activeCount, disabled, fetchSchedules, incognito, sessionId])
+  }, [activeCount, disabled, fetchSchedules, incognito, panelVisible, sessionId])
 
   return useMemo(
     () => ({

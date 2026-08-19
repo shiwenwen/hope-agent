@@ -5205,13 +5205,8 @@ export default function ChatScreen({
               {/* Diff panel (right side, selected from the title-bar panel switcher) */}
               {rightPanelVisibility.diff && (
                 <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
-                  maxWidth={860}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "diff"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey="diff"
                 >
                   <DiffPanel
@@ -5230,13 +5225,8 @@ export default function ChatScreen({
 
               {rightPanelVisibility["pull-request"] && session.currentSessionId && (
                 <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("workspace.git.resizePullRequestPanel", "调整拉取请求面板宽度")}
-                  maxWidth={960}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "pull-request"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey={`pull-request:${session.currentSessionId}`}
                 >
                   <PullRequestPanel
@@ -5255,13 +5245,8 @@ export default function ChatScreen({
               {/* Plan workspace (right side, integrated under the shared title bar) */}
               {rightPanelVisibility.plan && (
                 <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
-                  maxWidth={860}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "plan"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey="plan"
                 >
                   <PlanPanel
@@ -5299,9 +5284,6 @@ export default function ChatScreen({
                     fileTabs.activeId !== tab.id
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  panelWidth={rightPanelWidth}
-                  onPanelWidthChange={setRightPanelWidth}
-                  integrated
                   onQuote={handleFileQuote}
                   onOpenInNewTab={openFileTargetInNewTab}
                   onSelectionChange={(selection) => fileTabs.setTabSelection(tab.id, selection)}
@@ -5317,14 +5299,11 @@ export default function ChatScreen({
 
               {/* Canvas Preview Panel */}
               <CanvasPanel
-                panelWidth={rightPanelWidth}
-                onPanelWidthChange={setRightPanelWidth}
                 currentSessionId={currentSessionId}
                 onOpenChange={setCanvasPanelOpen}
                 onQuote={handleFileQuote}
                 collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "canvas"}
                 animateOnMount={animateRightPanelOnMount}
-                integrated
                 visible={rightPanelVisibility.canvas}
               />
 
@@ -5333,11 +5312,8 @@ export default function ChatScreen({
               {rightPanelVisibility.browser && (
                 <BrowserPanel
                   sessionId={session.currentSessionId}
-                  panelWidth={rightPanelWidth}
-                  onPanelWidthChange={setRightPanelWidth}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "browser"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   onClose={() => {
                     browserPanelDismissedRef.current = true
                     setShowBrowserPanel(false)
@@ -5352,11 +5328,8 @@ export default function ChatScreen({
               {rightPanelVisibility["mac-control"] && (
                 <MacControlPanel
                   sessionId={session.currentSessionId}
-                  panelWidth={rightPanelWidth}
-                  onPanelWidthChange={setRightPanelWidth}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "mac-control"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   onClose={() => {
                     macControlPanelDismissedRef.current = true
                     setShowMacControlPanel(false)
@@ -5369,11 +5342,8 @@ export default function ChatScreen({
               {rightPanelVisibility.team && activeTeamId && (
                 <TeamPanel
                   teamId={activeTeamId}
-                  panelWidth={rightPanelWidth}
-                  onPanelWidthChange={setRightPanelWidth}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "team"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   onClose={() => setShowTeamPanel(false)}
                   onViewSession={setSubagentPreviewSessionId}
                 />
@@ -5382,13 +5352,8 @@ export default function ChatScreen({
               {/* Workspace 面板 — 聚合任务进度 / 碰到的文件 / 引用来源 */}
               {rightPanelVisibility.workspace && (
                 <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
-                  maxWidth={860}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "workspace"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey="workspace"
                 >
                   <WorkspacePanel
@@ -5450,15 +5415,10 @@ export default function ChatScreen({
               read-only mirror of global local-model jobs. */}
               {rightPanelVisibility["background-jobs"] && (
                 <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("backgroundJobs.resizePanel", "Resize background jobs panel")}
-                  maxWidth={860}
                   collapsed={
                     rightPanelCollapsed || renderedExclusiveRightPanel !== "background-jobs"
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey="background-jobs"
                 >
                   <BackgroundJobsPanel
@@ -5476,13 +5436,8 @@ export default function ChatScreen({
               run's live child-session transcript. Opened from inline chips. */}
               {rightPanelVisibility.subagent && (
                 <RightPanelShell
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("subagentPanel.resizePanel", "Resize sub-agents panel")}
-                  maxWidth={960}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "subagent"}
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey={`subagent:${session.currentSessionId ?? ""}`}
                 >
                   <SubagentPanel
@@ -5501,17 +5456,12 @@ export default function ChatScreen({
               {filePreview.entries.map((entry) => (
                 <RightPanelShell
                   key={entry.id}
-                  width={rightPanelWidth}
-                  onWidthChange={setRightPanelWidth}
-                  resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
-                  maxWidth={860}
                   collapsed={
                     rightPanelCollapsed ||
                     renderedExclusiveRightPanel !== "preview" ||
                     filePreview.activeId !== entry.id
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  integrated
                   contentKey={entry.id}
                 >
                   <FilePreviewPanel

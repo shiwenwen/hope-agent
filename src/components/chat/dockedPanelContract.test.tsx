@@ -5,8 +5,6 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 import BrowserPanel from "./BrowserPanel"
 import CanvasPanel from "./CanvasPanel"
 import { FileBrowserPanel } from "./FileBrowserPanel"
-import MacControlPanel from "./MacControlPanel"
-import { TeamPanel } from "@/components/team/TeamPanel"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 const transportMock = vi.hoisted(() => ({
@@ -94,82 +92,33 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function expectOverlay(container: HTMLElement) {
-  const shell = container.firstElementChild
-  expect(shell?.className).toContain("fixed")
-  expect(shell?.className).toContain("inset-0")
-}
-
 function renderPanel(ui: React.ReactNode) {
   return render(<TooltipProvider>{ui}</TooltipProvider>)
 }
 
-describe("internal right-panel overlay contract", () => {
-  test("BrowserPanel uses the shared fixed overlay surface", () => {
-    const { container } = renderPanel(<BrowserPanel overlay onClose={() => {}} />)
-
-    expectOverlay(container)
-  })
-
-  test("integrated BrowserPanel keeps refresh but delegates float and close to the workbench", () => {
-    renderPanel(<BrowserPanel integrated onClose={() => {}} onFloat={() => {}} />)
+describe("docked panel contract", () => {
+  test("BrowserPanel keeps refresh but delegates float and close to the workbench", () => {
+    renderPanel(<BrowserPanel onClose={() => {}} onFloat={() => {}} />)
 
     expect(screen.getByRole("button", { name: "chat.browserPanel.refresh" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: "chat.controlPanel.floatWindow" })).toBeNull()
     expect(screen.queryByRole("button", { name: "chat.browserPanel.close" })).toBeNull()
   })
 
-  test("FileBrowserPanel uses the shared fixed overlay surface", () => {
-    const { container } = renderPanel(
-      <FileBrowserPanel
-        scope="session"
-        scopeId="s1"
-        rootPath="/repo"
-        sessionId="s1"
-        visible
-        overlay
-        panelWidth={480}
-        onPanelWidthChange={() => {}}
-        onClose={() => {}}
-      />,
+  test("FileBrowserPanel renders its browser body inside the shell", () => {
+    renderPanel(
+      <FileBrowserPanel scope="session" scopeId="s1" rootPath="/repo" sessionId="s1" visible onClose={() => {}} />,
     )
 
-    expectOverlay(container)
     expect(screen.getByText("File browser body")).toBeTruthy()
   })
 
-  test("MacControlPanel uses the shared fixed overlay surface", () => {
-    const { container } = renderPanel(<MacControlPanel overlay onClose={() => {}} />)
-
-    expectOverlay(container)
-  })
-
-  test("TeamPanel uses the shared fixed overlay surface", () => {
-    const { container } = renderPanel(
-      <TeamPanel teamId="team-1" overlay onClose={() => {}} />,
-    )
-
-    expectOverlay(container)
-  })
-
-  test("CanvasPanel uses the shared fixed overlay surface after restoring a canvas", async () => {
-    const { container } = renderPanel(<CanvasPanel currentSessionId="s1" visible overlay />)
-
-    await waitFor(() => expect(screen.getByText("Canvas Preview")).toBeTruthy())
-    expectOverlay(container)
-  })
-
   test("CanvasPanel is interactive immediately when the shared dock requests mount animation", async () => {
-    const requestFrame = vi
-      .spyOn(window, "requestAnimationFrame")
-      .mockImplementation(() => 1)
-    const { container } = renderPanel(
-      <CanvasPanel currentSessionId="s1" visible animateOnMount />,
-    )
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1)
+    const { container } = renderPanel(<CanvasPanel currentSessionId="s1" visible animateOnMount />)
 
     await waitFor(() => expect(screen.getByText("Canvas Preview")).toBeTruthy())
     const shell = container.firstElementChild as HTMLElement
-    expect(shell.style.width).not.toBe("0px")
     expect(shell.getAttribute("aria-hidden")).toBeNull()
     expect(shell.hasAttribute("inert")).toBe(false)
     requestFrame.mockRestore()

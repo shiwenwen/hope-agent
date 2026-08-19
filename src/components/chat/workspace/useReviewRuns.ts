@@ -7,6 +7,7 @@ import type {
   ReviewRun,
   ReviewRunSnapshot,
 } from "@/lib/transport"
+import { usePanelVisible } from "@/components/chat/right-panel/panelVisibility"
 
 export interface ReviewRunsState {
   runs: ReviewRun[]
@@ -53,6 +54,8 @@ export function useReviewRuns(
   opts: { incognito?: boolean; turnActive?: boolean; disabled?: boolean } = {},
 ): ReviewRunsState {
   const { incognito = false, turnActive = false, disabled = false } = opts
+  // Warm-mounted behind another tab: nobody reads these polls, so drop them.
+  const panelVisible = usePanelVisible()
   const [runs, setRuns] = useState<ReviewRun[]>([])
   const [snapshot, setSnapshot] = useState<ReviewRunSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -169,11 +172,13 @@ export function useReviewRuns(
   }, [disabled, fetchRuns, incognito, sessionId])
 
   const hasActiveRun = useMemo(() => runs.some(reviewRunActive), [runs])
+  // The interval is a safety net behind the event subscription above, so a
+  // hidden workbench tab can drop it without going stale.
   useEffect(() => {
-    if (disabled || !sessionId || incognito || !hasActiveRun) return
+    if (disabled || !sessionId || incognito || !hasActiveRun || !panelVisible) return
     const timer = window.setInterval(() => fetchRuns(), REVIEW_ACTIVE_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [disabled, fetchRuns, hasActiveRun, incognito, sessionId])
+  }, [disabled, fetchRuns, hasActiveRun, incognito, panelVisible, sessionId])
 
   const runReview = useCallback(async (args: { profiles?: string[] } = {}) => {
     if (!sessionId || disabled || incognito) return null

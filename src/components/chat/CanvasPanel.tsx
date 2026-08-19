@@ -50,16 +50,12 @@ function toCanvasInfo(
 }
 
 interface CanvasPanelProps {
-  panelWidth?: number
-  onPanelWidthChange?: (width: number) => void
-  reservedMainWidth?: number
   currentSessionId?: string | null
   onOpenChange?: (open: boolean) => void
   /** Stages a selected Canvas excerpt in the owning composer; never sends it. */
   onQuote?: (quote: PendingFileQuote) => void
   visible?: boolean
   collapsed?: boolean
-  overlay?: boolean
   /** Kept for the shared panel call site; iframe panels intentionally ignore
    * zero-width mount animation so WebView hit testing is valid immediately. */
   animateOnMount?: boolean
@@ -69,22 +65,17 @@ interface CanvasPanelProps {
 export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
 
 export default function CanvasPanel({
-  panelWidth = 480,
-  onPanelWidthChange,
-  reservedMainWidth,
   currentSessionId = null,
   onOpenChange,
   onQuote,
   visible = true,
   collapsed = false,
-  overlay = false,
   integrated = false,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
   const [maximized, setMaximized] = useState(false)
   const {
-    ref: fullscreenTransitionRef,
     animating: fullscreenAnimating,
     toggle: toggleFullscreen,
     reset: resetFullscreen,
@@ -468,13 +459,7 @@ export default function CanvasPanel({
   if (detached) {
     return (
       <RightPanelShell
-        width={panelWidth}
-        onWidthChange={onPanelWidthChange}
-        resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
-        reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
-        overlay={overlay}
-        integrated={integrated}
         contentKey="canvas-detached"
       >
         {/* Title Bar */}
@@ -513,15 +498,7 @@ export default function CanvasPanel({
 
   return (
     <RightPanelShell
-      width={panelWidth}
-      onWidthChange={onPanelWidthChange}
-      resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
-      maximized={maximized}
-      fullscreenTransitionRef={fullscreenTransitionRef}
-      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
-      overlay={overlay}
-      integrated={integrated}
       contentKey="canvas"
     >
       {/* Title Bar */}

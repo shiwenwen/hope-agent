@@ -47,11 +47,7 @@ interface FileBrowserPanelProps {
    *  mounted) when false, so detached state survives panel switches. */
   visible: boolean
   collapsed?: boolean
-  overlay?: boolean
   animateOnMount?: boolean
-  panelWidth: number
-  onPanelWidthChange: (w: number) => void
-  reservedMainWidth?: number
   onQuote?: (payload: QuotePayload) => void
   onPreviewFile?: (target: PreviewTarget) => void
   /** Explicit "open in a new tab" from the tree context menu. */
@@ -77,11 +73,7 @@ export function FileBrowserPanel({
   instanceKey,
   visible,
   collapsed = false,
-  overlay = false,
   animateOnMount = false,
-  panelWidth,
-  onPanelWidthChange,
-  reservedMainWidth,
   onQuote,
   onPreviewFile,
   onOpenInNewTab,
@@ -96,7 +88,6 @@ export function FileBrowserPanel({
   const [detached, setDetached] = useState(false)
   const [maximized, setMaximized] = useState(false)
   const {
-    ref: fullscreenTransitionRef,
     animating: fullscreenAnimating,
     toggle: toggleFullscreen,
     reset: resetFullscreen,
@@ -325,17 +316,8 @@ export function FileBrowserPanel({
 
   return (
     <RightPanelShell
-      width={panelWidth}
-      onWidthChange={onPanelWidthChange}
-      resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
-      maxWidth={1000}
-      maximized={integrated ? false : maximized}
-      fullscreenTransitionRef={integrated ? undefined : fullscreenTransitionRef}
-      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
-      overlay={overlay}
       animateOnMount={animateOnMount}
-      integrated={integrated}
       contentKey={detached ? "files-detached" : "files"}
     >
       {body}

@@ -1,76 +1,39 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type RefCallback,
-  type ReactNode,
-} from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { UI_MOTION } from "@/components/ui/motion"
-import { ResizeHandleGlow } from "@/components/ui/resize-handle-glow"
+import { PanelVisibilityContext } from "./panelVisibility"
 
+/**
+ * Compatibility host for one workbench tab. The workbench frame owns width, the
+ * column border, the resize affordance and maximize, so all this still does is
+ * stack its content absolutely, cross-fade tab switches, and take the inactive
+ * tabs out of the accessibility tree.
+ */
 interface RightPanelShellProps {
-  width: number
-  onWidthChange?: (width: number) => void
-  resizeLabel: string
   children: ReactNode
-  minWidth?: number
-  maxWidth?: number
-  maxViewportRatio?: number
-  reservedMainWidth?: number
-  maximized?: boolean
   collapsed?: boolean
-  overlay?: boolean
   contentKey?: string | number | null
   surfaceClassName?: string
   bodyClassName?: string
-  /** Root node used by the shared fullscreen FLIP transition hook. */
-  fullscreenTransitionRef?: RefCallback<HTMLDivElement>
-  /** Animate the rail from zero width when it is the first right panel to open. */
+  /** Fade the content in when this is the first panel to open. */
   animateOnMount?: boolean
-  /** The shared workbench owns sizing, border and resize affordances. */
-  integrated?: boolean
 }
 
 export function RightPanelShell({
-  width,
-  onWidthChange,
-  resizeLabel,
   children,
-  minWidth = 360,
-  maxWidth = 960,
-  maxViewportRatio = 0.55,
-  reservedMainWidth = 420,
-  maximized = false,
   collapsed = false,
-  overlay = false,
   contentKey,
   surfaceClassName,
   bodyClassName,
-  fullscreenTransitionRef,
   animateOnMount = false,
-  integrated = false,
 }: RightPanelShellProps) {
-  const shellRef = useRef<HTMLDivElement>(null)
   const resolvedContentKey = contentKey ?? "right-panel-content"
   const lastContentKeyRef = useRef<string | number>(resolvedContentKey)
   const transitionTimerRef = useRef<number | null>(null)
   const transitionFrameRef = useRef<number | null>(null)
   const entryFrameRef = useRef<number | null>(null)
-  const dragCleanupRef = useRef<(() => void) | null>(null)
   const [transitionVeilVisible, setTransitionVeilVisible] = useState(false)
-  const [isResizing, setIsResizing] = useState(false)
   const [entryVisible, setEntryVisible] = useState(!animateOnMount)
-  const setShellRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      shellRef.current = node
-      fullscreenTransitionRef?.(node)
-    },
-    [fullscreenTransitionRef],
-  )
 
   useLayoutEffect(() => {
     if (entryVisible) return
@@ -118,146 +81,28 @@ export function RightPanelShell({
         window.cancelAnimationFrame(entryFrameRef.current)
         entryFrameRef.current = null
       }
-      dragCleanupRef.current?.()
     },
     [],
   )
 
   const visuallyCollapsed = collapsed || !entryVisible
 
-  const handleDragStart = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onWidthChange || visuallyCollapsed) return
-      e.preventDefault()
-      dragCleanupRef.current?.()
-      setIsResizing(true)
-      const startX = e.clientX
-      const startWidth = width
-      const containerWidth =
-        shellRef.current?.parentElement?.getBoundingClientRect().width ?? window.innerWidth
-      const availableWidth = Math.max(0, containerWidth - reservedMainWidth)
-      const effectiveMinWidth = Math.min(minWidth, availableWidth)
-      const effectiveMaxWidth = Math.max(
-        effectiveMinWidth,
-        Math.min(maxWidth, containerWidth * maxViewportRatio, availableWidth),
-      )
-      const onMouseMove = (ev: MouseEvent) => {
-        const nextWidth = Math.min(
-          effectiveMaxWidth,
-          Math.max(effectiveMinWidth, startWidth - (ev.clientX - startX)),
-        )
-        onWidthChange(nextWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((frame) => ((frame as HTMLElement).style.pointerEvents = "none"))
-      let cleanedUp = false
-      const cleanup = () => {
-        if (cleanedUp) return
-        cleanedUp = true
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", finishDrag)
-        window.removeEventListener("blur", finishDrag)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((frame) => ((frame as HTMLElement).style.pointerEvents = ""))
-        if (dragCleanupRef.current === cleanup) dragCleanupRef.current = null
-      }
-      const finishDrag = () => {
-        cleanup()
-        setIsResizing(false)
-      }
-      dragCleanupRef.current = cleanup
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", finishDrag)
-      window.addEventListener("blur", finishDrag)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [
-      maxViewportRatio,
-      maxWidth,
-      minWidth,
-      onWidthChange,
-      reservedMainWidth,
-      visuallyCollapsed,
-      width,
-    ],
-  )
-
-  const availableWidthCss = `max(0px, calc(100% - ${reservedMainWidth}px))`
-  const panelStyle: CSSProperties | undefined = integrated
-    ? undefined
-    : visuallyCollapsed
-      ? { width: 0, minWidth: 0, maxWidth: 0 }
-      : {
-          width: `min(${width}px, ${availableWidthCss})`,
-          minWidth: `min(${minWidth}px, ${availableWidthCss})`,
-          maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
-        }
-
-  const fullscreenSurface = (maximized || overlay) && !collapsed
-
   return (
     <div
-      ref={setShellRef}
       className={cn(
-        "flex min-h-0 flex-col overflow-hidden bg-surface-app",
-        fullscreenSurface
-          ? "fixed inset-0 z-50"
-          : integrated
-            ? "absolute inset-0 h-full w-full min-w-0 bg-background"
-            : "relative h-full shrink-0 bg-transparent",
-        !fullscreenSurface &&
-          !integrated &&
-          !isResizing &&
-          "transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
-        fullscreenSurface
-          ? overlay && !maximized
-            ? "p-2 sm:p-3"
-            : "p-0"
-          : integrated
-            ? "p-0"
-            : visuallyCollapsed
-              ? "min-w-0 max-w-0 p-0 pointer-events-none"
-              : "p-3 pl-2",
-        fullscreenSurface &&
-          animateOnMount &&
-          "animate-in fade-in-0 slide-in-from-right-2 duration-[250ms] motion-reduce:animate-none",
+        "absolute inset-0 flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background p-0",
         surfaceClassName,
         visuallyCollapsed && "pointer-events-none",
-        // Integrated shells stack absolutely: a collapsed one still paints over
+        // Shells stack absolutely: a collapsed one would otherwise paint over
         // the active panel. Must stay last so `cn` keeps it.
-        integrated && visuallyCollapsed && "bg-transparent",
+        visuallyCollapsed && "bg-transparent",
       )}
-      style={fullscreenSurface ? undefined : panelStyle}
       aria-hidden={visuallyCollapsed ? true : undefined}
       inert={visuallyCollapsed ? true : undefined}
     >
-      {!fullscreenSurface && !integrated && (
-        <div
-          className={cn(
-            "peer group absolute left-0 top-3 bottom-3 z-10 w-4",
-            onWidthChange && !visuallyCollapsed && "cursor-col-resize",
-            visuallyCollapsed && "hidden",
-          )}
-          onMouseDown={handleDragStart}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={resizeLabel}
-        >
-          {onWidthChange && !visuallyCollapsed && (
-            <ResizeHandleGlow active={isResizing} className="inset-y-0 left-2 w-px" />
-          )}
-        </div>
-      )}
       <div
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden transition-[opacity,transform,border-color,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
-          integrated
-            ? "rounded-none border-0 bg-background shadow-none"
-            : maximized
-              ? "rounded-none border-0 bg-surface-app shadow-none"
-              : "rounded-2xl border border-border-soft bg-surface-panel shadow-panel peer-hover:bg-secondary/20",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-background shadow-none transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
           visuallyCollapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,
         )}
@@ -268,13 +113,15 @@ export function RightPanelShell({
             className="relative z-10 flex h-full min-h-0 w-full flex-col animate-in fade-in-0 duration-200 motion-reduce:animate-none"
             style={{ animationDuration: `${UI_MOTION.panelContentEnter}ms` }}
           >
-            {children}
+            {/* Warm-mounted tabs keep their effects; tell them whether anyone
+                can actually see the result so pollers can stand down. */}
+            <PanelVisibilityContext.Provider value={!visuallyCollapsed}>
+              {children}
+            </PanelVisibilityContext.Provider>
           </div>
           <div
             className={cn(
-              "pointer-events-none absolute inset-0 z-20 transition-opacity ease-out motion-reduce:hidden",
-              // Must match the shell it veils, or a tab switch flashes.
-              integrated ? "bg-background" : "bg-surface-panel",
+              "pointer-events-none absolute inset-0 z-20 bg-background transition-opacity ease-out motion-reduce:hidden",
               transitionVeilVisible ? "opacity-100" : "opacity-0",
             )}
             style={{ transitionDuration: `${UI_MOTION.panelContentExit}ms` }}

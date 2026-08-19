@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type { VerificationRun, VerificationRunSnapshot, VerificationStep } from "@/lib/transport"
+import { usePanelVisible } from "@/components/chat/right-panel/panelVisibility"
 
 export interface VerificationRunsState {
   runs: VerificationRun[]
@@ -46,6 +47,8 @@ export function useVerificationRuns(
   opts: { incognito?: boolean; turnActive?: boolean; disabled?: boolean } = {},
 ): VerificationRunsState {
   const { incognito = false, turnActive = false, disabled = false } = opts
+  // Warm-mounted behind another tab: nobody reads these polls, so drop them.
+  const panelVisible = usePanelVisible()
   const [runs, setRuns] = useState<VerificationRun[]>([])
   const [snapshot, setSnapshot] = useState<VerificationRunSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -165,10 +168,10 @@ export function useVerificationRuns(
 
   const hasActiveRun = useMemo(() => runs.some(verificationRunActive), [runs])
   useEffect(() => {
-    if (disabled || !sessionId || incognito || !hasActiveRun) return
+    if (disabled || !sessionId || incognito || !hasActiveRun || !panelVisible) return
     const timer = window.setInterval(() => fetchRuns(), VERIFICATION_ACTIVE_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [disabled, fetchRuns, hasActiveRun, incognito, sessionId])
+  }, [disabled, fetchRuns, hasActiveRun, incognito, panelVisible, sessionId])
 
   const planVerification = useCallback(async () => {
     if (!sessionId || disabled || incognito) return null

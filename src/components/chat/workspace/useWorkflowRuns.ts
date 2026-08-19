@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { usePanelVisible } from "@/components/chat/right-panel/panelVisibility"
 
 export type WorkflowRunState =
   | "draft"
@@ -214,6 +215,8 @@ export function useWorkflowRuns(
   opts: { incognito?: boolean; turnActive?: boolean; disabled?: boolean } = {},
 ): WorkflowRunsState {
   const { incognito = false, turnActive = false, disabled = false } = opts
+  // Warm-mounted behind another tab: nobody reads these polls, so drop them.
+  const panelVisible = usePanelVisible()
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const [watchdogFindings, setWatchdogFindings] = useState<WorkflowWatchdogFinding[]>([])
   const [loading, setLoading] = useState(false)
@@ -353,13 +356,15 @@ export function useWorkflowRuns(
 
   const activeCount = useMemo(() => runs.filter(workflowRunIsActive).length, [runs])
 
+  // The interval is a safety net behind the event subscription above, so a
+  // hidden workbench tab can drop it without going stale.
   useEffect(() => {
-    if (disabled || !sessionId || incognito || activeCount === 0) return
+    if (disabled || !sessionId || incognito || activeCount === 0 || !panelVisible) return
     const id = window.setInterval(() => {
       fetchRuns()
     }, WORKFLOW_ACTIVE_POLL_MS)
     return () => window.clearInterval(id)
-  }, [activeCount, disabled, fetchRuns, incognito, sessionId])
+  }, [activeCount, disabled, fetchRuns, incognito, panelVisible, sessionId])
 
   useEffect(() => {
     if (disabled || !sessionId || incognito) return

@@ -24,6 +24,7 @@ import { fetchBackgroundJobDetail } from "./backgroundJobDetailFetch"
 import { BackgroundJobKindIcon, BackgroundJobStatusChip } from "./jobDisplay"
 import { resolveBackgroundSubagentSessionId } from "./subagentSession"
 import { isScrolledNearBottom, normalizeTerminalText, parseAnsiSegments } from "./terminalOutput"
+import { usePanelVisible } from "@/components/chat/right-panel/panelVisibility"
 
 const noopJobExpandedChange = () => {}
 
@@ -287,6 +288,7 @@ export function SessionBackgroundJobsList({
   const [pendingCancel, setPendingCancel] = useState<Set<string>>(new Set())
   const [pendingViewRunIds, setPendingViewRunIds] = useState<Set<string>>(new Set())
   const [details, setDetails] = useState<Record<string, BackgroundJobSnapshot>>({})
+  const panelVisible = usePanelVisible()
 
   const clearPending = useCallback((jobId: string) => {
     setPendingCancel((prev) => {
@@ -360,7 +362,8 @@ export function SessionBackgroundJobsList({
   const activeJobKey = activeJobIds.join("|")
 
   useEffect(() => {
-    if (activeJobIds.length === 0) return
+    // Warm-mounted behind another tab: the live tail has no reader.
+    if (activeJobIds.length === 0 || !panelVisible) return
 
     let alive = true
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -393,7 +396,7 @@ export function SessionBackgroundJobsList({
       alive = false
       if (timer) clearTimeout(timer)
     }
-  }, [activeJobKey, activeJobIds, listedJobs])
+  }, [activeJobKey, activeJobIds, listedJobs, panelVisible])
 
   if (listedJobs.length === 0) return null
 
