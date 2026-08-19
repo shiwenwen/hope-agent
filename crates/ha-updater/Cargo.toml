@@ -1,6 +1,6 @@
 [package]
 name = "ha-updater"
-version = "0.33.0"
+version = "0.34.0"
 description = "Hope Agent self-update — manifest check, signed download, atomic binary swap, app_update tool"
 license.workspace = true
 authors.workspace = true
