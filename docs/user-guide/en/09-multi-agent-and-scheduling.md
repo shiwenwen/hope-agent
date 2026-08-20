@@ -66,6 +66,7 @@ Every asynchronous / background tool, Sub-Agent, and batch job lands in a single
 - **Entry points**: the badge in the chat header, the standalone panel, and the background-jobs section of the workspace.
 - When a command runs in the background you can watch the output "tail" live to tell whether it is "still running" or "stuck."
 - When a job finishes it can raise a desktop notification (on by default).
+- In the chat message stream, control actions like pause / resume / cancel (for Sub-Agents, background jobs, processes, teams, workflows, and scheduled tasks) are grouped into a single readable status line instead of raw tool calls; the group is collapsed by default and auto-expands when there is a failure or partial failure; a cancel is shown accurately as "cancelled" rather than being misreported as "completed."
 
 Which tools can run in the background: command execution, browser, web search, AI image generation, and app update.
 
@@ -117,7 +118,7 @@ For an existing-chat task, the system reads the chat's **live** Agent, model, pr
 
 ### Checks before saving or running now
 
-A preflight appears before you create, edit, or choose "Run now." It leads with the conversation this task will run in — a new chat, or the specific existing chat and its current title — then shows the next three run times and the actual Agent, primary model, project, workspace mode / base ref, number of dirty workspace files, permissions, and sandbox. Delivery targets are listed one by one with their individual problems, and the footer shows whether this process is the scheduler's primary, how many tasks are running, and whether this task itself is running right now.
+A preflight appears before you create, edit, or choose "Run now." It leads with the conversation this task will run in — a new chat, or the specific existing chat and its current title — then shows the next three run times and the actual Agent, primary model, project, workspace mode / base ref, number of dirty workspace files, permissions, and sandbox. Delivery targets are listed one by one with their individual problems, and the footer shows whether this process is the scheduler's primary, how many tasks are running against the scheduler-wide concurrency cap, and whether this task itself is running right now.
 
 - A **blocker** cannot be forced through. Common causes include an unavailable target chat, an archived or missing managed project, an invalid base ref, a busy or conflicted Persistent Worktree, an unconfigured model, an invalid IM account / chat, or disabled remote writes.
 - A **warning** can be confirmed after you understand its impact.

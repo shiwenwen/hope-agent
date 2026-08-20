@@ -15,11 +15,13 @@ This chapter covers how to **organize your work** (project containers, Custom Ag
 
 A project groups several related sessions into a single workspace that shares project instructions, project memory, and a unified working directory. Projects are **optional** — sessions that don't belong to a project are entirely unaffected.
 
-**Creating one**: sidebar project tree → New project, then fill in the name, description, icon, color, default Agent, working directory, and project instructions.
+**Creating one**: sidebar project tree → New project, then fill in the name, description, icon, color, default Agent, source folders (the first folder you add becomes the primary folder; you can link more folders afterward), and project instructions.
 
 **Key features**:
 
-- **Working directory = a real folder**: a directory you explicitly choose, or the default `~/.hope-agent/projects/{project}/workspace/`. Uploaded files land directly in this directory, and the AI becomes aware of them through the working directory's top-level file listing and the `read` tool (there is no separate file table).
+- **Primary folder = a real folder**: a directory you explicitly choose, or the default `~/.hope-agent/projects/{project}/workspace/`. Uploaded files land directly in this directory, and the AI becomes aware of them through the working directory's top-level file listing and the `read` tool (there is no separate file table). New sessions' working directory, relative-path resolution, Git info, and the project instructions file `AGENTS.md` are all keyed to the primary folder.
+- **Linked folders**: a project can link additional source folders (up to 32). In the project settings you can add an existing directory or create a new one; any folder in the list can be made the primary folder (the previous primary is automatically demoted to a linked folder) or removed. The root selector at the top of the file browser switches between the primary folder and each linked folder, and the same search, preview, edit, and CRUD operations apply to whichever root is active. Linked folders don't change the session working directory, relative-path resolution, or `AGENTS.md` semantics, but the AI can still see their contents through the per-turn file listing and the `read` tool.
+- **A session's own working-directory override still keeps the primary folder**: once a session's working directory is set to something other than the project's primary folder, the primary folder doesn't disappear — it remains visible and read/writable as a virtual trailing root for that session.
 - **Project instructions**: the `AGENTS.md` at the root, which you can edit directly and which is assembled into the system prompt of every session under this project.
 - **Project memory**: the highest priority (Project > Agent > Global); see [04 · Three tiers of memory](04-memory.md#41-three-tiers-of-memory-global--agent--project).
 - **Lazy session creation**: opening "New chat" in a project doesn't pre-create an empty session — it stays a draft and is persisted only when you send the first message. Project sessions and Incognito are mutually exclusive.
