@@ -413,11 +413,11 @@ node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 
 ## Star History
 
-<a href="https://www.star-history.com/#shiwenwen/hope-agent&Date">
+<a href="https://star-history.dera.page/#shiwenwen/hope-agent&type=Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shiwenwen/hope-agent&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=shiwenwen/hope-agent&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shiwenwen/hope-agent&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=shiwenwen/hope-agent&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=shiwenwen/hope-agent&type=Date" />
+    <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=shiwenwen/hope-agent&type=Date" />
   </picture>
 </a>
 
