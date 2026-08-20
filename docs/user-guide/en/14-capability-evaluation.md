@@ -65,7 +65,7 @@ If a Provider has multiple Auth Profiles, you can choose a credential profile af
 
 ## 14.3 Choose a profile
 
-A profile determines scenario scope, comparison arms, repetitions, and the maximum number of trials it can generate. You set cost, total wall time, and scheduling concurrency before every run; Quick and Standard no longer lock them to low profile-specific values.
+A profile determines scenario scope, comparison arms, repetitions, and the maximum number of trials it can generate. You set the budget and concurrency limits (cost, time, tokens, model/tool call counts, spawned agents, and more—see 14.4) before every run; Quick and Standard no longer lock them to low profile-specific values.
 
 | Profile | Best for | Current focus |
 | --- | --- | --- |
@@ -92,10 +92,10 @@ In Capability Evaluation → Run:
 1. **Choose an evaluation profile**.
 2. If the profile permits customization, choose scenarios, comparison arms, and repetitions.
 3. **Choose real models**. The profile controls the limit, with an App-wide maximum of four. Multiple models become separate Campaigns within one experiment so they can be compared later.
-4. **Set hard budgets**:
-   - maximum cost in USD;
-   - maximum wall time in minutes, defaulting to 480 minutes with no maximum imposed by the input;
-   - concurrency, defaulting to 4 and adjustable up to every trial the selected profile can generate. This controls simultaneous trials; it does not enlarge a scenario's internal Agent or tool budgets.
+4. **Set hard budgets**. Budgets have two layers—an experiment-wide cumulative ceiling and a per-scenario allocation—or you can switch the whole thing off with **Unlimited run**.
+   - **Experiment-wide budget** (combined usage across every selected model, scenario, and repetition must stay within each of the following): maximum cost in USD; maximum wall time in minutes, defaulting to 480 with no maximum imposed by the input; model calls, the maximum number of requests sent to the model; input tokens; output tokens; tool calls, the maximum number of synthetic tool calls; spawned agents, the maximum number of child Agents created; and concurrency, defaulting to 4 and adjustable up to every trial the selected profile can generate—this controls how many trials run at once and does not enlarge a scenario's internal Agent or tool budgets.
+   - **Per-scenario budget allocation**: below the experiment-wide budget, each selected scenario gets its own set of limits (cost, wall time, model calls, input/output tokens, tool calls, spawned agents, and maximum concurrency). Cost is an aggregate allocation for that scenario across all selected models, arms, and repetitions; the sum of every scenario's cost allocation must fit within the experiment-wide maximum cost, and the UI shows a live "allocated / experiment-wide limit" readout that turns red when it is exceeded. Every other field (wall time, model calls, tokens, tool calls, spawned agents, maximum concurrency) applies to a single run of that scenario, not as a cumulative total. A scenario's "maximum concurrency" is the parallelism of models, Agents, or tools inside that scenario—separate from the concurrency above, which controls how many trials run at once.
+   - **Unlimited run**: a toggle at the top of the budget section hides every field above and shows a warning instead: it disables cost, time, token, call, agent, and concurrency limits, so the run may continue indefinitely and incur uncontrolled Provider charges, while permission, security, isolation, cancellation, and cleanup protections remain active. This replaces the budget form rather than adding to it—selecting it hides every field in this step, but approvals, security policy, isolation, cancellation, and cleanup are unaffected.
 5. Confirm both “I understand this may incur model charges” and “I understand synthetic tool tasks will execute.”
 6. Select **Generate plan**, then check the estimated trial count, model count, cost ceiling, and runtime environment.
 7. Select **Start real evaluation**.
@@ -202,7 +202,7 @@ Local export is always unsigned. Editing `source` or SHA fields in JSON cannot p
 
 ## 14.9 Cost, credentials, and data boundaries
 
-- **Real charges apply**: requests go directly to the selected Provider. Tokens and estimated cost are bounded by your configured budgets, while the Provider bill remains the cost source of truth.
+- **Real charges apply**: requests go directly to the selected Provider. Tokens and estimated cost are bounded by your configured budgets—unless you choose **Unlimited run**, in which case cost is no longer capped and is bounded only by how quickly you cancel and by the Provider's own bill—while the Provider bill remains the cost source of truth.
 - **Synthetic tasks only**: built-in scenarios do not construct tasks from real user business data, and evaluation should not use personal production accounts.
 - **Isolated execution**: each Campaign receives a temporary HOME, data directory, workspace, port, and Hope Server.
 - **Credentials stay out of evidence**: the UI sends only Provider/model/credential references. The local backend resolves the API key or short-lived Codex token, which is not written to plans, databases, command lines, logs, or exports.

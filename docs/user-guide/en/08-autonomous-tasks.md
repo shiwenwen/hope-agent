@@ -59,6 +59,8 @@ You can also enter through the "Goal" control in the input box. A summary of the
 
 > [Incognito sessions](03-chat-and-sessions.md#36-incognito-sessions) cannot create goals; a session with a goal in progress also cannot be switched to incognito.
 
+> Clicking the square "Stop" button in the input box (same as `/stop`, see [chapter 03](03-chat-and-sessions.md)) doesn't just interrupt the current reply—it also **persistently pauses** this goal, along with any workflow or subagent it's driving. The automatic follow-up run mentioned above gets blocked too, and this paused state survives an app restart; it never resumes on its own. To resume, tell the AI "continue," or click the round "Continue" icon button that takes the Stop button's place—the AI picks up exactly where it left off, without redoing finished steps. Note that `/goal resume` can **only** clear a pause you started yourself with `/goal pause`; if the pause came from the Stop button, running `/goal resume` will flip the goal's status back to "in progress" but the automatic follow-up run still won't actually happen—you need "continue" (spoken or clicked) to move it forward.
+
 ---
 
 ## 8.2 Workflow
@@ -78,9 +80,11 @@ With workflow mode on, when the AI faces a complex task it will **write its own 
 
 You can also toggle it from the workflow button in the input toolbar—clicking it opens a dropdown menu where you can directly choose Off / On / Ultracode (the current option is checked). Once on, just state your request as usual (for example, "research these three options and recommend one" or "do a full code migration"), and **the AI decides for itself whether creating a workflow is worthwhile**—simple tasks are still handled inline.
 
-**What you'll notice**: phased execution, parallel exploration, multi-agent collaboration, built-in code review / verification / validation, and a bounded auto-fix loop; after a crash or restart it recovers conservatively (it won't silently mark itself complete, won't repeat completed steps, and won't auto-approve); you can choose where it runs (the current directory / a new isolated worktree / an existing worktree); and a completed workflow can be "saved as a template" for reuse.
+**What you'll notice**: phased execution, parallel exploration, multi-agent collaboration, built-in code review / verification / validation, and a bounded auto-fix loop; whether it's an unexpected app crash/restart or you deliberately hitting Stop, a workflow never loses or re-runs work (it won't silently mark itself complete, won't repeat completed steps, and won't auto-approve)—the former picks back up automatically once you reopen the app, while the latter waits until you explicitly say "continue"; you can choose where it runs (the current directory / a new isolated worktree / an existing worktree); and a completed workflow can be "saved as a template" for reuse.
 
 > Turning on workflow mode is **not the same as running immediately**—it just gives the AI the ability to "orchestrate autonomously on the next round." Incognito sessions cannot use workflows. Workflow execution still goes through the normal [permission approvals](07-tools-and-permissions.md), sandbox, and incognito rules.
+>
+> A workflow paused by the Stop button is not the same thing as one paused with `/workflow pause <id>`: `/workflow resume <id>` can **only** resume a run you yourself suspended with `/workflow pause <id>`. If the pause came from the Stop button, running `/workflow resume <id>` will flip its status back to running, but execution still gets safely skipped—you have to tell the AI "continue" (or click the "Continue" button that appears in the input box) to actually pick the unfinished phase back up.
 
 ---
 
