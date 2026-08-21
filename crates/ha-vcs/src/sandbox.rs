@@ -841,8 +841,7 @@ struct WorkspaceOwnershipGuard {
     // The OS advisory lock stays held until ownership restoration completes.
     // A global lock deliberately also covers overlapping roots (for example a
     // project and one of its subdirectories), which exact-path locks cannot.
-    _exclusive_lock: File,
-    journal_path: PathBuf,
+    restoration: Option<(File, PathBuf)>,
 }
 
 impl WorkspaceOwnershipGuard {
@@ -906,9 +905,25 @@ impl WorkspaceOwnershipGuard {
             }
         }
         Ok(Self {
-            _exclusive_lock: exclusive_lock,
-            journal_path,
+            restoration: Some((exclusive_lock, journal_path)),
         })
+    }
+
+    fn take_restoration(&mut self) -> Option<(File, PathBuf)> {
+        self.restoration.take()
+    }
+
+    async fn restore(mut self) -> Result<()> {
+        let Some((exclusive_lock, journal_path)) = self.take_restoration() else {
+            return Ok(());
+        };
+        ha_core::blocking::run_blocking(move || {
+            // Keep the cross-process lock alive throughout the blocking tree
+            // walk and descriptor-bound ownership restoration.
+            let _exclusive_lock = exclusive_lock;
+            recover_workspace_ownership(&journal_path).map(|_| ())
+        })
+        .await
     }
 }
 
@@ -959,7 +974,45 @@ async fn acquire_workspace_ownership_lock_at(
 
 impl Drop for WorkspaceOwnershipGuard {
     fn drop(&mut self) {
-        if let Err(error) = recover_workspace_ownership(&self.journal_path) {
+        let Some((exclusive_lock, journal_path)) = self.take_restoration() else {
+            return;
+        };
+        // Normal execution calls `restore().await`, which uses the blocking
+        // pool. Drop is only an emergency path (panic/cancellation between
+        // preparation and explicit finalization), so it must never traverse a
+        // large workspace on a Tokio worker. A dedicated thread keeps the OS
+        // lock held until recovery completes; if spawning fails, dropping the
+        // captured lock still leaves the durable journal for next startup.
+        if let Err(error) = std::thread::Builder::new()
+            .name("hope-sandbox-owner-restore".to_string())
+            .spawn(move || {
+                let _exclusive_lock = exclusive_lock;
+                if let Err(error) = recover_workspace_ownership(&journal_path) {
+                    app_warn!(
+                        "sandbox",
+                        "ownership_restore",
+                        "Failed to restore sandbox workspace ownership in emergency fallback; durable recovery journal retained: {}",
+                        error
+                    );
+                }
+            })
+        {
+            app_warn!(
+                "sandbox",
+                "ownership_restore",
+                "Failed to start emergency sandbox workspace ownership restoration; durable recovery journal retained: {}",
+                error
+            );
+        }
+    }
+}
+
+async fn finalize_workspace_ownership<T>(
+    guard: &mut Option<WorkspaceOwnershipGuard>,
+    result: Result<T>,
+) -> Result<T> {
+    if let Some(guard) = guard.take() {
+        if let Err(error) = guard.restore().await {
             app_warn!(
                 "sandbox",
                 "ownership_restore",
@@ -968,6 +1021,7 @@ impl Drop for WorkspaceOwnershipGuard {
             );
         }
     }
+    result
 }
 
 async fn prepare_workspace_ownership(
@@ -1035,7 +1089,7 @@ async fn exec_in_native_docker(
 
     let identity = native_container_identity(Some(&host_cwd))?;
     let user = identity.map(|(uid, gid)| format!("{uid}:{gid}"));
-    let _ownership_guard =
+    let mut ownership_guard =
         prepare_workspace_ownership(&host_cwd, identity, cancellation_token.clone()).await?;
 
     let bind_mount = format!("{}:/workspace", host_cwd.display());
@@ -1072,7 +1126,7 @@ async fn exec_in_native_docker(
             .unwrap_or("tmp")
     );
 
-    let container = docker
+    let container = match docker
         .create_container(
             Some(CreateContainerOptions {
                 name: Some(container_name.clone()),
@@ -1081,7 +1135,16 @@ async fn exec_in_native_docker(
             container_config,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
+    {
+        Ok(container) => container,
+        Err(error) => {
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Failed to create container: {}", error)),
+            )
+            .await;
+        }
+    };
 
     let container_id = container.id.clone();
 
@@ -1097,7 +1160,11 @@ async fn exec_in_native_docker(
                 cleanup_err
             );
         }
-        return Err(anyhow::anyhow!("Failed to start container: {}", e));
+        return finalize_workspace_ownership(
+            &mut ownership_guard,
+            Err(anyhow::anyhow!("Failed to start container: {}", e)),
+        )
+        .await;
     }
 
     app_info!(
@@ -1126,7 +1193,11 @@ async fn exec_in_native_docker(
         SandboxWaitOutcome::Exited(Err(e)) => {
             app_warn!("sandbox", "docker", "Container wait error: {}", e);
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Container execution failed: {}", e));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Container execution failed: {}", e)),
+            )
+            .await;
         }
         SandboxWaitOutcome::TimedOut => {
             app_warn!(
@@ -1147,7 +1218,11 @@ async fn exec_in_native_docker(
             );
             let _ = docker.stop_container(&container_id, None).await;
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Sandbox execution cancelled"));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Sandbox execution cancelled")),
+            )
+            .await;
         }
     };
 
@@ -1165,14 +1240,23 @@ async fn exec_in_native_docker(
             e
         );
     }
-    let (stdout, stderr) = logs_result?;
+    let (stdout, stderr) = match logs_result {
+        Ok(logs) => logs,
+        Err(error) => {
+            return finalize_workspace_ownership(&mut ownership_guard, Err(error)).await;
+        }
+    };
 
-    Ok(SandboxResult {
-        stdout,
-        stderr,
-        exit_code,
-        timed_out,
-    })
+    finalize_workspace_ownership(
+        &mut ownership_guard,
+        Ok(SandboxResult {
+            stdout,
+            stderr,
+            exit_code,
+            timed_out,
+        }),
+    )
+    .await
 }
 
 enum WslRunOutcome {
@@ -1834,6 +1918,35 @@ mod tests {
             .expect("second handoff should acquire after release")
             .expect("ownership lock task");
         drop(second);
+    }
+
+    #[tokio::test]
+    async fn explicit_workspace_ownership_finalize_restores_before_returning() {
+        let directory = tempfile::tempdir().expect("ownership tempdir");
+        let lock_path = directory.path().join("ownership.lock");
+        let lock = ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+            .expect("acquire ownership lock")
+            .expect("ownership lock available");
+        let mut guard = Some(WorkspaceOwnershipGuard {
+            // A missing journal is the idempotent already-restored case.
+            restoration: Some((lock, directory.path().join("missing-journal.json"))),
+        });
+
+        let error = finalize_workspace_ownership::<()>(
+            &mut guard,
+            Err(anyhow::anyhow!("container failure")),
+        )
+        .await
+        .expect_err("the container result must be preserved");
+
+        assert_eq!(error.to_string(), "container failure");
+        assert!(guard.is_none());
+        assert!(
+            ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+                .expect("reacquire ownership lock")
+                .is_some(),
+            "explicit finalization must finish recovery and release the lock before returning"
+        );
     }
 
     #[cfg(unix)]
@@ -2698,7 +2811,7 @@ async fn exec_in_native_docker_with_workspace(
     }
     let identity = native_container_identity(bind_workspace)?;
     let user = identity.map(|(uid, gid)| format!("{uid}:{gid}"));
-    let _ownership_guard = match bind_workspace {
+    let mut ownership_guard = match bind_workspace {
         Some(path) => {
             prepare_workspace_ownership(path, identity, cancellation_token.clone()).await?
         }
@@ -2749,7 +2862,7 @@ async fn exec_in_native_docker_with_workspace(
             .unwrap_or("tmp")
     );
 
-    let container = docker
+    let container = match docker
         .create_container(
             Some(CreateContainerOptions {
                 name: Some(container_name.clone()),
@@ -2758,7 +2871,16 @@ async fn exec_in_native_docker_with_workspace(
             container_config,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
+    {
+        Ok(container) => container,
+        Err(error) => {
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Failed to create container: {}", error)),
+            )
+            .await;
+        }
+    };
 
     let container_id = container.id.clone();
     // Upload and command execution consume one absolute budget. Reusing a
@@ -2785,7 +2907,7 @@ async fn exec_in_native_docker_with_workspace(
                     cleanup_error
                 );
             }
-            return Err(error);
+            return finalize_workspace_ownership(&mut ownership_guard, Err(error)).await;
         }
     }
 
@@ -2801,7 +2923,11 @@ async fn exec_in_native_docker_with_workspace(
                 cleanup_err
             );
         }
-        return Err(anyhow::anyhow!("Failed to start container: {}", e));
+        return finalize_workspace_ownership(
+            &mut ownership_guard,
+            Err(anyhow::anyhow!("Failed to start container: {}", e)),
+        )
+        .await;
     }
 
     app_info!(
@@ -2830,7 +2956,11 @@ async fn exec_in_native_docker_with_workspace(
         SandboxWaitOutcome::Exited(Err(e)) => {
             app_warn!("sandbox", "docker", "Container wait error: {}", e);
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Container execution failed: {}", e));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Container execution failed: {}", e)),
+            )
+            .await;
         }
         SandboxWaitOutcome::TimedOut => {
             app_warn!(
@@ -2851,7 +2981,11 @@ async fn exec_in_native_docker_with_workspace(
             );
             let _ = docker.stop_container(&container_id, None).await;
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Sandbox execution cancelled"));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Sandbox execution cancelled")),
+            )
+            .await;
         }
     };
 
@@ -2869,7 +3003,7 @@ async fn exec_in_native_docker_with_workspace(
                     cleanup_error
                 );
             }
-            return Err(error);
+            return finalize_workspace_ownership(&mut ownership_guard, Err(error)).await;
         }
     };
 
@@ -2884,12 +3018,16 @@ async fn exec_in_native_docker_with_workspace(
         );
     }
 
-    Ok(SandboxResult {
-        stdout,
-        stderr,
-        exit_code,
-        timed_out,
-    })
+    finalize_workspace_ownership(
+        &mut ownership_guard,
+        Ok(SandboxResult {
+            stdout,
+            stderr,
+            exit_code,
+            timed_out,
+        }),
+    )
+    .await
 }
 
 async fn exec_in_native_docker_archive(
