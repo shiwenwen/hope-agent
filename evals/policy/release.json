@@ -1,7 +1,7 @@
 {
   "schemaVersion": "eval-policy.v1",
   "id": "hope-agent-release-deterministic",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "tier": "release",
   "mode": "advisory",
   "allowedAdapters": [
@@ -10,6 +10,7 @@
     "context_compaction_contract",
     "domain_trace_fixture",
     "dreaming_golden",
+    "knowledge_retrieval_evidence",
     "memory_retrieval_scale"
   ],
   "suites": [
@@ -17,6 +18,7 @@
     { "id": "coding-gold", "minPassRate": 1.0 },
     { "id": "context-compaction-safety", "minPassRate": 1.0 },
     { "id": "domain-trace", "minPassRate": 1.0 },
+    { "id": "knowledge-retrieval-evidence", "minPassRate": 1.0 },
     { "id": "memory-dreaming", "minPassRate": 1.0 },
     { "id": "memory-retrieval-scale", "minPassRate": 1.0 }
   ],

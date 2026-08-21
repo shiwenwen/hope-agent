@@ -1,0 +1,32 @@
+{
+  "notes": [
+    {
+      "kbId": "product-docs",
+      "relPath": "guides/token-rotation.md",
+      "markdown": "# 认证手册\n\n## 令牌轮换\n\n当客户端收到 `HA_TOKEN_EXPIRED_7421` 时，应先吊销旧令牌，再调用 `rotate_owner_token`。\n\n### Verification\n\nConfirm that the audit event contains the code `rotation_completed_7421`.\n"
+    },
+    {
+      "kbId": "product-docs",
+      "relPath": "guides/cache.md",
+      "markdown": "# 缓存手册\n\n缓存失效通过 `invalidate_cache_entry` 完成，与令牌轮换无关。\n"
+    }
+  ],
+  "queries": [
+    {
+      "id": "retrieve-code-under-nested-heading",
+      "kbIds": ["product-docs"],
+      "query": "HA_TOKEN_EXPIRED_7421 rotate_owner_token",
+      "expectedPaths": ["product-docs:guides/token-rotation.md"],
+      "expectedHeading": "认证手册 > 令牌轮换",
+      "requireSourceCoordinates": true
+    },
+    {
+      "id": "retrieve-multilingual-verification-code",
+      "kbIds": ["product-docs"],
+      "query": "rotation_completed_7421 Verification",
+      "expectedPaths": ["product-docs:guides/token-rotation.md"],
+      "expectedHeading": "认证手册 > 令牌轮换 > Verification",
+      "requireSourceCoordinates": true
+    }
+  ]
+}

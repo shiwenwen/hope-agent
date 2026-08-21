@@ -32,8 +32,12 @@ interface SandboxConfig {
   tmpfs: string[]
 }
 
+const DEFAULT_SANDBOX_IMAGE =
+  "debian:bookworm-20260803-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241"
+const PINNED_IMAGE_PATTERN = /^[^\s@]+@sha256:[a-f0-9]{64}$/
+
 const DEFAULT_CONFIG: SandboxConfig = {
-  image: "debian:bookworm-slim",
+  image: DEFAULT_SANDBOX_IMAGE,
   memory_limit: 512 * 1024 * 1024,
   cpu_limit: 1.0,
   read_only: true,
@@ -54,6 +58,7 @@ export default function SandboxPanel() {
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
   const dockerAvailable = dockerStatus?.installed && dockerStatus?.running
+  const imagePinned = PINNED_IMAGE_PATTERN.test(config.image.trim())
 
   const refreshDockerStatus = useCallback(async () => {
     try {
@@ -91,6 +96,7 @@ export default function SandboxPanel() {
   }, [])
 
   const save = async () => {
+    if (!imagePinned) return
     setSaving(true)
     try {
       await getTransport().call("set_sandbox_config", { config })
@@ -152,9 +158,14 @@ export default function SandboxPanel() {
             <Input
               value={config.image}
               onChange={(e) => setConfig((prev) => ({ ...prev, image: e.target.value }))}
-              placeholder="debian:bookworm-slim"
+              placeholder={DEFAULT_SANDBOX_IMAGE}
+              aria-invalid={!imagePinned}
             />
-            <p className="text-xs text-muted-foreground">{t("settings.sandboxImageDesc")}</p>
+            <p className={cn("text-xs", imagePinned ? "text-muted-foreground" : "text-destructive")}>
+              {imagePinned
+                ? t("settings.sandboxImageDesc")
+                : t("settings.sandboxImageDigestRequired")}
+            </p>
           </div>
         </div>
 
@@ -273,7 +284,7 @@ export default function SandboxPanel() {
         <div className="flex items-center justify-end gap-2 pt-2">
           <Button
             onClick={save}
-            disabled={(!isDirty && saveStatus === "idle") || saving}
+            disabled={!imagePinned || (!isDirty && saveStatus === "idle") || saving}
             className={cn(
               saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
               saveStatus === "failed" &&

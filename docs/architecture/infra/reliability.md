@@ -1,6 +1,6 @@
 # 可靠性与崩溃自愈
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23 | 关联源码：[`guardian.rs`](../../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../../crates/ha-base/src/crash_journal.rs)、[`self_diagnosis.rs`](../../../crates/ha-core/src/self_diagnosis.rs)、[`backup.rs`](../../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../../crates/ha-base/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-21 | 关联源码：[`guardian.rs`](../../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../../crates/ha-base/src/crash_journal.rs)、[`self_diagnosis.rs`](../../../crates/ha-core/src/self_diagnosis.rs)、[`toolchain_doctor.rs`](../../../crates/ha-core/src/toolchain_doctor.rs)、[`backup.rs`](../../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../../crates/ha-base/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)
 
 ## 核心思想
 
@@ -617,6 +617,12 @@ Cron 调度器（[`ha-cron/src/cron/scheduler.rs`](../../../crates/ha-cron/src/c
 - 父进程刻意不依赖 ha-core 的完整初始化，避免循环
 
 因此读写走 `guardian::get_enabled_from_config` / `set_enabled_in_config` 直接操作 raw JSON：读时 best-effort（任何错误都退回默认 `true`），写时手动调 `snapshot_before_write` 保留 autosave 兜底。**绕过 `mutate_config()` 是有意为之**——这个字段独立于 `AppConfig` schema，直接读写 raw JSON 更稳。它也因此不进 `ha-settings`（模型不能改 Guardian 开关）。
+
+### 9.3 只读工具链诊断
+
+「设置 → 关于 → 工具链诊断」、Tauri `get_toolchain_doctor_report`、HTTP `GET /api/system/toolchain-doctor` 与 `hope-agent doctor --json` 共用 [`toolchain_doctor.rs`](../../../crates/ha-core/src/toolchain_doctor.rs) 的固定探针。它检查操作系统、Docker、Chrome/Chromium、FFmpeg、GitHub CLI、Ollama、Python、LSP 与可选 Office/PDF 工具，并按单项返回 `detected / supported / degraded / blocked`。
+
+该入口是诊断面，不是维护器：命令不经 shell，参数固定，单探针 4 秒超时，stdout/stderr 各最多读取 8 KiB；返回前清理 ANSI 与控制字符、执行凭据脱敏，只暴露版本、二进制来源类别、Docker daemon/context/socket 所有权类别和稳定诊断码，**不返回真实路径、context 名、socket 路径或子进程原始输出**。任何入口都不得借此安装/升级软件、启动 daemon、切换 Docker context 或修改系统配置。
 
 ---
 

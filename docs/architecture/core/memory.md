@@ -514,6 +514,12 @@ pub struct EmbeddingSelection {
 
 `set_memory_embedding_default(id)` 是切换活跃模型的唯一入口：① 写 `model_config_id`；② `prune_embedding_cache_to_signature()` 清理 cache（防旧 signature 命中）；③ 当 `active_signature != last_reembedded_signature` 时点亮 `needsReembed`（前端提示"模型变了，要不要重建向量"）。
 
+### 嵌入用途与签名 v2
+
+`EmbeddingProvider` 的所有入口都必须显式携带 `EmbeddingPurpose::{Query, Document, Symmetric}`，不得再按单条/批量输入数量推断用途。记忆与 claim 的单条新增、更新及全量重嵌均使用 `Document`，检索使用 `Query`，相似度/聚类路径才使用 `Symmetric`。Voyage、Jina、Cohere 和 Google 的 task、input type 或官方前缀由 provider adapter 按该用途统一编译。
+
+嵌入签名使用 `hope-embedding-signature-v2`，覆盖 provider、endpoint、model、维度、provider 用途语义版本与具体 purpose；缓存键使用相同的 purpose-specific 签名，同文本的查询与文档向量不会互相命中。活跃库签名恒为 `Document` 签名；启动时遇到 v1 或其他旧签名，立即把旧向量视为不匹配，Primary 再启动可取消、幂等的全量重嵌。只有整轮成功才写 `last_reembedded_signature`，因此中断或重启不会把部分迁移误报为完成，也不会把 v1/v2 向量混合返回。
+
 ### 内建预设模板
 
 `embedding_model_templates()`（[`memory/embedding/config.rs`](../../../crates/ha-core/src/memory/embedding/config.rs)）返回内建模板，每个模板可含多个模型，**默认取列表第一个**：
@@ -763,6 +769,12 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 | Custom | 版本化 Hope Sync v1（`GET /v1/memories`、`POST /v1/memories/upsert`），**不猜任意第三方 JSON API** |
 
 能力注册表必须显式枚举所有 provider kind——后端单点是 `external_provider_capabilities()`（[`memory/types.rs`](../../../crates/ha-core/src/memory/types.rs)），新增/收回能力只能改 registry，并同步 health、preflight、privacy summary、协议测试。
+
+**版本与能力门**：普通配置读取和同步预检恒为零网络；只有 owner 在 GUI 或 HTTP 明确执行“测试连接”时，才对受 SSRF 守卫、拒绝重定向、30 秒超时和 64 KiB 响应上限保护的健康端点发请求。探测结果以受限权限文件持久化，端点、主体或协议变化立即失效。安全下限为 Graphiti `>=0.28.2`（推荐 `0.29.3`）、Supermemory 自托管 `>=0.0.8`、OpenViking `>=0.4.15`、Honcho 自托管 `>=3.0.12`；低于下限的全部同步 fail-closed，未知版本只允许 `PullOnly`，所有可能发送本地记忆的 Manual / Push / Bidirectional 策略都阻塞。托管服务和当前未登记版本下限的 provider 显示 `not_required`，但连接失败仍显示 `unverified`。探测和错误投影只保留版本、能力名与脱敏错误，不返回响应正文或凭据。
+
+**Supermemory 范围迁移**：新写入在既有 `containerTags=[subject_id]` 隔离键之外，同时写入 Hope 私有元数据 `hope_agent_subject_id`。读取时先按当前 Documents API 的元数据 `filters` 查询，再对旧 `containerTags` 做兼容读取并按远端文档 ID 去重；这是一段双读迁移期，不能直接删掉旧读路由，否则会让升级前由 Hope 写入的文档静默消失。远端未完成处理的文档仍只停留在 pending，不提升为本地 claim。
+
+**Mem0 Platform v3 合同**：列表请求正文只发送 `filters.user_id`，分页保持在查询字符串，不发送历史版本的 `latest_only` / `show_expired` 等未登记字段。响应即使由服务端返回，凡是带 deleted / expired / tombstone / inactive 状态、布尔标志或已到期时间的记录都在本地再次 fail-closed 过滤；无法解析的到期时间也不进入本地导入。该过滤只做防御性收窄，不把远端结果直接写成 active memory。
 
 关键安全约束：
 

@@ -902,6 +902,8 @@ Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdo
 - **斜杠命令同步**：启动 `PUT /applications/{app_id}/commands` 批量注册全局 Application Commands。
 - **格式**：原生 Markdown，`markdown_to_native` 透传。
 - **出站附件**：单条 `POST .../messages` multipart，`payload_json` 带 `attachments:[{id,filename}]`，`files[N]` 对齐 id。25 MiB 硬上限，超限走链接兜底。`payload.text` 与各 media caption 在 `merge_captions` 合成单段 `content` 避免拆条。
+- **隐藏频道混淆**：账号级 `discordChannelObfuscation` 默认关闭；开启后 `IDENTIFY.capabilities` 带 `1<<15`。缓存识别 `CHANNEL_OBFUSCATED (1<<17)`，隐藏频道及其子线程不进入消息处理；完整 `CHANNEL_UPDATE` 会原位恢复记录。
+- **文件请求**：账号级 `discordFileRequests` 默认关闭。开启后 `ask_user` 的受限文件题编译为 Button → Modal → Label → File Upload（组件类型 `19`）；提交的 `resolved.attachments` 只转成延迟媒体引用，仍须通过账号权限、精确会话绑定、实际字节类型、10 MiB 上限与会话附件目录校验。
 
 ### Slack
 
@@ -944,8 +946,16 @@ WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的�
 
 - `implementation` 支持 `bridgeImplementation` / `library` / `engine` 兼容别名，`version` 支持 `bridgeVersion` / `libraryVersion`。
 - 一旦 Bridge 标识为 Baileys，启动、凭据校验与健康探测都会强制版本不低于 `6.7.22` 或 `7.0.0-rc12`；缺失、不可解析或更旧版本 fail-closed。依据是 [GHSA-qvv5-jq5g-4cgg](https://github.com/WhiskeySockets/Baileys/security/advisories/GHSA-qvv5-jq5g-4cgg)。未声明实现的旧 Bridge 暂保兼容，但启动时明确告警为“安全版本无法核验”。
-- 能力发现当前只用于诊断；在 `ChannelCapabilities` 支持 account-scoped 之前，不会把 Bridge 自报能力直接升级成执行权限。
+- Bridge 的版本和能力会映射为账号级 `AccountCapabilitySnapshot`，只接受 `edit`、`unsend`、`buttons`、`stable-user-ids` 白名单；它只用于诊断，不会把 Bridge 自报能力直接升级成执行权限。每次实际发送前重新读取 health 并执行 Baileys 安全下限，运行中降级同样 fail-closed。
 - `/api/send` 与 `/api/media` 若返回 `success=false`，即使 HTTP 为 2xx 也按投递失败处理。Bridge URL 进入日志前移除 userinfo、query 和 fragment，避免凭据随 URL 泄漏。
+
+### Signal、iMessage 与 Google Chat
+
+- **Signal**：对解析后的 `signal-cli` 二进制执行 3 秒、无凭据参数的 `--version` 探测，输出只提取长度受限的版本 token。未知或低于当前观测基线 `0.14.0` 只告警、不阻断消息；账号健康页展示白名单能力快照。
+- **iMessage**：`imsgProtocolV1` 默认开启。reader 就绪后依次协商 `initialize` / `status`，保存版本与能力；旧版本仅在方法不存在或参数不支持时回退 legacy。`-32001` / `-32004` 与超时后的未知投递均禁止自动重放；`watch.overflow` 通过 `messages.after` 有界补追、GUID/rowid 去重和 cursor 重订阅，子进程退出后受控重启但不重发 mutation。
+- **Google Chat**：`googleChatStandardMarkdown` 默认开启，仅消息创建 body 发送 `markupSyntax=MARKUP_SYNTAX_MARKDOWN`；编辑仍走旧语法，因为该字段是 create-only。标准 Markdown mention 只接受结构化 `users/...` 标识并跳过代码区，原始 HTML/mention 字符串不能穿透。
+
+Microsoft Teams 当前不属于内建渠道：只有达到至少 3 个有效设计伙伴且连续 4 周周活不低于 20，或存在明确企业合同后，才进入隔离 connector/plugin PoC；不因生态可用性提前引入 Entra、租户同意和公网 webhook 维护面。
 
 ### LINE
 

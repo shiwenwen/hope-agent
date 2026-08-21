@@ -174,7 +174,7 @@ reqwest 的 `redirect::Policy::custom` 回调是同步上下文，没法 `.await
 |---|---|---|
 | `web_fetch` | `ssrf_cfg.web_fetch()`；安全检查先于 cache / cursor；新配置禁止关闭 `ssrfProtection`，legacy false 只在读取兼容时防御性降级；Direct、远程 PDF 逐跳走 `http_redirect::checked_get`，Render 的每个 HTTP(S) 子请求再查同一 policy | [`tools/web_fetch.rs`](../../../crates/ha-core/src/tools/web_fetch.rs) · [`web_fetch_renderer.rs`](../../../crates/ha-browser/src/browser/web_fetch_renderer.rs) |
 | `browser` 高层 URL 操作（`navigate.go` / `tabs.new` / `profile.connect` / `control.evaluate` 里的字面量 URL） | `ssrf_cfg.browser()`；`raw_cdp` 不做 payload SSRF 扫描，风险交给统一 tool 审批 | [`tool/mod.rs` `check_url_via_ssrf`](../../../crates/ha-browser/src/tool/mod.rs) · [`browser/mod.rs` `validate_cdp_endpoint_url`](../../../crates/ha-browser/src/browser/mod.rs) |
-| `browser` Chromium runtime 下载 | `ssrf_cfg.browser()`，固定 Google Chromium snapshots host，下载后再叠 zip-slip 防护 + smoke test | [`browser/runtime.rs`](../../../crates/ha-browser/src/browser/runtime.rs) |
+| `browser` Chrome for Testing 运行时下载 | `ssrf_cfg.browser()`，manifest 只允许固定 Google Storage host 且禁 redirect；精确长度 + SHA-256 通过后才解包，再叠 zip-slip 与启动冒烟 | [`browser/runtime.rs`](../../../crates/ha-browser/src/browser/runtime.rs) |
 | `image_generate` 输入/产物图片下载 | `ssrf_cfg.image_generate()`，逐跳 SSRF 经 `adapters::fetch` 统一走同一条安全通路，封顶 10 MB | [`ha-media media_gen/input.rs`](../../../crates/ha-media/src/media_gen/input.rs) |
 | `url_preview`（页面 head / favicon） | `ssrf_cfg.url_preview()`，每次重定向逐跳复查 | [`url_preview.rs`](../../../crates/ha-core/src/url_preview.rs) |
 | `web_search`（各 provider + SearXNG） | `ssrf_cfg.default_policy`（无 per-tool override），统一经 helper `check_search_url` | [`tools/web_search/helpers.rs`](../../../crates/ha-core/src/tools/web_search/helpers.rs) |

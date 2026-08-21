@@ -392,24 +392,6 @@ pub fn rmcp_tool_to_definition_with_name(
     let raw_schema = Value::Object((*tool.input_schema).clone());
     let parameters = normalize_input_schema(raw_schema);
 
-    // MCP spec 2025-11-25 introduced per-tool `execution.taskSupport`:
-    // `required` → server mandates task-mode invocation (long-running),
-    // `optional` → client chooses, `forbidden` (default) → sync only.
-    // We map both `required` and `optional` onto ha-agent's
-    // `BackgroundPolicy::GenericJob`, which lets the existing "sync budget
-    // timeout → auto-background" logic in the tool loop kick in when
-    // the call takes too long.
-    let background_policy = if matches!(
-        tool.execution
-            .as_ref()
-            .and_then(|e| e.task_support.as_ref()),
-        Some(rmcp::model::TaskSupport::Required | rmcp::model::TaskSupport::Optional)
-    ) {
-        ha_core::tools::BackgroundPolicy::GenericJob
-    } else {
-        ha_core::tools::BackgroundPolicy::ForegroundOnly
-    };
-
     ToolDefinition {
         name,
         description: desc,
@@ -417,7 +399,10 @@ pub fn rmcp_tool_to_definition_with_name(
         tier: ToolTier::Mcp,
         internal: false,
         concurrent_safe: false,
-        background_policy,
+        // MCP 2026-07-28 task mode is selected by the call response, not by
+        // an untrusted per-tool declaration. Keep catalog entries foreground
+        // until the invocation path receives and validates a task handle.
+        background_policy: ha_core::tools::BackgroundPolicy::ForegroundOnly,
     }
 }
 
@@ -613,33 +598,9 @@ mod tests {
     }
 
     #[test]
-    fn generic_job_policy_tracks_task_support() {
+    fn mcp_catalog_does_not_preapprove_background_execution() {
         let cfg = min_cfg("srv");
-        let schema = std::sync::Arc::new(serde_json::Map::new());
-
-        // Default (no execution block) → sync-only.
-        let default_tool = model::Tool::new("fast", "x", schema.clone());
-        assert!(!rmcp_tool_to_definition(&cfg, &default_tool).supports_generic_job());
-
-        // `required` or `optional` → GenericJob so the tool
-        // loop's "sync budget → auto-background" branch can engage.
-        let mut required_tool = model::Tool::new("long_required", "x", schema.clone());
-        required_tool.execution = Some(model::ToolExecution::from_raw(Some(
-            model::TaskSupport::Required,
-        )));
-        assert!(rmcp_tool_to_definition(&cfg, &required_tool).supports_generic_job());
-
-        let mut optional_tool = model::Tool::new("long_optional", "x", schema.clone());
-        optional_tool.execution = Some(model::ToolExecution::from_raw(Some(
-            model::TaskSupport::Optional,
-        )));
-        assert!(rmcp_tool_to_definition(&cfg, &optional_tool).supports_generic_job());
-
-        // Explicit `forbidden` → sync-only (same as default).
-        let mut forbidden_tool = model::Tool::new("short", "x", schema);
-        forbidden_tool.execution = Some(model::ToolExecution::from_raw(Some(
-            model::TaskSupport::Forbidden,
-        )));
-        assert!(!rmcp_tool_to_definition(&cfg, &forbidden_tool).supports_generic_job());
+        let tool = model::Tool::new("remote", "x", std::sync::Arc::new(serde_json::Map::new()));
+        assert!(!rmcp_tool_to_definition(&cfg, &tool).supports_generic_job());
     }
 }

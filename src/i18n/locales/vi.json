@@ -304,6 +304,16 @@
     "removeConfig": "Xóa",
     "running": "Đang chạy",
     "selectChannel": "Chọn kênh",
+    "nativeReply": "Phản hồi phát trực tiếp gốc",
+    "nativeReplyHint": "Dùng luồng phản hồi gốc của nền tảng. Khi tắt, hệ thống lập tức quay về tin nhắn thông thường.",
+    "imsgProtocolV1": "Giao thức imsg tin cậy",
+    "imsgProtocolV1Hint": "Thương lượng giao thức v1, khôi phục tràn watch và giám sát khởi động lại tiến trình con. Tắt để dùng RPC cũ.",
+    "googleChatStandardMarkdown": "Markdown tiêu chuẩn",
+    "googleChatStandardMarkdownHint": "Dùng Markdown tiêu chuẩn của Google Chat cho tin nhắn văn bản mới. Tắt để dùng cú pháp Chat cũ.",
+    "discordChannelObfuscation": "Thử làm mờ kênh riêng tư",
+    "discordChannelObfuscationHint": "Cho tài khoản này tham gia hành vi Gateway tạm thời của Discord. Kênh ẩn không bao giờ được chọn hoặc xử lý.",
+    "discordFileRequests": "Yêu cầu tệp gốc của Discord",
+    "discordFileRequestsHint": "Cho phép câu hỏi có cấu trúc mở cửa sổ tải lên một tệp. Máy chủ vẫn xác thực lại loại, kích thước và liên kết cuộc trò chuyện.",
     "showThinking": "Hiển thị quá trình suy luận trong tin nhắn IM",
     "showThinkingHint": "Khi bật, lập luận của mô hình hiển thị dưới dạng khối trích dẫn trước câu trả lời của mỗi vòng. Mặc định tắt.",
     "signalAccount": "Số điện thoại",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "Cao",
     "low": "Thấp",
+    "max": "Tối đa",
     "medium": "Trung bình",
     "minimal": "Tối thiểu",
     "none": "Tắt",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "ID",
     "acpBackends": "Backend ACP",
     "acpBinary": "Tệp nhị phân",
+    "acpDistribution": "Mô tả bản phân phối",
+    "acpDistributionPackage": "Gói hoặc sản phẩm",
+    "acpDistributionRequired": "Backend cũ này bị chặn cho đến khi bản phân phối khởi chạy được khai báo rõ ràng.",
+    "acpDistributionVersion": "Phiên bản cố định",
+    "acpLaunchArgs": "Đối số khởi chạy",
+    "acpProtocol": "Giao thức",
+    "acpTrustDistribution": "Khai báo bản phân phối",
     "acpControl": "Mặt phẳng điều khiển ACP",
     "acpControlDesc": "Quản lý các agent ACP bên ngoài (Claude Code, Codex CLI, Gemini CLI, v.v.)",
     "acpEnabled": "Bật mặt phẳng điều khiển ACP",
@@ -5431,8 +5449,12 @@
       "intro": "Chạy lệnh tùy chỉnh / HTTP / lời nhắc / sub-agent tại các sự kiện vòng đời. Tương thích cấp trường với hooks của Claude Code.",
       "disableAll": "Tắt tất cả hooks",
       "disableAllDesc": "Công tắc tổng — tắt mọi hook trên tất cả scope.",
-      "allowProjectScope": "Cho phép hook dự án & cục bộ",
-      "allowProjectScopeDesc": "Cho phép .hope-agent/hooks.json và hooks.local.json trong thư mục làm việc thêm hook — tiện để chia sẻ với nhóm của bạn. Mặc định tắt vì chúng có thể tự chạy lệnh, nên chỉ bật cho các dự án bạn tin tưởng.",
+      "trustedProjectScopes": "Không gian làm việc Hook đáng tin cậy",
+      "trustedProjectScopesDesc": "Phê duyệt tệp Hook dự án và cục bộ theo từng không gian làm việc. Nhập đường dẫn tuyệt đối chính xác; bí danh và liên kết tượng trưng sẽ bị từ chối.",
+      "workspacePath": "Đường dẫn tuyệt đối của không gian làm việc",
+      "trustWorkspace": "Tin cậy nội dung",
+      "noTrustedWorkspaces": "Chưa có tệp Hook không gian làm việc nào được tin cậy.",
+      "trustContentBound": "Khi lưu, sự tin cậy được gắn với nội dung hiện tại. Mọi thay đổi, di chuyển hoặc bí danh đường dẫn sẽ vô hiệu hóa cho đến khi bạn xem lại và lưu.",
       "scopeNote": "Bảng này chỉnh sửa hooks phạm vi user. Phạm vi project (.hope-agent/hooks.json, chia sẻ qua repo), local (hooks.local.json) và managed (/etc/hope-agent/hooks.json) dựa trên tệp và được hợp nhất phía trên.",
       "pickEvent": "Chọn sự kiện…",
       "addHook": "Thêm hook",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker không khả dụng",
     "sandboxImage": "Hình ảnh",
     "sandboxImageDesc": "Ảnh Docker được môi trường cách ly sử dụng.",
+    "sandboxImageDigestRequired": "Ghim ảnh theo dạng name@sha256:<mã băm 64 ký tự>; thẻ có thể thay đổi sẽ bị từ chối.",
     "sandboxMemoryLimit": "Giới hạn bộ nhớ",
     "sandboxNetworkBridge": "Cầu",
     "sandboxNetworkHost": "Máy chủ",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "Thiếu điểm cuối",
     "memoryExternalProviderBlockPolicyUnsupported": "Chính sách không được hỗ trợ",
     "memoryExternalProviderBlockAdapterUnavailable": "Bộ chuyển đổi không có sẵn",
+    "memoryExternalProviderBlockCompatibilityUnverified": "Chưa xác minh khả năng tương thích",
+    "memoryExternalProviderBlockCompatibilityBlocked": "Phiên bản nhà cung cấp không an toàn",
     "memoryExternalProviderBlockLastError": "Lỗi cuối cùng",
     "memoryExternalProviderErrors": {
       "load": "Không thể tải nhà cung cấp bộ nhớ ngoài",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "Không thể tải kết nối nhà cung cấp bộ nhớ ngoài",
       "saveCredentials": "Không lưu được kết nối của nhà cung cấp bộ nhớ ngoài",
       "clearCredentials": "Không xóa được kết nối của nhà cung cấp bộ nhớ ngoài",
+      "testConnection": "Không kiểm tra được kết nối của nhà cung cấp bộ nhớ ngoài",
       "copyPreflightDiagnostics": "Không sao chép được preflight của nhà cung cấp bộ nhớ ngoài",
       "copySyncDiagnostics": "Không sao chép được báo cáo đồng bộ hóa nhà cung cấp bộ nhớ ngoài",
       "detail": "Chi tiết: {{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "Thông tin xác thực được lưu trữ riêng biệt với quyền truy cập tệp bị hạn chế.",
     "memoryExternalProviderConnectionSaved": "Đã lưu kết nối",
     "memoryExternalProviderConnectionCleared": "Đã xóa kết nối",
+    "memoryExternalProviderConnectionTest": "Kiểm tra kết nối",
+    "memoryExternalProviderCompatibilityPassed": "Đã vượt qua kiểm tra kết nối và khả năng tương thích",
+    "memoryExternalProviderCompatibilityUnverified": "Đã kết nối nhưng không thể xác minh phiên bản nhà cung cấp",
+    "memoryExternalProviderCompatibilityBlocked": "Phiên bản nhà cung cấp thấp hơn mức tối thiểu an toàn",
+    "memoryExternalProviderCompatibilitySummary": "Trạng thái: {{status}} · phát hiện {{detected}} · tối thiểu {{minimum}}",
     "memoryExternalProviderEndpoint": "Điểm cuối",
     "memoryExternalProviderEndpointKeep": "Đã lưu trữ: {{origin}} · để trống để giữ lại",
     "memoryExternalProviderSubjectId": "ID phạm vi từ xa",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "Sửa bằng AI",
       "fixStarted": "AI đang sửa",
       "fixBusy": "Cuộc trò chuyện đang diễn ra, vui lòng thử lại sau",
-      "fixPrompt": "Vui lòng sửa vấn đề được phát hiện qua tự kiểm tra thiết kế: {{detail}}. Dùng token hệ thống thiết kế (var(--ds-*)) để gom màu sắc và thay thế kiểu mã hóa cứng. Chỉ thực hiện thay đổi tối thiểu cần thiết và giữ nguyên phần còn lại của thiết kế."
+      "fixPrompt": "Vui lòng sửa vấn đề được phát hiện qua tự kiểm tra thiết kế: {{detail}}. Dùng token hệ thống thiết kế (var(--ds-*)) để gom màu sắc và thay thế kiểu mã hóa cứng. Chỉ thực hiện thay đổi tối thiểu cần thiết và giữ nguyên phần còn lại của thiết kế.",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "Bộ công cụ hệ thống thiết kế",
@@ -12279,7 +12318,15 @@
       "copyLink": "Sao chép liên kết",
       "copied2": "Đã sao chép",
       "loadErr": "Không tải được trạng thái chia sẻ",
-      "shareTo": "Chia sẻ đến"
+      "shareTo": "Chia sẻ đến",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "Triển khai lên Cloudflare Pages",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "Tất cả sản phẩm khớp với mã của chúng",
       "checkStale": "{{n}} sản phẩm có cập nhật mã",
       "chatPrompt": "Mã đã triển khai đã khác với thiết kế này. Hãy cập nhật thiết kế hiện tại để phản ánh các thay đổi mã được tham chiếu, giữ nguyên ý đồ thiết kế và mọi thứ còn lại."
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "Cấu hình",
       "user": "Cài đặt người dùng"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "Chẩn đoán chuỗi công cụ",
+    "description": "Kiểm tra chỉ đọc cho môi trường hệ thống và các công cụ phát triển tùy chọn. Hope Agent không cài đặt, nâng cấp, khởi động hoặc cấu hình lại bất kỳ thành phần nào.",
+    "refresh": "Kiểm tra lại",
+    "loading": "Đang kiểm tra chuỗi công cụ cục bộ…",
+    "loadFailed": "Kiểm tra chuỗi công cụ thất bại",
+    "readOnlyNotice": "Chỉ báo cáo phiên bản, tính khả dụng, khả năng kết nối Docker, loại ngữ cảnh, loại chủ sở hữu socket và wrapper tạm thời mà không lộ đường dẫn hay thông tin xác thực.",
+    "detectedVersion": "Đã phát hiện {{version}}",
+    "notDetected": "Không phát hiện",
+    "minimumVersion": "Tối thiểu {{version}}",
+    "diagnosticFacts": "Mã chẩn đoán",
+    "status": {
+      "detected": "Đã phát hiện",
+      "supported": "Được hỗ trợ",
+      "degraded": "Hạn chế",
+      "blocked": "Bị chặn"
     }
   }
 }

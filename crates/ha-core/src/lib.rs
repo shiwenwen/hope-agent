@@ -105,6 +105,7 @@ pub mod manual;
 
 pub mod mcp;
 pub mod mcp_hooks;
+pub mod mcp_protocol;
 pub mod mcp_server;
 pub mod media_gen;
 pub mod memory;
@@ -149,6 +150,7 @@ pub mod team;
 pub mod token_accounting;
 pub mod tool_actions;
 pub mod tool_defs;
+pub mod toolchain_doctor;
 pub mod tools;
 pub mod turn_durability;
 pub mod url_preview;

@@ -243,6 +243,31 @@ export interface CritiqueResult {
   fixes: string[]
 }
 
+export interface DesignQualityRun {
+  artifactId: string
+  artifactHash: string
+  deterministicPassed: boolean
+  diffs: {
+    viewport: { width: number; height: number }
+    currentHash: string
+    baselineHash?: string
+    changedRatio?: number
+    meanDelta?: number
+    passed: boolean
+  }[]
+  findings: { code: string; severity: string; message: string }[]
+}
+
+export interface DesignReviewGrant {
+  id: string
+  artifactId: string
+  versionNumber: number
+  role: "viewer" | "commenter"
+  expiresAt: string
+  createdAt: string
+  revokedAt?: string
+}
+
 /** 可视化微调回写入参（`patch_design_element_cmd`）。 */
 export interface ElementPatchInput {
   artifactId: string

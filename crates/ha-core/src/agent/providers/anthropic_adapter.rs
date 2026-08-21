@@ -15,7 +15,10 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use super::super::api_types::{AnthropicSseEvent, FunctionCallItem};
-use super::super::config::{build_api_url, map_think_anthropic_style, ANTHROPIC_API_VERSION};
+use super::super::config::{
+    build_api_url, clamp_reasoning_effort, is_claude_5_model, map_think_anthropic_style,
+    ANTHROPIC_API_VERSION,
+};
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, expand_anthropic_image_markers_for_api,
     project_anthropic_image_markers_for_token_count,
@@ -28,6 +31,37 @@ use super::super::streaming_adapter::{
 };
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tool_defs::ToolProvider;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnthropicThinkingPolicy {
+    LegacyManual,
+    AdaptiveEffort,
+}
+
+fn is_first_party_anthropic(base_url: &str) -> bool {
+    url::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .is_some_and(|host| host.eq_ignore_ascii_case("api.anthropic.com"))
+}
+
+fn anthropic_thinking_policy(base_url: &str, model: &str) -> AnthropicThinkingPolicy {
+    if is_first_party_anthropic(base_url) && is_claude_5_model(model) {
+        AnthropicThinkingPolicy::AdaptiveEffort
+    } else {
+        AnthropicThinkingPolicy::LegacyManual
+    }
+}
+
+fn suppress_anthropic_temperature(base_url: &str, model: &str) -> bool {
+    if !is_first_party_anthropic(base_url) {
+        return false;
+    }
+    let model = model.to_ascii_lowercase();
+    is_claude_5_model(&model)
+        || model.starts_with("claude-opus-4-7")
+        || model.starts_with("claude-opus-4-8")
+}
 
 fn supports_native_tool_search(base_url: &str, model: &str) -> bool {
     if !base_url.contains("api.anthropic.com") {
@@ -142,7 +176,9 @@ fn build_anthropic_body(
         && !req.deferred_tool_schemas.is_empty()
         && supports_native_tool_search(base_url, model);
     let tools_with_cache = build_tools_with_cache(req, native_deferred);
-    let thinking = map_think_anthropic_style(req.reasoning_effort, req.max_tokens);
+    let effective_effort = req
+        .reasoning_effort
+        .and_then(|effort| clamp_reasoning_effort(model, effort));
     let mut messages = expand_anthropic_image_markers_for_api(req.history_for_api);
     if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
         append_anthropic_user_context(&mut messages, content);
@@ -157,10 +193,24 @@ fn build_anthropic_body(
     if !req.is_final_round {
         body["tools"] = json!(tools_with_cache);
     }
-    if let Some(think_config) = thinking {
-        body["thinking"] = think_config;
+    if let Some(effort) = effective_effort.as_deref() {
+        match anthropic_thinking_policy(base_url, model) {
+            AnthropicThinkingPolicy::LegacyManual => {
+                if let Some(think_config) = map_think_anthropic_style(Some(effort), req.max_tokens)
+                {
+                    body["thinking"] = think_config;
+                }
+            }
+            AnthropicThinkingPolicy::AdaptiveEffort => {
+                body["thinking"] = json!({ "type": "adaptive" });
+                body["output_config"] = json!({ "effort": effort });
+            }
+        }
     }
-    if let Some(temp) = req.temperature {
+    if let Some(temp) = req
+        .temperature
+        .filter(|_| !suppress_anthropic_temperature(base_url, model))
+    {
         body["temperature"] = json!(temp);
     }
     if base_url.contains("api.anthropic.com") {
@@ -488,6 +538,11 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
             let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
                 Ok(Some(text)) => text,
                 Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
@@ -521,6 +576,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                 status,
                 &error_text,
             )
+            .with_retry_after_header(retry_after.as_deref())
             .into());
         }
 
@@ -1214,6 +1270,75 @@ mod tests {
             "https://api.anthropic.com",
             "claude-mythos-5"
         ));
+    }
+
+    #[test]
+    fn anthropic_model_request_policy_uses_adaptive_effort_and_safe_sampling() {
+        let tools = Vec::new();
+        let deferred = Vec::new();
+        let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
+        let req = RoundRequest {
+            session_id: Some("session"),
+            system_prompt: "stable",
+            run_instruction_suffix: None,
+            run_data_suffix: None,
+            awareness_suffix: None,
+            active_memory_suffix: None,
+            legacy_memory_suffix: None,
+            coding_profile_suffix: None,
+            procedure_memory_suffix: None,
+            related_notes_suffix: None,
+            attached_knowledge_suffix: None,
+            capability_catalog_suffix: None,
+            user_profile_suffix: None,
+            environment_context_suffix: None,
+            lsp_diagnostics_suffix: None,
+            task_reminder_suffix: None,
+            tool_schemas: &tools,
+            deferred_tool_schemas: &deferred,
+            eager_tool_count: 0,
+            deferred_tool_count: 0,
+            activated_tool_count: 0,
+            prompt_cache_key: None,
+            history_for_api: &history,
+            vision_bridge_available: false,
+            reasoning_effort: Some("xhigh"),
+            temperature: Some(0.2),
+            max_tokens: 20_000,
+            is_final_round: false,
+            round: 0,
+        };
+
+        for model in [
+            "claude-fable-5",
+            "claude-mythos-5",
+            "claude-sonnet-5",
+            "claude-opus-5",
+        ] {
+            let (body, _, _) = build_anthropic_body("https://api.anthropic.com", model, &req);
+            assert_eq!(body["thinking"], serde_json::json!({ "type": "adaptive" }));
+            assert_eq!(body["output_config"]["effort"], "max");
+            assert!(body.get("temperature").is_none());
+            assert!(body["thinking"].get("budget_tokens").is_none());
+        }
+
+        let (opus_48, _, _) =
+            build_anthropic_body("https://api.anthropic.com", "claude-opus-4-8", &req);
+        assert_eq!(opus_48["thinking"]["type"], "enabled");
+        assert_eq!(opus_48["thinking"]["budget_tokens"], 16_384);
+        assert!(opus_48.get("temperature").is_none());
+
+        for model in ["claude-haiku-4-5", "claude-sonnet-4-6"] {
+            let (body, _, _) = build_anthropic_body("https://api.anthropic.com", model, &req);
+            assert_eq!(body["thinking"]["type"], "enabled");
+            assert_eq!(body["temperature"], 0.2);
+        }
+
+        let (compatible, _, _) =
+            build_anthropic_body("https://compatible.example", "claude-sonnet-5", &req);
+        assert_eq!(compatible["thinking"]["type"], "enabled");
+        assert_eq!(compatible["temperature"], 0.2);
+        assert!(compatible.get("output_config").is_none());
     }
 
     #[test]

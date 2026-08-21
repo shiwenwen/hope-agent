@@ -575,6 +575,7 @@ impl ChannelPlugin for WeChatPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Self::display_name(&account.credentials),
+                capability_snapshot: None,
             }),
             Err(err) => Ok(ChannelHealth {
                 is_running: false,
@@ -583,6 +584,7 @@ impl ChannelPlugin for WeChatPlugin {
                 error: Some(err.to_string()),
                 uptime_secs: None,
                 bot_name: Self::display_name(&account.credentials),
+                capability_snapshot: None,
             }),
         }
     }

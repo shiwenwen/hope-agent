@@ -166,6 +166,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
                 "medium".into(),
                 "high".into(),
                 "xhigh".into(),
+                "max".into(),
             ]),
             description_raw: None,
         },

@@ -196,6 +196,13 @@ pub fn external_memory_sync_state_path(provider_id: &str) -> Result<PathBuf> {
     Ok(external_memory_credentials_dir()?.join(format!("{provider_id}.sync.json")))
 }
 
+/// Durable result of an owner-triggered provider compatibility probe. It is
+/// kept beside credentials because endpoint/protocol changes invalidate it and
+/// because an unverified result participates in sync admission.
+pub fn external_memory_compatibility_path(provider_id: &str) -> Result<PathBuf> {
+    Ok(external_memory_credentials_dir()?.join(format!("{provider_id}.compat.json")))
+}
+
 /// GitHub token used only by the Issue Reporting tool.
 pub fn github_issue_credential_path() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("github-issue.json"))

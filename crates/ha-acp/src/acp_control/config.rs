@@ -5,7 +5,9 @@
 //! 已下沉 ha-core `agent_config.rs`（消费者在 kernel 侧）。本文件只做
 //! 原路径再导出，保持两组类型的既有引用不变。
 
-pub use ha_config_schema::acp_control::{AcpBackendConfig, AcpControlConfig};
+pub use ha_config_schema::acp_control::{
+    AcpBackendConfig, AcpBackendProtocol, AcpControlConfig, AcpDistributionDescriptor,
+};
 
 // ── Per-Agent ACP config ─────────────────────────────────────────
 

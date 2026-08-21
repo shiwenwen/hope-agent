@@ -1016,6 +1016,7 @@ fn spawn_embedding_init() {
         // New selector (memory_embedding) takes priority; legacy single
         // `embedding` config is the fallback — mirrors the old init_runtime
         // branch order exactly.
+        let mut signature_migration: Option<(String, String)> = None;
         let provider = if store.memory_embedding.enabled {
             match memory::resolve_memory_embedding_config(
                 &store.memory_embedding,
@@ -1023,7 +1024,14 @@ fn spawn_embedding_init() {
             )
             .and_then(|resolved| {
                 resolved
-                    .map(|(_, config, _)| memory::create_embedding_provider(&config))
+                    .map(|(model, config, signature)| {
+                        if store.memory_embedding.last_reembedded_signature.as_deref()
+                            != Some(signature.as_str())
+                        {
+                            signature_migration = Some((model.id.clone(), signature));
+                        }
+                        memory::create_embedding_provider(&config)
+                    })
                     .transpose()
             }) {
                 Ok(p) => p,
@@ -1048,6 +1056,41 @@ fn spawn_embedding_init() {
                 "embedding",
                 "Memory embedding provider initialized (deferred, off critical path)"
             );
+            // Signature v2 includes the document role and provider request
+            // semantics. Old vectors remain stored under v1 and are therefore
+            // immediately ineligible; Primary resumes an idempotent full
+            // re-embed rather than reinterpreting them in place.
+            if crate::runtime_lock::is_primary() {
+                if let Some((model_id, signature)) = signature_migration {
+                    let signature_for_store = signature.clone();
+                    if let Err(error) = crate::config::mutate_config(
+                        ("memory_embedding.signature_migration", "startup"),
+                        move |config| {
+                            config.memory_embedding.active_signature =
+                                Some(signature_for_store.clone());
+                            Ok(())
+                        },
+                    ) {
+                        app_warn!(
+                            "memory",
+                            "embedding_migration",
+                            "Failed to persist embedding signature migration: {}",
+                            error
+                        );
+                    } else if let Err(error) = memory::start_memory_reembed_job(
+                        &model_id,
+                        memory::ReembedMode::KeepExisting,
+                        None,
+                    ) {
+                        app_warn!(
+                            "memory",
+                            "embedding_migration",
+                            "Failed to resume embedding signature migration: {}",
+                            error
+                        );
+                    }
+                }
+            }
         }
     });
 }

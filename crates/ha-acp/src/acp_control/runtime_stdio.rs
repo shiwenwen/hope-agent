@@ -14,6 +14,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use super::health;
 use super::types::*;
+use crate::acp_control::config::AcpBackendProtocol;
 
 /// Stdio-based ACP runtime — spawns an external ACP agent as a child process
 /// and communicates over stdin/stdout using NDJSON (JSON-RPC 2.0).
@@ -22,6 +23,7 @@ pub struct StdioAcpRuntime {
     name: String,
     binary_path: String,
     acp_args: Vec<String>,
+    protocol: AcpBackendProtocol,
     env_overrides: HashMap<String, String>,
     /// Active child processes keyed by local session_id.
     children: Arc<Mutex<HashMap<String, ChildHandle>>>,
@@ -40,6 +42,7 @@ impl StdioAcpRuntime {
         name: String,
         binary_path: String,
         acp_args: Vec<String>,
+        protocol: AcpBackendProtocol,
         env_overrides: HashMap<String, String>,
     ) -> Self {
         Self {
@@ -47,6 +50,7 @@ impl StdioAcpRuntime {
             name,
             binary_path,
             acp_args,
+            protocol,
             env_overrides,
             children: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -56,14 +60,9 @@ impl StdioAcpRuntime {
     fn spawn_child(&self, cwd: Option<&str>) -> anyhow::Result<Child> {
         let mut cmd = Command::new(&self.binary_path);
 
-        // If binary appears to support a known ACP sub-command, use it
-        // Common patterns: `claude acp`, `codex --acp`, or custom args from config
-        if self.acp_args.is_empty() {
-            // Default: try the common pattern `<binary> acp`
-            cmd.arg("acp");
-        } else {
-            cmd.args(&self.acp_args);
-        }
+        // Launch arguments are distribution data. An empty list explicitly
+        // means the configured adapter binary itself speaks ACP.
+        cmd.args(&self.acp_args);
 
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
@@ -224,11 +223,15 @@ impl AcpRuntime for StdioAcpRuntime {
         };
 
         // Step 1: initialize
-        let _init_result = Self::send_request(
+        let requested_protocol = match self.protocol {
+            AcpBackendProtocol::V1 => serde_json::json!(1),
+            AcpBackendProtocol::Legacy02 => serde_json::json!("0.2"),
+        };
+        let init_result = Self::send_request(
             &handle,
             "initialize",
             serde_json::json!({
-                "protocolVersion": "0.2",
+                "protocolVersion": requested_protocol,
                 "clientCapabilities": {
                     "fs": { "readTextFile": false, "writeTextFile": false },
                     "terminal": false
@@ -241,6 +244,18 @@ impl AcpRuntime for StdioAcpRuntime {
             1,
         )
         .await?;
+        if init_result.get("protocolVersion") != Some(&requested_protocol) {
+            let actual = init_result
+                .get("protocolVersion")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            anyhow::bail!(
+                "ACP backend '{}' negotiated incompatible protocol: requested {}, received {}",
+                self.id,
+                requested_protocol,
+                actual
+            );
+        }
 
         // Step 2: session/new
         let mut new_params = serde_json::json!({});

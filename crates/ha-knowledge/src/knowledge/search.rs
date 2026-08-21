@@ -42,12 +42,14 @@ pub fn search_notes(
         db.embedder(),
         super::embedding::knowledge_active_embedding_signature(),
     ) {
-        (Some(embedder), Some(signature)) => match embedder.embed(query) {
-            Ok(q) => db
-                .vec_search(kb_ids, &q, &signature, fetch)
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
-        },
+        (Some(embedder), Some(signature)) => {
+            match embedder.embed(query, ha_core::memory::EmbeddingPurpose::Query) {
+                Ok(q) => db
+                    .vec_search(kb_ids, &q, &signature, fetch)
+                    .unwrap_or_default(),
+                Err(_) => Vec::new(),
+            }
+        }
         _ => Vec::new(),
     };
 
@@ -204,7 +206,7 @@ pub fn similar_notes(
         return Ok(Vec::new());
     };
     let query = embedder
-        .embed(source_text)
+        .embed(source_text, ha_core::memory::EmbeddingPurpose::Symmetric)
         .map_err(|e| anyhow::anyhow!("knowledge embedding failed: {e}"))?;
     // Over-fetch generously: the source note's own chunks (excluded below) sit at
     // the top of its own similarity ranking, so a multi-chunk source would starve

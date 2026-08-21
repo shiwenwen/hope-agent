@@ -92,10 +92,35 @@ pub const ERROR_INTERNAL: i64 = -32603;
 
 // ── ACP Initialize ──────────────────────────────────────────────
 
+pub const ACP_PROTOCOL_VERSION_V1: u32 = 1;
+
+/// ACP v1 uses an integer major version. The legacy string variant exists only
+/// for explicitly pinned 0.2 clients during the compatibility window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AcpProtocolVersion {
+    V1(u32),
+    Legacy(String),
+}
+
+impl AcpProtocolVersion {
+    pub fn negotiated(requested: &Self) -> Self {
+        match requested {
+            Self::V1(ACP_PROTOCOL_VERSION_V1) => Self::V1(ACP_PROTOCOL_VERSION_V1),
+            Self::Legacy(version) if version == "0.2" => Self::Legacy(version.clone()),
+            _ => Self::V1(ACP_PROTOCOL_VERSION_V1),
+        }
+    }
+
+    pub fn is_v1(&self) -> bool {
+        matches!(self, Self::V1(ACP_PROTOCOL_VERSION_V1))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeRequest {
-    pub protocol_version: String,
+    pub protocol_version: AcpProtocolVersion,
     #[serde(default)]
     pub client_capabilities: Option<ClientCapabilities>,
     #[serde(default)]
@@ -109,6 +134,12 @@ pub struct ClientCapabilities {
     pub fs: Option<FsCapabilities>,
     #[serde(default)]
     pub terminal: Option<bool>,
+    #[serde(default)]
+    pub auth: Option<Value>,
+    #[serde(default)]
+    pub elicitation: Option<Value>,
+    #[serde(default)]
+    pub session: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -124,13 +155,15 @@ pub struct FsCapabilities {
 pub struct ClientInfo {
     pub name: String,
     #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
     pub version: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
-    pub protocol_version: String,
+    pub protocol_version: AcpProtocolVersion,
     pub agent_capabilities: AgentCapabilities,
     pub agent_info: AgentInfo,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -142,6 +175,8 @@ pub struct InitializeResponse {
 pub struct AgentCapabilities {
     pub load_session: bool,
     pub prompt_capabilities: PromptCapabilities,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_capabilities: Option<McpCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_capabilities: Option<SessionCapabilities>,
 }
@@ -156,7 +191,18 @@ pub struct PromptCapabilities {
 
 #[derive(Debug, Serialize)]
 pub struct SessionCapabilities {
-    pub list: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub close: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct McpCapabilities {
+    pub http: bool,
+    pub sse: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,6 +255,20 @@ pub struct LoadSessionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<SessionModeState>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeSessionRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub mcp_servers: Vec<Value>,
+    #[serde(default, rename = "_meta")]
+    pub meta: Option<Value>,
+}
+
+pub type ResumeSessionResponse = LoadSessionResponse;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -334,6 +394,13 @@ pub enum ContentBlock {
         #[serde(default, rename = "mimeType")]
         mime_type: Option<String>,
     },
+    #[serde(rename = "audio")]
+    Audio {
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default, rename = "mimeType")]
+        mime_type: Option<String>,
+    },
     #[serde(rename = "resource")]
     Resource {
         #[serde(default)]
@@ -386,7 +453,11 @@ pub struct AuthenticateResponse {}
 #[serde(tag = "sessionUpdate")]
 pub enum SessionUpdate {
     #[serde(rename = "agent_message_chunk")]
-    AgentMessageChunk { content: TextContent },
+    AgentMessageChunk {
+        #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
+        message_id: Option<String>,
+        content: TextContent,
+    },
     #[serde(rename = "agent_thought_chunk")]
     AgentThoughtChunk { content: TextContent },
     #[serde(rename = "tool_call")]
@@ -409,7 +480,14 @@ pub enum SessionUpdate {
         content: Option<Vec<ToolCallContent>>,
     },
     #[serde(rename = "usage_update")]
-    UsageUpdate { used: u64, size: u64 },
+    UsageUpdate {
+        used: u64,
+        size: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cost: Option<SessionCost>,
+    },
+    #[serde(rename = "plan")]
+    Plan { entries: Vec<PlanEntry> },
     #[serde(rename = "session_info_update")]
     SessionInfoUpdate {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,7 +512,24 @@ pub enum SessionUpdate {
     },
     /// User message replay (for loadSession)
     #[serde(rename = "user_message_chunk")]
-    UserMessageChunk { content: TextContent },
+    UserMessageChunk {
+        #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
+        message_id: Option<String>,
+        content: TextContent,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionCost {
+    pub amount: f64,
+    pub currency: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlanEntry {
+    pub content: String,
+    pub priority: String,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -520,7 +615,7 @@ pub fn extract_text_from_prompt(prompt: &[ContentBlock]) -> anyhow::Result<Strin
                 let uri_part = uri.as_deref().unwrap_or("");
                 Some(format!("[Resource link{title_part}] {uri_part}"))
             }
-            ContentBlock::Image { .. } => None,
+            ContentBlock::Image { .. } | ContentBlock::Audio { .. } => None,
         };
         if let Some(t) = text {
             total_bytes += t.len() + if parts.is_empty() { 0 } else { 1 };

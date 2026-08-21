@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use crate::config::{save_config, AppConfig};
 use crate::memory::claims;
 use crate::memory::{
-    EmbeddingProvider, EmbeddingSelection, MemoryBackend, MemorySearchQuery, SqliteMemoryBackend,
+    EmbeddingProvider, EmbeddingPurpose, EmbeddingSelection, MemoryBackend, MemorySearchQuery,
+    SqliteMemoryBackend,
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -25,11 +26,15 @@ const BENCHMARK_EMBEDDING_SIGNATURE: &str = "memory-scale-benchmark-v1";
 struct BenchmarkEmbedder;
 
 impl EmbeddingProvider for BenchmarkEmbedder {
-    fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+    fn embed(&self, text: &str, _purpose: EmbeddingPurpose) -> anyhow::Result<Vec<f32>> {
         Ok(benchmark_embedding(text))
     }
 
-    fn embed_batch(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+    fn embed_batch(
+        &self,
+        texts: &[String],
+        _purpose: EmbeddingPurpose,
+    ) -> anyhow::Result<Vec<Vec<f32>>> {
         Ok(texts.iter().map(|text| benchmark_embedding(text)).collect())
     }
 

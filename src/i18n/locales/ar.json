@@ -304,6 +304,16 @@
     "removeConfig": "إزالة",
     "running": "يعمل",
     "selectChannel": "اختر قناة",
+    "nativeReply": "ردود أصلية متدفقة",
+    "nativeReplyHint": "استخدام تدفق الرد الأصلي للمنصة. عند إيقافه، يعود فورًا إلى الرسائل العادية.",
+    "imsgProtocolV1": "بروتوكول imsg موثوق",
+    "imsgProtocolV1Hint": "يتفاوض على البروتوكول v1 ويستعيد تجاوز watch ويراقب إعادة تشغيل العملية الفرعية. أوقفه لاستخدام RPC القديم.",
+    "googleChatStandardMarkdown": "Markdown قياسي",
+    "googleChatStandardMarkdownHint": "استخدام Markdown القياسي في Google Chat للرسائل النصية الجديدة. أوقفه لاستخدام صيغة Chat القديمة.",
+    "discordChannelObfuscation": "اختبار إخفاء القنوات الخاصة",
+    "discordChannelObfuscationHint": "إشراك هذا الحساب في سلوك Gateway المؤقت من Discord. لا تُختار القنوات المخفية ولا تتم معالجتها مطلقًا.",
+    "discordFileRequests": "طلبات ملفات Discord الأصلية",
+    "discordFileRequestsHint": "يسمح للأسئلة المنظمة بفتح نافذة رفع ملف واحد. يعيد الخادم التحقق من النوع والحجم وربط المحادثة.",
     "showThinking": "عرض التفكير في رسائل IM",
     "showThinkingHint": "عند التفعيل، يُعرض استدلال النموذج ككتلة مقتبسة قبل ردّ كل جولة. القيمة الافتراضية: متوقّف.",
     "signalAccount": "رقم الهاتف",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "عالي",
     "low": "منخفض",
+    "max": "الحد الأقصى",
     "medium": "متوسط",
     "minimal": "الحد الأدنى",
     "none": "إيقاف",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "المعرف",
     "acpBackends": "خلفيات ACP",
     "acpBinary": "البرنامج الثنائي",
+    "acpDistribution": "واصف التوزيع",
+    "acpDistributionPackage": "الحزمة أو المنتج",
+    "acpDistributionRequired": "هذه الخلفية القديمة محظورة حتى يتم تعريف توزيع تشغيلها صراحةً.",
+    "acpDistributionVersion": "الإصدار المثبّت",
+    "acpLaunchArgs": "وسائط التشغيل",
+    "acpProtocol": "البروتوكول",
+    "acpTrustDistribution": "تعريف التوزيع",
     "acpControl": "خطة التحكم ACP",
     "acpControlDesc": "إدارة agents ACP الخارجية (Claude Code، Codex CLI، Gemini CLI، إلخ.)",
     "acpEnabled": "تفعيل خطة التحكم ACP",
@@ -5431,8 +5449,12 @@
       "intro": "شغّل أوامر مخصصة / HTTP / مطالبات / وكلاء فرعيين عند أحداث دورة الحياة. متوافق على مستوى الحقول مع hooks في Claude Code.",
       "disableAll": "تعطيل جميع الـ hooks",
       "disableAllDesc": "مفتاح رئيسي — يوقف كل hook في جميع النطاقات.",
-      "allowProjectScope": "السماح بخطافات المشروع والمحلية",
-      "allowProjectScopeDesc": "يسمح لملفّي .hope-agent/hooks.json و hooks.local.json في دليل العمل بإضافة خطافات — مفيد للمشاركة مع فريقك. مُعطَّل افتراضيًا لأنها قد تنفِّذ أوامر من تلقاء نفسها، لذا فعِّله فقط للمشاريع التي تثق بها.",
+      "trustedProjectScopes": "مساحات عمل Hook الموثوقة",
+      "trustedProjectScopesDesc": "وافِق على ملفات Hook للمشروع والمحلية لكل مساحة عمل على حدة. أدخل المسار المطلق الدقيق؛ تُرفض الأسماء البديلة والروابط الرمزية.",
+      "workspacePath": "المسار المطلق لمساحة العمل",
+      "trustWorkspace": "الوثوق بالمحتوى",
+      "noTrustedWorkspaces": "لا توجد ملفات Hook موثوقة لمساحات العمل.",
+      "trustContentBound": "عند الحفظ يرتبط الوثوق بمحتوى ملفات Hook الحالي. يؤدي أي تغيير أو نقل أو اسم بديل للمسار إلى تعطيلها حتى تراجعها وتحفظ مجددًا.",
       "scopeNote": "تحرّر هذه اللوحة hooks نطاق user. نطاقات project (.hope-agent/hooks.json، مشتركة عبر المستودع) وlocal (hooks.local.json) وmanaged (/etc/hope-agent/hooks.json) قائمة على الملفات وتُدمج فوقها.",
       "pickEvent": "اختر حدثًا…",
       "addHook": "إضافة hook",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker غير متاح",
     "sandboxImage": "الصورة",
     "sandboxImageDesc": "صورة Docker المستخدمة للبيئة المعزولة.",
+    "sandboxImageDigestRequired": "ثبّت الصورة بصيغة name@sha256:<ملخص من 64 خانة>؛ تُرفض الوسوم القابلة للتغيير.",
     "sandboxMemoryLimit": "حد الذاكرة",
     "sandboxNetworkBridge": "جسر",
     "sandboxNetworkHost": "مضيف",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "نقطة النهاية مفقودة",
     "memoryExternalProviderBlockPolicyUnsupported": "السياسة غير مدعومة",
     "memoryExternalProviderBlockAdapterUnavailable": "المحول غير متوفر",
+    "memoryExternalProviderBlockCompatibilityUnverified": "Compatibility unverified",
+    "memoryExternalProviderBlockCompatibilityBlocked": "Unsafe provider version",
     "memoryExternalProviderBlockLastError": "الخطأ الأخير",
     "memoryExternalProviderErrors": {
       "load": "فشل تحميل موفري الذاكرة الخارجية",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "فشل تحميل اتصال موفر الذاكرة الخارجية",
       "saveCredentials": "فشل حفظ اتصال موفر الذاكرة الخارجية",
       "clearCredentials": "فشل في مسح اتصال موفر الذاكرة الخارجية",
+      "testConnection": "Failed to test external memory provider connection",
       "copyPreflightDiagnostics": "فشل في نسخ الاختبار المبدئي لموفر الذاكرة الخارجية",
       "copySyncDiagnostics": "فشل نسخ تقرير مزامنة موفر الذاكرة الخارجية",
       "detail": "التفاصيل: {{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "يتم تخزين بيانات الاعتماد بشكل منفصل مع أذونات الملفات المقيدة.",
     "memoryExternalProviderConnectionSaved": "تم حفظ الاتصال",
     "memoryExternalProviderConnectionCleared": "تم مسح الاتصال",
+    "memoryExternalProviderConnectionTest": "Test connection",
+    "memoryExternalProviderCompatibilityPassed": "Connection and compatibility check passed",
+    "memoryExternalProviderCompatibilityUnverified": "Connection reached, but the provider version could not be verified",
+    "memoryExternalProviderCompatibilityBlocked": "Provider version is below the safe minimum",
+    "memoryExternalProviderCompatibilitySummary": "Status: {{status}} · detected {{detected}} · minimum {{minimum}}",
     "memoryExternalProviderEndpoint": "نقطة النهاية",
     "memoryExternalProviderEndpointKeep": "مخزنة: {{origin}} · اتركها فارغة للاحتفاظ بها",
     "memoryExternalProviderSubjectId": "معرف النطاق البعيد",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "إصلاح بالذكاء الاصطناعي",
       "fixStarted": "بدأ الذكاء الاصطناعي بالإصلاح",
       "fixBusy": "هناك محادثة قيد التنفيذ، يرجى المحاولة مرة أخرى بعد قليل",
-      "fixPrompt": "يرجى إصلاح المشكلة التي اكتشفها الفحص الذاتي للتصميم: {{detail}}. استخدم رموز نظام التصميم (var(--ds-*)) لتوحيد الألوان واستبدال الأنماط المضمّنة. أجرِ الحد الأدنى الضروري من التغييرات فقط وحافظ على بقية التصميم كما هي."
+      "fixPrompt": "يرجى إصلاح المشكلة التي اكتشفها الفحص الذاتي للتصميم: {{detail}}. استخدم رموز نظام التصميم (var(--ds-*)) لتوحيد الألوان واستبدال الأنماط المضمّنة. أجرِ الحد الأدنى الضروري من التغييرات فقط وحافظ على بقية التصميم كما هي.",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "مجموعة نظام التصميم",
@@ -12279,7 +12318,15 @@
       "copyLink": "نسخ الرابط",
       "copied2": "تم النسخ",
       "loadErr": "فشل تحميل حالة المشاركة",
-      "shareTo": "مشاركة إلى"
+      "shareTo": "مشاركة إلى",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "النشر على Cloudflare Pages",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "جميع المخرجات تطابق كودها",
       "checkStale": "{{n}} من المخرجات لديها تحديثات في الكود",
       "chatPrompt": "لقد تباعد الكود المنفَّذ عن هذا التصميم. حدِّث التصميم الحالي ليعكس تغييرات الكود المشار إليها، مع الحفاظ على مقصد التصميم وكل شيء آخر دون تغيير."
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "الإعدادات",
       "user": "إعدادات المستخدم"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "تشخيص سلسلة الأدوات",
+    "description": "فحوصات للقراءة فقط لبيئات النظام وأدوات التطوير الاختيارية. لن يقوم Hope Agent بالتثبيت أو الترقية أو التشغيل أو إعادة الإعداد.",
+    "refresh": "إعادة الفحص",
+    "loading": "جارٍ فحص سلسلة الأدوات المحلية…",
+    "loadFailed": "فشلت فحوصات سلسلة الأدوات",
+    "readOnlyNotice": "يتم عرض الإصدارات والتوفر وإمكانية الوصول إلى Docker وفئة السياق وفئة مالك المقبس والأغلفة المؤقتة من دون كشف المسارات أو بيانات الاعتماد.",
+    "detectedVersion": "تم اكتشاف {{version}}",
+    "notDetected": "غير مكتشف",
+    "minimumVersion": "الحد الأدنى {{version}}",
+    "diagnosticFacts": "رموز التشخيص",
+    "status": {
+      "detected": "مكتشف",
+      "supported": "مدعوم",
+      "degraded": "محدود",
+      "blocked": "محظور"
     }
   }
 }

@@ -123,7 +123,7 @@ fn is_session_in_im_channel(session_id: Option<&str>) -> bool {
 
 /// Render a single help row: `` `/cmd <args>` — description``. Uses fixed
 /// `arg_options` for the inline hint when available (e.g.
-/// `/thinking <off|low|medium|high|xhigh>`), otherwise falls back to
+/// `/thinking <off|minimal|low|medium|high|xhigh|max>`), otherwise falls back to
 /// `arg_placeholder`. `description_en()` is the same source IM channels use
 /// for their menu sync, so `/help` and Telegram / Discord menus stay in lockstep.
 fn format_help_row(c: &SlashCommandDef) -> String {

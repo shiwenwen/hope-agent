@@ -32,6 +32,7 @@ pub(crate) struct ProviderApiError {
     code: Option<String>,
     error_type: Option<String>,
     message: Option<String>,
+    retry_after_ms: Option<u64>,
     transport: ProviderErrorTransport,
     display: String,
 }
@@ -87,6 +88,7 @@ impl ProviderApiError {
             code,
             error_type,
             message,
+            retry_after_ms: None,
             transport: ProviderErrorTransport::HttpResponse,
             display,
         }
@@ -105,6 +107,7 @@ impl ProviderApiError {
             code: code.map(ToOwned::to_owned),
             error_type: error_type.map(ToOwned::to_owned),
             message: message.map(ToOwned::to_owned),
+            retry_after_ms: None,
             transport: ProviderErrorTransport::StreamEvent,
             display,
         }
@@ -115,6 +118,20 @@ impl ProviderApiError {
     pub(crate) fn with_display(mut self, display: String) -> Self {
         self.display = display;
         self
+    }
+
+    /// Preserve a bounded `Retry-After` delta-seconds hint without retaining
+    /// arbitrary response headers. HTTP-date values are deliberately ignored:
+    /// wall-clock rollback must not turn a retry hint into an unbounded wait.
+    pub(crate) fn with_retry_after_header(mut self, value: Option<&str>) -> Self {
+        self.retry_after_ms = value
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .map(|seconds| seconds.saturating_mul(1_000));
+        self
+    }
+
+    pub(crate) fn retry_after_ms(&self) -> Option<u64> {
+        self.retry_after_ms
     }
 }
 
@@ -483,6 +500,7 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         || lower.contains("too many requests")
         || lower.contains("resource_exhausted")
         || lower.contains("throttl")
+        || lower.contains("requestbursttoofast")
     {
         return FailoverReason::RateLimit;
     }
@@ -590,6 +608,17 @@ pub fn retry_delay_ms(attempt: u32, base_ms: u64, max_ms: u64) -> u64 {
     }
     let jitter = (rand_simple() % (jitter_range * 2 + 1)) as i64 - jitter_range as i64;
     (clamped as i64 + jitter).max(0) as u64
+}
+
+/// Combine local exponential backoff with a Provider `Retry-After` hint while
+/// preserving the caller's single bounded retry budget.
+pub fn effective_retry_delay_ms(
+    attempt: u32,
+    base_ms: u64,
+    max_ms: u64,
+    retry_after_ms: Option<u64>,
+) -> u64 {
+    retry_delay_ms(attempt, base_ms, max_ms).max(retry_after_ms.unwrap_or(0).min(max_ms))
 }
 
 /// Simple pseudo-random number (no external crate needed).
@@ -825,6 +854,10 @@ mod tests {
         );
         assert_eq!(
             classify_error("RESOURCE_EXHAUSTED"),
+            FailoverReason::RateLimit
+        );
+        assert_eq!(
+            classify_error("RequestBurstTooFast"),
             FailoverReason::RateLimit
         );
     }
@@ -1132,6 +1165,27 @@ mod tests {
 
         let d_max = retry_delay_ms(10, 1000, 10000);
         assert!(d_max >= 9000 && d_max <= 11000); // clamped to ~10000
+    }
+
+    #[test]
+    fn retry_after_hint_shares_the_bounded_client_retry_delay() {
+        let hinted = effective_retry_delay_ms(0, 1000, 10_000, Some(7_000));
+        assert_eq!(hinted, 7_000);
+
+        let capped = effective_retry_delay_ms(0, 1000, 10_000, Some(60_000));
+        assert_eq!(capped, 10_000);
+
+        let provider_error = ProviderApiError::from_http_response(
+            "BytePlus",
+            429,
+            r#"{"error":{"code":"RequestBurstTooFast"}}"#,
+        )
+        .with_retry_after_header(Some("3"));
+        assert_eq!(provider_error.retry_after_ms(), Some(3_000));
+        assert_eq!(
+            classify_error_with_evidence(&anyhow::Error::new(provider_error)).0,
+            FailoverReason::RateLimit
+        );
     }
 
     // ── Profile rotation tests ──────────────────────────────────

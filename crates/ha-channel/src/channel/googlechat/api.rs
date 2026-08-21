@@ -6,6 +6,32 @@ use super::auth::GoogleChatAuth;
 
 const CHAT_API_BASE: &str = "https://chat.googleapis.com/v1";
 
+fn build_message_body(
+    text: &str,
+    thread_key: Option<&str>,
+    cards_v2: Option<&[serde_json::Value]>,
+    standard_markdown: bool,
+) -> (serde_json::Value, &'static str) {
+    let mut body = serde_json::json!({ "text": text });
+    if standard_markdown {
+        body["markupSyntax"] = serde_json::json!("MARKUP_SYNTAX_MARKDOWN");
+    }
+    let mut reply_option_param = "";
+    if let Some(thread_key) = thread_key {
+        if thread_key.starts_with("spaces/") && thread_key.contains("/threads/") {
+            body["thread"] = serde_json::json!({ "name": thread_key });
+            reply_option_param = "?messageReplyOption=REPLY_MESSAGE_OR_FAIL";
+        } else {
+            body["thread"] = serde_json::json!({ "threadKey": thread_key });
+            reply_option_param = "?messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD";
+        }
+    }
+    if let Some(cards) = cards_v2 {
+        body["cardsV2"] = serde_json::Value::Array(cards.to_vec());
+    }
+    (body, reply_option_param)
+}
+
 /// Google Chat REST API client.
 pub struct GoogleChatApi {
     auth: Arc<GoogleChatAuth>,
@@ -80,28 +106,15 @@ impl GoogleChatApi {
         text: &str,
         thread_key: Option<&str>,
         cards_v2: Option<&[serde_json::Value]>,
+        standard_markdown: bool,
     ) -> Result<serde_json::Value> {
         let auth = self.auth_header().await?;
 
-        let mut body = serde_json::json!({ "text": text });
-
-        // Google Chat API 两种 thread 引用：`thread.name` 仅接 resource name
-        // `spaces/{}/threads/{}`；其他自定义 key（如 cron 生成的任意字串）
-        // 必须走 `thread.threadKey`，不然返回 INVALID_ARGUMENT。
-        let mut reply_option_param = "";
-        if let Some(tk) = thread_key {
-            if tk.starts_with("spaces/") && tk.contains("/threads/") {
-                body["thread"] = serde_json::json!({ "name": tk });
-                reply_option_param = "?messageReplyOption=REPLY_MESSAGE_OR_FAIL";
-            } else {
-                body["thread"] = serde_json::json!({ "threadKey": tk });
-                reply_option_param = "?messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD";
-            }
-        }
-
-        if let Some(cards) = cards_v2 {
-            body["cardsV2"] = serde_json::Value::Array(cards.to_vec());
-        }
+        // GA 2026-08-07. `markupSyntax` is a Message body field and applies
+        // only to creation. Thread resource names and custom keys keep their
+        // distinct reply-option contracts.
+        let (body, reply_option_param) =
+            build_message_body(text, thread_key, cards_v2, standard_markdown);
 
         let url = format!("{}/{}/messages{}", CHAT_API_BASE, space, reply_option_param);
 
@@ -202,5 +215,29 @@ impl GoogleChatApi {
 
         let builder = self.client.get(&url).header("Authorization", &auth);
         crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_message_body;
+
+    #[test]
+    fn standard_markdown_is_a_create_body_field() {
+        let (body, query) = build_message_body(
+            "**bold** [link](https://example.com)\n1. one",
+            None,
+            None,
+            true,
+        );
+        assert_eq!(body["markupSyntax"], "MARKUP_SYNTAX_MARKDOWN");
+        assert_eq!(body["text"], "**bold** [link](https://example.com)\n1. one");
+        assert_eq!(query, "");
+    }
+
+    #[test]
+    fn legacy_body_omits_markup_syntax() {
+        let (body, _) = build_message_body("legacy", None, None, false);
+        assert!(body.get("markupSyntax").is_none());
     }
 }

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-21T00:00:00Z",
+  "minimumCompatibleVersion": "151.0.7922.109",
+  "artifacts": [
+    {
+      "version": "151.0.7922.138",
+      "revision": 1654411,
+      "platform": "mac-arm64",
+      "archiveUrl": "https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/mac-arm64/chrome-mac-arm64.zip",
+      "archiveSize": 187444832,
+      "archiveSha256": "a75add0d61f398ac7ec51237a10a8369688e3b78e8467612c3cfa5205e29abef",
+      "publishedAt": "2026-08-11T02:24:31Z",
+      "binaryRelpath": "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "sourceName": "Chrome for Testing",
+      "sourceEvidence": "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json",
+      "licenseName": "Google Chrome Terms of Service",
+      "licenseUrl": "https://www.google.com/chrome/terms/"
+    },
+    {
+      "version": "151.0.7922.138",
+      "revision": 1654411,
+      "platform": "mac-x64",
+      "archiveUrl": "https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/mac-x64/chrome-mac-x64.zip",
+      "archiveSize": 197111147,
+      "archiveSha256": "282bd931ee7e2460e215d9dfc7db3e2122a050f37fd89ee4496c4ef17cbb3368",
+      "publishedAt": "2026-08-11T04:24:32Z",
+      "binaryRelpath": "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "sourceName": "Chrome for Testing",
+      "sourceEvidence": "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json",
+      "licenseName": "Google Chrome Terms of Service",
+      "licenseUrl": "https://www.google.com/chrome/terms/"
+    },
+    {
+      "version": "151.0.7922.138",
+      "revision": 1654411,
+      "platform": "linux64",
+      "archiveUrl": "https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/linux64/chrome-linux64.zip",
+      "archiveSize": 193590093,
+      "archiveSha256": "f2c1d48c310a2fc79aad59e985103902f27b70fd186b3f663ee67c4c722f5566",
+      "publishedAt": "2026-08-11T00:49:09Z",
+      "binaryRelpath": "chrome-linux64/chrome",
+      "sourceName": "Chrome for Testing",
+      "sourceEvidence": "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json",
+      "licenseName": "Google Chrome Terms of Service",
+      "licenseUrl": "https://www.google.com/chrome/terms/"
+    },
+    {
+      "version": "151.0.7922.138",
+      "revision": 1654411,
+      "platform": "win64",
+      "archiveUrl": "https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.138/win64/chrome-win64.zip",
+      "archiveSize": 201353041,
+      "archiveSha256": "864a03252382fcfaf0475a1d7cad30b99cb54883060dcb5526249f4ca08aa03a",
+      "publishedAt": "2026-08-11T01:04:48Z",
+      "binaryRelpath": "chrome-win64/chrome.exe",
+      "sourceName": "Chrome for Testing",
+      "sourceEvidence": "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json",
+      "licenseName": "Google Chrome Terms of Service",
+      "licenseUrl": "https://www.google.com/chrome/terms/"
+    }
+  ]
+}

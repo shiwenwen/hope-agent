@@ -457,6 +457,16 @@ pub async fn run_external_memory_provider_sync(
     ))
 }
 
+/// Explicit owner action that performs bounded health/version IO. Ordinary
+/// config reads and preflight remain network-free.
+pub async fn test_external_memory_provider_connection(
+    Path(provider_id): Path<String>,
+) -> Result<Json<ha_core::memory::ExternalMemoryProviderCompatibilityReport>, AppError> {
+    Ok(Json(
+        ha_core::memory::test_external_memory_provider_connection(provider_id).await?,
+    ))
+}
+
 /// Owner-only credential status; never returns the API key or full endpoint.
 pub async fn get_external_memory_provider_credential_status(
     Path(provider_id): Path<String>,
@@ -1773,13 +1783,18 @@ pub async fn save_awareness_config(
 
 // ── Hooks ───────────────────────────────────────────────────────
 
-/// `GET /api/config/hooks` -- read the hooks settings (disable switch +
-/// user-scope hooks map). Project / local / managed scopes are file-based.
+/// `GET /api/config/hooks` -- read the hooks settings (disable switch,
+/// user-scope hooks map, and trusted canonical workspace paths). Stored file
+/// hashes remain server-side.
 pub async fn get_hooks_config() -> Result<Json<ha_core::hooks::config::HooksSettings>, AppError> {
     let store = load_config()?;
     Ok(Json(ha_core::hooks::config::HooksSettings {
         disable_all_hooks: store.disable_all_hooks,
-        allow_project_scope: store.hooks_allow_project_scope,
+        trusted_project_scopes: store
+            .hook_workspace_trusts
+            .iter()
+            .map(|trust| trust.canonical_path.clone())
+            .collect(),
         hooks: store.hooks,
     }))
 }
@@ -1789,9 +1804,18 @@ pub async fn get_hooks_config() -> Result<Json<ha_core::hooks::config::HooksSett
 pub async fn save_hooks_config(
     Json(body): Json<ConfigBody<ha_core::hooks::config::HooksSettings>>,
 ) -> Result<Json<Value>, AppError> {
+    let trusted_paths = body.config.trusted_project_scopes;
+    let trusted_workspaces = ha_core::blocking::run_blocking(move || {
+        trusted_paths
+            .into_iter()
+            .map(|path| ha_core::hooks::scopes::build_workspace_trust(std::path::Path::new(&path)))
+            .collect::<anyhow::Result<Vec<_>>>()
+    })
+    .await?;
     ha_core::config::mutate_config_async(("hooks", "http"), move |store| {
         store.disable_all_hooks = body.config.disable_all_hooks;
-        store.hooks_allow_project_scope = body.config.allow_project_scope;
+        store.hooks_allow_project_scope = false;
+        store.hook_workspace_trusts = trusted_workspaces;
         store.hooks = body.config.hooks;
         Ok(())
     })

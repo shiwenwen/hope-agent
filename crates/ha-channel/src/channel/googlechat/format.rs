@@ -53,6 +53,56 @@ pub fn markdown_to_googlechat(md: &str) -> String {
     result
 }
 
+/// Compile Google Chat's structured mention token for the standard-Markdown
+/// body while leaving ordinary Markdown untouched. Tokens inside inline or
+/// fenced code are intentionally not interpreted.
+pub fn compile_standard_markdown_mentions(md: &str) -> String {
+    let mut output = String::with_capacity(md.len());
+    let bytes = md.as_bytes();
+    let mut index = 0usize;
+    let mut in_fence = false;
+    let mut in_inline_code = false;
+    while index < bytes.len() {
+        if bytes[index..].starts_with(b"```") {
+            in_fence = !in_fence;
+            output.push_str("```");
+            index += 3;
+            continue;
+        }
+        if !in_fence && bytes[index] == b'`' {
+            in_inline_code = !in_inline_code;
+            output.push('`');
+            index += 1;
+            continue;
+        }
+        if !in_fence && !in_inline_code && bytes[index..].starts_with(b"<users/") {
+            if let Some(relative_end) = bytes[index..].iter().position(|byte| *byte == b'>') {
+                let end = index + relative_end;
+                let identity = &md[index + "<users/".len()..end];
+                if !identity.is_empty()
+                    && identity.len() <= 320
+                    && identity.chars().all(|ch| {
+                        ch.is_ascii_alphanumeric() || matches!(ch, '@' | '.' | '_' | '-' | '+')
+                    })
+                {
+                    output.push_str("<chat-user data-user=\"users/");
+                    output.push_str(identity);
+                    output.push_str("\">");
+                    index = end + 1;
+                    continue;
+                }
+            }
+        }
+        let ch = md[index..]
+            .chars()
+            .next()
+            .expect("index remains on a UTF-8 boundary");
+        output.push(ch);
+        index += ch.len_utf8();
+    }
+    output
+}
+
 /// Try to parse a markdown link starting at position `start` (which should be '[').
 /// Returns (link_text, url, end_index_exclusive) or None.
 fn parse_markdown_link(chars: &[char], start: usize) -> Option<(String, String, usize)> {
@@ -202,5 +252,26 @@ mod tests {
     fn test_single_tilde_passthrough() {
         let input = "~single tilde~";
         assert_eq!(markdown_to_googlechat(input), input);
+    }
+
+    #[test]
+    fn standard_markdown_compiles_mentions_separately() {
+        let input = "Hello <users/12345> and <users/all>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            "Hello <chat-user data-user=\"users/12345\"> and <chat-user data-user=\"users/all\">"
+        );
+    }
+
+    #[test]
+    fn standard_markdown_does_not_compile_mentions_inside_code() {
+        let input = "`<users/123>`\n```txt\n<users/all>\n```";
+        assert_eq!(compile_standard_markdown_mentions(input), input);
+    }
+
+    #[test]
+    fn standard_markdown_rejects_injectable_mention_identity() {
+        let input = "<users/123\" onmouseover=\"x>";
+        assert_eq!(compile_standard_markdown_mentions(input), input);
     }
 }

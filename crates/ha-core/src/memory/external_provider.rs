@@ -17,10 +17,14 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::paths::{external_memory_credential_path, external_memory_sync_state_path};
+use crate::paths::{
+    external_memory_compatibility_path, external_memory_credential_path,
+    external_memory_sync_state_path,
+};
 use crate::platform::write_secure_file;
 
 use super::{
+    ExternalMemoryProviderCompatibilityReport, ExternalMemoryProviderCompatibilityStatus,
     ExternalMemoryProviderConfig, ExternalMemoryProviderKind,
     ExternalMemoryProviderPreflightAction, ExternalMemoryProviderSyncReport,
     ExternalMemoryProviderSyncResult, ExternalMemoryProviderSyncStatus,
@@ -37,6 +41,7 @@ mod supermemory;
 mod zep;
 
 const CREDENTIAL_SCHEMA_VERSION: u32 = 1;
+const COMPATIBILITY_SCHEMA_VERSION: u32 = 1;
 const MAX_ENDPOINT_CHARS: usize = 2_048;
 const MAX_SUBJECT_ID_CHARS: usize = 256;
 const MAX_PROTOCOL_CHARS: usize = 48;
@@ -129,6 +134,32 @@ pub(crate) struct ExternalMemoryProviderCredentials {
     pub api_key: Option<String>,
     pub subject_id: String,
     pub protocol: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredExternalMemoryProviderCompatibility {
+    schema_version: u32,
+    /// Hash of the exact provider kind and credentials used by the probe.
+    /// This is kept out of the owner-facing report so it cannot become a
+    /// credential-correlation surface through transport APIs.
+    #[serde(default)]
+    credential_fingerprint: String,
+    report: ExternalMemoryProviderCompatibilityReport,
+}
+
+#[derive(Clone, Copy)]
+struct VersionRequirement {
+    minimum: &'static str,
+    recommended: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ParsedVersion {
+    major: u64,
+    minor: u64,
+    patch: u64,
+    prerelease: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -501,6 +532,400 @@ fn adapter_for(
     }
 }
 
+/// Owner-triggered network probe. Configuration preflight deliberately never
+/// calls this function: version/capability IO happens only after an explicit UI
+/// or owner HTTP action.
+pub async fn test_external_memory_provider_connection(
+    provider_id: String,
+) -> Result<ExternalMemoryProviderCompatibilityReport> {
+    validate_provider_id(&provider_id)?;
+    let provider = crate::config::cached_config()
+        .memory_providers
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("external memory provider not found"))?;
+    let (credentials, _) = resolve_external_memory_provider_credentials_async(&provider_id)
+        .await?
+        .ok_or_else(|| anyhow!("provider credentials are missing"))?;
+    let credential_fingerprint = compatibility_credential_fingerprint(provider.kind, &credentials)?;
+    let requirement = compatibility_requirement(provider.kind, Some(&credentials));
+    let checked_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    let endpoint = match http::validated_endpoint(&credentials.endpoint).await {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            let report =
+                compatibility_failure_report(&provider, requirement, checked_at, false, &error);
+            persist_compatibility_report_async(report.clone(), credential_fingerprint).await?;
+            return Ok(report);
+        }
+    };
+    let probe_url = compatibility_probe_url(provider.kind, &endpoint)?;
+    http::validated_endpoint(&probe_url).await?;
+    let client = http::client()?;
+    let request = compatibility_probe_auth(client.get(&probe_url), provider.kind, &credentials);
+    let response = tokio::time::timeout(Duration::from_secs(30), http::send_probe(request)).await;
+    let report = match response {
+        Ok(Ok(response)) => {
+            let detected_version =
+                detect_provider_version(&response.body, &response.version_headers);
+            let status = match (requirement, detected_version.as_deref()) {
+                (None, _) => ExternalMemoryProviderCompatibilityStatus::NotRequired,
+                (Some(requirement), Some(version))
+                    if version_meets_minimum(version, requirement.minimum) =>
+                {
+                    ExternalMemoryProviderCompatibilityStatus::Compatible
+                }
+                (Some(_), Some(_)) => ExternalMemoryProviderCompatibilityStatus::Blocked,
+                (Some(_), None) => ExternalMemoryProviderCompatibilityStatus::Unverified,
+            };
+            ExternalMemoryProviderCompatibilityReport {
+                provider_id: provider.id.clone(),
+                kind: provider.kind,
+                status,
+                checked_at,
+                external_io_performed: true,
+                detected_version,
+                minimum_version: requirement.map(|item| item.minimum.to_string()),
+                recommended_version: requirement.map(|item| item.recommended.to_string()),
+                capabilities: detected_provider_capabilities(provider.kind, &response.body),
+                error: None,
+            }
+        }
+        Ok(Err(error)) => {
+            compatibility_failure_report(&provider, requirement, checked_at, true, &error)
+        }
+        Err(_) => compatibility_failure_report(
+            &provider,
+            requirement,
+            checked_at,
+            true,
+            &anyhow!("external memory provider compatibility probe timed out"),
+        ),
+    };
+    persist_compatibility_report_async(report.clone(), credential_fingerprint).await?;
+    Ok(report)
+}
+
+fn compatibility_credential_fingerprint(
+    kind: ExternalMemoryProviderKind,
+    credentials: &ExternalMemoryProviderCredentials,
+) -> Result<String> {
+    let material = serde_json::to_vec(&serde_json::json!({
+        "kind": kind.as_str(),
+        "endpoint": credentials.endpoint,
+        "apiKey": credentials.api_key,
+        "subjectId": credentials.subject_id,
+        "protocol": credentials.protocol,
+    }))
+    .context("serialize external memory compatibility fingerprint")?;
+    Ok(format!("{:x}", Sha256::digest(material)))
+}
+
+fn compatibility_failure_report(
+    provider: &ExternalMemoryProviderConfig,
+    requirement: Option<VersionRequirement>,
+    checked_at: String,
+    external_io_performed: bool,
+    error: &anyhow::Error,
+) -> ExternalMemoryProviderCompatibilityReport {
+    ExternalMemoryProviderCompatibilityReport {
+        provider_id: provider.id.clone(),
+        kind: provider.kind,
+        status: ExternalMemoryProviderCompatibilityStatus::Unverified,
+        checked_at,
+        external_io_performed,
+        detected_version: None,
+        minimum_version: requirement.map(|item| item.minimum.to_string()),
+        recommended_version: requirement.map(|item| item.recommended.to_string()),
+        capabilities: Vec::new(),
+        error: Some(truncate_error(&error.to_string())),
+    }
+}
+
+fn compatibility_probe_url(kind: ExternalMemoryProviderKind, endpoint: &str) -> Result<String> {
+    match kind {
+        ExternalMemoryProviderKind::Zep => http::endpoint_with_path(endpoint, &["healthcheck"]),
+        ExternalMemoryProviderKind::OpenViking => {
+            http::endpoint_with_path(endpoint, &["api", "v1", "health"])
+        }
+        ExternalMemoryProviderKind::Custom => Ok(endpoint.to_string()),
+        _ => http::endpoint_with_path(endpoint, &["health"]),
+    }
+}
+
+fn compatibility_probe_auth(
+    request: reqwest::RequestBuilder,
+    kind: ExternalMemoryProviderKind,
+    credentials: &ExternalMemoryProviderCredentials,
+) -> reqwest::RequestBuilder {
+    let Some(api_key) = credentials.api_key.as_deref() else {
+        return request;
+    };
+    match kind {
+        ExternalMemoryProviderKind::Mem0
+            if matches!(
+                credentials.protocol.as_str(),
+                "platform" | "platform_v3" | "cloud" | "cloud_v3"
+            ) =>
+        {
+            request.header(reqwest::header::AUTHORIZATION, format!("Token {api_key}"))
+        }
+        ExternalMemoryProviderKind::Mem0 => request.header("X-API-Key", api_key),
+        _ => request.bearer_auth(api_key),
+    }
+}
+
+fn compatibility_requirement(
+    kind: ExternalMemoryProviderKind,
+    credentials: Option<&ExternalMemoryProviderCredentials>,
+) -> Option<VersionRequirement> {
+    match kind {
+        ExternalMemoryProviderKind::Zep => Some(VersionRequirement {
+            minimum: "0.28.2",
+            recommended: "0.29.3",
+        }),
+        ExternalMemoryProviderKind::Supermemory
+            if credentials.is_none_or(supermemory_is_self_hosted) =>
+        {
+            Some(VersionRequirement {
+                minimum: "0.0.8",
+                recommended: "0.0.8",
+            })
+        }
+        ExternalMemoryProviderKind::Honcho if credentials.is_none_or(honcho_is_self_hosted) => {
+            Some(VersionRequirement {
+                minimum: "3.0.12",
+                recommended: "3.0.12",
+            })
+        }
+        ExternalMemoryProviderKind::OpenViking => Some(VersionRequirement {
+            minimum: "0.4.15",
+            recommended: "0.4.15",
+        }),
+        _ => None,
+    }
+}
+
+fn supermemory_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -> bool {
+    match credentials.protocol.as_str() {
+        "platform" | "cloud" => false,
+        "self_hosted" | "self-hosted" => true,
+        _ => !endpoint_host_ends_with(&credentials.endpoint, "supermemory.ai"),
+    }
+}
+
+fn honcho_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -> bool {
+    match credentials.protocol.as_str() {
+        "v3" | "cloud" => false,
+        "self_hosted" | "self-hosted" => true,
+        _ => !endpoint_host_ends_with(&credentials.endpoint, "honcho.dev"),
+    }
+}
+
+fn endpoint_host_ends_with(endpoint: &str, suffix: &str) -> bool {
+    url::Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == suffix || host.ends_with(&format!(".{suffix}")))
+}
+
+fn detect_provider_version(body: &[u8], version_headers: &[String]) -> Option<String> {
+    let json = serde_json::from_slice::<serde_json::Value>(body).ok();
+    let body_candidates = json.as_ref().into_iter().flat_map(|value| {
+        [
+            "/version",
+            "/data/version",
+            "/info/version",
+            "/server/version",
+            "/build/version",
+            "/app/version",
+        ]
+        .into_iter()
+        .filter_map(|pointer| value.pointer(pointer).and_then(serde_json::Value::as_str))
+    });
+    version_headers
+        .iter()
+        .map(String::as_str)
+        .chain(body_candidates)
+        .find_map(extract_version)
+}
+
+fn extract_version(value: &str) -> Option<String> {
+    static VERSION_RE: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)\bv?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9a-z.-]+)?\b")
+            .expect("valid provider version regex")
+    });
+    VERSION_RE
+        .find(value)
+        .map(|matched| matched.as_str().trim_start_matches(['v', 'V']).to_string())
+}
+
+fn parse_version(value: &str) -> Option<ParsedVersion> {
+    static VERSION_RE: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)^v?(\d+)\.(\d+)\.(\d+)([-+][0-9a-z.-]+)?$")
+            .expect("valid exact provider version regex")
+    });
+    let captures = VERSION_RE.captures(value.trim())?;
+    Some(ParsedVersion {
+        major: captures.get(1)?.as_str().parse().ok()?,
+        minor: captures.get(2)?.as_str().parse().ok()?,
+        patch: captures.get(3)?.as_str().parse().ok()?,
+        prerelease: captures
+            .get(4)
+            .is_some_and(|suffix| suffix.as_str().starts_with('-')),
+    })
+}
+
+fn version_meets_minimum(detected: &str, minimum: &str) -> bool {
+    let (Some(detected), Some(minimum)) = (parse_version(detected), parse_version(minimum)) else {
+        return false;
+    };
+    let detected_core = (detected.major, detected.minor, detected.patch);
+    let minimum_core = (minimum.major, minimum.minor, minimum.patch);
+    detected_core > minimum_core || (detected_core == minimum_core && !detected.prerelease)
+}
+
+fn detected_provider_capabilities(kind: ExternalMemoryProviderKind, body: &[u8]) -> Vec<String> {
+    let mut capabilities = vec![
+        "pull".to_string(),
+        "push".to_string(),
+        "bidirectional".to_string(),
+        format!("adapter:{}", kind.as_str()),
+    ];
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
+        if let Some(object) = value
+            .get("capabilities")
+            .and_then(serde_json::Value::as_object)
+        {
+            capabilities.extend(
+                object
+                    .iter()
+                    .filter(|(_, value)| value.as_bool() == Some(true) || value.as_str().is_some())
+                    .map(|(key, _)| key.chars().take(64).collect::<String>())
+                    .take(28),
+            );
+        }
+    }
+    capabilities.sort();
+    capabilities.dedup();
+    capabilities
+}
+
+pub(crate) fn external_memory_provider_compatibility_snapshot(
+    provider: &ExternalMemoryProviderConfig,
+) -> ExternalMemoryProviderCompatibilityReport {
+    let current_fingerprint = resolve_external_memory_provider_credentials(&provider.id)
+        .ok()
+        .flatten()
+        .and_then(|(credentials, _)| {
+            compatibility_credential_fingerprint(provider.kind, &credentials).ok()
+        });
+    match load_compatibility_report(&provider.id) {
+        Ok(Some(stored))
+            if stored.report.provider_id == provider.id
+                && stored.report.kind == provider.kind
+                && !stored.credential_fingerprint.is_empty()
+                && current_fingerprint.as_deref()
+                    == Some(stored.credential_fingerprint.as_str()) =>
+        {
+            stored.report
+        }
+        Ok(_) => default_compatibility_report(provider, None),
+        Err(error) => default_compatibility_report(provider, Some(&error)),
+    }
+}
+
+fn default_compatibility_report(
+    provider: &ExternalMemoryProviderConfig,
+    error: Option<&anyhow::Error>,
+) -> ExternalMemoryProviderCompatibilityReport {
+    let credentials = resolve_external_memory_provider_credentials(&provider.id)
+        .ok()
+        .flatten()
+        .map(|(credentials, _)| credentials);
+    let requirement = compatibility_requirement(provider.kind, credentials.as_ref());
+    ExternalMemoryProviderCompatibilityReport {
+        provider_id: provider.id.clone(),
+        kind: provider.kind,
+        status: if requirement.is_some() {
+            ExternalMemoryProviderCompatibilityStatus::Unverified
+        } else {
+            ExternalMemoryProviderCompatibilityStatus::NotRequired
+        },
+        checked_at: String::new(),
+        external_io_performed: false,
+        detected_version: None,
+        minimum_version: requirement.map(|item| item.minimum.to_string()),
+        recommended_version: requirement.map(|item| item.recommended.to_string()),
+        capabilities: Vec::new(),
+        error: error.map(|error| truncate_error(&error.to_string())),
+    }
+}
+
+fn load_compatibility_report(
+    provider_id: &str,
+) -> Result<Option<StoredExternalMemoryProviderCompatibility>> {
+    validate_provider_id(provider_id)?;
+    let path = external_memory_compatibility_path(provider_id)?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(anyhow!("read {}: {error}", path.display())),
+    };
+    let stored: StoredExternalMemoryProviderCompatibility = serde_json::from_slice(&bytes)
+        .map_err(|error| anyhow!("parse {}: {error}", path.display()))?;
+    if stored.schema_version != COMPATIBILITY_SCHEMA_VERSION {
+        bail!(
+            "unsupported external memory compatibility schema version {}",
+            stored.schema_version
+        );
+    }
+    Ok(Some(stored))
+}
+
+async fn persist_compatibility_report_async(
+    report: ExternalMemoryProviderCompatibilityReport,
+    credential_fingerprint: String,
+) -> Result<()> {
+    crate::blocking::run_blocking(move || {
+        let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+            .lock()
+            .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+        validate_provider_id(&report.provider_id)?;
+        let live_provider = crate::config::cached_config()
+            .memory_providers
+            .providers
+            .iter()
+            .find(|provider| provider.id == report.provider_id)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!("external memory provider changed during compatibility probe")
+            })?;
+        let live_credentials = resolve_external_memory_provider_credentials(&report.provider_id)?
+            .map(|(credentials, _)| credentials)
+            .ok_or_else(|| anyhow!("provider credentials changed during compatibility probe"))?;
+        let live_fingerprint =
+            compatibility_credential_fingerprint(live_provider.kind, &live_credentials)?;
+        if live_provider.kind != report.kind || live_fingerprint != credential_fingerprint {
+            bail!("external memory provider changed during compatibility probe");
+        }
+        let path = external_memory_compatibility_path(&report.provider_id)?;
+        let stored = StoredExternalMemoryProviderCompatibility {
+            schema_version: COMPATIBILITY_SCHEMA_VERSION,
+            credential_fingerprint,
+            report,
+        };
+        let bytes = serde_json::to_vec_pretty(&stored)
+            .context("serialize external memory compatibility report")?;
+        write_secure_file(&path, &bytes)
+            .map_err(|error| anyhow!("write {}: {error}", path.display()))
+    })
+    .await
+}
+
 pub fn hydrate_external_memory_provider_config(
     mut config: ExternalMemoryProvidersConfig,
 ) -> ExternalMemoryProvidersConfig {
@@ -846,17 +1271,27 @@ pub async fn save_external_memory_provider_credentials(
     };
     let provider_id = input.provider_id;
     crate::blocking::run_blocking(move || {
+        let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+            .lock()
+            .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
         let credential_path = external_memory_credential_path(&provider_id)?;
         let ledger_path = external_memory_sync_state_path(&provider_id)?;
+        let compatibility_path = external_memory_compatibility_path(&provider_id)?;
         let previous_credential_bytes = read_optional_file(&credential_path)?;
         let previous_ledger_bytes = if reset_sync_ledger {
             read_optional_file(&ledger_path)?
         } else {
             None
         };
+        let previous_compatibility_bytes = if reset_sync_ledger {
+            read_optional_file(&compatibility_path)?
+        } else {
+            None
+        };
         persist_credentials(&provider_id, &credentials)?;
         if reset_sync_ledger {
             remove_sync_ledger(&provider_id)?;
+            remove_compatibility_report(&provider_id)?;
         }
 
         let provider_id_for_config = provider_id.clone();
@@ -876,6 +1311,10 @@ pub async fn save_external_memory_provider_credentials(
             restore_optional_secure_file(&credential_path, previous_credential_bytes.as_deref())?;
             if reset_sync_ledger {
                 restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+                restore_optional_secure_file(
+                    &compatibility_path,
+                    previous_compatibility_bytes.as_deref(),
+                )?;
             }
             return Err(err).context("persist external memory provider readiness");
         }
@@ -912,16 +1351,22 @@ pub fn get_external_memory_provider_credential_status(
 pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<()> {
     validate_provider_id(provider_id)?;
     ensure_provider_exists(provider_id)?;
+    let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
     let path = external_memory_credential_path(provider_id)?;
     let ledger_path = external_memory_sync_state_path(provider_id)?;
+    let compatibility_path = external_memory_compatibility_path(provider_id)?;
     let previous_credential_bytes = read_optional_file(&path)?;
     let previous_ledger_bytes = read_optional_file(&ledger_path)?;
+    let previous_compatibility_bytes = read_optional_file(&compatibility_path)?;
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(anyhow!("remove {}: {err}", path.display())),
     }
     remove_sync_ledger(provider_id)?;
+    remove_compatibility_report(provider_id)?;
 
     let provider_id_owned = provider_id.to_string();
     if let Err(err) =
@@ -940,6 +1385,7 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
     {
         restore_optional_secure_file(&path, previous_credential_bytes.as_deref())?;
         restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+        restore_optional_secure_file(&compatibility_path, previous_compatibility_bytes.as_deref())?;
         return Err(err).context("clear external memory provider readiness");
     }
     Ok(())
@@ -967,6 +1413,15 @@ fn restore_optional_secure_file(path: &std::path::Path, bytes: Option<&[u8]>) ->
 
 fn remove_sync_ledger(provider_id: &str) -> Result<()> {
     let path = external_memory_sync_state_path(provider_id)?;
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(anyhow!("remove {}: {err}", path.display())),
+    }
+}
+
+fn remove_compatibility_report(provider_id: &str) -> Result<()> {
+    let path = external_memory_compatibility_path(provider_id)?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -1208,7 +1663,8 @@ fn prune_orphan_provider_files(valid_ids: &std::collections::HashSet<String>) ->
             continue;
         };
         let provider_id = name
-            .strip_suffix(".sync.json")
+            .strip_suffix(".compat.json")
+            .or_else(|| name.strip_suffix(".sync.json"))
             .or_else(|| name.strip_suffix(".json"));
         let Some(provider_id) = provider_id else {
             continue;
@@ -1356,6 +1812,78 @@ mod tests {
         assert!(validate_provider_id("mem0-main").is_ok());
         assert!(validate_provider_id("../mem0").is_err());
         assert!(validate_provider_id("Mem0").is_err());
+    }
+
+    #[test]
+    fn provider_version_floor_rejects_old_and_prerelease_builds() {
+        assert!(!version_meets_minimum("0.28.1", "0.28.2"));
+        assert!(!version_meets_minimum("0.28.2-rc.1", "0.28.2"));
+        assert!(version_meets_minimum("0.28.2", "0.28.2"));
+        assert!(version_meets_minimum("0.29.3", "0.28.2"));
+    }
+
+    #[test]
+    fn compatibility_fingerprint_changes_with_any_probe_identity_input() {
+        let credentials = ExternalMemoryProviderCredentials {
+            schema_version: CREDENTIAL_SCHEMA_VERSION,
+            endpoint: "https://memory.example.test".to_string(),
+            api_key: Some("synthetic-key-a".to_string()),
+            subject_id: "subject-a".to_string(),
+            protocol: "auto".to_string(),
+        };
+        let baseline =
+            compatibility_credential_fingerprint(ExternalMemoryProviderKind::Mem0, &credentials)
+                .unwrap();
+        for changed in [
+            ExternalMemoryProviderCredentials {
+                endpoint: "https://other.example.test".to_string(),
+                ..credentials.clone()
+            },
+            ExternalMemoryProviderCredentials {
+                api_key: Some("synthetic-key-b".to_string()),
+                ..credentials.clone()
+            },
+            ExternalMemoryProviderCredentials {
+                subject_id: "subject-b".to_string(),
+                ..credentials.clone()
+            },
+            ExternalMemoryProviderCredentials {
+                protocol: "platform".to_string(),
+                ..credentials.clone()
+            },
+        ] {
+            assert_ne!(
+                baseline,
+                compatibility_credential_fingerprint(ExternalMemoryProviderKind::Mem0, &changed)
+                    .unwrap()
+            );
+        }
+        assert_ne!(
+            baseline,
+            compatibility_credential_fingerprint(ExternalMemoryProviderKind::Zep, &credentials)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn provider_version_detection_is_bounded_to_version_fields_and_headers() {
+        let body = serde_json::json!({
+            "status": "ok",
+            "info": { "version": "v0.29.3" },
+            "secret": "token=synthetic-canary"
+        });
+        assert_eq!(
+            detect_provider_version(
+                &serde_json::to_vec(&body).unwrap(),
+                &["graphiti/0.28.2".to_string()]
+            )
+            .as_deref(),
+            Some("0.28.2")
+        );
+        assert_eq!(
+            detect_provider_version(&serde_json::to_vec(&body).unwrap(), &[]).as_deref(),
+            Some("0.29.3")
+        );
     }
 
     #[test]

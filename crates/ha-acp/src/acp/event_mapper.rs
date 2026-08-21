@@ -10,7 +10,11 @@ use crate::acp::types::{JsonRpcNotification, SessionUpdate, TextContent, ToolCal
 
 /// Parse an Agent event JSON string and produce an ACP session update notification.
 /// Returns None for events that don't map to ACP updates.
-pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNotification> {
+pub fn map_agent_event(
+    session_id: &str,
+    message_id: &str,
+    event_json: &str,
+) -> Option<JsonRpcNotification> {
     let event: Value = serde_json::from_str(event_json).ok()?;
     let event_type = event.get("type")?.as_str()?;
 
@@ -18,6 +22,7 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
         "text_delta" => {
             let text = event.get("content")?.as_str()?.to_string();
             SessionUpdate::AgentMessageChunk {
+                message_id: Some(message_id.to_string()),
                 content: TextContent::new(text),
             }
         }
@@ -86,6 +91,7 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
             SessionUpdate::UsageUpdate {
                 used: input_tokens.unwrap_or(0) + output_tokens.unwrap_or(0),
                 size: 0, // context window size not known here; set by caller
+                cost: None,
             }
         }
         _ => return None,

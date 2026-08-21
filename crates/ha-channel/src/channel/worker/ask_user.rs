@@ -11,7 +11,8 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use ha_core::ask_user::{
-    self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserTimedOutPayload,
+    self as ask_user_mod, AskUserFileAnswer, AskUserFileConstraints, AskUserQuestionAnswer,
+    AskUserQuestionGroup, AskUserTimedOutPayload,
 };
 use ha_core::channel::db::{ChannelConversation, ChannelDB};
 use ha_core::channel::registry::ChannelRegistry;
@@ -191,6 +192,7 @@ impl InteractiveAttachIdentity {
 struct QuestionProgress {
     selected: Vec<String>,
     custom_input: Option<String>,
+    files: Vec<AskUserFileAnswer>,
 }
 
 #[derive(Debug, Clone)]
@@ -229,6 +231,7 @@ impl PendingAskUser {
                     question_id: q.question_id.clone(),
                     selected: prog.selected,
                     custom_input: prog.custom_input,
+                    files: prog.files,
                 }
             })
             .collect()
@@ -241,7 +244,7 @@ impl PendingAskUser {
                 .get(&q.question_id)
                 .cloned()
                 .unwrap_or_default();
-            !prog.selected.is_empty() || prog.custom_input.is_some()
+            !prog.selected.is_empty() || prog.custom_input.is_some() || !prog.files.is_empty()
         })
     }
 }
@@ -481,6 +484,12 @@ fn format_prompt_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Strin
         if q.multi_select {
             out.push_str(multi_select_suffix(locale));
         }
+        if let Some(constraints) = &q.file_constraints {
+            out.push_str(&format!(
+                "  (PDF/TXT/MD, max {} MiB)",
+                constraints.max_bytes / (1024 * 1024)
+            ));
+        }
         out.push('\n');
         for (oi, opt) in q.options.iter().enumerate() {
             let marker = option_marker(qi, oi);
@@ -508,6 +517,30 @@ fn text_reply_hint(group: &AskUserQuestionGroup) -> String {
 }
 
 fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> String {
+    if group
+        .questions
+        .iter()
+        .any(|q| q.input_kind.as_deref() == Some("file"))
+    {
+        return tr(
+            locale,
+            [
+                "\n请在此聊天中发送下一个 PDF、TXT 或 MD 文件。文件会绑定到本次请求；文字消息不会作为文件回答。",
+                "\n請在此聊天中傳送下一個 PDF、TXT 或 MD 檔案。檔案會綁定到本次請求；文字訊息不會作為檔案回答。",
+                "\nSend the next PDF, TXT, or MD file in this chat. It will be bound to this request; a text message will not answer the file request.",
+                "\nこのチャットで次の PDF、TXT、または MD ファイルを送信してください。ファイルはこのリクエストに紐づき、テキストメッセージはファイル回答として扱われません。",
+                "\n이 채팅에서 다음 PDF, TXT 또는 MD 파일을 보내세요. 파일은 이 요청에 바인딩되며 텍스트 메시지는 파일 응답으로 처리되지 않습니다.",
+                "\nEnvía el siguiente archivo PDF, TXT o MD en este chat. Se vinculará a esta solicitud; un mensaje de texto no responderá a la solicitud de archivo.",
+                "\nEnvie o próximo arquivo PDF, TXT ou MD neste chat. Ele será vinculado a esta solicitação; uma mensagem de texto não responderá à solicitação de arquivo.",
+                "\nОтправьте следующий файл PDF, TXT или MD в этом чате. Он будет привязан к этому запросу; текстовое сообщение не считается ответом с файлом.",
+                "\nأرسل ملف PDF أو TXT أو MD التالي في هذه الدردشة. سيتم ربطه بهذا الطلب؛ ولن تُعد الرسالة النصية إجابة لطلب الملف.",
+                "\nBu sohbette sıradaki PDF, TXT veya MD dosyasını gönderin. Dosya bu isteğe bağlanır; metin mesajı dosya isteğini yanıtlamaz.",
+                "\nGửi tệp PDF, TXT hoặc MD tiếp theo trong cuộc trò chuyện này. Tệp sẽ được liên kết với yêu cầu này; tin nhắn văn bản không được xem là câu trả lời tệp.",
+                "\nHantar fail PDF, TXT atau MD seterusnya dalam sembang ini. Fail akan diikat pada permintaan ini; mesej teks tidak menjawab permintaan fail.",
+            ],
+        )
+        .to_string();
+    }
     let has_multi = group.questions.iter().any(|q| q.multi_select);
     if has_multi {
         tr(
@@ -562,6 +595,27 @@ fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Str
 /// trailing "Done" button row.
 fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
     build_buttons_for_locale(group, current_locale())
+}
+
+fn build_buttons_with_discord_file_upload(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
+    let mut rows = build_buttons_for_locale(group, current_locale());
+    if let Some(question_index) = group
+        .questions
+        .iter()
+        .position(|question| question.input_kind.as_deref() == Some("file"))
+    {
+        let upload = InlineButton {
+            text: "Upload file".to_string(),
+            callback_data: Some(format!(
+                "{}{}:f:{question_index}",
+                ASK_USER_PREFIX, group.request_id
+            )),
+            url: None,
+        };
+        // Keep Cancel last and make the primary action the first row.
+        rows.insert(0, vec![upload]);
+    }
+    rows
 }
 
 fn build_buttons_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Vec<Vec<InlineButton>> {
@@ -816,7 +870,17 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
             // Button-capable prompts keep the same ordinary-text route as their
             // buttons. Pure text/textarea questions can therefore render a
             // Cancel button while the user's next IM message supplies `Other`.
-            let candidate_buttons = build_buttons(&group);
+            let discord_file_upload = channel_id == ChannelId::Discord
+                && account_config.discord_file_requests_enabled()
+                && group
+                    .questions
+                    .iter()
+                    .any(|question| question.input_kind.as_deref() == Some("file"));
+            let candidate_buttons = if discord_file_upload {
+                build_buttons_with_discord_file_upload(&group)
+            } else {
+                build_buttons(&group)
+            };
             let callbacks_fit = buttons_fit_callback_limit(&candidate_buttons);
             if supports_buttons && !callbacks_fit {
                 app_warn!(
@@ -1188,7 +1252,260 @@ async fn send_text_reply_feedback(msg: &ha_core::channel::types::MsgContext, tex
 // ── Text-reply handler (channels without buttons) ─────────────────
 
 fn question_accepts_custom_input(question: &ha_core::ask_user::AskUserQuestion) -> bool {
-    question.allow_custom || matches!(question.input_kind.as_deref(), Some("text" | "textarea"))
+    question.input_kind.as_deref() != Some("file")
+        && (question.allow_custom
+            || matches!(question.input_kind.as_deref(), Some("text" | "textarea")))
+}
+
+/// Return whether the latest live prompt on this exact route is a file
+/// request. The dispatcher uses this before any network-facing media
+/// hydration, after access and mention gating have already passed.
+pub async fn has_pending_file_request(msg: &ha_core::channel::types::MsgContext) -> bool {
+    let route = interactive_route_key(
+        &msg.channel_id,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    );
+    let mut state = get_pending_state().lock().await;
+    let Some(request_id) = state.latest_for_route(&route, now_secs()) else {
+        return false;
+    };
+    let Some(pending) = state.by_request.get(&request_id) else {
+        return false;
+    };
+    pending.group.questions.len() == 1
+        && pending
+            .group
+            .questions
+            .first()
+            .is_some_and(|question| pending_file_constraints(question).is_some())
+}
+
+fn pending_file_constraints(
+    question: &ha_core::ask_user::AskUserQuestion,
+) -> Option<AskUserFileConstraints> {
+    (question.input_kind.as_deref() == Some("file"))
+        .then(|| question.file_constraints.clone())
+        .flatten()
+}
+
+fn validate_and_persist_file_answer(
+    media: Vec<ha_core::channel::types::InboundMedia>,
+    session_id: &str,
+    constraints: &AskUserFileConstraints,
+) -> anyhow::Result<AskUserFileAnswer> {
+    if constraints.count != 1 || media.len() != 1 {
+        anyhow::bail!("send exactly one file");
+    }
+    let item = &media[0];
+    if item
+        .file_size
+        .is_some_and(|size| size > constraints.max_bytes)
+    {
+        anyhow::bail!("the declared file size exceeds the request limit");
+    }
+    let source = item
+        .file_url
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("the provider did not materialize the file"))?;
+    let canonical_source = std::path::Path::new(source)
+        .canonicalize()
+        .map_err(|_| anyhow::anyhow!("the downloaded file is unavailable"))?;
+    let channels_root = ha_core::paths::channels_dir()?.canonicalize()?;
+    if !canonical_source.starts_with(&channels_root) {
+        anyhow::bail!("the downloaded file is outside the channel media boundary");
+    }
+    let actual_size = std::fs::metadata(&canonical_source)?.len();
+    if actual_size == 0 || actual_size > constraints.max_bytes {
+        anyhow::bail!("the actual file size is empty or exceeds the request limit");
+    }
+
+    let extension = canonical_source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let bytes = std::fs::read(&canonical_source)?;
+    let detected_mime = if extension == "pdf" && bytes.starts_with(b"%PDF-") {
+        "application/pdf"
+    } else if matches!(extension.as_str(), "txt" | "md")
+        && !bytes.contains(&0)
+        && std::str::from_utf8(&bytes).is_ok()
+    {
+        if extension == "md" {
+            "text/markdown"
+        } else {
+            "text/plain"
+        }
+    } else {
+        anyhow::bail!("the file content is not a supported PDF, TXT, or MD document");
+    };
+    if !constraints.types.iter().any(|value| value == detected_mime) {
+        anyhow::bail!("the detected file type is not allowed by this request");
+    }
+
+    let original_name = canonical_source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(&item.file_id)
+        .to_string();
+    let mut attachments = super::media::convert_inbound_media_to_attachments(&media, session_id);
+    let attachment = attachments
+        .pop()
+        .ok_or_else(|| anyhow::anyhow!("the file could not be persisted for this session"))?;
+    let file_path = attachment
+        .file_path
+        .ok_or_else(|| anyhow::anyhow!("the persisted file path is unavailable"))?;
+    let canonical_attachment = std::path::Path::new(&file_path).canonicalize()?;
+    let attachment_root = ha_core::paths::attachments_dir(session_id)?.canonicalize()?;
+    if !canonical_attachment.starts_with(&attachment_root) {
+        anyhow::bail!("the persisted file escaped the session attachment boundary");
+    }
+
+    Ok(AskUserFileAnswer {
+        name: original_name,
+        mime_type: detected_mime.to_string(),
+        size: actual_size,
+        file_path: canonical_attachment.to_string_lossy().to_string(),
+    })
+}
+
+/// Bind a hydrated attachment to the latest live file request on the exact IM
+/// route. Invalid attachments are consumed with feedback while the request
+/// remains pending, allowing the user to try again safely.
+pub async fn try_handle_ask_user_file_reply(
+    msg: &ha_core::channel::types::MsgContext,
+    session_id: &str,
+) -> bool {
+    let route = interactive_route_key(
+        &msg.channel_id,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    );
+    let (request_id, question_id, constraints, attach_identity) = {
+        let mut state = get_pending_state().lock().await;
+        let Some(request_id) = state.latest_for_route(&route, now_secs()) else {
+            return false;
+        };
+        let Some(pending) = state.by_request.get(&request_id) else {
+            return false;
+        };
+        let Some(question) = pending.group.questions.first() else {
+            return false;
+        };
+        let Some(constraints) = pending_file_constraints(question) else {
+            return false;
+        };
+        if pending.group.questions.len() != 1 || pending.attach_identity.session_id() != session_id
+        {
+            return false;
+        }
+        (
+            request_id,
+            question.question_id.clone(),
+            constraints,
+            pending.attach_identity.clone(),
+        )
+    };
+
+    if msg.media.is_empty() {
+        send_text_reply_feedback(
+            msg,
+            "⚠️ The attachment could not be downloaded or was rejected by the provider. Please send one PDF, TXT, or MD file again.",
+        )
+        .await;
+        return true;
+    }
+
+    let reply_source = InteractiveCallbackSource::new(
+        msg.channel_id.clone(),
+        msg.account_id.clone(),
+        msg.chat_id.clone(),
+        msg.thread_id.as_deref(),
+    );
+    if let Err(error) =
+        attach_identity.validate_source_live(Some(&reply_source), "file_reply_preflight")
+    {
+        get_pending_state().lock().await.remove(&request_id);
+        app_warn!(
+            "channel",
+            "ask_user",
+            "File ask_user source mismatch for {}: {}",
+            request_id,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+        send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+        return true;
+    }
+
+    let media = msg.media.clone();
+    let validation_session = session_id.to_string();
+    let validation_constraints = constraints.clone();
+    let answer = ha_core::blocking::run_blocking(move || {
+        validate_and_persist_file_answer(media, &validation_session, &validation_constraints)
+    })
+    .await;
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(error) => {
+            let message = format!(
+                "⚠️ File not accepted: {}. Send one PDF, TXT, or MD file within the requested size limit.",
+                ha_core::logging::redact_sensitive(&error.to_string())
+            );
+            send_text_reply_feedback(msg, &message).await;
+            return true;
+        }
+    };
+
+    let pending = {
+        let mut state = get_pending_state().lock().await;
+        if state.latest_for_route(&route, now_secs()).as_deref() != Some(request_id.as_str())
+            || state
+                .by_request
+                .get(&request_id)
+                .map_or(true, |pending| pending.attach_identity != attach_identity)
+        {
+            return true;
+        }
+        if let Some(progress) = state
+            .by_request
+            .get_mut(&request_id)
+            .and_then(|pending| pending.progress.get_mut(&question_id))
+        {
+            progress.files = vec![answer];
+        }
+        state.remove(&request_id)
+    };
+    let Some(pending) = pending else {
+        return true;
+    };
+    if let Err(error) =
+        attach_identity.validate_source_live(Some(&reply_source), "file_reply_submit")
+    {
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Skipped ask_user file submit after attach changed ({}): {}",
+            request_id,
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+        send_text_reply_feedback(msg, ask_user_source_mismatch(current_locale())).await;
+        return true;
+    }
+    if let Err(error) =
+        ask_user_mod::submit_ask_user_question_response(&request_id, pending.into_answers()).await
+    {
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Failed to submit ask_user file answer ({}): {}",
+            request_id,
+            error
+        );
+    }
+    true
 }
 
 /// Apply an ordinary IM message as an Other/free-text answer. Prefer the first
@@ -1516,6 +1833,132 @@ fn parse_marker(tok: &str) -> Option<(usize, usize)> {
 }
 
 // ── Callback handler (button-capable channels) ────────────────────
+
+fn parse_file_callback_id(data: &str, marker: &str) -> anyhow::Result<(String, usize)> {
+    let rest = data
+        .strip_prefix(ASK_USER_PREFIX)
+        .ok_or_else(|| anyhow::anyhow!("Not an ask_user callback"))?;
+    let (request_id, question_index) = rest
+        .rsplit_once(marker)
+        .ok_or_else(|| anyhow::anyhow!("Not an ask_user file callback"))?;
+    if request_id.is_empty() || request_id.contains(':') {
+        anyhow::bail!("Invalid ask_user file request id");
+    }
+    let question_index = parse_callback_index(question_index, "file question index")?;
+    Ok((request_id.to_string(), question_index))
+}
+
+pub fn is_ask_user_file_open_callback(data: &str) -> bool {
+    parse_file_callback_id(data, ":f:").is_ok()
+}
+
+pub fn is_ask_user_file_modal_submit(data: &str) -> bool {
+    parse_file_callback_id(data, ":fm:").is_ok()
+}
+
+async fn resolve_discord_file_callback(
+    callback_data: &str,
+    marker: &str,
+    callback_source: &InteractiveCallbackSource,
+    source: &'static str,
+) -> anyhow::Result<(String, usize, AskUserFileConstraints, String)> {
+    if callback_source.channel_id != ChannelId::Discord {
+        anyhow::bail!("File upload modal is Discord-only");
+    }
+    let account_enabled = {
+        let store = ha_core::config::cached_config();
+        store
+            .channels
+            .find_account(&callback_source.account_id)
+            .is_some_and(|account| account.discord_file_requests_enabled())
+    };
+    if !account_enabled {
+        anyhow::bail!("Discord file requests are disabled for this account");
+    }
+    let (request_id, question_index) = parse_file_callback_id(callback_data, marker)?;
+    let (attach_identity, constraints, question_text) = {
+        let mut state = get_pending_state().lock().await;
+        if state.is_expired(&request_id, now_secs()) {
+            state.remove(&request_id);
+            anyhow::bail!("The file request has expired");
+        }
+        let pending = state
+            .by_request
+            .get(&request_id)
+            .ok_or_else(|| anyhow::anyhow!("No pending file request"))?;
+        let question = pending
+            .group
+            .questions
+            .get(question_index)
+            .ok_or_else(|| anyhow::anyhow!("File question index is out of range"))?;
+        let constraints = pending_file_constraints(question)
+            .ok_or_else(|| anyhow::anyhow!("The target question is not a file request"))?;
+        (
+            pending.attach_identity.clone(),
+            constraints,
+            question.text.fallback_text().to_string(),
+        )
+    };
+    attach_identity.validate_source_live(Some(callback_source), source)?;
+    Ok((request_id, question_index, constraints, question_text))
+}
+
+/// Compile the shared file request into Discord's Modal + Label + File Upload
+/// component shape. The custom IDs carry only the request/question identity;
+/// provider-resolved attachment metadata is revalidated on submit.
+pub async fn build_discord_file_modal(
+    callback_data: &str,
+    callback_source: &InteractiveCallbackSource,
+) -> anyhow::Result<serde_json::Value> {
+    let (request_id, question_index, constraints, question_text) = resolve_discord_file_callback(
+        callback_data,
+        ":f:",
+        callback_source,
+        "discord_file_modal_open",
+    )
+    .await?;
+    let file_types = constraints
+        .types
+        .iter()
+        .filter_map(|value| match value.as_str() {
+            "application/pdf" => Some(".pdf"),
+            "text/plain" => Some(".txt"),
+            "text/markdown" => Some(".md"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "custom_id": format!("{ASK_USER_PREFIX}{request_id}:fm:{question_index}"),
+        "title": "Upload requested file",
+        "components": [{
+            "type": 18,
+            "label": "Choose one file",
+            "description": ha_core::truncate_utf8(&question_text, 100),
+            "component": {
+                "type": 19,
+                "custom_id": format!("{ASK_USER_PREFIX}{request_id}:fu:{question_index}"),
+                "min_values": 1,
+                "max_values": 1,
+                "required": true,
+                "file_types": file_types,
+            }
+        }]
+    }))
+}
+
+pub async fn validate_discord_file_modal_submit(
+    callback_data: &str,
+    callback_source: &InteractiveCallbackSource,
+) -> anyhow::Result<()> {
+    resolve_discord_file_callback(
+        callback_data,
+        ":fm:",
+        callback_source,
+        "discord_file_modal_submit",
+    )
+    .await
+    .map(|_| ())
+}
 
 /// Check whether a callback data string belongs to an ask_user flow.
 pub fn is_ask_user_callback(data: &str) -> bool {
@@ -1885,9 +2328,10 @@ pub fn try_dispatch_interactive_callback(
 mod tests {
     use super::{
         apply_callback_selection, apply_text_custom_input, build_buttons_for_locale,
-        buttons_fit_callback_limit, parse_ask_user_callback, parse_marker, validate_done_question,
-        AskUserCallbackAction, InteractiveAttachIdentity, InteractiveCallbackSource, OptionLookup,
-        PendingAskUser, PendingAskUserState, QuestionLookup, ASK_USER_CALLBACK_MAX_BYTES,
+        buttons_fit_callback_limit, parse_ask_user_callback, parse_file_callback_id, parse_marker,
+        validate_done_question, AskUserCallbackAction, InteractiveAttachIdentity,
+        InteractiveCallbackSource, OptionLookup, PendingAskUser, PendingAskUserState,
+        QuestionLookup, ASK_USER_CALLBACK_MAX_BYTES,
     };
     use ha_core::ask_user::AskUserQuestionGroup;
     use ha_core::channel::db::ChannelConversation;
@@ -1990,6 +2434,16 @@ mod tests {
                 option: OptionLookup::LegacyValue("b".to_string()),
             }
         );
+    }
+
+    #[test]
+    fn file_callback_ids_are_compact_and_reject_ambiguous_request_ids() {
+        let (request_id, question_index) =
+            parse_file_callback_id("ask_user:auq_123:f:0", ":f:").unwrap();
+        assert_eq!(request_id, "auq_123");
+        assert_eq!(question_index, 0);
+        assert!(parse_file_callback_id("ask_user:bad:id:f:0", ":f:").is_err());
+        assert!(parse_file_callback_id("ask_user:auq_123:f:nope", ":f:").is_err());
     }
 
     #[test]

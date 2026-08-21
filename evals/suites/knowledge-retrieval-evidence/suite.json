@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "eval-suite.v1",
+  "id": "knowledge-retrieval-evidence",
+  "version": "1.0.0",
+  "capability": "knowledge",
+  "adapter": "knowledge_retrieval_evidence",
+  "tiers": ["weekly", "release"],
+  "runnerClass": "hosted_linux",
+  "networkPolicy": "deny",
+  "shards": 1,
+  "timeoutSeconds": 180,
+  "thresholds": { "minPassRate": 1.0 },
+  "cases": [
+    {
+      "id": "markdown-multilingual-code",
+      "path": "fixtures/markdown_multilingual_code.json"
+    },
+    {
+      "id": "cross-chunk-import-noise",
+      "path": "fixtures/cross_chunk_import_noise.json"
+    },
+    {
+      "id": "same-name-scope-isolation",
+      "path": "fixtures/same_name_scope_isolation.json"
+    },
+    {
+      "id": "reindex-consistency",
+      "path": "fixtures/reindex_consistency.json"
+    }
+  ]
+}

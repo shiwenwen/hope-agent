@@ -1,0 +1,20 @@
+{
+  "chunkMaxChars": 220,
+  "notes": [
+    {
+      "kbId": "imported-manuals",
+      "relPath": "imports/ocr-network-runbook.md",
+      "markdown": "# 导入的网络运行手册\n\n## OCR 校正记录\n\n以下内容来自旧版扫描件。重复的页眉、页码和分隔符不会改变正文证据。 Page 17 / Internal Copy / Page 17 / Internal Copy。为避免单段过短，这里保留一段普通说明，描述值班人员应先确认变更窗口，再检查服务依赖，并记录开始时间与批准人。\n\n## 故障恢复步骤\n\n恢复动作的唯一识别码是 `NEBULA_GATEWAY_RECOVERY_8831`。在执行前核对目标环境、只读探针结果和回滚负责人。扫描文本中可能出现 N3BULA-GATEWAY，但代码块中的规范值是唯一可信值。完成恢复后记录 `gateway_recovery_verified_8831`，并把来源行号随证据一并保存。\n\n## 后续观察\n\n观察十五分钟，确认错误率没有回升。\n"
+    }
+  ],
+  "queries": [
+    {
+      "id": "retrieve-across-small-chunks",
+      "kbIds": ["imported-manuals"],
+      "query": "NEBULA_GATEWAY_RECOVERY_8831 gateway_recovery_verified_8831",
+      "expectedPaths": ["imported-manuals:imports/ocr-network-runbook.md"],
+      "expectedHeading": "导入的网络运行手册 > 故障恢复步骤",
+      "requireSourceCoordinates": true
+    }
+  ]
+}

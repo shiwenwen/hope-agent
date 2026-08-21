@@ -9,6 +9,12 @@ use serde_json::Value;
 use super::{ExternalMemoryAdapterSyncFailure, ExternalMemoryAdapterSyncOutcome};
 
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PROBE_RESPONSE_BYTES: usize = 64 * 1024;
+
+pub(super) struct ProbeResponse {
+    pub body: Vec<u8>,
+    pub version_headers: Vec<String>,
+}
 
 pub(super) fn client() -> Result<Client> {
     Client::builder()
@@ -91,6 +97,45 @@ pub(super) async fn send_json(
     serde_json::from_slice(&bytes)
         .context("parse external memory provider response")
         .map_err(|error| failure(outcome.clone(), error))
+}
+
+/// Send the small, owner-triggered compatibility probe without exposing a
+/// response body to callers. Only bounded bytes and selected version headers
+/// are returned for local parsing; redirects and oversized responses remain
+/// fail-closed like regular provider traffic.
+pub(super) async fn send_probe(request: RequestBuilder) -> Result<ProbeResponse> {
+    super::ensure_provider_sync_request_budget()?;
+    let response = request.send().await?;
+    if response.status().is_redirection() {
+        anyhow::bail!("external memory provider redirect refused");
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size as usize > MAX_PROBE_RESPONSE_BYTES)
+    {
+        anyhow::bail!("external memory provider probe response is too large");
+    }
+    let status = response.status();
+    let version_headers = ["x-version", "x-app-version", "x-server-version", "server"]
+        .into_iter()
+        .filter_map(|name| response.headers().get(name))
+        .filter_map(|value| value.to_str().ok())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let bytes = response.bytes().await?;
+    if bytes.len() > MAX_PROBE_RESPONSE_BYTES {
+        anyhow::bail!("external memory provider probe response is too large");
+    }
+    if !status.is_success() {
+        anyhow::bail!(
+            "external memory provider returned HTTP {status}: {}",
+            bounded_response_detail(&bytes)
+        );
+    }
+    Ok(ProbeResponse {
+        body: bytes.to_vec(),
+        version_headers,
+    })
 }
 
 fn bounded_response_detail(bytes: &[u8]) -> String {

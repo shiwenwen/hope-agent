@@ -647,7 +647,7 @@ PDF / PNG / 视频走「强路优先、客户端回退」两级（`design/render
 
 - **两级 doctor 三态**：`ffmpeg::doctor()` 与 `render_native::browser_export_status()` 各返回 `{ ready, source, binary_path, can_auto_install }`。视频导出**同时**预检两引擎，避免下了 Chromium 才发现没 ffmpeg 的二次中断。
 - **Chromium 就位**：系统浏览器优先（`platform::find_chrome_executable` 探测 Chrome / Edge / Brave / Chromium，多数环境已装即用）→ 缺失才从 Google 快照 CDN 按需下载到 `~/.hope-agent/browser/`。
-- **ffmpeg 就位**（`crate::ffmpeg`）：`HA_FFMPEG_PATH` / PATH 优先 → 缺失才按需下载静态构建到 `~/.hope-agent/ffmpeg/`（macOS+Linux 与 Windows 两源分治，`FfmpegSpec.binary_relpath` 逐平台不同）。下载走重试 + HTTP `Range` 续传 + 体积上限，extract 只取目标二进制（跳过 ffplay/ffprobe），落盘后 `-version` 冒烟测试通过才提升为 ready。SSRF 走 `security::ssrf::check_url`（固定构建主机）。
+- **ffmpeg 就位**（`crate::ffmpeg`）：`HA_FFMPEG_PATH` / PATH 优先 → 缺失才按需下载静态构建到 `~/.hope-agent/ffmpeg/`。唯一自动下载来源是随二进制编译的 [`ffmpeg-runtime-manifest.json`](../../../crates/ha-design/resources/ffmpeg-runtime-manifest.json)，逐平台固定 FFmpeg 版本/build、不可变 URL、精确字节数、SHA-256、来源证据与 GPLv3 证据；不存在 rolling `latest` 回退。下载走固定 redirect host 白名单、重试 + HTTP `Range` 续传 + 体积上限，先验长度和摘要，extract 只取目标二进制（跳过 ffplay/ffprobe），再检查 `-version` 中的版本、`--enable-gpl` / `--enable-version3` 与 `libx264` / `aac` 编码器。全部通过后才以完整供应链回执原子提升；失败保留并只允许回退到同平台上一份已验证版本。
 - **失败即降级、绝不卡死**：任一引擎下载 / 解压 / 冒烟失败一律返回 `Err`，导出降级到「引导安装 + 客户端回退」，永不 panic、永不白屏。进度经 EventBus `design:ffmpeg_download_progress` / `browser:chromium_download_progress` 上报。
 
 ---
@@ -736,6 +736,28 @@ graph LR
 ### 12.5 部署与分享
 
 - **只读分享**：`design_shares` 表（token PK + artifact_id FK CASCADE + 每产物唯一，幂等复用同一 token）；owner create/get/revoke（authed）；**公开无鉴权** `GET /api/design/share/{token}`（放 `health` 路由不进 `require_api_key`）→ token 白名单（≤128 纯字母数字）→ `render_share_html`（干净自包含快照、无 bridge/oid）→ `sandbox allow-scripts` 隔离到 opaque origin + no-referrer + nosniff；token = uuid v4（32 hex，不可猜）。桌面无公开 server 时降级为导出干净 HTML。
+
+### 12.6 Figma MCP 安全往返
+
+原有 PAT + REST 的设计系统导入保留为兼容回退；产物级往返走 Figma 远程 MCP 与其 OAuth，不在 Hope 保存 OAuth token。`figma_roundtrip` 固定为两段式 owner 操作：
+
+1. `preview` 校验 namespaced 工具白名单、参数大小与凭据字段，计算本地产物哈希，写一份 10 分钟有效的一次性预览；
+2. `commit` 同时核对预览 id 与预期本地哈希，原子消费回执后才调用 MCP。写向只允许 `generate_figma_design` / `use_figma`，读向只允许 `get_design_context` / `get_screenshot`。
+
+本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并存入 `external/imports/`；Figma→Hope 只创建一个固定新版本并挂接外部上下文，绝不把外部文本直接解释为 HTML/JS。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放；用户核对远端状态后才能创建新预览，避免重复外部副作用。
+
+### 12.7 确定性视觉回归与预览场景
+
+- 固定视口为 `1440×900`、`768×1024`、`390×844`；真实浏览器逐视口截图，完成或失败都恢复原视口并关闭隔离页。
+- 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`。
+- 通过/失败只由像素差异（变化像素比、平均通道差）与静态 DOM/无障碍规则决定；视觉模型只能作为可选建议，不能覆盖确定性结果。
+- `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
+
+### 12.8 组件清单与固定版本评审
+
+- `components.manifest.json` 是已发布清单，`components.manifest.draft.json` 是未发布草稿；组件最多 1000 个，import path 必须为无 `..` 的相对路径，mode props 必须为有界 JSON object。绑定仓库扫描只读、不执行源码、拒 symlink，并跳过 `node_modules/.git/dist/target`。发布必须带上次读取的已发布 BLAKE3 哈希，陈旧写 fail closed。
+- 固定版本评审 grant 只有 `viewer/commenter` 两种 scope，最长 90 天，锚定 `artifactId + versionNumber`。随机 bearer 只在创建回执返回一次，磁盘仅保存 BLAKE3 哈希；支持过期、撤销和审计事件。
+- 评审 bearer 只走 `Authorization` header，禁止进入 URL。公开评审面只能读取固定版本快照或由 commenter 新增锚定评论，不能修改产物正文、创建新版本或取得 owner 权限；owner 仍是唯一可创建/撤销 grant 的主体。
 - **Cloudflare Pages / Vercel 部署（opt-in）**：产物自包含故整站 = 单 `index.html` → 直传大幅简化。**安全红线**：① 所有出站 `guard()` 先过 `ssrf::check_url`（URL host 恒硬编码，`acct`/`name` 只进 path）；② API token **0600** 存 `credentials/*.json`（`platform::write_secure_file`），GUI 读经**脱敏**（回 `hasToken` + mask 哨兵、绝不回明文）——属凭据平面、GUI-only、不进 `ha-settings`；③ owner 命令显式触发，后台自主维护绝不部署。部署历史落 `design_deployments` 表。**部署就绪探测** `probe_deploy_ready`：`*.pages.dev` / `*.vercel.app` 边缘传播有延迟，探测目标是用户公网站点，用 `SsrfPolicy::Default`（放行公网、拦私网/环回/元数据）+ **`redirect::Policy::none()` 禁跟随跳转**——否则公网 URL 可 `302→169.254.169.254/内网` 把探测变成盲 SSRF 内网扫描。
 
 ### 12.6 对外分发面（handoff + MCP）
@@ -821,6 +843,10 @@ graph LR
 | 导出 | `design_export_cmd` / `export_design_native_cmd` | `POST …/artifacts/{aid}/export` · `GET …/artifacts/{aid}/native` |
 | 部署（CF/Vercel）+ 就绪探测 | `deploy_design_artifact[_vercel]_cmd` / `probe_design_deploy_cmd` | `POST …/artifacts/{aid}/deploy[/vercel]` · `POST /api/design/deploy/probe` |
 | 分享 | `design_share_*_cmd` | `POST …/artifacts/{aid}/share`（authed）· `GET /api/design/share/{token}`（公开） |
+| Figma MCP 往返 | `preview/commit/list_figma_roundtrip_*_cmd` | `POST …/figma-roundtrip/{preview,commit}` · `GET …/artifacts/{aid}/figma-roundtrip` |
+| 视觉回归 / 场景 | `run/accept_design_visual_*_cmd` · `get/save_design_scenarios_cmd` | `POST …/artifacts/{aid}/visual-regression` · `POST …/visual-baseline` · `GET/PUT …/artifacts/{aid}/scenarios` |
+| 组件清单 | `get/save/publish/scan_design_components_*_cmd` | `GET …/projects/{pid}/components` · `PUT …/components/draft` · `POST …/components/{publish,scan}` |
+| 固定版本评审 | `create/list/revoke_design_review_space_cmd` | owner：`…/artifacts/{aid}/review-spaces`；评审者：`GET /api/design/review-space` · `POST …/comments`（review bearer） |
 | 质量门 | `design_critique_cmd` | `POST …/artifacts/{aid}/critique` |
 | 套件预览 / 文件夹 | `get_design_system_kit_cmd` / `*_design_folder_cmd` | `GET …/systems/{id}/kit` · `…/folders` |
 | 静态托管 | （Tauri `asset://` 直读） | `GET …/projects/{pid}/artifacts/{aid}/{*rest}` |
@@ -840,6 +866,7 @@ graph LR
 | `crates/ha-design/src/design/{deploy,deploy_vercel}.rs` | Cloudflare Pages / Vercel 部署 |
 | `crates/ha-design/src/design/{code_sync,code_watcher,threads}.rs` | code→design 回灌 + 文件监听 + 设计对话线程锚定 |
 | `crates/ha-design/src/design/{design_md,brands,image,audio,selfcheck,render_native}.rs` | DESIGN.md 规范 / 品牌种子 / 图像 / 音频 / 反 slop 自查 / 原生导出 |
+| `crates/ha-design/src/design/{figma_roundtrip,quality,scenarios,components_manifest,review_space}.rs` | Figma MCP 往返 / 视觉基线 / 场景清单 / 组件清单 / 固定版本评审 |
 | `crates/ha-design/src/design/mcp_provider.rs` | design 的 MCP `ToolProvider`（平台 `hope-agent mcp` 首个 provider） |
 | `crates/ha-design/src/tool_design/mod.rs` | `design` agent 工具（多 action 路由） |
 | `crates/ha-design/src/ffmpeg.rs` | ffmpeg 按需就位 |

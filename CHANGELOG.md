@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **设计空间与外部集成更完整可靠**：可保存预览场景与固定视口、运行确定性视觉回归、发布组件清单、通过 Figma MCP 安全往返并分享固定版本评审，同时外部 Memory 兼容性检查与 IM 渠道诊断会在配置变化和慢探测时保持一致。 (#PR)
+
 ## [0.34.0] - 2026-08-19
 
 ### Added

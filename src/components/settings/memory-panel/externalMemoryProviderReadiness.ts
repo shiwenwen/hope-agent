@@ -160,6 +160,8 @@ export const EXTERNAL_MEMORY_PROVIDER_SYNC_BLOCK_REASON_ORDER: ExternalMemoryPro
     "endpoint_missing",
     "policy_unsupported",
     "adapter_unavailable",
+    "compatibility_unverified",
+    "compatibility_blocked",
     "last_error",
   ]
 

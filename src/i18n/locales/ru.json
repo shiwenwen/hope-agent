@@ -304,6 +304,16 @@
     "removeConfig": "Удалить",
     "running": "Работает",
     "selectChannel": "Выбрать канал",
+    "nativeReply": "Нативные потоковые ответы",
+    "nativeReplyHint": "Использовать нативный поток ответов платформы. При отключении сразу выполняется переход к обычным сообщениям.",
+    "imsgProtocolV1": "Надёжный протокол imsg",
+    "imsgProtocolV1Hint": "Согласовывает протокол v1, восстанавливает watch после переполнения и контролирует перезапуск дочернего процесса. Отключите для старого RPC.",
+    "googleChatStandardMarkdown": "Стандартный Markdown",
+    "googleChatStandardMarkdownHint": "Использовать стандартный Markdown Google Chat для новых текстовых сообщений. Отключите для старого синтаксиса Chat.",
+    "discordChannelObfuscation": "Тестировать обфускацию приватных каналов",
+    "discordChannelObfuscationHint": "Включает для аккаунта временное поведение Gateway Discord. Скрытые каналы никогда не выбираются и не обрабатываются.",
+    "discordFileRequests": "Нативные файловые запросы Discord",
+    "discordFileRequestsHint": "Разрешает структурированным вопросам открывать загрузку одного файла. Сервер повторно проверяет тип, размер и привязку к диалогу.",
     "showThinking": "Показывать рассуждения в сообщениях IM",
     "showThinkingHint": "Если включено, рассуждения модели отображаются в виде цитаты перед ответом каждого раунда. По умолчанию выключено.",
     "signalAccount": "Номер телефона",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "Высокий",
     "low": "Низкий",
+    "max": "Максимум",
     "medium": "Средний",
     "minimal": "Минимальный",
     "none": "Выкл",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "ID",
     "acpBackends": "ACP-бэкенды",
     "acpBinary": "Бинарь",
+    "acpDistribution": "Описание дистрибутива",
+    "acpDistributionPackage": "Пакет или продукт",
+    "acpDistributionRequired": "Этот устаревший бэкенд заблокирован, пока явно не указано его происхождение запуска.",
+    "acpDistributionVersion": "Закреплённая версия",
+    "acpLaunchArgs": "Аргументы запуска",
+    "acpProtocol": "Протокол",
+    "acpTrustDistribution": "Задать дистрибутив",
     "acpControl": "Плоскость управления ACP",
     "acpControlDesc": "Управление внешними ACP-агентами (Claude Code, Codex CLI, Gemini CLI и т. д.)",
     "acpEnabled": "Включить плоскость управления ACP",
@@ -5431,8 +5449,12 @@
       "intro": "Запускайте пользовательские команды / HTTP / промпты / субагентов на событиях жизненного цикла. Совместимо на уровне полей с hooks Claude Code.",
       "disableAll": "Отключить все hooks",
       "disableAllDesc": "Главный переключатель — отключает все hooks во всех областях.",
-      "allowProjectScope": "Разрешить проектные и локальные хуки",
-      "allowProjectScopeDesc": "Позволяет файлам .hope-agent/hooks.json и hooks.local.json в рабочем каталоге добавлять хуки — удобно для общего доступа в команде. По умолчанию выключено, потому что они могут сами выполнять команды; включайте только для проектов, которым доверяете.",
+      "trustedProjectScopes": "Доверенные рабочие пространства Hook",
+      "trustedProjectScopesDesc": "Разрешайте проектные и локальные файлы Hook отдельно для каждого рабочего пространства. Укажите точный абсолютный путь; псевдонимы и символические ссылки отклоняются.",
+      "workspacePath": "Абсолютный путь рабочего пространства",
+      "trustWorkspace": "Доверять содержимому",
+      "noTrustedWorkspaces": "Нет доверенных файлов Hook рабочего пространства.",
+      "trustContentBound": "При сохранении доверие привязывается к текущему содержимому. Изменение, перемещение или псевдоним пути отключает их до повторной проверки и сохранения.",
       "scopeNote": "Эта панель редактирует hooks области user. Области project (.hope-agent/hooks.json, общая через репозиторий), local (hooks.local.json) и managed (/etc/hope-agent/hooks.json) основаны на файлах и объединяются сверху.",
       "pickEvent": "Выберите событие…",
       "addHook": "Добавить hook",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker недоступен",
     "sandboxImage": "Образ",
     "sandboxImageDesc": "Docker-образ для контейнеров песочницы",
+    "sandboxImageDigestRequired": "Закрепите образ как name@sha256:<64-значный дайджест>; изменяемые теги отклоняются.",
     "sandboxMemoryLimit": "Лимит памяти",
     "sandboxNetworkBridge": "Мост",
     "sandboxNetworkHost": "Хост",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "Конечная точка отсутствует",
     "memoryExternalProviderBlockPolicyUnsupported": "Политика не поддерживается",
     "memoryExternalProviderBlockAdapterUnavailable": "Адаптер недоступен",
+    "memoryExternalProviderBlockCompatibilityUnverified": "Совместимость не проверена",
+    "memoryExternalProviderBlockCompatibilityBlocked": "Небезопасная версия поставщика",
     "memoryExternalProviderBlockLastError": "Последняя ошибка",
     "memoryExternalProviderErrors": {
       "load": "Не удалось загрузить внешние поставщики памяти.",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "Не удалось загрузить соединение с поставщиком внешней памяти.",
       "saveCredentials": "Не удалось сохранить подключение к поставщику внешней памяти.",
       "clearCredentials": "Не удалось очистить соединение с поставщиком внешней памяти.",
+      "testConnection": "Не удалось проверить соединение с поставщиком внешней памяти",
       "copyPreflightDiagnostics": "Не удалось скопировать предварительную проверку поставщика внешней памяти.",
       "copySyncDiagnostics": "Не удалось скопировать отчет о синхронизации с поставщиком внешней памяти.",
       "detail": "Подробности: {{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "Учетные данные хранятся отдельно с ограниченными правами доступа к файлам.",
     "memoryExternalProviderConnectionSaved": "Соединение сохранено",
     "memoryExternalProviderConnectionCleared": "Соединение очищено",
+    "memoryExternalProviderConnectionTest": "Проверить соединение",
+    "memoryExternalProviderCompatibilityPassed": "Проверка соединения и совместимости пройдена",
+    "memoryExternalProviderCompatibilityUnverified": "Соединение установлено, но версию поставщика проверить не удалось",
+    "memoryExternalProviderCompatibilityBlocked": "Версия поставщика ниже безопасного минимума",
+    "memoryExternalProviderCompatibilitySummary": "Статус: {{status}} · обнаружена {{detected}} · минимум {{minimum}}",
     "memoryExternalProviderEndpoint": "Конечная точка",
     "memoryExternalProviderEndpointKeep": "Сохранено: {{origin}} · оставьте пустым, чтобы сохранить",
     "memoryExternalProviderSubjectId": "Идентификатор удаленной области",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "Исправить с ИИ",
       "fixStarted": "ИИ начал исправление",
       "fixBusy": "Идёт диалог, повторите попытку позже",
-      "fixPrompt": "Исправьте проблему, обнаруженную самопроверкой дизайна: {{detail}}. Используйте токены дизайн-системы (var(--ds-*)), чтобы упорядочить цвета и заменить жёстко заданные стили. Внесите только минимально необходимые изменения и сохраните остальную часть дизайна без изменений."
+      "fixPrompt": "Исправьте проблему, обнаруженную самопроверкой дизайна: {{detail}}. Используйте токены дизайн-системы (var(--ds-*)), чтобы упорядочить цвета и заменить жёстко заданные стили. Внесите только минимально необходимые изменения и сохраните остальную часть дизайна без изменений.",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "Кит дизайн-системы",
@@ -12279,7 +12318,15 @@
       "copyLink": "Копировать ссылку",
       "copied2": "Скопировано",
       "loadErr": "Не удалось загрузить статус",
-      "shareTo": "Поделиться в"
+      "shareTo": "Поделиться в",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "Развернуть на Cloudflare Pages",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "Все артефакты совпадают со своим кодом",
       "checkStale": "У {{n}} артефактов есть обновления кода",
       "chatPrompt": "Реализованный код разошёлся с этим дизайном. Обновите текущий дизайн в соответствии с приведёнными изменениями кода, сохранив замысел дизайна и всё остальное без изменений."
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "Конфигурация",
       "user": "Настройки пользователя"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "Диагностика инструментов",
+    "description": "Проверка системных сред и дополнительных инструментов разработки только для чтения. Hope Agent ничего не устанавливает, не обновляет, не запускает и не перенастраивает.",
+    "refresh": "Проверить снова",
+    "loading": "Проверка локальных инструментов…",
+    "loadFailed": "Не удалось проверить инструменты",
+    "readOnlyNotice": "Отображаются версии, доступность, связь с Docker, класс контекста, класс владельца сокета и временные обёртки без раскрытия путей и учётных данных.",
+    "detectedVersion": "Обнаружено {{version}}",
+    "notDetected": "Не обнаружено",
+    "minimumVersion": "Минимум {{version}}",
+    "diagnosticFacts": "Коды диагностики",
+    "status": {
+      "detected": "Обнаружено",
+      "supported": "Поддерживается",
+      "degraded": "Ограничено",
+      "blocked": "Заблокировано"
     }
   }
 }

@@ -62,6 +62,14 @@ export interface ChannelHealth {
   error: string | null
   uptimeSecs: number | null
   botName: string | null
+  capabilitySnapshot?: {
+    source: string
+    version: string | null
+    observedAt: string
+    capabilities: string[]
+    compatibility: "compatible" | "warning" | "blocked" | "unknown"
+    warning: string | null
+  } | null
 }
 
 export interface ChannelPluginInfo {
@@ -106,6 +114,39 @@ export function readImReplyMode(account: { settings: unknown }): ImReplyMode {
   const v = (account.settings as Record<string, unknown> | null | undefined)?.imReplyMode
   if (v === "split" || v === "final" || v === "preview") return v
   return IM_REPLY_MODE_DEFAULT
+}
+
+/** Account-level rollout switch for Telegram/Slack native reply streams. */
+export function readNativeReply(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)?.nativeReply
+  return v !== false
+}
+
+/** Account-scoped rollback for the iMessage protocol-v1 reliability path. */
+export function readImsgProtocolV1(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)?.imsgProtocolV1
+  return v !== false
+}
+
+/** Account-scoped Google Chat create-message Markdown rollout switch. */
+export function readGoogleChatStandardMarkdown(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)
+    ?.googleChatStandardMarkdown
+  return v !== false
+}
+
+/** Temporary Discord Gateway opt-in for private-channel obfuscation fixtures. */
+export function readDiscordChannelObfuscation(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)
+    ?.discordChannelObfuscation
+  return v === true
+}
+
+/** Discord-only native File Upload modal rollout switch (default off). */
+export function readDiscordFileRequests(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)
+    ?.discordFileRequests
+  return v === true
 }
 
 /**

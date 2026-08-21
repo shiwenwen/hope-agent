@@ -17,7 +17,8 @@ The Design Space lets you collaborate with AI to **turn a single sentence or a r
 - [6.7 Export](#67-export)
 - [6.8 Design systems and design tokens](#68-design-systems-and-design-tokens)
 - [6.9 Handoff to a code project](#69-handoff-to-a-code-project)
-- [6.10 Settings](#610-settings)
+- [6.10 Roundtrips, scenarios, components, and review](#610-roundtrips-scenarios-components-and-review)
+- [6.11 Settings](#611-settings)
 
 ---
 
@@ -150,7 +151,17 @@ The Design Space can push all the way to real code:
 
 ---
 
-## 6.10 Settings
+## 6.10 Roundtrips, scenarios, components, and review
+
+- **Safe Figma roundtrip**: open an artifact and select the roundtrip button in the toolbar. Choose Hope→Figma or Figma→Hope, inspect the MCP tool and arguments, and generate a preview. No external call happens until you select “Confirm and submit once.” Hope uses the MCP OAuth session and does not store Figma OAuth credentials. The existing PAT-based design-system import remains available as a per-use fallback.
+- **Deterministic visual regression**: Quality Review also captures desktop, tablet, and mobile fixed viewports, compares pixels, and runs static accessibility checks. On the first run—or after an intentional visual change—select “Accept as baseline.” An artifact hash prevents accepting a stale image. The pass/fail result does not depend on a model.
+- **Preview scenarios**: the toolbar selector can maintain up to 12 scenarios and 4 viewports. The interface keeps only one preview live and sends `ds_scenario` (with a local route and JSON state) when switching. If no manifest exists, the default scenario is used.
+- **Component manifest**: open “Component manifest” from the design-system menu to read-only scan the bound repository and edit an unpublished draft. Publishing confirms the current published hash; if another window updated it, the overwrite is rejected.
+- **Fixed-version review**: in server mode, the Share panel can create 7-day “View only / Can comment” credentials pinned forever to the version current at creation. A credential is shown once, is accepted only as a Bearer token, and can be revoked at any time. Reviewers cannot edit the artifact body or create versions.
+
+---
+
+## 6.11 Settings
 
 **Entry point**: Settings → Design Space (the whole category is medium risk, because it contains an "automatic quality review" that incurs model-call cost).
 

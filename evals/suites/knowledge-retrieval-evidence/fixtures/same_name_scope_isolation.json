@@ -1,0 +1,24 @@
+{
+  "notes": [
+    {
+      "kbId": "team-alpha",
+      "relPath": "runbooks/deploy.md",
+      "markdown": "# 部署手册\n\nAlpha 环境使用 `ALPHA_RELEASE_CHANNEL_5519`，审批后才能发布。\n"
+    },
+    {
+      "kbId": "team-secret",
+      "relPath": "runbooks/deploy.md",
+      "markdown": "# 部署手册\n\nSecret 环境也提及 `ALPHA_RELEASE_CHANNEL_5519`，但不属于当前知识空间。\n"
+    }
+  ],
+  "queries": [
+    {
+      "id": "restrict-identical-title-and-term-to-authorized-kb",
+      "kbIds": ["team-alpha"],
+      "query": "ALPHA_RELEASE_CHANNEL_5519",
+      "expectedPaths": ["team-alpha:runbooks/deploy.md"],
+      "forbiddenPaths": ["team-secret:runbooks/deploy.md"],
+      "requireSourceCoordinates": true
+    }
+  ]
+}

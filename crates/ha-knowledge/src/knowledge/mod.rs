@@ -20,6 +20,8 @@ pub mod chunker;
 pub mod compile;
 pub mod db;
 pub mod embedding;
+#[cfg(feature = "eval-runner")]
+pub mod eval;
 pub mod graph;
 pub mod index;
 pub mod inject;

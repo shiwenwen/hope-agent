@@ -189,7 +189,7 @@ impl StreamableHttpClient for BoundedMcpHttpClient {
     async fn get_stream(
         &self,
         uri: Arc<str>,
-        session_id: Arc<str>,
+        session_id: Option<Arc<str>>,
         last_event_id: Option<String>,
         auth_header: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
@@ -197,14 +197,13 @@ impl StreamableHttpClient for BoundedMcpHttpClient {
         BoxStream<'static, Result<sse_stream::Sse, SseError>>,
         StreamableHttpError<Self::Error>,
     > {
-        let mut request = self
-            .client
-            .get(uri.as_ref())
-            .header(
-                reqwest::header::ACCEPT,
-                [EVENT_STREAM_MIME_TYPE, JSON_MIME_TYPE].join(", "),
-            )
-            .header(HEADER_SESSION_ID, session_id.as_ref());
+        let mut request = self.client.get(uri.as_ref()).header(
+            reqwest::header::ACCEPT,
+            [EVENT_STREAM_MIME_TYPE, JSON_MIME_TYPE].join(", "),
+        );
+        if let Some(session_id) = session_id {
+            request = request.header(HEADER_SESSION_ID, session_id.as_ref());
+        }
         if let Some(last_event_id) = last_event_id {
             request = request.header(HEADER_LAST_EVENT_ID, last_event_id);
         }

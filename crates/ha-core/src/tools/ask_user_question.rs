@@ -6,8 +6,8 @@
 //! formatting the result for the LLM.
 
 use crate::ask_user::{
-    self, AskUserDirectionCard, AskUserI18nText, AskUserQuestion, AskUserQuestionAnswer,
-    AskUserQuestionGroup, AskUserQuestionOption, AskUserText,
+    self, AskUserDirectionCard, AskUserFileConstraints, AskUserI18nText, AskUserQuestion,
+    AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption, AskUserText,
 };
 use crate::process_registry::create_session_id;
 use serde_json::json;
@@ -128,11 +128,18 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
             })
             .unwrap_or_default();
 
+        let file_constraints = if input_kind.as_deref() == Some("file") {
+            Some(parse_file_constraints(q))
+        } else {
+            None
+        };
+
         questions.push(AskUserQuestion {
             question_id,
             text,
             options,
             input_kind,
+            file_constraints,
             allow_custom,
             multi_select,
             template,
@@ -144,6 +151,13 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     if questions.is_empty() {
         return "Error: at least one question is required".to_string();
+    }
+    if questions
+        .iter()
+        .any(|q| q.input_kind.as_deref() == Some("file"))
+        && (questions.len() != 1 || questions[0].input_kind.as_deref() != Some("file"))
+    {
+        return "Error: the file input PoC must be the only question in its request".to_string();
     }
 
     let request_id = create_session_id();
@@ -164,6 +178,22 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
         .clone()
         .or_else(|| subagent_owner.clone())
         .unwrap_or_else(|| sid.to_string());
+    if questions
+        .iter()
+        .any(|question| question.input_kind.as_deref() == Some("file"))
+    {
+        let attached_to_channel = crate::globals::get_channel_db()
+            .and_then(|db| {
+                db.get_conversation_by_session(&effective_sid)
+                    .ok()
+                    .flatten()
+            })
+            .is_some();
+        if !attached_to_channel {
+            return "Error: file input is currently available only for an attached IM conversation"
+                .to_string();
+        }
+    }
     let source = Some(
         if plan_owner.is_some() {
             "plan"
@@ -368,6 +398,7 @@ fn synthesize_default_answers(questions: &[AskUserQuestion]) -> Vec<AskUserQuest
             question_id: q.question_id.clone(),
             selected,
             custom_input: custom,
+            files: Vec::new(),
         });
     }
     out
@@ -384,6 +415,7 @@ fn format_answers_for_llm(
         let mut selected_values = Vec::new();
         let mut selected_labels = Vec::new();
         let mut custom_input: Option<String> = None;
+        let mut files = Vec::new();
 
         if let Some(answer) = answers
             .iter()
@@ -404,6 +436,7 @@ fn format_answers_for_llm(
                     custom_input = Some(c.clone());
                 }
             }
+            files = answer.files.clone();
         }
 
         items.push(serde_json::json!({
@@ -412,6 +445,7 @@ fn format_answers_for_llm(
             "selected": selected_labels,
             "selectedValues": selected_values,
             "customInput": custom_input,
+            "files": files,
         }));
     }
 
@@ -437,9 +471,61 @@ fn normalize_input_kind(raw: &str) -> Option<String> {
     let s = raw.trim().to_ascii_lowercase();
     matches!(
         s.as_str(),
-        "single" | "multi" | "text" | "textarea" | "direction-cards"
+        "single" | "multi" | "text" | "textarea" | "direction-cards" | "file"
     )
     .then_some(s)
+}
+
+const ASK_USER_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+fn normalize_file_type(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "pdf" | ".pdf" | "application/pdf" => Some("application/pdf"),
+        "txt" | ".txt" | "text/plain" => Some("text/plain"),
+        "md" | ".md" | "markdown" | "text/markdown" => Some("text/markdown"),
+        _ => None,
+    }
+}
+
+fn parse_file_constraints(question: &Value) -> AskUserFileConstraints {
+    let raw = question
+        .get("file_constraints")
+        .or_else(|| question.get("fileConstraints"));
+    let mut types = raw
+        .and_then(|value| value.get("types"))
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(normalize_file_type)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    types.sort();
+    types.dedup();
+    if types.is_empty() {
+        types = vec![
+            "application/pdf".into(),
+            "text/plain".into(),
+            "text/markdown".into(),
+        ];
+    }
+    let max_bytes = raw
+        .and_then(|value| value.get("max_bytes").or_else(|| value.get("maxBytes")))
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .unwrap_or(ASK_USER_FILE_MAX_BYTES)
+        .min(ASK_USER_FILE_MAX_BYTES);
+    AskUserFileConstraints {
+        types,
+        max_bytes,
+        // The first shared contract is single-file only. Ignore a model's
+        // attempt to widen this value instead of creating provider-specific
+        // multi-file semantics accidentally.
+        count: 1,
+    }
 }
 
 /// Parse a `direction-cards` option's `card` payload. Any malformed shape
@@ -528,7 +614,14 @@ mod tests {
 
     #[test]
     fn input_kind_whitelist_filters_garbage() {
-        for good in ["single", "multi", "text", "textarea", "direction-cards"] {
+        for good in [
+            "single",
+            "multi",
+            "text",
+            "textarea",
+            "direction-cards",
+            "file",
+        ] {
             assert_eq!(normalize_input_kind(good).as_deref(), Some(good));
         }
         // Case / whitespace tolerant.
@@ -601,6 +694,7 @@ mod tests {
             question_id: "q-treatment".into(),
             selected: vec!["implement".into()],
             custom_input: Some("Keep the explanation concise".into()),
+            files: Vec::new(),
         }];
 
         let formatted = format_answers_for_llm(&questions, &answers, false);

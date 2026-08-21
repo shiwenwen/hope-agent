@@ -1036,6 +1036,11 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
             let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
                 Ok(Some(text)) => text,
                 Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
@@ -1069,6 +1074,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 status,
                 &error_text,
             )
+            .with_retry_after_header(retry_after.as_deref())
             .into());
         }
 

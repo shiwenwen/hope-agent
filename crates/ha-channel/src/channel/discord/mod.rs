@@ -271,6 +271,7 @@ impl ChannelPlugin for DiscordPlugin {
     ) -> Result<()> {
         let token = Self::extract_token(&account.credentials)?;
         let proxy = Self::extract_proxy(&account.settings);
+        let channel_obfuscation = account.discord_channel_obfuscation_enabled();
 
         let api = DiscordApi::new(&token, proxy.as_deref());
 
@@ -328,6 +329,7 @@ impl ChannelPlugin for DiscordPlugin {
             bot_username,
             inbound_tx,
             cancel,
+            channel_obfuscation,
         ));
 
         Ok(())
@@ -498,6 +500,7 @@ impl ChannelPlugin for DiscordPlugin {
                     error: None,
                     uptime_secs: None,
                     bot_name: Some(name.to_string()),
+                    capability_snapshot: None,
                 })
             }
             Err(e) => Ok(ChannelHealth {
@@ -507,6 +510,7 @@ impl ChannelPlugin for DiscordPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

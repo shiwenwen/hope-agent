@@ -78,6 +78,14 @@ fn main() {
         return;
     }
 
+    // Read-only host toolchain report. This stays ahead of GUI/runtime
+    // initialization so support diagnosis cannot mutate app state or start
+    // background services.
+    if args.get(1).map(String::as_str) == Some("doctor") {
+        run_toolchain_doctor(&args[2..]);
+        return;
+    }
+
     // Knowledge MCP subcommand: `hope-agent knowledge-mcp` — exposes the
     // Knowledge Space Agent Access API as a small stdio MCP server.
     if args.len() >= 2 && args[1] == "knowledge-mcp" {
@@ -130,6 +138,56 @@ fn main() {
     } else {
         // Guardian disabled by user — run app directly
         run_child();
+    }
+}
+
+fn run_toolchain_doctor(args: &[String]) {
+    let json = match args {
+        [] => false,
+        [arg] if arg == "--json" => true,
+        [arg] if arg == "--help" || arg == "-h" => {
+            println!("Hope Agent Toolchain Doctor (read-only)");
+            println!();
+            println!("Usage: hope-agent doctor [--json]");
+            return;
+        }
+        _ => {
+            eprintln!("Usage: hope-agent doctor [--json]");
+            std::process::exit(2);
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("toolchain doctor could not start: {error}");
+            std::process::exit(1);
+        }
+    };
+    let report = runtime.block_on(ha_core::toolchain_doctor::diagnose_toolchain());
+    if json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(value) => println!("{value}"),
+            Err(error) => {
+                eprintln!("toolchain doctor could not serialize its report: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    println!("Hope Agent Toolchain Doctor (read-only)");
+    println!(
+        "supported={} detected={} degraded={} blocked={}",
+        report.summary.supported,
+        report.summary.detected,
+        report.summary.degraded,
+        report.summary.blocked
+    );
+    for check in report.checks {
+        let version = check.detected_version.as_deref().unwrap_or("not-detected");
+        println!("{:?}\t{}\t{}", check.status, check.id, version);
     }
 }
 

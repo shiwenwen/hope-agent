@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 use tokio::sync::Mutex as TokioMutex;
 
 use crate::process_registry::create_session_id;
@@ -215,6 +215,8 @@ pub enum ApprovalResolutionSource {
     Http,
     /// IM channel (button or text reply).
     Im,
+    /// ACP v1 client over `session/request_permission`.
+    Acp,
     /// Auto-denied because the owning session was deleted / purged (A-9).
     SessionDeleted,
     /// Approval dialog timed out and was resolved to **deny** — either
@@ -240,6 +242,7 @@ impl ApprovalResolutionSource {
             Self::Gui => "gui",
             Self::Http => "http",
             Self::Im => "im",
+            Self::Acp => "acp",
             Self::SessionDeleted => "session_deleted",
             Self::TimeoutDeny => "timeout_deny",
             Self::TimeoutProceed => "timeout_proceed",
@@ -329,6 +332,32 @@ struct PendingApprovalEntry {
 /// Global approval request registry
 static PENDING_APPROVALS: OnceLock<TokioMutex<HashMap<String, PendingApprovalEntry>>> =
     OnceLock::new();
+
+type ApprovalRequestForwarder = Arc<dyn Fn(&ApprovalRequest) -> bool + Send + Sync>;
+
+static APPROVAL_REQUEST_FORWARDER: OnceLock<RwLock<Option<ApprovalRequestForwarder>>> =
+    OnceLock::new();
+
+fn approval_request_forwarder() -> &'static RwLock<Option<ApprovalRequestForwarder>> {
+    APPROVAL_REQUEST_FORWARDER.get_or_init(|| RwLock::new(None))
+}
+
+/// Register an out-of-process attended approval surface such as ACP stdio.
+/// The forwarder only receives requests that already passed Hope policy and
+/// hooks; returning `false` resolves the request as a fail-closed denial.
+pub fn set_approval_request_forwarder(forwarder: Option<ApprovalRequestForwarder>) {
+    *approval_request_forwarder()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = forwarder;
+}
+
+fn forward_approval_request(request: &ApprovalRequest) -> Option<bool> {
+    approval_request_forwarder()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .map(|forwarder| forwarder(request))
+}
 
 fn get_pending_approvals() -> &'static TokioMutex<HashMap<String, PendingApprovalEntry>> {
     PENDING_APPROVALS.get_or_init(|| TokioMutex::new(HashMap::new()))
@@ -553,6 +582,21 @@ pub async fn pending_approval_session_id(request_id: &str) -> Result<Option<Stri
         .get(request_id)
         .map(|entry| entry.request.session_id.clone())
         .ok_or_else(|| anyhow::anyhow!("No pending approval request: {}", request_id))
+}
+
+/// Whether the pending request may create a persistent allowlist grant. ACP
+/// and other external surfaces must call this rather than trusting a returned
+/// option id from an untrusted client.
+pub async fn pending_approval_allows_always(request_id: &str) -> bool {
+    let pending = get_pending_approvals().lock().await;
+    pending.get(request_id).is_some_and(|entry| {
+        !entry.request.incognito
+            && !entry
+                .request
+                .reason
+                .as_ref()
+                .is_some_and(|reason| reason.kind.is_strict())
+    })
 }
 
 /// Submit an approval response from a given surface (GUI / HTTP / IM).
@@ -1030,6 +1074,23 @@ pub(crate) async fn check_and_request_approval(
             command,
             request_id
         );
+
+        if forward_approval_request(&request) == Some(false) {
+            let removed = get_pending_approvals().lock().await.remove(&request_id);
+            if let Some(entry) = removed {
+                let _ = entry.sender.send(ApprovalResponse::Deny);
+            }
+            emit_pending_interactions_changed(session_id);
+            crate::hooks::fire_permission_denied(
+                session_id,
+                tool_name,
+                tool_input,
+                command,
+                "approval_forwarding_failed",
+                tool_use_id,
+            );
+            return Ok(ApprovalResponse::Deny);
+        }
     } else {
         // No EventBus available, clean up and return error
         let mut pending = get_pending_approvals().lock().await;

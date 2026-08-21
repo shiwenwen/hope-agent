@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-21T00:00:00Z",
+  "artifacts": [
+    {
+      "version": "8.1.2",
+      "build": "8.1.2",
+      "cacheKey": "8.1.2-static-20260812",
+      "platform": "mac-arm64",
+      "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1783011502_8.1.2/ffmpeg.zip",
+      "archiveSize": 28196358,
+      "archiveSha256": "ef1aa60006c7b77ce170c1608c08d8e4ba1c30c5746f2ac986ded932d0ac2c3c",
+      "publishedAt": "2026-07-02T16:58:24Z",
+      "binaryRelpath": "ffmpeg",
+      "sourceName": "Martin Riedl FFmpeg Build Server",
+      "sourceEvidence": "https://ffmpeg.martin-riedl.de/info/detail/macos/arm64/1783011502_8.1.2",
+      "licenseName": "GPL-3.0-or-later",
+      "licenseEvidence": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1783011502_8.1.2/versions.txt"
+    },
+    {
+      "version": "8.1.2",
+      "build": "8.1.2",
+      "cacheKey": "8.1.2-static-20260812",
+      "platform": "mac-x64",
+      "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1783018342_8.1.2/ffmpeg.zip",
+      "archiveSize": 33586778,
+      "archiveSha256": "a52ef43883f44c219766d4b3bdde4e635b35465d0b704c01c3a0566b59775df9",
+      "publishedAt": "2026-07-02T18:52:24Z",
+      "binaryRelpath": "ffmpeg",
+      "sourceName": "Martin Riedl FFmpeg Build Server",
+      "sourceEvidence": "https://ffmpeg.martin-riedl.de/info/detail/macos/amd64/1783018342_8.1.2",
+      "licenseName": "GPL-3.0-or-later",
+      "licenseEvidence": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1783018342_8.1.2/versions.txt"
+    },
+    {
+      "version": "8.1.2",
+      "build": "8.1.2",
+      "cacheKey": "8.1.2-static-20260812",
+      "platform": "linux-arm64",
+      "url": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1783010599_8.1.2/ffmpeg.zip",
+      "archiveSize": 28550138,
+      "archiveSha256": "ab9e16864b6bf4ae7e13bbdbdc29621be11a5c547c57af8d4250e9fa2f5e6461",
+      "publishedAt": "2026-07-02T16:43:21Z",
+      "binaryRelpath": "ffmpeg",
+      "sourceName": "Martin Riedl FFmpeg Build Server",
+      "sourceEvidence": "https://ffmpeg.martin-riedl.de/info/detail/linux/arm64/1783010599_8.1.2",
+      "licenseName": "GPL-3.0-or-later",
+      "licenseEvidence": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1783010599_8.1.2/versions.txt"
+    },
+    {
+      "version": "8.1.2",
+      "build": "8.1.2",
+      "cacheKey": "8.1.2-static-20260812",
+      "platform": "linux-x64",
+      "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1783011670_8.1.2/ffmpeg.zip",
+      "archiveSize": 33153770,
+      "archiveSha256": "56452c0bfc4ee0325cd615d62f46ba8264f62eed34f727c2224c6c84fa7b8719",
+      "publishedAt": "2026-07-02T17:01:12Z",
+      "binaryRelpath": "ffmpeg",
+      "sourceName": "Martin Riedl FFmpeg Build Server",
+      "sourceEvidence": "https://ffmpeg.martin-riedl.de/info/detail/linux/amd64/1783011670_8.1.2",
+      "licenseName": "GPL-3.0-or-later",
+      "licenseEvidence": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1783011670_8.1.2/versions.txt"
+    },
+    {
+      "version": "8.1.2",
+      "build": "n8.1.2-34-g9b6c8969e0",
+      "cacheKey": "8.1.2-static-20260812",
+      "platform": "win64",
+      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-12-13-15/ffmpeg-n8.1.2-34-g9b6c8969e0-win64-gpl-8.1.zip",
+      "archiveSize": 167988754,
+      "archiveSha256": "0bfebe51fced76c6cd5a42420fc2fc6e4646f95a556c59b0d7d298fcc24c6849",
+      "publishedAt": "2026-08-12T13:16:38Z",
+      "binaryRelpath": "ffmpeg-n8.1.2-34-g9b6c8969e0-win64-gpl-8.1/bin/ffmpeg.exe",
+      "sourceName": "BtbN FFmpeg Builds",
+      "sourceEvidence": "https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-08-12-13-15",
+      "licenseName": "GPL-3.0-or-later",
+      "licenseEvidence": "https://github.com/BtbN/FFmpeg-Builds/blob/master/LICENSE"
+    }
+  ]
+}

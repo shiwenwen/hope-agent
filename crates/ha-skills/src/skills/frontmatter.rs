@@ -32,7 +32,7 @@ pub(super) struct ParsedFrontmatter {
     pub agent: Option<String>,
     /// Reasoning / thinking effort forwarded to the provider at fork time.
     /// Accepts the same shorthand as `agent::config::clamp_reasoning_effort`:
-    /// `low | medium | high | xhigh | none`.
+    /// `minimal | low | medium | high | xhigh | max | none`.
     pub effort: Option<String>,
     /// Gitignore-style path patterns that gate catalog visibility. When set,
     /// the skill is hidden from the system prompt until the session touches

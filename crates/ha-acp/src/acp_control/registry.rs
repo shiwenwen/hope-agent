@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::config::AcpControlConfig;
+use super::config::{AcpBackendProtocol, AcpControlConfig};
 use super::types::{AcpBackendInfo, AcpHealthStatus, AcpRuntime};
 
 /// Global registry of ACP runtime backends.
@@ -136,10 +136,15 @@ impl AcpRuntimeRegistry {
 // ── Auto-discovery ───────────────────────────────────────────────
 
 /// Well-known ACP-compatible binaries to search for in $PATH.
-const KNOWN_BINARIES: &[(&str, &str, &str)] = &[
-    ("claude-code", "Claude Code", "claude"),
-    ("codex-cli", "Codex CLI", "codex"),
-    ("gemini-cli", "Gemini CLI", "gemini"),
+const KNOWN_BINARIES: &[(&str, &str, &str, &[&str])] = &[
+    (
+        "claude-code",
+        "Claude Code (ACP adapter)",
+        "claude-agent-acp",
+        &[],
+    ),
+    ("codex-cli", "Codex (ACP adapter)", "codex-acp", &[]),
+    ("gemini-cli", "Gemini CLI", "gemini", &["--acp"]),
 ];
 
 /// Resolve a binary name to its full path using `which`.
@@ -158,6 +163,15 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
         if !backend.enabled {
             continue;
         }
+        if backend.distribution.is_none() {
+            app_warn!(
+                "acp_control",
+                "distribution",
+                "ACP backend '{}' has no verified distribution descriptor; refusing to register it",
+                backend.id
+            );
+            continue;
+        }
         let binary_path = if std::path::Path::new(&backend.binary).is_absolute() {
             if std::path::Path::new(&backend.binary).exists() {
                 Some(backend.binary.clone())
@@ -174,6 +188,7 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
                 backend.name.clone(),
                 path,
                 backend.acp_args.clone(),
+                backend.protocol,
                 backend.env.clone(),
             );
             registry.register(Arc::new(runtime)).await;
@@ -183,7 +198,7 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
     // 2. Auto-discover known binaries not yet registered
     if config.auto_discover {
         let registered = registry.list_ids().await;
-        for (id, name, binary) in KNOWN_BINARIES {
+        for (id, name, binary, args) in KNOWN_BINARIES {
             if registered.iter().any(|r| r.eq_ignore_ascii_case(id)) {
                 continue;
             }
@@ -192,7 +207,8 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
                     id.to_string(),
                     name.to_string(),
                     path,
-                    vec![],
+                    args.iter().map(|arg| (*arg).to_string()).collect(),
+                    AcpBackendProtocol::V1,
                     HashMap::new(),
                 );
                 registry.register(Arc::new(runtime)).await;

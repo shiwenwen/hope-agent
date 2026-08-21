@@ -276,6 +276,14 @@ fn build_router_with_cors(
         .route(
             "/api/design/share/{token}",
             get(routes::design::serve_share),
+        )
+        .route(
+            "/api/design/review-space",
+            get(routes::design::external_review_snapshot),
+        )
+        .route(
+            "/api/design/review-space/comments",
+            post(routes::design::external_review_comment).layer(DefaultBodyLimit::max(16 * 1024)),
         );
 
     // Protected API routes
@@ -1620,6 +1628,10 @@ fn build_router_with_cors(
         .route(
             "/config/external-memory-providers/sync",
             post(routes::config::run_external_memory_provider_sync),
+        )
+        .route(
+            "/config/external-memory-providers/{provider_id}/test",
+            post(routes::config::test_external_memory_provider_connection),
         )
         .route(
             "/config/external-memory-providers/{provider_id}/credentials",
@@ -3259,6 +3271,66 @@ fn build_router_with_cors(
                 .delete(routes::design::revoke_share),
         )
         .route(
+            "/design/artifacts/{id}/visual-regression",
+            post(routes::design::run_visual_regression),
+        )
+        .route(
+            "/design/artifacts/{id}/visual-baseline",
+            post(routes::design::accept_visual_baseline),
+        )
+        .route(
+            "/design/visual-baseline",
+            post(routes::design::accept_visual_baseline_unscoped),
+        )
+        .route(
+            "/design/artifacts/{id}/scenarios",
+            get(routes::design::get_scenarios).put(routes::design::save_scenarios),
+        )
+        .route(
+            "/design/projects/{id}/components",
+            get(routes::design::get_components_manifest),
+        )
+        .route(
+            "/design/projects/{id}/components/draft",
+            axum::routing::put(routes::design::save_components_draft),
+        )
+        .route(
+            "/design/projects/{id}/components/publish",
+            post(routes::design::publish_components_manifest),
+        )
+        .route(
+            "/design/components/publish",
+            post(routes::design::publish_components_manifest_unscoped),
+        )
+        .route(
+            "/design/projects/{id}/components/scan",
+            post(routes::design::scan_components),
+        )
+        .route(
+            "/design/artifacts/{id}/figma-roundtrip",
+            get(routes::design::list_figma_links).post(routes::design::preview_figma_roundtrip),
+        )
+        .route(
+            "/design/figma-roundtrip/commit",
+            post(routes::design::commit_figma_roundtrip),
+        )
+        .route(
+            "/design/figma-roundtrip/preview",
+            post(routes::design::preview_figma_roundtrip_unscoped),
+        )
+        .route(
+            "/design/artifacts/{id}/review-spaces",
+            get(routes::design::list_review_spaces).post(routes::design::create_review_space),
+        )
+        .route(
+            "/design/review-spaces",
+            post(routes::design::create_review_space_unscoped),
+        )
+        .route(
+            "/design/artifacts/{id}/review-spaces/{grant_id}",
+            axum::routing::delete(routes::design::revoke_review_space),
+        )
+        .route(
             "/design/deploy/config",
             get(routes::design::get_deploy_config).put(routes::design::save_deploy_config),
         )
@@ -3624,6 +3696,10 @@ fn build_router_with_cors(
         // System (desktop-only stubs)
         .route("/system/restart", post(routes::system::request_app_restart))
         .route("/system/timezone", get(routes::system::get_system_timezone))
+        .route(
+            "/system/toolchain-doctor",
+            get(routes::system::get_toolchain_doctor_report),
+        )
         // Desktop (desktop-only stubs)
         .route("/desktop/open-url", post(routes::desktop::open_url))
         .route(

@@ -413,6 +413,8 @@ async fn available_sandbox_backend() -> Option<AvailableSandboxBackend> {
 
 /// Ensure the specified image is available locally, pulling if needed.
 async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
+    ha_core::sandbox::validate_sandbox_image_reference(image)?;
+
     // Check if image exists locally
     if docker.inspect_image(image).await.is_ok() {
         return Ok(());
@@ -420,15 +422,12 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
 
     app_info!("sandbox", "docker", "Pulling Docker image: {}", image);
 
-    let (repo, tag) = if let Some(idx) = image.rfind(':') {
-        (&image[..idx], &image[idx + 1..])
-    } else {
-        (image, "latest")
-    };
-
     let options = CreateImageOptions {
-        from_image: Some(repo.to_string()),
-        tag: Some(tag.to_string()),
+        // Docker accepts name[:tag]@digest directly in fromImage. Keeping the
+        // complete reference is essential: splitting on the final colon would
+        // mistake sha256 for a mutable tag and silently drop content identity.
+        from_image: Some(image.to_string()),
+        tag: None,
         ..Default::default()
     };
 
@@ -446,7 +445,68 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
         }
     }
 
+    docker.inspect_image(image).await.map_err(|e| {
+        anyhow::anyhow!(
+            "Docker reported a successful pull but the pinned image '{}' is unavailable: {}",
+            image,
+            e
+        )
+    })?;
+
     Ok(())
+}
+
+fn hardened_host_config(config: &SandboxConfig, binds: Option<Vec<String>>) -> HostConfig {
+    let mut host_config = HostConfig {
+        binds,
+        readonly_rootfs: Some(config.read_only),
+        network_mode: Some(config.network_mode.clone()),
+        cap_drop: config.cap_drop_all.then(|| vec!["ALL".to_string()]),
+        security_opt: config
+            .no_new_privileges
+            .then(|| vec!["no-new-privileges".to_string()]),
+        pids_limit: config.pids_limit,
+        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
+            Some(
+                config
+                    .tmpfs
+                    .iter()
+                    .map(|entry| {
+                        let mut parts = entry.splitn(2, ':');
+                        (
+                            parts.next().unwrap_or_default().to_string(),
+                            parts.next().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect::<HashMap<_, _>>(),
+            )
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+    host_config.memory = config.memory_limit;
+    host_config.nano_cpus = config.cpu_limit.map(|cpus| (cpus * 1_000_000_000.0) as i64);
+    host_config
+}
+
+fn native_container_user() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let uid = unsafe { libc::getuid() };
+        let gid = unsafe { libc::getgid() };
+        // A root-owned Hope process must not turn the sandbox container into a
+        // root execution surface. Nobody is available in Debian slim.
+        Some(if uid == 0 {
+            "65534:65534".to_string()
+        } else {
+            format!("{uid}:{gid}")
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 /// Execute a command inside a Docker container.
@@ -474,18 +534,7 @@ async fn exec_in_native_docker(
     };
 
     // Resolve current UID:GID to avoid permission issues on mounted volumes
-    let user = {
-        #[cfg(unix)]
-        {
-            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
-                libc::getgid()
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            String::new()
-        }
-    };
+    let user = native_container_user();
 
     // Resolve absolute path for the working directory mount
     let host_cwd = std::path::Path::new(cwd).canonicalize().map_err(|e| {
@@ -501,48 +550,7 @@ async fn exec_in_native_docker(
 
     let bind_mount = format!("{}:/workspace", host_cwd.display());
 
-    // Build host config with resource limits and security hardening
-    let mut host_config = HostConfig {
-        binds: Some(vec![bind_mount]),
-        // Security: read-only root filesystem
-        readonly_rootfs: Some(config.read_only),
-        // Security: network isolation
-        network_mode: Some(config.network_mode.clone()),
-        // Security: drop all capabilities
-        cap_drop: if config.cap_drop_all {
-            Some(vec!["ALL".to_string()])
-        } else {
-            None
-        },
-        // Security: prevent privilege escalation
-        security_opt: if config.no_new_privileges {
-            Some(vec!["no-new-privileges".to_string()])
-        } else {
-            None
-        },
-        // Security: PID limit
-        pids_limit: config.pids_limit,
-        // tmpfs mounts for writable temp dirs when root is read-only
-        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
-            let mut map = HashMap::new();
-            for entry in &config.tmpfs {
-                let parts: Vec<&str> = entry.splitn(2, ':').collect();
-                let mount_point = parts[0].to_string();
-                let options = parts.get(1).unwrap_or(&"").to_string();
-                map.insert(mount_point, options);
-            }
-            Some(map)
-        } else {
-            None
-        },
-        ..Default::default()
-    };
-    if let Some(mem) = config.memory_limit {
-        host_config.memory = Some(mem);
-    }
-    if let Some(cpus) = config.cpu_limit {
-        host_config.nano_cpus = Some((cpus * 1_000_000_000.0) as i64);
-    }
+    let host_config = hardened_host_config(config, Some(vec![bind_mount]));
 
     // Create container
     let container_config = ContainerCreateBody {
@@ -558,7 +566,7 @@ async fn exec_in_native_docker(
         } else {
             Some(env_vec)
         },
-        user: if user.is_empty() { None } else { Some(user) },
+        user,
         host_config: Some(host_config),
         attach_stdout: Some(true),
         attach_stderr: Some(true),
@@ -783,6 +791,7 @@ async fn exec_in_wsl_docker(
     cancellation_token: Option<CancellationToken>,
     docker_endpoint: &str,
 ) -> Result<SandboxResult> {
+    ha_core::sandbox::validate_sandbox_image_reference(&config.image)?;
     let host_cwd = Path::new(cwd).canonicalize().map_err(|e| {
         anyhow::anyhow!(
             "Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.",
@@ -1309,6 +1318,28 @@ fn copy_dir_gitignore_aware_bounded(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_container_boundary_is_hardened_and_bounded() {
+        let config = SandboxConfig::default();
+        let host = hardened_host_config(&config, None);
+        assert_eq!(host.readonly_rootfs, Some(true));
+        assert_eq!(host.network_mode.as_deref(), Some("none"));
+        assert_eq!(host.cap_drop, Some(vec!["ALL".to_string()]));
+        assert_eq!(
+            host.security_opt,
+            Some(vec!["no-new-privileges".to_string()])
+        );
+        assert_eq!(host.pids_limit, Some(256));
+        assert_eq!(host.memory, Some(512 * 1024 * 1024));
+        assert_eq!(host.nano_cpus, Some(1_000_000_000));
+        let tmpfs = host.tmpfs.expect("writable temp mounts");
+        assert_eq!(tmpfs.get("/tmp").map(String::as_str), Some("size=64M"));
+        assert_eq!(tmpfs.get("/var/tmp").map(String::as_str), Some("size=32M"));
+        assert_eq!(tmpfs.get("/run").map(String::as_str), Some("size=16M"));
+        #[cfg(unix)]
+        assert_ne!(native_container_user().as_deref(), Some("0:0"));
+    }
 
     #[test]
     fn isolated_copy_copies_regular_files_and_skips_generated_dirs() {
@@ -1909,18 +1940,7 @@ async fn exec_in_native_docker_with_workspace(
     };
 
     // Resolve current UID:GID to avoid permission issues on mounted volumes
-    let user = {
-        #[cfg(unix)]
-        {
-            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
-                libc::getgid()
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            String::new()
-        }
-    };
+    let user = native_container_user();
 
     let (binds, volumes) = match workspace {
         NativeWorkspaceSource::Bind(host_cwd) => {
@@ -1942,48 +1962,7 @@ async fn exec_in_native_docker_with_workspace(
         NativeWorkspaceSource::Archive(_) => (None, Some(vec!["/workspace".to_string()])),
     };
 
-    // Build host config with resource limits and security hardening
-    let mut host_config = HostConfig {
-        binds,
-        // Security: read-only root filesystem
-        readonly_rootfs: Some(config.read_only),
-        // Security: network isolation
-        network_mode: Some(config.network_mode.clone()),
-        // Security: drop all capabilities
-        cap_drop: if config.cap_drop_all {
-            Some(vec!["ALL".to_string()])
-        } else {
-            None
-        },
-        // Security: prevent privilege escalation
-        security_opt: if config.no_new_privileges {
-            Some(vec!["no-new-privileges".to_string()])
-        } else {
-            None
-        },
-        // Security: PID limit
-        pids_limit: config.pids_limit,
-        // tmpfs mounts for writable temp dirs when root is read-only
-        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
-            let mut map = HashMap::new();
-            for entry in &config.tmpfs {
-                let parts: Vec<&str> = entry.splitn(2, ':').collect();
-                let mount_point = parts[0].to_string();
-                let options = parts.get(1).unwrap_or(&"").to_string();
-                map.insert(mount_point, options);
-            }
-            Some(map)
-        } else {
-            None
-        },
-        ..Default::default()
-    };
-    if let Some(mem) = config.memory_limit {
-        host_config.memory = Some(mem);
-    }
-    if let Some(cpus) = config.cpu_limit {
-        host_config.nano_cpus = Some((cpus * 1_000_000_000.0) as i64);
-    }
+    let host_config = hardened_host_config(config, binds);
 
     // Create container
     let container_config = ContainerCreateBody {
@@ -1999,7 +1978,7 @@ async fn exec_in_native_docker_with_workspace(
         } else {
             Some(env_vec)
         },
-        user: if user.is_empty() { None } else { Some(user) },
+        user,
         volumes,
         host_config: Some(host_config),
         attach_stdout: Some(true),

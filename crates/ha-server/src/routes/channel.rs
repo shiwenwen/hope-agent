@@ -183,7 +183,7 @@ pub async fn health(Path(account_id): Path<String>) -> Result<Json<ChannelHealth
 
 /// `GET /api/channel/health`
 pub async fn health_all() -> Result<Json<Vec<(String, ChannelHealth)>>, AppError> {
-    Ok(Json(registry()?.list_running().await))
+    Ok(Json(registry()?.list_health_with_probes().await))
 }
 
 #[derive(Debug, Deserialize)]

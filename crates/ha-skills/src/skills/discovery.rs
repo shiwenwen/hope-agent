@@ -139,11 +139,22 @@ pub(super) fn load_skills_from_dir(
     budget: &SkillPromptBudget,
 ) -> Vec<SkillEntry> {
     let mut total_candidates = 0usize;
-    load_skills_from_dir_recursive(dir, source, budget, 0, &mut total_candidates)
+    let Ok(canonical_root) = dir.canonicalize() else {
+        return Vec::new();
+    };
+    load_skills_from_dir_recursive(
+        dir,
+        &canonical_root,
+        source,
+        budget,
+        0,
+        &mut total_candidates,
+    )
 }
 
 fn load_skills_from_dir_recursive(
     dir: &Path,
+    canonical_root: &Path,
     source: &str,
     budget: &SkillPromptBudget,
     depth: usize,
@@ -154,6 +165,22 @@ fn load_skills_from_dir_recursive(
     // MAX_SKILL_DEPTH` the call would only see SKILL.md beyond the cap, so
     // bail out early without even reading the directory.
     if depth + 1 > MAX_SKILL_DEPTH {
+        return Vec::new();
+    }
+
+    // A symlinked category/skill directory must not escape the configured
+    // source root. read_dir's entry file_type check below rejects directory
+    // symlinks; this canonical boundary is the defense-in-depth backstop.
+    let Ok(canonical_dir) = dir.canonicalize() else {
+        return Vec::new();
+    };
+    if !canonical_dir.starts_with(canonical_root) {
+        app_warn!(
+            "skills",
+            "loader",
+            "Skipping skill directory outside configured source root: {}",
+            dir.display()
+        );
         return Vec::new();
     }
 
@@ -177,13 +204,19 @@ fn load_skills_from_dir_recursive(
             break;
         }
 
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
         let path = entry.path();
-        if !path.is_dir() {
+        if file_type.is_symlink() || !file_type.is_dir() {
             continue;
         }
 
         let skill_md = path.join("SKILL.md");
-        if skill_md.is_file() {
+        let skill_md_is_regular = std::fs::symlink_metadata(&skill_md)
+            .map(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+            .unwrap_or(false);
+        if skill_md_is_regular {
             if let Some(skill) = load_single_skill(&skill_md, &path, source, budget.max_file_bytes)
             {
                 entries.push(skill);
@@ -203,12 +236,71 @@ fn load_skills_from_dir_recursive(
         } else {
             path
         };
-        let nested =
-            load_skills_from_dir_recursive(&target, source, budget, depth + 1, total_candidates);
+        let nested = load_skills_from_dir_recursive(
+            &target,
+            canonical_root,
+            source,
+            budget,
+            depth + 1,
+            total_candidates,
+        );
         entries.extend(nested);
     }
 
     entries
+}
+
+/// Standard repository skill sources, ordered from lowest to highest
+/// precedence: repository root first, current working directory last. Scanning
+/// stops at the nearest `.git` directory/file; outside a repository only the
+/// current directory is considered. Symlinked `.agents/skills` roots are
+/// rejected so another tree cannot inherit this repository's discovery scope.
+pub(super) fn workspace_skill_sources(cwd: &Path) -> Vec<(PathBuf, String)> {
+    let Ok(canonical_cwd) = cwd.canonicalize() else {
+        return Vec::new();
+    };
+    if !canonical_cwd.is_dir() {
+        return Vec::new();
+    }
+    let repository_root = canonical_cwd
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .unwrap_or(canonical_cwd.as_path())
+        .to_path_buf();
+    let mut ancestors = Vec::new();
+    for ancestor in canonical_cwd.ancestors() {
+        ancestors.push(ancestor.to_path_buf());
+        if ancestor == repository_root {
+            break;
+        }
+    }
+    ancestors.reverse();
+
+    ancestors
+        .into_iter()
+        .filter_map(|ancestor| {
+            let candidate = ancestor.join(".agents").join("skills");
+            let metadata = std::fs::symlink_metadata(&candidate).ok()?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return None;
+            }
+            if candidate.canonicalize().ok().as_deref() != Some(candidate.as_path()) {
+                app_warn!(
+                    "skills",
+                    "discovery",
+                    "Skipping aliased repository skill source: {}",
+                    candidate.display()
+                );
+                return None;
+            }
+            let source = if ancestor == canonical_cwd {
+                "workspace-shared"
+            } else {
+                "repo-ancestor"
+            };
+            Some((candidate, source.to_string()))
+        })
+        .collect()
 }
 
 /// Load a single skill from its SKILL.md file.
@@ -287,7 +379,8 @@ fn load_single_skill(
 /// 1. Shared skills (~/.agents/skills/, cross-tool convention)
 /// 2. Extra directories (user-imported)
 /// 3. Managed skills (~/.hope-agent/skills/)
-/// 4. Project-specific skills (.hope-agent/skills/ in cwd, highest)
+/// 4. Repository-standard skills (`.agents/skills`) from repo root to cwd
+/// 5. Hope project skills (`.hope-agent/skills/` in cwd, highest)
 pub fn load_all_skills_with_extra(extra_dirs: &[String]) -> Vec<SkillEntry> {
     load_all_skills_with_budget(extra_dirs, &SkillPromptBudget::default())
 }
@@ -333,11 +426,24 @@ pub fn load_all_skills_with_budget(
         sources.push((dir, "managed".to_string()));
     }
 
-    // 4. Project-specific skills: .hope-agent/skills/ relative to cwd
+    // 4. Standard repository skills: every .agents/skills from the nearest
+    // repository root down to cwd. More specific descendants are loaded later
+    // and therefore override ancestor names deterministically.
     if let Ok(cwd) = std::env::current_dir() {
-        let project_skills = cwd.join(".hope-agent").join("skills");
-        if project_skills.is_dir() {
-            sources.push((project_skills, "project".to_string()));
+        sources.extend(workspace_skill_sources(&cwd));
+
+        // 5. Hope project-specific skills remain the highest-precedence source
+        // for backward compatibility. Reject path aliases/symlinks just like
+        // the portable repository sources.
+        if let Ok(canonical_cwd) = cwd.canonicalize() {
+            let project_skills = canonical_cwd.join(".hope-agent").join("skills");
+            let project_is_canonical_dir = std::fs::symlink_metadata(&project_skills)
+                .map(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+                .unwrap_or(false)
+                && project_skills.canonicalize().ok().as_deref() == Some(project_skills.as_path());
+            if project_is_canonical_dir {
+                sources.push((project_skills, "project".to_string()));
+            }
         }
     }
 

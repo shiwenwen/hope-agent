@@ -929,6 +929,7 @@ impl ChannelPlugin for SlackPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Some(auth.user),
+                capability_snapshot: None,
             }),
             Err(e) => Ok(ChannelHealth {
                 is_running: false,
@@ -937,6 +938,7 @@ impl ChannelPlugin for SlackPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

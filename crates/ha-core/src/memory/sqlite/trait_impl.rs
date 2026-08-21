@@ -1038,9 +1038,14 @@ impl MemoryBackend for SqliteMemoryBackend {
         let embedding = if let (Some(ref att_path), Some(ref att_mime)) =
             (&entry.attachment_path, &entry.attachment_mime)
         {
-            self.generate_multimodal_embedding(&entry.content, att_path, att_mime)
+            self.generate_multimodal_embedding(
+                &entry.content,
+                att_path,
+                att_mime,
+                crate::memory::EmbeddingPurpose::Document,
+            )
         } else {
-            self.generate_embedding(&entry.content)
+            self.generate_embedding(&entry.content, crate::memory::EmbeddingPurpose::Document)
         };
         let embedding_bytes: Option<Vec<u8>> = embedding
             .as_ref()
@@ -1109,7 +1114,7 @@ impl MemoryBackend for SqliteMemoryBackend {
         let tags_json = serde_json::to_string(tags)?;
 
         // Regenerate embedding if provider is configured
-        let embedding = self.generate_embedding(content);
+        let embedding = self.generate_embedding(content, crate::memory::EmbeddingPurpose::Document);
         let embedding_bytes: Option<Vec<u8>> = embedding
             .as_ref()
             .map(|v| v.iter().flat_map(|f| f.to_le_bytes()).collect());
@@ -1411,7 +1416,7 @@ impl MemoryBackend for SqliteMemoryBackend {
         // Try hybrid search (FTS5 + vector), fall back to FTS5-only
         let active_signature = crate::memory::helpers::active_embedding_signature();
         let query_embedding = if active_signature.is_some() {
-            self.generate_embedding(&query.query)
+            self.generate_embedding(&query.query, crate::memory::EmbeddingPurpose::Query)
         } else {
             None
         };
@@ -3251,11 +3256,19 @@ mod claim_injection_tests {
     struct FixedEmbedder;
 
     impl EmbeddingProvider for FixedEmbedder {
-        fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+        fn embed(
+            &self,
+            _text: &str,
+            _purpose: crate::memory::EmbeddingPurpose,
+        ) -> Result<Vec<f32>> {
             Ok(vec![0.25, 0.5, 0.75])
         }
 
-        fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        fn embed_batch(
+            &self,
+            texts: &[String],
+            _purpose: crate::memory::EmbeddingPurpose,
+        ) -> Result<Vec<Vec<f32>>> {
             Ok(texts.iter().map(|_| vec![0.25, 0.5, 0.75]).collect())
         }
 

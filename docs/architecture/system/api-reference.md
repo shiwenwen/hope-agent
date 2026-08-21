@@ -925,6 +925,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `test_proxy` | `POST /api/config/proxy/test` | ✅ |
 | `has_providers` | `GET /api/providers/has-any` | ✅ |
 | `get_system_timezone` | `GET /api/system/timezone` | ✅ |
+| `get_toolchain_doctor_report` | `GET /api/system/toolchain-doctor` | ✅；只读固定探针，返回 `detected/supported/degraded/blocked`、版本与脱敏诊断代码，不安装/升级/启动/改配置 |
 | `check_auth_status` | `GET /api/auth/codex/status` | ✅ |
 | `logout_codex` | `POST /api/auth/codex/logout` | ✅ |
 | `try_restore_session` | `POST /api/auth/session/restore` | ✅ |
@@ -1002,6 +1003,20 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `get_design_share_cmd` | `GET /api/design/artifacts/{artifactId}/share` | ✅ |
 | `revoke_design_share_cmd` | `DELETE /api/design/artifacts/{artifactId}/share` | ✅ |
 | _(公开只读快照，无鉴权)_ | `GET /api/design/share/{token}` | ✅ HTTP-only |
+| `run_design_visual_regression_cmd` | `POST /api/design/artifacts/{artifactId}/visual-regression`（固定三视口截图 + 像素差 + 静态 DOM/a11y） | ✅ |
+| `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（显式 owner 接受，`expectedArtifactHash` 防陈旧写） | ✅ |
+| `get/save_design_scenarios_cmd` | `GET/PUT /api/design/artifacts/{artifactId}/scenarios`（≤12 场景、≤4 视口、本地 route） | ✅ |
+| `get_design_components_manifest_cmd` | `GET /api/design/projects/{projectId}/components?draft=` | ✅ |
+| `save_design_components_draft_cmd` | `PUT /api/design/projects/{projectId}/components/draft` | ✅ |
+| `publish_design_components_manifest_cmd` | `POST /api/design/components/publish`（expected published hash） | ✅ |
+| `scan_design_components_cmd` | `POST /api/design/projects/{projectId}/components/scan`（绑定仓库只读扫描） | ✅ |
+| `preview_figma_roundtrip_cmd` | `POST /api/design/figma-roundtrip/preview`（10 分钟一次性预览，无外部调用） | ✅ |
+| `commit_figma_roundtrip_cmd` | `POST /api/design/figma-roundtrip/commit`（消费预览后调用 Figma MCP） | ✅ |
+| `list_figma_roundtrip_links_cmd` | `GET /api/design/artifacts/{artifactId}/figma-roundtrip`（不含凭据的链接元数据） | ✅ |
+| `create_design_review_space_cmd` | `POST /api/design/review-spaces`（viewer/commenter，token 仅回一次） | ✅ |
+| `list_design_review_spaces_cmd` | `GET /api/design/artifacts/{artifactId}/review-spaces` | ✅ |
+| `revoke_design_review_space_cmd` | `DELETE /api/design/artifacts/{artifactId}/review-spaces/{grantId}` | ✅ |
+| _(固定版本评审，review bearer)_ | `GET /api/design/review-space` · `POST /api/design/review-space/comments` | ✅ HTTP-only |
 | `save_cf_deploy_config_cmd` | `PUT /api/design/deploy/config` | ✅ |
 | `get_cf_deploy_config_cmd` | `GET /api/design/deploy/config` | ✅ |
 | `deploy_design_artifact_cmd` | `POST /api/design/artifacts/{artifactId}/deploy` | ✅ |
@@ -1366,6 +1381,14 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `save_memory_selection_config` | `PUT /api/config/memory-selection` | ✅ |
 | `get_memory_budget_config` | `GET /api/config/memory-budget` | ✅ |
 | `save_memory_budget_config` | `PUT /api/config/memory-budget` | ✅ |
+| `get_external_memory_providers_config` | `GET /api/config/external-memory-providers` | ✅ |
+| `get_external_memory_providers_preflight` | `GET /api/config/external-memory-providers/preflight` | ✅（零网络） |
+| `run_external_memory_provider_sync` | `POST /api/config/external-memory-providers/sync` | ✅ |
+| `test_external_memory_provider_connection` | `POST /api/config/external-memory-providers/{providerId}/test` | ✅（owner 显式触发版本/能力探测） |
+| `get_external_memory_provider_credential_status` | `GET /api/config/external-memory-providers/{providerId}/credentials` | ✅ |
+| `save_external_memory_provider_credentials` | `PUT /api/config/external-memory-providers/{providerId}/credentials` | ✅ |
+| `clear_external_memory_provider_credentials` | `DELETE /api/config/external-memory-providers/{providerId}/credentials` | ✅ |
+| `save_external_memory_providers_config` | `PUT /api/config/external-memory-providers` | ✅ |
 
 `get_deferred_tools_config` 会把旧配置（缺少 `mode`）按 `DeferredToolsConfig::effective_mode()` 归一化后返回，确保 Tauri / HTTP 界面展示与运行时策略一致；磁盘兼容字段保持原样，只有显式保存才写入 V2 `mode`。
 

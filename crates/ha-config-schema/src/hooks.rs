@@ -14,6 +14,17 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Content-bound trust for one canonical workspace's project/local Hook files.
+/// A missing file is represented by the stable `"missing"` sentinel; adding,
+/// removing, moving, or changing either file invalidates the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookWorkspaceTrust {
+    pub canonical_path: String,
+    pub project_hash: String,
+    pub local_hash: String,
+}
+
 /// Top-level `hooks` config. One ordered list of matcher groups per event.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -164,6 +175,11 @@ pub struct CommandHookConfig {
     /// command runs through the shell (`<shell> -c command`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// Process environment variables explicitly inherited from the Hope Agent
+    /// process. Command Hooks otherwise run with a minimal, secret-free
+    /// environment plus the synthetic HOPE_/CLAUDE_ variables.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_env_vars: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shell: Option<HookShell>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

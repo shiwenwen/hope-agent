@@ -127,7 +127,7 @@ NAS 图形界面不能展开 `${DOCKER_GID}` 时，先运行 `stat`，再把数�
 
 如果你的部署不需要浏览器能力（例如纯 IM 机器人），可以 fork 仓库后从 [`Dockerfile`](../../Dockerfile) 的 runtime 阶段移除 `chromium` 及其依赖（`fonts-liberation` / `libnss3` / `libgbm1` / `libxss1`），重建后镜像更小。
 
-无 `chromium` 包的环境（比如自建的极简镜像）下，agent 仍可以通过 `profile.op=install_runtime` 在运行期下载固定版本的 Chromium snapshot 兜底，落 `~/.hope-agent/browser/runtime/`。
+无 `chromium` 包的环境（比如自建的极简镜像）下，agent 仍可以通过 `profile.op=install_runtime` 在运行期下载 manifest 固定版本与 SHA-256 的 Chrome for Testing 兜底，落 `~/.hope-agent/browser/runtime/`。
 
 ## Ollama 本地 LLM
 

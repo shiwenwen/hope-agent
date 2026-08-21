@@ -5,6 +5,7 @@
 //! path 参数，避免 body 与 path 参数混用。
 
 use axum::extract::{Path, Query, Request};
+use axum::http::{header, HeaderMap};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -113,6 +114,52 @@ pub struct ImportFigmaBody {
     pub token: String,
     #[serde(default)]
     pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QualityAcceptBody {
+    pub input: ha_design::design::quality::AcceptBaselineInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveScenariosBody {
+    pub manifest: ha_design::design::scenarios::ScenariosManifest,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveComponentsDraftBody {
+    pub manifest: ha_design::design::components_manifest::ComponentsManifest,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PublishComponentsBody {
+    pub input: ha_design::design::components_manifest::PublishManifestInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FigmaPreviewBody {
+    pub input: ha_design::design::figma_roundtrip::FigmaRoundtripRequest,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FigmaCommitBody {
+    pub input: ha_design::design::figma_roundtrip::CommitFigmaRoundtripInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateReviewSpaceBody {
+    pub input: ha_design::design::review_space::CreateReviewInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddExternalReviewCommentBody {
+    pub input: ha_design::design::review_space::AddReviewCommentInput,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ComponentsQuery {
+    #[serde(default)]
+    pub draft: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -955,6 +1002,282 @@ pub async fn revoke_share(Path(id): Path<String>) -> Result<Json<Value>, AppErro
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": ok })))
+}
+
+pub async fn run_visual_regression(
+    Path(id): Path<String>,
+) -> Result<Json<ha_design::design::quality::QualityRun>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_design::design::quality::run(&id)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn accept_visual_baseline(
+    Path(id): Path<String>,
+    Json(body): Json<QualityAcceptBody>,
+) -> Result<Json<ha_design::design::quality::QualityManifest>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_design::design::quality::accept(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn accept_visual_baseline_unscoped(
+    Json(body): Json<QualityAcceptBody>,
+) -> Result<Json<ha_design::design::quality::QualityManifest>, AppError> {
+    Ok(Json(
+        ha_design::design::quality::accept(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn get_scenarios(
+    Path(id): Path<String>,
+) -> Result<Json<ha_design::design::scenarios::ScenariosManifest>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || ha_design::design::scenarios::get(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn save_scenarios(
+    Path(id): Path<String>,
+    Json(body): Json<SaveScenariosBody>,
+) -> Result<Json<ha_design::design::scenarios::ScenariosManifest>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::scenarios::save(&id, body.manifest)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn get_components_manifest(
+    Path(id): Path<String>,
+    Query(query): Query<ComponentsQuery>,
+) -> Result<Json<ha_design::design::components_manifest::ManifestEnvelope>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            if query.draft {
+                ha_design::design::components_manifest::get_draft(&id)
+            } else {
+                ha_design::design::components_manifest::get_published(&id)
+            }
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn save_components_draft(
+    Path(id): Path<String>,
+    Json(body): Json<SaveComponentsDraftBody>,
+) -> Result<Json<ha_design::design::components_manifest::ManifestEnvelope>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::components_manifest::save_draft(&id, body.manifest)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn publish_components_manifest(
+    Path(id): Path<String>,
+    Json(body): Json<PublishComponentsBody>,
+) -> Result<Json<ha_design::design::components_manifest::ManifestEnvelope>, AppError> {
+    validate_id(&id)?;
+    if body.input.project_id != id {
+        return Err(AppError::bad_request("project id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::components_manifest::publish(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn publish_components_manifest_unscoped(
+    Json(body): Json<PublishComponentsBody>,
+) -> Result<Json<ha_design::design::components_manifest::ManifestEnvelope>, AppError> {
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::components_manifest::publish(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn scan_components(
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_design::design::components_manifest::ComponentEntry>>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::components_manifest::scan_candidates(&id)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn preview_figma_roundtrip(
+    Path(id): Path<String>,
+    Json(body): Json<FigmaPreviewBody>,
+) -> Result<Json<ha_design::design::figma_roundtrip::FigmaRoundtripPreview>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::figma_roundtrip::preview(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn preview_figma_roundtrip_unscoped(
+    Json(body): Json<FigmaPreviewBody>,
+) -> Result<Json<ha_design::design::figma_roundtrip::FigmaRoundtripPreview>, AppError> {
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::figma_roundtrip::preview(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn commit_figma_roundtrip(
+    Json(body): Json<FigmaCommitBody>,
+) -> Result<Json<ha_design::design::figma_roundtrip::FigmaRoundtripResult>, AppError> {
+    Ok(Json(
+        ha_design::design::figma_roundtrip::commit(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn list_figma_links(
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_design::design::figma_roundtrip::FigmaLink>>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::figma_roundtrip::list_links(&id)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn create_review_space(
+    Path(id): Path<String>,
+    Json(body): Json<CreateReviewSpaceBody>,
+) -> Result<Json<ha_design::design::review_space::CreatedReviewGrant>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::review_space::create(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn create_review_space_unscoped(
+    Json(body): Json<CreateReviewSpaceBody>,
+) -> Result<Json<ha_design::design::review_space::CreatedReviewGrant>, AppError> {
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::review_space::create(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn list_review_spaces(
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_design::design::review_space::ReviewGrant>>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || ha_design::design::review_space::list(&id))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn revoke_review_space(
+    Path((id, grant_id)): Path<(String, String)>,
+) -> Result<Json<bool>, AppError> {
+    validate_id(&id)?;
+    validate_id(&grant_id)?;
+    let ok = ha_core::blocking::run_blocking(move || {
+        ha_design::design::review_space::revoke(&id, &grant_id)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(ok))
+}
+
+fn review_bearer(headers: &HeaderMap) -> Result<String, AppError> {
+    let raw = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| AppError::unauthorized("review bearer token required"))?;
+    Ok(raw.to_string())
+}
+
+/// 公共评审面只接受 scope 受限的 review bearer；不接受 URL token。
+pub async fn external_review_snapshot(
+    headers: HeaderMap,
+) -> Result<Json<ha_design::design::review_space::ReviewSnapshot>, AppError> {
+    let token = review_bearer(&headers)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || ha_design::design::review_space::snapshot(&token))
+            .await
+            .map_err(|_| AppError::unauthorized("invalid or expired review grant"))?,
+    ))
+}
+
+pub async fn external_review_comment(
+    headers: HeaderMap,
+    Json(body): Json<AddExternalReviewCommentBody>,
+) -> Result<Json<ha_design::design::review_space::ReviewComment>, AppError> {
+    let token = review_bearer(&headers)?;
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::review_space::add_comment(&token, body.input)
+        })
+        .await
+        .map_err(|_| AppError::unauthorized("invalid review grant or comment"))?,
+    ))
 }
 
 /// `GET /api/design/share/{token}` — **公开（无鉴权）**只读快照。token 是唯一不可猜凭证；

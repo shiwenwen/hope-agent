@@ -1,0 +1,30 @@
+{
+  "notes": [
+    {
+      "kbId": "operations",
+      "relPath": "runbooks/incident.md",
+      "markdown": "# 事故手册\n\n旧流程标识为 `OBSOLETE_INCIDENT_ROUTE_1024`。\n"
+    },
+    {
+      "kbId": "operations",
+      "relPath": "runbooks/incident.md",
+      "markdown": "# 事故手册\n\n## 当前流程\n\n当前流程标识为 `CURRENT_INCIDENT_ROUTE_2048`，重建索引后只能召回这一版本。\n"
+    }
+  ],
+  "queries": [
+    {
+      "id": "replacement-removes-stale-index-version",
+      "kbIds": ["operations"],
+      "query": "CURRENT_INCIDENT_ROUTE_2048",
+      "expectedPaths": ["operations:runbooks/incident.md"],
+      "expectedHeading": "事故手册 > 当前流程",
+      "requireSourceCoordinates": true
+    },
+    {
+      "id": "stale-term-no-longer-retrievable",
+      "kbIds": ["operations"],
+      "query": "OBSOLETE_INCIDENT_ROUTE_1024",
+      "forbiddenPaths": ["operations:runbooks/incident.md"]
+    }
+  ]
+}

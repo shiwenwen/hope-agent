@@ -304,6 +304,16 @@
     "removeConfig": "Remover",
     "running": "Em execução",
     "selectChannel": "Selecionar canal",
+    "nativeReply": "Respostas nativas em streaming",
+    "nativeReplyHint": "Usa o fluxo de resposta nativo da plataforma. Ao desativar, volta imediatamente para mensagens comuns.",
+    "imsgProtocolV1": "Protocolo imsg confiável",
+    "imsgProtocolV1Hint": "Negocia o protocolo v1, recupera estouros do watch e supervisiona reinícios do subprocesso. Desative para usar o RPC legado.",
+    "googleChatStandardMarkdown": "Markdown padrão",
+    "googleChatStandardMarkdownHint": "Usa o Markdown padrão do Google Chat em novas mensagens de texto. Desative para usar a sintaxe legada do Chat.",
+    "discordChannelObfuscation": "Testar ofuscação de canais privados",
+    "discordChannelObfuscationHint": "Inclui esta conta no comportamento temporário do Gateway do Discord. Canais ocultos nunca são selecionados nem processados.",
+    "discordFileRequests": "Solicitações nativas de arquivo do Discord",
+    "discordFileRequestsHint": "Permite que perguntas estruturadas abram o envio de um único arquivo. O servidor revalida tipo, tamanho e vínculo da conversa.",
     "showThinking": "Mostrar o raciocínio nas mensagens de IM",
     "showThinkingHint": "Quando ativado, o raciocínio do modelo é apresentado como bloco citado antes da resposta de cada rodada. Padrão desativado.",
     "signalAccount": "Número de telefone",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "Alto",
     "low": "Baixo",
+    "max": "Máximo",
     "medium": "Médio",
     "minimal": "Mínimo",
     "none": "Desligado",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "ID",
     "acpBackends": "Backends ACP",
     "acpBinary": "Binário",
+    "acpDistribution": "Descritor de distribuição",
+    "acpDistributionPackage": "Pacote ou produto",
+    "acpDistributionRequired": "Este backend legado fica bloqueado até que sua distribuição de inicialização seja definida explicitamente.",
+    "acpDistributionVersion": "Versão fixada",
+    "acpLaunchArgs": "Argumentos de inicialização",
+    "acpProtocol": "Protocolo",
+    "acpTrustDistribution": "Definir distribuição",
     "acpControl": "Plano de controle ACP",
     "acpControlDesc": "Gerenciar agents ACP externos (Claude Code, Codex CLI, Gemini CLI, etc.)",
     "acpEnabled": "Ativar plano de controle ACP",
@@ -5431,8 +5449,12 @@
       "intro": "Execute comandos personalizados / HTTP / instruções / subagentes em eventos do ciclo de vida. Compatível em nível de campo com os hooks do Claude Code.",
       "disableAll": "Desativar todos os hooks",
       "disableAllDesc": "Interruptor mestre — desliga todos os hooks em todos os escopos.",
-      "allowProjectScope": "Permitir hooks de projeto e locais",
-      "allowProjectScopeDesc": "Permite que .hope-agent/hooks.json e hooks.local.json no diretório de trabalho adicionem hooks — útil para compartilhar com sua equipe. Desativado por padrão porque podem executar comandos sozinhos, então ative apenas para projetos em que você confia.",
+      "trustedProjectScopes": "Espaços de trabalho Hook confiáveis",
+      "trustedProjectScopesDesc": "Aprove os arquivos Hook de projeto e locais um espaço de trabalho por vez. Informe o caminho absoluto exato; aliases e links simbólicos são rejeitados.",
+      "workspacePath": "Caminho absoluto do espaço de trabalho",
+      "trustWorkspace": "Confiar no conteúdo",
+      "noTrustedWorkspaces": "Nenhum arquivo Hook de espaço de trabalho é confiável.",
+      "trustContentBound": "Ao salvar, a confiança fica vinculada ao conteúdo atual. Mudanças, movimentos ou aliases de caminho os desativam até nova revisão e salvamento.",
       "scopeNote": "Este painel edita hooks do escopo user. Os escopos project (.hope-agent/hooks.json, compartilhado pelo repositório), local (hooks.local.json) e managed (/etc/hope-agent/hooks.json) são baseados em arquivo e mesclados por cima.",
       "pickEvent": "Selecione um evento…",
       "addHook": "Adicionar hook",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker indisponível",
     "sandboxImage": "Imagem",
     "sandboxImageDesc": "Imagem do Docker usada pelo ambiente isolado.",
+    "sandboxImageDigestRequired": "Fixe a imagem como name@sha256:<resumo de 64 dígitos>; tags mutáveis são rejeitadas.",
     "sandboxMemoryLimit": "Limite de memória",
     "sandboxNetworkBridge": "Ponte",
     "sandboxNetworkHost": "Anfitrião",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "Ponto de conexão ausente",
     "memoryExternalProviderBlockPolicyUnsupported": "Política sem suporte",
     "memoryExternalProviderBlockAdapterUnavailable": "Adaptador indisponível",
+    "memoryExternalProviderBlockCompatibilityUnverified": "Compatibilidade não verificada",
+    "memoryExternalProviderBlockCompatibilityBlocked": "Versão insegura do provedor",
     "memoryExternalProviderBlockLastError": "Último erro",
     "memoryExternalProviderErrors": {
       "load": "Falha ao carregar provedores de memória externa",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "Falha ao carregar a conexão do provedor de memória externa",
       "saveCredentials": "Falha ao salvar a conexão do provedor de memória externa",
       "clearCredentials": "Falha ao limpar a conexão do provedor de memória externa",
+      "testConnection": "Falha ao testar a conexão do provedor de memória externa",
       "copyPreflightDiagnostics": "Falha ao copiar a simulação do provedor de memória externa",
       "copySyncDiagnostics": "Falha ao copiar o relatório de sincronização do provedor de memória externa",
       "detail": "Detalhes: {{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "As credenciais são armazenadas separadamente com permissões de arquivo restritas.",
     "memoryExternalProviderConnectionSaved": "Conexão salva",
     "memoryExternalProviderConnectionCleared": "Conexão apagada",
+    "memoryExternalProviderConnectionTest": "Testar conexão",
+    "memoryExternalProviderCompatibilityPassed": "A conexão e a verificação de compatibilidade foram aprovadas",
+    "memoryExternalProviderCompatibilityUnverified": "A conexão foi alcançada, mas não foi possível verificar a versão do provedor",
+    "memoryExternalProviderCompatibilityBlocked": "A versão do provedor está abaixo do mínimo seguro",
+    "memoryExternalProviderCompatibilitySummary": "Status: {{status}} · detectada {{detected}} · mínima {{minimum}}",
     "memoryExternalProviderEndpoint": "Ponto de conexão",
     "memoryExternalProviderEndpointKeep": "Armazenado: {{origin}} · deixe em branco para manter",
     "memoryExternalProviderSubjectId": "ID do escopo remoto",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "Corrigir com IA",
       "fixStarted": "A IA está corrigindo",
       "fixBusy": "Há uma conversa em andamento, tente novamente em breve",
-      "fixPrompt": "Corrija o problema encontrado pela autoverificação de design: {{detail}}. Use tokens do sistema de design (var(--ds-*)) para consolidar as cores e substituir estilos codificados. Faça apenas as alterações mínimas necessárias e mantenha o restante do design intacto."
+      "fixPrompt": "Corrija o problema encontrado pela autoverificação de design: {{detail}}. Use tokens do sistema de design (var(--ds-*)) para consolidar as cores e substituir estilos codificados. Faça apenas as alterações mínimas necessárias e mantenha o restante do design intacto.",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "Kit do sistema de design",
@@ -12279,7 +12318,15 @@
       "copyLink": "Copiar link",
       "copied2": "Copiado",
       "loadErr": "Falha ao carregar o status",
-      "shareTo": "Compartilhar em"
+      "shareTo": "Compartilhar em",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "Implantar no Cloudflare Pages",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "Todos os artefatos correspondem ao seu código",
       "checkStale": "{{n}} artefatos têm atualizações de código",
       "chatPrompt": "O código implementado divergiu deste design. Atualize o design atual para refletir as alterações de código referenciadas, mantendo a intenção do design e todo o resto inalterado."
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "Configuração",
       "user": "Configurações do usuário"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "Diagnóstico da cadeia de ferramentas",
+    "description": "Verificações somente leitura dos ambientes do sistema e das ferramentas de desenvolvimento opcionais. O Hope Agent não instala, atualiza, inicia nem reconfigura nada.",
+    "refresh": "Verificar novamente",
+    "loading": "Verificando as ferramentas locais…",
+    "loadFailed": "Falha nas verificações de ferramentas",
+    "readOnlyNotice": "São informadas versões, disponibilidade, acesso ao Docker, classe de contexto, classe de proprietário do socket e wrappers temporários sem expor caminhos ou credenciais.",
+    "detectedVersion": "Detectado {{version}}",
+    "notDetected": "Não detectado",
+    "minimumVersion": "Mínimo {{version}}",
+    "diagnosticFacts": "Códigos de diagnóstico",
+    "status": {
+      "detected": "Detectado",
+      "supported": "Compatível",
+      "degraded": "Degradado",
+      "blocked": "Bloqueado"
     }
   }
 }

@@ -304,6 +304,16 @@
     "removeConfig": "제거",
     "running": "실행 중",
     "selectChannel": "채널 선택",
+    "nativeReply": "네이티브 스트리밍 답장",
+    "nativeReplyHint": "플랫폼의 네이티브 답장 스트림을 사용합니다. 끄면 일반 메시지로 즉시 대체됩니다.",
+    "imsgProtocolV1": "신뢰성 높은 imsg 프로토콜",
+    "imsgProtocolV1Hint": "프로토콜 v1을 협상하고 watch 오버플로를 복구하며 하위 프로세스 재시작을 감독합니다. 끄면 기존 RPC를 사용합니다.",
+    "googleChatStandardMarkdown": "표준 Markdown",
+    "googleChatStandardMarkdownHint": "새 텍스트 메시지에 Google Chat 표준 Markdown을 사용합니다. 끄면 기존 Chat 문법을 사용합니다.",
+    "discordChannelObfuscation": "비공개 채널 난독화 테스트",
+    "discordChannelObfuscationHint": "이 계정을 Discord의 임시 Gateway 동작에 참여시킵니다. 숨겨진 채널은 선택되거나 처리되지 않습니다.",
+    "discordFileRequests": "Discord 기본 파일 요청",
+    "discordFileRequestsHint": "구조화된 질문에서 단일 파일 업로드 창을 엽니다. 서버가 유형, 크기 및 대화 바인딩을 다시 검증합니다.",
     "showThinking": "IM 메시지에 사고 과정 표시",
     "showThinkingHint": "사용 설정 시 각 라운드 답변 전에 모델의 추론 내용이 인용 블록으로 삽입됩니다. 기본값은 꺼짐.",
     "signalAccount": "전화번호",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "높음",
     "low": "낮음",
+    "max": "최대",
     "medium": "중간",
     "minimal": "최소",
     "none": "끄기",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "ID",
     "acpBackends": "ACP 백엔드",
     "acpBinary": "바이너리",
+    "acpDistribution": "배포 설명자",
+    "acpDistributionPackage": "패키지 또는 제품",
+    "acpDistributionRequired": "이 레거시 백엔드는 실행 배포 정보가 명시될 때까지 차단됩니다.",
+    "acpDistributionVersion": "고정 버전",
+    "acpLaunchArgs": "실행 인수",
+    "acpProtocol": "프로토콜",
+    "acpTrustDistribution": "배포 정보 정의",
     "acpControl": "ACP 컨트롤 플레인",
     "acpControlDesc": "외부 ACP Agent (Claude Code, Codex CLI, Gemini CLI 등) 관리",
     "acpEnabled": "ACP 컨트롤 플레인 활성화",
@@ -5431,8 +5449,12 @@
       "intro": "수명 주기 이벤트에서 사용자 정의 명령 / HTTP / 프롬프트 / 서브에이전트를 실행합니다. Claude Code hooks와 필드 수준 호환.",
       "disableAll": "모든 hooks 비활성화",
       "disableAllDesc": "마스터 스위치 — 모든 scope의 hook을 끕니다.",
-      "allowProjectScope": "프로젝트 & 로컬 Hook 허용",
-      "allowProjectScopeDesc": "작업 디렉터리의 .hope-agent/hooks.json 및 hooks.local.json에서 Hook을 추가할 수 있습니다(팀과 공유하기 편리). 스스로 명령을 실행할 수 있어 기본은 꺼짐 — 신뢰하는 프로젝트에서만 켜세요.",
+      "trustedProjectScopes": "신뢰하는 Hook 작업 공간",
+      "trustedProjectScopesDesc": "프로젝트 및 로컬 Hook 파일을 작업 공간별로 승인합니다. 정확한 절대 경로를 입력하세요. 별칭과 심볼릭 링크는 거부됩니다.",
+      "workspacePath": "작업 공간 절대 경로",
+      "trustWorkspace": "현재 내용 신뢰",
+      "noTrustedWorkspaces": "신뢰하는 작업 공간 Hook 파일이 없습니다.",
+      "trustContentBound": "저장하면 신뢰가 현재 Hook 파일 내용에 바인딩됩니다. 내용 변경, 이동 또는 경로 별칭이 있으면 다시 검토하고 저장할 때까지 비활성화됩니다.",
       "scopeNote": "이 패널은 user 범위 hooks를 편집합니다. project(.hope-agent/hooks.json, 저장소 공유), local(hooks.local.json), managed(/etc/hope-agent/hooks.json)는 파일 기반이며 위에 병합됩니다.",
       "pickEvent": "이벤트 선택…",
       "addHook": "hook 추가",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker 사용 불가",
     "sandboxImage": "이미지",
     "sandboxImageDesc": "샌드박스 컨테이너에 사용되는 Docker 이미지",
+    "sandboxImageDigestRequired": "이미지를 name@sha256:<64자리 다이제스트>로 고정해야 합니다. 변경 가능한 태그는 거부됩니다.",
     "sandboxMemoryLimit": "메모리 제한",
     "sandboxNetworkBridge": "브리지",
     "sandboxNetworkHost": "호스트",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "엔드포인트 누락",
     "memoryExternalProviderBlockPolicyUnsupported": "지원되지 않는 정책",
     "memoryExternalProviderBlockAdapterUnavailable": "어댑터를 사용할 수 없음",
+    "memoryExternalProviderBlockCompatibilityUnverified": "호환성 미확인",
+    "memoryExternalProviderBlockCompatibilityBlocked": "안전하지 않은 공급자 버전",
     "memoryExternalProviderBlockLastError": "마지막 오류",
     "memoryExternalProviderErrors": {
       "load": "외부 메모리 공급자를 로드하지 못했습니다.",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "외부 메모리 공급자 연결을 로드하지 못했습니다.",
       "saveCredentials": "외부 메모리 공급자 연결을 저장하지 못했습니다.",
       "clearCredentials": "외부 메모리 공급자 연결을 지우지 못했습니다.",
+      "testConnection": "외부 메모리 공급자 연결을 테스트하지 못했습니다.",
       "copyPreflightDiagnostics": "외부 메모리 공급자 실행 전 복사에 실패했습니다.",
       "copySyncDiagnostics": "외부 메모리 공급자 동기화 보고서를 복사하지 못했습니다.",
       "detail": "세부정보: {{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "자격 증명은 제한된 파일 권한으로 별도로 저장됩니다.",
     "memoryExternalProviderConnectionSaved": "연결이 저장되었습니다.",
     "memoryExternalProviderConnectionCleared": "연결이 지워졌습니다.",
+    "memoryExternalProviderConnectionTest": "연결 테스트",
+    "memoryExternalProviderCompatibilityPassed": "연결 및 호환성 검사를 통과했습니다.",
+    "memoryExternalProviderCompatibilityUnverified": "연결되었지만 공급자 버전을 확인할 수 없습니다.",
+    "memoryExternalProviderCompatibilityBlocked": "공급자 버전이 안전한 최소 버전보다 낮습니다.",
+    "memoryExternalProviderCompatibilitySummary": "상태: {{status}} · 감지 {{detected}} · 최소 {{minimum}}",
     "memoryExternalProviderEndpoint": "엔드포인트",
     "memoryExternalProviderEndpointKeep": "저장됨: {{origin}} · 보관하려면 비워 두세요.",
     "memoryExternalProviderSubjectId": "원격 범위 ID",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "AI로 수정",
       "fixStarted": "AI가 수정을 시작했습니다",
       "fixBusy": "대화가 진행 중입니다. 잠시 후 다시 시도하세요",
-      "fixPrompt": "디자인 자체 점검에서 발견된 문제를 수정해 주세요: {{detail}}. 디자인 시스템 토큰(var(--ds-*))으로 색상을 정리하고 하드코딩된 스타일을 교체하세요. 꼭 필요한 최소한의 변경만 하고 나머지 디자인은 그대로 유지하세요."
+      "fixPrompt": "디자인 자체 점검에서 발견된 문제를 수정해 주세요: {{detail}}. 디자인 시스템 토큰(var(--ds-*))으로 색상을 정리하고 하드코딩된 스타일을 교체하세요. 꼭 필요한 최소한의 변경만 하고 나머지 디자인은 그대로 유지하세요.",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "디자인 시스템 키트",
@@ -12279,7 +12318,15 @@
       "copyLink": "링크 복사",
       "copied2": "복사됨",
       "loadErr": "공유 상태 불러오기 실패",
-      "shareTo": "공유 대상"
+      "shareTo": "공유 대상",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "Cloudflare Pages에 배포",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "모든 산출물가 코드와 일치합니다",
       "checkStale": "{{n}}개 산출물에 코드 업데이트가 있습니다",
       "chatPrompt": "구현된 코드가 이 디자인과 달라졌습니다. 참조된 코드 변경에 맞춰 현재 디자인을 업데이트하되, 디자인 의도와 나머지 내용은 그대로 유지하세요."
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "구성",
       "user": "사용자 설정"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "도구 체인 진단",
+    "description": "호스트 런타임과 선택적 개발 도구를 읽기 전용으로 확인합니다. Hope Agent는 설치, 업그레이드, 시작 또는 재구성을 하지 않습니다.",
+    "refresh": "다시 확인",
+    "loading": "로컬 도구 체인 확인 중…",
+    "loadFailed": "도구 체인 확인 실패",
+    "readOnlyNotice": "호스트 경로나 자격 증명을 노출하지 않고 버전, 가용성, Docker 연결성, 컨텍스트 유형, 소켓 소유권 유형 및 임시 래퍼만 보고합니다.",
+    "detectedVersion": "감지됨 {{version}}",
+    "notDetected": "감지되지 않음",
+    "minimumVersion": "최소 {{version}}",
+    "diagnosticFacts": "진단 코드",
+    "status": {
+      "detected": "감지됨",
+      "supported": "지원됨",
+      "degraded": "제한됨",
+      "blocked": "차단됨"
     }
   }
 }

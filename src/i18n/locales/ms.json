@@ -304,6 +304,16 @@
     "removeConfig": "Buang",
     "running": "Berjalan",
     "selectChannel": "Pilih saluran",
+    "nativeReply": "Balasan penstriman asli",
+    "nativeReplyHint": "Gunakan strim balasan asli platform. Apabila dimatikan, ia terus kembali kepada mesej biasa.",
+    "imsgProtocolV1": "Protokol imsg yang boleh dipercayai",
+    "imsgProtocolV1Hint": "Runding protokol v1, pulihkan limpahan watch dan pantau mula semula subproses. Matikan untuk menggunakan RPC lama.",
+    "googleChatStandardMarkdown": "Markdown standard",
+    "googleChatStandardMarkdownHint": "Gunakan Markdown standard Google Chat untuk mesej teks baharu. Matikan untuk menggunakan sintaks Chat lama.",
+    "discordChannelObfuscation": "Uji pengaburan saluran peribadi",
+    "discordChannelObfuscationHint": "Sertakan akaun ini dalam tingkah laku Gateway sementara Discord. Saluran tersembunyi tidak akan dipilih atau diproses.",
+    "discordFileRequests": "Permintaan fail asli Discord",
+    "discordFileRequestsHint": "Benarkan soalan berstruktur membuka muat naik satu fail. Pelayan tetap mengesahkan semula jenis, saiz dan ikatan perbualan.",
     "showThinking": "Tunjukkan pemikiran dalam mesej IM",
     "showThinkingHint": "Apabila dihidupkan, taakulan model dipaparkan sebagai blok petikan sebelum balasan setiap pusingan. Lalai dimatikan.",
     "signalAccount": "Nombor telefon",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "Tinggi",
     "low": "Rendah",
+    "max": "Maksimum",
     "medium": "Sederhana",
     "minimal": "Minimum",
     "none": "Mati",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "ID",
     "acpBackends": "Backend ACP",
     "acpBinary": "Binari",
+    "acpDistribution": "Deskriptor pengedaran",
+    "acpDistributionPackage": "Pakej atau produk",
+    "acpDistributionRequired": "Backend legasi ini disekat sehingga pengedaran pelancarannya ditakrifkan dengan jelas.",
+    "acpDistributionVersion": "Versi dipinkan",
+    "acpLaunchArgs": "Argumen pelancaran",
+    "acpProtocol": "Protokol",
+    "acpTrustDistribution": "Takrifkan pengedaran",
     "acpControl": "Satah kawalan ACP",
     "acpControlDesc": "Urus agents ACP luaran (Claude Code, Codex CLI, Gemini CLI, dll.)",
     "acpEnabled": "Dayakan satah kawalan ACP",
@@ -5431,8 +5449,12 @@
       "intro": "Jalankan arahan tersuai / HTTP / gesaan / sub-ejen pada peristiwa kitaran hayat. Serasi peringkat medan dengan hooks Claude Code.",
       "disableAll": "Lumpuhkan semua hooks",
       "disableAllDesc": "Suis utama — mematikan setiap hook merentas semua scope.",
-      "allowProjectScope": "Benarkan hook projek & tempatan",
-      "allowProjectScopeDesc": "Membolehkan .hope-agent/hooks.json dan hooks.local.json dalam direktori kerja menambah hook — sesuai untuk dikongsi dengan pasukan anda. Dimatikan secara lalai kerana ia boleh menjalankan perintah sendiri, jadi hidupkan hanya untuk projek yang anda percayai.",
+      "trustedProjectScopes": "Ruang kerja Hook dipercayai",
+      "trustedProjectScopesDesc": "Luluskan fail Hook projek dan tempatan satu ruang kerja pada satu masa. Masukkan laluan mutlak yang tepat; alias dan pautan simbolik ditolak.",
+      "workspacePath": "Laluan mutlak ruang kerja",
+      "trustWorkspace": "Percayai kandungan",
+      "noTrustedWorkspaces": "Tiada fail Hook ruang kerja yang dipercayai.",
+      "trustContentBound": "Apabila disimpan, kepercayaan diikat pada kandungan semasa. Perubahan, pemindahan atau alias laluan menyahaktifkannya sehingga anda menyemak dan menyimpan semula.",
       "scopeNote": "Panel ini menyunting hooks scope user. Scope project (.hope-agent/hooks.json, dikongsi repo), local (hooks.local.json) dan managed (/etc/hope-agent/hooks.json) berasaskan fail dan digabungkan di atas.",
       "pickEvent": "Pilih peristiwa…",
       "addHook": "Tambah hook",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker tidak tersedia",
     "sandboxImage": "Imej",
     "sandboxImageDesc": "Imej Docker yang digunakan oleh persekitaran terasing.",
+    "sandboxImageDigestRequired": "Sematkan imej sebagai name@sha256:<cernaan 64 digit>; tag boleh ubah akan ditolak.",
     "sandboxMemoryLimit": "Had memori",
     "sandboxNetworkBridge": "Jambatan",
     "sandboxNetworkHost": "hos",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "Titik akhir tiada",
     "memoryExternalProviderBlockPolicyUnsupported": "Dasar tidak disokong",
     "memoryExternalProviderBlockAdapterUnavailable": "Penyesuai tidak tersedia",
+    "memoryExternalProviderBlockCompatibilityUnverified": "Keserasian belum disahkan",
+    "memoryExternalProviderBlockCompatibilityBlocked": "Versi pembekal tidak selamat",
     "memoryExternalProviderBlockLastError": "Ralat terakhir",
     "memoryExternalProviderErrors": {
       "load": "Gagal memuatkan pembekal memori luaran",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "Gagal memuatkan sambungan pembekal memori luaran",
       "saveCredentials": "Gagal menyimpan sambungan pembekal memori luaran",
       "clearCredentials": "Gagal mengosongkan sambungan pembekal memori luaran",
+      "testConnection": "Gagal menguji sambungan pembekal memori luaran",
       "copyPreflightDiagnostics": "Gagal menyalin pra-penerbangan pembekal memori luaran",
       "copySyncDiagnostics": "Gagal menyalin laporan penyegerakan pembekal memori luaran",
       "detail": "Butiran: {{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "Bukti kelayakan disimpan secara berasingan dengan kebenaran fail terhad.",
     "memoryExternalProviderConnectionSaved": "Sambungan disimpan",
     "memoryExternalProviderConnectionCleared": "Sambungan dikosongkan",
+    "memoryExternalProviderConnectionTest": "Uji sambungan",
+    "memoryExternalProviderCompatibilityPassed": "Semakan sambungan dan keserasian berjaya",
+    "memoryExternalProviderCompatibilityUnverified": "Sambungan dicapai, tetapi versi pembekal tidak dapat disahkan",
+    "memoryExternalProviderCompatibilityBlocked": "Versi pembekal berada di bawah minimum selamat",
+    "memoryExternalProviderCompatibilitySummary": "Status: {{status}} · dikesan {{detected}} · minimum {{minimum}}",
     "memoryExternalProviderEndpoint": "Titik akhir",
     "memoryExternalProviderEndpointKeep": "Disimpan: {{origin}} · biarkan kosong untuk disimpan",
     "memoryExternalProviderSubjectId": "ID skop jauh",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "Baiki dengan AI",
       "fixStarted": "AI sedang membaikinya",
       "fixBusy": "Perbualan sedang berjalan, cuba lagi sebentar",
-      "fixPrompt": "Sila baiki isu yang ditemui oleh semakan kendiri reka bentuk: {{detail}}. Gunakan token sistem reka bentuk (var(--ds-*)) untuk menyatukan warna dan menggantikan gaya berkod keras. Buat perubahan minimum yang perlu sahaja dan kekalkan reka bentuk yang lain."
+      "fixPrompt": "Sila baiki isu yang ditemui oleh semakan kendiri reka bentuk: {{detail}}. Gunakan token sistem reka bentuk (var(--ds-*)) untuk menyatukan warna dan menggantikan gaya berkod keras. Buat perubahan minimum yang perlu sahaja dan kekalkan reka bentuk yang lain.",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "Kit sistem reka bentuk",
@@ -12279,7 +12318,15 @@
       "copyLink": "Salin pautan",
       "copied2": "Disalin",
       "loadErr": "Gagal memuatkan status kongsi",
-      "shareTo": "Kongsi ke"
+      "shareTo": "Kongsi ke",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "Deploy ke Cloudflare Pages",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "Semua artifak sepadan dengan kodnya",
       "checkStale": "{{n}} artifak mempunyai kemas kini kod",
       "chatPrompt": "Kod yang dilaksanakan telah menyimpang daripada reka bentuk ini. Kemas kini reka bentuk semasa untuk mencerminkan perubahan kod yang dirujuk, sambil mengekalkan niat reka bentuk dan segala yang lain tidak berubah."
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "Konfigurasi",
       "user": "Tetapan pengguna"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "Diagnostik rantaian alat",
+    "description": "Semakan baca sahaja untuk persekitaran sistem dan alat pembangunan pilihan. Hope Agent tidak akan memasang, menaik taraf, memulakan atau mengkonfigurasi semula apa-apa.",
+    "refresh": "Semak semula",
+    "loading": "Memeriksa rantaian alat setempat…",
+    "loadFailed": "Semakan rantaian alat gagal",
+    "readOnlyNotice": "Versi, ketersediaan, capaian Docker, kelas konteks, kelas pemilik soket dan pembalut sementara dilaporkan tanpa mendedahkan laluan atau kelayakan hos.",
+    "detectedVersion": "Dikesan {{version}}",
+    "notDetected": "Tidak dikesan",
+    "minimumVersion": "Minimum {{version}}",
+    "diagnosticFacts": "Kod diagnostik",
+    "status": {
+      "detected": "Dikesan",
+      "supported": "Disokong",
+      "degraded": "Terhad",
+      "blocked": "Disekat"
     }
   }
 }

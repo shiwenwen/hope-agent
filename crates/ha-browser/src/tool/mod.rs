@@ -616,9 +616,10 @@ async fn profile_install_runtime() -> Result<String> {
     ha_core::app_info!(
         "browser",
         "install_runtime",
-        "downloading Chromium runtime rev={} for {}",
+        "downloading Chrome for Testing runtime version={} revision={} for {}",
+        spec.version,
         spec.revision,
-        spec.platform_key
+        spec.platform
     );
 
     let binary = runtime::install_with_event_bus_progress().await?;

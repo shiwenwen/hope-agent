@@ -69,7 +69,13 @@ export interface AskUserQuestion {
   multiSelect: boolean
   /** Primary input shape. Omitted = legacy single/multi (by `multiSelect`).
    *  `text`/`textarea` = free-text; `direction-cards` = visual style picker. */
-  inputKind?: "single" | "multi" | "text" | "textarea" | "direction-cards"
+  inputKind?: "single" | "multi" | "text" | "textarea" | "direction-cards" | "file"
+  /** Server-enforced IM file request. The current contract is one PDF/TXT/MD file. */
+  fileConstraints?: {
+    types: string[]
+    maxBytes: number
+    count: 1
+  }
   template?: string
   /** Very short chip label (<=12 chars). */
   header?: AskUserLocalizedText

@@ -448,6 +448,8 @@ export type ExternalMemoryProviderSyncBlockReason =
   | "endpoint_missing"
   | "policy_unsupported"
   | "adapter_unavailable"
+  | "compatibility_unverified"
+  | "compatibility_blocked"
   | "last_error"
 
 export type ExternalMemoryProviderPreflightAction = "off" | "blocked" | "would_sync"
@@ -458,6 +460,25 @@ export type ExternalMemoryProviderSyncStatus =
   | "no_runtime_adapter"
   | "succeeded"
   | "failed"
+
+export type ExternalMemoryProviderCompatibilityStatus =
+  | "not_required"
+  | "compatible"
+  | "unverified"
+  | "blocked"
+
+export interface ExternalMemoryProviderCompatibilityReport {
+  providerId: string
+  kind: ExternalMemoryProviderKind
+  status: ExternalMemoryProviderCompatibilityStatus
+  checkedAt: string
+  externalIoPerformed: boolean
+  detectedVersion?: string | null
+  minimumVersion?: string | null
+  recommendedVersion?: string | null
+  capabilities: string[]
+  error?: string | null
+}
 
 export interface ExternalMemoryProviderHealth {
   id: string
@@ -478,6 +499,11 @@ export interface ExternalMemoryProviderHealth {
   importsExternalMemory?: boolean
   requiresExplicitAction?: boolean
   automaticSync?: boolean
+  compatibilityStatus?: ExternalMemoryProviderCompatibilityStatus
+  detectedVersion?: string | null
+  minimumVersion?: string | null
+  compatibilityCheckedAt?: string | null
+  compatibilityError?: string | null
   endpointConfigured: boolean
   lastSyncAt?: string | null
   lastError?: string | null

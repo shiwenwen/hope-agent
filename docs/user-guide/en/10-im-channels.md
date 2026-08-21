@@ -48,6 +48,8 @@ In the account editor you can configure:
 - **DM policy** — Open (anyone can DM) / Allowlist (only specified users).
 - **Group policy and user allowlist** — control who can use it.
 - **Auto-approve tools**, **takeover notifications**, **startup online alerts**, **automatic voice transcription**, **Knowledge Space access**, **reply mode**, **thinking display**, and more.
+- Telegram/Slack can disable native streaming per account. iMessage, Google Chat, and Discord expose protocol or rollout switches and fall back to their compatibility paths when disabled.
+- Signal and WhatsApp account cards show detected sidecar/Bridge versions. Unknown versions are warning-only; a known-vulnerable Baileys Bridge is blocked at startup and before sends.
 
 ---
 
@@ -56,6 +58,8 @@ In the account editor you can configure:
 ### Multimodal
 
 Channels that support media can send and receive images, video, audio, and files. Inbound media first passes a permission check, and only then is it actually downloaded and stored locally. Voice messages can enable ["automatic transcription"](02-models-and-providers.md#211-speech-to-text-stt) (off by default; consumes speech-recognition quota).
+
+An Agent can also explicitly request one PDF, TXT, or MD file in IM (one file, up to 10 MiB). Discord can open a native upload modal when enabled for the account; other channels ask you to send the next attachment. The file is bound only to the exact account, chat, thread, and session that received the question, so expired or mismatched attachments cannot wake an old request.
 
 ### Tool approvals
 
@@ -73,6 +77,8 @@ All three modes apply to every channel; set them in the account editor, or switc
 | **Streaming preview** (`preview`) | Streaming-capable channels render one continuously growing merged message; channels that don't support it automatically fall back to "Final answer only" |
 
 The AI's thinking process is discarded by default; `/reason on` turns it on.
+
+> Microsoft Teams is not built in. An isolated connector/plugin evaluation starts only after at least three active design partners and four consecutive weeks with at least 20 weekly active users, or a concrete enterprise contract.
 
 ---
 

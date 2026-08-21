@@ -188,8 +188,8 @@ pub async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
     fallback.map(|s| s.to_string())
 }
 
-pub const VALID_REASONING_EFFORTS: [&str; 6] =
-    ["none", "minimal", "low", "medium", "high", "xhigh"];
+pub const VALID_REASONING_EFFORTS: [&str; 7] =
+    ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 pub fn is_valid_reasoning_effort(effort: &str) -> bool {
     VALID_REASONING_EFFORTS.contains(&effort)
@@ -203,21 +203,60 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     if !is_valid_reasoning_effort(effort) {
         return Some("medium".to_string());
     }
+    let model = model.to_ascii_lowercase();
+    if model.contains("kimi-k3") || model.contains("kimi_k3") {
+        return match effort {
+            "minimal" | "low" | "medium" => Some("low".to_string()),
+            "high" => Some("high".to_string()),
+            "xhigh" | "max" => Some("max".to_string()),
+            _ => None,
+        };
+    }
+    if model.contains("gpt-5.6") {
+        return match effort {
+            "minimal" => Some("low".to_string()),
+            "low" | "medium" | "high" | "xhigh" | "max" => Some(effort.to_string()),
+            _ => None,
+        };
+    }
+    if is_claude_5_model(&model) {
+        return match effort {
+            "minimal" => Some("low".to_string()),
+            "xhigh" => Some("max".to_string()),
+            "low" | "medium" | "high" | "max" => Some(effort.to_string()),
+            _ => None,
+        };
+    }
     if model.contains("5.1-codex-mini") {
         return match effort {
             "minimal" | "low" => Some("medium".to_string()),
-            "xhigh" => Some("high".to_string()),
+            "xhigh" | "max" => Some("high".to_string()),
             _ => Some(effort.to_string()),
         };
     }
     if model.contains("5.1") {
         return match effort {
             "minimal" => Some("low".to_string()),
-            "xhigh" => Some("high".to_string()),
+            "xhigh" | "max" => Some("high".to_string()),
             _ => Some(effort.to_string()),
         };
     }
-    Some(effort.to_string())
+    Some(match effort {
+        "max" => "xhigh".to_string(),
+        _ => effort.to_string(),
+    })
+}
+
+pub(super) fn is_claude_5_model(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    [
+        "claude-fable-5",
+        "claude-mythos-5",
+        "claude-sonnet-5",
+        "claude-opus-5",
+    ]
+    .iter()
+    .any(|prefix| model.starts_with(prefix))
 }
 
 /// Map reasoning effort to Anthropic/ZAI thinking parameter.
@@ -236,7 +275,7 @@ pub(super) fn map_think_anthropic_style(
         "low" => 1024,
         "medium" => 4096,
         "high" => 8192,
-        "xhigh" => 16384,
+        "xhigh" | "max" => 16384,
         _ => return None,
     };
     // Anthropic requires budget_tokens < max_tokens specified in request
@@ -254,7 +293,7 @@ fn map_think_openai_style(effort: Option<&str>) -> Option<String> {
     let effort = effort?;
     match effort {
         "none" => None,
-        "xhigh" => Some("high".to_string()), // Downgrade xhigh to high for Chat Completions
+        "xhigh" | "max" => Some("high".to_string()),
         "minimal" | "low" | "medium" | "high" => Some(effort.to_string()),
         _ => None,
     }
@@ -266,7 +305,7 @@ fn map_think_qwen_style(effort: Option<&str>) -> Option<bool> {
     let effort = effort?;
     match effort {
         "none" => Some(false),
-        "low" | "medium" | "high" | "xhigh" => Some(true),
+        "low" | "medium" | "high" | "xhigh" | "max" => Some(true),
         _ => None,
     }
 }
@@ -971,8 +1010,8 @@ fn resolve_prompt_session_meta(
 #[cfg(test)]
 mod build_api_url_tests {
     use super::{
-        build_api_url, is_complete_endpoint_url, resolve_prompt_session_state,
-        route_legacy_memory_entries,
+        build_api_url, clamp_reasoning_effort, is_complete_endpoint_url,
+        resolve_prompt_session_state, route_legacy_memory_entries,
     };
 
     fn memory_entry(id: i64, content: &str) -> crate::memory::MemoryEntry {
@@ -1137,5 +1176,28 @@ mod build_api_url_tests {
         ));
         assert!(is_complete_endpoint_url("https://gateway/v1/messages"));
         assert!(!is_complete_endpoint_url("https://gateway/v1"));
+    }
+
+    #[test]
+    fn reasoning_effort_is_clamped_per_model_without_mutating_preference() {
+        let cases = [
+            ("gpt-5.6-sol", "minimal", Some("low")),
+            ("gpt-5.6-sol", "max", Some("max")),
+            ("kimi-k3", "medium", Some("low")),
+            ("kimi-k3", "xhigh", Some("max")),
+            ("claude-opus-5", "xhigh", Some("max")),
+            ("claude-sonnet-4-6", "max", Some("xhigh")),
+            ("gpt-5.1-codex-mini", "max", Some("high")),
+            ("legacy-compatible", "max", Some("xhigh")),
+            ("gpt-5.6-terra", "none", None),
+        ];
+
+        for (model, requested, expected) in cases {
+            assert_eq!(
+                clamp_reasoning_effort(model, requested).as_deref(),
+                expected,
+                "model={model}, requested={requested}"
+            );
+        }
     }
 }

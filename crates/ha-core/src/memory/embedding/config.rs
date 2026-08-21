@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 // 类型已下沉 ha-config-schema（`EmbeddingConfig` 随 `EmbeddingModelConfig` 的
 // inherent impl 一并下沉）；模板 / 状态投影与解析函数留在本文件。
 pub use ha_config_schema::memory::embedding::{
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingSelection,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingPurpose,
+    EmbeddingSelection,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -261,10 +262,10 @@ pub fn resolve_memory_embedding_config(
     )))
 }
 
-/// Active signature for an embedding selection: prefer the persisted
-/// `active_signature` (hot path — index/search call this per note / per query),
-/// falling back to recomputing from the model config. `None` when the selection
-/// is disabled or unresolved. Shared single source of truth for memory
+/// Active document signature for an embedding selection. Always recompute from
+/// the live model config so a signature/provider-semantics upgrade immediately
+/// makes old vectors ineligible; a persisted v1 signature must never reinterpret
+/// them as v2. `None` when disabled or unresolved. Shared single source of truth for memory
 /// (`active_embedding_signature`) and knowledge
 /// (`knowledge_active_embedding_signature`) — pass the respective selection.
 pub fn active_signature_for(
@@ -273,9 +274,6 @@ pub fn active_signature_for(
 ) -> Option<String> {
     if !selection.enabled {
         return None;
-    }
-    if let Some(sig) = selection.active_signature.as_ref() {
-        return Some(sig.clone());
     }
     resolve_memory_embedding_config(selection, models)
         .ok()

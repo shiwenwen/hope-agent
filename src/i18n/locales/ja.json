@@ -304,6 +304,16 @@
     "removeConfig": "削除",
     "running": "実行中",
     "selectChannel": "チャネルを選択",
+    "nativeReply": "ネイティブストリーミング返信",
+    "nativeReplyHint": "プラットフォームのネイティブ返信ストリームを使用します。オフにすると通常のメッセージへ即時フォールバックします。",
+    "imsgProtocolV1": "信頼性の高い imsg プロトコル",
+    "imsgProtocolV1Hint": "プロトコル v1 のネゴシエーション、watch オーバーフローの回復、子プロセスの再起動監視を行います。オフにすると従来の RPC を使用します。",
+    "googleChatStandardMarkdown": "標準 Markdown",
+    "googleChatStandardMarkdownHint": "新規テキストメッセージに Google Chat の標準 Markdown を使用します。オフにすると従来の Chat 構文を使用します。",
+    "discordChannelObfuscation": "プライベートチャンネル難読化をテスト",
+    "discordChannelObfuscationHint": "このアカウントを Discord の一時的な Gateway 動作にオプトインします。非表示チャンネルは選択も処理もされません。",
+    "discordFileRequests": "Discord ネイティブファイル要求",
+    "discordFileRequestsHint": "構造化質問から単一ファイルのアップロード画面を開きます。種類、サイズ、会話の紐付けはサーバーで再検証されます。",
     "showThinking": "IM メッセージに思考過程を表示",
     "showThinkingHint": "有効にすると、各ラウンドの回答前にモデルの推論内容が引用ブロックとして挿入されます。既定はオフ。",
     "signalAccount": "電話番号",
@@ -2863,6 +2873,7 @@
   "effort": {
     "high": "高",
     "low": "低",
+    "max": "最大",
     "medium": "中",
     "minimal": "最小",
     "none": "オフ",
@@ -4297,6 +4308,13 @@
     "acpBackendId": "ID",
     "acpBackends": "ACP バックエンド",
     "acpBinary": "バイナリ",
+    "acpDistribution": "配布記述子",
+    "acpDistributionPackage": "パッケージまたは製品",
+    "acpDistributionRequired": "このレガシーバックエンドは、起動元を明示するまで実行できません。",
+    "acpDistributionVersion": "固定バージョン",
+    "acpLaunchArgs": "起動引数",
+    "acpProtocol": "プロトコル",
+    "acpTrustDistribution": "配布情報を定義",
     "acpControl": "ACP コントロールプレーン",
     "acpControlDesc": "外部 ACP Agent (Claude Code、Codex CLI、Gemini CLI など) を管理",
     "acpEnabled": "ACP コントロールプレーンを有効化",
@@ -5431,8 +5449,12 @@
       "intro": "ライフサイクルイベントでカスタムコマンド / HTTP / プロンプト / サブエージェントを実行します。Claude Code の hooks とフィールドレベルで互換。",
       "disableAll": "すべての hooks を無効化",
       "disableAllDesc": "マスタースイッチ — すべての scope の hook を停止します。",
-      "allowProjectScope": "プロジェクト & ローカル Hook を許可",
-      "allowProjectScopeDesc": "作業ディレクトリの .hope-agent/hooks.json と hooks.local.json から Hook を追加できます（チームでの共有に便利）。コマンドを自分で実行できるため既定はオフ。信頼できるプロジェクトでのみオンにしてください。",
+      "trustedProjectScopes": "信頼済み Hook ワークスペース",
+      "trustedProjectScopesDesc": "プロジェクトとローカルの Hook ファイルをワークスペースごとに承認します。正確な絶対パスを入力してください。エイリアスとシンボリックリンクは拒否されます。",
+      "workspacePath": "ワークスペースの絶対パス",
+      "trustWorkspace": "現在の内容を信頼",
+      "noTrustedWorkspaces": "信頼済みのワークスペース Hook ファイルはありません。",
+      "trustContentBound": "保存すると、信頼は現在の Hook ファイル内容に結び付けられます。内容変更、移動、パスエイリアスがあると、再確認して保存するまで無効になります。",
       "scopeNote": "このパネルは user スコープの hooks を編集します。project（.hope-agent/hooks.json、リポジトリ共有）、local（hooks.local.json）、managed（/etc/hope-agent/hooks.json）はファイルベースで上に統合されます。",
       "pickEvent": "イベントを選択…",
       "addHook": "hook を追加",
@@ -6566,6 +6588,7 @@
     "sandboxDockerUnavailable": "Docker 利用不可",
     "sandboxImage": "イメージ",
     "sandboxImageDesc": "サンドボックスコンテナで使用する Docker イメージ",
+    "sandboxImageDigestRequired": "イメージを name@sha256:<64 桁のダイジェスト> で固定してください。可変タグは拒否されます。",
     "sandboxMemoryLimit": "メモリ上限",
     "sandboxNetworkBridge": "ブリッジ",
     "sandboxNetworkHost": "ホスト",
@@ -7555,6 +7578,8 @@
     "memoryExternalProviderBlockEndpointMissing": "エンドポイントがありません",
     "memoryExternalProviderBlockPolicyUnsupported": "ポリシーがサポートされていません",
     "memoryExternalProviderBlockAdapterUnavailable": "アダプターが使用できません",
+    "memoryExternalProviderBlockCompatibilityUnverified": "互換性未確認",
+    "memoryExternalProviderBlockCompatibilityBlocked": "安全でないプロバイダーバージョン",
     "memoryExternalProviderBlockLastError": "最後のエラー",
     "memoryExternalProviderErrors": {
       "load": "外部メモリプロバイダーのロードに失敗しました",
@@ -7564,6 +7589,7 @@
       "loadCredentials": "外部メモリプロバイダ接続のロードに失敗しました",
       "saveCredentials": "外部メモリプロバイダ接続の保存に失敗しました",
       "clearCredentials": "外部メモリプロバイダ接続のクリアに失敗しました",
+      "testConnection": "外部メモリプロバイダ接続のテストに失敗しました",
       "copyPreflightDiagnostics": "外部メモリプロバイダーのプリフライトのコピーに失敗しました",
       "copySyncDiagnostics": "外部メモリプロバイダー同期レポートのコピーに失敗しました",
       "detail": "詳細：{{error}}"
@@ -7593,6 +7619,11 @@
     "memoryExternalProviderConnectionEmpty": "資格情報は、制限されたファイル権限で個別に保存されます。",
     "memoryExternalProviderConnectionSaved": "接続が保存されました",
     "memoryExternalProviderConnectionCleared": "接続がクリアされました",
+    "memoryExternalProviderConnectionTest": "接続をテスト",
+    "memoryExternalProviderCompatibilityPassed": "接続と互換性の確認に成功しました",
+    "memoryExternalProviderCompatibilityUnverified": "接続できましたが、プロバイダーのバージョンを確認できませんでした",
+    "memoryExternalProviderCompatibilityBlocked": "プロバイダーのバージョンが安全な最低要件を下回っています",
+    "memoryExternalProviderCompatibilitySummary": "状態: {{status}} · 検出 {{detected}} · 最低 {{minimum}}",
     "memoryExternalProviderEndpoint": "エンドポイント",
     "memoryExternalProviderEndpointKeep": "保存: {{origin}} · 空白のままにしておきます",
     "memoryExternalProviderSubjectId": "リモートスコープID",
@@ -12199,7 +12230,15 @@
       "fixWithAgent": "AI で修正",
       "fixStarted": "AI が修正を開始しました",
       "fixBusy": "会話の実行中です。しばらくしてからお試しください",
-      "fixPrompt": "デザインの自己チェックで見つかった問題を修正してください：{{detail}}。デザインシステムのトークン（var(--ds-*)）で配色をまとめ、ハードコードされたスタイルを置き換えてください。必要最小限の変更のみを行い、他の部分とデザイン全体はそのまま保ってください。"
+      "fixPrompt": "デザインの自己チェックで見つかった問題を修正してください：{{detail}}。デザインシステムのトークン（var(--ds-*)）で配色をまとめ、ハードコードされたスタイルを置き換えてください。必要最小限の変更のみを行い、他の部分とデザイン全体はそのまま保ってください。",
+      "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
+      "baselineAccepted": "Current visuals accepted as the baseline",
+      "baselineFailed": "Failed to accept the visual baseline",
+      "visualTitle": "Deterministic visual regression",
+      "visualPassed": "Fixed viewports and static checks passed",
+      "visualNeedsBaseline": "Differences found or no baseline exists",
+      "acceptBaseline": "Accept as baseline",
+      "noBaseline": "No baseline"
     },
     "kit": {
       "title": "デザインシステムキット",
@@ -12279,7 +12318,15 @@
       "copyLink": "リンクをコピー",
       "copied2": "コピーしました",
       "loadErr": "共有状態の読み込みに失敗",
-      "shareTo": "共有先"
+      "shareTo": "共有先",
+      "fixedReview": "Fixed-version review",
+      "fixedReviewHint": "Create a 7-day viewer or commenter credential pinned to the current version. The credential is shown only once.",
+      "commenter": "Can comment",
+      "viewer": "View only",
+      "createReview": "Create v{{version}}",
+      "tokenOnce": "Review Bearer credential (shown once)",
+      "reviewCreateFailed": "Failed to create review space",
+      "reviewRevokeFailed": "Failed to revoke review space"
     },
     "deploy": {
       "menu": "Cloudflare Pages にデプロイ",
@@ -12522,6 +12569,47 @@
       "checkCleanAll": "すべての成果物がコードと一致しています",
       "checkStale": "{{n}} 件の成果物にコード更新があります",
       "chatPrompt": "実装コードがこのデザインと乖離しています。参照したコード変更に合わせて現在のデザインを更新し、デザインの意図とその他の内容は変えないでください。"
+    },
+    "figmaRoundtrip": {
+      "title": "Figma safe roundtrip",
+      "desc": "Read or write through the authenticated Figma MCP. Hope never stores OAuth credentials. Every external write requires a preview and one-time confirmation.",
+      "direction": "Direction",
+      "toFigma": "Hope → Figma",
+      "toHope": "Figma → new Hope version",
+      "server": "MCP server name",
+      "fileKey": "Figma file key",
+      "nodeId": "node id (optional)",
+      "arguments": "MCP arguments (JSON)",
+      "invalidArgs": "MCP arguments must be a JSON object",
+      "previewFailed": "Failed to preview the Figma roundtrip",
+      "done": "Figma roundtrip completed and linked",
+      "commitFailed": "Failed to commit the Figma roundtrip",
+      "confirmTitle": "Confirm this external operation",
+      "open": "Open Figma",
+      "confirm": "Confirm and submit once",
+      "preview": "Generate operation preview"
+    },
+    "scenarios": {
+      "label": "Preview scenario",
+      "title": "Preview scenarios",
+      "desc": "Up to 12 scenarios and 4 viewports; only one preview stays live and the others load on demand. route must be a local artifact path.",
+      "invalid": "The scenarios manifest is not valid JSON",
+      "saved": "Scenarios saved",
+      "saveFailed": "Failed to save scenarios"
+    },
+    "components": {
+      "title": "Component manifest",
+      "desc": "Read-only scan the bound repository for candidates; save an unpublished draft, then publish with the current published hash. Local code remains the source of truth.",
+      "loadFailed": "Failed to load the component manifest",
+      "invalid": "The component manifest is not valid JSON",
+      "scanFailed": "Read-only scan failed; link a code repository first",
+      "draftSaved": "Component manifest draft saved",
+      "saveFailed": "Failed to save the component manifest draft",
+      "published": "Component manifest published",
+      "publishFailed": "Publish failed; another window may have updated the manifest",
+      "scan": "Read-only repository scan",
+      "saveDraft": "Save draft",
+      "publish": "Confirm publish"
     }
   },
   "pet": {
@@ -12685,6 +12773,24 @@
     "kindValues": {
       "config": "設定",
       "user": "ユーザー設定"
+    }
+  },
+  "toolchainDoctor": {
+    "title": "ツールチェーン診断",
+    "description": "ホストのランタイムと任意の開発ツールを読み取り専用で確認します。Hope Agent はインストール、更新、起動、再設定を行いません。",
+    "refresh": "再チェック",
+    "loading": "ローカルツールチェーンを確認中…",
+    "loadFailed": "ツールチェーンの確認に失敗しました",
+    "readOnlyNotice": "ホストのパスや認証情報を公開せず、バージョン、可用性、Docker の到達性、コンテキスト種別、ソケット所有者種別、一時ラッパーだけを報告します。",
+    "detectedVersion": "検出 {{version}}",
+    "notDetected": "未検出",
+    "minimumVersion": "最低 {{version}}",
+    "diagnosticFacts": "診断コード",
+    "status": {
+      "detected": "検出済み",
+      "supported": "サポート対象",
+      "degraded": "制限あり",
+      "blocked": "利用不可"
     }
   }
 }

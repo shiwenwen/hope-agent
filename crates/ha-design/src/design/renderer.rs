@@ -217,7 +217,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 21;
+pub const RENDER_VERSION: u32 = 22;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -935,6 +935,18 @@ pub(super) const ZOOM_FORWARD_SCRIPT: &str = r#"<script>
        d.token.length>0&&d.token.length<=256){
       artifactSelectionToken=d.token;markSelectionVisible(false);lastSelectionKey='';scheduleSelection(0);
     }
+    else if(d.type==='ds_scenario'&&typeof d.route==='string'&&d.route.length>0&&
+       d.route.length<=512&&d.route.charAt(0)==='/'&&d.route.indexOf('://')===-1){
+      var scenarioState=d.state;
+      if(!scenarioState||typeof scenarioState!=='object'||Array.isArray(scenarioState))scenarioState={};
+      var serialized='';try{serialized=JSON.stringify(scenarioState)}catch(_){return}
+      if(serialized.length>8192)return;
+      var detail={route:d.route,state:scenarioState};
+      window.__HOPE_DESIGN_SCENARIO__=detail;
+      document.documentElement.setAttribute('data-ds-scenario-route',d.route);
+      try{window.dispatchEvent(new CustomEvent('ds_scenario',{detail:detail}))}catch(_){}
+      try{parent.postMessage({type:'ds_scenario_applied',route:d.route},'*')}catch(_){}
+    }
   });
   window.addEventListener('wheel',function(e){
     if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();clearSelectionMenu();
@@ -1236,6 +1248,9 @@ mod tests {
         assert!(ZOOM_FORWARD_SCRIPT.contains("hope_artifact_selection_activate"));
         assert!(ZOOM_FORWARD_SCRIPT.contains("hope_artifact_text_selection"));
         assert!(ZOOM_FORWARD_SCRIPT.contains("hope_artifact_text_selection_clear"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("d.type==='ds_scenario'"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("window.__HOPE_DESIGN_SCENARIO__=detail"));
+        assert!(ZOOM_FORWARD_SCRIPT.contains("new CustomEvent('ds_scenario'"));
         assert!(ZOOM_FORWARD_SCRIPT.contains("p.text.length>20000"));
         assert!(ZOOM_FORWARD_SCRIPT.contains("type!=='password'"));
         assert!(ZOOM_FORWARD_SCRIPT

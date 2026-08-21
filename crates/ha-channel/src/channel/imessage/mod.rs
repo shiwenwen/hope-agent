@@ -152,14 +152,46 @@ impl ChannelPlugin for IMessagePlugin {
             );
         }
 
-        // Subscribe to watch notifications
-        if let Err(e) = imsg_client.watch_subscribe().await {
-            app_warn!(
+        let protocol_v1 = account.imsg_protocol_v1_enabled();
+        match imsg_client.negotiate_protocol_v1(protocol_v1).await {
+            Ok(Some(status)) => {
+                let version = status
+                    .version
+                    .as_deref()
+                    .and_then(safe_version_token)
+                    .unwrap_or_else(|| "unknown".to_string());
+                app_info!(
+                    "channel",
+                    "imessage",
+                    "Negotiated imsg protocol={} version={} methods={}",
+                    status.protocol_version.unwrap_or_default(),
+                    version,
+                    status.methods.len()
+                )
+            }
+            Ok(None) if protocol_v1 => app_warn!(
                 "channel",
                 "imessage",
-                "Failed to subscribe to watch notifications: {}",
+                "imsg does not support protocol-v1 initialize/status; using legacy RPC fallback"
+            ),
+            Ok(None) => app_info!(
+                "channel",
+                "imessage",
+                "imsg protocol-v1 disabled for this account; using legacy RPC"
+            ),
+            Err(error) => {
+                imsg_client.stop().await;
+                return Err(error.into());
+            }
+        }
+
+        // Subscribe to watch notifications
+        if let Err(e) = imsg_client.watch_subscribe().await {
+            imsg_client.stop().await;
+            return Err(anyhow::anyhow!(
+                "Failed to subscribe to iMessage watch notifications: {}",
                 e
-            );
+            ));
         }
 
         // Store the running account
@@ -229,7 +261,7 @@ impl ChannelPlugin for IMessagePlugin {
                 Ok(prepared) => prepared,
                 Err(e) => return Ok(DeliveryResult::err(e.to_string())),
             };
-            let send_result: Result<String> = async {
+            let send_result: std::result::Result<String, client::IMessageRpcError> = async {
                 let mut last_msg_id = None;
                 for (idx, attachment) in prepared.attachments().iter().enumerate() {
                     let text = media::attachment_text(
@@ -261,7 +293,17 @@ impl ChannelPlugin for IMessagePlugin {
 
             return match send_result {
                 Ok(msg_id) => Ok(DeliveryResult::ok(msg_id)),
-                Err(e) => Ok(DeliveryResult::err(e.to_string())),
+                Err(error) => {
+                    app_warn!(
+                        "channel",
+                        "imessage",
+                        "iMessage media delivery rejected code={:?} disposition={:?} retry_safe={}",
+                        error.code,
+                        error.disposition,
+                        error.retry_safe
+                    );
+                    Ok(DeliveryResult::err(error.user_safe_delivery_message()))
+                }
             };
         }
 
@@ -277,7 +319,17 @@ impl ChannelPlugin for IMessagePlugin {
                     let msg_id = extract_message_id(&result).unwrap_or_else(|| "ok".to_string());
                     Ok(DeliveryResult::ok(msg_id))
                 }
-                Err(e) => Ok(DeliveryResult::err(e.to_string())),
+                Err(error) => {
+                    app_warn!(
+                        "channel",
+                        "imessage",
+                        "iMessage text delivery rejected code={:?} disposition={:?} retry_safe={}",
+                        error.code,
+                        error.disposition,
+                        error.retry_safe
+                    );
+                    Ok(DeliveryResult::err(error.user_safe_delivery_message()))
+                }
             }
         } else {
             Ok(DeliveryResult::ok("no_content"))
@@ -321,13 +373,17 @@ impl ChannelPlugin for IMessagePlugin {
                 error: Some(format!("imsg binary not found at '{}'", imsg_path)),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             });
         }
 
-        // Try to start a temporary client and list conversations
-        match client::IMessageClient::start(&imsg_path, db_path.as_deref()) {
-            Ok(temp_client) => {
+        // Try to start a temporary client and list conversations. RPC
+        // responses require the stdout loop to be active even for probes.
+        match start_temporary_client(&imsg_path, db_path.as_deref()).await {
+            Ok((temp_client, temp_cancel, _inbound_rx)) => {
+                let status = temp_client.negotiate_protocol_v1(true).await.ok().flatten();
                 let result = temp_client.list_conversations().await;
+                temp_cancel.cancel();
                 temp_client.stop().await;
 
                 match result {
@@ -337,7 +393,8 @@ impl ChannelPlugin for IMessagePlugin {
                         probe_ok: Some(true),
                         error: None,
                         uptime_secs: None,
-                        bot_name: Some("iMessage".to_string()),
+                        bot_name: Some(imessage_probe_label(status.as_ref())),
+                        capability_snapshot: None,
                     }),
                     Err(e) => Ok(ChannelHealth {
                         is_running: false,
@@ -346,6 +403,7 @@ impl ChannelPlugin for IMessagePlugin {
                         error: Some(e.to_string()),
                         uptime_secs: None,
                         bot_name: None,
+                        capability_snapshot: None,
                     }),
                 }
             }
@@ -356,6 +414,7 @@ impl ChannelPlugin for IMessagePlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }
@@ -369,6 +428,7 @@ impl ChannelPlugin for IMessagePlugin {
             error: Some("iMessage is only supported on macOS".to_string()),
             uptime_secs: None,
             bot_name: None,
+            capability_snapshot: None,
         })
     }
 
@@ -397,9 +457,13 @@ impl ChannelPlugin for IMessagePlugin {
             ));
         }
 
-        // Try to probe by listing conversations
-        let temp_client = client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
+        // Try to probe by listing conversations. Keep the notification loop
+        // alive so it can route the JSON-RPC response.
+        let (temp_client, temp_cancel, _inbound_rx) =
+            start_temporary_client(&imsg_path, db_path.as_deref()).await?;
+        let _ = temp_client.negotiate_protocol_v1(true).await;
         let result = temp_client.list_conversations().await;
+        temp_cancel.cancel();
         temp_client.stop().await;
 
         match result {
@@ -426,4 +490,52 @@ fn extract_message_id(result: &serde_json::Value) -> Option<String> {
                 .map(|s| s.to_string())
                 .or_else(|| v.as_i64().map(|n| n.to_string()))
         })
+}
+
+#[cfg(target_os = "macos")]
+fn safe_version_token(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()
+        && trimmed.len() <= 64
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '+' | '_')))
+    .then(|| trimmed.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn imessage_probe_label(status: Option<&client::IMessageStatus>) -> String {
+    status
+        .and_then(|value| value.version.as_deref())
+        .and_then(safe_version_token)
+        .map(|version| format!("iMessage · imsg {version} · protocol 1"))
+        .unwrap_or_else(|| "iMessage · imsg legacy/undisclosed".to_string())
+}
+
+#[cfg(target_os = "macos")]
+async fn start_temporary_client(
+    imsg_path: &str,
+    db_path: Option<&str>,
+) -> Result<(
+    client::IMessageClient,
+    CancellationToken,
+    mpsc::Receiver<InboundEvent>,
+)> {
+    let client = client::IMessageClient::start(imsg_path, db_path)?;
+    let cancel = CancellationToken::new();
+    let (inbound_tx, inbound_rx) = mpsc::channel(8);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    client
+        .run_notification_loop(
+            "imessage-probe".to_string(),
+            inbound_tx,
+            cancel.clone(),
+            ready_tx,
+        )
+        .await;
+    tokio::time::timeout(std::time::Duration::from_secs(5), ready_rx)
+        .await
+        .map_err(|_| anyhow::anyhow!("imsg probe notification loop did not become ready"))?
+        .map_err(|_| anyhow::anyhow!("imsg probe notification loop exited before ready"))?;
+    Ok((client, cancel, inbound_rx))
 }

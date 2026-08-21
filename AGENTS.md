@@ -98,6 +98,8 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - `AsyncToolsConfig` 的 `0`：仅 `max_concurrent_jobs`/`_per_session` 真不限，其余 bounded-resource 旁钮钳到地板、绝非无限（`completion_merge_window_secs` 的 `0`=关，不在此列）。
 - incognito：`output_tail` 永不注册；工作台聚合跳后端、只用 live tail。
 - 图/音生成必走 `media_gen::execute_image`/`execute_audio`，禁各写 provider 循环；凭据只 owner UI 可写。
+- **托管二进制供应链**：Chrome for Testing / FFmpeg 只读各自随包 manifest 的不可变 URL、精确大小、SHA-256、来源与许可证；必须先验摘要与冒烟再原子提升，失败保留上一份已验证版本，禁恢复 rolling `latest` 或仅凭 HTTPS/marker 放行。
+- **沙箱镜像必须内容寻址**：默认 Debian slim 由 `sandbox-image-manifest.json` 固定多架构 digest，所有自定义 `SandboxConfig.image` 也须为 `name@sha256:<64 位摘要>`；旧裸默认 tag 只准迁移到内置 digest，禁止自动拉取其它可变 tag。Docker 部署 `isolated` 双层 fail-closed 与 non-root/read-only/network-none/cap-drop/资源上限不可削弱。
 - 工作台聚合 dedup/排序 TS 与 Rust（`session::aggregate_session_artifacts`）两份须同步。
 - 文件打开/下载/预览走 `useFileResource`；新可预览类型改 `src/lib/fileKind.ts` `isPreviewableKind`。
 - preview-by-path：HTTP 三端点共用 `authorized_canonical_file_path`（tool 消息引用 ∪ 会话工作目录内），其余 403（远端严禁任意主机路径）；桌面信任本机。
@@ -111,11 +113,13 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **默认不静态注入**：仅完整 V1 rollback 或 `compatibility.legacyStaticMemory=true` 才恢复 `## Pinned Memory` Context Pack；其 claim 进 prompt 前须 `sanitize_for_prompt`（**与动态召回信封是两条独立义务**），legacy dedup 阈值须对齐注入阈值 `PINNED_MIN_SALIENCE`、**dedup 永不比注入更激进**（否则中等 salience claim 两头落空）
 - **自动召回默认关**（`memory.recall.enabled`，Deep Recall 独立默认关）：关闭时只自动用 Core，**工具面不得 gate 在此开关**（模型仍可按需调 Memory tools）。开启后**过期 / superseded / archived / needs_review 不回灌**。旧 per-agent `ActiveMemoryConfig` 仅一个 minor 兼容 / rollback，**不得迁成全局同意**
 - **自动流程永不硬改用户记忆**：Deep Resolver 冲突只在高置信写 `needs_review`、**永不自动 supersede**；低置信 / 未知 relation / LLM 失败均 no-op
+- **外部 Memory 兼容门不得静默联网**：配置读取/预检零网络，仅 owner 显式测试连接时探测版本/能力；Graphiti `<0.28.2`、Supermemory 自托管 `<0.0.8`、OpenViking `<0.4.15`、Honcho 自托管 `<3.0.12` 全部阻断，未知版本只许 `PullOnly`，发送本地记忆的策略 fail-closed
 - **纠错唯一入口 `claims::review`**：**无 agent 工具面**，只对用户开放、模型不能自改；**改 content 必 `reembed_claim`**，否则下轮召回仍命中旧文本
 - **注入即 untrusted**：召回文本套 `<untrusted_external_data>`，项目索引注入前 XML escape，claim / 图谱文本进 prompt 前 sanitize
 - **fail closed**：全局 / agent memory off、incognito、非项目会话在 schema 与执行层双归零。`sessions.incognito` 是无痕单一真相源（不注入 Memory / Awareness、跳过自动提取、关闭即焚，**与 Project / IM Channel 互斥**，四旁路守卫见 [session](docs/architecture/core/session.md#四旁路守卫epic-e)）。项目记忆读写拒 symlink 与 canonical escape、变更持项目级 OS 独占锁、更新 / 删除须带上次 `read` 的 BLAKE3 `expectedFileHash`（陈旧写 fail closed）
 - **确定性评测刻意不进默认 Cargo test**：`memory/dreaming/eval.rs` + `evals/suites/memory-dreaming/fixtures/` **无 LLM**，只由 `hope-agent-eval` 跑（进 cargo test 或加 LLM 判分即破坏确定性）
 - **改这些须同步**：claim 读路径 / effective-status / hidden-set / scope 过滤 / evidence 授权 → 加 fixture + 提 suite version + 追加 `evals/version-lock.json` key（已有 `id@version` 不可覆写，CI 强制 append-only）；Deep Resolver 分组 / 基数 / 决策映射 → `auto_resolver_graph_planning` fixture；检索 SQL / RRF / trigram → 跑 `pnpm memory:benchmark`
+- **嵌入用途是向量契约**：新增 / 更新 / 重嵌显式用 `Document`，检索用 `Query`，只有相似度 / 聚类用 `Symmetric`；禁按单条/批量数量推断。用途与 provider 前缀/task 语义必须进签名及缓存键，旧签名 fail-closed 后只经可取消、幂等重嵌迁移，禁止原地重解释
 - **Retrieval Planner**：`role=injected/selected` 是既成 prompt 事实，跨源只能 canonical-dedup / 裁剪 `candidate/considered`，**不得重排或丢弃已注入 ref**
 - **新增 Goal / Workflow / Async / Agent 执行边界**须传播 `EvalRunContext` 身份并在终态关闭 guard；`evals/live/version-lock.json` 同样 append-only，manifest 禁 shell
 
@@ -180,6 +184,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 - **agent 侧唯一解析链**：`Agent::resolve_kb_access()`，prompt 段 / 被动召回 / 工具门控共用，**不得重写**；**只服务 schema/prompt/召回，绝不 gate 执行**（执行走 live `access_map`）。`is_kb_scoped_tool` / `ToolScope::Knowledge` 仅收窄 schema 可见性，**非安全边界**
 - **写入三闸**：`WorkspaceScope::for_knowledge`（外部 root 只读、**桌面也拒**（刻意反「桌面不受限」通例），须 `allow_external_writes`；HTTP 再叠 `allow_remote_writes`；**后台维护永不写外部**）→ `platform::write_atomic`（**禁回退 `fs::write`**）→ `expected_file_hash` 比磁盘 raw BLAKE3（**非索引 `content_hash`**）
 - **检索独立**：笔记 store **绝不折进 `recall_memory`**（`knowledge_recall` 两段不混排）；`knowledge_embedding` 与 `memory_embedding` 物理隔离、**不寄生不回退**；embedding / chunk 重 reindex 故 **GUI-only 不进 `ha-settings`**（设置三件套例外）
+- **Knowledge 确定性评测不进默认测试**：chunk / parser / FTS / 聚合 / KB 隔离 / evidence 坐标变更须同步 `knowledge-retrieval-evidence` fixture、提升 suite version，并向 `evals/version-lock.json` 追加新 key；只由显式 `hope-agent-eval` 跑，禁 LLM / 网络
 - **读取即 untrusted**：`[[note]]` 与 `knowledge_passive_recall` 套 `<untrusted_external_data>` 信封，**永不升为 system 指令**；incognito 零召回 / 零精灵
 - **接线**：会话独立 `SessionKind::Knowledge`（主列表 / `/sessions` / 全局 FTS 隐藏，与 design 同谓词）；**新增 KB 工具须同步 `ha-knowledge` 的 `tools/note.rs`（handler）+ `tools/mod.rs::note_dispatch_entries`（dispatch 条目，经 `wire()` 的 `register_external_tools`）+ kernel `core_tools.rs`（schema，名字常量与 `ToolDefinition` 是纯契约、恒留 kernel）**
 
@@ -208,7 +213,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 - **唯一入口 `HookDispatcher::dispatch` / `hooks::fire_*`**；调用方只读 `HookOutcome`，严禁 match handler 类型
 - **新 user message 入口须过 `agent::preflight::user_prompt_preflight`**（`UserPromptSubmit` 阻断点），并把交给 `active_turn::try_acquire` 的**同一个** `turn_id` 填进 `PreflightArgs`；**不 acquire 的入口**（如 ACP）传自铸 id 或 `""`——`""` 恒等于「省略 `prompt_id`」，绝不回落注册表(否则会把同会话另一轮的 id 盖上来)；新 hook 事件须埋点 + 测试 + 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）——**漏登记 `is_observation_only` 则新观察事件意外可阻断**
-- **project/local scope 默认关**（`hooks_allow_project_scope`，供应链防护：开启即信任所有未来 cwd）；`ha-settings` 对 hooks 只读，可写 = 模型自装命令执行
+- **project/local scope 按工作区与内容授权**：执行前须同时命中 canonical cwd 与 project/local Hook 文件 BLAKE3；路径别名、symlink、移动、内容变化均 fail closed。旧 `hooks_allow_project_scope` 仅反序列化兼容、执行层忽略且不得自动迁移（否则信任所有未来 cwd）；授权只许 GUI/owner 传输入口，`ha-settings` 对 hooks 只读（可写 = 模型自装命令执行）。command Hook 子进程先 `env_clear()`，只继承最小运行环境 + `allowedEnvVars` 逐名声明，合成 `HOPE_*` / `CLAUDE_*` 最后覆盖；禁恢复全宿主环境继承
 
 ### Plan Mode
 

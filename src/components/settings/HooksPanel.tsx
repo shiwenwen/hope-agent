@@ -30,8 +30,18 @@ interface MatcherGroup {
 type HooksMap = Record<string, MatcherGroup[]>
 interface HooksSettings {
   disableAllHooks: boolean
-  allowProjectScope: boolean
+  trustedProjectScopes: string[]
   hooks: HooksMap
+}
+
+function normalizeHooksSettings(settings: HooksSettings): HooksSettings {
+  return {
+    disableAllHooks: !!settings.disableAllHooks,
+    trustedProjectScopes: Array.isArray(settings.trustedProjectScopes)
+      ? [...new Set(settings.trustedProjectScopes.filter((path) => typeof path === "string" && path))]
+      : [],
+    hooks: settings.hooks ?? {},
+  }
 }
 
 // The 26 events that actually fire. Protocol-reserved TeammateIdle and
@@ -86,6 +96,7 @@ const FIELDS_BY_TYPE: Record<HandlerType, FieldDef[]> = {
   command: [
     { key: "command", label: "command", kind: "textarea" },
     { key: "shell", label: "shell", kind: "shell" },
+    { key: "allowedEnvVars", label: "allowedEnvVars (a, b)", kind: "csv" },
     { key: "async", label: "async", kind: "switch" },
     { key: "asyncRewake", label: "asyncRewake (inject on exit 2)", kind: "switch" },
   ],
@@ -445,17 +456,14 @@ export default function HooksPanel() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [pickEvent, setPickEvent] = useState("")
+  const [workspacePath, setWorkspacePath] = useState("")
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
 
   useEffect(() => {
     getTransport()
       .call<HooksSettings>("get_hooks_config")
       .then((s) => {
-        const norm: HooksSettings = {
-          disableAllHooks: !!s.disableAllHooks,
-          allowProjectScope: !!s.allowProjectScope,
-          hooks: s.hooks ?? {},
-        }
+        const norm = normalizeHooksSettings(s)
         setSettings(norm)
         setSavedJson(JSON.stringify(norm))
       })
@@ -479,7 +487,13 @@ export default function HooksPanel() {
     setSaving(true)
     try {
       await getTransport().call("save_hooks_config", { config: settings })
-      setSavedJson(JSON.stringify(settings))
+      // Saving canonicalizes each path and binds trust to the current Hook file
+      // hashes. Read back the authoritative paths instead of retaining aliases.
+      const saved = normalizeHooksSettings(
+        await getTransport().call<HooksSettings>("get_hooks_config"),
+      )
+      setSettings(saved)
+      setSavedJson(JSON.stringify(saved))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
@@ -569,17 +583,74 @@ export default function HooksPanel() {
         />
       </div>
 
-      <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+      <div className="space-y-3 rounded-md border border-border/60 p-3">
         <div>
-          <div className="text-sm font-medium">{t("settings.hooks.allowProjectScope")}</div>
+          <div className="text-sm font-medium">{t("settings.hooks.trustedProjectScopes")}</div>
           <div className="text-xs text-muted-foreground">
-            {t("settings.hooks.allowProjectScopeDesc")}
+            {t("settings.hooks.trustedProjectScopesDesc")}
           </div>
         </div>
-        <Switch
-          checked={settings.allowProjectScope}
-          onCheckedChange={(c) => setSettings({ ...settings, allowProjectScope: c })}
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            value={workspacePath}
+            onChange={(event) => setWorkspacePath(event.target.value)}
+            placeholder={t("settings.hooks.workspacePath")}
+            className="font-mono text-xs"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!workspacePath.trim()}
+            onClick={() => {
+              const path = workspacePath.trim()
+              if (!path || settings.trustedProjectScopes.includes(path)) return
+              setSettings({
+                ...settings,
+                trustedProjectScopes: [...settings.trustedProjectScopes, path],
+              })
+              setWorkspacePath("")
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            {t("settings.hooks.trustWorkspace")}
+          </Button>
+        </div>
+        {settings.trustedProjectScopes.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {t("settings.hooks.noTrustedWorkspaces")}
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {settings.trustedProjectScopes.map((path) => (
+              <div
+                key={path}
+                className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5"
+              >
+                <code className="min-w-0 flex-1 truncate text-xs">{path}</code>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={t("common.delete")}
+                  onClick={() =>
+                    setSettings({
+                      ...settings,
+                      trustedProjectScopes: settings.trustedProjectScopes.filter(
+                        (trusted) => trusted !== path,
+                      ),
+                    })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          {t("settings.hooks.trustContentBound")}
+        </p>
       </div>
 
       <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">

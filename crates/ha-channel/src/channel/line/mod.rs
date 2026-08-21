@@ -482,6 +482,7 @@ impl ChannelPlugin for LinePlugin {
                     error: None,
                     uptime_secs: None,
                     bot_name: Some(name.to_string()),
+                    capability_snapshot: None,
                 })
             }
             Err(e) => Ok(ChannelHealth {
@@ -491,6 +492,7 @@ impl ChannelPlugin for LinePlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

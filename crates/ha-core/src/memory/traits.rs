@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 
+use super::embedding::EmbeddingPurpose;
 use super::types::*;
 
 // ── MemoryBackend Trait ─────────────────────────────────────────
@@ -418,10 +419,10 @@ pub struct MultimodalInput {
 
 /// Trait for generating text embeddings. Implementations can be API-based or local.
 pub trait EmbeddingProvider: Send + Sync {
-    /// Generate embedding for a single text
-    fn embed(&self, text: &str) -> Result<Vec<f32>>;
-    /// Batch embed multiple texts
-    fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
+    /// Generate an embedding for one text under an explicit semantic role.
+    fn embed(&self, text: &str, purpose: EmbeddingPurpose) -> Result<Vec<f32>>;
+    /// Batch embed texts under one explicit semantic role.
+    fn embed_batch(&self, texts: &[String], purpose: EmbeddingPurpose) -> Result<Vec<Vec<f32>>>;
     /// Return the embedding dimensions
     fn dimensions(&self) -> u32;
 
@@ -433,8 +434,12 @@ pub trait EmbeddingProvider: Send + Sync {
 
     /// Generate embedding for a multimodal input (text + image/audio file).
     /// Default: falls back to text-only embedding of the label.
-    fn embed_multimodal(&self, input: &MultimodalInput) -> Result<Vec<f32>> {
-        self.embed(&input.label)
+    fn embed_multimodal(
+        &self,
+        input: &MultimodalInput,
+        purpose: EmbeddingPurpose,
+    ) -> Result<Vec<f32>> {
+        self.embed(&input.label, purpose)
     }
 
     /// Whether this provider supports the async Batch API (JSONL upload → poll → download).
@@ -449,10 +454,11 @@ pub trait EmbeddingProvider: Send + Sync {
     fn embed_batch_async(
         &self,
         texts: &[(String, String)],
+        purpose: EmbeddingPurpose,
     ) -> Result<std::collections::HashMap<String, Vec<f32>>> {
         // Default: synchronous fallback
         let text_strs: Vec<String> = texts.iter().map(|(_, t)| t.clone()).collect();
-        let results = self.embed_batch(&text_strs)?;
+        let results = self.embed_batch(&text_strs, purpose)?;
         let mut map = std::collections::HashMap::new();
         for ((id, _), emb) in texts.iter().zip(results) {
             map.insert(id.clone(), emb);

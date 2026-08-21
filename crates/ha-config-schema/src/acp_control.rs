@@ -54,18 +54,26 @@ fn default_backends() -> Vec<AcpBackendConfig> {
     vec![
         AcpBackendConfig {
             id: "claude-code".into(),
-            name: "Claude Code".into(),
-            binary: "claude".into(),
+            name: "Claude Code (ACP adapter)".into(),
+            binary: "claude-agent-acp".into(),
             acp_args: vec![],
+            protocol: AcpBackendProtocol::V1,
+            distribution: Some(AcpDistributionDescriptor::package_adapter(
+                "@agentclientprotocol/claude-agent-acp",
+            )),
             enabled: true,
             default_model: None,
             env: HashMap::new(),
         },
         AcpBackendConfig {
             id: "codex-cli".into(),
-            name: "Codex CLI".into(),
-            binary: "codex".into(),
+            name: "Codex (ACP adapter)".into(),
+            binary: "codex-acp".into(),
             acp_args: vec![],
+            protocol: AcpBackendProtocol::V1,
+            distribution: Some(AcpDistributionDescriptor::package_adapter(
+                "@agentclientprotocol/codex-acp",
+            )),
             enabled: true,
             default_model: None,
             env: HashMap::new(),
@@ -74,7 +82,9 @@ fn default_backends() -> Vec<AcpBackendConfig> {
             id: "gemini-cli".into(),
             name: "Gemini CLI".into(),
             binary: "gemini".into(),
-            acp_args: vec![],
+            acp_args: vec!["--acp".into()],
+            protocol: AcpBackendProtocol::V1,
+            distribution: Some(AcpDistributionDescriptor::native("gemini-cli")),
             enabled: true,
             default_model: None,
             env: HashMap::new(),
@@ -114,6 +124,17 @@ pub struct AcpBackendConfig {
     #[serde(default)]
     pub acp_args: Vec<String>,
 
+    /// ACP wire contract used by this exact distribution. Missing values from
+    /// pre-v1 configs remain legacy; runtime launch still requires an explicit
+    /// distribution descriptor and never guesses a command shape.
+    #[serde(default)]
+    pub protocol: AcpBackendProtocol,
+
+    /// Provenance and install identity for the configured command. `None`
+    /// means an old/unverified config and is rejected before process spawn.
+    #[serde(default)]
+    pub distribution: Option<AcpDistributionDescriptor>,
+
     /// Whether this backend is enabled.
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
@@ -125,4 +146,84 @@ pub struct AcpBackendConfig {
     /// Environment variable overrides for the child process.
     #[serde(default)]
     pub env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpBackendProtocol {
+    V1,
+    #[default]
+    Legacy02,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpDistributionDescriptor {
+    pub source: AcpDistributionSource,
+    /// Package or native product identifier; never a floating download URL.
+    pub package: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub platform_files: Vec<AcpDistributionFile>,
+    #[serde(default)]
+    pub auth_method: AcpDistributionAuth,
+}
+
+impl AcpDistributionDescriptor {
+    fn native(package: &str) -> Self {
+        Self {
+            source: AcpDistributionSource::Native,
+            package: package.into(),
+            version: None,
+            platform_files: vec![],
+            auth_method: AcpDistributionAuth::InheritedEnvironment,
+        }
+    }
+
+    fn package_adapter(package: &str) -> Self {
+        Self {
+            source: AcpDistributionSource::PackageAdapter,
+            package: package.into(),
+            version: None,
+            platform_files: vec![],
+            auth_method: AcpDistributionAuth::InheritedEnvironment,
+        }
+    }
+
+    pub fn custom(package: impl Into<String>) -> Self {
+        Self {
+            source: AcpDistributionSource::Custom,
+            package: package.into(),
+            version: None,
+            platform_files: vec![],
+            auth_method: AcpDistributionAuth::InheritedEnvironment,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpDistributionSource {
+    Native,
+    PackageAdapter,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpDistributionFile {
+    pub platform: String,
+    pub architecture: String,
+    pub file: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpDistributionAuth {
+    #[default]
+    InheritedEnvironment,
+    Terminal,
+    None,
 }

@@ -438,7 +438,7 @@ ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'off';
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
-| `image` | `debian:bookworm-slim` | 执行沙箱镜像 |
+| `image` | 内置 Debian Bookworm slim manifest digest | 执行沙箱镜像；必须使用 `name@sha256:<64 位摘要>`，可变 tag 被拒绝 |
 | `memory_limit` | 512 MB | 容器内存限制，`None` 表示不设 |
 | `cpu_limit` | `1.0` | `nano_cpus` 限制 |
 | `read_only` | `true` | root filesystem 只读 |
@@ -449,6 +449,23 @@ ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'off';
 | `tmpfs` | `/tmp` 64M、`/var/tmp` 32M、`/run` 16M | rootfs 只读时的临时写入区 |
 
 读写：Tauri `get_sandbox_config` / `set_sandbox_config`；HTTP `GET /api/config/sandbox` / `PUT /api/config/sandbox`。
+
+#### 镜像供应链与 hardened image 取舍
+
+默认引用由 [`sandbox-image-manifest.json`](../../../crates/ha-core/resources/sandbox-image-manifest.json) 唯一给出：
+
+```text
+debian:bookworm-20260803-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+```
+
+这是 Docker Official Image 的多架构 OCI index；manifest 同时钉住 `linux/amd64` 子 manifest `sha256:362e6422…` 与 `linux/arm64/v8` 子 manifest `sha256:817e6cf9…`，并保存上游证据与发布时间。旧默认值 `debian:bookworm-slim` 只在读取既有配置时迁到上述 digest；其它可变 tag 不自动“猜测”摘要，保存和执行都 fail closed。Bollard 拉取时把完整 `name[:tag]@digest` 放进 `fromImage`，拉取结束再按完整引用 inspect，禁止把 `sha256` 误拆成 tag。
+
+| 方案 | 优点 | 与当前命令模型的冲突 | 决策 |
+|---|---|---|---|
+| Debian Bookworm slim + 运行时硬化 | 多架构、保留 `sh`，归档导入和开发命令兼容；官方镜像证据完整 | 基础用户态比极简 hardened image 更大，digest 冻结后必须主动刷新安全补丁 | **当前采用**；内容用 digest 固定，隔离靠非 root、只读 rootfs、network none、cap-drop、no-new-privileges、tmpfs 与资源上限叠加 |
+| 无 shell / 极简 hardened image | 包和解释器更少，默认攻击面更窄 | Hope 当前明确执行 `sh -c`，且开发任务需要动态工具；直接替换会让正常任务系统性失败 | 不直接替换；只有专用、保留所需 shell/工具且许可证、双架构 digest、回滚证据齐全的开发变体通过兼容矩阵后才可另立 manifest |
+
+digest 提供可复现性，不自动获得安全更新。维护时按月检查上游 Debian slim；高危修复走紧急刷新。更新必须把 index 与 amd64/arm64 子 digest、发布时间和上游证据一起改入 manifest，并保留前一 digest 作为显式审计回滚值；禁止恢复裸 tag 自动 fallback。回归用纯构造测试钉住只读根、无网络、drop all capabilities、no-new-privileges、PID/CPU/内存与 tmpfs；Docker 部署仍由预检与执行两层只接受 `isolated`，归档/cancel/cleanup 边界不因镜像更新放宽。
 
 ## API / Transport 契约
 

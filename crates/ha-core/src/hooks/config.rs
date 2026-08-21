@@ -9,7 +9,7 @@ use super::types::HookEvent;
 // 类型已下沉 ha-config-schema
 pub use ha_config_schema::hooks::{
     AgentHookConfig, CommandHookConfig, HookHandlerConfig, HookMatcherGroup, HookShell,
-    HooksConfig, HttpHookConfig, McpToolHookConfig, PromptHookConfig,
+    HookWorkspaceTrust, HooksConfig, HttpHookConfig, McpToolHookConfig, PromptHookConfig,
 };
 
 /// [`HooksConfig`] 的行为面：这些方法依赖 `hooks::types::HookEvent`（事件
@@ -185,11 +185,11 @@ const HOOK_EVENTS_FOR_EMPTY_CHECK: [HookEvent; 30] = [
 pub struct HooksSettings {
     #[serde(rename = "disableAllHooks", default)]
     pub disable_all_hooks: bool,
-    /// Mirrors `AppConfig::hooks_allow_project_scope`: opt-in for loading
-    /// `<cwd>/.hope-agent/hooks.json` / `hooks.local.json` (off by default, a
-    /// supply-chain guard so a repo's checked-in hooks don't auto-execute).
-    #[serde(rename = "allowProjectScope", default)]
-    pub allow_project_scope: bool,
+    /// Canonical workspace paths currently trusted for the exact Hook file
+    /// contents recorded in AppConfig. Save re-canonicalizes and re-hashes each
+    /// path; the GUI never supplies hashes itself.
+    #[serde(rename = "trustedProjectScopes", default)]
+    pub trusted_project_scopes: Vec<String>,
     #[serde(default)]
     pub hooks: HooksConfig,
 }

@@ -36,7 +36,56 @@ pub fn init_index_db() -> Result<()> {
     let db = Arc::new(IndexDb::open(&path)?);
     apply_embedding_to_index(&db);
     set_index_db(db);
+    resume_embedding_signature_migration();
     Ok(())
+}
+
+/// Make a signature-algorithm/provider-semantics upgrade fail closed: the
+/// newly computed v2 signature excludes all v1 vectors immediately, then the
+/// Primary process resumes the idempotent full Knowledge re-index.
+fn resume_embedding_signature_migration() {
+    if !ha_core::runtime_lock::is_primary() {
+        return;
+    }
+    let store = ha_core::config::cached_config();
+    let Ok(Some((_model, _runtime, signature))) = ha_core::memory::resolve_memory_embedding_config(
+        &store.knowledge_embedding,
+        &store.embedding_models,
+    ) else {
+        return;
+    };
+    if store
+        .knowledge_embedding
+        .last_reembedded_signature
+        .as_deref()
+        == Some(signature.as_str())
+    {
+        return;
+    }
+    let signature_for_store = signature.clone();
+    if let Err(error) = ha_core::config::mutate_config(
+        ("knowledge_embedding.signature_migration", "startup"),
+        move |config| {
+            config.knowledge_embedding.active_signature = Some(signature_for_store.clone());
+            Ok(())
+        },
+    ) {
+        app_warn!(
+            "knowledge",
+            "embedding_migration",
+            "failed to persist Knowledge embedding signature migration: {}",
+            error
+        );
+        return;
+    }
+    if let Err(error) = super::start_knowledge_reembed_job(None, "signature-migration") {
+        app_warn!(
+            "knowledge",
+            "embedding_migration",
+            "failed to resume Knowledge embedding signature migration: {}",
+            error
+        );
+    }
 }
 
 /// Resolve the active **knowledge** embedding model (`knowledge_embedding`,
@@ -336,7 +385,7 @@ fn embed_chunks(
     };
     let signature = super::embedding::knowledge_active_embedding_signature();
     let bodies: Vec<String> = chunks.iter().map(|c| c.body.clone()).collect();
-    match embedder.embed_batch(&bodies) {
+    match embedder.embed_batch(&bodies, ha_core::memory::EmbeddingPurpose::Document) {
         Ok(vecs) if vecs.len() == chunks.len() => (Some(vecs), signature),
         Ok(_) => (None, None),
         Err(e) => {

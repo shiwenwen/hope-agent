@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import {
   Check,
@@ -21,11 +22,26 @@ import {
 
 // ── Types ────────────────────────────────────────────────────────
 
+type AcpDistributionSource = "native" | "package_adapter" | "custom"
+
 interface AcpBackendConfig {
   id: string
   name: string
   binary: string
   acpArgs: string[]
+  protocol: "v1" | "legacy02"
+  distribution: {
+    source: AcpDistributionSource
+    package: string
+    version: string | null
+    platformFiles: Array<{
+      platform: string
+      architecture: string
+      file: string
+      sha256: string
+    }>
+    authMethod: "inherited_environment" | "terminal" | "none"
+  } | null
   enabled: boolean
   defaultModel: string | null
   env: Record<string, string>
@@ -130,6 +146,14 @@ export default function AcpControlPanel() {
           name: t("settings.acpCustomAgent"),
           binary: "",
           acpArgs: [],
+          protocol: "v1",
+          distribution: {
+            source: "custom",
+            package: `custom-${Date.now()}`,
+            version: null,
+            platformFiles: [],
+            authMethod: "inherited_environment",
+          },
           enabled: true,
           defaultModel: null,
           env: {},
@@ -247,6 +271,125 @@ export default function AcpControlPanel() {
                         onChange={(e) => updateBackend(index, { binary: e.target.value })}
                       />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        {t("settings.acpProtocol", "Protocol")}
+                      </Label>
+                      <Select
+                        value={backend.protocol}
+                        onValueChange={(protocol: AcpBackendConfig["protocol"]) =>
+                          updateBackend(index, { protocol })
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="v1">ACP v1</SelectItem>
+                          <SelectItem value="legacy02">Legacy 0.2</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        {t("settings.acpLaunchArgs", "Launch arguments")}
+                      </Label>
+                      <Input
+                        className="h-7 text-xs"
+                        value={backend.acpArgs.join(" ")}
+                        placeholder="--acp"
+                        onChange={(e) =>
+                          updateBackend(index, {
+                            acpArgs: e.target.value.split(/\s+/).filter(Boolean),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-md bg-muted/40 p-2 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs text-muted-foreground">
+                        {t("settings.acpDistribution", "Distribution descriptor")}
+                      </Label>
+                      {backend.distribution === null && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() =>
+                            updateBackend(index, {
+                              distribution: {
+                                source: "custom",
+                                package: backend.id,
+                                version: null,
+                                platformFiles: [],
+                                authMethod: "inherited_environment",
+                              },
+                            })
+                          }
+                        >
+                          {t("settings.acpTrustDistribution", "Define distribution")}
+                        </Button>
+                      )}
+                    </div>
+                    {backend.distribution ? (
+                      <div className="grid grid-cols-3 gap-2">
+                        <Select
+                          value={backend.distribution.source}
+                          onValueChange={(source: AcpDistributionSource) =>
+                            updateBackend(index, {
+                              distribution: { ...backend.distribution!, source },
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="native">Native</SelectItem>
+                            <SelectItem value="package_adapter">ACP adapter</SelectItem>
+                            <SelectItem value="custom">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          className="h-7 text-xs"
+                          value={backend.distribution.package}
+                          placeholder={t("settings.acpDistributionPackage", "Package or product")}
+                          onChange={(e) =>
+                            updateBackend(index, {
+                              distribution: {
+                                ...backend.distribution!,
+                                package: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                        <Input
+                          className="h-7 text-xs"
+                          value={backend.distribution.version ?? ""}
+                          placeholder={t("settings.acpDistributionVersion", "Pinned version")}
+                          onChange={(e) =>
+                            updateBackend(index, {
+                              distribution: {
+                                ...backend.distribution!,
+                                version: e.target.value || null,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-destructive">
+                        {t(
+                          "settings.acpDistributionRequired",
+                          "This legacy backend is blocked until its launch distribution is explicitly defined."
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
               )
