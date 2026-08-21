@@ -49,6 +49,10 @@ const SYNC_STATE_SCHEMA_VERSION: u32 = 1;
 const MAX_IMPORTED_CONTENT_CHARS: usize = 16_000;
 const IMPORT_LEDGER_CHECKPOINT_EVERY: usize = 100;
 const PROVIDER_SYNC_TIMEOUT: Duration = Duration::from_secs(120);
+/// A successful compatibility probe is an owner-granted capability to send
+/// local memories. Keep that grant short-lived so a server replaced in place
+/// cannot inherit compatibility evidence indefinitely.
+const COMPATIBILITY_GRANT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 tokio::task_local! {
     static PROVIDER_SYNC_DEADLINE: std::time::Instant;
 }
@@ -831,24 +835,67 @@ fn detected_provider_capabilities(kind: ExternalMemoryProviderKind, body: &[u8])
 pub(crate) fn external_memory_provider_compatibility_snapshot(
     provider: &ExternalMemoryProviderConfig,
 ) -> ExternalMemoryProviderCompatibilityReport {
-    let current_fingerprint = resolve_external_memory_provider_credentials(&provider.id)
+    let current_credentials = resolve_external_memory_provider_credentials(&provider.id)
         .ok()
         .flatten()
-        .and_then(|(credentials, _)| {
-            compatibility_credential_fingerprint(provider.kind, &credentials).ok()
-        });
+        .map(|(credentials, _)| credentials);
+    let current_fingerprint = current_credentials.as_ref().and_then(|credentials| {
+        compatibility_credential_fingerprint(provider.kind, credentials).ok()
+    });
+    let current_requirement =
+        compatibility_requirement(provider.kind, current_credentials.as_ref());
     match load_compatibility_report(&provider.id) {
         Ok(Some(stored))
             if stored.report.provider_id == provider.id
                 && stored.report.kind == provider.kind
                 && !stored.credential_fingerprint.is_empty()
                 && current_fingerprint.as_deref()
-                    == Some(stored.credential_fingerprint.as_str()) =>
+                    == Some(stored.credential_fingerprint.as_str())
+                && compatibility_report_is_current(
+                    &stored.report,
+                    current_requirement,
+                    chrono::Utc::now(),
+                ) =>
         {
             stored.report
         }
         Ok(_) => default_compatibility_report(provider, None),
         Err(error) => default_compatibility_report(provider, Some(&error)),
+    }
+}
+
+fn compatibility_report_is_current(
+    report: &ExternalMemoryProviderCompatibilityReport,
+    requirement: Option<VersionRequirement>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if report.minimum_version.as_deref() != requirement.map(|item| item.minimum) {
+        return false;
+    }
+
+    match report.status {
+        ExternalMemoryProviderCompatibilityStatus::Compatible => {
+            let (Some(requirement), Some(detected_version)) =
+                (requirement, report.detected_version.as_deref())
+            else {
+                return false;
+            };
+            if !version_meets_minimum(detected_version, requirement.minimum) {
+                return false;
+            }
+            let Ok(checked_at) = chrono::DateTime::parse_from_rfc3339(&report.checked_at) else {
+                return false;
+            };
+            let checked_at = checked_at.with_timezone(&chrono::Utc);
+            checked_at <= now
+                && now
+                    .signed_duration_since(checked_at)
+                    .to_std()
+                    .is_ok_and(|age| age <= COMPATIBILITY_GRANT_MAX_AGE)
+        }
+        ExternalMemoryProviderCompatibilityStatus::NotRequired => requirement.is_none(),
+        ExternalMemoryProviderCompatibilityStatus::Unverified
+        | ExternalMemoryProviderCompatibilityStatus::Blocked => true,
     }
 }
 
@@ -1834,6 +1881,51 @@ mod tests {
         assert!(!version_meets_minimum("0.28.2-rc.1", "0.28.2"));
         assert!(version_meets_minimum("0.28.2", "0.28.2"));
         assert!(version_meets_minimum("0.29.3", "0.28.2"));
+    }
+
+    #[test]
+    fn compatibility_grant_requires_fresh_evidence_for_the_current_floor() {
+        let now = chrono::Utc::now();
+        let requirement = VersionRequirement {
+            minimum: "0.28.2",
+            recommended: "0.29.3",
+        };
+        let mut report = ExternalMemoryProviderCompatibilityReport {
+            provider_id: "zep-main".to_string(),
+            kind: ExternalMemoryProviderKind::Zep,
+            status: ExternalMemoryProviderCompatibilityStatus::Compatible,
+            checked_at: now.to_rfc3339(),
+            external_io_performed: true,
+            detected_version: Some("0.29.3".to_string()),
+            minimum_version: Some(requirement.minimum.to_string()),
+            recommended_version: Some(requirement.recommended.to_string()),
+            capabilities: Vec::new(),
+            error: None,
+        };
+
+        assert!(compatibility_report_is_current(
+            &report,
+            Some(requirement),
+            now
+        ));
+
+        report.checked_at = (now - chrono::Duration::hours(25)).to_rfc3339();
+        assert!(!compatibility_report_is_current(
+            &report,
+            Some(requirement),
+            now
+        ));
+
+        report.checked_at = now.to_rfc3339();
+        let raised_floor = VersionRequirement {
+            minimum: "0.30.0",
+            recommended: "0.30.0",
+        };
+        assert!(!compatibility_report_is_current(
+            &report,
+            Some(raised_floor),
+            now
+        ));
     }
 
     #[test]

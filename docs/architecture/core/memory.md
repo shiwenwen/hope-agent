@@ -770,7 +770,7 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 
 能力注册表必须显式枚举所有 provider kind——后端单点是 `external_provider_capabilities()`（[`memory/types.rs`](../../../crates/ha-core/src/memory/types.rs)），新增/收回能力只能改 registry，并同步 health、preflight、privacy summary、协议测试。
 
-**版本与能力门**：普通配置读取和同步预检恒为零网络；只有 owner 在 GUI 或 HTTP 明确执行“测试连接”时，才对受 SSRF 守卫、拒绝重定向、30 秒超时和 64 KiB 响应上限保护的健康端点发请求。探测结果以受限权限文件持久化，端点、主体或协议变化立即失效。安全下限为 Graphiti `>=0.28.2`（推荐 `0.29.3`）、Supermemory 自托管 `>=0.0.8`、OpenViking `>=0.4.15`、Honcho 自托管 `>=3.0.12`；低于下限的全部同步 fail-closed，未知版本只允许 `PullOnly`，所有可能发送本地记忆的 Manual / Push / Bidirectional 策略都阻塞。托管服务和当前未登记版本下限的 provider 显示 `not_required`，但连接失败仍显示 `unverified`。探测和错误投影只保留版本、能力名与脱敏错误，不返回响应正文或凭据。
+**版本与能力门**：普通配置读取和同步预检恒为零网络；只有 owner 在 GUI 或 HTTP 明确执行“测试连接”时，才对受 SSRF 守卫、拒绝重定向、30 秒超时和 64 KiB 响应上限保护的健康端点发请求。探测结果以受限权限文件持久化，端点、主体、协议或当前最低版本要求变化时立即失效；`compatible` 授权最多保留 24 小时，超时后恢复为 `unverified`，必须由 owner 再次显式测试，预检不得自行联网续期。安全下限为 Graphiti `>=0.28.2`（推荐 `0.29.3`）、Supermemory 自托管 `>=0.0.8`、OpenViking `>=0.4.15`、Honcho 自托管 `>=3.0.12`；低于下限的全部同步 fail-closed，未知版本只允许 `PullOnly`，所有可能发送本地记忆的 Manual / Push / Bidirectional 策略都阻塞。托管服务和当前未登记版本下限的 provider 显示 `not_required`，但连接失败仍显示 `unverified`。探测和错误投影只保留版本、能力名与脱敏错误，不返回响应正文或凭据。
 
 **Supermemory 范围迁移**：新写入在既有 `containerTags=[subject_id]` 隔离键之外，同时写入 Hope 私有元数据 `hope_agent_subject_id`。读取时先按当前 Documents API 的元数据 `filters` 查询，再对旧 `containerTags` 做兼容读取并按远端文档 ID 去重；这是一段双读迁移期，不能直接删掉旧读路由，否则会让升级前由 Hope 写入的文档静默消失。远端未完成处理的文档仍只停留在 pending，不提升为本地 claim。
 

@@ -64,10 +64,11 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
     let mut fence_delimiter = None;
     let mut inline_delimiter = None;
     while index < bytes.len() {
-        if bytes[index] == b'`' {
+        if matches!(bytes[index], b'`' | b'~') {
+            let delimiter = bytes[index];
             let run_length = bytes[index..]
                 .iter()
-                .take_while(|byte| **byte == b'`')
+                .take_while(|byte| **byte == delimiter)
                 .count();
             let fence_position = index - line_start <= 3
                 && bytes[line_start..index].iter().all(|byte| *byte == b' ');
@@ -79,17 +80,20 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
                 && bytes[index + run_length..line_end]
                     .iter()
                     .all(|byte| matches!(*byte, b' ' | b'\t' | b'\r'));
-            if let Some(opening_length) = fence_delimiter {
-                if run_length >= opening_length && valid_fence_closer {
+            if let Some((opening_delimiter, opening_length)) = fence_delimiter {
+                if delimiter == opening_delimiter
+                    && run_length >= opening_length
+                    && valid_fence_closer
+                {
                     fence_delimiter = None;
                 }
             } else if let Some(opening_length) = inline_delimiter {
-                if run_length == opening_length {
+                if delimiter == b'`' && run_length == opening_length {
                     inline_delimiter = None;
                 }
             } else if run_length >= 3 && fence_position {
-                fence_delimiter = Some(run_length);
-            } else {
+                fence_delimiter = Some((delimiter, run_length));
+            } else if delimiter == b'`' {
                 inline_delimiter = Some(run_length);
             }
             output.push_str(&md[index..index + run_length]);
@@ -311,6 +315,15 @@ mod tests {
         assert_eq!(
             compile_standard_markdown_mentions(input),
             "```js\nconst marker = \"```\"; <users/all>\n```\n<chat-user data-user=\"users/123\">"
+        );
+    }
+
+    #[test]
+    fn standard_markdown_preserves_mentions_inside_tilde_fences() {
+        let input = "~~~md\n<users/all>\n```\n<users/123>\n~~~~\n<users/456>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            "~~~md\n<users/all>\n```\n<users/123>\n~~~~\n<chat-user data-user=\"users/456\">"
         );
     }
 

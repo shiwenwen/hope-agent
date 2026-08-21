@@ -298,25 +298,50 @@ where
 
     let install_result: Result<PathBuf> = async {
         download_streaming(&spec, &archive_path, &progress).await?;
-        verify_sha256(&archive_path, &spec.archive_sha256)?;
-        extract_zip(&archive_path, &staging_dir)?;
-        let staged_binary = staging_dir.join(&spec.binary_relpath);
+        let archive_path_for_prepare = archive_path.clone();
+        let staging_dir_for_prepare = staging_dir.clone();
+        let archive_sha256 = spec.archive_sha256.clone();
+        let binary_relpath = spec.binary_relpath.clone();
+        let staged_binary = ha_core::blocking::run_blocking(move || {
+            verify_sha256(&archive_path_for_prepare, &archive_sha256)?;
+            extract_zip(&archive_path_for_prepare, &staging_dir_for_prepare)?;
+            let staged_binary = staging_dir_for_prepare.join(binary_relpath);
 
-        #[cfg(unix)]
-        chmod_executable(&staged_binary)?;
+            #[cfg(unix)]
+            chmod_executable(&staged_binary)?;
+
+            Ok::<PathBuf, anyhow::Error>(staged_binary)
+        })
+        .await?;
 
         smoke_test_binary(&staged_binary).await?;
-        write_ready_marker(&staging_dir, &manifest, &spec)?;
-        promote_staging(&staging_dir, &target_dir, nonce)?;
-
-        Ok(target_dir.join(&spec.binary_relpath))
+        let staging_dir_for_finalize = staging_dir.clone();
+        let target_dir_for_finalize = target_dir.clone();
+        let manifest_for_finalize = manifest.clone();
+        let spec_for_finalize = spec.clone();
+        ha_core::blocking::run_blocking(move || {
+            write_ready_marker(
+                &staging_dir_for_finalize,
+                &manifest_for_finalize,
+                &spec_for_finalize,
+            )?;
+            promote_staging(&staging_dir_for_finalize, &target_dir_for_finalize, nonce)?;
+            Ok(target_dir_for_finalize.join(&spec_for_finalize.binary_relpath))
+        })
+        .await
     }
     .await;
 
-    let _ = std::fs::remove_file(&archive_path);
-    if install_result.is_err() {
-        let _ = std::fs::remove_dir_all(&staging_dir);
-    }
+    let cleanup_archive = archive_path.clone();
+    let cleanup_staging = staging_dir.clone();
+    let cleanup_failed = install_result.is_err();
+    ha_core::blocking::run_blocking(move || {
+        let _ = std::fs::remove_file(cleanup_archive);
+        if cleanup_failed {
+            let _ = std::fs::remove_dir_all(cleanup_staging);
+        }
+    })
+    .await;
 
     install_result
 }
@@ -325,7 +350,7 @@ async fn download_streaming<F>(spec: &RuntimeSpec, dest: &Path, progress: &F) ->
 where
     F: Fn(u64, Option<u64>) + Send + Sync,
 {
-    use std::io::Write;
+    use tokio::io::AsyncWriteExt;
     let client = ha_core::provider::apply_proxy_for_url(
         reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()),
         &spec.archive_url,
@@ -349,14 +374,14 @@ where
         }
     }
     let mut stream = resp.bytes_stream();
-    let mut file = std::fs::File::create(dest)?;
+    let mut file = tokio::fs::File::create(dest).await?;
     let mut downloaded: u64 = 0;
     // Report at most ~25 times per second to keep the UI from flooding —
     // ~40ms throttle is plenty for a download progress bar.
     let mut last_emit = std::time::Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow!("stream chunk error: {}", e))?;
-        file.write_all(&chunk)?;
+        file.write_all(&chunk).await?;
         downloaded += chunk.len() as u64;
         if downloaded > spec.archive_size || downloaded > MAX_ARCHIVE_BYTES {
             bail!("Chrome for Testing archive exceeded its manifest size");
@@ -374,7 +399,7 @@ where
         );
     }
     progress(downloaded, Some(spec.archive_size));
-    file.flush()?;
+    file.flush().await?;
     Ok(())
 }
 

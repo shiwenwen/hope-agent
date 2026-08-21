@@ -335,23 +335,53 @@ where
 
     let install_result: Result<PathBuf> = async {
         download_archive(&spec, &archive_path, &progress).await?;
-        verify_sha256(&archive_path, &spec.archive_sha256)?;
-        let staged_binary = extract_binary(&archive_path, &staging_dir, &spec.binary_relpath)?;
+        let archive_path_for_prepare = archive_path.clone();
+        let staging_dir_for_prepare = staging_dir.clone();
+        let archive_sha256 = spec.archive_sha256.clone();
+        let binary_relpath = spec.binary_relpath.clone();
+        let staged_binary = ha_core::blocking::run_blocking(move || {
+            verify_sha256(&archive_path_for_prepare, &archive_sha256)?;
+            let staged_binary = extract_binary(
+                &archive_path_for_prepare,
+                &staging_dir_for_prepare,
+                &binary_relpath,
+            )?;
 
-        #[cfg(unix)]
-        chmod_executable(&staged_binary)?;
+            #[cfg(unix)]
+            chmod_executable(&staged_binary)?;
+
+            Ok::<PathBuf, anyhow::Error>(staged_binary)
+        })
+        .await?;
 
         smoke_test_binary(&staged_binary, &spec).await?;
-        write_ready_marker(&staging_dir, &manifest, &spec)?;
-        promote_staging(&staging_dir, &target_dir, nonce)?;
-        Ok(target_dir.join(&spec.binary_relpath))
+        let staging_dir_for_finalize = staging_dir.clone();
+        let target_dir_for_finalize = target_dir.clone();
+        let manifest_for_finalize = manifest.clone();
+        let spec_for_finalize = spec.clone();
+        ha_core::blocking::run_blocking(move || {
+            write_ready_marker(
+                &staging_dir_for_finalize,
+                &manifest_for_finalize,
+                &spec_for_finalize,
+            )?;
+            promote_staging(&staging_dir_for_finalize, &target_dir_for_finalize, nonce)?;
+            Ok(target_dir_for_finalize.join(&spec_for_finalize.binary_relpath))
+        })
+        .await
     }
     .await;
 
-    let _ = std::fs::remove_file(&archive_path);
-    if install_result.is_err() {
-        let _ = std::fs::remove_dir_all(&staging_dir);
-    }
+    let cleanup_archive = archive_path.clone();
+    let cleanup_staging = staging_dir.clone();
+    let cleanup_failed = install_result.is_err();
+    ha_core::blocking::run_blocking(move || {
+        let _ = std::fs::remove_file(cleanup_archive);
+        if cleanup_failed {
+            let _ = std::fs::remove_dir_all(cleanup_staging);
+        }
+    })
+    .await;
     install_result
 }
 
