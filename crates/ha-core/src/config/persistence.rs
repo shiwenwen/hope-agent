@@ -890,6 +890,10 @@ where
     // lock through publication so disk read + mutation + write is one
     // cross-process transaction.
     let mut snapshot = read_from_disk()?;
+    // A successful authoritative read proves that any startup-time parse or
+    // transient read failure has been repaired. Clear the stale guard before
+    // the write path checks it, matching `load_config()` recovery semantics.
+    clear_config_load_failure();
     let result = f(&mut snapshot)?;
     save_config_with_change(&snapshot, reason.0, Some(reason.1))?;
     Ok(result)
@@ -904,6 +908,7 @@ pub(crate) fn clear_legacy_server_token_without_backup() -> Result<()> {
         .unwrap_or_else(|poison| poison.into_inner());
     let _cross_process_guard = acquire_config_write_lock()?;
     let mut snapshot = read_from_disk()?;
+    clear_config_load_failure();
     if snapshot.server.api_key.take().is_none() {
         return Ok(());
     }
@@ -997,7 +1002,8 @@ mod write_outcome_tests {
 
     use super::{
         acquire_config_write_lock, cache, clear_config_load_failure, complete_config_write,
-        mutate_config, reload_config_snapshot_from_disk, AppConfig,
+        current_config_load_failure, mutate_config, record_config_load_failure,
+        reload_config_snapshot_from_disk, AppConfig,
     };
 
     #[test]
@@ -1078,6 +1084,42 @@ mod write_outcome_tests {
             assert_eq!(persisted.theme, "authoritative-disk");
             assert!(persisted.enhanced_focus_indicators);
             assert_eq!(cache().load().theme, "authoritative-disk");
+        });
+    }
+
+    #[test]
+    fn authoritative_mutation_clears_a_recovered_load_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let original = cache().load_full();
+            struct RestoreCache(std::sync::Arc<AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    cache().store(self.0.clone());
+                    clear_config_load_failure();
+                }
+            }
+            let _restore = RestoreCache(original);
+
+            let path = temp.path().join("config.json");
+            std::fs::write(
+                &path,
+                serde_json::to_vec_pretty(&AppConfig::default()).expect("serialize config"),
+            )
+            .expect("write repaired config");
+            record_config_load_failure(&path, "simulated transient startup failure");
+
+            mutate_config(("accessibility", "test"), |config| {
+                config.enhanced_focus_indicators = true;
+                Ok(())
+            })
+            .expect("mutation should proceed after authoritative read recovers");
+
+            assert!(current_config_load_failure().is_none());
+            let persisted: AppConfig =
+                serde_json::from_slice(&std::fs::read(path).expect("read persisted config"))
+                    .expect("parse persisted config");
+            assert!(persisted.enhanced_focus_indicators);
         });
     }
 

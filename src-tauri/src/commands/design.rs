@@ -1047,10 +1047,11 @@ pub async fn get_design_config_cmd() -> Result<DesignConfig, CmdError> {
 
 #[tauri::command]
 pub async fn save_design_config_cmd(config: DesignConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("design", "tauri"), |store| {
-        store.design = config.clone();
+    ha_core::config::mutate_config_async(("design", "tauri"), move |store| {
+        store.design = config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(())
 }
 

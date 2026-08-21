@@ -1495,10 +1495,11 @@ pub async fn get_design_config() -> Result<Json<ha_design::design::DesignConfig>
 pub async fn save_design_config(
     Json(body): Json<ConfigBody<ha_design::design::DesignConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("design", "http"), |store| {
+    ha_core::config::mutate_config_async(("design", "http"), move |store| {
         store.design = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
