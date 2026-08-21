@@ -2,9 +2,33 @@ use std::fs;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+pub(super) fn process_user_group() -> Option<(u32, u32)> {
+    // SAFETY: These process identity queries take no pointers and have no
+    // caller-side preconditions.
+    Some(unsafe { (libc::geteuid(), libc::getegid()) })
+}
+
+pub(super) fn path_owner_no_follow(path: &Path) -> io::Result<(u32, u32)> {
+    let metadata = fs::symlink_metadata(path)?;
+    Ok((metadata.uid(), metadata.gid()))
+}
+
+pub(super) fn set_path_owner_no_follow(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    // SAFETY: `path` is NUL-terminated and valid for the syscall. `lchown`
+    // changes a raced symlink itself rather than following it outside the
+    // already-authorized workspace tree.
+    if unsafe { libc::lchown(path.as_ptr(), uid, gid) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
 
 fn openat_component(
     parent: &fs::File,

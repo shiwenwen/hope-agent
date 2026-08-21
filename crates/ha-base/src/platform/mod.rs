@@ -67,6 +67,23 @@ pub fn pid_alive(pid: u32) -> bool {
     sys.process(target).is_some()
 }
 
+/// Numeric identity of the current process on Unix. Windows returns `None`;
+/// callers use that to keep platform-specific ownership policy out of business
+/// crates.
+pub fn process_user_group() -> Option<(u32, u32)> {
+    imp::process_user_group()
+}
+
+/// Read an entry's numeric owner without following a final symlink.
+pub fn path_owner_no_follow(path: &Path) -> std::io::Result<(u32, u32)> {
+    imp::path_owner_no_follow(path)
+}
+
+/// Change an entry's numeric owner without following a final symlink.
+pub fn set_path_owner_no_follow(path: &Path, uid: u32, gid: u32) -> std::io::Result<()> {
+    imp::set_path_owner_no_follow(path, uid, gid)
+}
+
 /// Prevent same-UID processes from attaching to or dumping this process on
 /// Linux. Real-model evaluation servers keep Provider credentials in memory
 /// while deliberately executing model-selected tools, so this hardening is a

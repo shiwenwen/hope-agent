@@ -17,6 +17,24 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const FILE_SHARE_READ: u32 = 0x0000_0001;
 const FILE_SHARE_WRITE: u32 = 0x0000_0002;
 
+pub(super) fn process_user_group() -> Option<(u32, u32)> {
+    None
+}
+
+pub(super) fn path_owner_no_follow(_path: &Path) -> io::Result<(u32, u32)> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "numeric file ownership is unavailable on Windows",
+    ))
+}
+
+pub(super) fn set_path_owner_no_follow(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "numeric file ownership is unavailable on Windows",
+    ))
+}
+
 fn final_path_for_handle(file: &fs::File) -> io::Result<String> {
     // FILE_NAME_NORMALIZED | VOLUME_NAME_DOS are both zero. Querying the
     // required size first avoids truncation; the returned name is derived from
