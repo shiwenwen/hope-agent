@@ -45,7 +45,7 @@ pub use db::IndexDb;
 pub use embedding::{
     apply_knowledge_embedding_from_config, disable_knowledge_embedding,
     get_knowledge_embedding_state, knowledge_active_embedding_signature,
-    set_knowledge_embedding_default,
+    knowledge_symmetric_embedding_signature, set_knowledge_embedding_default,
 };
 pub use reembed::{cancel_active_knowledge_reembed_jobs, start_knowledge_reembed_job};
 pub use registry::{resolve_kb_dir, KbRoot, KnowledgeRegistry};

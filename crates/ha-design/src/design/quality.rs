@@ -198,16 +198,151 @@ fn compare_images(current: &DynamicImage, baseline: &DynamicImage) -> (f64, f64)
     )
 }
 
-async fn capture_all(artifact_id: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
+struct QualityRunPreparation {
+    artifact_id: String,
+    artifact_hash: String,
+    dir: PathBuf,
+    manifest: QualityManifest,
+    findings: Vec<StaticFinding>,
+    capture_url: String,
+}
+
+struct BaselinePreparation {
+    artifact_id: String,
+    artifact_hash: String,
+    dir: PathBuf,
+    manifest: QualityManifest,
+    capture_url: String,
+}
+
+fn artifact_capture_url(project_id: &str, artifact_id: &str) -> Result<String> {
+    let dir = ha_core::paths::design_artifact_dir(project_id, artifact_id)?;
+    url::Url::from_file_path(dir.join("index.html"))
+        .map_err(|_| anyhow::anyhow!("artifact path cannot be represented as a file URL"))
+        .map(|url| url.to_string())
+}
+
+fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
+    let artifact = super::service::get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let artifact_hash = artifact_hash(artifact_id)?;
+    let dir = quality_dir(&artifact.project_id, artifact_id)?;
+    let manifest = load_manifest(&dir, artifact_id)?;
+    let html = std::fs::read_to_string(
+        ha_core::paths::design_artifact_dir(&artifact.project_id, artifact_id)?.join("index.html"),
+    )?;
+    Ok(QualityRunPreparation {
+        artifact_id: artifact_id.to_string(),
+        artifact_hash,
+        dir,
+        manifest,
+        findings: static_findings(&html),
+        capture_url: artifact_capture_url(&artifact.project_id, artifact_id)?,
+    })
+}
+
+fn finish_quality_run(
+    prepared: QualityRunPreparation,
+    captures: Vec<(QualityViewport, Vec<u8>)>,
+) -> Result<QualityRun> {
+    if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
+        anyhow::bail!("artifact changed during visual regression capture");
+    }
+    let mut diffs = Vec::with_capacity(captures.len());
+    for (viewport, bytes) in captures {
+        let current_hash = blake3::hash(&bytes).to_hex().to_string();
+        let current = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)?;
+        let baseline = prepared.manifest.baselines.get(&key(viewport));
+        let (changed_ratio, mean_delta, passed) = if let Some(entry) = baseline {
+            let path = prepared
+                .dir
+                .join("screenshots")
+                .join(format!("{}.png", entry.image_hash));
+            let previous = image::open(path)?;
+            let (changed, delta) = compare_images(&current, &previous);
+            (
+                Some(changed),
+                Some(delta),
+                changed <= 0.001 && delta <= 0.002,
+            )
+        } else {
+            (None, None, false)
+        };
+        diffs.push(ViewportDiff {
+            viewport,
+            current_hash,
+            baseline_hash: baseline.map(|b| b.image_hash.clone()),
+            changed_ratio,
+            mean_delta,
+            passed,
+        });
+    }
+    let deterministic_passed =
+        diffs.iter().all(|d| d.passed) && !prepared.findings.iter().any(|f| f.severity == "error");
+    Ok(QualityRun {
+        artifact_id: prepared.artifact_id,
+        artifact_hash: prepared.artifact_hash,
+        diffs,
+        findings: prepared.findings,
+        deterministic_passed,
+    })
+}
+
+fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
+    let artifact = super::service::get_artifact(&input.artifact_id)?
+        .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
+    let actual = artifact_hash(&input.artifact_id)?;
+    if actual != input.expected_artifact_hash {
+        anyhow::bail!("stale baseline acceptance: artifact changed");
+    }
+    let dir = quality_dir(&artifact.project_id, &artifact.id)?;
+    std::fs::create_dir_all(dir.join("screenshots"))?;
+    let manifest = load_manifest(&dir, &artifact.id)?;
+    Ok(BaselinePreparation {
+        artifact_id: artifact.id.clone(),
+        artifact_hash: actual,
+        dir,
+        manifest,
+        capture_url: artifact_capture_url(&artifact.project_id, &artifact.id)?,
+    })
+}
+
+fn finish_baseline(
+    mut prepared: BaselinePreparation,
+    captures: Vec<(QualityViewport, Vec<u8>)>,
+) -> Result<QualityManifest> {
+    if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
+        anyhow::bail!("artifact changed during baseline capture");
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    for (viewport, bytes) in captures {
+        let image_hash = blake3::hash(&bytes).to_hex().to_string();
+        write_atomic(
+            &prepared
+                .dir
+                .join("screenshots")
+                .join(format!("{image_hash}.png")),
+            &bytes,
+        )?;
+        prepared.manifest.baselines.insert(
+            key(viewport),
+            BaselineEntry {
+                viewport,
+                image_hash,
+                artifact_hash: prepared.artifact_hash.clone(),
+                accepted_at: now.clone(),
+            },
+        );
+    }
+    let bytes = serde_json::to_vec_pretty(&prepared.manifest)?;
+    write_atomic(&prepared.dir.join("manifest.json"), &bytes)?;
+    Ok(prepared.manifest)
+}
+
+async fn capture_all(url: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
     // CdpBackend is stateless over one global active target. The guard must
     // cover original-target capture, disposable-tab work, close, and restore.
     let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
-    let artifact = super::service::get_artifact(artifact_id)?
-        .with_context(|| format!("artifact not found: {artifact_id}"))?;
-    let dir = ha_core::paths::design_artifact_dir(&artifact.project_id, &artifact.id)?;
-    let url = url::Url::from_file_path(dir.join("index.html"))
-        .map_err(|_| anyhow::anyhow!("artifact path cannot be represented as a file URL"))?
-        .to_string();
     // Visual regression must never claim a tab from the user's attached
     // Chrome extension session. Direct CDP uses Hope's managed browser and a
     // disposable page, while still preserving any managed tab that was active.
@@ -227,11 +362,11 @@ async fn capture_all(artifact_id: &str) -> Result<Vec<(QualityViewport, Vec<u8>)
     } else {
         None
     };
-    let tab = backend.new_page(Some(&url)).await?;
+    let tab = backend.new_page(Some(url)).await?;
     let _ = backend.select_page(&tab.target_id).await;
     let result = async {
         if !tab.url.starts_with("file://") {
-            backend.navigate(&url).await?;
+            backend.navigate(url).await?;
         }
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
         let mut captures = Vec::with_capacity(FIXED_VIEWPORTS.len());
@@ -264,93 +399,18 @@ async fn capture_all(artifact_id: &str) -> Result<Vec<(QualityViewport, Vec<u8>)
 }
 
 pub async fn run(artifact_id: &str) -> Result<QualityRun> {
-    let artifact = super::service::get_artifact(artifact_id)?
-        .with_context(|| format!("artifact not found: {artifact_id}"))?;
-    let hash = artifact_hash(artifact_id)?;
-    let dir = quality_dir(&artifact.project_id, artifact_id)?;
-    let manifest = load_manifest(&dir, artifact_id)?;
-    let html = std::fs::read_to_string(
-        ha_core::paths::design_artifact_dir(&artifact.project_id, artifact_id)?.join("index.html"),
-    )?;
-    let findings = static_findings(&html);
-    let captures = capture_all(artifact_id).await?;
-    if artifact_hash(artifact_id)? != hash {
-        anyhow::bail!("artifact changed during visual regression capture");
-    }
-    let mut diffs = Vec::with_capacity(captures.len());
-    for (viewport, bytes) in captures {
-        let current_hash = blake3::hash(&bytes).to_hex().to_string();
-        let current = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)?;
-        let baseline = manifest.baselines.get(&key(viewport));
-        let (changed_ratio, mean_delta, passed) = if let Some(entry) = baseline {
-            let path = dir
-                .join("screenshots")
-                .join(format!("{}.png", entry.image_hash));
-            let previous = image::open(path)?;
-            let (changed, delta) = compare_images(&current, &previous);
-            (
-                Some(changed),
-                Some(delta),
-                changed <= 0.001 && delta <= 0.002,
-            )
-        } else {
-            (None, None, false)
-        };
-        diffs.push(ViewportDiff {
-            viewport,
-            current_hash,
-            baseline_hash: baseline.map(|b| b.image_hash.clone()),
-            changed_ratio,
-            mean_delta,
-            passed,
-        });
-    }
-    let deterministic_passed =
-        diffs.iter().all(|d| d.passed) && !findings.iter().any(|f| f.severity == "error");
-    Ok(QualityRun {
-        artifact_id: artifact_id.to_string(),
-        artifact_hash: hash,
-        diffs,
-        findings,
-        deterministic_passed,
-    })
+    let artifact_id = artifact_id.to_string();
+    let prepared =
+        ha_core::blocking::run_blocking(move || prepare_quality_run(&artifact_id)).await?;
+    let captures = capture_all(&prepared.capture_url).await?;
+    ha_core::blocking::run_blocking(move || finish_quality_run(prepared, captures)).await
 }
 
 /// 显式 owner 操作：以期望源码哈希防止把陈旧画面接受为当前基线。
 pub async fn accept(input: AcceptBaselineInput) -> Result<QualityManifest> {
-    let artifact = super::service::get_artifact(&input.artifact_id)?
-        .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
-    let actual = artifact_hash(&input.artifact_id)?;
-    if actual != input.expected_artifact_hash {
-        anyhow::bail!("stale baseline acceptance: artifact changed");
-    }
-    let dir = quality_dir(&artifact.project_id, &artifact.id)?;
-    std::fs::create_dir_all(dir.join("screenshots"))?;
-    let mut manifest = load_manifest(&dir, &artifact.id)?;
-    let now = chrono::Utc::now().to_rfc3339();
-    let captures = capture_all(&artifact.id).await?;
-    if artifact_hash(&artifact.id)? != actual {
-        anyhow::bail!("artifact changed during baseline capture");
-    }
-    for (viewport, bytes) in captures {
-        let image_hash = blake3::hash(&bytes).to_hex().to_string();
-        write_atomic(
-            &dir.join("screenshots").join(format!("{image_hash}.png")),
-            &bytes,
-        )?;
-        manifest.baselines.insert(
-            key(viewport),
-            BaselineEntry {
-                viewport,
-                image_hash,
-                artifact_hash: actual.clone(),
-                accepted_at: now.clone(),
-            },
-        );
-    }
-    let bytes = serde_json::to_vec_pretty(&manifest)?;
-    write_atomic(&dir.join("manifest.json"), &bytes)?;
-    Ok(manifest)
+    let prepared = ha_core::blocking::run_blocking(move || prepare_baseline(input)).await?;
+    let captures = capture_all(&prepared.capture_url).await?;
+    ha_core::blocking::run_blocking(move || finish_baseline(prepared, captures)).await
 }
 
 #[cfg(test)]

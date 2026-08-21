@@ -90,6 +90,8 @@ pub fn evaluate(
             chunks,
             chunk_embeddings: None,
             embedding_signature: None,
+            similar_chunk_embeddings: None,
+            similar_embedding_signature: None,
             links: parsed.links,
             tags: parsed.tags,
         })?;

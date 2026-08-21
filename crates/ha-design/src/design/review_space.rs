@@ -4,6 +4,10 @@ use anyhow::{Context, Result};
 use ha_core::platform::write_atomic;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+const STORE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+const STORE_LOCK_POLL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -138,18 +142,23 @@ fn save(path: &Path, store: &ReviewStore) -> Result<()> {
     Ok(())
 }
 
-fn store_lock(path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, OnceLock};
-    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = locks
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    guard
-        .entry(path.to_path_buf())
-        .or_insert_with(|| Arc::new(Mutex::new(())))
-        .clone()
+fn acquire_store_lock(path: &Path) -> Result<std::fs::File> {
+    let parent = path
+        .parent()
+        .context("review store path has no parent directory")?;
+    std::fs::create_dir_all(parent)?;
+    // The lock file is stable and separate from store.json, which is replaced
+    // atomically. Locking store.json itself would lock the old inode on Unix and
+    // stop protecting the newly renamed file.
+    let lock_path = parent.join("store.lock");
+    let started = Instant::now();
+    loop {
+        match ha_core::platform::try_acquire_exclusive_lock(&lock_path)? {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < STORE_LOCK_TIMEOUT => std::thread::sleep(STORE_LOCK_POLL),
+            None => anyhow::bail!("timed out waiting for the review store lock"),
+        }
+    }
 }
 
 pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
@@ -180,10 +189,7 @@ pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
         revoked_at: None,
     };
     let path = store_path(&artifact.project_id, &artifact.id)?;
-    let lock = store_lock(&path);
-    let _guard = lock
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = acquire_store_lock(&path)?;
     let mut store = load(&path)?;
     store.grants.push(grant.clone());
     store.audit.push(ReviewAuditEvent {
@@ -206,10 +212,7 @@ pub fn revoke(artifact_id: &str, grant_id: &str) -> Result<bool> {
     let artifact = super::service::get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let path = store_path(&artifact.project_id, artifact_id)?;
-    let lock = store_lock(&path);
-    let _guard = lock
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = acquire_store_lock(&path)?;
     let mut store = load(&path)?;
     let Some(grant) = store
         .grants
@@ -271,10 +274,7 @@ pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
 
 pub fn add_comment(token: &str, input: AddReviewCommentInput) -> Result<ReviewComment> {
     let (path, _, grant) = authorize(token)?;
-    let lock = store_lock(&path);
-    let _guard = lock
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = acquire_store_lock(&path)?;
     let mut store = load(&path)?;
     let hash = token_hash(token);
     let live = store.grants.iter().any(|candidate| {

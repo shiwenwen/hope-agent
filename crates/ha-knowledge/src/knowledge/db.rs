@@ -20,6 +20,8 @@ use super::resolver::{self, NoteRef};
 use super::types::{Backlink, BrokenLink, LinkType, Note, NoteLink};
 
 const READ_POOL_SIZE: usize = 4;
+const RETRIEVAL_VEC_TABLE: &str = "note_vec";
+const SIMILARITY_VEC_TABLE: &str = "note_similarity_vec";
 
 /// All inputs needed to (re)write one note's index in a single transaction.
 pub struct NoteIndexInput {
@@ -35,6 +37,10 @@ pub struct NoteIndexInput {
     /// disabled (FTS-only). When `Some`, length must equal `chunks.len()`.
     pub chunk_embeddings: Option<Vec<Vec<f32>>>,
     pub embedding_signature: Option<String>,
+    /// Separate symmetric-purpose vectors used only by `note_similar`.
+    /// Asymmetric provider tasks must never be compared with retrieval vectors.
+    pub similar_chunk_embeddings: Option<Vec<Vec<f32>>>,
+    pub similar_embedding_signature: Option<String>,
     pub links: Vec<ParsedLink>,
     pub tags: Vec<String>,
 }
@@ -145,7 +151,8 @@ impl IndexDb {
                 end_line INTEGER NOT NULL,
                 end_col INTEGER NOT NULL,
                 content_hash TEXT NOT NULL,
-                embedding_signature TEXT
+                embedding_signature TEXT,
+                similar_embedding_signature TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_chunk_note ON note_chunk(note_id);
 
@@ -192,6 +199,11 @@ impl IndexDb {
             );
             CREATE INDEX IF NOT EXISTS idx_tag ON note_tag(tag);",
         )?;
+        if !table_column_exists(conn, "note_chunk", "similar_embedding_signature")? {
+            conn.execute_batch(
+                "ALTER TABLE note_chunk ADD COLUMN similar_embedding_signature TEXT;",
+            )?;
+        }
         Ok(())
     }
 
@@ -201,7 +213,7 @@ impl IndexDb {
         self.embedding_dims.store(dims, Ordering::Relaxed);
         if dims > 0 {
             if let Ok(conn) = self.writer.lock() {
-                let _ = ensure_vec_table(&conn, dims);
+                let _ = ensure_vec_tables(&conn, dims);
             }
         }
     }
@@ -257,17 +269,36 @@ impl IndexDb {
         Ok(row)
     }
 
-    /// `(rel_path, mtime, content_hash)` for every note in a KB — drives the
-    /// incremental reconcile (compare against on-disk mtime/size).
-    pub fn note_index_state(&self, kb_id: &str) -> Result<Vec<(String, i64, String)>> {
+    /// `(rel_path, mtime, content_hash, similarity_vectors_current)` for every
+    /// note in a KB — drives incremental reconcile. Passing a symmetric
+    /// signature makes an otherwise unchanged note eligible for one-time
+    /// backfill when the separate similarity index is introduced or replaced.
+    pub fn note_index_state(
+        &self,
+        kb_id: &str,
+        required_similarity_signature: Option<&str>,
+    ) -> Result<Vec<(String, i64, String, bool)>> {
         let conn = self.read_conn()?;
-        let mut stmt =
-            conn.prepare("SELECT rel_path, mtime, content_hash FROM note WHERE kb_id = ?1")?;
-        let rows = stmt.query_map(params![kb_id], |r| {
+        let mut stmt = conn.prepare(
+            "SELECT n.rel_path, n.mtime, n.content_hash,
+                    CASE
+                      WHEN ?2 IS NULL THEN 1
+                      WHEN EXISTS (SELECT 1 FROM note_chunk present WHERE present.note_id = n.id)
+                       AND NOT EXISTS (
+                           SELECT 1 FROM note_chunk stale
+                           WHERE stale.note_id = n.id
+                             AND stale.similar_embedding_signature IS NOT ?2
+                       )
+                      THEN 1 ELSE 0
+                    END
+             FROM note n WHERE n.kb_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![kb_id, required_similarity_signature], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, i64>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)? != 0,
             ))
         })?;
         let mut out = Vec::new();
@@ -521,11 +552,50 @@ impl IndexDb {
         signature: &str,
         limit: usize,
     ) -> Result<Vec<(i64, i64, f64)>> {
+        self.vec_search_in(
+            RETRIEVAL_VEC_TABLE,
+            "embedding_signature",
+            kb_ids,
+            query_embedding,
+            signature,
+            limit,
+        )
+    }
+
+    /// Symmetric-purpose KNN for `note_similar`. This is physically separate
+    /// from retrieval vectors because several providers use incompatible task
+    /// spaces for Query/Document and Symmetric embeddings.
+    pub fn similar_vec_search(
+        &self,
+        kb_ids: &[String],
+        query_embedding: &[f32],
+        signature: &str,
+        limit: usize,
+    ) -> Result<Vec<(i64, i64, f64)>> {
+        self.vec_search_in(
+            SIMILARITY_VEC_TABLE,
+            "similar_embedding_signature",
+            kb_ids,
+            query_embedding,
+            signature,
+            limit,
+        )
+    }
+
+    fn vec_search_in(
+        &self,
+        table: &'static str,
+        signature_column: &'static str,
+        kb_ids: &[String],
+        query_embedding: &[f32],
+        signature: &str,
+        limit: usize,
+    ) -> Result<Vec<(i64, i64, f64)>> {
         if kb_ids.is_empty() || self.embedding_dims() == 0 {
             return Ok(Vec::new());
         }
         let conn = self.read_conn()?;
-        if !vec_table_exists(&conn)? {
+        if !vec_table_exists(&conn, table)? {
             return Ok(Vec::new());
         }
         let bytes: Vec<u8> = query_embedding
@@ -536,11 +606,11 @@ impl IndexDb {
         // Mirror the memory backend: KNN with a `rowid IN (subquery)` filter so
         // sqlite-vec accepts the extra constraints.
         let sql = format!(
-            "SELECT rowid, distance FROM note_vec
+            "SELECT rowid, distance FROM {table}
              WHERE embedding MATCH ?1
                AND rowid IN (
                    SELECT nc.id FROM note_chunk nc JOIN note n ON n.id = nc.note_id
-                   WHERE nc.embedding_signature = ?3 AND n.kb_id IN ({placeholders})
+                   WHERE nc.{signature_column} = ?3 AND n.kb_id IN ({placeholders})
                )
              ORDER BY distance LIMIT ?2"
         );
@@ -678,10 +748,16 @@ impl IndexDb {
                 "chunk_embeddings length must match chunks"
             );
         }
+        if let Some(embs) = &input.similar_chunk_embeddings {
+            anyhow::ensure!(
+                embs.len() == input.chunks.len(),
+                "similar_chunk_embeddings length must match chunks"
+            );
+        }
         let dims = self.embedding_dims();
         let mut conn = self.write_conn()?;
         if dims > 0 {
-            let _ = ensure_vec_table(&conn, dims);
+            let _ = ensure_vec_tables(&conn, dims);
         }
         let tx = conn.transaction()?;
 
@@ -738,8 +814,9 @@ impl IndexDb {
             tx.execute(
                 "INSERT INTO note_chunk
                     (note_id, chunk_index, heading_path, body, start_offset, end_offset,
-                     start_line, start_col, end_line, end_col, content_hash, embedding_signature)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                     start_line, start_col, end_line, end_col, content_hash, embedding_signature,
+                     similar_embedding_signature)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     note_id,
                     ch.chunk_index,
@@ -753,6 +830,7 @@ impl IndexDb {
                     ch.end_col,
                     ch.content_hash,
                     input.embedding_signature,
+                    input.similar_embedding_signature,
                 ],
             )?;
             let chunk_id = tx.last_insert_rowid();
@@ -762,6 +840,16 @@ impl IndexDb {
                     let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
                     let _ = tx.execute(
                         "INSERT INTO note_vec(rowid, embedding) VALUES (?1, ?2)",
+                        params![chunk_id, bytes],
+                    );
+                }
+            }
+            if let (Some(embs), true) = (&input.similar_chunk_embeddings, dims > 0) {
+                let emb = &embs[i];
+                if emb.len() as u32 == dims {
+                    let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                    let _ = tx.execute(
+                        "INSERT INTO note_similarity_vec(rowid, embedding) VALUES (?1, ?2)",
                         params![chunk_id, bytes],
                     );
                 }
@@ -846,6 +934,10 @@ impl IndexDb {
         };
         for cid in &chunk_ids {
             let _ = tx.execute("DELETE FROM note_vec WHERE rowid = ?1", params![cid]);
+            let _ = tx.execute(
+                "DELETE FROM note_similarity_vec WHERE rowid = ?1",
+                params![cid],
+            );
         }
         // Deleting note rows cascades to chunks/tags/links via FK; but to be sure
         // FTS stays consistent we delete chunks directly first (fires triggers).
@@ -1000,35 +1092,51 @@ fn register_sqlite_vec() {
     }
 }
 
-fn ensure_vec_table(conn: &Connection, dims: u32) -> Result<()> {
+fn ensure_vec_tables(conn: &Connection, dims: u32) -> Result<()> {
+    ensure_vec_table(conn, dims, RETRIEVAL_VEC_TABLE)?;
+    ensure_vec_table(conn, dims, SIMILARITY_VEC_TABLE)
+}
+
+fn ensure_vec_table(conn: &Connection, dims: u32, table: &'static str) -> Result<()> {
     let existing_sql: Option<String> = conn
         .query_row(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'note_vec'",
-            [],
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
             |row| row.get(0),
         )
         .optional()?;
     let expected = format!("float[{}]", dims);
     if let Some(sql) = existing_sql {
         if !sql.contains(&expected) {
-            conn.execute_batch("DROP TABLE IF EXISTS note_vec;")?;
+            conn.execute_batch(&format!("DROP TABLE IF EXISTS {table};"))?;
         }
     }
     let sql = format!(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS note_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding float[{}])",
+        "CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING vec0(rowid INTEGER PRIMARY KEY, embedding float[{}])",
         dims
     );
     conn.execute_batch(&sql)?;
     Ok(())
 }
 
-fn vec_table_exists(conn: &Connection) -> Result<bool> {
+fn vec_table_exists(conn: &Connection, table: &'static str) -> Result<bool> {
     let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_vec'",
-        [],
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+        params![table],
         |r| r.get(0),
     )?;
     Ok(n > 0)
+}
+
+fn table_column_exists(conn: &Connection, table: &'static str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for existing in columns {
+        if existing? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn delete_chunks_for_note(tx: &rusqlite::Transaction, note_id: i64) -> Result<()> {
@@ -1039,6 +1147,10 @@ fn delete_chunks_for_note(tx: &rusqlite::Transaction, note_id: i64) -> Result<()
     };
     for cid in &chunk_ids {
         let _ = tx.execute("DELETE FROM note_vec WHERE rowid = ?1", params![cid]);
+        let _ = tx.execute(
+            "DELETE FROM note_similarity_vec WHERE rowid = ?1",
+            params![cid],
+        );
     }
     tx.execute(
         "DELETE FROM note_chunk WHERE note_id = ?1",
@@ -1131,6 +1243,8 @@ mod tests {
             chunks,
             chunk_embeddings: None,
             embedding_signature: None,
+            similar_chunk_embeddings: None,
+            similar_embedding_signature: None,
             links: parsed.links,
             tags: parsed.tags,
         }
@@ -1206,5 +1320,43 @@ mod tests {
         assert_eq!(by_tag.len(), 1);
         let all = db.all_tags(&[kb.to_string()]).unwrap();
         assert!(all.iter().any(|(t, _)| t == "pkm"));
+    }
+
+    #[test]
+    fn similarity_vectors_are_partitioned_from_retrieval_vectors() {
+        let dir = tempdir().unwrap();
+        let db = IndexDb::open(&dir.path().join("index.db")).unwrap();
+        db.set_embedding_dims(2);
+        let kb = "kb1";
+
+        let mut a = input(kb, "A.md", "# A\n\nalpha\n");
+        let a_chunks = a.chunks.len();
+        a.chunk_embeddings = Some(vec![vec![1.0, 0.0]; a_chunks]);
+        a.embedding_signature = Some("doc-signature".into());
+        a.similar_chunk_embeddings = Some(vec![vec![0.0, 1.0]; a_chunks]);
+        a.similar_embedding_signature = Some("symmetric-signature".into());
+        let a_id = db.replace_note_index(a).unwrap();
+
+        let mut b = input(kb, "B.md", "# B\n\nbeta\n");
+        let b_chunks = b.chunks.len();
+        b.chunk_embeddings = Some(vec![vec![0.0, 1.0]; b_chunks]);
+        b.embedding_signature = Some("doc-signature".into());
+        b.similar_chunk_embeddings = Some(vec![vec![1.0, 0.0]; b_chunks]);
+        b.similar_embedding_signature = Some("symmetric-signature".into());
+        let b_id = db.replace_note_index(b).unwrap();
+
+        let retrieval = db
+            .vec_search(&[kb.into()], &[1.0, 0.0], "doc-signature", 1)
+            .unwrap();
+        let similarity = db
+            .similar_vec_search(&[kb.into()], &[1.0, 0.0], "symmetric-signature", 1)
+            .unwrap();
+        assert_eq!(retrieval[0].1, a_id);
+        assert_eq!(similarity[0].1, b_id);
+        assert!(db
+            .note_index_state(kb, Some("symmetric-signature"))
+            .unwrap()
+            .iter()
+            .all(|(_, _, _, current)| *current));
     }
 }

@@ -17,7 +17,7 @@
 use anyhow::{anyhow, Result};
 
 use ha_core::memory::{
-    active_signature_for, create_embedding_provider, memory_embedding_state,
+    active_signature_for, create_embedding_provider, memory_embedding_state, EmbeddingPurpose,
     EmbeddingSelectionState,
 };
 
@@ -39,6 +39,24 @@ pub fn get_knowledge_embedding_state() -> EmbeddingSelectionState {
 pub fn knowledge_active_embedding_signature() -> Option<String> {
     let store = ha_core::config::cached_config();
     active_signature_for(&store.knowledge_embedding, &store.embedding_models)
+}
+
+/// Active signature for the separate symmetric note-similarity vector space.
+/// Query/document retrieval vectors deliberately keep using the document
+/// signature above; providers such as Jina, Voyage, Cohere, and Google shape
+/// symmetric requests differently and those vectors must never share an index.
+pub fn knowledge_symmetric_embedding_signature() -> Option<String> {
+    let store = ha_core::config::cached_config();
+    if !store.knowledge_embedding.enabled {
+        return None;
+    }
+    ha_core::memory::resolve_memory_embedding_config(
+        &store.knowledge_embedding,
+        &store.embedding_models,
+    )
+    .ok()
+    .flatten()
+    .map(|(model, _, _)| model.signature_for(EmbeddingPurpose::Symmetric))
 }
 
 /// Persist the user's choice of knowledge embedding model, swap the index DB's

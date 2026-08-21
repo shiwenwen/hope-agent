@@ -749,6 +749,7 @@ graph LR
 ### 12.7 确定性视觉回归与预览场景
 
 - 固定视口为 `1440×900`、`768×1024`、`390×844`；真实浏览器逐视口截图，完成或失败都恢复原视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
+- 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。
 - 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`。
 - 通过/失败只由像素差异（变化像素比、平均通道差）与静态 DOM/无障碍规则决定；视觉模型只能作为可选建议，不能覆盖确定性结果。
 - `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
@@ -757,6 +758,7 @@ graph LR
 
 - `components.manifest.json` 是已发布清单，`components.manifest.draft.json` 是未发布草稿；组件最多 1000 个，import path 必须为无 `..` 的相对路径，mode props 必须为有界 JSON object。绑定仓库扫描只读、不执行源码、拒 symlink，并跳过 `node_modules/.git/dist/target`。发布必须带上次读取的已发布 BLAKE3 哈希，陈旧写 fail closed。
 - 固定版本评审 grant 只有 `viewer/commenter` 两种 scope，最长 90 天，锚定 `artifactId + versionNumber`。随机 bearer 只在创建回执返回一次，磁盘仅保存 BLAKE3 哈希；支持过期、撤销和审计事件。
+- `review/store.json` 的创建、撤销与新增评论都是完整的读改写事务，事务期间持稳定 `review/store.lock` 上的 OS 级排他锁；桌面与 HTTP 守护进程共享数据目录时不得用进程内 mutex 代替，否则陈旧写会复活已撤销 grant 或丢评论。
 - 评审 bearer 只走 `Authorization` header，禁止进入 URL。公开评审面只能读取固定版本快照或由 commenter 新增锚定评论，不能修改产物正文、创建新版本或取得 owner 权限；owner 仍是唯一可创建/撤销 grant 的主体。
 - **Cloudflare Pages / Vercel 部署（opt-in）**：产物自包含故整站 = 单 `index.html` → 直传大幅简化。**安全红线**：① 所有出站 `guard()` 先过 `ssrf::check_url`（URL host 恒硬编码，`acct`/`name` 只进 path）；② API token **0600** 存 `credentials/*.json`（`platform::write_secure_file`），GUI 读经**脱敏**（回 `hasToken` + mask 哨兵、绝不回明文）——属凭据平面、GUI-only、不进 `ha-settings`；③ owner 命令显式触发，后台自主维护绝不部署。部署历史落 `design_deployments` 表。**部署就绪探测** `probe_deploy_ready`：`*.pages.dev` / `*.vercel.app` 边缘传播有延迟，探测目标是用户公网站点，用 `SsrfPolicy::Default`（放行公网、拦私网/环回/元数据）+ **`redirect::Policy::none()` 禁跟随跳转**——否则公网 URL 可 `302→169.254.169.254/内网` 把探测变成盲 SSRF 内网扫描。
 

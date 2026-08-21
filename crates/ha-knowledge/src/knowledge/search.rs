@@ -201,7 +201,7 @@ pub fn similar_notes(
     }
     let (Some(embedder), Some(signature)) = (
         db.embedder(),
-        super::embedding::knowledge_active_embedding_signature(),
+        super::embedding::knowledge_symmetric_embedding_signature(),
     ) else {
         return Ok(Vec::new());
     };
@@ -212,7 +212,7 @@ pub fn similar_notes(
     // the top of its own similarity ranking, so a multi-chunk source would starve
     // the k budget with a tighter window.
     let fetch = (k * 8).max(48);
-    let hits = db.vec_search(kb_ids, &query, &signature, fetch)?;
+    let hits = db.similar_vec_search(kb_ids, &query, &signature, fetch)?;
 
     // Best (lowest distance) chunk per note, excluding the source note itself.
     let mut best: HashMap<i64, (i64, f64)> = HashMap::new();
