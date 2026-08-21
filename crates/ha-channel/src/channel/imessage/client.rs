@@ -402,6 +402,7 @@ impl IMessageClient {
         tokio::spawn(async move {
             let _ = ready_tx.send(());
             let mut restart_backoff_secs = 1u64;
+            let mut protocol_recovery_cancel = CancellationToken::new();
             loop {
                 let line = tokio::select! {
                     _ = stdout_cancel.cancelled() => break,
@@ -498,6 +499,7 @@ impl IMessageClient {
                 if stdout_cancel.is_cancelled() || client_cancel.is_cancelled() {
                     break;
                 }
+                protocol_recovery_cancel.cancel();
                 runtime.lock().await.degraded_error =
                     Some("imsg process exited; supervised restart pending".to_string());
                 app_warn!(
@@ -522,30 +524,25 @@ impl IMessageClient {
                             *process.lock().await = Some(new_process);
                             *stdout_rx.lock().await = new_stdout;
                             *restart_stderr_rx.lock().await = new_stderr;
-                            runtime.lock().await.degraded_error = None;
+                            runtime.lock().await.degraded_error = Some(
+                                "imsg process restarted; protocol/watch recovery pending"
+                                    .to_string(),
+                            );
                             restart_backoff_secs = 1;
+                            protocol_recovery_cancel = CancellationToken::new();
                             let restart_rpc = rpc.clone();
                             let restart_runtime = runtime.clone();
                             let restart_protocol_v1 = protocol_v1.clone();
-                            tokio::spawn(async move {
-                                if let Err(error) = negotiate_and_subscribe(
-                                    &restart_rpc,
-                                    &restart_runtime,
-                                    restart_protocol_v1.load(Ordering::Acquire),
-                                    true,
-                                )
-                                .await
-                                {
-                                    restart_runtime.lock().await.degraded_error =
-                                        Some(error.to_string());
-                                    app_warn!(
-                                        "channel",
-                                        "imessage",
-                                        "Restarted imsg but protocol/watch recovery failed: {}",
-                                        error
-                                    );
-                                }
-                            });
+                            let restart_cancel = protocol_recovery_cancel.clone();
+                            let restart_client_cancel = client_cancel.clone();
+                            tokio::spawn(restore_protocol_watch_until_ready(
+                                restart_rpc,
+                                restart_runtime,
+                                restart_protocol_v1.load(Ordering::Acquire),
+                                restart_cancel,
+                                restart_client_cancel,
+                                std::time::Duration::from_secs(1),
+                            ));
                             app_info!(
                                 "channel",
                                 "imessage",
@@ -570,6 +567,7 @@ impl IMessageClient {
                     break;
                 }
             }
+            protocol_recovery_cancel.cancel();
         });
 
         let stderr_cancel = cancel;
@@ -946,6 +944,50 @@ async fn negotiate_and_subscribe(
     Ok(())
 }
 
+async fn restore_protocol_watch_until_ready(
+    rpc: RpcHandle,
+    runtime: Arc<Mutex<RuntimeState>>,
+    protocol_v1: bool,
+    restart_cancel: CancellationToken,
+    client_cancel: CancellationToken,
+    initial_backoff: std::time::Duration,
+) {
+    let mut backoff = initial_backoff;
+    loop {
+        let attempt = tokio::select! {
+            _ = restart_cancel.cancelled() => return,
+            _ = client_cancel.cancelled() => return,
+            result = negotiate_and_subscribe(&rpc, &runtime, protocol_v1, true) => result,
+        };
+        match attempt {
+            Ok(()) => {
+                app_info!(
+                    "channel",
+                    "imessage",
+                    "Restarted imsg protocol and watch state recovered"
+                );
+                return;
+            }
+            Err(error) => {
+                runtime.lock().await.degraded_error = Some(error.to_string());
+                app_warn!(
+                    "channel",
+                    "imessage",
+                    "Restarted imsg but protocol/watch recovery failed; retrying in {}s: {}",
+                    backoff.as_secs_f64(),
+                    ha_core::logging::redact_sensitive(&error.to_string())
+                );
+            }
+        }
+        tokio::select! {
+            _ = restart_cancel.cancelled() => return,
+            _ = client_cancel.cancelled() => return,
+            _ = tokio::time::sleep(backoff) => {}
+        }
+        backoff = (backoff * 2).min(std::time::Duration::from_secs(RESTART_BACKOFF_MAX_SECS));
+    }
+}
+
 async fn recovery_loop(
     rpc: RpcHandle,
     account_id: String,
@@ -1077,10 +1119,16 @@ fn build_send_params(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_send_params, IMessageClient, IMessageDeliveryDisposition, IMessageRpcError,
-        InboundDeduper,
+        build_send_params, restore_protocol_watch_until_ready, IMessageClient,
+        IMessageDeliveryDisposition, IMessageRpcError, InboundDeduper, RpcHandle, RuntimeState,
     };
     use ha_core::channel::types::ChatType;
+    use serde_json::Value;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{mpsc, Mutex};
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn build_send_params_uses_chat_id_for_numeric_targets() {
@@ -1198,5 +1246,59 @@ mod tests {
         let by_rowid = serde_json::json!({"id": 8});
         assert!(deduper.admit(&by_rowid));
         assert!(!deduper.admit(&by_rowid));
+    }
+
+    #[tokio::test]
+    async fn restarted_watch_retries_until_subscription_recovers() {
+        let (stdin_tx, mut stdin_rx) = mpsc::channel(4);
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let rpc = RpcHandle {
+            stdin_tx,
+            pending: pending.clone(),
+            next_id: Arc::new(Mutex::new(1)),
+        };
+        let response_pending = pending.clone();
+        let responder = tokio::spawn(async move {
+            for attempt in 0..2 {
+                let line = stdin_rx.recv().await.expect("watch.subscribe request");
+                let request: Value = serde_json::from_str(&line).expect("valid JSON-RPC request");
+                assert_eq!(request["method"].as_str(), Some("watch.subscribe"));
+                let id = request["id"].as_str().expect("string request id");
+                let sender = response_pending
+                    .lock()
+                    .await
+                    .remove(id)
+                    .expect("pending JSON-RPC response");
+                let response = if attempt == 0 {
+                    Err(IMessageRpcError::transport(
+                        "transient watch.subscribe failure",
+                    ))
+                } else {
+                    Ok(serde_json::json!({}))
+                };
+                sender.send(response).expect("RPC caller remains active");
+            }
+        });
+        let runtime = Arc::new(Mutex::new(RuntimeState {
+            degraded_error: Some("restart pending".to_string()),
+            ..RuntimeState::default()
+        }));
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            restore_protocol_watch_until_ready(
+                rpc,
+                runtime.clone(),
+                false,
+                CancellationToken::new(),
+                CancellationToken::new(),
+                Duration::from_millis(5),
+            ),
+        )
+        .await
+        .expect("watch recovery should complete after retry");
+        responder.await.expect("response task");
+
+        assert!(runtime.lock().await.degraded_error.is_none());
     }
 }
