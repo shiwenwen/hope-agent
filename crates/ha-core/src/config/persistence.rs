@@ -925,10 +925,16 @@ where
         .await
 }
 
-/// Force a fresh disk read into the cache. Use after an out-of-band write
-/// to `config.json` (e.g. [`crate::backup::restore_backup`]) so hot-path
-/// readers don't keep serving the stale snapshot.
-pub fn reload_cache_from_disk() -> Result<()> {
+/// Force a fresh disk read into the cache and return the published snapshot.
+///
+/// The process-local write lock keeps this refresh ordered with ordinary
+/// [`mutate_config`] calls. Callers that already hold a subsystem's
+/// process-shared lock can use the returned snapshot as the authoritative
+/// starting point for a cross-process transaction.
+pub(crate) fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
+    let _write_guard = write_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let fresh = read_from_disk()?;
     let fresh = Arc::new(fresh);
     cache().store(fresh.clone());
@@ -937,6 +943,14 @@ pub fn reload_cache_from_disk() -> Result<()> {
     if let Some(e) = SIDE_EFFECTS.get() {
         (e.post_reload)(&fresh);
     }
+    Ok(fresh)
+}
+
+/// Force a fresh disk read into the cache. Use after an out-of-band write
+/// to `config.json` (e.g. [`crate::backup::restore_backup`]) so hot-path
+/// readers don't keep serving the stale snapshot.
+pub fn reload_cache_from_disk() -> Result<()> {
+    reload_config_snapshot_from_disk()?;
     Ok(())
 }
 
@@ -944,7 +958,47 @@ pub fn reload_cache_from_disk() -> Result<()> {
 mod write_outcome_tests {
     use std::cell::{Cell, RefCell};
 
-    use super::{complete_config_write, AppConfig};
+    use super::{
+        cache, clear_config_load_failure, complete_config_write, reload_config_snapshot_from_disk,
+        AppConfig,
+    };
+
+    #[test]
+    fn authoritative_reload_replaces_a_stale_process_cache() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let original = cache().load_full();
+            struct RestoreCache(std::sync::Arc<AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    cache().store(self.0.clone());
+                    clear_config_load_failure();
+                }
+            }
+            let _restore = RestoreCache(original);
+
+            let stale = AppConfig {
+                theme: "stale-cache".into(),
+                ..AppConfig::default()
+            };
+            cache().store(std::sync::Arc::new(stale));
+
+            let authoritative = AppConfig {
+                theme: "authoritative-disk".into(),
+                ..AppConfig::default()
+            };
+            std::fs::write(
+                temp.path().join("config.json"),
+                serde_json::to_vec_pretty(&authoritative).expect("serialize config"),
+            )
+            .expect("write authoritative config");
+
+            let refreshed =
+                reload_config_snapshot_from_disk().expect("reload authoritative config");
+            assert_eq!(refreshed.theme, "authoritative-disk");
+            assert_eq!(cache().load().theme, "authoritative-disk");
+        });
+    }
 
     #[test]
     fn unpublished_config_does_not_publish_or_fire_side_effects() {

@@ -215,10 +215,31 @@ pub(crate) trait ExternalMemoryProviderAdapter: Send + Sync {
     ) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure>;
 }
 
+#[derive(Clone, Copy)]
+enum ExternalMemoryProviderSyncOrigin {
+    Owner,
+    Automatic,
+}
+
 pub async fn execute_external_memory_provider_sync(
     config: ExternalMemoryProvidersConfig,
     stats: MemoryStats,
     stats_error: Option<String>,
+) -> ExternalMemoryProviderSyncReport {
+    execute_external_memory_provider_sync_for_origin(
+        config,
+        stats,
+        stats_error,
+        ExternalMemoryProviderSyncOrigin::Owner,
+    )
+    .await
+}
+
+async fn execute_external_memory_provider_sync_for_origin(
+    requested_config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    origin: ExternalMemoryProviderSyncOrigin,
 ) -> ExternalMemoryProviderSyncReport {
     // The async mutex avoids occupying multiple blocking-pool workers for
     // same-process contenders. The OS lock is the actual data boundary: GUI,
@@ -227,14 +248,38 @@ pub async fn execute_external_memory_provider_sync(
     let _cross_process_guard = match acquire_external_memory_state_lock_async().await {
         Ok(guard) => guard,
         Err(error) => {
-            return sync_lock_failure_report(config, stats, stats_error, error.to_string())
+            return sync_lock_failure_report(
+                requested_config,
+                stats,
+                stats_error,
+                error.to_string(),
+            )
         }
     };
-    // Keep `_cross_process_guard` alive from before credential/ledger
-    // hydration through the final checkpoint and health persistence below.
-    let config =
-        crate::blocking::run_blocking(move || hydrate_external_memory_provider_config(config))
-            .await;
+    // Keep `_cross_process_guard` alive from before the authoritative config,
+    // credential and ledger hydration through the final checkpoint and health
+    // persistence below. The caller's snapshot is intentionally used only for
+    // lock/reload failure projection: it may have waited behind an owner
+    // policy mutation in another process.
+    let live_config = crate::blocking::run_blocking(move || -> Result<_> {
+        let snapshot = crate::config::reload_config_snapshot_from_disk()
+            .context("reload external memory provider configuration")?;
+        let mut config = snapshot.memory_providers.clone();
+        apply_external_memory_sync_origin(&mut config, origin);
+        Ok(hydrate_external_memory_provider_config(config))
+    })
+    .await;
+    let config = match live_config {
+        Ok(config) => config,
+        Err(error) => {
+            return sync_config_reload_failure_report(
+                requested_config,
+                stats,
+                stats_error,
+                error.to_string(),
+            )
+        }
+    };
     let preflight = super::types::external_memory_sync_preflight_with_stats_status(
         &config,
         &stats,
@@ -300,6 +345,25 @@ pub async fn execute_external_memory_provider_sync(
     summarize_sync_report(preflight_summary(results, preflight_report))
 }
 
+fn apply_external_memory_sync_origin(
+    config: &mut ExternalMemoryProvidersConfig,
+    origin: ExternalMemoryProviderSyncOrigin,
+) {
+    if !matches!(origin, ExternalMemoryProviderSyncOrigin::Automatic) {
+        return;
+    }
+    for provider in &mut config.providers {
+        if !matches!(
+            provider.sync_policy,
+            super::ExternalMemorySyncPolicy::PullOnly
+                | super::ExternalMemorySyncPolicy::PushOnly
+                | super::ExternalMemorySyncPolicy::Bidirectional
+        ) {
+            provider.enabled = false;
+        }
+    }
+}
+
 fn acquire_external_memory_state_lock() -> Result<File> {
     let lock_path = external_memory_sync_lock_path()?;
     acquire_external_memory_state_lock_at(&lock_path)
@@ -335,12 +399,39 @@ fn sync_lock_failure_report(
     stats_error: Option<String>,
     error: String,
 ) -> ExternalMemoryProviderSyncReport {
+    sync_preflight_failure_report(
+        config,
+        stats,
+        stats_error,
+        format!("external memory sync lock unavailable: {error}"),
+    )
+}
+
+fn sync_config_reload_failure_report(
+    config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    error: String,
+) -> ExternalMemoryProviderSyncReport {
+    sync_preflight_failure_report(
+        config,
+        stats,
+        stats_error,
+        format!("external memory sync configuration unavailable: {error}"),
+    )
+}
+
+fn sync_preflight_failure_report(
+    config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    failure: String,
+) -> ExternalMemoryProviderSyncReport {
     let preflight = super::types::external_memory_sync_preflight_with_stats_status(
         &config,
         &stats,
         stats_error,
     );
-    let failure = format!("external memory sync lock unavailable: {error}");
     let providers = preflight
         .providers
         .iter()
@@ -424,23 +515,23 @@ pub fn spawn_external_memory_provider_sync_loop() {
 
 async fn run_automatic_external_memory_provider_sync() {
     let mut config = crate::config::cached_config().memory_providers.clone();
-    for provider in &mut config.providers {
-        if !matches!(
-            provider.sync_policy,
-            super::ExternalMemorySyncPolicy::PullOnly
-                | super::ExternalMemorySyncPolicy::PushOnly
-                | super::ExternalMemorySyncPolicy::Bidirectional
-        ) {
-            provider.enabled = false;
-        }
-    }
+    // Cheap process-local eligibility check only. The same filter is applied
+    // again to the authoritative snapshot after the process-shared lock is
+    // acquired, which is the security/correctness boundary.
+    apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Automatic);
     if !config.enabled || !config.providers.iter().any(|provider| provider.enabled) {
         return;
     }
     let (stats, stats_error) =
         crate::blocking::run_blocking(super::helpers::external_memory_provider_stats_for_planning)
             .await;
-    let report = execute_external_memory_provider_sync(config, stats, stats_error).await;
+    let report = execute_external_memory_provider_sync_for_origin(
+        config,
+        stats,
+        stats_error,
+        ExternalMemoryProviderSyncOrigin::Automatic,
+    )
+    .await;
     if report.failed_provider_count > 0 {
         app_warn!(
             "memory",
@@ -633,7 +724,12 @@ pub async fn test_external_memory_provider_connection(
     // that full lifecycle in the same transaction as sync and owner mutation,
     // so cleared/replaced credentials cannot be used after their mutation.
     let _cross_process_guard = acquire_external_memory_state_lock_async().await?;
-    let provider = crate::config::cached_config()
+    let config = crate::blocking::run_blocking(|| {
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload external memory provider configuration")
+    })
+    .await?;
+    let provider = config
         .memory_providers
         .providers
         .iter()
@@ -1118,7 +1214,13 @@ fn persist_sync_health(results: &[ExternalMemoryProviderSyncResult]) {
         return;
     }
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    if let Err(err) =
+    let persist_result = (|| -> Result<()> {
+        // Sync may hold the provider state lock across network IO. Refresh
+        // immediately before the config read-modify-write so unrelated
+        // settings committed by another process are not overwritten by the
+        // old process-local cache.
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload configuration before external memory sync health update")?;
         crate::config::mutate_config(("memory_providers.sync", "owner"), move |store| {
             for (id, status, error) in &updates {
                 let Some(provider) = store
@@ -1142,7 +1244,8 @@ fn persist_sync_health(results: &[ExternalMemoryProviderSyncResult]) {
             }
             Ok(())
         })
-    {
+    })();
+    if let Err(err) = persist_result {
         app_warn!(
             "memory",
             "external_provider_sync_health_persist_failed",
@@ -1375,6 +1478,11 @@ pub async fn save_external_memory_provider_credentials(
     // so acquire before reading them and retain the guard through config,
     // credential, ledger and compatibility publication/rollback.
     let _cross_process_guard = acquire_external_memory_state_lock_async().await?;
+    let fresh_config = crate::blocking::run_blocking(|| {
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload external memory provider configuration")
+    })
+    .await?;
     ensure_provider_exists(&input.provider_id)?;
 
     let provider_id_for_load = input.provider_id.clone();
@@ -1388,7 +1496,7 @@ pub async fn save_external_memory_provider_credentials(
     } else {
         normalize_endpoint(&input.endpoint)?
     };
-    let ssrf = crate::config::cached_config().ssrf.clone();
+    let ssrf = fresh_config.ssrf.clone();
     crate::security::ssrf::check_url(&endpoint, ssrf.default_policy, &ssrf.trusted_hosts)
         .await
         .context("external memory provider endpoint rejected")?;
@@ -1432,6 +1540,12 @@ pub async fn save_external_memory_provider_credentials(
         let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
             .lock()
             .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+        // Endpoint validation above may await DNS/network policy work. Reload
+        // again immediately before the config mutation so unrelated settings
+        // committed by another process during that wait remain intact.
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload configuration before external memory credential update")?;
+        ensure_provider_exists(&provider_id)?;
         let credential_path = external_memory_credential_path(&provider_id)?;
         let ledger_path = external_memory_sync_state_path(&provider_id)?;
         let compatibility_path = external_memory_compatibility_path(&provider_id)?;
@@ -1509,10 +1623,12 @@ pub fn get_external_memory_provider_credential_status(
 pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<()> {
     validate_provider_id(provider_id)?;
     let _cross_process_guard = acquire_external_memory_state_lock()?;
-    ensure_provider_exists(provider_id)?;
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    crate::config::reload_config_snapshot_from_disk()
+        .context("reload external memory provider configuration")?;
+    ensure_provider_exists(provider_id)?;
     let path = external_memory_credential_path(provider_id)?;
     let ledger_path = external_memory_sync_state_path(provider_id)?;
     let compatibility_path = external_memory_compatibility_path(provider_id)?;
@@ -1596,6 +1712,8 @@ pub fn save_external_memory_providers_config(
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    crate::config::reload_config_snapshot_from_disk()
+        .context("reload configuration before external memory provider update")?;
     let config = config.normalized();
     let valid_ids = config
         .providers
@@ -1633,6 +1751,8 @@ pub fn patch_external_memory_providers_config(
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    crate::config::reload_config_snapshot_from_disk()
+        .context("reload configuration before external memory provider patch")?;
     let (config, valid_ids) =
         crate::config::mutate_config(("memory_providers", source), move |store| -> Result<_> {
             let config = apply_external_memory_providers_patch(&store.memory_providers, patch)?;
@@ -1997,6 +2117,46 @@ mod tests {
             .expect("waiting provider sync should enter after release")
             .expect("waiter should report entry");
         waiter.await.unwrap();
+    }
+
+    #[test]
+    fn automatic_sync_origin_filters_the_live_policy_snapshot() {
+        let mut config = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![
+                ExternalMemoryProviderConfig {
+                    enabled: true,
+                    sync_policy: super::super::ExternalMemorySyncPolicy::PushOnly,
+                    ..test_provider("automatic")
+                },
+                ExternalMemoryProviderConfig {
+                    enabled: true,
+                    sync_policy: super::super::ExternalMemorySyncPolicy::Manual,
+                    ..test_provider("manual")
+                },
+            ],
+        };
+
+        apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Automatic);
+
+        assert!(config.providers[0].enabled);
+        assert!(!config.providers[1].enabled);
+    }
+
+    #[test]
+    fn owner_sync_origin_preserves_the_live_policy_snapshot() {
+        let mut config = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![ExternalMemoryProviderConfig {
+                enabled: true,
+                sync_policy: super::super::ExternalMemorySyncPolicy::Manual,
+                ..test_provider("manual")
+            }],
+        };
+
+        apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Owner);
+
+        assert!(config.providers[0].enabled);
     }
 
     #[test]
