@@ -116,8 +116,9 @@ pub async fn check_sandbox_available() -> ha_core::sandbox::DockerStatus {
 
 #[tauri::command]
 pub async fn list_slash_commands(
+    session_id: Option<String>,
 ) -> Result<Vec<ha_core::slash_commands::types::SlashCommandDef>, String> {
-    ha_core::slash_commands::list_slash_commands().await
+    ha_core::slash_commands::list_slash_commands(session_id.as_deref()).await
 }
 
 #[tauri::command]

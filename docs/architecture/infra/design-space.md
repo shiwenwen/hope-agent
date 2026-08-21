@@ -855,6 +855,8 @@ graph LR
 | 配置读写 | `get/save_design_config_cmd` | `GET/PUT /api/config/design` |
 | 最近查看上报 | `mark_design_artifact_opened_cmd` | `POST …/artifacts/{aid}/opened`（MCP active-context 事实源） |
 
+固定版本评审授权只可绑定磁盘上确实存在的版本快照；未过期且未撤销的授权会保护其版本不被版本上限清理，授权失效后恢复常规淘汰。每个 commenter 授权最多持久化 500 条评论（单条仍受 2,000 字符与 HTTP body 上限约束），防止公开凭据导致 `store.json` 无界增长。
+
 ---
 
 ## 17. 文件与注册触点

@@ -12,7 +12,7 @@ pub fn run(step: u32, total: u32) -> Result<()> {
     println_step(step, total, "Bundled skills");
 
     let extra = load_config()?.extra_skills_dirs.clone();
-    let skills = load_all_skills_with_extra(&extra);
+    let skills = load_all_skills_with_extra(&extra, None);
     // `requires.always = true` means "skip dependency checks", not "locked".
     // Keep CLI behavior aligned with the GUI wizard and Settings -> Skills.
     let bundled: Vec<_> = skills

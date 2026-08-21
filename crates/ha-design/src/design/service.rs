@@ -2049,12 +2049,7 @@ pub async fn inpaint_image_artifact(
         .design
         .max_versions_per_artifact
         .max(1);
-    let _ = db.cleanup_old_versions(&a.id, keep);
-    if let Ok(remaining) = db.list_versions(&a.id) {
-        let keep_set: std::collections::HashSet<i64> =
-            remaining.iter().map(|v| v.version_number).collect();
-        prune_version_dirs_to_db(&dir, &keep_set);
-    }
+    cleanup_version_history(&db, &a, &dir, keep);
     db.touch_project(&a.project_id, &ts)?;
     emit("design:reload", json!({ "artifactId": a.id }));
     db.get_artifact(&a.id)?
@@ -2228,12 +2223,7 @@ pub fn patch_page_style(id: &str, props: Vec<(String, String)>) -> Result<Design
         .design
         .max_versions_per_artifact
         .max(1);
-    let _ = db.cleanup_old_versions(&a.id, keep);
-    if let Ok(remaining) = db.list_versions(&a.id) {
-        let keep_set: std::collections::HashSet<i64> =
-            remaining.iter().map(|v| v.version_number).collect();
-        prune_version_dirs_to_db(&dir, &keep_set);
-    }
+    cleanup_version_history(&db, &a, &dir, keep);
     db.touch_project(&a.project_id, &ts)?;
     emit("design:reload", json!({ "artifactId": a.id }));
     db.get_artifact(&a.id)?
@@ -3227,12 +3217,68 @@ fn prune_version_dirs_to_db(dir: &std::path::Path, keep: &std::collections::Hash
     }
 }
 
+/// Apply the configured retention limit without invalidating any unexpired,
+/// non-revoked fixed-version review grant. Review-store read failures stop this
+/// best-effort cleanup pass instead of treating the protected set as empty.
+fn cleanup_version_history(
+    db: &DesignDb,
+    artifact: &DesignArtifact,
+    dir: &std::path::Path,
+    keep: i64,
+) {
+    let protected =
+        match super::review_space::active_version_numbers(&artifact.project_id, &artifact.id) {
+            Ok(versions) => versions,
+            Err(error) => {
+                ha_core::app_warn!(
+                    "design",
+                    "version_cleanup",
+                    "artifact={} skipped cleanup because review grants could not be read: {}",
+                    artifact.id,
+                    error
+                );
+                return;
+            }
+        };
+    let protected = protected.into_iter().collect::<Vec<_>>();
+    if let Err(error) = db.cleanup_old_versions(&artifact.id, keep, &protected) {
+        ha_core::app_warn!(
+            "design",
+            "version_cleanup",
+            "artifact={} failed to prune version rows: {}",
+            artifact.id,
+            error
+        );
+        return;
+    }
+    match db.list_versions(&artifact.id) {
+        Ok(remaining) => {
+            let mut keep_set = remaining
+                .iter()
+                .map(|version| version.version_number)
+                .collect::<std::collections::HashSet<_>>();
+            // A crash can leave a readable immutable snapshot without its DB
+            // metadata row. An active fixed-version grant still protects that
+            // directory until the grant expires or is revoked.
+            keep_set.extend(protected);
+            prune_version_dirs_to_db(dir, &keep_set);
+        }
+        Err(error) => ha_core::app_warn!(
+            "design",
+            "version_cleanup",
+            "artifact={} retained version directories because rows could not be listed: {}",
+            artifact.id,
+            error
+        ),
+    }
+}
+
 /// Per-artifact in-process mutex. Serializes the read-current → write → bump →
 /// create_version → prune sequence so two concurrent updates on the same artifact
 /// cannot lost-update, collide on `UNIQUE(artifact_id,version_number)`, or leave the
 /// version dir's content mismatched against its DB row. `open_db()` opens a fresh
 /// connection per call, so SQLite file locks alone do NOT serialize this logical RMW.
-fn artifact_lock(artifact_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+pub(super) fn artifact_lock(artifact_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
@@ -3305,13 +3351,7 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .design
         .max_versions_per_artifact
         .max(1);
-    let _ = db.cleanup_old_versions(&a.id, keep);
-    // Prune disk snapshots to exactly the versions the DB retained.
-    if let Ok(remaining) = db.list_versions(&a.id) {
-        let keep_set: std::collections::HashSet<i64> =
-            remaining.iter().map(|v| v.version_number).collect();
-        prune_version_dirs_to_db(&dir, &keep_set);
-    }
+    cleanup_version_history(&db, &a, &dir, keep);
     db.touch_project(&a.project_id, &ts)?;
 
     emit("design:reload", json!({ "artifactId": a.id }));
@@ -3379,12 +3419,7 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
         .design
         .max_versions_per_artifact
         .max(1);
-    let _ = db.cleanup_old_versions(&a.id, keep);
-    if let Ok(remaining) = db.list_versions(&a.id) {
-        let keep_set: std::collections::HashSet<i64> =
-            remaining.iter().map(|v| v.version_number).collect();
-        prune_version_dirs_to_db(&dir, &keep_set);
-    }
+    cleanup_version_history(&db, &a, &dir, keep);
     db.touch_project(&a.project_id, &ts)?;
     emit("design:reload", json!({ "artifactId": a.id }));
     db.get_artifact(&a.id)?

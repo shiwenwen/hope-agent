@@ -10,6 +10,7 @@ const STORE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const STORE_LOCK_POLL: Duration = Duration::from_millis(10);
 const REVIEW_TOKEN_PREFIX: &str = "har1";
 const REVIEW_TOKEN_SECRET_HEX_LEN: usize = 64;
+const MAX_COMMENTS_PER_GRANT: usize = 500;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -189,11 +190,16 @@ fn acquire_store_lock(path: &Path) -> Result<std::fs::File> {
 }
 
 pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
+    let artifact_guard = super::service::artifact_lock(&input.artifact_id);
+    let _artifact_guard = artifact_guard.lock().unwrap_or_else(|e| e.into_inner());
     let artifact = super::service::get_artifact(&input.artifact_id)?
         .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
     if input.version_number <= 0 || input.version_number > artifact.current_version {
         anyhow::bail!("invalid artifact version");
     }
+    // Retention can leave gaps below `current_version`; a fixed-version grant
+    // is valid only when its exact immutable snapshot still exists.
+    super::service::get_artifact_version_html(&artifact.id, input.version_number)?;
     let expires =
         chrono::DateTime::parse_from_rfc3339(&input.expires_at)?.with_timezone(&chrono::Utc);
     let now_dt = chrono::Utc::now();
@@ -275,7 +281,29 @@ fn authorize(token: &str) -> Result<(PathBuf, ReviewStore, ReviewGrant)> {
     anyhow::bail!("review grant not found")
 }
 
+pub(super) fn active_version_numbers(
+    project_id: &str,
+    artifact_id: &str,
+) -> Result<std::collections::HashSet<i64>> {
+    let now = chrono::Utc::now();
+    Ok(load(&store_path(project_id, artifact_id)?)?
+        .grants
+        .into_iter()
+        .filter(|grant| {
+            grant.artifact_id == artifact_id
+                && grant.revoked_at.is_none()
+                && chrono::DateTime::parse_from_rfc3339(&grant.expires_at)
+                    .is_ok_and(|expires| expires.with_timezone(&chrono::Utc) > now)
+        })
+        .map(|grant| grant.version_number)
+        .collect())
+}
+
 pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
+    let artifact_id =
+        review_token_artifact_id(token).ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
+    let artifact_guard = super::service::artifact_lock(artifact_id);
+    let _artifact_guard = artifact_guard.lock().unwrap_or_else(|e| e.into_inner());
     let (_, store, grant) = authorize(token)?;
     let html = super::service::get_artifact_version_html(&grant.artifact_id, grant.version_number)?;
     Ok(ReviewSnapshot {
@@ -289,6 +317,16 @@ pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
             .filter(|c| c.version_number == grant.version_number)
             .collect(),
     })
+}
+
+fn comment_quota_reached(store: &ReviewStore, grant_id: &str) -> bool {
+    store
+        .comments
+        .iter()
+        .filter(|comment| comment.grant_id == grant_id)
+        .take(MAX_COMMENTS_PER_GRANT)
+        .count()
+        >= MAX_COMMENTS_PER_GRANT
 }
 
 pub fn add_comment(token: &str, input: AddReviewCommentInput) -> Result<ReviewComment> {
@@ -316,6 +354,9 @@ pub fn add_comment(token: &str, input: AddReviewCommentInput) -> Result<ReviewCo
         || !(0.0..=1.0).contains(&input.rel_y)
     {
         anyhow::bail!("invalid review comment");
+    }
+    if comment_quota_reached(&store, &grant.id) {
+        anyhow::bail!("review comment quota exceeded");
     }
     let comment = ReviewComment {
         id: uuid::Uuid::new_v4().to_string(),
@@ -355,5 +396,35 @@ mod tests {
             review_token_artifact_id(&format!("{REVIEW_TOKEN_PREFIX}.{artifact_id}.short")),
             None
         );
+    }
+
+    #[test]
+    fn comment_quota_is_scoped_to_one_grant() {
+        let comment = |id: usize, grant_id: &str| ReviewComment {
+            id: format!("comment-{id}"),
+            grant_id: grant_id.into(),
+            artifact_id: "artifact".into(),
+            version_number: 1,
+            oid: None,
+            rel_x: 0.5,
+            rel_y: 0.5,
+            body: "note".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let mut store = ReviewStore {
+            version: 1,
+            ..Default::default()
+        };
+        store.comments.push(comment(0, "other-grant"));
+        store
+            .comments
+            .extend((0..MAX_COMMENTS_PER_GRANT - 1).map(|id| comment(id + 1, "limited-grant")));
+        assert!(!comment_quota_reached(&store, "limited-grant"));
+
+        store
+            .comments
+            .push(comment(MAX_COMMENTS_PER_GRANT, "limited-grant"));
+        assert!(comment_quota_reached(&store, "limited-grant"));
+        assert!(!comment_quota_reached(&store, "other-grant"));
     }
 }

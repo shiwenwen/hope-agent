@@ -1597,7 +1597,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `list_slash_commands` | `GET /api/slash-commands` | ✅ |
+| `list_slash_commands` | `GET /api/slash-commands?sessionId=…`（可选） | ✅ |
 | `execute_slash_command` | `POST /api/slash-commands/execute` | ✅ |
 | `is_slash_command` | `POST /api/slash-commands/is-slash` | ✅ |
 

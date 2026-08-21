@@ -58,14 +58,15 @@ pub fn resolve_skill_command_names<'a>(
 
 /// List all available slash commands (for UI menu rendering).
 /// Includes both built-in commands and user-invocable skill commands.
-pub async fn list_slash_commands() -> Result<Vec<SlashCommandDef>, String> {
+pub async fn list_slash_commands(session_id: Option<&str>) -> Result<Vec<SlashCommandDef>, String> {
     let mut commands = registry::all_commands();
 
     let store = crate::config::cached_config();
+    let working_dir = crate::session::effective_session_working_dir(session_id);
     let skill_entries = crate::skills_hooks::invocable_skills(
         &store.extra_skills_dirs,
         &store.disabled_skills,
-        None,
+        working_dir.as_deref().map(std::path::Path::new),
     );
     let skill_entries = crate::skills::filter_catalog_eligible_skills(
         skill_entries,
@@ -397,7 +398,7 @@ pub use crate::slash_defs::IM_MENU_HARD_CAP;
 /// each `SlashCommandDef` into their own wire format. `description_en()`
 /// gives a stable English label both platforms can render.
 pub async fn im_menu_entries() -> Vec<SlashCommandDef> {
-    let defs = match list_slash_commands().await {
+    let defs = match list_slash_commands(None).await {
         Ok(v) => v,
         Err(e) => {
             crate::app_warn!(
