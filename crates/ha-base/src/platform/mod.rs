@@ -103,6 +103,13 @@ pub fn path_ownership_snapshot_no_follow(path: &Path) -> std::io::Result<PathOwn
     imp::path_ownership_snapshot_no_follow(path)
 }
 
+/// Whether the final path component carries Linux file capabilities, without
+/// following a symlink. Non-Linux platforms return `false` because they do not
+/// implement the `security.capability` ownership-clearing contract.
+pub fn path_has_security_capability_no_follow(path: &Path) -> std::io::Result<bool> {
+    imp::path_has_security_capability_no_follow(path)
+}
+
 /// Change an entry's numeric owner through a descriptor-relative walk rooted
 /// at `root`, after proving that the opened inode still matches `expected`.
 /// Regular files must retain the snapshot's hard-link count at the mutation

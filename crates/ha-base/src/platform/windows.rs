@@ -37,6 +37,10 @@ pub(super) fn path_ownership_snapshot_no_follow(_path: &Path) -> io::Result<Path
     ))
 }
 
+pub(super) fn path_has_security_capability_no_follow(_path: &Path) -> io::Result<bool> {
+    Ok(false)
+}
+
 pub(super) fn set_path_owner_from_snapshot_beneath(
     _root: &Path,
     _expected_root: PathOwnershipSnapshot,

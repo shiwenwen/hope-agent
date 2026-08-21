@@ -4,12 +4,15 @@ use anyhow::{Context, Result};
 use ha_core::platform::write_atomic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const MAX_ARGUMENT_BYTES: usize = 64 * 1024;
 const MAX_PENDING_RECEIPTS: usize = 256;
 const MAX_RESULT_BYTES: usize = 512 * 1024;
+const ROUNDTRIP_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
+const ROUNDTRIP_LOCK_POLL: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -247,8 +250,7 @@ pub async fn list_reconciliations(artifact_id: &str) -> Result<Vec<FigmaRoundtri
     if !valid_component(artifact_id, 128) {
         anyhow::bail!("invalid Figma artifact id");
     }
-    let lock = artifact_roundtrip_lock(artifact_id);
-    let _guard = lock.lock_owned().await;
+    let _guard = acquire_artifact_roundtrip_lock(artifact_id).await?;
     let artifact_id = artifact_id.to_string();
     ha_core::blocking::run_blocking(move || load_reconciliations_locked(&artifact_id)).await
 }
@@ -321,8 +323,7 @@ pub async fn resolve_reconciliation(
     {
         anyhow::bail!("invalid Figma reconciliation hash");
     }
-    let lock = artifact_roundtrip_lock(&input.artifact_id);
-    let _guard = lock.lock_owned().await;
+    let _guard = acquire_artifact_roundtrip_lock(&input.artifact_id).await?;
     ha_core::blocking::run_blocking(move || {
         let artifact = super::service::get_artifact(&input.artifact_id)?
             .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
@@ -332,16 +333,35 @@ pub async fn resolve_reconciliation(
     .await
 }
 
-fn artifact_roundtrip_lock(artifact_id: &str) -> Arc<tokio::sync::Mutex<()>> {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = locks.lock().unwrap_or_else(|error| error.into_inner());
-    guard
-        .entry(artifact_id.to_string())
-        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-        .clone()
+fn artifact_roundtrip_lock_path(artifact_id: &str) -> Result<PathBuf> {
+    let lock_name = format!("{}.lock", blake3::hash(artifact_id.as_bytes()).to_hex());
+    Ok(ha_core::paths::design_dir()?
+        .join("locks")
+        .join("figma-roundtrip")
+        .join(lock_name))
+}
+
+async fn acquire_artifact_roundtrip_lock(artifact_id: &str) -> Result<File> {
+    acquire_artifact_roundtrip_lock_at(artifact_roundtrip_lock_path(artifact_id)?).await
+}
+
+async fn acquire_artifact_roundtrip_lock_at(lock_path: PathBuf) -> Result<File> {
+    ha_core::blocking::run_blocking(move || {
+        if let Some(parent) = lock_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let started = Instant::now();
+        loop {
+            match ha_core::platform::try_acquire_exclusive_lock(&lock_path)? {
+                Some(file) => return Ok(file),
+                None if started.elapsed() < ROUNDTRIP_LOCK_TIMEOUT => {
+                    std::thread::sleep(ROUNDTRIP_LOCK_POLL)
+                }
+                None => anyhow::bail!("timed out waiting for the Figma roundtrip lock"),
+            }
+        }
+    })
+    .await
 }
 
 fn discard_pending_previews(pending_dir: &Path) -> Result<()> {
@@ -415,8 +435,7 @@ pub async fn preview(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPre
     if !valid_component(&request.artifact_id, 128) {
         anyhow::bail!("invalid Figma artifact id");
     }
-    let lock = artifact_roundtrip_lock(&request.artifact_id);
-    let _guard = lock.lock_owned().await;
+    let _guard = acquire_artifact_roundtrip_lock(&request.artifact_id).await?;
     ha_core::blocking::run_blocking(move || preview_locked(request)).await
 }
 
@@ -508,51 +527,55 @@ fn persist_roundtrip_result(
     })
 }
 
-pub fn list_links(artifact_id: &str) -> Result<Vec<FigmaLink>> {
-    let artifact = super::service::get_artifact(artifact_id)?
-        .with_context(|| format!("artifact not found: {artifact_id}"))?;
-    load_links(&external_dir(&artifact.project_id, artifact_id)?.join("figma-links.json"))
+struct CommitPreparation {
+    project_id: String,
+    artifact_id: String,
+    preview: FigmaRoundtripPreview,
+    actual_hash: String,
+    indeterminate: PathBuf,
 }
 
-pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripResult> {
-    if !valid_component(&input.preview_id, 64) {
-        anyhow::bail!("invalid Figma preview id");
-    }
-    // 预览 id 不携 artifact；有界查找本地 pending，找到后立即以原子 rename 消费。
-    let mut found = None;
+fn find_commit_target(preview_id: &str) -> Result<(String, String, PathBuf)> {
+    // Preview ids do not carry an artifact id. The scan is bounded by the local
+    // design artifact registry and runs on the blocking pool.
     for artifact in super::service::list_all_artifacts()? {
-        let path = preview_path(&artifact.project_id, &artifact.id, &input.preview_id)?;
+        let path = preview_path(&artifact.project_id, &artifact.id, preview_id)?;
         if path.exists() {
-            found = Some((artifact, path));
-            break;
+            return Ok((artifact.project_id, artifact.id, path));
         }
     }
-    let (artifact, path) = found.context("Figma roundtrip preview not found")?;
-    // Preview creation and commit share this guard. It spans every receipt
-    // check, the durable marker, the external MCP operation, local persistence,
-    // and final marker removal so no second client can retarget the artifact's
-    // roundtrip state between those boundaries.
-    let lock = artifact_roundtrip_lock(&artifact.id);
-    let _guard = lock.lock_owned().await;
+    anyhow::bail!("Figma roundtrip preview not found")
+}
+
+fn prepare_commit(
+    project_id: String,
+    artifact_id: String,
+    path: PathBuf,
+    input: CommitFigmaRoundtripInput,
+) -> Result<CommitPreparation> {
     if !path.exists() {
         anyhow::bail!("Figma roundtrip preview was superseded or already consumed");
     }
     let pending_dir = path
         .parent()
-        .context("Figma roundtrip preview has no pending directory")?;
-    if has_indeterminate_receipt(pending_dir)? {
+        .context("Figma roundtrip preview has no pending directory")?
+        .to_path_buf();
+    if has_indeterminate_receipt(&pending_dir)? {
         anyhow::bail!(
             "a Figma roundtrip is indeterminate; reconcile the remote state before committing another preview"
         );
     }
     let preview: FigmaRoundtripPreview = serde_json::from_slice(&std::fs::read(&path)?)?;
+    if preview.id != input.preview_id || preview.artifact_id != artifact_id {
+        anyhow::bail!("Figma roundtrip preview identity mismatch");
+    }
     let expires =
         chrono::DateTime::parse_from_rfc3339(&preview.expires_at)?.with_timezone(&chrono::Utc);
     if expires <= chrono::Utc::now() {
         let _ = std::fs::remove_file(&path);
         anyhow::bail!("Figma roundtrip preview expired");
     }
-    let actual_hash = artifact_hash(&artifact.id)?;
+    let actual_hash = artifact_hash(&artifact_id)?;
     if actual_hash != input.expected_local_hash || actual_hash != preview.local_hash {
         anyhow::bail!("stale Figma roundtrip preview: artifact changed");
     }
@@ -566,11 +589,46 @@ pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripRe
     std::fs::rename(&path, &indeterminate).context("arm Figma reconciliation receipt")?;
     // Defensive cleanup for receipts written by an older process/version.
     // From this point the durable marker remains the only admissible receipt.
-    discard_pending_previews(pending_dir)?;
+    discard_pending_previews(&pending_dir)?;
+    Ok(CommitPreparation {
+        project_id,
+        artifact_id,
+        preview,
+        actual_hash,
+        indeterminate,
+    })
+}
+
+pub fn list_links(artifact_id: &str) -> Result<Vec<FigmaLink>> {
+    let artifact = super::service::get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    load_links(&external_dir(&artifact.project_id, artifact_id)?.join("figma-links.json"))
+}
+
+pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripResult> {
+    if !valid_component(&input.preview_id, 64) {
+        anyhow::bail!("invalid Figma preview id");
+    }
+    let preview_id = input.preview_id.clone();
+    let (project_id, artifact_id, path) =
+        ha_core::blocking::run_blocking(move || find_commit_target(&preview_id)).await?;
+    // Preview creation and commit share this OS guard across processes. It spans every receipt
+    // check, the durable marker, the external MCP operation, local persistence,
+    // and final marker removal so no second client can retarget the artifact's
+    // roundtrip state between those boundaries.
+    let _guard = acquire_artifact_roundtrip_lock(&artifact_id).await?;
+    let prepared = ha_core::blocking::run_blocking(move || {
+        prepare_commit(project_id, artifact_id, path, input)
+    })
+    .await?;
 
     let ctx = ha_core::tool_defs::ToolExecContext::default();
-    let raw = match ha_core::mcp::invoke::call_tool(&preview.tool_name, &preview.arguments, &ctx)
-        .await
+    let raw = match ha_core::mcp::invoke::call_tool(
+        &prepared.preview.tool_name,
+        &prepared.preview.arguments,
+        &ctx,
+    )
+    .await
     {
         Ok(value) => value,
         Err(error) => {
@@ -579,20 +637,18 @@ pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripRe
                 );
         }
     };
-    let project_id = artifact.project_id;
-    let artifact_id = artifact.id;
-    // Keep the per-artifact async guard alive across this await: receipt
+    // Keep the per-artifact OS guard alive across this await: receipt
     // consumption, the external side effect, local persistence, and marker
     // removal remain one serialized boundary, while rendering/FS/SQLite work
     // runs outside the Tauri/Axum worker.
     ha_core::blocking::run_blocking(move || {
         persist_roundtrip_result(
-            project_id,
-            artifact_id,
-            preview,
-            actual_hash,
+            prepared.project_id,
+            prepared.artifact_id,
+            prepared.preview,
+            prepared.actual_hash,
             raw,
-            indeterminate,
+            prepared.indeterminate,
         )
     })
     .await
@@ -717,13 +773,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn preview_and_commit_boundaries_are_serialized_per_artifact() {
-        let artifact_id = format!("figma-lock-{}", uuid::Uuid::new_v4());
-        let first = artifact_roundtrip_lock(&artifact_id).lock_owned().await;
+    async fn preview_and_commit_boundaries_use_one_os_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("figma-roundtrip.lock");
+        let first = acquire_artifact_roundtrip_lock_at(lock_path.clone())
+            .await
+            .unwrap();
         let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
-        let waiter_id = artifact_id.clone();
         let waiter = tokio::spawn(async move {
-            let _second = artifact_roundtrip_lock(&waiter_id).lock_owned().await;
+            let _second = acquire_artifact_roundtrip_lock_at(lock_path).await.unwrap();
             entered_tx.send(()).unwrap();
         });
 

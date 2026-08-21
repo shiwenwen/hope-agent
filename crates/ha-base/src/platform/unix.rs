@@ -44,6 +44,52 @@ pub(super) fn path_ownership_snapshot_no_follow(path: &Path) -> io::Result<PathO
     })
 }
 
+#[cfg(target_os = "linux")]
+fn capability_xattr_result(result: libc::ssize_t) -> io::Result<bool> {
+    if result >= 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    let code = error.raw_os_error();
+    if code == Some(libc::ENODATA) || code == Some(libc::ENOTSUP) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn path_has_security_capability_no_follow(path: &Path) -> io::Result<bool> {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let name = c"security.capability";
+    // SAFETY: both C strings are live and NUL-terminated; a null value with a
+    // zero size is the documented size/existence probe and lgetxattr does not
+    // follow the final symlink.
+    let result = unsafe { libc::lgetxattr(path.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
+    capability_xattr_result(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn path_has_security_capability_no_follow(_path: &Path) -> io::Result<bool> {
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn file_has_security_capability(file: &fs::File) -> io::Result<bool> {
+    let name = c"security.capability";
+    // SAFETY: file and name remain live for the descriptor-bound existence
+    // probe; fgetxattr cannot be redirected by a pathname replacement.
+    let result =
+        unsafe { libc::fgetxattr(file.as_raw_fd(), name.as_ptr(), std::ptr::null_mut(), 0) };
+    capability_xattr_result(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn file_has_security_capability(_file: &fs::File) -> io::Result<bool> {
+    Ok(false)
+}
+
 fn validate_owner_handle(
     file: &fs::File,
     expected: PathOwnershipSnapshot,
@@ -150,6 +196,12 @@ pub(super) fn set_path_owner_from_snapshot_beneath(
         directory
     };
     validate_owner_handle(&target, expected, true)?;
+    if file_has_security_capability(&target)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "ownership handoff would clear Linux file capabilities",
+        ));
+    }
     // SAFETY: `target` is a live descriptor for the exact inode just
     // validated. fchown cannot be redirected by a pathname replacement.
     if unsafe { libc::fchown(target.as_raw_fd(), uid, gid) } != 0 {

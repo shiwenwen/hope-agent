@@ -538,19 +538,41 @@ fn collect_workspace_owners_impl(
             continue;
         }
         let snapshot = ha_core::platform::path_ownership_snapshot_no_follow(entry.path())?;
-        if reject_multiply_linked_files && file_type.is_file() && snapshot.hard_link_count > 1 {
-            anyhow::bail!(
-                "sandbox workspace contains a multiply-linked file; root ownership handoff cannot prove the inode is workspace-local"
-            );
-        }
-        if reject_multiply_linked_files && snapshot.special_mode_bits != 0 {
-            anyhow::bail!(
-                "sandbox workspace contains a setuid/setgid entry; ownership handoff would irreversibly clear its special mode bits"
-            );
+        if reject_multiply_linked_files {
+            let has_security_capability = file_type.is_file()
+                && ha_core::platform::path_has_security_capability_no_follow(entry.path())?;
+            validate_workspace_handoff_entry(
+                file_type.is_file(),
+                snapshot,
+                has_security_capability,
+            )?;
         }
         owners.push((entry.into_path(), snapshot));
     }
     Ok(owners)
+}
+
+fn validate_workspace_handoff_entry(
+    is_file: bool,
+    snapshot: ha_core::platform::PathOwnershipSnapshot,
+    has_security_capability: bool,
+) -> Result<()> {
+    if is_file && snapshot.hard_link_count > 1 {
+        anyhow::bail!(
+            "sandbox workspace contains a multiply-linked file; root ownership handoff cannot prove the inode is workspace-local"
+        );
+    }
+    if snapshot.special_mode_bits != 0 {
+        anyhow::bail!(
+            "sandbox workspace contains a setuid/setgid entry; ownership handoff would irreversibly clear its special mode bits"
+        );
+    }
+    if is_file && has_security_capability {
+        anyhow::bail!(
+            "sandbox workspace contains a Linux file capability; ownership handoff would irreversibly clear it"
+        );
+    }
+    Ok(())
 }
 
 fn collect_workspace_owners(
@@ -1886,6 +1908,20 @@ mod tests {
         let error = collect_workspace_owners_for_handoff(workspace.path())
             .expect_err("setuid file must fail before ownership mutation");
         assert!(error.to_string().contains("setuid/setgid"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_linux_file_capabilities() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let executable = workspace.path().join("capable");
+        std::fs::write(&executable, "#!/bin/sh\n").expect("workspace executable");
+        let snapshot = ha_core::platform::path_ownership_snapshot_no_follow(&executable)
+            .expect("ownership snapshot");
+
+        let error = validate_workspace_handoff_entry(true, snapshot, true)
+            .expect_err("file capabilities must fail before ownership mutation");
+        assert!(error.to_string().contains("file capability"));
     }
 
     #[cfg(unix)]
