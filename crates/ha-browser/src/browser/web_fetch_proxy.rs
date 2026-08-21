@@ -837,6 +837,7 @@ mod tests {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
                 .await
                 .unwrap();
+            stream.shutdown().await.unwrap();
             String::from_utf8(bytes).unwrap()
         });
         let config = ProxyConfig {
@@ -844,25 +845,28 @@ mod tests {
             url: Some(format!("http://user:pass@{upstream_address}")),
         };
         let proxy =
-            RendererProxy::start(SsrfPolicy::Strict, vec!["localhost:4317".into()], &config)
+            RendererProxy::start(SsrfPolicy::Strict, vec!["127.0.0.1:4317".into()], &config)
                 .await
                 .unwrap();
         let mut client = TcpStream::connect(proxy.address).await.unwrap();
         client
             .write_all(
-                b"GET http://localhost:4317/metrics?q=1 HTTP/1.1\r\nHost: attacker.invalid\r\nConnection: close\r\n\r\n",
+                b"GET http://127.0.0.1:4317/metrics?q=1 HTTP/1.1\r\nHost: attacker.invalid\r\nConnection: close\r\n\r\n",
             )
             .await
             .unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).await.unwrap();
-        assert!(String::from_utf8_lossy(&response).contains("200 OK"));
+        let response_text = String::from_utf8_lossy(&response);
+        assert!(
+            response_text.contains("200 OK"),
+            "unexpected renderer proxy response: {response_text}"
+        );
 
         let forwarded = upstream_task.await.unwrap();
         let request_line = forwarded.lines().next().unwrap_or_default();
-        assert!(request_line.starts_with("GET http://"));
-        assert!(!request_line.contains("localhost"));
-        assert!(forwarded.contains("\r\nHost: localhost:4317\r\n"));
+        assert!(request_line.starts_with("GET http://127.0.0.1:4317/metrics?q=1 HTTP/1.1"));
+        assert!(forwarded.contains("\r\nHost: 127.0.0.1:4317\r\n"));
         assert!(forwarded.contains("\r\nProxy-Authorization: Basic dXNlcjpwYXNz\r\n"));
         assert!(!forwarded.contains("attacker.invalid"));
         proxy.task.abort();
