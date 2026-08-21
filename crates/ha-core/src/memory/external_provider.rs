@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -224,13 +224,7 @@ pub async fn execute_external_memory_provider_sync(
     // same-process contenders. The OS lock is the actual data boundary: GUI,
     // server and ACP processes share credentials, ledgers and health fields.
     let _sync_guard = EXTERNAL_PROVIDER_SYNC_LOCK.lock().await;
-    let lock_path = match external_memory_sync_lock_path() {
-        Ok(path) => path,
-        Err(error) => {
-            return sync_lock_failure_report(config, stats, stats_error, error.to_string())
-        }
-    };
-    let _cross_process_guard = match acquire_external_provider_sync_lock_at(lock_path).await {
+    let _cross_process_guard = match acquire_external_memory_state_lock_async().await {
         Ok(guard) => guard,
         Err(error) => {
             return sync_lock_failure_report(config, stats, stats_error, error.to_string())
@@ -306,22 +300,33 @@ pub async fn execute_external_memory_provider_sync(
     summarize_sync_report(preflight_summary(results, preflight_report))
 }
 
-async fn acquire_external_provider_sync_lock_at(lock_path: PathBuf) -> Result<File> {
-    crate::blocking::run_blocking(move || {
-        let started = Instant::now();
-        loop {
-            match crate::platform::try_acquire_exclusive_lock(&lock_path)
-                .context("lock external memory sync")?
-            {
-                Some(file) => return Ok(file),
-                None if started.elapsed() < PROVIDER_SYNC_LOCK_TIMEOUT => {
-                    std::thread::sleep(PROVIDER_SYNC_LOCK_POLL)
-                }
-                None => bail!("timed out waiting for the external memory sync lock"),
+fn acquire_external_memory_state_lock() -> Result<File> {
+    let lock_path = external_memory_sync_lock_path()?;
+    acquire_external_memory_state_lock_at(&lock_path)
+}
+
+fn acquire_external_memory_state_lock_at(lock_path: &Path) -> Result<File> {
+    let started = Instant::now();
+    loop {
+        match crate::platform::try_acquire_exclusive_lock(lock_path)
+            .context("lock external memory provider state")?
+        {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < PROVIDER_SYNC_LOCK_TIMEOUT => {
+                std::thread::sleep(PROVIDER_SYNC_LOCK_POLL)
             }
+            None => bail!("timed out waiting for the external memory provider state lock"),
         }
-    })
-    .await
+    }
+}
+
+async fn acquire_external_memory_state_lock_async() -> Result<File> {
+    let lock_path = external_memory_sync_lock_path()?;
+    acquire_external_memory_state_lock_at_async(lock_path).await
+}
+
+async fn acquire_external_memory_state_lock_at_async(lock_path: PathBuf) -> Result<File> {
+    crate::blocking::run_blocking(move || acquire_external_memory_state_lock_at(&lock_path)).await
 }
 
 fn sync_lock_failure_report(
@@ -624,6 +629,10 @@ pub async fn test_external_memory_provider_connection(
     provider_id: String,
 ) -> Result<ExternalMemoryProviderCompatibilityReport> {
     validate_provider_id(&provider_id)?;
+    // A probe reads credentials and publishes compatibility evidence. Keep
+    // that full lifecycle in the same transaction as sync and owner mutation,
+    // so cleared/replaced credentials cannot be used after their mutation.
+    let _cross_process_guard = acquire_external_memory_state_lock_async().await?;
     let provider = crate::config::cached_config()
         .memory_providers
         .providers
@@ -1362,6 +1371,10 @@ pub async fn save_external_memory_provider_credentials(
     input: ExternalMemoryProviderCredentialInput,
 ) -> Result<ExternalMemoryProviderCredentialStatus> {
     validate_provider_id(&input.provider_id)?;
+    // The existing credential values participate in partial-update semantics,
+    // so acquire before reading them and retain the guard through config,
+    // credential, ledger and compatibility publication/rollback.
+    let _cross_process_guard = acquire_external_memory_state_lock_async().await?;
     ensure_provider_exists(&input.provider_id)?;
 
     let provider_id_for_load = input.provider_id.clone();
@@ -1495,6 +1508,7 @@ pub fn get_external_memory_provider_credential_status(
 
 pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<()> {
     validate_provider_id(provider_id)?;
+    let _cross_process_guard = acquire_external_memory_state_lock()?;
     ensure_provider_exists(provider_id)?;
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
@@ -1578,6 +1592,7 @@ pub fn save_external_memory_providers_config(
     config: ExternalMemoryProvidersConfig,
     source: &'static str,
 ) -> Result<()> {
+    let _cross_process_guard = acquire_external_memory_state_lock()?;
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
@@ -1604,15 +1619,17 @@ pub fn save_external_memory_providers_config(
 
 /// Atomically merge a partial owner-plane patch into the non-secret external
 /// provider config. Provider entries are merged by id; deletion requires an
-/// explicit `removeProviderIds` entry. The provider lifecycle lock remains held
-/// through orphan cleanup so a concurrent Settings UI save cannot re-add an id
-/// between the config commit and credential deletion.
+/// explicit `removeProviderIds` entry. The process-local lifecycle mutex and
+/// process-shared state lock remain held through orphan cleanup so neither a
+/// concurrent Settings UI save nor a sync can cross the config commit and
+/// credential deletion boundary.
 pub fn patch_external_memory_providers_config(
     patch: serde_json::Value,
     source: &str,
 ) -> Result<ExternalMemoryProvidersConfig> {
     let patch: ExternalMemoryProvidersPatch =
         serde_json::from_value(patch).context("parse external memory providers patch")?;
+    let _cross_process_guard = acquire_external_memory_state_lock()?;
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
@@ -1960,17 +1977,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_sync_boundary_uses_an_os_lock() {
+    async fn sync_and_synchronous_mutation_paths_share_one_os_lock() {
         let dir = tempfile::tempdir().unwrap();
         let lock_path = dir.path().join("external-memory-sync.lock");
-        let first = acquire_external_provider_sync_lock_at(lock_path.clone())
+        let first = acquire_external_memory_state_lock_at_async(lock_path.clone())
             .await
             .unwrap();
         let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
-        let waiter = tokio::spawn(async move {
-            let _second = acquire_external_provider_sync_lock_at(lock_path)
-                .await
-                .unwrap();
+        let waiter = tokio::task::spawn_blocking(move || {
+            let _second = acquire_external_memory_state_lock_at(&lock_path).unwrap();
             entered_tx.send(()).unwrap();
         });
 
