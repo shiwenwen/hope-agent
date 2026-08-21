@@ -199,6 +199,9 @@ fn compare_images(current: &DynamicImage, baseline: &DynamicImage) -> (f64, f64)
 }
 
 async fn capture_all(artifact_id: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
+    // CdpBackend is stateless over one global active target. The guard must
+    // cover original-target capture, disposable-tab work, close, and restore.
+    let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
     let artifact = super::service::get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let dir = ha_core::paths::design_artifact_dir(&artifact.project_id, &artifact.id)?;

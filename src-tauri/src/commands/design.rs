@@ -446,7 +446,7 @@ pub async fn scan_design_components_cmd(
 pub async fn preview_figma_roundtrip_cmd(
     input: ha_design::design::figma_roundtrip::FigmaRoundtripRequest,
 ) -> Result<ha_design::design::figma_roundtrip::FigmaRoundtripPreview, CmdError> {
-    ha_core::blocking::run_blocking(move || ha_design::design::figma_roundtrip::preview(input))
+    ha_design::design::figma_roundtrip::preview(input)
         .await
         .map_err(Into::into)
 }

@@ -45,6 +45,10 @@ pub(crate) async fn tool_browser(
     args: &Value,
     ctx: &ha_core::tools::ToolExecContext,
 ) -> Result<String> {
+    // CdpBackend routes through one process-global active target. Hold the
+    // workflow guard across backend selection and the complete high-level
+    // action so app-owned capture workflows cannot be retargeted mid-flight.
+    let _cdp_operation = browser::acquire_cdp_operation_guard().await;
     let action = args
         .get("action")
         .and_then(|v| v.as_str())

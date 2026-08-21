@@ -741,14 +741,14 @@ graph LR
 
 原有 PAT + REST 的设计系统导入保留为兼容回退；产物级往返走 Figma 远程 MCP 与其 OAuth，不在 Hope 保存 OAuth token。`figma_roundtrip` 固定为两段式 owner 操作：
 
-1. `preview` 校验 namespaced 工具白名单、参数大小与凭据字段，计算本地产物哈希，写一份 10 分钟有效的一次性预览；
+1. `preview` 校验 namespaced 工具白名单、参数大小与凭据字段，计算本地产物哈希，写一份 10 分钟有效的一次性预览；同一制品只保留最新预览，新预览会淘汰尚未提交的旧预览；
 2. `commit` 同时核对预览 id 与预期本地哈希，原子消费回执后才调用 MCP。写向只允许 `generate_figma_design` / `use_figma`，读向只允许 `get_design_context` / `get_screenshot`。
 
-本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并存入 `external/imports/`；Figma→Hope 只创建一个固定新版本并挂接外部上下文，绝不把外部文本直接解释为 HTML/JS。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放；用户核对远端状态后才能创建新预览，避免重复外部副作用。
+本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并存入 `external/imports/`；Figma→Hope 只创建一个固定新版本并挂接外部上下文，绝不把外部文本直接解释为 HTML/JS。预览与提交共享按制品异步锁，提交持锁覆盖回执复核、`.indeterminate` 标记、MCP 外部调用、链接落盘与标记移除；并发提交只能有一个越过外部副作用边界。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放；用户核对远端状态后才能创建新预览，避免重复外部副作用。
 
 ### 12.7 确定性视觉回归与预览场景
 
-- 固定视口为 `1440×900`、`768×1024`、`390×844`；真实浏览器逐视口截图，完成或失败都恢复原视口并关闭隔离页。
+- 固定视口为 `1440×900`、`768×1024`、`390×844`；真实浏览器逐视口截图，完成或失败都恢复原视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
 - 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`。
 - 通过/失败只由像素差异（变化像素比、平均通道差）与静态 DOM/无障碍规则决定；视觉模型只能作为可选建议，不能覆盖确定性结果。
 - `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。

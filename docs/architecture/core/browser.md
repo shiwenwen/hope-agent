@@ -124,6 +124,8 @@ flowchart TD
 
 [`cdp_backend.rs`](../../../crates/ha-browser/src/browser/cdp_backend.rs) 包装 [`browser_state`](../../../crates/ha-browser/src/browser_state.rs) 全局单例。`browser_state` 维护 `chromiumoxide` 的 `Browser` handle、`Page` 池、`active_page_id`、`ElementRef` 表和 CDP event handler 任务；`CdpBackend` 只是 trait 适配薄壳，自己不持状态。它长期保留，服务 fallback、Docker/headless、自托管和无扩展场景。
 
+**全局目标串行化**：单个 `CdpBackend` 方法会安全快照当前页，但 `select → resize → screenshot → close → restore` 这类多步流程若只逐方法加锁，仍会被另一调用在步骤间改写 `active_page_id`。所有浏览器工具调用、CDP 实时帧、BrowserPanel 导航 / 生命周期操作，以及设计制品的截图、PDF、视频和视觉回归捕获，必须在整个高层流程持有 `acquire_cdp_operation_guard()`；扩展后端的实时帧不占此锁。新增直接使用 `CdpBackend` 的多步入口不得绕过该守卫。
+
 **Stale-ref 一次自恢复**：页面结构变化会让上一轮 snapshot 里的 ref 失效。当 `act` 失败且错误匹配 `is_stale_ref_error`（`not found` / `no such element` / `stale` / `detached`）时，内部触发一次自愈：
 
 ```mermaid

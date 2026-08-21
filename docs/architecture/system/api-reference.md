@@ -1080,6 +1080,8 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `design_chat_threads_list_cmd` | `GET /api/design/projects/{projectId}/chat/threads`（设计对话历史选择器分页，`query` FTS 过滤） | ✅ |
 | （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
 
+Figma 往返在 Tauri / HTTP 两端共用按制品串行化语义：同一制品仅最新预览可提交；`commit` 持锁覆盖回执检查、外部 MCP 调用与最终落盘，未解决的 `.indeterminate` 回执会阻断新预览和后续提交。
+
 ### Artifacts
 
 | Tauri Command / Transport | HTTP | 状态 |

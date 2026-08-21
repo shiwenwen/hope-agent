@@ -1148,11 +1148,9 @@ pub async fn preview_figma_roundtrip(
         return Err(AppError::bad_request("artifact id mismatch"));
     }
     Ok(Json(
-        ha_core::blocking::run_blocking(move || {
-            ha_design::design::figma_roundtrip::preview(body.input)
-        })
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?,
+        ha_design::design::figma_roundtrip::preview(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -1160,11 +1158,9 @@ pub async fn preview_figma_roundtrip_unscoped(
     Json(body): Json<FigmaPreviewBody>,
 ) -> Result<Json<ha_design::design::figma_roundtrip::FigmaRoundtripPreview>, AppError> {
     Ok(Json(
-        ha_core::blocking::run_blocking(move || {
-            ha_design::design::figma_roundtrip::preview(body.input)
-        })
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?,
+        ha_design::design::figma_roundtrip::preview(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 

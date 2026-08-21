@@ -341,6 +341,7 @@ pub async fn stop_extension_control() -> crate::browser::BrowserExtensionStopRes
 }
 
 pub async fn launch(opts: LaunchOptions) -> Result<BrowserStatus> {
+    let _cdp_operation = crate::browser::acquire_cdp_operation_guard().await;
     if let Some(p) = opts.profile.as_deref() {
         validate_profile_name(p)?;
     }
@@ -396,6 +397,7 @@ pub async fn launch(opts: LaunchOptions) -> Result<BrowserStatus> {
 }
 
 pub async fn connect(debug_url: &str) -> Result<BrowserStatus> {
+    let _cdp_operation = crate::browser::acquire_cdp_operation_guard().await;
     // Shared scheme + SSRF guard so settings UI / HTTP / tool path all reject
     // the same set of dodgy debug URLs. Previously only checked the scheme
     // here, which would happily pass a public IP / private LAN address into
@@ -421,6 +423,7 @@ pub async fn connect(debug_url: &str) -> Result<BrowserStatus> {
 /// runs the same SSRF gate as the browser tool; every op re-emits a frame so
 /// the mirror updates within one tick.
 pub async fn panel_navigate(op: &str, url: Option<&str>, session_id: Option<&str>) -> Result<()> {
+    let _cdp_operation = crate::browser::acquire_cdp_operation_guard().await;
     let Some((backend, _)) = crate::browser::frame::panel_backend(session_id).await else {
         return Err(anyhow!("No active browser backend"));
     };
@@ -462,6 +465,7 @@ pub async fn panel_navigate(op: &str, url: Option<&str>, session_id: Option<&str
 }
 
 pub async fn disconnect() -> Result<BrowserStatus> {
+    let _cdp_operation = crate::browser::acquire_cdp_operation_guard().await;
     crate::browser::reset_backend().await;
     {
         let mut st = get_browser_state().lock().await;

@@ -5,6 +5,7 @@ use ha_core::platform::write_atomic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const MAX_ARGUMENT_BYTES: usize = 64 * 1024;
 const MAX_PENDING_RECEIPTS: usize = 256;
@@ -179,7 +180,40 @@ fn has_indeterminate_receipt(pending_dir: &Path) -> Result<bool> {
     Ok(false)
 }
 
-pub fn preview(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPreview> {
+fn artifact_roundtrip_lock(artifact_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
+    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = locks.lock().unwrap_or_else(|error| error.into_inner());
+    guard
+        .entry(artifact_id.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+fn discard_pending_previews(pending_dir: &Path) -> Result<()> {
+    let entries = match std::fs::read_dir(pending_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).context("read Figma roundtrip receipts"),
+    };
+    for (index, entry) in entries.enumerate() {
+        if index >= MAX_PENDING_RECEIPTS {
+            anyhow::bail!("too many Figma roundtrip receipts; reconcile them before continuing");
+        }
+        let path = entry?.path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            std::fs::remove_file(path).context("discard superseded Figma preview")?;
+        }
+    }
+    Ok(())
+}
+
+fn preview_locked(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPreview> {
     validate_tool(request.direction, &request.tool_name)?;
     validate_arguments(&request.arguments)?;
     if request
@@ -201,6 +235,11 @@ pub fn preview(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPreview> 
             "a Figma roundtrip is indeterminate; reconcile the remote state before creating a new preview"
         );
     }
+    // One active preview per artifact: a later preview supersedes any older
+    // local-only receipt. Combined with the per-artifact lock, a commit that
+    // found the old path must re-check it after acquiring the same lock and
+    // cannot cross the MCP boundary with a superseded request.
+    discard_pending_previews(&pending_dir)?;
     let preview = FigmaRoundtripPreview {
         id: uuid::Uuid::new_v4().to_string(),
         artifact_id: artifact.id.clone(),
@@ -218,6 +257,15 @@ pub fn preview(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPreview> 
     }
     write_atomic(&path, &serde_json::to_vec_pretty(&preview)?)?;
     Ok(preview)
+}
+
+pub async fn preview(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPreview> {
+    if !valid_component(&request.artifact_id, 128) {
+        anyhow::bail!("invalid Figma artifact id");
+    }
+    let lock = artifact_roundtrip_lock(&request.artifact_id);
+    let _guard = lock.lock_owned().await;
+    ha_core::blocking::run_blocking(move || preview_locked(request)).await
 }
 
 fn redact_external(raw: &str) -> String {
@@ -270,6 +318,23 @@ pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripRe
         }
     }
     let (artifact, path) = found.context("Figma roundtrip preview not found")?;
+    // Preview creation and commit share this guard. It spans every receipt
+    // check, the durable marker, the external MCP operation, local persistence,
+    // and final marker removal so no second client can retarget the artifact's
+    // roundtrip state between those boundaries.
+    let lock = artifact_roundtrip_lock(&artifact.id);
+    let _guard = lock.lock_owned().await;
+    if !path.exists() {
+        anyhow::bail!("Figma roundtrip preview was superseded or already consumed");
+    }
+    let pending_dir = path
+        .parent()
+        .context("Figma roundtrip preview has no pending directory")?;
+    if has_indeterminate_receipt(pending_dir)? {
+        anyhow::bail!(
+            "a Figma roundtrip is indeterminate; reconcile the remote state before committing another preview"
+        );
+    }
     let preview: FigmaRoundtripPreview = serde_json::from_slice(&std::fs::read(&path)?)?;
     let expires =
         chrono::DateTime::parse_from_rfc3339(&preview.expires_at)?.with_timezone(&chrono::Utc);
@@ -289,6 +354,9 @@ pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripRe
     // person reconciles Figma instead of replaying the write.
     let indeterminate = path.with_extension("indeterminate");
     std::fs::rename(&path, &indeterminate).context("arm Figma reconciliation receipt")?;
+    // Defensive cleanup for receipts written by an older process/version.
+    // From this point the durable marker remains the only admissible receipt.
+    discard_pending_previews(pending_dir)?;
 
     let ctx = ha_core::tool_defs::ToolExecContext::default();
     let raw = match ha_core::mcp::invoke::call_tool(&preview.tool_name, &preview.arguments, &ctx)
@@ -385,5 +453,40 @@ mod tests {
         assert!(has_indeterminate_receipt(dir.path()).unwrap());
         std::fs::remove_file(dir.path().join("preview.indeterminate")).unwrap();
         assert!(!has_indeterminate_receipt(dir.path()).unwrap());
+    }
+
+    #[test]
+    fn a_new_preview_supersedes_all_older_local_only_receipts() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("first.json"), b"first").unwrap();
+        std::fs::write(dir.path().join("second.json"), b"second").unwrap();
+        std::fs::write(dir.path().join("keep.indeterminate"), b"receipt").unwrap();
+
+        discard_pending_previews(dir.path()).unwrap();
+
+        assert!(!dir.path().join("first.json").exists());
+        assert!(!dir.path().join("second.json").exists());
+        assert!(dir.path().join("keep.indeterminate").exists());
+    }
+
+    #[tokio::test]
+    async fn preview_and_commit_boundaries_are_serialized_per_artifact() {
+        let artifact_id = format!("figma-lock-{}", uuid::Uuid::new_v4());
+        let first = artifact_roundtrip_lock(&artifact_id).lock_owned().await;
+        let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let waiter_id = artifact_id.clone();
+        let waiter = tokio::spawn(async move {
+            let _second = artifact_roundtrip_lock(&waiter_id).lock_owned().await;
+            entered_tx.send(()).unwrap();
+        });
+
+        tokio::task::yield_now().await;
+        assert!(entered_rx.try_recv().is_err());
+        drop(first);
+        tokio::time::timeout(std::time::Duration::from_secs(1), entered_rx.recv())
+            .await
+            .expect("waiting roundtrip should enter after release")
+            .expect("waiter should report entry");
+        waiter.await.unwrap();
     }
 }
