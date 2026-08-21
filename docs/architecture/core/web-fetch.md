@@ -71,7 +71,7 @@ V1 的 `{url}`、`max_chars` 和 `extract_mode=markdown|text` 调用保持有效
 2. 在读取缓存前，按调用当下的 `ssrf.webFetchPolicy` 与 `trustedHosts` 调用 `check_url`。
 3. 使用按 proxy、User-Agent、timeout 指纹复用的 reqwest client；client 自身禁用自动 redirect。
 4. `checked_get` 对初始 URL和每个 301 / 302 / 303 / 307 / 308 的 `Location` 异步调用 `check_url`，验证通过后才发送下一跳请求。
-5. 每个 origin 使用独立 semaphore 和可配置的最小启动间隔；同一 cache key 使用 singleflight 合并并发 miss。
+5. 每次实际发包前按该跳的目标 origin 获取独立 semaphore 并预约最小启动间隔；redirect 不继承初始 host 的额度，最终响应在 body 流读取完前持续占有目标 host 槽。同一 cache key 使用 singleflight 合并并发 miss。
 6. 网络错误或 408 / 425 / 429 / 500 / 502 / 503 / 504 最多总计尝试两次；`Retry-After` 支持秒数和 HTTP-date，等待最多 5 秒。
 7. reqwest 透明支持 gzip、brotli、deflate、zstd；`http_stream` 对解压后的字节流执行硬上限，不信任 `Content-Length`。
 
@@ -106,7 +106,8 @@ V1 的 `{url}`、`max_chars` 和 `extract_mode=markdown|text` 调用保持有效
 
 - 每次调用启动新的 incognito/headless Chromium，不读取 Managed / Extension / 用户 profile；
 - 全局仅一个 Render 槽，受独立 timeout、累计解码网络字节上限与 DOM byte cap 约束；累计预算覆盖主文档和全部获准子资源，超限立即停止 pending load；
-- request interception 对每个 HTTP(S) 子请求重新执行当前 SSRF policy；
+- request interception 对每个 HTTP(S) 子请求重新执行当前 SSRF policy；所有 Chromium 网络连接还被强制经过进程内 loopback 安全代理，代理在实际连接边界单次解析目标、检查全部 DNS answer，并只连接该次获批的精确 IP，消除检查与 Chrome 二次解析之间的 DNS rebinding 窗口；
+- loopback 安全代理按全局 `proxy=system|none|custom` 选择上游：Direct / SOCKS 连接使用获批 IP，HTTP(S) 上游代理收到的 destination 同样改写为获批 IP，同时保留原始 Host / TLS SNI；Chrome 禁止绕过 loopback 代理或自行 DNS fallback；
 - 所有网络请求只允许 GET、HEAD、OPTIONS；页面脚本发出的 POST、PUT、PATCH、DELETE 等写方法在发包前中止；
 - 只放行 Document、Stylesheet、Script、XHR、Fetch、Preflight；图片、媒体、字体、WebSocket 和其他非文本资源直接中止；
 - response stage 对声明超过上限的资源直接中止，只由 main frame Document 更新最终 HTTP status；顶层响应的 `private` / `no-store` / `Set-Cookie` 会让 Render snapshot 不可复用；DOM 序列化前后再各做一次 UTF-8 byte cap；

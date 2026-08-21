@@ -7,6 +7,7 @@
 //! async code before the next request is sent.
 
 use std::collections::HashSet;
+use std::future::Future;
 
 use reqwest::header::{HeaderMap, LOCATION};
 
@@ -102,6 +103,37 @@ pub async fn checked_get(
     max_redirects: usize,
     headers: Option<&HeaderMap>,
 ) -> std::result::Result<CheckedGetResponse, CheckedGetError> {
+    checked_get_with_admission(
+        client,
+        url_str,
+        policy,
+        allowlist,
+        max_redirects,
+        headers,
+        |_| std::future::ready(()),
+    )
+    .await
+    .map(|(response, ())| response)
+}
+
+/// Variant of [`checked_get`] that reserves a caller-defined admission guard
+/// immediately before each actual network request. Redirect responses drop
+/// their guard before the next hop is admitted; the final guard is returned
+/// with the response so callers can hold a per-host concurrency slot while
+/// streaming the response body.
+pub async fn checked_get_with_admission<F, Fut, G>(
+    client: &reqwest::Client,
+    url_str: &str,
+    policy: SsrfPolicy,
+    allowlist: &[String],
+    max_redirects: usize,
+    headers: Option<&HeaderMap>,
+    mut before_request: F,
+) -> std::result::Result<(CheckedGetResponse, G), CheckedGetError>
+where
+    F: FnMut(&url::Url) -> Fut,
+    Fut: Future<Output = G>,
+{
     let mut next = checked_target(url_str, policy, allowlist, false).await?;
     let mut seen = HashSet::new();
     let mut redirects = Vec::new();
@@ -115,6 +147,7 @@ pub async fn checked_get(
             ));
         }
 
+        let admission = before_request(&next).await;
         let mut request = client.get(next.clone());
         if let Some(headers) = headers {
             request = request.headers(headers.clone());
@@ -127,10 +160,13 @@ pub async fn checked_get(
         })?;
         let status = response.status();
         if !follows_location(status) {
-            return Ok(CheckedGetResponse {
-                response,
-                redirects,
-            });
+            return Ok((
+                CheckedGetResponse {
+                    response,
+                    redirects,
+                },
+                admission,
+            ));
         }
 
         if redirects.len() >= max_redirects {
@@ -161,6 +197,8 @@ pub async fn checked_get(
             status: status.as_u16(),
         });
         next = checked_target(redirected.as_str(), policy, allowlist, true).await?;
+        drop(response);
+        drop(admission);
     }
 }
 
@@ -226,5 +264,73 @@ mod tests {
             target_probe.await.expect("target probe").is_err(),
             "blocked redirect target must not receive a connection"
         );
+    }
+
+    #[tokio::test]
+    async fn admission_runs_for_the_original_and_redirect_destination() {
+        use std::sync::{Arc, Mutex};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let origin = TcpListener::bind("127.0.0.1:0").await.expect("origin");
+        let target = TcpListener::bind("127.0.0.1:0").await.expect("target");
+        let origin_addr = origin.local_addr().expect("origin address");
+        let target_addr = target.local_addr().expect("target address");
+        let origin_task = tokio::spawn(async move {
+            let (mut stream, _) = origin.accept().await.expect("origin accept");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: http://{target_addr}/final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("write redirect");
+        });
+        let target_task = tokio::spawn(async move {
+            let (mut stream, _) = target.accept().await.expect("target accept");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .expect("write final response");
+        });
+        let admissions = Arc::new(Mutex::new(Vec::new()));
+        let observed = admissions.clone();
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("client");
+        let (checked, final_guard) = checked_get_with_admission(
+            &client,
+            &format!("http://{origin_addr}/start"),
+            SsrfPolicy::Default,
+            &[],
+            5,
+            None,
+            move |url| {
+                let observed = observed.clone();
+                let origin = url.origin().ascii_serialization();
+                async move {
+                    observed.lock().expect("admissions").push(origin.clone());
+                    origin
+                }
+            },
+        )
+        .await
+        .expect("redirect fetch");
+
+        assert_eq!(checked.response.status(), reqwest::StatusCode::OK);
+        assert!(final_guard.contains(&target_addr.port().to_string()));
+        let observed = admissions.lock().expect("admissions");
+        assert_eq!(observed.len(), 2);
+        assert!(observed[0].contains(&origin_addr.port().to_string()));
+        assert!(observed[1].contains(&target_addr.port().to_string()));
+        origin_task.await.expect("origin task");
+        target_task.await.expect("target task");
     }
 }

@@ -479,20 +479,16 @@ fn singleflight_mutex(key: &str) -> Arc<tokio::sync::Mutex<()>> {
     mutex
 }
 
-async fn apply_origin_delay(
-    origin: &str,
-    minimum: Duration,
-    ctx: &ToolExecContext,
-) -> std::result::Result<(), ToolFailure> {
+async fn reserve_origin_delay(origin: &str, minimum: Duration) -> Duration {
     if minimum.is_zero() {
-        return Ok(());
+        return Duration::ZERO;
     }
     static LAST: OnceLock<tokio::sync::Mutex<HashMap<String, Instant>>> = OnceLock::new();
     let last = LAST.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()));
     // Reserve the next start time while holding the lock. Merely reading the
     // last start and updating it after sleep lets concurrent waiters wake at
     // once, defeating the per-origin pacing guarantee.
-    let wait = {
+    {
         let mut guard = last.lock().await;
         let now = Instant::now();
         let scheduled = guard
@@ -507,8 +503,7 @@ async fn apply_origin_delay(
         }
         guard.insert(origin.to_string(), scheduled);
         scheduled.saturating_duration_since(now)
-    };
-    sleep_or_cancel(wait, ctx).await
+    }
 }
 
 fn sensitive_query_key(key: &str) -> bool {
@@ -868,36 +863,33 @@ async fn perform_direct(
     let client = pooled_client(config)?;
     let headers =
         crate::tools::web_fetch_common::browser_headers_for_user_agent(&config.user_agent);
-    let origin = origin_key(&request.url);
-    let gate = origin_semaphore(&origin, config.max_concurrent_per_host);
-    let _permit = if let Some(token) = &ctx.cancellation_token {
-        tokio::select! {
-            _ = token.cancelled() => return Err(ToolFailure::invalid("cancelled", "web_fetch was cancelled")),
-            permit = gate.acquire_owned() => permit.map_err(|_| ToolFailure::network("origin_gate_unavailable", "origin request gate is unavailable"))?,
-        }
-    } else {
-        gate.acquire_owned().await.map_err(|_| {
-            ToolFailure::network(
-                "origin_gate_unavailable",
-                "origin request gate is unavailable",
-            )
-        })?
-    };
     let mut attempt = 0usize;
-    let checked = loop {
+    let (checked, _final_origin_permit) = loop {
         if cancelled(ctx) {
             return Err(ToolFailure::invalid("cancelled", "web_fetch was cancelled"));
         }
-        // Each network attempt reserves its own start slot. Retry-After is a
-        // lower bound, not a replacement for the configured origin pacing.
-        apply_origin_delay(&origin, config.min_host_delay, ctx).await?;
-        let operation = crate::security::http_redirect::checked_get(
+        // Each request in every attempt (including redirect hops) acquires the
+        // destination origin's concurrency slot and reserves its own paced
+        // start time immediately before the connection is opened.
+        let operation = crate::security::http_redirect::checked_get_with_admission(
             &client,
             request.url.as_str(),
             policy,
             trusted_hosts,
             config.max_redirects,
             Some(&headers),
+            |url| {
+                let origin = origin_key(url);
+                async move {
+                    let permit = origin_semaphore(&origin, config.max_concurrent_per_host)
+                        .acquire_owned()
+                        .await
+                        .expect("web_fetch origin semaphores are never closed");
+                    let wait = reserve_origin_delay(&origin, config.min_host_delay).await;
+                    tokio::time::sleep(wait).await;
+                    permit
+                }
+            },
         );
         let checked_result = if let Some(token) = &ctx.cancellation_token {
             tokio::select! {
@@ -937,14 +929,15 @@ async fn perform_direct(
                 });
             }
         };
-        let status = checked.response.status().as_u16();
+        let status = checked.0.response.status().as_u16();
         if retryable_status(status) && attempt + 1 < MAX_ATTEMPTS {
             let wait = crate::tools::web_fetch_common::retry_after_seconds(
-                checked.response.headers().get(RETRY_AFTER),
+                checked.0.response.headers().get(RETRY_AFTER),
                 RETRY_AFTER_CAP_SECS,
             )
             .unwrap_or(1 + attempt as u64);
             attempt += 1;
+            drop(checked);
             sleep_or_cancel(Duration::from_secs(wait), ctx).await?;
             continue;
         }

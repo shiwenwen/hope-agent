@@ -3110,6 +3110,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "tokio-native-tls",
  "url",
  "uuid",
  "windows-sys 0.52.0",

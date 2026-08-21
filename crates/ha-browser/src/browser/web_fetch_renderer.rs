@@ -203,6 +203,15 @@ pub async fn render(request: WebFetchRenderRequest) -> Result<WebFetchRenderResu
         managed.executable.as_deref(),
         "web_fetch renderer",
     )?;
+    let proxy_config = ha_core::provider::load_proxy_config();
+    let renderer_proxy = super::web_fetch_proxy::RendererProxy::start(
+        request.ssrf_policy,
+        request.trusted_hosts.clone(),
+        &proxy_config,
+    )
+    .await?;
+    let proxy_address = renderer_proxy.address;
+    let mut proxy_task = AbortOnDrop::new(renderer_proxy.task);
 
     let mut builder = BrowserConfig::builder()
         .chrome_executable(executable)
@@ -219,7 +228,15 @@ pub async fn render(request: WebFetchRenderRequest) -> Result<WebFetchRenderResu
         .arg("--disable-default-apps")
         .arg("--disable-features=AutofillServerCommunication,BackgroundFetch,BackgroundSync,MediaRouter,Notifications,OptimizationHints,PeriodicBackgroundSync,PushMessaging,ServiceWorker")
         .arg("--disable-notifications")
+        .arg("--disable-quic")
         .arg("--disable-sync")
+        // The loopback proxy owns DNS resolution and connects only to the
+        // exact socket addresses approved by the SSRF policy. Prevent Chrome
+        // from falling back to its own resolver or silently bypassing the
+        // proxy for loopback destinations.
+        .arg(format!("--proxy-server=http://{proxy_address}"))
+        .arg("--proxy-bypass-list=<-loopback>")
+        .arg("--host-resolver-rules=MAP * ~NOTFOUND")
         .arg("--no-first-run")
         .arg("--no-default-browser-check");
     if super::profile::deployment_is_docker() {
@@ -418,6 +435,7 @@ pub async fn render(request: WebFetchRenderRequest) -> Result<WebFetchRenderResu
     network_budget_task.abort();
     let _ = browser.close().await;
     handler_task.abort();
+    proxy_task.abort();
     result
 }
 
