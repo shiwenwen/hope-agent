@@ -1928,6 +1928,7 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_ownership_journal_recovers_and_is_removed_only_after_success() {
         let workspace = tempfile::tempdir().expect("workspace tempdir");
