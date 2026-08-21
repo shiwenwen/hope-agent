@@ -487,8 +487,9 @@ export default function HooksPanel() {
     setSaving(true)
     try {
       await getTransport().call("save_hooks_config", { config: settings })
-      // Saving canonicalizes each path and binds trust to the current Hook file
-      // hashes. Read back the authoritative paths instead of retaining aliases.
+      // New paths are canonicalized and content-bound; existing paths retain
+      // their prior hashes so an unrelated save cannot reapprove changed files.
+      // Read back the authoritative paths instead of retaining aliases.
       const saved = normalizeHooksSettings(
         await getTransport().call<HooksSettings>("get_hooks_config"),
       )

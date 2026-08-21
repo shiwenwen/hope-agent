@@ -5454,7 +5454,7 @@
       "workspacePath": "Caminho absoluto do espaço de trabalho",
       "trustWorkspace": "Confiar no conteúdo",
       "noTrustedWorkspaces": "Nenhum arquivo Hook de espaço de trabalho é confiável.",
-      "trustContentBound": "Ao salvar, a confiança fica vinculada ao conteúdo atual. Mudanças, movimentos ou aliases de caminho os desativam até nova revisão e salvamento.",
+      "trustContentBound": "A confiança é vinculada ao conteúdo dos Hooks ao adicionar o espaço de trabalho. Alterações, mudanças ou aliases a desativam. Para reaprovar, remova e salve o espaço, depois adicione-o e salve novamente.",
       "scopeNote": "Este painel edita hooks do escopo user. Os escopos project (.hope-agent/hooks.json, compartilhado pelo repositório), local (hooks.local.json) e managed (/etc/hope-agent/hooks.json) são baseados em arquivo e mesclados por cima.",
       "pickEvent": "Selecione um evento…",
       "addHook": "Adicionar hook",

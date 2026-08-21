@@ -5454,7 +5454,7 @@
       "workspacePath": "Laluan mutlak ruang kerja",
       "trustWorkspace": "Percayai kandungan",
       "noTrustedWorkspaces": "Tiada fail Hook ruang kerja yang dipercayai.",
-      "trustContentBound": "Apabila disimpan, kepercayaan diikat pada kandungan semasa. Perubahan, pemindahan atau alias laluan menyahaktifkannya sehingga anda menyemak dan menyimpan semula.",
+      "trustContentBound": "Kepercayaan diikat pada kandungan Hook ketika ruang kerja ditambah. Perubahan, pemindahan atau alias laluan menyahaktifkannya. Untuk meluluskan semula, alih keluar dan simpan ruang kerja, kemudian tambah dan simpan semula.",
       "scopeNote": "Panel ini menyunting hooks scope user. Scope project (.hope-agent/hooks.json, dikongsi repo), local (hooks.local.json) dan managed (/etc/hope-agent/hooks.json) berasaskan fail dan digabungkan di atas.",
       "pickEvent": "Pilih peristiwa…",
       "addHook": "Tambah hook",

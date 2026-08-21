@@ -566,7 +566,11 @@ pub async fn test_external_memory_provider_connection(
     http::validated_endpoint(&probe_url).await?;
     let client = http::client()?;
     let request = compatibility_probe_auth(client.get(&probe_url), provider.kind, &credentials);
-    let response = tokio::time::timeout(Duration::from_secs(30), http::send_probe(request)).await;
+    let response = tokio::time::timeout(
+        Duration::from_secs(30),
+        http::send_probe(request, compatibility_version_headers(provider.kind)),
+    )
+    .await;
     let report = match response {
         Ok(Ok(response)) => {
             let detected_version =
@@ -678,6 +682,18 @@ fn compatibility_probe_auth(
     }
 }
 
+fn compatibility_version_headers(kind: ExternalMemoryProviderKind) -> &'static [&'static str] {
+    match kind {
+        ExternalMemoryProviderKind::Mem0 => &["x-mem0-version"],
+        ExternalMemoryProviderKind::Zep => &["x-zep-version", "x-graphiti-version"],
+        ExternalMemoryProviderKind::Supermemory => &["x-supermemory-version"],
+        ExternalMemoryProviderKind::Honcho => &["x-honcho-version"],
+        ExternalMemoryProviderKind::Hindsight => &["x-hindsight-version"],
+        ExternalMemoryProviderKind::OpenViking => &["x-openviking-version"],
+        ExternalMemoryProviderKind::Custom => &[],
+    }
+}
+
 fn compatibility_requirement(
     kind: ExternalMemoryProviderKind,
     credentials: Option<&ExternalMemoryProviderCredentials>,
@@ -746,10 +762,8 @@ fn detect_provider_version(body: &[u8], version_headers: &[String]) -> Option<St
         .into_iter()
         .filter_map(|pointer| value.pointer(pointer).and_then(serde_json::Value::as_str))
     });
-    version_headers
-        .iter()
-        .map(String::as_str)
-        .chain(body_candidates)
+    body_candidates
+        .chain(version_headers.iter().map(String::as_str))
         .find_map(extract_version)
 }
 
@@ -1878,7 +1892,7 @@ mod tests {
                 &["graphiti/0.28.2".to_string()]
             )
             .as_deref(),
-            Some("0.28.2")
+            Some("0.29.3")
         );
         assert_eq!(
             detect_provider_version(&serde_json::to_vec(&body).unwrap(), &[]).as_deref(),

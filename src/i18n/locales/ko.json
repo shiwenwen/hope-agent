@@ -5454,7 +5454,7 @@
       "workspacePath": "작업 공간 절대 경로",
       "trustWorkspace": "현재 내용 신뢰",
       "noTrustedWorkspaces": "신뢰하는 작업 공간 Hook 파일이 없습니다.",
-      "trustContentBound": "저장하면 신뢰가 현재 Hook 파일 내용에 바인딩됩니다. 내용 변경, 이동 또는 경로 별칭이 있으면 다시 검토하고 저장할 때까지 비활성화됩니다.",
+      "trustContentBound": "워크스페이스를 추가할 때의 Hook 파일 내용에 신뢰가 바인딩됩니다. 내용 변경, 이동 또는 경로 별칭이 있으면 비활성화됩니다. 재승인하려면 워크스페이스를 제거하고 저장한 뒤 다시 추가하고 저장하세요.",
       "scopeNote": "이 패널은 user 범위 hooks를 편집합니다. project(.hope-agent/hooks.json, 저장소 공유), local(hooks.local.json), managed(/etc/hope-agent/hooks.json)는 파일 기반이며 위에 병합됩니다.",
       "pickEvent": "이벤트 선택…",
       "addHook": "hook 추가",

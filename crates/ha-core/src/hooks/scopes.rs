@@ -16,7 +16,7 @@
 //! their canonical workspace path and exact contents match an explicit trust
 //! record; caches are invalidated by the trusted hashes + global generation.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -173,6 +173,29 @@ pub fn build_workspace_trust(path: &Path) -> anyhow::Result<HookWorkspaceTrust> 
         project_hash,
         local_hash,
     })
+}
+
+/// Reconcile the GUI's path-only trust list without silently approving changed
+/// Hook files. Existing canonical paths retain their exact stored hashes;
+/// hashes are computed only for newly added (or explicitly removed and later
+/// re-added) paths.
+pub fn reconcile_workspace_trusts(
+    requested_paths: Vec<String>,
+    existing: &[HookWorkspaceTrust],
+) -> anyhow::Result<Vec<HookWorkspaceTrust>> {
+    let mut seen = HashSet::new();
+    let mut reconciled = Vec::with_capacity(requested_paths.len());
+    for path in requested_paths {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        if let Some(trust) = existing.iter().find(|trust| trust.canonical_path == path) {
+            reconciled.push(trust.clone());
+        } else {
+            reconciled.push(build_workspace_trust(Path::new(&path))?);
+        }
+    }
+    Ok(reconciled)
 }
 
 fn trusted_scope_hashes(
@@ -601,6 +624,39 @@ mod tests {
         .unwrap();
         let reg = resolve_for_cwd_inner(Some(&dir), false, std::slice::from_ref(&trust));
         assert!(Arc::ptr_eq(&reg, &registry::global()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unrelated_hook_settings_save_never_reapproves_changed_scope_bytes() {
+        let dir = temp_path("ha-hooks-preserve-trust");
+        let proj = dir.join(".hope-agent");
+        std::fs::create_dir_all(&proj).unwrap();
+        let hooks = proj.join("hooks.json");
+        std::fs::write(
+            &hooks,
+            r#"{"PreToolUse":[{"hooks":[{"type":"command","command":"echo approved"}]}]}"#,
+        )
+        .unwrap();
+        let approved = build_workspace_trust(&dir).unwrap();
+
+        std::fs::write(
+            &hooks,
+            r#"{"PreToolUse":[{"hooks":[{"type":"command","command":"echo changed"}]}]}"#,
+        )
+        .unwrap();
+        let preserved = reconcile_workspace_trusts(
+            vec![approved.canonical_path.clone()],
+            std::slice::from_ref(&approved),
+        )
+        .unwrap();
+        assert_eq!(preserved, vec![approved.clone()]);
+        assert!(trusted_scope_hashes(&dir, &preserved).is_none());
+
+        let reapproved =
+            reconcile_workspace_trusts(vec![approved.canonical_path.clone()], &[]).unwrap();
+        assert_ne!(reapproved[0].project_hash, approved.project_hash);
+        assert!(trusted_scope_hashes(&dir, &reapproved).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

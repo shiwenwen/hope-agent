@@ -1235,6 +1235,8 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `get_session_title_config` | `GET /api/config/session-title` | ✅ |
 | `save_session_title_config` | `PUT /api/config/session-title` | ✅ |
 
+`get_hooks_config` / `GET /api/config/hooks` 只返回已信任工作区路径，不返回内容哈希；保存时已有路径保留服务端旧哈希，仅新加入（或先移除并保存后重新加入）的路径按当前 Hook 文件内容生成新信任记录。Tauri 与 HTTP 适配器共用这一 fail-closed 语义。
+
 ### Behavior awareness
 
 | Tauri Command | HTTP | 状态 |

@@ -5454,7 +5454,7 @@
       "workspacePath": "Đường dẫn tuyệt đối của không gian làm việc",
       "trustWorkspace": "Tin cậy nội dung",
       "noTrustedWorkspaces": "Chưa có tệp Hook không gian làm việc nào được tin cậy.",
-      "trustContentBound": "Khi lưu, sự tin cậy được gắn với nội dung hiện tại. Mọi thay đổi, di chuyển hoặc bí danh đường dẫn sẽ vô hiệu hóa cho đến khi bạn xem lại và lưu.",
+      "trustContentBound": "Sự tin cậy được gắn với nội dung Hook khi thêm không gian làm việc. Thay đổi, di chuyển hoặc bí danh đường dẫn sẽ vô hiệu hóa. Để phê duyệt lại, hãy xóa và lưu không gian, rồi thêm và lưu lại.",
       "scopeNote": "Bảng này chỉnh sửa hooks phạm vi user. Phạm vi project (.hope-agent/hooks.json, chia sẻ qua repo), local (hooks.local.json) và managed (/etc/hope-agent/hooks.json) dựa trên tệp và được hợp nhất phía trên.",
       "pickEvent": "Chọn sự kiện…",
       "addHook": "Thêm hook",

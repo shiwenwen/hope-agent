@@ -186,8 +186,8 @@ pub struct HooksSettings {
     #[serde(rename = "disableAllHooks", default)]
     pub disable_all_hooks: bool,
     /// Canonical workspace paths currently trusted for the exact Hook file
-    /// contents recorded in AppConfig. Save re-canonicalizes and re-hashes each
-    /// path; the GUI never supplies hashes itself.
+    /// contents recorded in AppConfig. Existing paths retain their server-side
+    /// hashes; only a newly added or explicitly re-added path is hashed.
     #[serde(rename = "trustedProjectScopes", default)]
     pub trusted_project_scopes: Vec<String>,
     #[serde(default)]

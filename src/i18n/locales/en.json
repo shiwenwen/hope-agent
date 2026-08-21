@@ -5454,7 +5454,7 @@
       "workspacePath": "Absolute workspace path",
       "trustWorkspace": "Trust contents",
       "noTrustedWorkspaces": "No workspace Hook files are trusted.",
-      "trustContentBound": "Saving binds trust to the current Hook file contents. Any content change, move, or path alias disables them until you review and save again.",
+      "trustContentBound": "Trust is bound to the Hook file contents captured when the workspace is added. A change, move, or path alias disables it. To reapprove, remove and save the workspace, then add and save it again.",
       "scopeNote": "This panel edits user-scope hooks. Project (.hope-agent/hooks.json, repo-shared), local (hooks.local.json) and managed (/etc/hope-agent/hooks.json) scopes are file-based and merged on top.",
       "pickEvent": "Select an event…",
       "addHook": "Add hook",

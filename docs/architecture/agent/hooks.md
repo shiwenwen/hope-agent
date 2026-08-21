@@ -335,7 +335,7 @@ flowchart TD
 
 - **UNION 语义**：所有命中 scope 的 hook 都跑，没有覆盖优先级。
 - 项目 / 本地作用域依赖会话工作目录（`sessions.working_dir`，无 home 回退），dispatch 时经 `scopes::resolve_for_cwd` 合并到全局之上。缓存以 canonical cwd + project/local 文件 BLAKE3 + 全局 reload generation 为键；未授权时直接返回全局 registry。
-- **逐工作区、逐内容授权**：Settings → Hooks 只提交绝对路径，后端重新 canonicalize 并计算两个 Hook 文件的 BLAKE3，保存 `hook_workspace_trusts`。执行时路径与两个内容哈希必须同时吻合；路径别名、symlink、目录移动、新增/删除文件、任一内容变化均 fail closed，用户复核后重新保存才恢复。
+- **逐工作区、逐内容授权**：Settings → Hooks 只提交绝对路径；后端仅为**新加入**的路径重新 canonicalize 并计算两个 Hook 文件的 BLAKE3，已有路径必须原样保留 `hook_workspace_trusts` 中的旧哈希，禁止无关设置保存时静默重新授权。执行时路径与两个内容哈希必须同时吻合；路径别名、symlink、目录移动、新增/删除文件、任一内容变化均 fail closed。重新批准必须先移除并保存该工作区，再重新添加并保存。
 - **旧全局开关不迁移**：`hooks_allow_project_scope` 仅为旧配置反序列化保留，执行层忽略，保存新设置时清为 `false`。不得把旧 `true` 自动转成信任记录，否则会继续授权所有未来 cwd。
 - **`disable_all_hooks` 主开关**：同步短路返回**空** registry（不依赖异步 `config:changed` 重载，避免开关刚翻、旧 registry 仍被用的窗口），一键关闭所有 scope。
 - **热重载**：`config:changed` 触发 `registry::reload_from_config`（用户 + 托管合并 + bump generation），逐工作目录缓存随 generation 失效。

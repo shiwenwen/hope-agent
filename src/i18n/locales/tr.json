@@ -5454,7 +5454,7 @@
       "workspacePath": "Çalışma alanının mutlak yolu",
       "trustWorkspace": "İçeriğe güven",
       "noTrustedWorkspaces": "Güvenilen çalışma alanı Hook dosyası yok.",
-      "trustContentBound": "Kaydetme, güveni mevcut Hook dosyası içeriğine bağlar. Değişiklik, taşıma veya yol takma adı, yeniden inceleyip kaydedene kadar dosyaları devre dışı bırakır.",
+      "trustContentBound": "Güven, çalışma alanı eklenirken Hook dosyası içeriğine bağlanır. Değişiklik, taşıma veya yol takma adı güveni devre dışı bırakır. Yeniden onaylamak için alanı kaldırıp kaydedin, sonra tekrar ekleyip kaydedin.",
       "scopeNote": "Bu panel user kapsamındaki hook'ları düzenler. project (.hope-agent/hooks.json, depoyla paylaşılır), local (hooks.local.json) ve managed (/etc/hope-agent/hooks.json) kapsamları dosya tabanlıdır ve üste birleştirilir.",
       "pickEvent": "Bir olay seçin…",
       "addHook": "Hook ekle",

@@ -1663,27 +1663,32 @@ async fn wait_for_container_with_limits(
     timeout_secs: u64,
     cancellation_token: Option<CancellationToken>,
 ) -> SandboxWaitOutcome {
-    match (timeout_secs, cancellation_token) {
-        (0, None) => SandboxWaitOutcome::Exited(wait_for_container(docker, container_id).await),
-        (0, Some(token)) => {
+    let deadline = (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs));
+    wait_for_container_until(docker, container_id, deadline, cancellation_token).await
+}
+
+async fn wait_for_container_until(
+    docker: &Docker,
+    container_id: &str,
+    deadline: Option<Instant>,
+    cancellation_token: Option<CancellationToken>,
+) -> SandboxWaitOutcome {
+    match (deadline, cancellation_token) {
+        (None, None) => SandboxWaitOutcome::Exited(wait_for_container(docker, container_id).await),
+        (None, Some(token)) => {
             tokio::select! {
                 result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
                 _ = token.cancelled() => SandboxWaitOutcome::Cancelled,
             }
         }
-        (secs, None) => {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(secs),
-                wait_for_container(docker, container_id),
-            )
-            .await
-            {
-                Ok(result) => SandboxWaitOutcome::Exited(result),
-                Err(_) => SandboxWaitOutcome::TimedOut,
+        (Some(deadline), None) => {
+            tokio::select! {
+                result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
+                _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => SandboxWaitOutcome::TimedOut,
             }
         }
-        (secs, Some(token)) => {
-            let timer = tokio::time::sleep(std::time::Duration::from_secs(secs));
+        (Some(deadline), Some(token)) => {
+            let timer = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline));
             tokio::pin!(timer);
             tokio::select! {
                 result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
@@ -1992,7 +1997,7 @@ async fn upload_workspace_archive(
     docker: &Docker,
     container_id: &str,
     archive_path: &Path,
-    timeout_secs: u64,
+    deadline: Option<Instant>,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<()> {
     let file = tokio::fs::File::open(archive_path)
@@ -2016,10 +2021,11 @@ async fn upload_workspace_archive(
     };
     tokio::pin!(cancellation);
     let timeout = async {
-        if timeout_secs == 0 {
-            std::future::pending::<()>().await;
-        } else {
-            tokio::time::sleep(Duration::from_secs(timeout_secs)).await;
+        match deadline {
+            Some(deadline) => {
+                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await
+            }
+            None => std::future::pending::<()>().await,
         }
     };
     tokio::pin!(timeout);
@@ -2029,10 +2035,7 @@ async fn upload_workspace_archive(
             anyhow::anyhow!("Failed to upload isolated workspace through the Docker API")
         }),
         _ = &mut cancellation => Err(anyhow::anyhow!("Sandbox workspace upload cancelled")),
-        _ = &mut timeout => Err(anyhow::anyhow!(
-            "Sandbox workspace upload timed out after {}s",
-            timeout_secs
-        )),
+        _ = &mut timeout => Err(anyhow::anyhow!("Sandbox workspace upload timed out")),
     };
     if result.is_ok() {
         app_info!(
@@ -2142,13 +2145,17 @@ async fn exec_in_native_docker_with_workspace(
         .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
 
     let container_id = container.id.clone();
+    // Upload and command execution consume one absolute budget. Reusing a
+    // duration for both stages can otherwise nearly double caller wall time.
+    let execution_deadline =
+        (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs));
 
     if let NativeWorkspaceSource::Archive(archive_path) = workspace {
         if let Err(error) = upload_workspace_archive(
             &docker,
             &container_id,
             archive_path,
-            timeout_secs,
+            execution_deadline,
             cancellation_token.as_ref(),
         )
         .await
@@ -2195,10 +2202,10 @@ async fn exec_in_native_docker_with_workspace(
 
     // Wait for container to finish. `timeout_secs = 0` disables the exec-level
     // timeout and lets Docker wait until the container exits naturally.
-    let (exit_code, timed_out) = match wait_for_container_with_limits(
+    let (exit_code, timed_out) = match wait_for_container_until(
         &docker,
         &container_id,
-        timeout_secs,
+        execution_deadline,
         cancellation_token,
     )
     .await

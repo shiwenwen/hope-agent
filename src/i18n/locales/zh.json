@@ -5454,7 +5454,7 @@
       "workspacePath": "工作区绝对路径",
       "trustWorkspace": "信任当前内容",
       "noTrustedWorkspaces": "尚未信任任何工作区 Hook 文件。",
-      "trustContentBound": "保存时会把信任绑定到当前 Hook 文件内容。内容变化、目录移动或路径别名都会使其停用，直到你复核并重新保存。",
+      "trustContentBound": "添加工作区时，信任会绑定到当时的 Hook 文件内容。内容变化、目录移动或路径别名都会使其停用。若要重新批准，请先移除并保存工作区，再重新添加并保存。",
       "scopeNote": "本面板编辑 user scope hooks。project（.hope-agent/hooks.json，随仓库共享）、local（hooks.local.json）、managed（/etc/hope-agent/hooks.json）为文件配置，叠加合并。",
       "pickEvent": "选择事件…",
       "addHook": "添加 Hook",

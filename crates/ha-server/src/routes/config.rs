@@ -1804,15 +1804,19 @@ pub async fn get_hooks_config() -> Result<Json<ha_core::hooks::config::HooksSett
 pub async fn save_hooks_config(
     Json(body): Json<ConfigBody<ha_core::hooks::config::HooksSettings>>,
 ) -> Result<Json<Value>, AppError> {
+    let existing_trusts = ha_core::config::cached_config()
+        .hook_workspace_trusts
+        .clone();
     let trusted_paths = body.config.trusted_project_scopes;
+    let reconcile_from = existing_trusts.clone();
     let trusted_workspaces = ha_core::blocking::run_blocking(move || {
-        trusted_paths
-            .into_iter()
-            .map(|path| ha_core::hooks::scopes::build_workspace_trust(std::path::Path::new(&path)))
-            .collect::<anyhow::Result<Vec<_>>>()
+        ha_core::hooks::scopes::reconcile_workspace_trusts(trusted_paths, &reconcile_from)
     })
     .await?;
     ha_core::config::mutate_config_async(("hooks", "http"), move |store| {
+        if store.hook_workspace_trusts != existing_trusts {
+            anyhow::bail!("Hook workspace trust changed; reload settings before saving");
+        }
         store.disable_all_hooks = body.config.disable_all_hooks;
         store.hooks_allow_project_scope = false;
         store.hook_workspace_trusts = trusted_workspaces;
