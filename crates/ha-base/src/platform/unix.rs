@@ -8,6 +8,8 @@ use std::process::Command;
 
 use super::PathOwnershipSnapshot;
 
+const OWNERSHIP_SENSITIVE_MODE_BITS: u32 = (libc::S_ISUID | libc::S_ISGID) as u32;
+
 pub(super) fn process_user_group() -> Option<(u32, u32)> {
     // SAFETY: These process identity queries take no pointers and have no
     // caller-side preconditions.
@@ -34,6 +36,7 @@ pub(super) fn path_ownership_snapshot_no_follow(path: &Path) -> io::Result<PathO
         device: metadata.dev(),
         inode: metadata.ino(),
         hard_link_count: metadata.nlink(),
+        special_mode_bits: metadata.mode() & OWNERSHIP_SENSITIVE_MODE_BITS,
         is_directory: file_type.is_dir(),
     })
 }
@@ -53,8 +56,8 @@ fn validate_owner_handle(
         || metadata.ino() != expected.inode
         || !same_type
         || (require_owner && (metadata.uid(), metadata.gid()) != (expected.uid, expected.gid))
-        || (!expected.is_directory
-            && (metadata.nlink() != expected.hard_link_count || metadata.nlink() > 1))
+        || metadata.mode() & OWNERSHIP_SENSITIVE_MODE_BITS != expected.special_mode_bits
+        || (!expected.is_directory && metadata.nlink() != expected.hard_link_count)
     {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

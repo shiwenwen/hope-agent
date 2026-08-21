@@ -543,6 +543,11 @@ fn collect_workspace_owners_impl(
                 "sandbox workspace contains a multiply-linked file; root ownership handoff cannot prove the inode is workspace-local"
             );
         }
+        if reject_multiply_linked_files && snapshot.special_mode_bits != 0 {
+            anyhow::bail!(
+                "sandbox workspace contains a setuid/setgid entry; ownership handoff would irreversibly clear its special mode bits"
+            );
+        }
         owners.push((entry.into_path(), snapshot));
     }
     Ok(owners)
@@ -558,6 +563,34 @@ fn collect_workspace_owners_for_handoff(
     root: &Path,
 ) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
     collect_workspace_owners_impl(root, true)
+}
+
+fn verify_regular_file_links_are_workspace_local(
+    entries: &[(PathBuf, ha_core::platform::PathOwnershipSnapshot)],
+) -> Result<()> {
+    let mut workspace_names = HashMap::<(u64, u64), u64>::new();
+    for (_, snapshot) in entries {
+        if !snapshot.is_directory {
+            *workspace_names
+                .entry((snapshot.device, snapshot.inode))
+                .or_default() += 1;
+        }
+    }
+    for (_, snapshot) in entries {
+        if snapshot.is_directory {
+            continue;
+        }
+        let names = workspace_names
+            .get(&(snapshot.device, snapshot.inode))
+            .copied()
+            .unwrap_or_default();
+        if names != snapshot.hard_link_count {
+            anyhow::bail!(
+                "sandbox workspace ownership recovery found a regular-file link outside the authorized workspace"
+            );
+        }
+    }
+    Ok(())
 }
 
 const WORKSPACE_OWNERSHIP_JOURNAL_VERSION: u32 = 2;
@@ -631,6 +664,7 @@ impl WorkspaceOwnershipJournal {
             anyhow::bail!("sandbox workspace ownership journal target identity is invalid");
         }
         let mut paths = HashSet::with_capacity(self.entries.len());
+        let mut identities = HashSet::with_capacity(self.entries.len());
         let mut root_entry = None;
         for entry in &self.entries {
             if entry.relative_path.is_absolute()
@@ -643,6 +677,11 @@ impl WorkspaceOwnershipJournal {
             }
             if !paths.insert(entry.relative_path.clone()) {
                 anyhow::bail!("sandbox workspace ownership journal contains duplicate paths");
+            }
+            if !identities.insert((entry.device, entry.inode, entry.is_directory)) {
+                anyhow::bail!(
+                    "sandbox workspace ownership journal contains duplicate inode identities"
+                );
             }
             if entry.relative_path.as_os_str().is_empty() {
                 root_entry = Some((entry.uid, entry.gid));
@@ -666,15 +705,10 @@ fn persist_workspace_ownership_journal(
 
 fn restored_owner_for_entry(
     journal: &WorkspaceOwnershipJournal,
-    original: Option<&WorkspaceOwnerEntry>,
+    original_inode: Option<&WorkspaceOwnerEntry>,
     current: ha_core::platform::PathOwnershipSnapshot,
 ) -> Option<(u32, u32)> {
-    original
-        .filter(|entry| {
-            entry.device == current.device
-                && entry.inode == current.inode
-                && entry.is_directory == current.is_directory
-        })
+    original_inode
         .map(|entry| (entry.uid, entry.gid))
         .or_else(|| {
             ((current.uid, current.gid) == (journal.target_uid, journal.target_gid))
@@ -699,10 +733,15 @@ fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
         anyhow::bail!("workspace ownership recovery journal root identity changed");
     }
 
-    let original = journal
+    let original_by_path = journal
         .entries
         .iter()
         .map(|entry| (entry.relative_path.clone(), entry))
+        .collect::<HashMap<_, _>>();
+    let original_by_inode = journal
+        .entries
+        .iter()
+        .map(|entry| ((entry.device, entry.inode, entry.is_directory), entry))
         .collect::<HashMap<_, _>>();
     let current = collect_workspace_owners(&canonical_root)?;
     let root_snapshot = current
@@ -710,7 +749,7 @@ fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
         .find(|(path, _)| path == &canonical_root)
         .map(|(_, snapshot)| *snapshot)
         .context("sandbox workspace root disappeared during ownership recovery")?;
-    let journal_root = original
+    let journal_root = original_by_path
         .get(Path::new(""))
         .context("sandbox ownership recovery journal has no root identity")?;
     if journal_root.device != root_snapshot.device
@@ -719,13 +758,26 @@ fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
     {
         anyhow::bail!("sandbox workspace root inode changed; recovery journal retained");
     }
+    // The sandbox can legitimately create additional names for an existing
+    // inode. Admit those links only when the full workspace scan accounts for
+    // every name reported by st_nlink; the descriptor-bound mutation below
+    // rechecks that count immediately before fchown.
+    verify_regular_file_links_are_workspace_local(&current)?;
     let mut failures = 0usize;
+    let mut restored_regular_inodes = HashSet::new();
     for (path, snapshot) in current.iter().rev() {
+        if !snapshot.is_directory
+            && !restored_regular_inodes.insert((snapshot.device, snapshot.inode))
+        {
+            continue;
+        }
         let relative = path
             .strip_prefix(&canonical_root)
             .context("workspace ownership recovery entry escaped root")?;
-        let desired =
-            restored_owner_for_entry(&journal, original.get(relative).copied(), *snapshot);
+        let original_inode = original_by_inode
+            .get(&(snapshot.device, snapshot.inode, snapshot.is_directory))
+            .copied();
+        let desired = restored_owner_for_entry(&journal, original_inode, *snapshot);
         let Some((desired_uid, desired_gid)) = desired else {
             continue;
         };
@@ -797,8 +849,8 @@ impl WorkspaceOwnershipGuard {
         persist_workspace_ownership_journal(&journal_path, &journal)?;
         // Files move first, then directories from deepest to root. Every
         // mutation reopens beneath the captured root descriptor, verifies the
-        // exact dev/inode/type/owner snapshot, rechecks single-link status,
-        // and calls fchown on that descriptor.
+        // exact dev/inode/type/owner snapshot, rechecks the captured link
+        // count, and calls fchown on that descriptor.
         let handoff_order = original
             .iter()
             .filter(|(_, snapshot)| !snapshot.is_directory)
@@ -1780,6 +1832,64 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn workspace_ownership_recovery_accepts_only_workspace_local_hard_links() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let root = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical workspace");
+        let source = root.join("source.txt");
+        std::fs::write(&source, "workspace").expect("workspace source");
+        std::fs::hard_link(&source, root.join("internal.txt")).expect("internal hard link");
+        let internal = collect_workspace_owners(&root).expect("collect internal links");
+        verify_regular_file_links_are_workspace_local(&internal)
+            .expect("every hard-link name is beneath the workspace");
+        let root_snapshot = internal
+            .iter()
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("root snapshot");
+        let source_snapshot = internal
+            .iter()
+            .find(|(path, _)| path == &source)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("source snapshot");
+        ha_core::platform::set_path_owner_from_snapshot_beneath(
+            &root,
+            root_snapshot,
+            Path::new("source.txt"),
+            source_snapshot,
+            source_snapshot.uid,
+            source_snapshot.gid,
+        )
+        .expect("a verified workspace-local hard link may restore its inode once");
+
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        std::fs::hard_link(&source, outside.path().join("outside.txt")).expect("outside hard link");
+        let escaped = collect_workspace_owners(&root).expect("collect escaped links");
+        let error = verify_regular_file_links_are_workspace_local(&escaped)
+            .expect_err("an outside hard-link name must fail closed");
+        assert!(error.to_string().contains("outside"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_setid_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let executable = workspace.path().join("special");
+        std::fs::write(&executable, "#!/bin/sh\n").expect("workspace executable");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o4755))
+            .expect("set setuid bit");
+
+        let error = collect_workspace_owners_for_handoff(workspace.path())
+            .expect_err("setuid file must fail before ownership mutation");
+        assert!(error.to_string().contains("setuid/setgid"));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn workspace_ownership_handoff_rejects_a_replaced_inode_at_mutation() {
         let workspace = tempfile::tempdir().expect("workspace tempdir");
         let outside = tempfile::tempdir().expect("outside tempdir");
@@ -1875,6 +1985,7 @@ mod tests {
             device: 7,
             inode: 11,
             hard_link_count: 1,
+            special_mode_bits: 0,
             is_directory: false,
         };
 

@@ -469,8 +469,21 @@ impl IMessageClient {
                                     "iMessage watch overflow; deterministic catch-up in progress"
                                         .to_string(),
                                 );
-                                if recovery_tx.send(cursor).await.is_err() {
-                                    break;
+                                match recovery_tx.try_send(cursor) {
+                                    Ok(()) => {}
+                                    Err(mpsc::error::TrySendError::Full(_)) => {
+                                        // An active or queued catch-up starts from an
+                                        // earlier cursor and resubscribes from its final
+                                        // rowid, so another overflow cursor is redundant.
+                                        // Never block the stdout listener: it must keep
+                                        // dispatching the recovery RPC responses.
+                                        app_warn!(
+                                            "channel",
+                                            "imessage",
+                                            "Coalescing iMessage watch overflow while recovery is already queued"
+                                        );
+                                    }
+                                    Err(mpsc::error::TrySendError::Closed(_)) => break,
                                 }
                             } else {
                                 runtime.lock().await.degraded_error = Some(
@@ -996,7 +1009,33 @@ async fn recovery_loop(
     deduper: Arc<Mutex<InboundDeduper>>,
     cancel: CancellationToken,
     client_cancel: CancellationToken,
+    recovery_rx: mpsc::Receiver<i64>,
+) {
+    recovery_loop_with_backoff(
+        rpc,
+        account_id,
+        inbound_tx,
+        runtime,
+        deduper,
+        cancel,
+        client_cancel,
+        recovery_rx,
+        std::time::Duration::from_secs(1),
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn recovery_loop_with_backoff(
+    rpc: RpcHandle,
+    account_id: String,
+    inbound_tx: mpsc::Sender<InboundEvent>,
+    runtime: Arc<Mutex<RuntimeState>>,
+    deduper: Arc<Mutex<InboundDeduper>>,
+    cancel: CancellationToken,
+    client_cancel: CancellationToken,
     mut recovery_rx: mpsc::Receiver<i64>,
+    initial_backoff: std::time::Duration,
 ) {
     loop {
         let resume_after = tokio::select! {
@@ -1008,71 +1047,90 @@ async fn recovery_loop(
             }
         };
         let mut cursor = resume_after;
-        let recovery = async {
-            loop {
-                let page = rpc
-                    .call(
-                        "messages.after",
-                        serde_json::json!({
-                            "since_rowid": cursor,
-                            "limit": 500,
-                            "attachments": true,
-                        }),
-                    )
-                    .await?;
-                let messages = page
-                    .get("messages")
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| {
-                        IMessageRpcError::transport("messages.after result omitted messages array")
-                    })?;
-                for message in messages {
-                    if !deliver_inbound_value(message, &account_id, &inbound_tx, &runtime, &deduper)
+        let mut backoff = initial_backoff;
+        loop {
+            let recovery = async {
+                loop {
+                    let page = rpc
+                        .call(
+                            "messages.after",
+                            serde_json::json!({
+                                "since_rowid": cursor,
+                                "limit": 500,
+                                "attachments": true,
+                            }),
+                        )
+                        .await?;
+                    let messages =
+                        page.get("messages")
+                            .and_then(Value::as_array)
+                            .ok_or_else(|| {
+                                IMessageRpcError::transport(
+                                    "messages.after result omitted messages array",
+                                )
+                            })?;
+                    for message in messages {
+                        if !deliver_inbound_value(
+                            message,
+                            &account_id,
+                            &inbound_tx,
+                            &runtime,
+                            &deduper,
+                        )
                         .await
+                        {
+                            return Err(IMessageRpcError::transport(
+                                "iMessage inbound channel closed during catch-up",
+                            ));
+                        }
+                    }
+                    cursor = page
+                        .get("next_rowid")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| {
+                            IMessageRpcError::transport("messages.after result omitted next_rowid")
+                        })?;
+                    runtime.lock().await.last_rowid = cursor;
+                    if !page
+                        .get("has_more")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
                     {
-                        return Err(IMessageRpcError::transport(
-                            "iMessage inbound channel closed during catch-up",
-                        ));
+                        break;
                     }
                 }
-                cursor = page
-                    .get("next_rowid")
-                    .and_then(Value::as_i64)
-                    .ok_or_else(|| {
-                        IMessageRpcError::transport("messages.after result omitted next_rowid")
-                    })?;
-                runtime.lock().await.last_rowid = cursor;
-                if !page
-                    .get("has_more")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
+                watch_subscribe(&rpc, Some(cursor)).await?;
+                Ok::<(), IMessageRpcError>(())
+            }
+            .await;
+            match recovery {
+                Ok(()) => {
+                    runtime.lock().await.degraded_error = None;
+                    app_info!(
+                        "channel",
+                        "imessage",
+                        "iMessage watch overflow catch-up completed at rowid {}",
+                        cursor
+                    );
                     break;
                 }
+                Err(error) => {
+                    runtime.lock().await.degraded_error = Some(error.to_string());
+                    app_warn!(
+                        "channel",
+                        "imessage",
+                        "iMessage watch overflow catch-up failed; retrying in {}s: {}",
+                        backoff.as_secs_f64(),
+                        ha_core::logging::redact_sensitive(&error.to_string())
+                    );
+                }
             }
-            watch_subscribe(&rpc, Some(cursor)).await?;
-            Ok::<(), IMessageRpcError>(())
-        }
-        .await;
-        match recovery {
-            Ok(()) => {
-                runtime.lock().await.degraded_error = None;
-                app_info!(
-                    "channel",
-                    "imessage",
-                    "iMessage watch overflow catch-up completed at rowid {}",
-                    cursor
-                );
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                _ = client_cancel.cancelled() => return,
+                _ = tokio::time::sleep(backoff) => {}
             }
-            Err(error) => {
-                runtime.lock().await.degraded_error = Some(error.to_string());
-                app_warn!(
-                    "channel",
-                    "imessage",
-                    "iMessage watch overflow catch-up failed: {}",
-                    error
-                );
-            }
+            backoff = (backoff * 2).min(std::time::Duration::from_secs(RESTART_BACKOFF_MAX_SECS));
         }
     }
 }
@@ -1119,8 +1177,9 @@ fn build_send_params(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_send_params, restore_protocol_watch_until_ready, IMessageClient,
-        IMessageDeliveryDisposition, IMessageRpcError, InboundDeduper, RpcHandle, RuntimeState,
+        build_send_params, recovery_loop_with_backoff, restore_protocol_watch_until_ready,
+        IMessageClient, IMessageDeliveryDisposition, IMessageRpcError, InboundDeduper, RpcHandle,
+        RuntimeState,
     };
     use ha_core::channel::types::ChatType;
     use serde_json::Value;
@@ -1300,5 +1359,96 @@ mod tests {
         responder.await.expect("response task");
 
         assert!(runtime.lock().await.degraded_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn overflow_recovery_retries_catch_up_and_resubscribe_after_transient_failure() {
+        let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let rpc = RpcHandle {
+            stdin_tx,
+            pending: pending.clone(),
+            next_id: Arc::new(Mutex::new(1)),
+        };
+        let response_pending = pending.clone();
+        let responder = tokio::spawn(async move {
+            for attempt in 0..3 {
+                let line = stdin_rx.recv().await.expect("overflow recovery request");
+                let request: Value = serde_json::from_str(&line).expect("valid JSON-RPC request");
+                let id = request["id"].as_str().expect("string request id");
+                let sender = response_pending
+                    .lock()
+                    .await
+                    .remove(id)
+                    .expect("pending JSON-RPC response");
+                match attempt {
+                    0 => {
+                        assert_eq!(request["method"].as_str(), Some("messages.after"));
+                        sender
+                            .send(Err(IMessageRpcError::transport(
+                                "transient messages.after failure",
+                            )))
+                            .expect("RPC caller remains active");
+                    }
+                    1 => {
+                        assert_eq!(request["method"].as_str(), Some("messages.after"));
+                        assert_eq!(request["params"]["since_rowid"].as_i64(), Some(10));
+                        sender
+                            .send(Ok(serde_json::json!({
+                                "messages": [],
+                                "next_rowid": 12,
+                                "has_more": false,
+                            })))
+                            .expect("RPC caller remains active");
+                    }
+                    _ => {
+                        assert_eq!(request["method"].as_str(), Some("watch.subscribe"));
+                        assert_eq!(request["params"]["since_rowid"].as_i64(), Some(12));
+                        sender
+                            .send(Ok(serde_json::json!({})))
+                            .expect("RPC caller remains active");
+                    }
+                }
+            }
+        });
+        let runtime = Arc::new(Mutex::new(RuntimeState {
+            degraded_error: Some("overflow pending".to_string()),
+            ..RuntimeState::default()
+        }));
+        let deduper = Arc::new(Mutex::new(InboundDeduper::default()));
+        let (inbound_tx, _inbound_rx) = mpsc::channel(4);
+        let (recovery_tx, recovery_rx) = mpsc::channel(1);
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn(recovery_loop_with_backoff(
+            rpc,
+            "account".to_string(),
+            inbound_tx,
+            runtime.clone(),
+            deduper,
+            cancel.clone(),
+            CancellationToken::new(),
+            recovery_rx,
+            Duration::from_millis(5),
+        ));
+        recovery_tx.send(10).await.expect("queue overflow cursor");
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let state = runtime.lock().await;
+                if state.degraded_error.is_none() && state.last_rowid == 12 {
+                    break;
+                }
+                drop(state);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("overflow recovery should retry to completion");
+        responder.await.expect("response task");
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("recovery loop should observe cancellation")
+            .expect("recovery task");
     }
 }

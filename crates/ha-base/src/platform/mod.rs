@@ -27,6 +27,9 @@ pub struct PathOwnershipSnapshot {
     pub device: u64,
     pub inode: u64,
     pub hard_link_count: u64,
+    /// Unix set-user-ID / set-group-ID bits captured with the inode.
+    /// Windows leaves this at zero because numeric ownership is unsupported.
+    pub special_mode_bits: u32,
     pub is_directory: bool,
 }
 
@@ -94,15 +97,17 @@ pub fn path_owner_no_follow(path: &Path) -> std::io::Result<(u32, u32)> {
     imp::path_owner_no_follow(path)
 }
 
-/// Capture the owner, inode identity, type, and hard-link count without
-/// following a final symlink.
+/// Capture the owner, inode identity, type, hard-link count, and
+/// ownership-sensitive mode bits without following a final symlink.
 pub fn path_ownership_snapshot_no_follow(path: &Path) -> std::io::Result<PathOwnershipSnapshot> {
     imp::path_ownership_snapshot_no_follow(path)
 }
 
 /// Change an entry's numeric owner through a descriptor-relative walk rooted
 /// at `root`, after proving that the opened inode still matches `expected`.
-/// Regular files must remain singly linked at the mutation boundary.
+/// Regular files must retain the snapshot's hard-link count at the mutation
+/// boundary. Callers that admit a count above one must first prove every link
+/// is beneath the authorized root.
 pub fn set_path_owner_from_snapshot_beneath(
     root: &Path,
     expected_root: PathOwnershipSnapshot,

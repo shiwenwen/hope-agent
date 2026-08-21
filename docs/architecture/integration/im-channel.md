@@ -952,7 +952,7 @@ WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的�
 ### Signal、iMessage 与 Google Chat
 
 - **Signal**：对解析后的 `signal-cli` 二进制执行 3 秒、无凭据参数的 `--version` 探测，输出只提取长度受限的版本 token。未知或低于当前观测基线 `0.14.0` 只告警、不阻断消息；账号健康页展示白名单能力快照。
-- **iMessage**：`imsgProtocolV1` 默认开启。reader 就绪后依次协商 `initialize` / `status`，保存版本与能力；旧版本仅在方法不存在或参数不支持时回退 legacy。`-32001` / `-32004` 与超时后的未知投递均禁止自动重放；`watch.overflow` 通过 `messages.after` 有界补追、GUID/rowid 去重和 cursor 重订阅，子进程退出后受控重启但不重发 mutation。重启后的子进程在 `initialize` / `status` / `watch.subscribe` 全部恢复前保持降级态，并以有上限的指数退避持续重试；每代子进程拥有独立取消令牌，退出或停止时取消旧恢复任务，禁止跨代竞态。
+- **iMessage**：`imsgProtocolV1` 默认开启。reader 就绪后依次协商 `initialize` / `status`，保存版本与能力；旧版本仅在方法不存在或参数不支持时回退 legacy。`-32001` / `-32004` 与超时后的未知投递均禁止自动重放；`watch.overflow` 通过 `messages.after` 有界补追、GUID/rowid 去重和 cursor 重订阅，任一补追分页或重订阅瞬时失败都保持降级态，并以有上限的指数退避从已确认 cursor 持续恢复；重复 overflow 合并且不得阻塞 RPC reader。子进程退出后受控重启但不重发 mutation。重启后的子进程在 `initialize` / `status` / `watch.subscribe` 全部恢复前保持降级态，并以有上限的指数退避持续重试；每代子进程拥有独立取消令牌，退出或停止时取消旧恢复任务，禁止跨代竞态。
 - **Google Chat**：`googleChatStandardMarkdown` 默认开启，仅消息创建 body 发送 `markupSyntax=MARKUP_SYNTAX_MARKDOWN`；编辑仍走旧语法，因为该字段是 create-only。标准 Markdown mention 只接受结构化 `users/...` 标识并跳过代码区，原始 HTML/mention 字符串不能穿透。
 
 Microsoft Teams 当前不属于内建渠道：只有达到至少 3 个有效设计伙伴且连续 4 周周活不低于 20，或存在明确企业合同后，才进入隔离 connector/plugin PoC；不因生态可用性提前引入 Entra、租户同意和公网 webhook 维护面。
