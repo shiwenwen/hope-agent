@@ -530,12 +530,6 @@ fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
         if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
             continue;
         }
-        if owners.len() >= ISOLATED_COPY_MAX_ENTRIES as usize {
-            anyhow::bail!(
-                "sandbox workspace ownership handoff exceeds {} entries",
-                ISOLATED_COPY_MAX_ENTRIES
-            );
-        }
         let (uid, gid) = ha_core::platform::path_owner_no_follow(entry.path())?;
         owners.push((entry.into_path(), uid, gid));
     }
@@ -543,6 +537,10 @@ fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
 }
 
 struct WorkspaceOwnershipGuard {
+    // The OS advisory lock stays held until ownership restoration completes.
+    // A global lock deliberately also covers overlapping roots (for example a
+    // project and one of its subdirectories), which exact-path locks cannot.
+    _exclusive_lock: File,
     root: PathBuf,
     target: (u32, u32),
     root_owner: (u32, u32),
@@ -550,7 +548,7 @@ struct WorkspaceOwnershipGuard {
 }
 
 impl WorkspaceOwnershipGuard {
-    fn acquire(root: PathBuf, target: (u32, u32)) -> Result<Self> {
+    fn acquire(root: PathBuf, target: (u32, u32), exclusive_lock: File) -> Result<Self> {
         let original = collect_workspace_owners(&root)?;
         let root_owner = original
             .iter()
@@ -570,11 +568,57 @@ impl WorkspaceOwnershipGuard {
             changed += 1;
         }
         Ok(Self {
+            _exclusive_lock: exclusive_lock,
             root,
             target,
             root_owner,
             original,
         })
+    }
+}
+
+async fn acquire_workspace_ownership_lock_at(
+    lock_path: PathBuf,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<File> {
+    loop {
+        if cancellation_token
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            anyhow::bail!("Sandbox execution cancelled while waiting for workspace ownership");
+        }
+        let candidate = lock_path.clone();
+        let lock = ha_core::blocking::run_blocking(move || {
+            ha_core::platform::try_acquire_exclusive_lock(&candidate).with_context(|| {
+                format!(
+                    "lock sandbox workspace ownership at {}",
+                    candidate.display()
+                )
+            })
+        })
+        .await?;
+        if let Some(lock) = lock {
+            if cancellation_token
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            {
+                drop(lock);
+                anyhow::bail!("Sandbox execution cancelled while waiting for workspace ownership");
+            }
+            return Ok(lock);
+        }
+        match cancellation_token.as_ref() {
+            Some(token) => {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                    _ = token.cancelled() => {
+                        anyhow::bail!("Sandbox execution cancelled while waiting for workspace ownership");
+                    }
+                }
+            }
+            None => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
     }
 }
 
@@ -622,15 +666,23 @@ impl Drop for WorkspaceOwnershipGuard {
 async fn prepare_workspace_ownership(
     workspace: &Path,
     identity: Option<(u32, u32)>,
+    cancellation_token: Option<CancellationToken>,
 ) -> Result<Option<WorkspaceOwnershipGuard>> {
     if ha_core::platform::process_user_group().map(|value| value.0) != Some(0)
         || identity != Some((ROOT_SANDBOX_UID, ROOT_SANDBOX_GID))
     {
         return Ok(None);
     }
+    let lock_path = ha_core::paths::root_dir()?.join("sandbox-workspace-ownership.lock");
+    let exclusive_lock = acquire_workspace_ownership_lock_at(lock_path, cancellation_token).await?;
     let workspace = workspace.to_path_buf();
     ha_core::blocking::run_blocking(move || {
-        WorkspaceOwnershipGuard::acquire(workspace, (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID)).map(Some)
+        WorkspaceOwnershipGuard::acquire(
+            workspace,
+            (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
+            exclusive_lock,
+        )
+        .map(Some)
     })
     .await
 }
@@ -673,7 +725,8 @@ async fn exec_in_native_docker(
 
     let identity = native_container_identity(Some(&host_cwd))?;
     let user = identity.map(|(uid, gid)| format!("{uid}:{gid}"));
-    let _ownership_guard = prepare_workspace_ownership(&host_cwd, identity).await?;
+    let _ownership_guard =
+        prepare_workspace_ownership(&host_cwd, identity, cancellation_token.clone()).await?;
 
     let bind_mount = format!("{}:/workspace", host_cwd.display());
 
@@ -1447,6 +1500,32 @@ fn copy_dir_gitignore_aware_bounded(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn workspace_ownership_lock_serializes_complete_handoffs() {
+        let directory = tempfile::tempdir().expect("lock tempdir");
+        let lock_path = directory.path().join("ownership.lock");
+        let first = acquire_workspace_ownership_lock_at(lock_path.clone(), None)
+            .await
+            .expect("first ownership lock");
+        let waiter = tokio::spawn(async move {
+            acquire_workspace_ownership_lock_at(lock_path, None)
+                .await
+                .expect("second ownership lock")
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !waiter.is_finished(),
+            "a second ownership handoff must wait for restoration"
+        );
+        drop(first);
+        let second = tokio::time::timeout(Duration::from_secs(2), waiter)
+            .await
+            .expect("second handoff should acquire after release")
+            .expect("ownership lock task");
+        drop(second);
+    }
+
     #[test]
     fn default_container_boundary_is_hardened_and_bounded() {
         let config = SandboxConfig::default();
@@ -2085,7 +2164,9 @@ async fn exec_in_native_docker_with_workspace(
     let identity = native_container_identity(bind_workspace)?;
     let user = identity.map(|(uid, gid)| format!("{uid}:{gid}"));
     let _ownership_guard = match bind_workspace {
-        Some(path) => prepare_workspace_ownership(path, identity).await?,
+        Some(path) => {
+            prepare_workspace_ownership(path, identity, cancellation_token.clone()).await?
+        }
         None => None,
     };
 

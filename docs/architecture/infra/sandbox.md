@@ -211,6 +211,7 @@ flowchart TD
 - 镜像来自 `SandboxConfig.image`，缺失时自动 pull。
 - `cmd = ["sh", "-c", command]`，`working_dir = "/workspace"`。
 - Unix 平台以当前用户 `uid:gid` 运行，减少 bind mount 权限问题。
+- Hope 自身若以 root 运行，容器仍固定使用数值非 root 身份 `65534:65534`。root-owned bind 工作区在已通过挂载校验后临时移交所有权，完整记录并在容器清理后恢复；该遍历不套用隔离副本的条目上限。跨进程 OS 锁覆盖交接、容器执行和恢复的整个区间，并故意全局串行化以阻止父目录 / 子目录两个重叠工作区并发改权。
 - bind mount 前执行 `validate_bind_mount()`（见「Docker 安全边界」）。
 - stdout/stderr 通过 Docker logs 收集。
 - 正常完成、超时、取消、启动失败——都尝试清理容器（否则会残留泄漏 name / 匿名 volume）。
