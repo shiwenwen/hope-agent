@@ -70,8 +70,9 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
                 .iter()
                 .take_while(|byte| **byte == delimiter)
                 .count();
-            let fence_position = index - line_start <= 3
-                && bytes[line_start..index].iter().all(|byte| *byte == b' ');
+            let content_prefix = strip_markdown_container_prefix(&bytes[line_start..index]);
+            let fence_position =
+                content_prefix.len() <= 3 && content_prefix.iter().all(|byte| *byte == b' ');
             let line_end = bytes[index + run_length..]
                 .iter()
                 .position(|byte| *byte == b'\n')
@@ -102,7 +103,7 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
         }
         if fence_delimiter.is_none()
             && inline_delimiter.is_none()
-            && !has_indented_code_prefix(&bytes[line_start..index])
+            && !has_indented_code_prefix(strip_markdown_container_prefix(&bytes[line_start..index]))
             && !is_markdown_escaped(bytes, index)
             && bytes[index..].starts_with(b"<users/")
         {
@@ -134,6 +135,64 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
         }
     }
     output
+}
+
+/// Remove blockquote and list markers that precede the current Markdown block
+/// content. The returned suffix intentionally retains content indentation so
+/// fenced (≤3 spaces) and indented (≥4 columns) code keep their normal rules.
+fn strip_markdown_container_prefix(mut prefix: &[u8]) -> &[u8] {
+    loop {
+        let current = prefix;
+        let leading_spaces = current
+            .iter()
+            .take(3)
+            .take_while(|byte| **byte == b' ')
+            .count();
+        let candidate = &current[leading_spaces..];
+
+        if let Some(after_quote) = candidate.strip_prefix(b">") {
+            prefix = after_quote
+                .strip_prefix(b" ")
+                .or_else(|| after_quote.strip_prefix(b"\t"))
+                .unwrap_or(after_quote);
+            continue;
+        }
+
+        let marker_len = markdown_list_marker_len(candidate);
+        if marker_len > 0
+            && candidate
+                .get(marker_len)
+                .is_some_and(|byte| matches!(*byte, b' ' | b'\t'))
+        {
+            prefix = &candidate[marker_len + 1..];
+            continue;
+        }
+
+        return current;
+    }
+}
+
+fn markdown_list_marker_len(candidate: &[u8]) -> usize {
+    if candidate
+        .first()
+        .is_some_and(|byte| matches!(*byte, b'-' | b'+' | b'*'))
+    {
+        return 1;
+    }
+    let digits = candidate
+        .iter()
+        .take(9)
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if digits > 0
+        && candidate
+            .get(digits)
+            .is_some_and(|byte| matches!(*byte, b'.' | b')'))
+    {
+        digits + 1
+    } else {
+        0
+    }
 }
 
 fn is_markdown_escaped(bytes: &[u8], index: usize) -> bool {
@@ -351,6 +410,24 @@ mod tests {
         assert_eq!(
             compile_standard_markdown_mentions(input),
             "~~~md\n<users/all>\n```\n<users/123>\n~~~~\n<chat-user data-user=\"users/456\">"
+        );
+    }
+
+    #[test]
+    fn standard_markdown_preserves_mentions_inside_container_fences() {
+        let input = "> ~~~\n> <users/all>\n> ~~~\n- ```\n  <users/123>\n  ```\n<users/456>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            "> ~~~\n> <users/all>\n> ~~~\n- ```\n  <users/123>\n  ```\n<chat-user data-user=\"users/456\">"
+        );
+    }
+
+    #[test]
+    fn standard_markdown_applies_indented_code_rules_inside_containers() {
+        let input = ">     <users/all>\n-     <users/123>\n>   <users/456>\n1. <users/789>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            ">     <users/all>\n-     <users/123>\n>   <chat-user data-user=\"users/456\">\n1. <chat-user data-user=\"users/789\">"
         );
     }
 

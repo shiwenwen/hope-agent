@@ -6,10 +6,11 @@
 //! prompts; concrete adapters own only network protocol translation.
 
 use std::collections::{BTreeMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
 use std::io;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -19,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 use crate::paths::{
     external_memory_compatibility_path, external_memory_credential_path,
-    external_memory_sync_state_path,
+    external_memory_sync_lock_path, external_memory_sync_state_path,
 };
 use crate::platform::write_secure_file;
 
@@ -49,6 +50,8 @@ const SYNC_STATE_SCHEMA_VERSION: u32 = 1;
 const MAX_IMPORTED_CONTENT_CHARS: usize = 16_000;
 const IMPORT_LEDGER_CHECKPOINT_EVERY: usize = 100;
 const PROVIDER_SYNC_TIMEOUT: Duration = Duration::from_secs(120);
+const PROVIDER_SYNC_LOCK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const PROVIDER_SYNC_LOCK_POLL: Duration = Duration::from_millis(25);
 /// A successful compatibility probe is an owner-granted capability to send
 /// local memories. Keep that grant short-lived so a server replaced in place
 /// cannot inherit compatibility evidence indefinitely.
@@ -217,10 +220,24 @@ pub async fn execute_external_memory_provider_sync(
     stats: MemoryStats,
     stats_error: Option<String>,
 ) -> ExternalMemoryProviderSyncReport {
-    // Credentials and sync ledgers are process-shared files. Serializing all
-    // provider runs avoids duplicate exports and lost ledger updates when a
-    // manual run overlaps the debounce or periodic scheduler.
+    // The async mutex avoids occupying multiple blocking-pool workers for
+    // same-process contenders. The OS lock is the actual data boundary: GUI,
+    // server and ACP processes share credentials, ledgers and health fields.
     let _sync_guard = EXTERNAL_PROVIDER_SYNC_LOCK.lock().await;
+    let lock_path = match external_memory_sync_lock_path() {
+        Ok(path) => path,
+        Err(error) => {
+            return sync_lock_failure_report(config, stats, stats_error, error.to_string())
+        }
+    };
+    let _cross_process_guard = match acquire_external_provider_sync_lock_at(lock_path).await {
+        Ok(guard) => guard,
+        Err(error) => {
+            return sync_lock_failure_report(config, stats, stats_error, error.to_string())
+        }
+    };
+    // Keep `_cross_process_guard` alive from before credential/ledger
+    // hydration through the final checkpoint and health persistence below.
     let config =
         crate::blocking::run_blocking(move || hydrate_external_memory_provider_config(config))
             .await;
@@ -287,6 +304,70 @@ pub async fn execute_external_memory_provider_sync(
     let health_results = results.clone();
     crate::blocking::run_blocking(move || persist_sync_health(&health_results)).await;
     summarize_sync_report(preflight_summary(results, preflight_report))
+}
+
+async fn acquire_external_provider_sync_lock_at(lock_path: PathBuf) -> Result<File> {
+    crate::blocking::run_blocking(move || {
+        let started = Instant::now();
+        loop {
+            match crate::platform::try_acquire_exclusive_lock(&lock_path)
+                .context("lock external memory sync")?
+            {
+                Some(file) => return Ok(file),
+                None if started.elapsed() < PROVIDER_SYNC_LOCK_TIMEOUT => {
+                    std::thread::sleep(PROVIDER_SYNC_LOCK_POLL)
+                }
+                None => bail!("timed out waiting for the external memory sync lock"),
+            }
+        }
+    })
+    .await
+}
+
+fn sync_lock_failure_report(
+    config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    error: String,
+) -> ExternalMemoryProviderSyncReport {
+    let preflight = super::types::external_memory_sync_preflight_with_stats_status(
+        &config,
+        &stats,
+        stats_error,
+    );
+    let failure = format!("external memory sync lock unavailable: {error}");
+    let providers = preflight
+        .providers
+        .iter()
+        .cloned()
+        .map(|provider| {
+            let status = match provider.action {
+                ExternalMemoryProviderPreflightAction::Off => ExternalMemoryProviderSyncStatus::Off,
+                ExternalMemoryProviderPreflightAction::Blocked => {
+                    ExternalMemoryProviderSyncStatus::Blocked
+                }
+                ExternalMemoryProviderPreflightAction::WouldSync => {
+                    ExternalMemoryProviderSyncStatus::Failed
+                }
+            };
+            let error =
+                (status == ExternalMemoryProviderSyncStatus::Failed).then(|| failure.clone());
+            ExternalMemoryProviderSyncResult {
+                id: provider.id.clone(),
+                kind: provider.kind,
+                display_name: provider.display_name.clone(),
+                status,
+                external_io_performed: false,
+                preflight: provider,
+                imported_memory_count: 0,
+                exported_memory_count: 0,
+                updated_memory_count: 0,
+                skipped_memory_count: 0,
+                error,
+            }
+        })
+        .collect();
+    summarize_sync_report(preflight_summary(providers, preflight))
 }
 
 /// Debounced automatic sync trigger for local memory writes. Manual providers
@@ -1876,6 +1957,31 @@ mod tests {
         assert!(validate_provider_id("mem0-main").is_ok());
         assert!(validate_provider_id("../mem0").is_err());
         assert!(validate_provider_id("Mem0").is_err());
+    }
+
+    #[tokio::test]
+    async fn provider_sync_boundary_uses_an_os_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("external-memory-sync.lock");
+        let first = acquire_external_provider_sync_lock_at(lock_path.clone())
+            .await
+            .unwrap();
+        let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let waiter = tokio::spawn(async move {
+            let _second = acquire_external_provider_sync_lock_at(lock_path)
+                .await
+                .unwrap();
+            entered_tx.send(()).unwrap();
+        });
+
+        tokio::task::yield_now().await;
+        assert!(entered_rx.try_recv().is_err());
+        drop(first);
+        tokio::time::timeout(Duration::from_secs(1), entered_rx.recv())
+            .await
+            .expect("waiting provider sync should enter after release")
+            .expect("waiter should report entry");
+        waiter.await.unwrap();
     }
 
     #[test]
