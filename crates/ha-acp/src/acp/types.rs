@@ -519,6 +519,30 @@ pub enum SessionUpdate {
     },
 }
 
+/// Build the version-specific `session/update` notification envelope.
+/// ACP v1 renamed the nested payload from `sessionUpdate` to `update`.
+pub fn session_update_params(
+    protocol_version: &AcpProtocolVersion,
+    session_id: &str,
+    update: Value,
+) -> Value {
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "sessionId".to_string(),
+        Value::String(session_id.to_string()),
+    );
+    params.insert(
+        if protocol_version.is_v1() {
+            "update"
+        } else {
+            "sessionUpdate"
+        }
+        .to_string(),
+        update,
+    );
+    Value::Object(params)
+}
+
 #[derive(Debug, Serialize)]
 pub struct SessionCost {
     pub amount: f64,
@@ -680,4 +704,33 @@ pub fn infer_tool_kind(name: &str) -> &'static str {
         return "fetch";
     }
     "other"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_update_envelope_follows_negotiated_protocol() {
+        let update = serde_json::json!({"sessionUpdate": "usage_update", "used": 7, "size": 10});
+        assert_eq!(
+            session_update_params(
+                &AcpProtocolVersion::V1(ACP_PROTOCOL_VERSION_V1),
+                "session-1",
+                update.clone(),
+            ),
+            serde_json::json!({"sessionId": "session-1", "update": update})
+        );
+        assert_eq!(
+            session_update_params(
+                &AcpProtocolVersion::Legacy("0.2".into()),
+                "session-1",
+                serde_json::json!({"sessionUpdate": "usage_update", "used": 7, "size": 10}),
+            ),
+            serde_json::json!({
+                "sessionId": "session-1",
+                "sessionUpdate": {"sessionUpdate": "usage_update", "used": 7, "size": 10}
+            })
+        );
+    }
 }

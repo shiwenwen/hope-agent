@@ -134,6 +134,8 @@ classDiagram
 
 `JsonRpcMessage` 是入站（请求或通知），`JsonRpcResponse` / `JsonRpcNotification` 是出站。判定规则很简单：**入站消息有 `id` 就是请求（必须回一条同 id 的响应），没有 `id` 就是通知（不回响应）**。
 
+握手默认协商整数协议版本 `1`；显式请求字符串版本 `"0.2"` 时才进入短期兼容路径。所有 `session/update` 都经同一个版本感知封装：v1 把更新放在 `params.update`，0.2 兼容路径使用旧的 `params.sessionUpdate`，不能由各发送点自行拼装。
+
 ### 错误码
 
 标准 JSON-RPC 2.0 错误码，定义在 `types.rs`：
@@ -576,7 +578,7 @@ hope-agent acp --help                       # 帮助
 
 ### 能力声明
 
-握手时服务端返回的 `agentCapabilities`（`ACP_PROTOCOL_VERSION = "0.2"`；`agentInfo.name = "hope-agent-acp"`）：
+握手时服务端返回的 `agentCapabilities`（默认协议版本 `1`；`agentInfo.name = "hope-agent-acp"`）：
 
 ```json
 {
@@ -588,7 +590,9 @@ hope-agent acp --help                       # 帮助
       "embeddedContext": true
     },
     "sessionCapabilities": {
-      "list": {}
+      "list": {},
+      "resume": {},
+      "close": {}
     }
   }
 }
@@ -621,6 +625,15 @@ ACP 服务端刻意选择**纯 Rust 原生实现、直接驱动 `AssistantAgent`
 - **HTTP 侧**：`/api/acp/backends`、`/api/acp/refresh`、`/api/acp/runs`、`/api/acp/runs/{runId}/kill` 一组端点，详见 [api-reference](../system/api-reference.md)。
 
 两个方向共用 `ha-acp` crate，但代码、状态、生命周期完全独立。
+
+控制面按 backend 声明的协议版本生成 wire shape：v1 的 `session/prompt` 使用
+`{"type":"text","text":"…"}` 内容块，并从 `params.update` 读取
+`session/update`；显式固定为 0.2 的兼容 backend 才继续使用旧形状。v1 的
+`usage_update.used` / `size` 分别表示当前上下文占用与上下文窗口，并不等于
+输入 / 输出 token 拆分；控制面把 `used` 作为既有计数口径的总量兜底，同时
+向事件投影保留 `contextUsed` / `contextSize`。若 backend 在
+`PromptResponse.usage` 扩展中返回精确的 `inputTokens` / `outputTokens`，终态
+落库优先采用该拆分。
 
 ---
 

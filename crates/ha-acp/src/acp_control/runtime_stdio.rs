@@ -171,6 +171,99 @@ impl StdioAcpRuntime {
             }
         }
     }
+
+    fn prompt_content(&self, prompt: &str) -> serde_json::Value {
+        match self.protocol {
+            AcpBackendProtocol::V1 => serde_json::json!([{
+                "type": "text",
+                "text": prompt
+            }]),
+            AcpBackendProtocol::Legacy02 => serde_json::json!([{
+                "type": "user_message_chunk",
+                "content": prompt
+            }]),
+        }
+    }
+
+    fn session_start_request(
+        &self,
+        cwd: &str,
+        resume_session_id: Option<&str>,
+    ) -> (&'static str, serde_json::Value) {
+        match self.protocol {
+            AcpBackendProtocol::V1 => match resume_session_id {
+                Some(resume_id) => (
+                    "session/load",
+                    serde_json::json!({
+                        "sessionId": resume_id,
+                        "cwd": cwd,
+                        "mcpServers": []
+                    }),
+                ),
+                None => (
+                    "session/new",
+                    serde_json::json!({
+                        "cwd": cwd,
+                        "mcpServers": []
+                    }),
+                ),
+            },
+            AcpBackendProtocol::Legacy02 => {
+                let mut params = serde_json::json!({"cwd": cwd});
+                if let Some(resume_id) = resume_session_id {
+                    params["resumeSessionId"] = serde_json::json!(resume_id);
+                }
+                ("session/new", params)
+            }
+        }
+    }
+
+    fn session_update<'a>(&self, params: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
+        match self.protocol {
+            AcpBackendProtocol::V1 => params.get("update"),
+            AcpBackendProtocol::Legacy02 => params.get("sessionUpdate"),
+        }
+    }
+
+    fn parse_usage_update(&self, update: &serde_json::Value) -> Option<ParsedUsage> {
+        match self.protocol {
+            AcpBackendProtocol::V1 => {
+                let used = update.get("used")?.as_u64()?;
+                let size = update.get("size")?.as_u64()?;
+                Some(ParsedUsage {
+                    // ACP v1 exposes context occupancy rather than an input/output
+                    // split. Preserve its exact total in the legacy accounting
+                    // projection; a backend-specific PromptResponse.usage below
+                    // replaces this fallback when an exact split is available.
+                    input_tokens: used,
+                    output_tokens: 0,
+                    context_used: Some(used),
+                    context_size: Some(size),
+                })
+            }
+            AcpBackendProtocol::Legacy02 => {
+                let input_tokens = update.get("inputTokens").and_then(|value| value.as_u64());
+                let output_tokens = update.get("outputTokens").and_then(|value| value.as_u64());
+                if input_tokens.is_none() && output_tokens.is_none() {
+                    return None;
+                }
+                Some(ParsedUsage {
+                    input_tokens: input_tokens.unwrap_or(0),
+                    output_tokens: output_tokens.unwrap_or(0),
+                    context_used: None,
+                    context_size: None,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    context_used: Option<u64>,
+    context_size: Option<u64>,
 }
 
 #[async_trait]
@@ -204,7 +297,21 @@ impl AcpRuntime for StdioAcpRuntime {
                 .default_timeout_secs
         });
 
-        let mut child = self.spawn_child(params.cwd.as_deref())?;
+        let effective_cwd = match params.cwd.as_deref() {
+            Some(cwd) if std::path::Path::new(cwd).is_absolute() => cwd.to_string(),
+            Some(cwd) if self.protocol == AcpBackendProtocol::V1 => {
+                anyhow::bail!("ACP v1 working directory must be absolute: {cwd}")
+            }
+            Some(cwd) => cwd.to_string(),
+            None => std::env::current_dir()
+                .map_err(|error| {
+                    anyhow::anyhow!("Failed to resolve ACP working directory: {error}")
+                })?
+                .to_string_lossy()
+                .into_owned(),
+        };
+
+        let mut child = self.spawn_child(Some(&effective_cwd))?;
         let pid = child.id();
         let stdin = child
             .stdin
@@ -258,20 +365,24 @@ impl AcpRuntime for StdioAcpRuntime {
         }
 
         // Step 2: session/new
-        let mut new_params = serde_json::json!({});
-        if let Some(cwd) = &params.cwd {
-            new_params["cwd"] = serde_json::json!(cwd);
-        }
-        if let Some(resume_id) = &params.resume_session_id {
-            new_params["resumeSessionId"] = serde_json::json!(resume_id);
-        }
+        let (session_method, new_params) =
+            self.session_start_request(&effective_cwd, params.resume_session_id.as_deref());
 
-        let session_result = Self::send_request(&handle, "session/new", new_params, 2).await?;
+        let session_result = Self::send_request(&handle, session_method, new_params, 2).await?;
 
-        let external_sid = session_result
-            .get("sessionId")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let external_sid = if self.protocol == AcpBackendProtocol::V1 {
+            params.resume_session_id.clone().or_else(|| {
+                session_result
+                    .get("sessionId")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+        } else {
+            session_result
+                .get("sessionId")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        };
 
         handle.external_session_id = external_sid.clone();
 
@@ -319,10 +430,7 @@ impl AcpRuntime for StdioAcpRuntime {
             "method": "session/prompt",
             "params": {
                 "sessionId": ext_sid,
-                "prompt": [{
-                    "type": "user_message_chunk",
-                    "content": prompt
-                }]
+                "prompt": self.prompt_content(prompt)
             }
         });
 
@@ -394,6 +502,18 @@ impl AcpRuntime for StdioAcpRuntime {
                         .and_then(|v| v.as_str())
                         .unwrap_or("end_turn")
                         .to_string();
+                    // Some v1 adapters expose the protocol's unstable usage
+                    // extension on PromptResponse. Prefer that exact split over
+                    // the context-occupancy fallback from usage_update.
+                    if let Some(usage) = result.get("usage") {
+                        if let (Some(input), Some(output)) = (
+                            usage.get("inputTokens").and_then(|value| value.as_u64()),
+                            usage.get("outputTokens").and_then(|value| value.as_u64()),
+                        ) {
+                            total_input = input;
+                            total_output = output;
+                        }
+                    }
                 }
                 let _ = event_tx
                     .send(AcpStreamEvent::Done {
@@ -406,7 +526,7 @@ impl AcpRuntime for StdioAcpRuntime {
             // It's a notification — parse session/update
             if msg.get("method").and_then(|v| v.as_str()) == Some("session/update") {
                 if let Some(params) = msg.get("params") {
-                    if let Some(update) = params.get("sessionUpdate") {
+                    if let Some(update) = self.session_update(params) {
                         let update_type = update
                             .get("sessionUpdate")
                             .and_then(|v| v.as_str())
@@ -503,22 +623,18 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .await;
                             }
                             "usage_update" => {
-                                let input = update
-                                    .get("inputTokens")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0);
-                                let output = update
-                                    .get("outputTokens")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0);
-                                total_input = input;
-                                total_output = output;
-                                let _ = event_tx
-                                    .send(AcpStreamEvent::Usage {
-                                        input_tokens: input,
-                                        output_tokens: output,
-                                    })
-                                    .await;
+                                if let Some(usage) = self.parse_usage_update(update) {
+                                    total_input = usage.input_tokens;
+                                    total_output = usage.output_tokens;
+                                    let _ = event_tx
+                                        .send(AcpStreamEvent::Usage {
+                                            input_tokens: usage.input_tokens,
+                                            output_tokens: usage.output_tokens,
+                                            context_used: usage.context_used,
+                                            context_size: usage.context_size,
+                                        })
+                                        .await;
+                                }
                             }
                             _ => {}
                         }
@@ -601,5 +717,108 @@ impl AcpRuntime for StdioAcpRuntime {
 
     async fn health_check(&self) -> AcpHealthStatus {
         health::probe_binary(&self.binary_path).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runtime(protocol: AcpBackendProtocol) -> StdioAcpRuntime {
+        StdioAcpRuntime::new(
+            "test".into(),
+            "Test".into(),
+            "test-acp".into(),
+            vec![],
+            protocol,
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn v1_prompt_uses_text_content_block() {
+        assert_eq!(
+            runtime(AcpBackendProtocol::V1).prompt_content("hello"),
+            serde_json::json!([{"type": "text", "text": "hello"}])
+        );
+    }
+
+    #[test]
+    fn legacy_prompt_keeps_user_message_chunk_shape() {
+        assert_eq!(
+            runtime(AcpBackendProtocol::Legacy02).prompt_content("hello"),
+            serde_json::json!([{"type": "user_message_chunk", "content": "hello"}])
+        );
+    }
+
+    #[test]
+    fn v1_new_session_includes_required_workspace_fields() {
+        assert_eq!(
+            runtime(AcpBackendProtocol::V1).session_start_request("/workspace", None),
+            (
+                "session/new",
+                serde_json::json!({"cwd": "/workspace", "mcpServers": []})
+            )
+        );
+    }
+
+    #[test]
+    fn v1_resume_uses_load_session_contract() {
+        assert_eq!(
+            runtime(AcpBackendProtocol::V1)
+                .session_start_request("/workspace", Some("external-session"),),
+            (
+                "session/load",
+                serde_json::json!({
+                    "sessionId": "external-session",
+                    "cwd": "/workspace",
+                    "mcpServers": []
+                })
+            )
+        );
+    }
+
+    #[test]
+    fn v1_usage_update_preserves_context_occupancy() {
+        let runtime = runtime(AcpBackendProtocol::V1);
+        let params = serde_json::json!({
+            "sessionId": "session-1",
+            "update": {"sessionUpdate": "usage_update", "used": 23116, "size": 200000}
+        });
+        let update = runtime.session_update(&params).expect("v1 update");
+
+        assert_eq!(
+            runtime.parse_usage_update(update),
+            Some(ParsedUsage {
+                input_tokens: 23116,
+                output_tokens: 0,
+                context_used: Some(23116),
+                context_size: Some(200000),
+            })
+        );
+    }
+
+    #[test]
+    fn legacy_usage_update_keeps_split_token_fields() {
+        let runtime = runtime(AcpBackendProtocol::Legacy02);
+        let params = serde_json::json!({
+            "sessionId": "session-1",
+            "sessionUpdate": {
+                "sessionUpdate": "usage_update",
+                "inputTokens": 120,
+                "outputTokens": 8
+            }
+        });
+        let update = runtime.session_update(&params).expect("legacy update");
+
+        assert_eq!(
+            runtime.parse_usage_update(update),
+            Some(ParsedUsage {
+                input_tokens: 120,
+                output_tokens: 8,
+                context_used: None,
+                context_size: None,
+            })
+        );
     }
 }

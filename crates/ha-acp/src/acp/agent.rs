@@ -533,15 +533,19 @@ fn finalize_acp_user_stop(
 /// hook. Writing from the model callback would expose bytes before the journal
 /// or emergency spool had acknowledged them.
 struct AcpDurableEventSink {
+    protocol_version: AcpProtocolVersion,
     session_id: String,
     message_id: String,
 }
 
 impl EventSink for AcpDurableEventSink {
     fn send(&self, event: &str) {
-        let Some(notification) =
-            event_mapper::map_agent_event(&self.session_id, &self.message_id, event)
-        else {
+        let Some(notification) = event_mapper::map_agent_event(
+            &self.protocol_version,
+            &self.session_id,
+            &self.message_id,
+            event,
+        ) else {
             return;
         };
         let Ok(json) = serde_json::to_string(&notification) else {
@@ -1244,15 +1248,16 @@ impl AcpAgent {
                     let _ = self
                         .session_db
                         .append_message(&session_id, &session::NewMessage::event(&notice));
-                    let update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut update = session_update_params(
+                        &self.protocol_version,
+                        &session_id,
+                        serde_json::json!({
                             "sessionUpdate": "agent_message_chunk",
                             "messageId": format!("msg-agent-{turn_id}"),
                             "content": { "type": "text", "text": notice }
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    update["final"] = Value::Bool(true);
                     let _ = self
                         .transport
                         .write_notification(&JsonRpcNotification::new("session/update", update));
@@ -1328,14 +1333,15 @@ impl AcpAgent {
             None,
         ) {
             // Emit session_info_update
-            let notif = serde_json::json!({
-                "sessionId": session_id,
-                "sessionUpdate": {
+            let notif = session_update_params(
+                &self.protocol_version,
+                &session_id,
+                serde_json::json!({
                     "sessionUpdate": "session_info_update",
                     "title": title,
                     "updatedAt": chrono::Utc::now().to_rfc3339(),
-                }
-            });
+                }),
+            );
             let _ = self
                 .transport
                 .write_notification(&JsonRpcNotification::new("session/update", notif));
@@ -1693,6 +1699,7 @@ impl AcpAgent {
                 None,
                 None,
                 Arc::new(AcpDurableEventSink {
+                    protocol_version: self.protocol_version.clone(),
                     session_id: session_id_owned.clone(),
                     message_id: format!("msg-agent-{}", uuid::Uuid::new_v4()),
                 }),
@@ -2315,27 +2322,29 @@ impl AcpAgent {
         for msg in &messages {
             let notif = match msg.role {
                 session::MessageRole::User => {
-                    let update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut update = session_update_params(
+                        &self.protocol_version,
+                        session_id,
+                        serde_json::json!({
                             "sessionUpdate": "user_message_chunk",
                             "messageId": format!("msg-user-{}", msg.id),
                             "content": { "type": "text", "text": msg.content }
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    update["final"] = Value::Bool(true);
                     Some(JsonRpcNotification::new("session/update", update))
                 }
                 session::MessageRole::Assistant | session::MessageRole::TextBlock => {
-                    let update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut update = session_update_params(
+                        &self.protocol_version,
+                        session_id,
+                        serde_json::json!({
                             "sessionUpdate": "agent_message_chunk",
                             "messageId": format!("msg-agent-{}", msg.id),
                             "content": { "type": "text", "text": msg.content }
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    update["final"] = Value::Bool(true);
                     Some(JsonRpcNotification::new("session/update", update))
                 }
                 session::MessageRole::Tool => {
@@ -2347,16 +2356,17 @@ impl AcpAgent {
                         "completed"
                     };
 
-                    let start_update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut start_update = session_update_params(
+                        &self.protocol_version,
+                        session_id,
+                        serde_json::json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": call_id,
                             "title": tool_name,
                             "status": status,
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    start_update["final"] = Value::Bool(true);
                     let _ = self.transport.write_notification(&JsonRpcNotification::new(
                         "session/update",
                         start_update,
@@ -2368,16 +2378,17 @@ impl AcpAgent {
                         } else {
                             result.clone()
                         };
-                        let result_update = serde_json::json!({
-                            "sessionId": session_id,
-                            "sessionUpdate": {
+                        let mut result_update = session_update_params(
+                            &self.protocol_version,
+                            session_id,
+                            serde_json::json!({
                                 "sessionUpdate": "tool_call_update",
                                 "toolCallId": call_id,
                                 "status": status,
-                                "content": [{"type": "text", "content": {"type": "text", "text": truncated}}]
-                            },
-                            "final": true,
-                        });
+                                "content": [{"type": "content", "content": {"type": "text", "text": truncated}}]
+                            }),
+                        );
+                        result_update["final"] = Value::Bool(true);
                         Some(JsonRpcNotification::new("session/update", result_update))
                     } else {
                         None

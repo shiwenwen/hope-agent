@@ -6,11 +6,15 @@
 
 use serde_json::Value;
 
-use crate::acp::types::{JsonRpcNotification, SessionUpdate, TextContent, ToolCallContent};
+use crate::acp::types::{
+    session_update_params, AcpProtocolVersion, JsonRpcNotification, SessionUpdate, TextContent,
+    ToolCallContent,
+};
 
 /// Parse an Agent event JSON string and produce an ACP session update notification.
 /// Returns None for events that don't map to ACP updates.
 pub fn map_agent_event(
+    protocol_version: &AcpProtocolVersion,
     session_id: &str,
     message_id: &str,
     event_json: &str,
@@ -76,7 +80,7 @@ pub fn map_agent_event(
                 tool_call_id: call_id,
                 status: status.to_string(),
                 content: Some(vec![ToolCallContent {
-                    content_type: "text".to_string(),
+                    content_type: "content".to_string(),
                     content: TextContent::new(truncated),
                 }]),
             }
@@ -97,10 +101,63 @@ pub fn map_agent_event(
         _ => return None,
     };
 
-    let params = serde_json::json!({
-        "sessionId": session_id,
-        "sessionUpdate": serde_json::to_value(&update).ok()?,
-    });
+    let params = session_update_params(
+        protocol_version,
+        session_id,
+        serde_json::to_value(&update).ok()?,
+    );
 
     Some(JsonRpcNotification::new("session/update", params))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acp::types::ACP_PROTOCOL_VERSION_V1;
+
+    fn v1() -> AcpProtocolVersion {
+        AcpProtocolVersion::V1(ACP_PROTOCOL_VERSION_V1)
+    }
+
+    #[test]
+    fn v1_stream_event_uses_update_envelope() {
+        let notification = map_agent_event(
+            &v1(),
+            "session-1",
+            "message-1",
+            r#"{"type":"text_delta","content":"hello"}"#,
+        )
+        .expect("notification");
+
+        assert_eq!(
+            notification.params,
+            serde_json::json!({
+                "sessionId": "session-1",
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "messageId": "message-1",
+                    "content": {"type": "text", "text": "hello"}
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn v1_tool_result_uses_content_wrapper() {
+        let notification = map_agent_event(
+            &v1(),
+            "session-1",
+            "message-1",
+            r#"{"type":"tool_result","call_id":"call-1","result":"done","is_error":false}"#,
+        )
+        .expect("notification");
+
+        assert_eq!(
+            notification.params["update"]["content"],
+            serde_json::json!([{
+                "type": "content",
+                "content": {"type": "text", "text": "done"}
+            }])
+        );
+    }
 }
