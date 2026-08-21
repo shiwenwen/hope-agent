@@ -8,7 +8,10 @@ use std::process::Command;
 
 use super::PathOwnershipSnapshot;
 
-const OWNERSHIP_SENSITIVE_MODE_BITS: u32 = (libc::S_ISUID | libc::S_ISGID) as u32;
+// POSIX mode bits: set-user-ID (04000) plus set-group-ID (02000). Keeping the
+// mask in MetadataExt::mode's u32 domain avoids libc's target-specific
+// constant types (u16 on macOS, u32 on Linux).
+const OWNERSHIP_SENSITIVE_MODE_BITS: u32 = 0o6000;
 
 pub(super) fn process_user_group() -> Option<(u32, u32)> {
     // SAFETY: These process identity queries take no pointers and have no
