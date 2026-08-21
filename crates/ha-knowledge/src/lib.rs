@@ -45,12 +45,20 @@ extern crate ha_base;
 pub mod knowledge;
 pub mod tools;
 
-/// 幂等装配：两处接线——`knowledge_hooks` 十槽 + 24 个工具的分发条目。
+/// 幂等装配：三处接线——`knowledge_hooks` 十槽 + 24 个工具的分发条目 +
+/// Primary 初始化后的 embedding 签名迁移恢复任务。
 pub fn wire() {
     static WIRED: std::sync::Once = std::sync::Once::new();
     WIRED.call_once(|| {
         register_hooks();
         register_note_tools();
+        ha_core::app_init::register_startup_task(
+            ha_core::app_init::StartupStage::PrimaryOnly,
+            knowledge::index::resume_embedding_signature_migration,
+        )
+        .expect(
+            "ha_knowledge::wire() must run before start_background_tasks consumes startup tasks",
+        );
     });
 }
 

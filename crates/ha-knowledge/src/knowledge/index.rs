@@ -36,14 +36,18 @@ pub fn init_index_db() -> Result<()> {
     let db = Arc::new(IndexDb::open(&path)?);
     apply_embedding_to_index(&db);
     set_index_db(db);
-    resume_embedding_signature_migration();
     Ok(())
 }
 
 /// Make a signature-algorithm/provider-semantics upgrade fail closed: the
 /// newly computed v2 signature excludes all v1 vectors immediately, then the
 /// Primary process resumes the idempotent full Knowledge re-index.
-fn resume_embedding_signature_migration() {
+///
+/// This runs from the `PrimaryOnly` post-initialization startup-task phase,
+/// after `LOCAL_MODEL_JOBS_DB` is installed. Calling it from `init_index_db`
+/// would reject the migration job before that database exists and leave no
+/// later retry in the process.
+pub(crate) fn resume_embedding_signature_migration() {
     if !ha_core::runtime_lock::is_primary() {
         return;
     }
