@@ -24,6 +24,8 @@ reqwest = { workspace = true }
 futures-util = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
+encoding_rs = { workspace = true }
+httpdate = { workspace = true }
 ring = "0.17"
 # Used by the macOS desktop-updater EXDEV guard (platform::redirect_updater_tmpdir_*)
 # to override the in-process temp dir; the plugin stages via the same `tempfile` crate.
@@ -58,6 +60,7 @@ quick-xml = "0.39"
 # hyper-tls 0.5 + system-configuration + rustls-pemfile + base64 0.21 等。
 readability = { version = "0.3", default-features = false }
 htmd = "0.5"
+scraper = "0.26.0"
 which = "8"
 sysinfo = "0.38"
 open = "5"

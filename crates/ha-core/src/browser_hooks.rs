@@ -20,6 +20,35 @@ pub struct BrowserTabCapture {
     pub page_text: String,
 }
 
+/// Narrow, credential-free request used by `web_fetch` when a deterministic
+/// quality signal asks for JavaScript rendering.  The implementation must use
+/// an isolated browser context and enforce the supplied SSRF policy for every
+/// network request, not just the top-level navigation.
+#[derive(Debug, Clone)]
+pub struct WebFetchRenderRequest {
+    pub url: String,
+    pub selector: Option<String>,
+    pub timeout_ms: u64,
+    pub max_html_bytes: usize,
+    pub ssrf_policy: crate::security::ssrf::SsrfPolicy,
+    pub trusted_hosts: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebFetchRenderResult {
+    pub final_url: String,
+    pub status: Option<u16>,
+    pub title: Option<String>,
+    pub html: String,
+    /// Total decoded network bytes admitted across the document and all
+    /// allowed subresources.
+    pub received_bytes: usize,
+    /// False when any top-level navigation response was private/no-store or
+    /// attempted to set a cookie.
+    pub cacheable: bool,
+    pub took_ms: u64,
+}
+
 type BoxFut<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 pub struct BrowserHooks {
@@ -32,6 +61,9 @@ pub struct BrowserHooks {
     pub cleanup_session: fn(&str) -> BoxFut<String>,
     /// 抓取当前活动标签页（knowledge 网页收集）。
     pub capture_active_tab: fn() -> BoxFut<anyhow::Result<BrowserTabCapture>>,
+    /// 在隔离、无登录态的浏览器中渲染一个 URL。未提供逐请求 SSRF
+    /// interception 的 backend 不得注册成功实现。
+    pub render_web_fetch: fn(WebFetchRenderRequest) -> BoxFut<anyhow::Result<WebFetchRenderResult>>,
 }
 
 static BROWSER_HOOKS: std::sync::OnceLock<BrowserHooks> = std::sync::OnceLock::new();
@@ -114,4 +146,16 @@ pub async fn capture_active_tab() -> anyhow::Result<BrowserTabCapture> {
         anyhow::bail!("browser feature not wired; browser capture unavailable in this binary");
     };
     (hooks.capture_active_tab)().await
+}
+
+/// Render a URL for `web_fetch`. This is a user-visible read action, so an
+/// unwired feature fails explicitly instead of silently returning an empty
+/// page.
+pub async fn render_web_fetch(
+    request: WebFetchRenderRequest,
+) -> anyhow::Result<WebFetchRenderResult> {
+    let Some(hooks) = browser_hooks() else {
+        anyhow::bail!("browser feature not wired; web fetch renderer unavailable");
+    };
+    (hooks.render_web_fetch)(request).await
 }

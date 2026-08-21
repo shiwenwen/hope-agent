@@ -5,7 +5,13 @@ import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
-import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
 
@@ -20,6 +26,12 @@ interface WebFetchConfig {
   cacheTtlMinutes: number
   userAgent: string
   ssrfProtection: boolean
+  defaultRenderMode: "never" | "auto" | "always"
+  maxOutputTokensCap: number
+  renderTimeoutSeconds: number
+  cacheMaxEntries: number
+  maxConcurrentPerHost: number
+  minHostDelayMs: number
 }
 
 const DEFAULT_CONFIG: WebFetchConfig = {
@@ -31,6 +43,12 @@ const DEFAULT_CONFIG: WebFetchConfig = {
   cacheTtlMinutes: 15,
   userAgent: "",
   ssrfProtection: true,
+  defaultRenderMode: "never",
+  maxOutputTokensCap: 32768,
+  renderTimeoutSeconds: 30,
+  cacheMaxEntries: 100,
+  maxConcurrentPerHost: 2,
+  minHostDelayMs: 0,
 }
 
 const DEFAULT_USER_AGENT =
@@ -47,11 +65,13 @@ export default function WebFetchPanel() {
 
   useEffect(() => {
     let cancelled = false
-    getTransport().call<WebFetchConfig>("get_web_fetch_config")
+    getTransport()
+      .call<WebFetchConfig>("get_web_fetch_config")
       .then((cfg) => {
         if (!cancelled) {
-          setConfig(cfg)
-          setSavedSnapshot(JSON.stringify(cfg))
+          const normalized = { ...DEFAULT_CONFIG, ...cfg, ssrfProtection: true }
+          setConfig(normalized)
+          setSavedSnapshot(JSON.stringify(normalized))
         }
       })
       .catch((e) => {
@@ -83,143 +103,229 @@ export default function WebFetchPanel() {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <p className="text-xs text-muted-foreground">{t("settings.webFetchDesc")}</p>
-        </div>
-
-        {/* Content Limits */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            {t("settings.webFetchSectionLimits")}
-          </h3>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.webFetchMaxChars")}</span>
-              <DeferredNumberInput
-                min={1000}
-                value={config.maxChars}
-                onValueCommit={(value) => setConfig((prev) => ({ ...prev, maxChars: value }))}
-              />
-              <p className="text-xs text-muted-foreground">{t("settings.webFetchMaxCharsDesc")}</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.webFetchMaxCharsCap")}</span>
-              <DeferredNumberInput
-                min={1000}
-                value={config.maxCharsCap}
-                onValueCommit={(value) =>
-                  setConfig((prev) => ({ ...prev, maxCharsCap: value }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("settings.webFetchMaxCharsCapDesc")}
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.webFetchMaxResponseBytes")}</span>
-              <DeferredNumberInput
-                min={0.1}
-                step={0.1}
-                value={bytesToMB(config.maxResponseBytes)}
-                integer={false}
-                onValueCommit={(mb) =>
-                  setConfig((prev) => ({ ...prev, maxResponseBytes: Math.round(mb * 1048576) }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("settings.webFetchMaxResponseBytesDesc")}
-              </p>
-            </div>
+        <div className="space-y-6">
+          {/* Header */}
+          <div>
+            <p className="text-xs text-muted-foreground">{t("settings.webFetchDesc")}</p>
           </div>
-        </div>
 
-        {/* Network */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            {t("settings.webFetchSectionNetwork")}
-          </h3>
+          {/* Content Limits */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.webFetchSectionLimits")}
+            </h3>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.webFetchTimeout")}</span>
-              <DeferredNumberInput
-                min={1}
-                max={120}
-                value={config.timeoutSeconds}
-                onValueCommit={(value) =>
-                  setConfig((prev) => ({ ...prev, timeoutSeconds: value }))
-                }
-              />
-            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchMaxChars")}</span>
+                <DeferredNumberInput
+                  min={1000}
+                  max={config.maxCharsCap}
+                  value={config.maxChars}
+                  onValueCommit={(value) => setConfig((prev) => ({ ...prev, maxChars: value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.webFetchMaxCharsDesc")}
+                </p>
+              </div>
 
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.webFetchMaxRedirects")}</span>
-              <DeferredNumberInput
-                min={0}
-                max={20}
-                value={config.maxRedirects}
-                onValueCommit={(value) =>
-                  setConfig((prev) => ({ ...prev, maxRedirects: value }))
-                }
-              />
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchMaxTokensCap")}</span>
+                <DeferredNumberInput
+                  min={256}
+                  max={131072}
+                  value={config.maxOutputTokensCap}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, maxOutputTokensCap: value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.webFetchMaxTokensCapDesc")}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchMaxCharsCap")}</span>
+                <DeferredNumberInput
+                  min={1000}
+                  max={1000000}
+                  value={config.maxCharsCap}
+                  onValueCommit={(value) => setConfig((prev) => ({ ...prev, maxCharsCap: value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.webFetchMaxCharsCapDesc")}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">
+                  {t("settings.webFetchMaxResponseBytes")}
+                </span>
+                <DeferredNumberInput
+                  min={0.1}
+                  max={20}
+                  step={0.1}
+                  value={bytesToMB(config.maxResponseBytes)}
+                  integer={false}
+                  onValueCommit={(mb) =>
+                    setConfig((prev) => ({ ...prev, maxResponseBytes: Math.round(mb * 1048576) }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.webFetchMaxResponseBytesDesc")}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <span className="text-sm font-medium">{t("settings.webFetchUserAgent")}</span>
-            <Input
-              value={config.userAgent}
-              placeholder={DEFAULT_USER_AGENT}
-              onChange={(e) => setConfig((prev) => ({ ...prev, userAgent: e.target.value }))}
-            />
-          </div>
-        </div>
+          {/* Rendering */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.webFetchSectionRendering")}
+            </h3>
 
-        {/* Cache */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            {t("settings.webFetchSectionCache")}
-          </h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchRenderMode")}</span>
+                <Select
+                  value={config.defaultRenderMode}
+                  onValueChange={(value: WebFetchConfig["defaultRenderMode"]) =>
+                    setConfig((prev) => ({ ...prev, defaultRenderMode: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="never">{t("settings.webFetchRenderNever")}</SelectItem>
+                    <SelectItem value="auto">{t("settings.webFetchRenderAuto")}</SelectItem>
+                    <SelectItem value="always">{t("settings.webFetchRenderAlways")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.webFetchRenderModeDesc")}
+                </p>
+              </div>
 
-          <div className="space-y-1.5">
-            <span className="text-sm font-medium">{t("settings.webFetchCacheTtl")}</span>
-            <DeferredNumberInput
-              min={0}
-              max={1440}
-              value={config.cacheTtlMinutes}
-              onValueCommit={(value) =>
-                setConfig((prev) => ({ ...prev, cacheTtlMinutes: value }))
-              }
-              className="max-w-32"
-            />
-            <p className="text-xs text-muted-foreground">{t("settings.webFetchCacheTtlDesc")}</p>
-          </div>
-        </div>
-
-        {/* Security */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            {t("settings.webFetchSectionSecurity")}
-          </h3>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-sm font-medium">{t("settings.webFetchSsrf")}</span>
-              <p className="text-xs text-muted-foreground">{t("settings.webFetchSsrfDesc")}</p>
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchRenderTimeout")}</span>
+                <DeferredNumberInput
+                  min={1}
+                  max={120}
+                  value={config.renderTimeoutSeconds}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, renderTimeoutSeconds: value }))
+                  }
+                />
+              </div>
             </div>
-            <Switch
-              checked={config.ssrfProtection}
-              onCheckedChange={(v) => setConfig((prev) => ({ ...prev, ssrfProtection: v }))}
-            />
+          </div>
+
+          {/* Network */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.webFetchSectionNetwork")}
+            </h3>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchTimeout")}</span>
+                <DeferredNumberInput
+                  min={1}
+                  max={120}
+                  value={config.timeoutSeconds}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, timeoutSeconds: value }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchMaxRedirects")}</span>
+                <DeferredNumberInput
+                  min={0}
+                  max={20}
+                  value={config.maxRedirects}
+                  onValueCommit={(value) => setConfig((prev) => ({ ...prev, maxRedirects: value }))}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">
+                  {t("settings.webFetchMaxConcurrentPerHost")}
+                </span>
+                <DeferredNumberInput
+                  min={1}
+                  max={16}
+                  value={config.maxConcurrentPerHost}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, maxConcurrentPerHost: value }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchMinHostDelay")}</span>
+                <DeferredNumberInput
+                  min={0}
+                  max={60000}
+                  value={config.minHostDelayMs}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, minHostDelayMs: value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">{t("settings.webFetchUserAgent")}</span>
+              <Input
+                value={config.userAgent}
+                maxLength={512}
+                placeholder={DEFAULT_USER_AGENT}
+                onChange={(e) => setConfig((prev) => ({ ...prev, userAgent: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {/* Cache */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.webFetchSectionCache")}
+            </h3>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchCacheTtl")}</span>
+                <DeferredNumberInput
+                  min={0}
+                  max={1440}
+                  value={config.cacheTtlMinutes}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, cacheTtlMinutes: value }))
+                  }
+                  className="max-w-32"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.webFetchCacheTtlDesc")}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.webFetchCacheEntries")}</span>
+                <DeferredNumberInput
+                  min={1}
+                  max={1000}
+                  value={config.cacheMaxEntries}
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, cacheMaxEntries: value }))
+                  }
+                  className="max-w-32"
+                />
+              </div>
+            </div>
           </div>
         </div>
-
-      </div>
       </div>
 
       {/* Save — fixed bottom */}

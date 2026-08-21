@@ -181,11 +181,23 @@ pub fn wire() {
                 })
             })
         }
+        fn render_web_fetch(
+            request: ha_core::browser_hooks::WebFetchRenderRequest,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = anyhow::Result<ha_core::browser_hooks::WebFetchRenderResult>,
+                    > + Send,
+            >,
+        > {
+            Box::pin(browser::web_fetch_renderer::render(request))
+        }
         ha_core::browser_hooks::register_browser_hooks(ha_core::browser_hooks::BrowserHooks {
             spawn_broker,
             schedule_turn_finalize,
             cleanup_session,
             capture_active_tab,
+            render_web_fetch,
         })
         .expect("ha_browser::wire() registers the browser hooks exactly once");
     });

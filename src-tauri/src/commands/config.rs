@@ -105,6 +105,7 @@ pub async fn get_web_fetch_config() -> Result<tools::web_fetch::WebFetchConfig, 
 pub async fn save_web_fetch_config(
     config: tools::web_fetch::WebFetchConfig,
 ) -> Result<(), CmdError> {
+    tools::web_fetch::validate_config(&config)?;
     ha_core::config::mutate_config_async(("web_fetch", "settings-ui"), move |store| {
         store.web_fetch = config;
         Ok(())

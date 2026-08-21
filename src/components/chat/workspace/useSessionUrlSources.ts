@@ -3,14 +3,20 @@ import type { Message, MessageAttachment } from "@/types/chat"
 import { extractUrls } from "@/lib/urlDetect"
 import { iterateMessageToolCalls } from "./useSessionFileChanges"
 
-/** URL 的来源：web_search 命中(结构化)、助手正文链接、或用户显式发送的链接。 */
-export type UrlSourceOrigin = "web_search" | "message" | "user_url"
+/** URL 的来源：web_fetch / web_search 结构化来源、助手正文或用户显式链接。 */
+export type UrlSourceOrigin = "web_fetch" | "web_search" | "message" | "user_url"
 export type AttachmentSourceOrigin = "user_attachment"
 
 export interface SessionUrlLinkSource {
   kind: "url"
   url: string
   origin: UrlSourceOrigin
+  title?: string
+  retrievedAt?: string
+  fetchMode?: "direct" | "rendered"
+  cacheHit?: boolean
+  truncated?: boolean
+  warnings?: string[]
 }
 
 export interface SessionAttachmentSource {
@@ -39,12 +45,15 @@ const URL_ORIGIN_PRIORITY: Record<UrlSourceOrigin, number> = {
   message: 1,
   user_url: 2,
   web_search: 3,
+  web_fetch: 4,
 }
 
 function assistantText(message: Message): string {
   if (message.contentBlocks?.length) {
     return message.contentBlocks
-      .filter((b): b is { type: "text"; content: string; interrupted?: boolean } => b.type === "text")
+      .filter(
+        (b): b is { type: "text"; content: string; interrupted?: boolean } => b.type === "text",
+      )
       .map((b) => b.content)
       .join("\n")
   }
@@ -82,8 +91,8 @@ export function sessionSourceKey(source: SessionUrlSource): string {
 }
 
 /**
- * 聚合本会话引用到的 URL 来源：① web_search 工具结果里命中的链接(结构来源，
- * 优先)；② 助手正文里出现的链接；③ 用户显式发送的链接；④ 用户发送的附件。
+ * 聚合本会话引用到的 URL 来源：① web_fetch / web_search 结构化来源；
+ * ② 助手正文链接；③ 用户显式链接；④ 用户附件。
  * URL 按地址去重并保留最高优先级 origin；附件按可打开位置 / 名称去重。纯函数。
  */
 export function aggregateSessionUrlSources(messages: Message[]): SessionUrlSource[] {
@@ -129,6 +138,18 @@ export function aggregateSessionUrlSources(messages: Message[]): SessionUrlSourc
 
   for (const message of messages) {
     for (const tool of iterateMessageToolCalls(message)) {
+      if (tool.metadata?.kind === "web_fetch_source") {
+        add(tool.metadata.url, "web_fetch")
+        const source = urlByValue.get(normalizeUrl(tool.metadata.url))
+        if (source) {
+          source.title = tool.metadata.title ?? undefined
+          source.retrievedAt = tool.metadata.retrievedAt
+          source.fetchMode = tool.metadata.fetchMode
+          source.cacheHit = tool.metadata.cacheHit
+          source.truncated = tool.metadata.truncated
+          source.warnings = tool.metadata.warnings
+        }
+      }
       if (tool.name !== "web_search" || !tool.result) continue
       for (const match of tool.result.matchAll(WEB_SEARCH_URL_RE)) {
         add(match[1], "web_search")
@@ -160,6 +181,7 @@ export function aggregateSessionUrlSources(messages: Message[]): SessionUrlSourc
 export function messagesHaveUrlActivity(messages: Message[]): boolean {
   for (const message of messages) {
     for (const tool of iterateMessageToolCalls(message)) {
+      if (tool.metadata?.kind === "web_fetch_source") return true
       if (tool.name === "web_search" && tool.result) return true
     }
     if (message.role === "assistant" && assistantText(message).includes("http")) return true

@@ -888,7 +888,13 @@ export type UrlSourceDto =
   | {
       kind: "url";
       url: string;
-      origin: "web_search" | "message" | "user_url";
+      origin: "web_fetch" | "web_search" | "message" | "user_url";
+      title?: string;
+      retrievedAt?: string;
+      fetchMode?: "direct" | "rendered";
+      cacheHit?: boolean;
+      truncated?: boolean;
+      warnings?: string[];
     }
   | {
       kind: "attachment";

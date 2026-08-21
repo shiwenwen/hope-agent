@@ -115,51 +115,72 @@ fn normalize_pdf_sources(args: &Value, max_pdfs: usize) -> Result<Vec<PdfSource>
 // ── PDF Resolution ──────────────────────────────────────────────────
 
 /// Load PDF bytes from a local file.
-fn resolve_file(path_raw: &str) -> Result<(Vec<u8>, String)> {
-    let path = expand_tilde(path_raw);
-    let file_path = std::path::Path::new(&path);
-    if !file_path.exists() {
-        return Err(anyhow!("File not found: {}", path));
-    }
-    let data = std::fs::read(file_path)?;
-    Ok((data, format!("file: {}", path)))
+async fn resolve_file(path_raw: &str) -> Result<(Vec<u8>, String)> {
+    let path_raw = path_raw.to_string();
+    crate::blocking::run_blocking(move || {
+        let path = expand_tilde(&path_raw);
+        let file_path = std::path::Path::new(&path);
+        if !file_path.exists() {
+            return Err(anyhow!("File not found: {}", path));
+        }
+        let data = std::fs::read(file_path)?;
+        Ok((data, format!("file: {}", path)))
+    })
+    .await
 }
 
 /// Fetch PDF bytes from a URL.
 async fn resolve_url(url: &str) -> Result<(Vec<u8>, String)> {
-    crate::tools::web_fetch::check_ssrf_safe(url).await?;
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS))
-        .build()?;
-
-    let resp = client.get(url).send().await?;
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS)),
+    )
+    .build()?;
+    let headers = crate::tools::web_fetch_common::browser_headers();
+    let checked = crate::security::http_redirect::checked_get(
+        &client,
+        url,
+        crate::security::ssrf::SsrfPolicy::Default,
+        &[],
+        5,
+        Some(&headers),
+    )
+    .await?;
+    let resp = checked.response;
     let status = resp.status();
     if !status.is_success() {
-        return Err(anyhow!("HTTP {} fetching {}", status, url));
+        return Err(anyhow!("HTTP {} fetching remote PDF", status));
     }
-
-    let bytes = resp.bytes().await?;
-    if bytes.len() > PDF_MAX_FETCH_BYTES {
+    let capped =
+        crate::security::http_stream::read_bytes_capped_with_info(resp, PDF_MAX_FETCH_BYTES)
+            .await?;
+    if capped.truncated {
         return Err(anyhow!(
-            "PDF too large: {} bytes (max {}MB)",
-            bytes.len(),
+            "PDF too large (max {}MB)",
             PDF_MAX_FETCH_BYTES / 1024 / 1024
         ));
     }
+    let bytes = capped.bytes;
 
     // Validate it looks like a PDF
     if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
         return Err(anyhow!("URL did not return a valid PDF file"));
     }
 
-    Ok((bytes.to_vec(), format!("url: {}", url)))
+    Ok((
+        bytes,
+        format!(
+            "url: {}",
+            crate::tools::web_fetch::redact_url_for_display(url)
+        ),
+    ))
 }
 
 /// Resolve a PDF source to raw bytes.
 async fn resolve_source(source: &PdfSource) -> Result<(Vec<u8>, String)> {
     match source {
-        PdfSource::File { path } => resolve_file(path),
+        PdfSource::File { path } => resolve_file(path).await,
         PdfSource::Url { url } => resolve_url(url).await,
     }
 }
@@ -180,6 +201,25 @@ fn extract_text_from_bytes(data: &[u8]) -> Result<Vec<String>> {
         .map(|p| p.trim().to_string())
         .collect();
     Ok(pages)
+}
+
+/// Byte-level PDF text extraction shared with `web_fetch`. The caller owns
+/// network policy, response caps, and blocking-pool isolation.
+pub(crate) fn extract_pdf_text_for_web_fetch(data: &[u8]) -> Result<(String, usize)> {
+    let pages = extract_text_from_bytes(data)?;
+    let mut output = String::new();
+    for (index, page) in pages.iter().enumerate() {
+        if page.trim().is_empty() {
+            continue;
+        }
+        if !output.is_empty() {
+            output.push_str("\n\n");
+        }
+        output.push_str(&format!("--- Page {} ---\n", index + 1));
+        output.push_str(page.trim());
+    }
+    let chars = output.chars().count();
+    Ok((output, chars))
 }
 
 /// Build text-mode output from page texts.

@@ -24,7 +24,7 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_FIND, aliases: &[], handler: tool_handler!(|args, ctx| super::find::tool_find(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_APPLY_PATCH, aliases: &[], handler: tool_handler!(|args, ctx| super::apply_patch::tool_apply_patch(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_WEB_SEARCH, aliases: &[], handler: tool_handler!(|args, ctx| super::web_search::tool_web_search(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_WEB_FETCH, aliases: &[], handler: tool_handler!(|args, ctx| super::web_fetch::tool_web_fetch(args).await) },
+        BuiltinToolEntry { name: super::TOOL_WEB_FETCH, aliases: &[], handler: tool_handler!(|args, ctx| super::web_fetch::tool_web_fetch(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SAVE_MEMORY, aliases: &[], handler: tool_handler!(|args, ctx| super::memory::tool_save_memory(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_RECALL_MEMORY, aliases: &[], handler: tool_handler!(|args, ctx| super::memory::tool_recall_memory(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_UPDATE_MEMORY, aliases: &[], handler: tool_handler!(|args, ctx| super::memory::tool_update_memory(args, ctx).await) },

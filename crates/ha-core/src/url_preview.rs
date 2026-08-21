@@ -118,39 +118,16 @@ async fn checked_get(
     max_redirects: usize,
 ) -> Result<reqwest::Response> {
     let ssrf_cfg = crate::config::cached_config().ssrf.clone();
-    let mut next =
-        crate::security::ssrf::check_url(url_str, ssrf_cfg.url_preview(), &ssrf_cfg.trusted_hosts)
-            .await?;
-
-    for _ in 0..=max_redirects {
-        let resp = client
-            .get(next.clone())
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
-
-        if !resp.status().is_redirection() {
-            return Ok(resp);
-        }
-
-        let location = resp
-            .headers()
-            .get(reqwest::header::LOCATION)
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| anyhow::anyhow!("Redirect missing Location header"))?;
-        let redirected = resp
-            .url()
-            .join(location)
-            .map_err(|e| anyhow::anyhow!("Invalid redirect Location: {}", e))?;
-        next = crate::security::ssrf::check_url(
-            redirected.as_str(),
-            ssrf_cfg.url_preview(),
-            &ssrf_cfg.trusted_hosts,
-        )
-        .await?;
-    }
-
-    Err(anyhow::anyhow!("Too many redirects"))
+    Ok(crate::security::http_redirect::checked_get(
+        client,
+        url_str,
+        ssrf_cfg.url_preview(),
+        &ssrf_cfg.trusted_hosts,
+        max_redirects,
+        None,
+    )
+    .await?
+    .response)
 }
 
 // ── OpenGraph Extraction ────────────────────────────────────────

@@ -50,7 +50,9 @@ function backendBrowserToEntry(activity: BrowserActivityDto): SessionBrowserActi
 
 function hasSyntaxLanguage(language: string | null | undefined): boolean {
   const value = language?.trim().toLowerCase()
-  return !!value && value !== "text" && value !== "txt" && value !== "plain" && value !== "plaintext"
+  return (
+    !!value && value !== "text" && value !== "txt" && value !== "plain" && value !== "plaintext"
+  )
 }
 
 /**
@@ -83,27 +85,30 @@ export function mergeArtifacts<T>(
 
 /** Preserve a lightweight syntax hint from the full-history backend summary
  *  when the loaded-window live entry only knows that the file was read. */
-export function reconcileFile(
-  live: SessionFileEntry,
-  backend: SessionFileEntry,
-): SessionFileEntry {
+export function reconcileFile(live: SessionFileEntry, backend: SessionFileEntry): SessionFileEntry {
   if (!hasSyntaxLanguage(live.language) && hasSyntaxLanguage(backend.language)) {
     return { ...live, language: backend.language }
   }
   return live
 }
 
-/** Preserve a `web_search` badge: if either side saw the URL via search, the
- *  merged source keeps that origin (the live tail may have only seen a later
- *  plain-prose mention of a URL the backend first found via search). */
+/** Preserve the richest structured URL provenance and its web-fetch details
+ * when the loaded live tail and full-history backend overlap. */
 function reconcileSource(live: SessionUrlSource, backend: SessionUrlSource): SessionUrlSource {
-  if (
-    live.kind === "url" &&
-    backend.kind === "url" &&
-    live.origin !== "web_search" &&
-    backend.origin === "web_search"
-  ) {
-    return { ...live, origin: "web_search" }
+  if (live.kind === "url" && backend.kind === "url") {
+    const priority = { message: 1, user_url: 2, web_search: 3, web_fetch: 4 } as const
+    const origin = priority[backend.origin] > priority[live.origin] ? backend.origin : live.origin
+    return {
+      ...backend,
+      ...live,
+      origin,
+      title: live.title ?? backend.title,
+      retrievedAt: live.retrievedAt ?? backend.retrievedAt,
+      fetchMode: live.fetchMode ?? backend.fetchMode,
+      cacheHit: live.cacheHit ?? backend.cacheHit,
+      truncated: live.truncated ?? backend.truncated,
+      warnings: live.warnings ?? backend.warnings,
+    }
   }
   return live
 }

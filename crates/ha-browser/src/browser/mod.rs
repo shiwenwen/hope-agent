@@ -28,6 +28,7 @@ pub mod runtime;
 pub mod singleton_lock;
 pub mod spawn;
 pub mod user_attach;
+pub mod web_fetch_renderer;
 
 pub use backend::{
     ActKind, ActParams, BackendStatus, BrowserBackend, DialogAction, ElementRef, ImageFormat,

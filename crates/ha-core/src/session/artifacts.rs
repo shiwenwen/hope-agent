@@ -56,10 +56,12 @@ pub struct UrlSource {
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// `"web_search"` | `"message"` | `"user_url"` | `"user_attachment"`.
+    /// `"web_fetch"` | `"web_search"` | `"message"` | `"user_url"` | `"user_attachment"`.
     pub origin: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +76,16 @@ pub struct UrlSource {
     pub quote_lines: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quote_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retrieved_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetch_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<String>>,
 }
 
 /// One browser automation activity emitted by the browser tool.
@@ -320,6 +332,7 @@ fn normalize_url(raw: &str) -> String {
 
 fn url_origin_priority(origin: &str) -> u8 {
     match origin {
+        "web_fetch" => 4,
         "web_search" => 3,
         "user_url" => 2,
         "message" => 1,
@@ -354,6 +367,7 @@ fn add_url(
         url: Some(url),
         origin: origin.to_string(),
         name: None,
+        title: None,
         mime_type: None,
         size_bytes: None,
         attachment_kind: None,
@@ -361,6 +375,11 @@ fn add_url(
         quote_path: None,
         quote_lines: None,
         quote_content: None,
+        retrieved_at: None,
+        fetch_mode: None,
+        cache_hit: None,
+        truncated: None,
+        warnings: None,
     });
 }
 
@@ -430,6 +449,7 @@ fn add_user_attachment(seen: &mut HashSet<String>, sources: &mut Vec<UrlSource>,
         url: string_field(item, &["url"]).map(str::to_string),
         origin: "user_attachment".to_string(),
         name: Some(name.to_string()),
+        title: None,
         mime_type: Some(mime_type),
         size_bytes: Some(u64_field(item, &["size", "sizeBytes"]).unwrap_or(0)),
         attachment_kind: Some(attachment_kind),
@@ -453,6 +473,11 @@ fn add_user_attachment(seen: &mut HashSet<String>, sources: &mut Vec<UrlSource>,
         } else {
             None
         },
+        retrieved_at: None,
+        fetch_mode: None,
+        cache_hit: None,
+        truncated: None,
+        warnings: None,
     };
     let key = attachment_source_key(&source);
     if seen.insert(key) {
@@ -470,6 +495,43 @@ fn aggregate_sources(messages: &[SessionMessage]) -> (Vec<UrlSource>, bool) {
     let mut sources: Vec<UrlSource> = Vec::new(); // chronological first-occurrence
 
     for msg in messages {
+        if let Some(meta) = msg
+            .tool_metadata
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .filter(|meta| meta.get("kind").and_then(Value::as_str) == Some("web_fetch_source"))
+        {
+            if let Some(url) = meta.get("url").and_then(Value::as_str) {
+                add_url(&mut by_url, &mut sources, url, "web_fetch", false);
+                if let Some(index) = by_url.get(&normalize_url(url)).copied() {
+                    let source = &mut sources[index];
+                    source.title = meta
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    source.retrieved_at = meta
+                        .get("retrievedAt")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    source.fetch_mode = meta
+                        .get("fetchMode")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    source.cache_hit = meta.get("cacheHit").and_then(Value::as_bool);
+                    source.truncated = meta.get("truncated").and_then(Value::as_bool);
+                    source.warnings =
+                        meta.get("warnings")
+                            .and_then(Value::as_array)
+                            .map(|values| {
+                                values
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::to_string)
+                                    .collect()
+                            });
+                }
+            }
+        }
         if msg.tool_name.as_deref() == Some("web_search") {
             if let Some(result) = msg.tool_result.as_deref() {
                 for cap in WEB_SEARCH_URL_RE.captures_iter(result) {
@@ -838,6 +900,34 @@ mod tests {
             Some("https://cdn.site.com/report.pdf")
         );
         assert_eq!(sources[0].origin, "web_search");
+    }
+
+    #[test]
+    fn sources_preserve_web_fetch_provenance_and_diagnostics() {
+        let messages = vec![msg(
+            1,
+            MessageRole::Tool,
+            "",
+            Some("web_fetch"),
+            Some("ok"),
+            Some(
+                r#"{"kind":"web_fetch_source","url":"https://example.com/article","title":"Fetched title","retrievedAt":"2026-08-20T00:00:00Z","fetchMode":"rendered","cacheHit":true,"truncated":true,"warnings":["warning"]}"#,
+            ),
+        )];
+        let (sources, truncated) = aggregate_sources(&messages);
+        assert!(!truncated);
+        assert_eq!(sources.len(), 1);
+        let source = &sources[0];
+        assert_eq!(source.origin, "web_fetch");
+        assert_eq!(source.url.as_deref(), Some("https://example.com/article"));
+        assert_eq!(source.title.as_deref(), Some("Fetched title"));
+        assert_eq!(source.fetch_mode.as_deref(), Some("rendered"));
+        assert_eq!(source.cache_hit, Some(true));
+        assert_eq!(source.truncated, Some(true));
+        assert_eq!(
+            source.warnings.as_deref(),
+            Some(&["warning".to_string()][..])
+        );
     }
 
     #[test]
