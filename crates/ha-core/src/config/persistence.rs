@@ -13,6 +13,8 @@ use super::AppConfig;
 
 const MODEL_EVAL_CODEX_OAUTH_ENV: &str = "HA_MODEL_EVAL_LOCAL_CODEX_OAUTH";
 const MODEL_EVAL_CODEX_SECRET_SCHEMA: &str = "model-eval-codex-oauth.v1";
+const CONFIG_WRITE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
+const CONFIG_WRITE_LOCK_POLL: Duration = Duration::from_millis(25);
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -700,6 +702,10 @@ pub fn load_config() -> Result<AppConfig> {
 /// Callers must pass the full, mutated config — this function does not merge
 /// with the existing on-disk content.
 pub fn save_config(config: &AppConfig) -> Result<()> {
+    let _write_guard = write_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let _cross_process_guard = acquire_config_write_lock()?;
     save_config_with_change(config, "app", None)
 }
 
@@ -830,10 +836,32 @@ fn write_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-/// Single entry-point for every config mutation. Takes the global write lock,
-/// clones the latest cached snapshot, applies `f`, persists to disk, and
-/// atomically publishes the new snapshot so any `cached_config()` call made
-/// after `mutate_config` returns sees the change.
+fn config_write_lock_path() -> Result<PathBuf> {
+    let path = config_path()?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("config path has no parent directory"))?;
+    Ok(parent.join("config.write.lock"))
+}
+
+fn acquire_config_write_lock() -> Result<std::fs::File> {
+    let path = config_write_lock_path()?;
+    let started = Instant::now();
+    loop {
+        match crate::platform::try_acquire_exclusive_lock(&path)? {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < CONFIG_WRITE_LOCK_TIMEOUT => {
+                std::thread::sleep(CONFIG_WRITE_LOCK_POLL);
+            }
+            None => bail!("timed out waiting for the shared config write lock"),
+        }
+    }
+}
+
+/// Single entry-point for every config mutation. Takes the process-local and
+/// process-shared write locks, reloads the authoritative disk snapshot, applies
+/// `f`, persists to disk, and atomically publishes the new snapshot so any
+/// `cached_config()` call made after `mutate_config` returns sees the change.
 ///
 /// `reason` is a `(category, source)` pair recorded in the autosave snapshot
 /// and `config:changed` event so user-visible rollbacks and frontend hot-reload
@@ -854,8 +882,14 @@ where
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
+    let _cross_process_guard = acquire_config_write_lock()?;
     let _reason_guard = super::autosave::scope_save_reason(reason.0, reason.1);
-    let mut snapshot = load_config()?;
+    // The ArcSwap cache is process-local. Starting a mutation from it can
+    // overwrite a setting committed by a sibling desktop/server/ACP process.
+    // Read config.json only after the shared OS lock is held and retain that
+    // lock through publication so disk read + mutation + write is one
+    // cross-process transaction.
+    let mut snapshot = read_from_disk()?;
     let result = f(&mut snapshot)?;
     save_config_with_change(&snapshot, reason.0, Some(reason.1))?;
     Ok(result)
@@ -868,7 +902,8 @@ pub(crate) fn clear_legacy_server_token_without_backup() -> Result<()> {
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
-    let mut snapshot = load_config()?;
+    let _cross_process_guard = acquire_config_write_lock()?;
+    let mut snapshot = read_from_disk()?;
     if snapshot.server.api_key.take().is_none() {
         return Ok(());
     }
@@ -935,6 +970,7 @@ pub(crate) fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
+    let _cross_process_guard = acquire_config_write_lock()?;
     let fresh = read_from_disk()?;
     let fresh = Arc::new(fresh);
     cache().store(fresh.clone());
@@ -957,10 +993,11 @@ pub fn reload_cache_from_disk() -> Result<()> {
 #[cfg(test)]
 mod write_outcome_tests {
     use std::cell::{Cell, RefCell};
+    use std::time::Duration;
 
     use super::{
-        cache, clear_config_load_failure, complete_config_write, reload_config_snapshot_from_disk,
-        AppConfig,
+        acquire_config_write_lock, cache, clear_config_load_failure, complete_config_write,
+        mutate_config, reload_config_snapshot_from_disk, AppConfig,
     };
 
     #[test]
@@ -997,6 +1034,80 @@ mod write_outcome_tests {
                 reload_config_snapshot_from_disk().expect("reload authoritative config");
             assert_eq!(refreshed.theme, "authoritative-disk");
             assert_eq!(cache().load().theme, "authoritative-disk");
+        });
+    }
+
+    #[test]
+    fn mutation_preserves_authoritative_disk_fields_when_process_cache_is_stale() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let original = cache().load_full();
+            struct RestoreCache(std::sync::Arc<AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    cache().store(self.0.clone());
+                    clear_config_load_failure();
+                }
+            }
+            let _restore = RestoreCache(original);
+
+            cache().store(std::sync::Arc::new(AppConfig {
+                theme: "stale-cache".into(),
+                ..AppConfig::default()
+            }));
+            let authoritative = AppConfig {
+                theme: "authoritative-disk".into(),
+                ..AppConfig::default()
+            };
+            let path = temp.path().join("config.json");
+            std::fs::write(
+                &path,
+                serde_json::to_vec_pretty(&authoritative).expect("serialize config"),
+            )
+            .expect("write authoritative config");
+
+            mutate_config(("accessibility", "test"), |config| {
+                config.enhanced_focus_indicators = true;
+                Ok(())
+            })
+            .expect("mutate authoritative config");
+
+            let persisted: AppConfig =
+                serde_json::from_slice(&std::fs::read(&path).expect("read persisted config"))
+                    .expect("parse persisted config");
+            assert_eq!(persisted.theme, "authoritative-disk");
+            assert!(persisted.enhanced_focus_indicators);
+            assert_eq!(cache().load().theme, "authoritative-disk");
+        });
+    }
+
+    #[test]
+    fn mutation_waits_for_the_shared_config_write_lock() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            std::fs::write(
+                temp.path().join("config.json"),
+                serde_json::to_vec_pretty(&AppConfig::default()).expect("serialize config"),
+            )
+            .expect("write config");
+            let first = acquire_config_write_lock().expect("acquire first config lock");
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let waiter = std::thread::spawn(move || {
+                mutate_config(("accessibility", "test"), |config| {
+                    config.enhanced_focus_indicators = true;
+                    Ok(())
+                })
+                .expect("mutate after shared lock release");
+                entered_tx.send(()).expect("report mutation");
+            });
+
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(entered_rx.try_recv().is_err());
+            drop(first);
+            entered_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("waiting mutation should enter after lock release");
+            waiter.join().expect("join config mutation waiter");
         });
     }
 

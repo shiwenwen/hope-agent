@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../../README.md) | 更新时间：2026-08-11 | 关联：[文件操作](../core/file-operations.md) · [Backup 备份](backup-autosave.md) · [Provider 系统](../core/provider-system.md)
 
-应用配置 `AppConfig` 是整台应用的"设置总账"：面向用户的所有开关、Provider 列表、工具参数、记忆 / 知识 / 沙箱 / 服务器策略、UI 偏好，全部住在这一个结构里，持久化为 `~/.hope-agent/config.json`。本文讲清它怎么在一个进程里被安全地读、被安全地写，以及围绕读写的容错、事件、备份与恢复。
+应用配置 `AppConfig` 是整台应用的"设置总账"：面向用户的所有开关、Provider 列表、工具参数、记忆 / 知识 / 沙箱 / 服务器策略、UI 偏好，全部住在这一个结构里，持久化为 `~/.hope-agent/config.json`。本文讲清它怎么在桌面、Server 与 ACP 共享数据目录时被安全地读写，以及围绕读写的容错、事件、备份与恢复。
 
 ## 关联源码
 
@@ -26,7 +26,7 @@
 
 - 进程里只有**一份**权威的内存配置，用 `ArcSwap<AppConfig>` 持有。读者拿到的是某一时刻的不可变快照 `Arc<AppConfig>`。
 - **读**永远无锁：一次原子 acquire load 加一次 `Arc` 引用计数自增，开销在纳秒级。
-- **写**永远走唯一入口 `mutate_config`，由一把进程级写锁串行化"克隆最新快照 → 应用改动 → 落盘 → 原子换上新快照 → 广播变更"的全过程。
+- **写**永远走唯一入口 `mutate_config`，由进程内写锁与 `config.write.lock` 操作系统排他锁共同串行化"读取权威磁盘快照 → 应用改动 → 落盘 → 原子换上新快照 → 广播变更"的全过程。
 
 一切读走 `cached_config()`，一切写走 `mutate_config(...)`——没有第二条路。任何"在别处再存一份 config"或"手动克隆-改-存"的写法都会让真相源分叉，本文末尾的[反面样式](#反面样式)专门列出这些禁区。
 
@@ -72,14 +72,14 @@ flowchart LR
         R3["工具执行 / chat loop / 记忆检索"]
     end
     Snap["ArcSwap&lt;AppConfig&gt;<br/>进程唯一内存快照"]
-    W["mutate_config<br/>（全局 Mutex&lt;()&gt; 串行，同一时刻仅一个写者）"]
+    W["mutate_config<br/>（进程内 Mutex + 跨进程 config.write.lock）"]
 
     Snap -- "cached_config()：acquire load + Arc 计数" --> Readers
-    W -- "clone → 改 → 落盘 → store 新 Arc" --> Snap
+    W -- "重读磁盘 → 改 → 落盘 → store 新 Arc" --> Snap
 ```
 
 - **读者从不阻塞**：`ArcSwap` 允许无限个并发 reader，读路径永不等待写路径。
-- **写者互斥**：全局 `Mutex<()>` 保证临界区串行化。它防的是 lost-update——两个请求同时"读-改-写"，后写的会用自己那份陈旧快照覆盖先写的结果。写锁强制"读到的一定是最新快照"。
+- **写者互斥**：进程内 `Mutex<()>` 串行本进程写者，`config.write.lock` 再串行共享数据目录的桌面、Server 与 ACP。拿到两层锁后必须重读权威 `config.json`，并把锁持有到原子发布完成；禁止从进程缓存开始写事务，否则另一进程刚提交的字段会被旧快照覆盖。
 - **快照原子性**：`store(Arc::new(new))` 是一次 release store。任何 `cached_config()` 调用要么看到旧快照、要么看到新快照，绝不会看到半更新状态。
 - **持锁时间可控**：写锁只覆盖一次配置克隆 + 闭包执行 + 序列化 + 一次安全原子写 + 一次 Arc swap。磁盘 IO 虽是阻塞的，但写入频率极低（用户点保存），不会拖垮 runtime 的其它 worker。
 
@@ -97,14 +97,14 @@ flowchart LR
 sequenceDiagram
     participant C as 调用方
     participant M as mutate_config
-    participant L as 全局写锁 Mutex&lt;()&gt;
+    participant L as 进程内 Mutex + config.write.lock
     participant A as ArcSwap 快照
     participant D as 磁盘 config.json
     participant S as 保存后副作用
 
     C->>M: (category, source) + 闭包 f
     M->>L: lock（串行化写者）
-    M->>A: load_config() 克隆最新快照
+    M->>D: 持两层锁重读权威 config.json
     M->>M: f(&mut cfg)（校验失败即在此返回 Err）
     M->>D: autosave 旧文件 → backups/autosave/
     M->>D: 同目录临时文件 fsync → 原子替换 config.json → durability barrier

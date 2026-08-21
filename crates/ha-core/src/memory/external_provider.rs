@@ -515,13 +515,12 @@ pub fn spawn_external_memory_provider_sync_loop() {
 
 async fn run_automatic_external_memory_provider_sync() {
     let mut config = crate::config::cached_config().memory_providers.clone();
-    // Cheap process-local eligibility check only. The same filter is applied
-    // again to the authoritative snapshot after the process-shared lock is
-    // acquired, which is the security/correctness boundary.
+    // This snapshot is only a failure-report projection. Do not return early
+    // from it: a sibling desktop/server/ACP process may have enabled automatic
+    // sync since this process last refreshed its cache. The execution path
+    // acquires the shared state lock and reapplies this filter to authoritative
+    // config.json before deciding whether any provider is runnable.
     apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Automatic);
-    if !config.enabled || !config.providers.iter().any(|provider| provider.enabled) {
-        return;
-    }
     let (stats, stats_error) =
         crate::blocking::run_blocking(super::helpers::external_memory_provider_stats_for_planning)
             .await;
@@ -2157,6 +2156,52 @@ mod tests {
         apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Owner);
 
         assert!(config.providers[0].enabled);
+    }
+
+    #[test]
+    fn automatic_sync_refreshes_live_policy_when_process_cache_is_disabled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let original = crate::config::cached_config();
+            struct RestoreCache(std::sync::Arc<crate::config::AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    crate::config::replace_cache_for_test((*self.0).clone());
+                }
+            }
+            let _restore = RestoreCache(original);
+
+            crate::config::replace_cache_for_test(crate::config::AppConfig::default());
+            let live_provider = ExternalMemoryProviderConfig {
+                enabled: true,
+                sync_policy: super::super::ExternalMemorySyncPolicy::PushOnly,
+                endpoint_configured: false,
+                ..test_provider("automatic")
+            };
+            let live = crate::config::AppConfig {
+                memory_providers: ExternalMemoryProvidersConfig {
+                    enabled: true,
+                    providers: vec![live_provider],
+                },
+                ..crate::config::AppConfig::default()
+            };
+            std::fs::write(
+                temp.path().join("config.json"),
+                serde_json::to_vec_pretty(&live).expect("serialize live config"),
+            )
+            .expect("write live config");
+
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime")
+                .block_on(run_automatic_external_memory_provider_sync());
+
+            let refreshed = crate::config::cached_config();
+            assert!(refreshed.memory_providers.enabled);
+            assert_eq!(refreshed.memory_providers.providers.len(), 1);
+            assert_eq!(refreshed.memory_providers.providers[0].id, "automatic");
+        });
     }
 
     #[test]
