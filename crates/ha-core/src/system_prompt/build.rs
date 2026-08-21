@@ -289,6 +289,7 @@ pub(crate) fn build_with_resolved_session(
         &definition.config.capabilities.skills,
         definition.config.capabilities.skill_env_check,
         session_id,
+        session_working_dir,
     ));
 
     // ⑦b Current Project — injected before Memory so the LLM knows which
@@ -1288,6 +1289,7 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool
     let available_skills = crate::skills_hooks::load_all_skills_with_budget(
         &store.extra_skills_dirs,
         &store.skill_prompt_budget,
+        None,
     );
     // Legacy path has no session context — conditional skills stay hidden.
     let activated_conditional = std::collections::HashSet::new();

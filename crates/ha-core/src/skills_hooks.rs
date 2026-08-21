@@ -46,7 +46,7 @@
 //!   让 Coding Improvement 的 promotion 记下一条根本没落盘的 artifact。
 
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::OnceLock;
 
@@ -64,17 +64,25 @@ pub struct SkillsHooks {
     /// `skills::get_invocable_skills`——扫描内置 + 托管 + 额外目录，产出模型 /
     /// slash 可调用的技能目录。四个 kernel 调用点共用（slash 菜单、`/help`、
     /// slash 分发、条件激活快路径）。
-    pub invocable_skills: fn(extra_dirs: &[String], disabled: &[String]) -> Vec<SkillEntry>,
+    pub invocable_skills: fn(
+        extra_dirs: &[String],
+        disabled: &[String],
+        workspace_dir: Option<&Path>,
+    ) -> Vec<SkillEntry>,
     /// `skills::load_all_skills_with_budget`——system prompt 用的目录（含预算
     /// 裁剪）。与 [`Self::invocable_skills`] 是两条不同的过滤链，不能合并。
-    pub load_all_skills_with_budget:
-        fn(extra_dirs: &[String], budget: &SkillPromptBudget) -> Vec<SkillEntry>,
+    pub load_all_skills_with_budget: fn(
+        extra_dirs: &[String],
+        budget: &SkillPromptBudget,
+        workspace_dir: Option<&Path>,
+    ) -> Vec<SkillEntry>,
     /// Typed-composer variant. Names already passed source-anchor validation in
     /// `prompt_context`; the feature layer still enforces its allowlist,
     /// enabled state, requirements, and OS gate.
     pub resolve_named_skill_mentions: fn(
         names: &[String],
         agent_id: Option<&str>,
+        workspace_dir: Option<&Path>,
     ) -> Option<crate::skills::MentionSkillActivation>,
     /// `tools::skill::render_inline`——读 SKILL.md + `$ARGUMENTS` 替换。
     /// slash 命令与 `skill` 工具共用同一份激活正文（两者必须逐字节相同）。
@@ -143,9 +151,13 @@ fn hooks() -> Option<&'static SkillsHooks> {
 const NOT_WIRED: &str = "skills machinery not wired (ha_skills::wire() was not called)";
 
 /// 模型 / slash 可调用的技能目录。未装配即**空目录**。
-pub fn invocable_skills(extra_dirs: &[String], disabled: &[String]) -> Vec<SkillEntry> {
+pub fn invocable_skills(
+    extra_dirs: &[String],
+    disabled: &[String],
+    workspace_dir: Option<&Path>,
+) -> Vec<SkillEntry> {
     match hooks() {
-        Some(h) => (h.invocable_skills)(extra_dirs, disabled),
+        Some(h) => (h.invocable_skills)(extra_dirs, disabled, workspace_dir),
         None => Vec::new(),
     }
 }
@@ -154,9 +166,10 @@ pub fn invocable_skills(extra_dirs: &[String], disabled: &[String]) -> Vec<Skill
 pub fn load_all_skills_with_budget(
     extra_dirs: &[String],
     budget: &SkillPromptBudget,
+    workspace_dir: Option<&Path>,
 ) -> Vec<SkillEntry> {
     match hooks() {
-        Some(h) => (h.load_all_skills_with_budget)(extra_dirs, budget),
+        Some(h) => (h.load_all_skills_with_budget)(extra_dirs, budget, workspace_dir),
         None => Vec::new(),
     }
 }
@@ -166,9 +179,10 @@ pub fn load_all_skills_with_budget(
 pub fn resolve_named_skill_mentions(
     names: &[String],
     agent_id: Option<&str>,
+    workspace_dir: Option<&Path>,
 ) -> Option<crate::skills::MentionSkillActivation> {
     match hooks() {
-        Some(h) => (h.resolve_named_skill_mentions)(names, agent_id),
+        Some(h) => (h.resolve_named_skill_mentions)(names, agent_id, workspace_dir),
         None => None,
     }
 }

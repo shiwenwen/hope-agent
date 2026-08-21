@@ -268,6 +268,7 @@ pub fn init_runtime(role: &'static str) {
                 let skill = crate::skills_hooks::invocable_skills(
                     &store.extra_skills_dirs,
                     &store.disabled_skills,
+                    None,
                 )
                 .into_iter()
                 .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)?;

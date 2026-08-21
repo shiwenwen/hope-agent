@@ -23,8 +23,12 @@ pub fn handle_help(session_id: Option<&str>) -> CommandResult {
     }
 
     let cfg = crate::config::cached_config();
-    let skills =
-        crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let working_dir = crate::session::effective_session_working_dir(session_id);
+    let skills = crate::skills_hooks::invocable_skills(
+        &cfg.extra_skills_dirs,
+        &cfg.disabled_skills,
+        working_dir.as_deref().map(std::path::Path::new),
+    );
     let skills =
         crate::skills::filter_catalog_eligible_skills(skills, cfg.skill_env_check, &cfg.skill_env);
     let resolved_skills = crate::slash_commands::resolve_skill_command_names(

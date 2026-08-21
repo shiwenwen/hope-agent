@@ -1101,6 +1101,30 @@ pub async fn run_chat_engine_classified(
         )
     };
 
+    // Repository/project skill discovery is session-scoped. Resolve the
+    // effective workspace from this engine's DB snapshot rather than the
+    // process-global DB or process cwd, because one daemon can serve several
+    // unrelated projects concurrently.
+    let has_typed_skill_mentions = incoming_turn.as_ref().is_some_and(|wire| {
+        wire.mentions
+            .iter()
+            .any(|mention| mention.kind == crate::prompt_context::MentionKind::Skill)
+    });
+    let skill_working_dir = if has_typed_skill_mentions {
+        let snapshot_db = db.clone();
+        let snapshot_session_id = session_id.clone();
+        crate::blocking::run_blocking(move || {
+            let session = snapshot_db
+                .get_session(&snapshot_session_id)?
+                .with_context(|| "typed skill mention session no longer exists")?;
+            anyhow::Ok(crate::session::effective_working_dir_for_meta(&session))
+        })
+        .await
+        .map_err(|error| format!("Cannot resolve typed skill workspace: {error}"))?
+    } else {
+        None
+    };
+
     // A typed file binding is only resolved when the same turn also carries a
     // matching attachment. Resolve the canonical target beneath the session
     // working directory and read its bytes exactly once. This phase is
@@ -1157,7 +1181,11 @@ pub async fn run_chat_engine_classified(
         if !skill_ids.is_empty() {
             let activation = require_explicit_mention_skill_activation(
                 &skill_ids,
-                crate::skills_hooks::resolve_named_skill_mentions(&skill_ids, Some(&agent_id)),
+                crate::skills_hooks::resolve_named_skill_mentions(
+                    &skill_ids,
+                    Some(&agent_id),
+                    skill_working_dir.as_deref().map(std::path::Path::new),
+                ),
             )
             .map_err(|error| format!("Invalid typed mention context: {error}"))?;
             turn_context_builder.user_instruction(
@@ -1204,10 +1232,13 @@ pub async fn run_chat_engine_classified(
                 cfg.skill_env_check,
             );
             let skill_env = cfg.skill_env.clone();
-            let entries =
-                crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
-            // Typed ownership must be rebuilt from the same globally surfaced
-            // catalog as list/help/dispatch. Agent-specific requirement checks
+            let entries = crate::skills_hooks::invocable_skills(
+                &cfg.extra_skills_dirs,
+                &cfg.disabled_skills,
+                skill_working_dir.as_deref().map(std::path::Path::new),
+            );
+            // Typed ownership must be rebuilt from the same session workspace
+            // catalog as help/dispatch. Agent-specific requirement checks
             // still run after the collision-resolved binding is matched.
             let entries = crate::skills::filter_catalog_eligible_skills(
                 entries,

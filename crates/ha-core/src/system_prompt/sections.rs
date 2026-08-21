@@ -303,11 +303,13 @@ pub(super) fn build_skills_section(
     filter: &FilterConfig,
     env_check: bool,
     session_id: Option<&str>,
+    session_working_dir: Option<&str>,
 ) -> String {
     let store = crate::config::cached_config();
     let all_skills = crate::skills_hooks::load_all_skills_with_budget(
         &store.extra_skills_dirs,
         &store.skill_prompt_budget,
+        session_working_dir.map(std::path::Path::new),
     );
 
     // Start with globally disabled skills

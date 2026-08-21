@@ -293,7 +293,7 @@ pub fn patch_skill_fuzzy(
 /// Return all skills currently in `Draft` status, across all discovery sources
 /// (though in practice only managed skills can be in draft).
 pub fn list_drafts(extra_dirs: &[String]) -> Vec<SkillEntry> {
-    load_all_skills_with_extra(extra_dirs)
+    load_all_skills_with_extra(extra_dirs, None)
         .into_iter()
         .filter(|s| s.status == SkillStatus::Draft)
         .collect()

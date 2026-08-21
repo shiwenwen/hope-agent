@@ -44,7 +44,11 @@ pub async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         ctx.agent_id.as_deref(),
         cfg.skill_env_check,
     );
-    let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let skills = crate::skills::get_invocable_skills(
+        &cfg.extra_skills_dirs,
+        &cfg.disabled_skills,
+        ctx.session_working_dir.as_deref().map(std::path::Path::new),
+    );
 
     let entry = skills
         .iter()

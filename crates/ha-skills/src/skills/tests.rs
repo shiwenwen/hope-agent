@@ -3,7 +3,9 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use crate::skills::discovery::{compact_path, load_skills_from_dir, workspace_skill_sources};
+    use crate::skills::discovery::{
+        compact_path, load_all_skills_with_budget, load_skills_from_dir, workspace_skill_sources,
+    };
     use crate::skills::frontmatter::{
         parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires, unquote,
         ParsedFrontmatter,
@@ -778,6 +780,40 @@ Body."#;
         assert_eq!(sources[0].1, "repo-ancestor");
         assert_eq!(sources[1].1, "repo-ancestor");
         assert_eq!(sources[2].1, "workspace-shared");
+    }
+
+    #[test]
+    fn repository_skills_require_the_explicit_session_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let workspace = repo.join("packages/app");
+        let skill_dir = workspace
+            .join(".agents/skills")
+            .join("session-scoped-regression");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: session-scoped-regression\ndescription: scoped\n---\nbody",
+        )
+        .unwrap();
+
+        let unscoped = load_all_skills_with_budget(&[], &SkillPromptBudget::default(), None);
+        assert!(
+            unscoped
+                .iter()
+                .all(|entry| entry.name != "session-scoped-regression"),
+            "a catalog without session context must not inherit repository skills from process cwd"
+        );
+
+        let scoped =
+            load_all_skills_with_budget(&[], &SkillPromptBudget::default(), Some(&workspace));
+        let entry = scoped
+            .iter()
+            .find(|entry| entry.name == "session-scoped-regression")
+            .expect("session workspace skill should be discovered");
+        assert_eq!(entry.source, "workspace-shared");
+        assert!(PathBuf::from(&entry.file_path).starts_with(workspace.canonicalize().unwrap()));
     }
 
     #[cfg(unix)]

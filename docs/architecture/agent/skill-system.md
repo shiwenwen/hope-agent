@@ -170,7 +170,7 @@ graph TB
 | 共享 | `~/.agents/skills/` | 较低 | 跨工具共享约定 |
 | 额外目录 | 用户通过 UI 导入的目录 | 低 | 记在 `config.json` 的 `extraSkillsDirs` |
 | 托管 | `~/.hope-agent/skills/` | 中 | 全局技能目录，也是自动创建/托管写入的落点 |
-| 仓库标准 | 从最近 Git 仓库根到 cwd 的每层 `.agents/skills/` | 中高 | 根目录先载入，越靠近 cwd 优先级越高；不越过最近 `.git` 边界 |
+| 仓库标准 | 从最近 Git 仓库根到会话有效工作目录的每层 `.agents/skills/` | 中高 | 根目录先载入，越靠近会话工作目录优先级越高；不越过最近 `.git` 边界；无会话工作区时不扫描，绝不回退进程 cwd |
 | 项目 | `.hope-agent/skills/`（相对 canonical cwd） | 最高 | Hope 私有项目级覆盖，保持既有兼容 |
 
 ```mermaid
@@ -180,7 +180,7 @@ block-beta
     S["共享<br/>~/.agents/skills/"]
     E["额外目录<br/>用户导入"]
     M["托管<br/>~/.hope-agent/skills/"]
-    R["仓库标准<br/>根 → cwd 的 .agents/skills/"]
+    R["仓库标准<br/>根 → 会话工作目录的 .agents/skills/"]
     P["项目<br/>.hope-agent/skills/"]
     B --> S
     S --> E
@@ -336,7 +336,7 @@ flowchart TD
     START --> S["共享<br/>~/.agents/skills/"]
     START --> E["额外目录<br/>用户导入"]
     START --> M["托管<br/>~/.hope-agent/skills/"]
-    START --> R["仓库标准<br/>根 → cwd 的 .agents/skills/"]
+    START --> R["仓库标准<br/>根 → 会话工作目录的 .agents/skills/"]
     START --> P["项目<br/>.hope-agent/skills/"]
 
     B & S & E & M & R & P --> SCAN
@@ -355,7 +355,7 @@ flowchart TD
     SORT --> RESULT(["返回 Vec&lt;SkillEntry&gt;"])
 ```
 
-**优先级覆盖**：项目 > 越靠近 cwd 的仓库标准目录 > 仓库根标准目录 > 托管 > 额外目录 > 共享 > 内置。仓库标准目录的扫描在最近 `.git` 文件/目录处停止；不在 Git 仓库内时只考虑 cwd 自身。
+**优先级覆盖**：项目 > 越靠近会话有效工作目录的仓库标准目录 > 仓库根标准目录 > 托管 > 额外目录 > 共享 > 内置。仓库标准目录的扫描在最近 `.git` 文件/目录处停止；不在 Git 仓库内时只考虑会话工作目录自身。没有会话工作区的全局设置、IM 菜单等入口不扫描仓库技能，也不会回退到 Hope 进程的 cwd。
 
 ### 嵌套目录检测
 
