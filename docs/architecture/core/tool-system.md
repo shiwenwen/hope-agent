@@ -259,7 +259,7 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 
 | 工具 | 标记 | 说明 |
 |------|------|------|
-| `web_fetch` | deferred, concurrent_safe | 抓取 URL 并用 Mozilla Readability 提取正文。`extract_mode`：`markdown`(默认)或 `text`。`max_chars` 受服务端上限约束。 |
+| `web_fetch` | default_deferred=false, concurrent_safe | V2 单 URL 安全读取：Direct HTTP + 可选隔离 Render，支持 HTML / JSON / XML / CSV / Markdown / PDF、CSS scope、`max_chars` + `max_tokens` 投影、不可变 snapshot cursor 与 freshness。结果统一为 untrusted envelope，来源写入 metadata sink。详见 [web-fetch](web-fetch.md)。 |
 | `web_search` | 条件注入, concurrent_safe, **GenericJob** | 网络搜索（需在设置启用）。参数：`query`(必填)、`count`、`country`、`language`、`freshness`、`run_in_background`、`job_timeout_secs`。不同 provider（Bocha / Brave / SearXNG / Perplexity / Google / Tavily）支持的过滤参数不同。 |
 
 ### 4. 记忆系统

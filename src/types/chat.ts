@@ -198,12 +198,30 @@ export interface ScheduleEntityMetadata {
   workspaceBaseRef?: string | null
 }
 
+/** Source provenance emitted by web_fetch for the workspace Sources panel. */
+export interface WebFetchSourceMetadata {
+  kind: "web_fetch_source"
+  url: string
+  title?: string | null
+  status: number
+  retrievedAt: string
+  snapshotId: string
+  fetchMode: "direct" | "rendered"
+  cacheHit: boolean
+  cacheAgeMs: number
+  sourceHash: string
+  truncated: boolean
+  continuationAvailable: boolean
+  warnings: string[]
+}
+
 export type ToolMetadata =
   | FileChangeMetadata
   | FileChangesMetadata
   | FileReadMetadata
   | BrowserActivityMetadata
   | ScheduleEntityMetadata
+  | WebFetchSourceMetadata
 
 export interface ToolCall {
   callId: string

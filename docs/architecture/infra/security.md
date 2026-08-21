@@ -11,13 +11,14 @@
 
 `security/` 这个模块把这些**横跨所有子系统**的安全约定收拢到一处，让任何工具、任何 Provider、任何后台任务都走同一套判定，而不是各自造轮子、语义各不相同。它住在最底层的基础设施 crate [`ha-base`](../../../crates/ha-base/src/security/)（零业务依赖），因此上层每个特征 crate 都能直接调用。
 
-三根支柱：
+四根支柱：
 
 | 模块 | 职责 | 抵御的威胁 |
 |---|---|---|
 | [`ssrf.rs`](../../../crates/ha-base/src/security/ssrf.rs) | 出站 HTTP/WS 的目标 host 分类 + 三档放行策略 + 可信主机白名单 | 内网探测、云元数据窃取、DNS rebinding、非法 scheme |
+| [`http_redirect.rs`](../../../crates/ha-base/src/security/http_redirect.rs) | 禁用 client 自动跳转，在每个 HTTP redirect 之前异步复查完整 URL | 普通 hostname redirect 绕过同步回调的 DNS 检查缺口 |
 | [`dangerous.rs`](../../../crates/ha-base/src/security/dangerous.rs) | 进程级跳过所有工具审批的"核弹按钮"（YOLO） | 误开、误绕过审批而无迹可查 |
-| [`http_stream.rs`](../../../crates/ha-base/src/security/http_stream.rs) | 出站响应体的字节封顶读取 | 恶意/抽风上游撑爆进程内存 |
+| [`http_stream.rs`](../../../crates/ha-base/src/security/http_stream.rs) | 出站响应体的解压后字节封顶读取 + 截断 / 接收量信息 | 压缩炸弹或恶意上游撑爆进程内存 |
 
 除此之外，本子系统还承载两条**跨子系统红线**：凭据不落日志（redaction）、凭据文件安全落盘。
 
@@ -25,6 +26,7 @@
 flowchart TB
     subgraph base["ha-base · security/（基础设施层）"]
         SSRF["ssrf.rs<br/>出站分类与放行"]
+        REDIRECT["http_redirect.rs<br/>逐跳异步复查"]
         DANGER["dangerous.rs<br/>审批跳过总开关"]
         CAP["http_stream.rs<br/>响应体字节封顶"]
     end
@@ -37,12 +39,14 @@ flowchart TB
         MCP["MCP transport / OAuth · ha-mcp"]
     end
     ENGINE["permission::engine::resolve_async<br/>（审批裁决）"]
-    callers -->|"check_url / check_host_blocking_sync"| SSRF
+    callers -->|"check_url"| SSRF
+    callers -->|"checked_get"| REDIRECT
+    REDIRECT -->|"每一跳 check_url"| SSRF
     callers -->|"read_*_capped"| CAP
     ENGINE -->|"is_dangerous_skip_active()"| DANGER
 ```
 
-**硬规则**：所有出站 HTTP / WebSocket 入口**必须**走 `security::ssrf::check_url`（异步入口）或 `check_host_blocking_sync`（reqwest redirect 回调这类同步入口）。新出站入口严禁自写 IP 校验——重复实现必然带来不一致的语义，而不一致就是漏洞。
+**硬规则**：所有出站 HTTP / WebSocket 入口**必须**走 `security::ssrf::check_url`。需要跟随 HTTP redirect 的新入口优先使用 `security::http_redirect::checked_get`：client 关闭自动 redirect，由业务层在发送每一跳之前异步调用 `check_url`。`check_host_blocking_sync` 只保留给无法改成手动跳转的既有同步回调，不能被描述成与完整 DNS 检查等价。新出站入口严禁自写 IP 校验——重复实现必然带来不一致的语义，而不一致就是漏洞。
 
 **唯一的例外是 LLM Provider 出站**：`ProviderConfig.allow_private_network` 只是一个 UI 标记，后端不做拦截。原因很实际——用户的本地 Ollama / vLLM 自部署常年住在 `192.168.*` / `10.*`，如果对 Provider 也套 SSRF 策略，最常见的本地部署反而被误伤。这条例外在下文"调用方对照"里会再点明。
 
@@ -149,16 +153,18 @@ flowchart TD
 - **DNS rebinding 防御——每个解析出的 IP 都要过策略**。一个 hostname 可以同时返回多条记录（A + AAAA，甚至攻击者投毒出的"公网 + 内网"混合）。如果只检查第一条，攻击者就能用"首条公网、次条 `169.254.169.254`"偷渡。`check_url` 要求**每一条**都通过策略才放行。
 - **只放行 http/https**。`file://` / `gopher://` / `dict://` 这些历史上被反复用于 SSRF 的高危 scheme 一律拒。
 
-### redirect 回调入口 `check_host_blocking_sync`（同步）
+### HTTP redirect：优先 `checked_get`，同步回调仅作兼容
 
 reqwest 的 `redirect::Policy::custom` 回调是同步上下文，没法 `.await` 去做 DNS。`check_host_blocking_sync(host, policy, allowlist) -> bool` 只拿得到 host 字符串，能力受限：
 
 1. 命中 `allowlist` → 返回 `false`（不阻断）
 2. host 是 `localhost` 或 `*.localhost` → 按 Loopback 分类判策略
 3. host 是 IP 字面量 → `classify_ip` 后判策略
-4. **未知 hostname → 返回 `false` 放行**——它无法在同步上下文里 resolve，于是让 reqwest 继续 follow，把真正的判定交给下一跳业务代码重新调用 `check_url` 时的完整 DNS 检查
+4. **未知 hostname → 返回 `false` 放行**——它无法在同步上下文里 resolve；如果 client 自动 follow，单靠这个回调并不存在可靠的“下一跳业务代码再检查”保证
 
-注意它的返回值语义和 `check_url` **相反**：`true = 应该 block，false = 放行`。函数名里的 `_blocking_` 就是这个提示。凡在 redirect 回调里做同步 host 复查的入口都调它——`web_fetch`（见 [`tools/web_fetch.rs`](../../../crates/ha-core/src/tools/web_fetch.rs)）、设计空间的网页抓取（`ha-design`）、知识空间的 URL 导入（`ha-knowledge`）都走这一条。
+因此新代码不应把同步回调当完整 SSRF 边界。`http_redirect::checked_get` 要求调用方构造 `Policy::none()` client，自行解析相对 `Location`、限制跳数 / loop，并在下一次 `send()` 前对完整目标异步 `check_url`。`web_fetch`、远程 PDF 与 `url_preview` 已走这条共享原语。
+
+`check_host_blocking_sync` 的返回值语义和 `check_url` **相反**：`true = 应该 block，false = 放行`。它只用于仍受 reqwest 同步 callback 形状限制的兼容入口；迁移这些入口时应改用手动逐跳协议。
 
 ### 出站入口调用方对照
 
@@ -166,7 +172,7 @@ reqwest 的 `redirect::Policy::custom` 回调是同步上下文，没法 `.await
 
 | 调用点 | 策略解析 | 位置 |
 |---|---|---|
-| `web_fetch` | `ssrf_cfg.web_fetch()`；legacy `ssrf_protection = false` 降级到 `AllowPrivate`（仍拦 metadata/内网 link-local）；redirect 回调走 `check_host_blocking_sync` | [`tools/web_fetch.rs`](../../../crates/ha-core/src/tools/web_fetch.rs) |
+| `web_fetch` | `ssrf_cfg.web_fetch()`；安全检查先于 cache / cursor；新配置禁止关闭 `ssrfProtection`，legacy false 只在读取兼容时防御性降级；Direct、远程 PDF 逐跳走 `http_redirect::checked_get`，Render 的每个 HTTP(S) 子请求再查同一 policy | [`tools/web_fetch.rs`](../../../crates/ha-core/src/tools/web_fetch.rs) · [`web_fetch_renderer.rs`](../../../crates/ha-browser/src/browser/web_fetch_renderer.rs) |
 | `browser` 高层 URL 操作（`navigate.go` / `tabs.new` / `profile.connect` / `control.evaluate` 里的字面量 URL） | `ssrf_cfg.browser()`；`raw_cdp` 不做 payload SSRF 扫描，风险交给统一 tool 审批 | [`tool/mod.rs` `check_url_via_ssrf`](../../../crates/ha-browser/src/tool/mod.rs) · [`browser/mod.rs` `validate_cdp_endpoint_url`](../../../crates/ha-browser/src/browser/mod.rs) |
 | `browser` Chromium runtime 下载 | `ssrf_cfg.browser()`，固定 Google Chromium snapshots host，下载后再叠 zip-slip 防护 + smoke test | [`browser/runtime.rs`](../../../crates/ha-browser/src/browser/runtime.rs) |
 | `image_generate` 输入/产物图片下载 | `ssrf_cfg.image_generate()`，逐跳 SSRF 经 `adapters::fetch` 统一走同一条安全通路，封顶 10 MB | [`ha-media media_gen/input.rs`](../../../crates/ha-media/src/media_gen/input.rs) |
@@ -185,7 +191,7 @@ reqwest 的 `redirect::Policy::custom` 回调是同步上下文，没法 `.await
 
 `Content-Length` 不可信——它可能撒谎，也可能因为 chunked encoding 干脆缺失。恶意或抽风的上游可以持续推字节，把进程内存吃光。而 reqwest 的 `bytes()` / `text()` 这类便利方法**没有内置上限**，调用即裸奔。
 
-`read_bytes_capped(resp, max_bytes)` 用流式方式把 `reqwest::Response` 读进 `Vec<u8>`，一旦超过 `max_bytes` 立即 `truncate` 并跳出——**它对封顶保持静默**（不报错），把"截断的 body 算不算致命"这个判断留给调用方。`read_text_capped` 是它的 lossy UTF-8 包装（reqwest 会先透明解 gzip/deflate，所以 `max_bytes` 是解压后的上限）。
+`read_bytes_capped_with_info(resp, max_bytes)` 用流式方式把 `reqwest::Response` 读进 `Vec<u8>`，一旦超过 `max_bytes` 立即 `truncate` 并停止，返回 `{bytes,truncated,received_bytes}`，把“截断是否致命”交给调用方。兼容入口 `read_bytes_capped` 只返回 bytes，`read_text_capped` 是 lossy UTF-8 包装。workspace reqwest 启用 gzip / brotli / deflate / zstd 解码，因此 cap 约束的是**透明解压后的 body**。
 
 ### 各调用方与上限
 
@@ -197,6 +203,7 @@ reqwest 的 `redirect::Policy::custom` 回调是同步上下文，没法 `.await
 | `web_search` HTML 抓取（DuckDuckGo scrape 路径） | 1.5 MB（`HTML_RESPONSE_BYTE_CAP`） | 同上 |
 | `image_generate` 图片下载 | 10 MB（`MAX_IMAGE_DOWNLOAD_BYTES`，覆盖 4K 大图） | [`ha-media media_gen/input.rs`](../../../crates/ha-media/src/media_gen/input.rs) |
 | `url_preview` 页面 head / favicon | 各 64 KB（`PREVIEW_MAX_BYTES` / `FAVICON_MAX_BYTES`，够读 `<head>`） | [`url_preview.rs`](../../../crates/ha-core/src/url_preview.rs) |
+| `web_fetch` Direct body | 配置默认 2 MiB、写入范围 64 KiB–20 MiB；错误页预览读取 4 KiB | [`tools/web_fetch.rs`](../../../crates/ha-core/src/tools/web_fetch.rs) |
 | Pet 精灵图导入（URL 路径） | 20 MB（`MAX_SPRITE_BYTES`） | [`ha-pet import.rs`](../../../crates/ha-pet/src/import.rs) |
 | IM Channel 媒体物化（URL 路径） | 调用方传入的 `max_bytes`，渠道层后续再叠自己的硬上限 | [`ha-channel media_helpers.rs`](../../../crates/ha-channel/src/channel/media_helpers.rs) |
 
@@ -296,6 +303,7 @@ pub fn status() -> DangerousModeStatus;
 - `allowlist_exact_and_wildcard`：精确 / 通配 / 大小写不敏感 / 端口对齐 / apex 匹配
 - `check_url_*`：字面量 metadata 拒、private 在 Default 拒、loopback 在 Default 放、loopback 在 Strict 拒、private 在 AllowPrivate 放、`file://` scheme 拒、allowlist 绕过 Strict
 - `redirect_callback_behavior`：`check_host_blocking_sync` 对 loopback / localhost / metadata / public / allowlist 的决策
+- `redirect_target_is_checked_before_it_is_contacted`：初始 loopback 仅按精确 host:port allowlist 放行，redirect 到另一 loopback 端口时在连接目标前被 Strict policy 拒绝
 
 `security/dangerous.rs` 当前没有独立单测——CLI flag + 实时配置读取带副作用，难以纯函数化；其审批旁路语义由 [`tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) 的集成测试覆盖。
 
@@ -305,8 +313,9 @@ pub fn status() -> DangerousModeStatus;
 |---|---|
 | [`ha-base/src/security/mod.rs`](../../../crates/ha-base/src/security/mod.rs) | 三个子模块的 `pub mod` 导出 |
 | [`ha-base/src/security/ssrf.rs`](../../../crates/ha-base/src/security/ssrf.rs) | `SsrfPolicy` / `HostKind` / `SsrfConfig` / `classify_ip` / `is_metadata_ip` / `is_in_allowlist` / `policy_allows` / `check_url` / `check_host_blocking_sync` / `resolve_and_classify` |
+| [`ha-base/src/security/http_redirect.rs`](../../../crates/ha-base/src/security/http_redirect.rs) | `checked_get` / `RedirectHop`：手动逐跳、安全检查先于下一次发送 |
 | [`ha-base/src/security/dangerous.rs`](../../../crates/ha-base/src/security/dangerous.rs) | `set_cli_flag` / `cli_flag_active` / `register_config_flag_source` / `is_dangerous_skip_active` / `active_source` / `status` |
-| [`ha-base/src/security/http_stream.rs`](../../../crates/ha-base/src/security/http_stream.rs) | `read_bytes_capped` / `read_text_capped` |
+| [`ha-base/src/security/http_stream.rs`](../../../crates/ha-base/src/security/http_stream.rs) | `CappedBody` / `read_bytes_capped_with_info` / `read_bytes_capped` / `read_text_capped` |
 | [`ha-config-schema/src/config.rs`](../../../crates/ha-config-schema/src/config.rs) | `AppConfig.ssrf: SsrfConfig` + `AppConfig.permission: PermissionGlobalConfig` 字段定义（`permission.rs` 内含 `global_yolo`） |
 | [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | `resolve_tool_permission` 构造 `ResolveContext`，把 `is_dangerous_skip_active()` 喂进 `global_yolo`，调 `permission::engine::resolve_async`；YOLO bypass 落在其同步核心 `resolve` |
 | [`ha-base/src/logging/file_ops.rs`](../../../crates/ha-base/src/logging/file_ops.rs) | `redact_sensitive` 脱敏函数 |

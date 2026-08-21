@@ -13,18 +13,15 @@ pub const DEFAULT_BROWSER_USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-/// Headers a real Chrome on macOS sends on a top-level navigation. The
-/// `Accept-Encoding` deliberately omits `br` — `reqwest` only decodes
-/// brotli with the `brotli` feature enabled, which is not on our default
-/// build. Falsely advertising `br` would cause raw brotli bytes to land in
-/// the response body.
+/// Headers a browser-like client sends on a top-level navigation. Compression
+/// is intentionally omitted: reqwest installs the encodings that the compiled
+/// decoder feature-set can actually decode.
 pub const FETCH_BROWSER_HEADERS: &[(&str, &str)] = &[
     (
         "Accept",
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     ),
     ("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"),
-    ("Accept-Encoding", "gzip, deflate"),
     ("Cache-Control", "no-cache"),
     ("Pragma", "no-cache"),
     (
@@ -40,6 +37,35 @@ pub const FETCH_BROWSER_HEADERS: &[(&str, &str)] = &[
     ("Upgrade-Insecure-Requests", "1"),
 ];
 
+/// Build the same header set as a reusable map for redirect-safe requests.
+pub fn browser_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    for (name, value) in FETCH_BROWSER_HEADERS {
+        let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_bytes()) else {
+            continue;
+        };
+        let Ok(value) = reqwest::header::HeaderValue::from_str(value) else {
+            continue;
+        };
+        headers.insert(name, value);
+    }
+    headers
+}
+
+/// Browser-like headers whose client hints remain consistent with the chosen
+/// User-Agent. A custom UA gets the generic navigation headers only; sending
+/// fixed Chrome/macOS hints beside a Firefox, bot, or newer Chrome UA creates a
+/// contradictory fingerprint and can reduce compatibility.
+pub fn browser_headers_for_user_agent(user_agent: &str) -> reqwest::header::HeaderMap {
+    let mut headers = browser_headers();
+    if user_agent.trim() != DEFAULT_BROWSER_USER_AGENT {
+        for name in ["sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform"] {
+            headers.remove(name);
+        }
+    }
+    headers
+}
+
 /// Install [`FETCH_BROWSER_HEADERS`] on a `reqwest::RequestBuilder`.
 pub fn apply_browser_headers(mut rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     for (k, v) in FETCH_BROWSER_HEADERS {
@@ -48,14 +74,19 @@ pub fn apply_browser_headers(mut rb: reqwest::RequestBuilder) -> reqwest::Reques
     rb
 }
 
-/// Parse a `Retry-After` header as integer seconds, capped at `cap`.
-///
-/// HTTP-date form (`Retry-After: Wed, 21 Oct 2015 07:28:00 GMT`) is rare
-/// from CF / CDN edge — returning `None` for it keeps us free of a date-
-/// parsing dependency. Cap defends against malicious servers asking us to
-/// sleep for hours.
+/// Parse a `Retry-After` header as integer seconds or an HTTP-date, capped at
+/// `cap`. The cap prevents an origin from parking a tool worker for hours.
 pub fn retry_after_seconds(h: Option<&reqwest::header::HeaderValue>, cap: u64) -> Option<u64> {
-    h?.to_str().ok()?.parse::<u64>().ok().map(|n| n.min(cap))
+    let raw = h?.to_str().ok()?;
+    if let Ok(seconds) = raw.parse::<u64>() {
+        return Some(seconds.min(cap));
+    }
+    let when = httpdate::parse_http_date(raw).ok()?;
+    let seconds = when
+        .duration_since(std::time::SystemTime::now())
+        .unwrap_or_default()
+        .as_secs();
+    Some(seconds.min(cap))
 }
 
 #[cfg(test)]
@@ -76,19 +107,18 @@ mod tests {
     }
 
     #[test]
-    fn retry_after_seconds_rejects_garbage_and_dates() {
+    fn retry_after_seconds_rejects_garbage_and_accepts_dates() {
         assert_eq!(retry_after_seconds(None, 5), None);
         assert_eq!(
             retry_after_seconds(Some(&HeaderValue::from_static("not-a-number")), 5),
             None
         );
-        // HTTP-date form intentionally unsupported.
         assert_eq!(
             retry_after_seconds(
-                Some(&HeaderValue::from_static("Wed, 21 Oct 2015 07:28:00 GMT")),
+                Some(&HeaderValue::from_static("Wed, 21 Oct 2099 07:28:00 GMT")),
                 5
             ),
-            None
+            Some(5)
         );
     }
 

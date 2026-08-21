@@ -25,6 +25,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true }
+tokio-native-tls = "0.3"
+url = { workspace = true }
 uuid = { workspace = true }
 
 # 与 ha-core 原依赖同版本线

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -169,6 +169,56 @@ pub async fn resolve_and_classify(host: &str, port: u16) -> Result<Vec<(IpAddr, 
     Ok(out)
 }
 
+/// Resolve one outbound destination, apply the active SSRF policy to every
+/// answer, and return the exact socket addresses that were approved.
+///
+/// Callers that own the connection boundary must connect only to an address
+/// returned here. Re-resolving `host` after this function returns would
+/// reintroduce a DNS-rebinding window between validation and connection.
+/// User-trusted hosts keep their existing policy-bypass semantics, but are
+/// still resolved so the caller can pin the actual connection.
+pub async fn resolve_checked_destination(
+    host: &str,
+    port: u16,
+    policy: SsrfPolicy,
+    allowlist: &[String],
+) -> Result<Vec<SocketAddr>> {
+    let host_port = format!("{}:{}", host, port);
+    let trusted = is_in_allowlist(host, allowlist) || is_in_allowlist(&host_port, allowlist);
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let kind = classify_ip(&ip);
+        if !trusted && !policy_allows(policy, kind) {
+            return Err(anyhow!(
+                "SSRF policy {:?} blocked {} ({:?})",
+                policy,
+                ip,
+                kind
+            ));
+        }
+        return Ok(vec![SocketAddr::new(ip, port)]);
+    }
+
+    let resolved = resolve_and_classify(host, port).await?;
+    let mut sockets = Vec::with_capacity(resolved.len());
+    for (ip, kind) in resolved {
+        if !trusted && !policy_allows(policy, kind) {
+            return Err(anyhow!(
+                "SSRF policy {:?} blocked {} → {} ({:?})",
+                policy,
+                host,
+                ip,
+                kind
+            ));
+        }
+        let socket = SocketAddr::new(ip, port);
+        if !sockets.contains(&socket) {
+            sockets.push(socket);
+        }
+    }
+    Ok(sockets)
+}
+
 // ── Allowlist ────────────────────────────────────────────────────
 
 /// Check whether `host` (optionally including port) matches a user-trusted entry.
@@ -224,40 +274,7 @@ pub async fn check_url(
         .host_str()
         .ok_or_else(|| anyhow!("URL has no host"))?;
     let port = parsed.port_or_known_default().unwrap_or(80);
-    let host_port = format!("{}:{}", host, port);
-
-    if is_in_allowlist(host, allowlist) || is_in_allowlist(&host_port, allowlist) {
-        return Ok(parsed);
-    }
-
-    // Literal IP hosts: skip DNS, classify directly.
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        let kind = classify_ip(&ip);
-        if !policy_allows(policy, kind) {
-            return Err(anyhow!(
-                "SSRF policy {:?} blocked {} ({:?})",
-                policy,
-                ip,
-                kind
-            ));
-        }
-        return Ok(parsed);
-    }
-
-    // Hostname: resolve and require every returned IP to pass. Guards against
-    // DNS rebinding where a single hostname resolves to mixed public/private.
-    let resolved = resolve_and_classify(host, port).await?;
-    for (ip, kind) in &resolved {
-        if !policy_allows(policy, *kind) {
-            return Err(anyhow!(
-                "SSRF policy {:?} blocked {} → {} ({:?})",
-                policy,
-                host,
-                ip,
-                kind
-            ));
-        }
-    }
+    resolve_checked_destination(host, port, policy, allowlist).await?;
     Ok(parsed)
 }
 
@@ -438,6 +455,27 @@ mod tests {
             "expected allowlist to bypass Strict, got {:?}",
             ok
         );
+    }
+
+    #[tokio::test]
+    async fn checked_destination_returns_the_exact_approved_socket() {
+        let sockets = resolve_checked_destination(
+            "127.0.0.1",
+            4317,
+            SsrfPolicy::Strict,
+            &["127.0.0.1:4317".into()],
+        )
+        .await
+        .expect("trusted literal destination");
+        assert_eq!(sockets, vec!["127.0.0.1:4317".parse().unwrap()]);
+    }
+
+    #[tokio::test]
+    async fn checked_destination_rejects_before_returning_a_private_socket() {
+        let error = resolve_checked_destination("10.0.0.1", 80, SsrfPolicy::Default, &[])
+            .await
+            .expect_err("private destination should be blocked");
+        assert!(error.to_string().contains("Private"));
     }
 
     #[test]

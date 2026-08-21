@@ -488,7 +488,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_WEB_FETCH.into(),
-            description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
+            description: "Safely fetch an HTTP(S) resource into an immutable snapshot and return a V2 untrusted-data envelope. Supports readable HTML, JSON/text/Markdown, PDFs, CSS scoping, deterministic cursor continuation, cache freshness controls, and optional isolated JavaScript rendering. Follow page.nextCursor with the same arguments to continue long content.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: false,
             concurrent_safe: true,
@@ -498,16 +498,49 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "url": {
                         "type": "string",
+                        "maxLength": 8192,
                         "description": "HTTP or HTTPS URL to fetch"
                     },
                     "max_chars": {
                         "type": "integer",
+                        "minimum": 1,
                         "description": "Maximum content characters to return (default from config, capped by server limit)"
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional conservative token budget for returned content, capped by server configuration"
                     },
                     "extract_mode": {
                         "type": "string",
-                        "enum": ["markdown", "text"],
-                        "description": "Content extraction mode: 'markdown' (default) preserves formatting with links/headings/lists, 'text' returns plain text"
+                        "enum": ["markdown", "text", "raw_html"],
+                        "description": "Content extraction mode: 'markdown' (default) preserves formatting, 'text' returns plain text, and 'raw_html' returns scoped HTML inside the untrusted-data envelope"
+                    },
+                    "cursor": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "description": "Opaque page.nextCursor from a prior call. Reuses the same immutable snapshot; keep all extraction and render arguments unchanged."
+                    },
+                    "selector": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Optional CSS selector limiting extraction to matching elements"
+                    },
+                    "exclude_selectors": {
+                        "type": "array",
+                        "maxItems": 16,
+                        "items": { "type": "string", "maxLength": 1024 },
+                        "description": "Optional CSS selectors removed before readable-content extraction"
+                    },
+                    "render": {
+                        "type": "string",
+                        "enum": ["never", "auto", "always"],
+                        "description": "JavaScript rendering policy. auto renders only on deterministic low-content signals; the renderer is isolated and carries no user browser state."
+                    },
+                    "freshness": {
+                        "type": "string",
+                        "enum": ["prefer_cache", "live", "cache_only"],
+                        "description": "Cache policy: prefer_cache (default), live bypasses cache reads, cache_only never performs network I/O"
                     }
                 },
                 "required": ["url"],

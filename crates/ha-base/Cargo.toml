@@ -53,5 +53,8 @@ windows-sys = { version = "0.52", features = [
     "Win32_System_Threading",
 ] }
 
+[dev-dependencies]
+flate2 = "1"
+
 [lints]
 workspace = true

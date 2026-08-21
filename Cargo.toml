@@ -135,7 +135,7 @@ log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.39", features = ["bundled", "backup"] }
-reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls", "multipart", "socks"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls", "multipart", "socks", "charset", "gzip", "brotli", "deflate", "zstd"] }
 futures-util = "0.3"
 # SSE frame parser (same crate rmcp pulls in via `client-side-sse`). Powers the
 # hand-rolled legacy MCP HTTP+SSE client transport — rmcp 1.5 dropped its own
@@ -144,6 +144,8 @@ sse-stream = "0.2"
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
+encoding_rs = "0.8"
+httpdate = "1"
 dirs = "6"
 rand = "0.9"
 regex = "1.12.3"

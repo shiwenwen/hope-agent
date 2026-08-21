@@ -16,6 +16,39 @@ function textMsg(content: string): Message {
   return { role: "assistant", content }
 }
 
+function webFetchMsg(): Message {
+  return {
+    role: "assistant",
+    content: "",
+    contentBlocks: [
+      {
+        type: "tool_call",
+        tool: {
+          callId: "fetch",
+          name: "web_fetch",
+          arguments: "{}",
+          result: "ok",
+          metadata: {
+            kind: "web_fetch_source",
+            url: "https://example.com/article",
+            title: "Fetched title",
+            status: 200,
+            retrievedAt: "2026-08-20T00:00:00Z",
+            snapshotId: "snapshot",
+            fetchMode: "rendered",
+            cacheHit: true,
+            cacheAgeMs: 1200,
+            sourceHash: "hash",
+            truncated: true,
+            continuationAvailable: true,
+            warnings: ["warning"],
+          },
+        },
+      },
+    ],
+  }
+}
+
 const SEARCH_RESULT = `Search results for: cats (via google)
 
 1. All About Cats
@@ -34,6 +67,26 @@ describe("aggregateSessionUrlSources", () => {
     expect(result).toEqual([
       { kind: "url", url: "https://example.com/cats", origin: "web_search" },
       { kind: "url", url: "https://cats.org/index", origin: "web_search" },
+    ])
+  })
+
+  it("uses structured web_fetch provenance and diagnostics", () => {
+    const result = aggregateSessionUrlSources([
+      textMsg("https://example.com/article"),
+      webFetchMsg(),
+    ])
+    expect(result).toEqual([
+      {
+        kind: "url",
+        url: "https://example.com/article",
+        origin: "web_fetch",
+        title: "Fetched title",
+        retrievedAt: "2026-08-20T00:00:00Z",
+        fetchMode: "rendered",
+        cacheHit: true,
+        truncated: true,
+        warnings: ["warning"],
+      },
     ])
   })
 

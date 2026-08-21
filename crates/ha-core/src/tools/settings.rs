@@ -1263,7 +1263,10 @@ fn apply_app_config_update(
         }
         "proxy" => merge_field(&mut store.proxy, values)?,
         "web_search" => merge_field(&mut store.web_search, values)?,
-        "web_fetch" => merge_field(&mut store.web_fetch, values)?,
+        "web_fetch" => {
+            merge_field(&mut store.web_fetch, values)?;
+            crate::tools::web_fetch::validate_config(&store.web_fetch)?;
+        }
         "browser" => merge_field(&mut store.browser, values)?,
         "security" => {
             if let Some(v) = values.get("skipAllApprovals").and_then(|v| v.as_bool()) {

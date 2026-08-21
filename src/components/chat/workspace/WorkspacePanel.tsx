@@ -558,9 +558,28 @@ function UrlSourceRow({ source }: { source: Extract<SessionUrlSource, { kind: "u
         ) : (
           <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
-          {domainOf(source.url)}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-xs text-foreground/90">
+            {source.title || domainOf(source.url)}
+          </span>
+          {source.origin === "web_fetch" && source.title ? (
+            <span className="block truncate pt-0.5 text-[10px] text-muted-foreground/70">
+              {domainOf(source.url)}
+            </span>
+          ) : null}
         </span>
+        {source.origin === "web_fetch" && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <Globe className="h-2.5 w-2.5" />
+            {source.fetchMode === "rendered"
+              ? t("workspace.sourceFetchRendered", "渲染")
+              : t("workspace.sourceFetchDirect", "抓取")}
+            {source.cacheHit ? ` · ${t("workspace.sourceFetchCache", "缓存")}` : ""}
+            {source.truncated || source.warnings?.length ? (
+              <CircleAlert className="h-2.5 w-2.5 text-amber-500" />
+            ) : null}
+          </span>
+        )}
         {source.origin === "web_search" && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
             <Search className="h-2.5 w-2.5" />

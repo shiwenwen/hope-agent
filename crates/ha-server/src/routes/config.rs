@@ -1218,6 +1218,7 @@ pub async fn get_web_fetch_config(
 pub async fn save_web_fetch_config(
     Json(body): Json<ConfigBody<ha_core::tools::web_fetch::WebFetchConfig>>,
 ) -> Result<Json<Value>, AppError> {
+    ha_core::tools::web_fetch::validate_config(&body.config)?;
     ha_core::config::mutate_config_async(("web_fetch", "http"), move |store| {
         store.web_fetch = body.config;
         Ok(())
