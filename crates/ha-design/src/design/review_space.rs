@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 const STORE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const STORE_LOCK_POLL: Duration = Duration::from_millis(10);
+const REVIEW_TOKEN_PREFIX: &str = "har1";
+const REVIEW_TOKEN_SECRET_HEX_LEN: usize = 64;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -109,6 +111,31 @@ fn token_hash(token: &str) -> String {
     blake3::hash(token.as_bytes()).to_hex().to_string()
 }
 
+fn create_review_token(artifact_id: &str) -> String {
+    format!(
+        "{REVIEW_TOKEN_PREFIX}.{artifact_id}.{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+fn review_token_artifact_id(token: &str) -> Option<&str> {
+    let mut parts = token.split('.');
+    if parts.next()? != REVIEW_TOKEN_PREFIX {
+        return None;
+    }
+    let artifact_id = parts.next()?;
+    let secret = parts.next()?;
+    if parts.next().is_some()
+        || uuid::Uuid::parse_str(artifact_id).is_err()
+        || secret.len() != REVIEW_TOKEN_SECRET_HEX_LEN
+        || !secret.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(artifact_id)
+}
+
 fn store_path(project_id: &str, artifact_id: &str) -> Result<PathBuf> {
     Ok(
         ha_core::paths::design_artifact_dir(project_id, artifact_id)?
@@ -173,11 +200,7 @@ pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
     if expires <= now_dt || expires > now_dt + chrono::Duration::days(90) {
         anyhow::bail!("review expiry must be within the next 90 days");
     }
-    let token = format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    );
+    let token = create_review_token(&artifact.id);
     let grant = ReviewGrant {
         id: uuid::Uuid::new_v4().to_string(),
         artifact_id: artifact.id.clone(),
@@ -233,25 +256,21 @@ pub fn revoke(artifact_id: &str, grant_id: &str) -> Result<bool> {
 }
 
 fn authorize(token: &str) -> Result<(PathBuf, ReviewStore, ReviewGrant)> {
-    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        anyhow::bail!("review grant not found");
-    }
+    let artifact_id =
+        review_token_artifact_id(token).ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
+    let artifact = super::service::get_artifact(artifact_id)?
+        .ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
     let hash = token_hash(token);
-    // token 不含 artifact id；有界扫描本地 Design 产物。每个文件都只比较固定长度哈希。
-    for artifact in super::service::list_all_artifacts()? {
-        let path = store_path(&artifact.project_id, &artifact.id)?;
-        if !path.exists() {
-            continue;
-        }
-        let store = load(&path)?;
-        if let Some(grant) = store.grants.iter().find(|grant| {
-            grant.token_hash == hash
-                && grant.revoked_at.is_none()
-                && chrono::DateTime::parse_from_rfc3339(&grant.expires_at)
-                    .is_ok_and(|expires| expires.with_timezone(&chrono::Utc) > chrono::Utc::now())
-        }) {
-            return Ok((path, store.clone(), grant.clone()));
-        }
+    let path = store_path(&artifact.project_id, &artifact.id)?;
+    let store = load(&path)?;
+    if let Some(grant) = store.grants.iter().find(|grant| {
+        grant.artifact_id == artifact.id
+            && grant.token_hash == hash
+            && grant.revoked_at.is_none()
+            && chrono::DateTime::parse_from_rfc3339(&grant.expires_at)
+                .is_ok_and(|expires| expires.with_timezone(&chrono::Utc) > chrono::Utc::now())
+    }) {
+        return Ok((path, store.clone(), grant.clone()));
     }
     anyhow::bail!("review grant not found")
 }
@@ -325,13 +344,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn review_tokens_are_not_stored_verbatim() {
-        let token = format!(
-            "{}{}",
-            uuid::Uuid::new_v4().simple(),
-            uuid::Uuid::new_v4().simple()
-        );
-        assert_eq!(token.len(), 64);
+    fn review_tokens_are_directly_scoped_without_storing_the_secret() {
+        let artifact_id = uuid::Uuid::new_v4().to_string();
+        let token = create_review_token(&artifact_id);
+        assert_eq!(review_token_artifact_id(&token), Some(artifact_id.as_str()));
         assert_ne!(token_hash(&token), token);
+
+        assert_eq!(review_token_artifact_id(&"0".repeat(64)), None);
+        assert_eq!(
+            review_token_artifact_id(&format!("{REVIEW_TOKEN_PREFIX}.{artifact_id}.short")),
+            None
+        );
     }
 }

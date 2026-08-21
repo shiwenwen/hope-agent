@@ -102,6 +102,7 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
         }
         if fence_delimiter.is_none()
             && inline_delimiter.is_none()
+            && !has_indented_code_prefix(&bytes[line_start..index])
             && bytes[index..].starts_with(b"<users/")
         {
             if let Some(relative_end) = bytes[index..].iter().position(|byte| *byte == b'>') {
@@ -132,6 +133,21 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
         }
     }
     output
+}
+
+fn has_indented_code_prefix(line_prefix: &[u8]) -> bool {
+    let mut columns = 0usize;
+    for byte in line_prefix {
+        match byte {
+            b' ' => columns += 1,
+            b'\t' => columns += 4 - (columns % 4),
+            _ => break,
+        }
+        if columns >= 4 {
+            return true;
+        }
+    }
+    false
 }
 
 /// Try to parse a markdown link starting at position `start` (which should be '[').
@@ -324,6 +340,15 @@ mod tests {
         assert_eq!(
             compile_standard_markdown_mentions(input),
             "~~~md\n<users/all>\n```\n<users/123>\n~~~~\n<chat-user data-user=\"users/456\">"
+        );
+    }
+
+    #[test]
+    fn standard_markdown_preserves_mentions_inside_indented_code() {
+        let input = "    <users/all>\n\t<users/123>\n   <users/456>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            "    <users/all>\n\t<users/123>\n   <chat-user data-user=\"users/456\">"
         );
     }
 
