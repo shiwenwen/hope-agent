@@ -12587,7 +12587,14 @@
       "confirmTitle": "Confirm this external operation",
       "open": "Open Figma",
       "confirm": "Confirm and submit once",
-      "preview": "Generate operation preview"
+      "preview": "Generate operation preview",
+      "reconciliationLoadFailed": "Failed to load unresolved Figma receipts",
+      "reconciliationDone": "Remote verification recorded; roundtrips are unblocked",
+      "reconciliationFailed": "Failed to reconcile the Figma receipt; operations remain blocked",
+      "reconciliationTitle": "The previous Figma operation has an uncertain result",
+      "reconciliationDesc": "Verify in Figma whether the operation occurred, then select the exact result. Hope will not replay it until this receipt is resolved.",
+      "confirmedApplied": "Verified: operation occurred",
+      "confirmedNotApplied": "Verified: operation did not occur"
     },
     "scenarios": {
       "label": "Preview scenario",

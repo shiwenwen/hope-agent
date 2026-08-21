@@ -79,6 +79,13 @@ pub fn path_owner_no_follow(path: &Path) -> std::io::Result<(u32, u32)> {
     imp::path_owner_no_follow(path)
 }
 
+/// Return the number of hard links to an entry without following a final
+/// symlink. Ownership handoffs use this to avoid exposing an inode that also
+/// has a name outside the authorized workspace.
+pub fn path_hard_link_count_no_follow(path: &Path) -> std::io::Result<u64> {
+    imp::path_hard_link_count_no_follow(path)
+}
+
 /// Change an entry's numeric owner without following a final symlink.
 pub fn set_path_owner_no_follow(path: &Path, uid: u32, gid: u32) -> std::io::Result<()> {
     imp::set_path_owner_no_follow(path, uid, gid)

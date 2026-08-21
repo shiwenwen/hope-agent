@@ -1012,6 +1012,8 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `scan_design_components_cmd` | `POST /api/design/projects/{projectId}/components/scan`（绑定仓库只读扫描） | ✅ |
 | `preview_figma_roundtrip_cmd` | `POST /api/design/figma-roundtrip/preview`（10 分钟一次性预览，无外部调用） | ✅ |
 | `commit_figma_roundtrip_cmd` | `POST /api/design/figma-roundtrip/commit`（消费预览后调用 Figma MCP） | ✅ |
+| `list_figma_roundtrip_reconciliations_cmd` | `GET /api/design/artifacts/{artifactId}/figma-roundtrip/reconciliations`（列未决外部副作用回执） | ✅ |
+| `resolve_figma_roundtrip_reconciliation_cmd` | `POST /api/design/figma-roundtrip/reconcile`（显式确认已发生/未发生，CAS 校验后写审计记录并解锁） | ✅ |
 | `list_figma_roundtrip_links_cmd` | `GET /api/design/artifacts/{artifactId}/figma-roundtrip`（不含凭据的链接元数据） | ✅ |
 | `create_design_review_space_cmd` | `POST /api/design/review-spaces`（viewer/commenter，token 仅回一次） | ✅ |
 | `list_design_review_spaces_cmd` | `GET /api/design/artifacts/{artifactId}/review-spaces` | ✅ |
@@ -1080,7 +1082,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `design_chat_threads_list_cmd` | `GET /api/design/projects/{projectId}/chat/threads`（设计对话历史选择器分页，`query` FTS 过滤） | ✅ |
 | （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
 
-Figma 往返在 Tauri / HTTP 两端共用按制品串行化语义：同一制品仅最新预览可提交；`commit` 持锁覆盖回执检查、外部 MCP 调用与最终落盘，未解决的 `.indeterminate` 回执会阻断新预览和后续提交。
+Figma 往返在 Tauri / HTTP 两端共用按制品串行化语义：同一制品仅最新预览可提交；`commit` 持锁覆盖回执检查、外部 MCP 调用与最终落盘，未解决的 `.indeterminate` 回执会阻断新预览和后续提交。用户核对 Figma 后须对精确回执选择“已发生”或“未发生”，后端以回执 ID + 本地哈希做 CAS 校验，先原子持久化 `reconciled/<receiptId>.json` 审计记录，再删除阻断标记；写入或删除失败继续 fail closed。
 
 ### Artifacts
 

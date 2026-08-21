@@ -3311,8 +3311,16 @@ fn build_router_with_cors(
             get(routes::design::list_figma_links).post(routes::design::preview_figma_roundtrip),
         )
         .route(
+            "/design/artifacts/{id}/figma-roundtrip/reconciliations",
+            get(routes::design::list_figma_reconciliations),
+        )
+        .route(
             "/design/figma-roundtrip/commit",
             post(routes::design::commit_figma_roundtrip),
+        )
+        .route(
+            "/design/figma-roundtrip/reconcile",
+            post(routes::design::resolve_figma_reconciliation),
         )
         .route(
             "/design/figma-roundtrip/preview",

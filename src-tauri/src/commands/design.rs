@@ -461,6 +461,24 @@ pub async fn commit_figma_roundtrip_cmd(
 }
 
 #[tauri::command]
+pub async fn list_figma_roundtrip_reconciliations_cmd(
+    artifact_id: String,
+) -> Result<Vec<ha_design::design::figma_roundtrip::FigmaRoundtripReconciliation>, CmdError> {
+    ha_design::design::figma_roundtrip::list_reconciliations(&artifact_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn resolve_figma_roundtrip_reconciliation_cmd(
+    input: ha_design::design::figma_roundtrip::ResolveFigmaReconciliationInput,
+) -> Result<ha_design::design::figma_roundtrip::FigmaRoundtripReconciliation, CmdError> {
+    ha_design::design::figma_roundtrip::resolve_reconciliation(input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn list_figma_roundtrip_links_cmd(
     artifact_id: String,
 ) -> Result<Vec<ha_design::design::figma_roundtrip::FigmaLink>, CmdError> {

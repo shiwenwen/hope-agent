@@ -12587,7 +12587,14 @@
       "confirmTitle": "请确认本次外部操作",
       "open": "打开 Figma",
       "confirm": "确认并提交一次",
-      "preview": "生成操作预览"
+      "preview": "生成操作預覽",
+      "reconciliationLoadFailed": "無法讀取 Figma 未決回執",
+      "reconciliationDone": "遠端核對結果已記錄，可繼續往返",
+      "reconciliationFailed": "Figma 回執核對失敗，仍保持阻斷",
+      "reconciliationTitle": "上一次 Figma 操作結果不確定",
+      "reconciliationDesc": "請先在 Figma 中核對該操作是否已發生，再選擇準確結果。記錄完成前不會重播外部操作。",
+      "confirmedApplied": "已核對：操作已發生",
+      "confirmedNotApplied": "已核對：操作未發生"
     },
     "scenarios": {
       "label": "预览场景",

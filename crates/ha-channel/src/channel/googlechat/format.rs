@@ -60,22 +60,35 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
     let mut output = String::with_capacity(md.len());
     let bytes = md.as_bytes();
     let mut index = 0usize;
-    let mut in_fence = false;
-    let mut in_inline_code = false;
+    let mut fence_delimiter = None;
+    let mut inline_delimiter = None;
     while index < bytes.len() {
-        if bytes[index..].starts_with(b"```") {
-            in_fence = !in_fence;
-            output.push_str("```");
-            index += 3;
+        if bytes[index] == b'`' {
+            let run_length = bytes[index..]
+                .iter()
+                .take_while(|byte| **byte == b'`')
+                .count();
+            if let Some(opening_length) = fence_delimiter {
+                if run_length >= opening_length {
+                    fence_delimiter = None;
+                }
+            } else if let Some(opening_length) = inline_delimiter {
+                if run_length == opening_length {
+                    inline_delimiter = None;
+                }
+            } else if run_length >= 3 {
+                fence_delimiter = Some(run_length);
+            } else {
+                inline_delimiter = Some(run_length);
+            }
+            output.push_str(&md[index..index + run_length]);
+            index += run_length;
             continue;
         }
-        if !in_fence && bytes[index] == b'`' {
-            in_inline_code = !in_inline_code;
-            output.push('`');
-            index += 1;
-            continue;
-        }
-        if !in_fence && !in_inline_code && bytes[index..].starts_with(b"<users/") {
+        if fence_delimiter.is_none()
+            && inline_delimiter.is_none()
+            && bytes[index..].starts_with(b"<users/")
+        {
             if let Some(relative_end) = bytes[index..].iter().position(|byte| *byte == b'>') {
                 let end = index + relative_end;
                 let identity = &md[index + "<users/".len()..end];
@@ -265,8 +278,17 @@ mod tests {
 
     #[test]
     fn standard_markdown_does_not_compile_mentions_inside_code() {
-        let input = "`<users/123>`\n```txt\n<users/all>\n```";
+        let input = "`<users/123>`\n``<users/all>``\n````txt\n```\n<users/all>\n````";
         assert_eq!(compile_standard_markdown_mentions(input), input);
+    }
+
+    #[test]
+    fn standard_markdown_requires_matching_inline_backtick_run() {
+        let input = "``sample ` <users/all> sample`` then <users/123>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            "``sample ` <users/all> sample`` then <chat-user data-user=\"users/123\">"
+        );
     }
 
     #[test]

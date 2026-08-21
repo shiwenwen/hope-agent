@@ -56,6 +56,34 @@ pub struct CommitFigmaRoundtripInput {
     pub expected_local_hash: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FigmaReconciliationOutcome {
+    ConfirmedApplied,
+    ConfirmedNotApplied,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveFigmaReconciliationInput {
+    pub artifact_id: String,
+    pub receipt_id: String,
+    pub expected_local_hash: String,
+    pub outcome: FigmaReconciliationOutcome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FigmaRoundtripReconciliation {
+    pub receipt_id: String,
+    pub artifact_id: String,
+    pub direction: FigmaDirection,
+    pub tool_name: String,
+    pub local_hash: String,
+    pub outcome: Option<FigmaReconciliationOutcome>,
+    pub resolved_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FigmaLink {
@@ -159,25 +187,149 @@ fn preview_path(project_id: &str, artifact_id: &str, id: &str) -> Result<PathBuf
         .join(format!("{id}.json")))
 }
 
-fn has_indeterminate_receipt(pending_dir: &Path) -> Result<bool> {
+fn indeterminate_paths(pending_dir: &Path) -> Result<Vec<PathBuf>> {
     let entries = match std::fs::read_dir(pending_dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error).context("read Figma roundtrip receipts"),
     };
+    let mut paths = Vec::new();
     for (index, entry) in entries.enumerate() {
         if index >= MAX_PENDING_RECEIPTS {
             anyhow::bail!("too many Figma roundtrip receipts; reconcile them before continuing");
         }
-        if entry?
-            .path()
+        let path = entry?.path();
+        if path
             .extension()
             .is_some_and(|extension| extension == "indeterminate")
         {
-            return Ok(true);
+            paths.push(path);
         }
     }
-    Ok(false)
+    paths.sort();
+    Ok(paths)
+}
+
+fn has_indeterminate_receipt(pending_dir: &Path) -> Result<bool> {
+    Ok(!indeterminate_paths(pending_dir)?.is_empty())
+}
+
+fn reconciliation_from_preview(preview: &FigmaRoundtripPreview) -> FigmaRoundtripReconciliation {
+    FigmaRoundtripReconciliation {
+        receipt_id: preview.id.clone(),
+        artifact_id: preview.artifact_id.clone(),
+        direction: preview.direction,
+        tool_name: preview.tool_name.clone(),
+        local_hash: preview.local_hash.clone(),
+        outcome: None,
+        resolved_at: None,
+    }
+}
+
+fn load_reconciliations_locked(artifact_id: &str) -> Result<Vec<FigmaRoundtripReconciliation>> {
+    let artifact = super::service::get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let pending_dir = external_dir(&artifact.project_id, artifact_id)?.join("pending");
+    indeterminate_paths(&pending_dir)?
+        .into_iter()
+        .map(|path| {
+            let preview: FigmaRoundtripPreview = serde_json::from_slice(&std::fs::read(&path)?)
+                .context("parse Figma reconciliation receipt")?;
+            if preview.artifact_id != artifact_id {
+                anyhow::bail!("Figma reconciliation receipt artifact mismatch");
+            }
+            Ok(reconciliation_from_preview(&preview))
+        })
+        .collect()
+}
+
+pub async fn list_reconciliations(artifact_id: &str) -> Result<Vec<FigmaRoundtripReconciliation>> {
+    if !valid_component(artifact_id, 128) {
+        anyhow::bail!("invalid Figma artifact id");
+    }
+    let lock = artifact_roundtrip_lock(artifact_id);
+    let _guard = lock.lock_owned().await;
+    let artifact_id = artifact_id.to_string();
+    ha_core::blocking::run_blocking(move || load_reconciliations_locked(&artifact_id)).await
+}
+
+fn resolve_receipt_at(
+    pending_dir: &Path,
+    reconciled_dir: &Path,
+    input: &ResolveFigmaReconciliationInput,
+) -> Result<FigmaRoundtripReconciliation> {
+    let marker = pending_dir.join(format!("{}.indeterminate", input.receipt_id));
+    let record_path = reconciled_dir.join(format!("{}.json", input.receipt_id));
+    let validate_existing = |existing: FigmaRoundtripReconciliation| {
+        if existing.artifact_id != input.artifact_id
+            || existing.local_hash != input.expected_local_hash
+            || existing.outcome != Some(input.outcome)
+        {
+            anyhow::bail!("Figma reconciliation was already resolved with different evidence");
+        }
+        Ok(existing)
+    };
+    if !marker.exists() {
+        let existing: FigmaRoundtripReconciliation =
+            serde_json::from_slice(&std::fs::read(&record_path).with_context(|| {
+                format!(
+                    "Figma reconciliation receipt not found: {}",
+                    input.receipt_id
+                )
+            })?)?;
+        return validate_existing(existing);
+    }
+    // If a prior attempt durably recorded the decision but failed to remove
+    // the marker, only the exact same evidence may finish that cleanup.
+    if record_path.exists() {
+        let existing: FigmaRoundtripReconciliation =
+            serde_json::from_slice(&std::fs::read(&record_path)?)?;
+        let existing = validate_existing(existing)?;
+        std::fs::remove_file(&marker)
+            .context("remove Figma indeterminate receipt after durable reconciliation")?;
+        return Ok(existing);
+    }
+    let preview: FigmaRoundtripPreview = serde_json::from_slice(&std::fs::read(&marker)?)
+        .context("parse Figma reconciliation receipt")?;
+    if preview.id != input.receipt_id || preview.artifact_id != input.artifact_id {
+        anyhow::bail!("Figma reconciliation receipt identity mismatch");
+    }
+    if preview.local_hash != input.expected_local_hash {
+        anyhow::bail!("stale Figma reconciliation evidence");
+    }
+    let mut record = reconciliation_from_preview(&preview);
+    record.outcome = Some(input.outcome);
+    record.resolved_at = Some(chrono::Utc::now().to_rfc3339());
+    std::fs::create_dir_all(reconciled_dir)?;
+    write_atomic(&record_path, &serde_json::to_vec_pretty(&record)?)?;
+    std::fs::remove_file(&marker)
+        .context("remove Figma indeterminate receipt after durable reconciliation")?;
+    Ok(record)
+}
+
+pub async fn resolve_reconciliation(
+    input: ResolveFigmaReconciliationInput,
+) -> Result<FigmaRoundtripReconciliation> {
+    if !valid_component(&input.artifact_id, 128) || !valid_component(&input.receipt_id, 64) {
+        anyhow::bail!("invalid Figma reconciliation identity");
+    }
+    if input.expected_local_hash.len() != 64
+        || !input
+            .expected_local_hash
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        anyhow::bail!("invalid Figma reconciliation hash");
+    }
+    let lock = artifact_roundtrip_lock(&input.artifact_id);
+    let _guard = lock.lock_owned().await;
+    ha_core::blocking::run_blocking(move || {
+        let artifact = super::service::get_artifact(&input.artifact_id)?
+            .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
+        let dir = external_dir(&artifact.project_id, &artifact.id)?;
+        resolve_receipt_at(&dir.join("pending"), &dir.join("reconciled"), &input)
+    })
+    .await
 }
 
 fn artifact_roundtrip_lock(artifact_id: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -453,6 +605,74 @@ mod tests {
         assert!(has_indeterminate_receipt(dir.path()).unwrap());
         std::fs::remove_file(dir.path().join("preview.indeterminate")).unwrap();
         assert!(!has_indeterminate_receipt(dir.path()).unwrap());
+    }
+
+    #[test]
+    fn reconciliation_is_durable_before_the_indeterminate_marker_is_removed() {
+        let root = tempfile::tempdir().unwrap();
+        let pending = root.path().join("pending");
+        let reconciled = root.path().join("reconciled");
+        std::fs::create_dir_all(&pending).unwrap();
+        let preview = FigmaRoundtripPreview {
+            id: "receipt-1".into(),
+            artifact_id: "artifact-1".into(),
+            direction: FigmaDirection::HopeToFigma,
+            tool_name: "mcp__figma__generate_figma_design".into(),
+            arguments: serde_json::json!({}),
+            local_hash: "a".repeat(64),
+            expires_at: chrono::Utc::now().to_rfc3339(),
+            resource_id: None,
+            node_id: None,
+        };
+        let marker = pending.join("receipt-1.indeterminate");
+        std::fs::write(&marker, serde_json::to_vec(&preview).unwrap()).unwrap();
+        let input = ResolveFigmaReconciliationInput {
+            artifact_id: preview.artifact_id.clone(),
+            receipt_id: preview.id.clone(),
+            expected_local_hash: preview.local_hash.clone(),
+            outcome: FigmaReconciliationOutcome::ConfirmedApplied,
+        };
+
+        let record = resolve_receipt_at(&pending, &reconciled, &input).unwrap();
+        assert_eq!(
+            record.outcome,
+            Some(FigmaReconciliationOutcome::ConfirmedApplied)
+        );
+        assert!(!marker.exists());
+        assert!(reconciled.join("receipt-1.json").exists());
+        assert_eq!(
+            resolve_receipt_at(&pending, &reconciled, &input).unwrap(),
+            record
+        );
+    }
+
+    #[test]
+    fn stale_reconciliation_evidence_keeps_the_marker() {
+        let root = tempfile::tempdir().unwrap();
+        let pending = root.path().join("pending");
+        std::fs::create_dir_all(&pending).unwrap();
+        let preview = FigmaRoundtripPreview {
+            id: "receipt-2".into(),
+            artifact_id: "artifact-2".into(),
+            direction: FigmaDirection::FigmaToHope,
+            tool_name: "mcp__figma__get_design_context".into(),
+            arguments: serde_json::json!({}),
+            local_hash: "b".repeat(64),
+            expires_at: chrono::Utc::now().to_rfc3339(),
+            resource_id: None,
+            node_id: None,
+        };
+        let marker = pending.join("receipt-2.indeterminate");
+        std::fs::write(&marker, serde_json::to_vec(&preview).unwrap()).unwrap();
+        let input = ResolveFigmaReconciliationInput {
+            artifact_id: preview.artifact_id,
+            receipt_id: preview.id,
+            expected_local_hash: "c".repeat(64),
+            outcome: FigmaReconciliationOutcome::ConfirmedNotApplied,
+        };
+
+        assert!(resolve_receipt_at(&pending, &root.path().join("reconciled"), &input).is_err());
+        assert!(marker.exists());
     }
 
     #[test]

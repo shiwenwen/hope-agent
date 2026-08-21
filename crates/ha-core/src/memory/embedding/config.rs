@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 // 类型已下沉 ha-config-schema（`EmbeddingConfig` 随 `EmbeddingModelConfig` 的
 // inherent impl 一并下沉）；模板 / 状态投影与解析函数留在本文件。
 pub use ha_config_schema::memory::embedding::{
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingPurpose,
-    EmbeddingSelection,
+    embedding_endpoint_family, EmbeddingConfig, EmbeddingEndpointFamily, EmbeddingModelConfig,
+    EmbeddingProviderType, EmbeddingPurpose, EmbeddingSelection,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

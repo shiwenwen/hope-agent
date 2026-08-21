@@ -147,6 +147,11 @@ pub struct FigmaCommitBody {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct FigmaReconciliationBody {
+    pub input: ha_design::design::figma_roundtrip::ResolveFigmaReconciliationInput,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateReviewSpaceBody {
     pub input: ha_design::design::review_space::CreateReviewInput,
 }
@@ -1169,6 +1174,27 @@ pub async fn commit_figma_roundtrip(
 ) -> Result<Json<ha_design::design::figma_roundtrip::FigmaRoundtripResult>, AppError> {
     Ok(Json(
         ha_design::design::figma_roundtrip::commit(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn list_figma_reconciliations(
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_design::design::figma_roundtrip::FigmaRoundtripReconciliation>>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        ha_design::design::figma_roundtrip::list_reconciliations(&id)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn resolve_figma_reconciliation(
+    Json(body): Json<FigmaReconciliationBody>,
+) -> Result<Json<ha_design::design::figma_roundtrip::FigmaRoundtripReconciliation>, AppError> {
+    Ok(Json(
+        ha_design::design::figma_roundtrip::resolve_reconciliation(body.input)
             .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))

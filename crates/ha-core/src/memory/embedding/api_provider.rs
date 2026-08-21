@@ -2,7 +2,10 @@ use std::mem::ManuallyDrop;
 
 use anyhow::{Context, Result};
 
-use super::config::{EmbeddingConfig, EmbeddingProviderType, EmbeddingPurpose};
+use super::config::{
+    embedding_endpoint_family, EmbeddingConfig, EmbeddingEndpointFamily, EmbeddingProviderType,
+    EmbeddingPurpose,
+};
 use super::utils::{l2_normalize, truncate_for_model};
 use crate::memory::traits::{EmbeddingProvider, MultimodalInput};
 
@@ -89,6 +92,7 @@ pub struct ApiEmbeddingProvider {
     model: String,
     dimensions: u32,
     provider_type: EmbeddingProviderType,
+    endpoint_family: EmbeddingEndpointFamily,
 }
 
 impl Drop for ApiEmbeddingProvider {
@@ -182,6 +186,7 @@ impl ApiEmbeddingProvider {
             .unwrap_or("text-embedding-3-small")
             .to_string();
         let dimensions = config.api_dimensions.unwrap_or(1536);
+        let endpoint_family = embedding_endpoint_family(&base_url);
 
         // reqwest 0.13 `blocking::Client::new` 在 debug build 下经
         // `wait::enter()` 创建+立即 drop 一个临时 current_thread runtime；在
@@ -209,6 +214,7 @@ impl ApiEmbeddingProvider {
             model,
             dimensions,
             provider_type: config.provider_type.clone(),
+            endpoint_family,
         })
     }
 
@@ -217,19 +223,19 @@ impl ApiEmbeddingProvider {
         body: &mut serde_json::Value,
         purpose: EmbeddingPurpose,
     ) {
-        if self.base_url.contains("voyageai.com") {
+        if self.endpoint_family == EmbeddingEndpointFamily::Voyage {
             match purpose {
                 EmbeddingPurpose::Query => body["input_type"] = serde_json::json!("query"),
                 EmbeddingPurpose::Document => body["input_type"] = serde_json::json!("document"),
                 EmbeddingPurpose::Symmetric => {}
             }
-        } else if self.base_url.contains("jina.ai") {
+        } else if self.endpoint_family == EmbeddingEndpointFamily::Jina {
             body["task"] = serde_json::json!(match purpose {
                 EmbeddingPurpose::Query => "retrieval.query",
                 EmbeddingPurpose::Document => "retrieval.passage",
                 EmbeddingPurpose::Symmetric => "text-matching",
             });
-        } else if self.base_url.contains("cohere") {
+        } else if self.endpoint_family == EmbeddingEndpointFamily::Cohere {
             body["input_type"] = serde_json::json!(match purpose {
                 EmbeddingPurpose::Query => "search_query",
                 EmbeddingPurpose::Document => "search_document",
@@ -878,7 +884,10 @@ impl ApiEmbeddingProvider {
         match self.provider_type {
             EmbeddingProviderType::OpenaiCompatible => {
                 // OpenAI and Voyage support Batch API
-                self.base_url.contains("openai.com") || self.base_url.contains("voyageai.com")
+                matches!(
+                    self.endpoint_family,
+                    EmbeddingEndpointFamily::OpenAi | EmbeddingEndpointFamily::Voyage
+                )
             }
             _ => false, // Gemini uses batchEmbedContents (already synchronous batch)
         }
@@ -932,7 +941,7 @@ impl ApiEmbeddingProvider {
         });
 
         // Voyage needs request_params
-        if self.base_url.contains("voyageai.com") {
+        if self.endpoint_family == EmbeddingEndpointFamily::Voyage {
             body["completion_window"] = serde_json::json!("12h");
             body["request_params"] = serde_json::json!({
                 "model": &self.model,
@@ -1339,7 +1348,7 @@ mod tests {
     #[test]
     fn asymmetric_openai_compatible_roles_are_explicit_not_cardinality_based() {
         let voyage = provider(
-            "https://api.voyageai.com",
+            "https://API.VOYAGEAI.COM",
             "voyage-4",
             EmbeddingProviderType::OpenaiCompatible,
         );
@@ -1367,6 +1376,15 @@ mod tests {
         let mut document = serde_json::json!({});
         cohere.apply_openai_compatible_purpose(&mut document, EmbeddingPurpose::Document);
         assert_eq!(document["input_type"], "search_document");
+
+        let proxy = provider(
+            "https://proxy.example/voyageai.com",
+            "proxy-model",
+            EmbeddingProviderType::OpenaiCompatible,
+        );
+        let mut proxy_body = serde_json::json!({});
+        proxy.apply_openai_compatible_purpose(&mut proxy_body, EmbeddingPurpose::Query);
+        assert!(proxy_body.get("input_type").is_none());
     }
 
     #[test]

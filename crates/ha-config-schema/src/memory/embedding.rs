@@ -45,6 +45,40 @@ impl EmbeddingPurpose {
     }
 }
 
+/// Normalized endpoint family shared by request shaping and vector signatures.
+/// Only the parsed URL host participates; path/query text can never impersonate
+/// a provider-specific API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbeddingEndpointFamily {
+    OpenAi,
+    Voyage,
+    Jina,
+    Cohere,
+    Other,
+}
+
+pub fn embedding_endpoint_family(raw: &str) -> EmbeddingEndpointFamily {
+    let Ok(url) = url::Url::parse(raw.trim()) else {
+        return EmbeddingEndpointFamily::Other;
+    };
+    let Some(host) = url.host_str() else {
+        return EmbeddingEndpointFamily::Other;
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let matches_domain = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    if matches_domain("openai.com") {
+        EmbeddingEndpointFamily::OpenAi
+    } else if matches_domain("voyageai.com") {
+        EmbeddingEndpointFamily::Voyage
+    } else if matches_domain("jina.ai") {
+        EmbeddingEndpointFamily::Jina
+    } else if matches_domain("cohere.ai") {
+        EmbeddingEndpointFamily::Cohere
+    } else {
+        EmbeddingEndpointFamily::Other
+    }
+}
+
 /// Embedding configuration, stored in AppConfig (config.json).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -194,11 +228,19 @@ impl EmbeddingModelConfig {
                 "google-prompt-prefix-v2"
             }
             EmbeddingProviderType::Google => "google-task-type-v1",
-            EmbeddingProviderType::OpenaiCompatible if base.contains("voyageai.com") => {
+            EmbeddingProviderType::OpenaiCompatible
+                if embedding_endpoint_family(base) == EmbeddingEndpointFamily::Voyage =>
+            {
                 "voyage-input-type-v1"
             }
-            EmbeddingProviderType::OpenaiCompatible if base.contains("jina.ai") => "jina-task-v1",
-            EmbeddingProviderType::OpenaiCompatible if base.contains("cohere") => {
+            EmbeddingProviderType::OpenaiCompatible
+                if embedding_endpoint_family(base) == EmbeddingEndpointFamily::Jina =>
+            {
+                "jina-task-v1"
+            }
+            EmbeddingProviderType::OpenaiCompatible
+                if embedding_endpoint_family(base) == EmbeddingEndpointFamily::Cohere =>
+            {
                 "cohere-input-type-v1"
             }
             EmbeddingProviderType::OpenaiCompatible => "openai-compatible-symmetric-v1",
@@ -278,6 +320,18 @@ mod tests {
         assert_ne!(
             base.signature_for(EmbeddingPurpose::Query),
             base.signature_for(EmbeddingPurpose::Document)
+        );
+    }
+
+    #[test]
+    fn provider_semantics_use_only_the_normalized_url_host() {
+        assert_eq!(
+            embedding_endpoint_family("https://API.VOYAGEAI.COM/v1"),
+            EmbeddingEndpointFamily::Voyage
+        );
+        assert_eq!(
+            embedding_endpoint_family("https://proxy.example/voyageai.com/v1"),
+            EmbeddingEndpointFamily::Other
         );
     }
 }

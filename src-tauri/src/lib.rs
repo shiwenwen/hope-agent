@@ -1053,6 +1053,8 @@ pub fn run() {
             commands::design::scan_design_components_cmd,
             commands::design::preview_figma_roundtrip_cmd,
             commands::design::commit_figma_roundtrip_cmd,
+            commands::design::list_figma_roundtrip_reconciliations_cmd,
+            commands::design::resolve_figma_roundtrip_reconciliation_cmd,
             commands::design::list_figma_roundtrip_links_cmd,
             commands::design::create_design_review_space_cmd,
             commands::design::list_design_review_spaces_cmd,

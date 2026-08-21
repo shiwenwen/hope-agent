@@ -512,7 +512,10 @@ fn native_container_identity(workspace: Option<&Path>) -> Result<Option<(u32, u3
     Ok(Some((ROOT_SANDBOX_UID, ROOT_SANDBOX_GID)))
 }
 
-fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
+fn collect_workspace_owners_impl(
+    root: &Path,
+    reject_multiply_linked_files: bool,
+) -> Result<Vec<(PathBuf, u32, u32)>> {
     let mut owners = Vec::new();
     let walker = WalkBuilder::new(root)
         .hidden(false)
@@ -531,10 +534,26 @@ fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
         if !file_type.is_symlink() && !file_type.is_dir() && !file_type.is_file() {
             continue;
         }
+        if reject_multiply_linked_files
+            && file_type.is_file()
+            && ha_core::platform::path_hard_link_count_no_follow(entry.path())? > 1
+        {
+            anyhow::bail!(
+                "sandbox workspace contains a multiply-linked file; root ownership handoff cannot prove the inode is workspace-local"
+            );
+        }
         let (uid, gid) = ha_core::platform::path_owner_no_follow(entry.path())?;
         owners.push((entry.into_path(), uid, gid));
     }
     Ok(owners)
+}
+
+fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
+    collect_workspace_owners_impl(root, false)
+}
+
+fn collect_workspace_owners_for_handoff(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
+    collect_workspace_owners_impl(root, true)
 }
 
 const WORKSPACE_OWNERSHIP_JOURNAL_VERSION: u32 = 1;
@@ -723,7 +742,12 @@ impl WorkspaceOwnershipGuard {
         let root = root
             .canonicalize()
             .context("canonicalize sandbox workspace before ownership handoff")?;
-        let original = collect_workspace_owners(&root)?;
+        // A hard link changes ownership for its shared inode, including names
+        // outside this tree. Reject every multiply-linked regular file before
+        // publishing a journal or mutating any owner; internal hard links are
+        // conservatively rejected because pathname traversal cannot prove that
+        // no additional name exists outside the authorized workspace.
+        let original = collect_workspace_owners_for_handoff(&root)?;
         let root_owner = original
             .iter()
             .find(|(path, _, _)| path == &root)
@@ -1675,6 +1699,22 @@ mod tests {
             .expect("second handoff should acquire after release")
             .expect("ownership lock task");
         drop(second);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_multiply_linked_files() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        let source = outside.path().join("outside.txt");
+        std::fs::write(&source, "protected").expect("outside source");
+        std::fs::hard_link(&source, workspace.path().join("linked.txt"))
+            .expect("workspace hard link");
+
+        let error = collect_workspace_owners_for_handoff(workspace.path())
+            .expect_err("hard-linked inode must fail closed");
+        assert!(error.to_string().contains("multiply-linked"));
+        assert!(collect_workspace_owners(workspace.path()).is_ok());
     }
 
     #[test]

@@ -37,6 +37,16 @@ interface Preview {
   expiresAt: string
 }
 
+type ReconciliationOutcome = "confirmed_applied" | "confirmed_not_applied"
+
+interface Reconciliation {
+  receiptId: string
+  artifactId: string
+  direction: Direction
+  toolName: string
+  localHash: string
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -55,14 +65,41 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
   const [preview, setPreview] = useState<Preview | null>(null)
   const [busy, setBusy] = useState(false)
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null)
+  const [reconciliations, setReconciliations] = useState<Reconciliation[]>([])
+  const [reconciliationLoading, setReconciliationLoading] = useState(false)
+  const [reconciliationRefresh, setReconciliationRefresh] = useState(0)
 
   useEffect(() => {
     if (!open) {
       setPreview(null)
       setRemoteUrl(null)
       setArgsText("{}")
+      setReconciliations([])
+      return
     }
-  }, [open])
+    let active = true
+    setReconciliationLoading(true)
+    void tx
+      .call<Reconciliation[]>("list_figma_roundtrip_reconciliations_cmd", { artifactId })
+      .then((items) => {
+        if (!active) return
+        setReconciliations(items)
+        if (items.length > 0) setPreview(null)
+      })
+      .catch((error) => {
+        if (!active) return
+        logger.error("design", "DesignFigmaRoundtrip::reconciliations", "load failed", error)
+        toast.error(t("design.figmaRoundtrip.reconciliationLoadFailed", "无法读取 Figma 未决回执"))
+      })
+      .finally(() => {
+        if (active) setReconciliationLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [artifactId, open, reconciliationRefresh, t, tx])
+
+  const reconciliation = reconciliations[0] ?? null
 
   const toolName = useMemo(
     () =>
@@ -115,6 +152,32 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
     } catch (e) {
       logger.error("design", "DesignFigmaRoundtrip::commit", "commit failed", e)
       toast.error(t("design.figmaRoundtrip.commitFailed", "Figma 往返提交失败"))
+      setReconciliationRefresh((value) => value + 1)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resolveReconciliation = async (outcome: ReconciliationOutcome) => {
+    if (!reconciliation) return
+    setBusy(true)
+    try {
+      await tx.call("resolve_figma_roundtrip_reconciliation_cmd", {
+        input: {
+          artifactId,
+          receiptId: reconciliation.receiptId,
+          expectedLocalHash: reconciliation.localHash,
+          outcome,
+        },
+      })
+      setReconciliations((items) =>
+        items.filter((item) => item.receiptId !== reconciliation.receiptId),
+      )
+      setReconciliationRefresh((value) => value + 1)
+      toast.success(t("design.figmaRoundtrip.reconciliationDone", "远端核对结果已记录，可继续往返"))
+    } catch (error) {
+      logger.error("design", "DesignFigmaRoundtrip::resolveReconciliation", "resolve failed", error)
+      toast.error(t("design.figmaRoundtrip.reconciliationFailed", "Figma 回执核对失败，仍保持阻断"))
     } finally {
       setBusy(false)
     }
@@ -136,12 +199,47 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          {reconciliation && (
+            <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <p className="font-medium">
+                {t("design.figmaRoundtrip.reconciliationTitle", "上一次 Figma 操作结果不确定")}
+              </p>
+              <p className="text-muted-foreground">
+                {t(
+                  "design.figmaRoundtrip.reconciliationDesc",
+                  "请先在 Figma 中核对该操作是否已发生，再选择准确结果。记录完成前不会重放外部操作。",
+                )}
+              </p>
+              <p className="break-all font-mono text-[10px] text-muted-foreground">
+                {reconciliation.toolName} · {reconciliation.localHash.slice(0, 16)}…
+                {reconciliations.length > 1 ? ` · ${reconciliations.length}` : ""}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void resolveReconciliation("confirmed_applied")}
+                >
+                  {t("design.figmaRoundtrip.confirmedApplied", "已核对：操作已发生")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void resolveReconciliation("confirmed_not_applied")}
+                >
+                  {t("design.figmaRoundtrip.confirmedNotApplied", "已核对：操作未发生")}
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
               <Label>{t("design.figmaRoundtrip.direction", "方向")}</Label>
               <Select
                 value={direction}
-                disabled={!!preview}
+                disabled={!!preview || !!reconciliation}
                 onValueChange={(value) => {
                   setDirection(value as Direction)
                   setPreview(null)
@@ -152,10 +250,10 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="hope_to_figma">
-                  {t("design.figmaRoundtrip.toFigma", "Hope → Figma")}
+                    {t("design.figmaRoundtrip.toFigma", "Hope → Figma")}
                   </SelectItem>
                   <SelectItem value="figma_to_hope">
-                  {t("design.figmaRoundtrip.toHope", "Figma → Hope 新版本")}
+                    {t("design.figmaRoundtrip.toHope", "Figma → Hope 新版本")}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -167,7 +265,7 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
               <Input
                 id="figma-mcp-server"
                 value={server}
-                disabled={!!preview}
+                disabled={!!preview || !!reconciliation}
                 onChange={(event) => setServer(event.target.value)}
               />
             </div>
@@ -176,13 +274,13 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
             <div className="grid grid-cols-2 gap-2">
               <Input
                 value={resourceId}
-                disabled={!!preview}
+                disabled={!!preview || !!reconciliation}
                 onChange={(event) => setResourceId(event.target.value)}
                 placeholder={t("design.figmaRoundtrip.fileKey", "Figma file key")}
               />
               <Input
                 value={nodeId}
-                disabled={!!preview}
+                disabled={!!preview || !!reconciliation}
                 onChange={(event) => setNodeId(event.target.value)}
                 placeholder={t("design.figmaRoundtrip.nodeId", "node id（可选）")}
               />
@@ -196,7 +294,7 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
               id="figma-mcp-args"
               className="min-h-28 font-mono text-xs"
               value={argsText}
-              disabled={!!preview}
+              disabled={!!preview || !!reconciliation}
               onChange={(event) => setArgsText(event.target.value)}
             />
             <p className="text-[11px] text-muted-foreground">{toolName}</p>
@@ -232,7 +330,10 @@ export function DesignFigmaRoundtrip({ open, onOpenChange, artifactId, onImporte
               {t("design.figmaRoundtrip.confirm", "确认并提交一次")}
             </Button>
           ) : (
-            <Button disabled={busy || !server.trim()} onClick={() => void prepare()}>
+            <Button
+              disabled={busy || reconciliationLoading || !!reconciliation || !server.trim()}
+              onClick={() => void prepare()}
+            >
               {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               {t("design.figmaRoundtrip.preview", "生成操作预览")}
             </Button>

@@ -17,6 +17,10 @@ pub(super) fn path_owner_no_follow(path: &Path) -> io::Result<(u32, u32)> {
     Ok((metadata.uid(), metadata.gid()))
 }
 
+pub(super) fn path_hard_link_count_no_follow(path: &Path) -> io::Result<u64> {
+    Ok(fs::symlink_metadata(path)?.nlink())
+}
+
 pub(super) fn set_path_owner_no_follow(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
     let path = std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;

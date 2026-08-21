@@ -609,6 +609,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   },
   preview_figma_roundtrip_cmd: { method: "POST", path: "/api/design/figma-roundtrip/preview" },
   commit_figma_roundtrip_cmd: { method: "POST", path: "/api/design/figma-roundtrip/commit" },
+  list_figma_roundtrip_reconciliations_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/figma-roundtrip/reconciliations",
+  },
+  resolve_figma_roundtrip_reconciliation_cmd: {
+    method: "POST",
+    path: "/api/design/figma-roundtrip/reconcile",
+  },
   list_figma_roundtrip_links_cmd: {
     method: "GET",
     path: "/api/design/artifacts/{artifactId}/figma-roundtrip",

@@ -28,6 +28,13 @@ pub(super) fn path_owner_no_follow(_path: &Path) -> io::Result<(u32, u32)> {
     ))
 }
 
+pub(super) fn path_hard_link_count_no_follow(_path: &Path) -> io::Result<u64> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "hard-link ownership validation is unavailable on Windows",
+    ))
+}
+
 pub(super) fn set_path_owner_no_follow(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
