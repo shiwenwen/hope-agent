@@ -18,6 +18,7 @@ use ha_core::sandbox::{
 };
 use ha_core::truncate_utf8;
 use ignore::WalkBuilder;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
@@ -527,7 +528,7 @@ fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
         let Some(file_type) = entry.file_type() else {
             continue;
         };
-        if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
+        if !file_type.is_symlink() && !file_type.is_dir() && !file_type.is_file() {
             continue;
         }
         let (uid, gid) = ha_core::platform::path_owner_no_follow(entry.path())?;
@@ -536,43 +537,218 @@ fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
     Ok(owners)
 }
 
+const WORKSPACE_OWNERSHIP_JOURNAL_VERSION: u32 = 1;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceOwnerEntry {
+    relative_path: PathBuf,
+    uid: u32,
+    gid: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceOwnershipJournal {
+    version: u32,
+    root: PathBuf,
+    target_uid: u32,
+    target_gid: u32,
+    root_owner_uid: u32,
+    root_owner_gid: u32,
+    entries: Vec<WorkspaceOwnerEntry>,
+}
+
+impl WorkspaceOwnershipJournal {
+    fn from_owners(
+        root: &Path,
+        target: (u32, u32),
+        root_owner: (u32, u32),
+        owners: &[(PathBuf, u32, u32)],
+    ) -> Result<Self> {
+        let entries = owners
+            .iter()
+            .map(|(path, uid, gid)| {
+                let relative_path = path
+                    .strip_prefix(root)
+                    .context("sandbox ownership entry escaped workspace root")?
+                    .to_path_buf();
+                Ok(WorkspaceOwnerEntry {
+                    relative_path,
+                    uid: *uid,
+                    gid: *gid,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            version: WORKSPACE_OWNERSHIP_JOURNAL_VERSION,
+            root: root.to_path_buf(),
+            target_uid: target.0,
+            target_gid: target.1,
+            root_owner_uid: root_owner.0,
+            root_owner_gid: root_owner.1,
+            entries,
+        })
+    }
+
+    fn validate(&self) -> Result<()> {
+        if self.version != WORKSPACE_OWNERSHIP_JOURNAL_VERSION {
+            anyhow::bail!("unsupported sandbox workspace ownership journal version");
+        }
+        if !self.root.is_absolute() {
+            anyhow::bail!("sandbox workspace ownership journal root is not absolute");
+        }
+        if (self.target_uid, self.target_gid) != (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID) {
+            anyhow::bail!("sandbox workspace ownership journal target identity is invalid");
+        }
+        let mut paths = HashSet::with_capacity(self.entries.len());
+        let mut root_entry = None;
+        for entry in &self.entries {
+            if entry.relative_path.is_absolute()
+                || entry
+                    .relative_path
+                    .components()
+                    .any(|component| !matches!(component, std::path::Component::Normal(_)))
+            {
+                anyhow::bail!("sandbox workspace ownership journal contains an unsafe path");
+            }
+            if !paths.insert(entry.relative_path.clone()) {
+                anyhow::bail!("sandbox workspace ownership journal contains duplicate paths");
+            }
+            if entry.relative_path.as_os_str().is_empty() {
+                root_entry = Some((entry.uid, entry.gid));
+            }
+        }
+        if root_entry != Some((self.root_owner_uid, self.root_owner_gid)) {
+            anyhow::bail!("sandbox workspace ownership journal root owner is inconsistent");
+        }
+        Ok(())
+    }
+}
+
+fn persist_workspace_ownership_journal(
+    journal_path: &Path,
+    journal: &WorkspaceOwnershipJournal,
+) -> Result<()> {
+    let bytes = serde_json::to_vec(journal).context("serialize workspace ownership journal")?;
+    ha_core::platform::write_secure_file(journal_path, &bytes)
+        .context("persist workspace ownership journal before changing host ownership")
+}
+
+fn restored_owner_for_entry(
+    journal: &WorkspaceOwnershipJournal,
+    original: &HashMap<PathBuf, (u32, u32)>,
+    relative_path: &Path,
+    current_owner: (u32, u32),
+) -> Option<(u32, u32)> {
+    original.get(relative_path).copied().or_else(|| {
+        (current_owner == (journal.target_uid, journal.target_gid))
+            .then_some((journal.root_owner_uid, journal.root_owner_gid))
+    })
+}
+
+fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
+    let bytes = match std::fs::read(journal_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).context("read workspace ownership recovery journal"),
+    };
+    let journal: WorkspaceOwnershipJournal =
+        serde_json::from_slice(&bytes).context("parse workspace ownership recovery journal")?;
+    journal.validate()?;
+    let canonical_root = journal
+        .root
+        .canonicalize()
+        .context("resolve workspace from ownership recovery journal")?;
+    if canonical_root != journal.root {
+        anyhow::bail!("workspace ownership recovery journal root identity changed");
+    }
+
+    let original = journal
+        .entries
+        .iter()
+        .map(|entry| (entry.relative_path.clone(), (entry.uid, entry.gid)))
+        .collect::<HashMap<_, _>>();
+    let current = collect_workspace_owners(&canonical_root)?;
+    let mut failures = 0usize;
+    for (path, uid, gid) in current.iter().rev() {
+        let relative = path
+            .strip_prefix(&canonical_root)
+            .context("workspace ownership recovery entry escaped root")?;
+        let desired = restored_owner_for_entry(&journal, &original, relative, (*uid, *gid));
+        let Some((desired_uid, desired_gid)) = desired else {
+            continue;
+        };
+        if (*uid, *gid) != (desired_uid, desired_gid)
+            && ha_core::platform::set_path_owner_no_follow(path, desired_uid, desired_gid).is_err()
+        {
+            failures += 1;
+        }
+    }
+    if failures > 0 {
+        anyhow::bail!(
+            "failed to restore ownership for {failures} sandbox workspace entries; recovery journal retained"
+        );
+    }
+    match std::fs::remove_file(journal_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).context("remove completed workspace ownership recovery journal")
+        }
+    }
+    app_info!(
+        "sandbox",
+        "ownership_recovery",
+        "Restored sandbox workspace ownership from durable recovery journal"
+    );
+    Ok(true)
+}
+
 struct WorkspaceOwnershipGuard {
     // The OS advisory lock stays held until ownership restoration completes.
     // A global lock deliberately also covers overlapping roots (for example a
     // project and one of its subdirectories), which exact-path locks cannot.
     _exclusive_lock: File,
-    root: PathBuf,
-    target: (u32, u32),
-    root_owner: (u32, u32),
-    original: Vec<(PathBuf, u32, u32)>,
+    journal_path: PathBuf,
 }
 
 impl WorkspaceOwnershipGuard {
-    fn acquire(root: PathBuf, target: (u32, u32), exclusive_lock: File) -> Result<Self> {
+    fn acquire(
+        root: PathBuf,
+        target: (u32, u32),
+        exclusive_lock: File,
+        journal_path: PathBuf,
+    ) -> Result<Self> {
+        let root = root
+            .canonicalize()
+            .context("canonicalize sandbox workspace before ownership handoff")?;
         let original = collect_workspace_owners(&root)?;
         let root_owner = original
             .iter()
             .find(|(path, _, _)| path == &root)
             .map(|(_, uid, gid)| (*uid, *gid))
             .context("sandbox workspace root disappeared during ownership handoff")?;
-        let mut changed = 0usize;
+        let journal = WorkspaceOwnershipJournal::from_owners(&root, target, root_owner, &original)?;
+        persist_workspace_ownership_journal(&journal_path, &journal)?;
         for (path, _, _) in &original {
             if let Err(error) =
                 ha_core::platform::set_path_owner_no_follow(path, target.0, target.1)
             {
-                for (restore_path, uid, gid) in original[..changed].iter().rev() {
-                    let _ = ha_core::platform::set_path_owner_no_follow(restore_path, *uid, *gid);
-                }
-                return Err(error).context("hand sandbox workspace ownership to non-root UID");
+                let recovery = recover_workspace_ownership(&journal_path);
+                return match recovery {
+                    Ok(_) => {
+                        Err(error).context("hand sandbox workspace ownership to non-root UID")
+                    }
+                    Err(recovery_error) => Err(error).context(format!(
+                        "hand sandbox workspace ownership to non-root UID; recovery also failed: {recovery_error:#}"
+                    )),
+                };
             }
-            changed += 1;
         }
         Ok(Self {
             _exclusive_lock: exclusive_lock,
-            root,
-            target,
-            root_owner,
-            original,
+            journal_path,
         })
     }
 }
@@ -624,40 +800,12 @@ async fn acquire_workspace_ownership_lock_at(
 
 impl Drop for WorkspaceOwnershipGuard {
     fn drop(&mut self) {
-        let original_paths = self
-            .original
-            .iter()
-            .map(|(path, _, _)| path.clone())
-            .collect::<HashSet<_>>();
-        let mut restore_failures = 0usize;
-        if let Ok(current) = collect_workspace_owners(&self.root) {
-            for (path, uid, gid) in current.iter().rev() {
-                if !original_paths.contains(path)
-                    && (*uid, *gid) == self.target
-                    && ha_core::platform::set_path_owner_no_follow(
-                        path,
-                        self.root_owner.0,
-                        self.root_owner.1,
-                    )
-                    .is_err()
-                {
-                    restore_failures += 1;
-                }
-            }
-        }
-        for (path, uid, gid) in self.original.iter().rev() {
-            if let Err(error) = ha_core::platform::set_path_owner_no_follow(path, *uid, *gid) {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    restore_failures += 1;
-                }
-            }
-        }
-        if restore_failures > 0 {
+        if let Err(error) = recover_workspace_ownership(&self.journal_path) {
             app_warn!(
                 "sandbox",
                 "ownership_restore",
-                "Failed to restore ownership for {} sandbox workspace entries",
-                restore_failures
+                "Failed to restore sandbox workspace ownership; durable recovery journal retained: {}",
+                error
             );
         }
     }
@@ -674,13 +822,16 @@ async fn prepare_workspace_ownership(
         return Ok(None);
     }
     let lock_path = ha_core::paths::root_dir()?.join("sandbox-workspace-ownership.lock");
+    let journal_path = ha_core::paths::root_dir()?.join("sandbox-workspace-ownership.json");
     let exclusive_lock = acquire_workspace_ownership_lock_at(lock_path, cancellation_token).await?;
     let workspace = workspace.to_path_buf();
     ha_core::blocking::run_blocking(move || {
+        recover_workspace_ownership(&journal_path)?;
         WorkspaceOwnershipGuard::acquire(
             workspace,
             (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
             exclusive_lock,
+            journal_path,
         )
         .map(Some)
     })
@@ -1524,6 +1675,93 @@ mod tests {
             .expect("second handoff should acquire after release")
             .expect("ownership lock task");
         drop(second);
+    }
+
+    #[test]
+    fn workspace_ownership_journal_recovers_and_is_removed_only_after_success() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        std::fs::write(workspace.path().join("source.txt"), "content").expect("workspace file");
+        let root = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical workspace");
+        let owners = collect_workspace_owners(&root).expect("collect workspace owners");
+        let root_owner = owners
+            .iter()
+            .find(|(path, _, _)| path == &root)
+            .map(|(_, uid, gid)| (*uid, *gid))
+            .expect("workspace root owner");
+        let journal = WorkspaceOwnershipJournal::from_owners(
+            &root,
+            (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
+            root_owner,
+            &owners,
+        )
+        .expect("build ownership journal");
+        let journal_dir = tempfile::tempdir().expect("journal tempdir");
+        let journal_path = journal_dir.path().join("ownership.json");
+        persist_workspace_ownership_journal(&journal_path, &journal)
+            .expect("persist ownership journal");
+        assert!(journal_path.exists());
+
+        assert!(recover_workspace_ownership(&journal_path).expect("recover ownership"));
+        assert!(!journal_path.exists());
+        assert!(!recover_workspace_ownership(&journal_path).expect("idempotent recovery"));
+    }
+
+    #[test]
+    fn workspace_ownership_recovery_restores_originals_and_new_target_owned_entries() {
+        let journal = WorkspaceOwnershipJournal {
+            version: WORKSPACE_OWNERSHIP_JOURNAL_VERSION,
+            root: PathBuf::from("/workspace"),
+            target_uid: ROOT_SANDBOX_UID,
+            target_gid: ROOT_SANDBOX_GID,
+            root_owner_uid: 0,
+            root_owner_gid: 0,
+            entries: Vec::new(),
+        };
+        let original = HashMap::from([(PathBuf::from("source.txt"), (1_000, 1_000))]);
+
+        assert_eq!(
+            restored_owner_for_entry(
+                &journal,
+                &original,
+                Path::new("source.txt"),
+                (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
+            ),
+            Some((1_000, 1_000))
+        );
+        assert_eq!(
+            restored_owner_for_entry(
+                &journal,
+                &original,
+                Path::new("created.txt"),
+                (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
+            ),
+            Some((0, 0))
+        );
+        assert_eq!(
+            restored_owner_for_entry(
+                &journal,
+                &original,
+                Path::new("external.txt"),
+                (2_000, 2_000),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn invalid_workspace_ownership_journal_is_retained_fail_closed() {
+        let journal_dir = tempfile::tempdir().expect("journal tempdir");
+        let journal_path = journal_dir.path().join("ownership.json");
+        std::fs::write(&journal_path, b"not-json").expect("write invalid journal");
+
+        assert!(recover_workspace_ownership(&journal_path).is_err());
+        assert!(
+            journal_path.exists(),
+            "an unreadable recovery record must never be discarded"
+        );
     }
 
     #[test]
