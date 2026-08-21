@@ -60,6 +60,7 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
     let mut output = String::with_capacity(md.len());
     let bytes = md.as_bytes();
     let mut index = 0usize;
+    let mut line_start = 0usize;
     let mut fence_delimiter = None;
     let mut inline_delimiter = None;
     while index < bytes.len() {
@@ -68,15 +69,25 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
                 .iter()
                 .take_while(|byte| **byte == b'`')
                 .count();
+            let fence_position = index - line_start <= 3
+                && bytes[line_start..index].iter().all(|byte| *byte == b' ');
+            let line_end = bytes[index + run_length..]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(bytes.len(), |offset| index + run_length + offset);
+            let valid_fence_closer = fence_position
+                && bytes[index + run_length..line_end]
+                    .iter()
+                    .all(|byte| matches!(*byte, b' ' | b'\t' | b'\r'));
             if let Some(opening_length) = fence_delimiter {
-                if run_length >= opening_length {
+                if run_length >= opening_length && valid_fence_closer {
                     fence_delimiter = None;
                 }
             } else if let Some(opening_length) = inline_delimiter {
                 if run_length == opening_length {
                     inline_delimiter = None;
                 }
-            } else if run_length >= 3 {
+            } else if run_length >= 3 && fence_position {
                 fence_delimiter = Some(run_length);
             } else {
                 inline_delimiter = Some(run_length);
@@ -112,6 +123,9 @@ pub fn compile_standard_markdown_mentions(md: &str) -> String {
             .expect("index remains on a UTF-8 boundary");
         output.push(ch);
         index += ch.len_utf8();
+        if ch == '\n' {
+            line_start = index;
+        }
     }
     output
 }
@@ -288,6 +302,15 @@ mod tests {
         assert_eq!(
             compile_standard_markdown_mentions(input),
             "``sample ` <users/all> sample`` then <chat-user data-user=\"users/123\">"
+        );
+    }
+
+    #[test]
+    fn standard_markdown_requires_a_line_level_fence_closer() {
+        let input = "```js\nconst marker = \"```\"; <users/all>\n```\n<users/123>";
+        assert_eq!(
+            compile_standard_markdown_mentions(input),
+            "```js\nconst marker = \"```\"; <users/all>\n```\n<chat-user data-user=\"users/123\">"
         );
     }
 

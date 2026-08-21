@@ -9,6 +9,8 @@ use std::process::Command;
 use std::time::Duration;
 use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
 
+use super::PathOwnershipSnapshot;
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
@@ -28,14 +30,21 @@ pub(super) fn path_owner_no_follow(_path: &Path) -> io::Result<(u32, u32)> {
     ))
 }
 
-pub(super) fn path_hard_link_count_no_follow(_path: &Path) -> io::Result<u64> {
+pub(super) fn path_ownership_snapshot_no_follow(_path: &Path) -> io::Result<PathOwnershipSnapshot> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
-        "hard-link ownership validation is unavailable on Windows",
+        "numeric file ownership is unavailable on Windows",
     ))
 }
 
-pub(super) fn set_path_owner_no_follow(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
+pub(super) fn set_path_owner_from_snapshot_beneath(
+    _root: &Path,
+    _expected_root: PathOwnershipSnapshot,
+    _relative: &Path,
+    _expected: PathOwnershipSnapshot,
+    _uid: u32,
+    _gid: u32,
+) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "numeric file ownership is unavailable on Windows",

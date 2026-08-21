@@ -15,6 +15,21 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Stable identity captured before a numeric ownership handoff.
+///
+/// Callers must pass this snapshot back to
+/// [`set_path_owner_from_snapshot_beneath`] so the ownership mutation is
+/// applied to the same inode through a descriptor-relative, no-follow walk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathOwnershipSnapshot {
+    pub uid: u32,
+    pub gid: u32,
+    pub device: u64,
+    pub inode: u64,
+    pub hard_link_count: u64,
+    pub is_directory: bool,
+}
+
 // `pub`（原为 `pub(crate)`）：ha-core 的 `app_init::spawn_keep_awake_listener`
 // 跨 crate 调用 `keep_awake::apply`，搬进 ha-base 后 crate 级可见性不再够用。
 pub mod keep_awake;
@@ -79,16 +94,24 @@ pub fn path_owner_no_follow(path: &Path) -> std::io::Result<(u32, u32)> {
     imp::path_owner_no_follow(path)
 }
 
-/// Return the number of hard links to an entry without following a final
-/// symlink. Ownership handoffs use this to avoid exposing an inode that also
-/// has a name outside the authorized workspace.
-pub fn path_hard_link_count_no_follow(path: &Path) -> std::io::Result<u64> {
-    imp::path_hard_link_count_no_follow(path)
+/// Capture the owner, inode identity, type, and hard-link count without
+/// following a final symlink.
+pub fn path_ownership_snapshot_no_follow(path: &Path) -> std::io::Result<PathOwnershipSnapshot> {
+    imp::path_ownership_snapshot_no_follow(path)
 }
 
-/// Change an entry's numeric owner without following a final symlink.
-pub fn set_path_owner_no_follow(path: &Path, uid: u32, gid: u32) -> std::io::Result<()> {
-    imp::set_path_owner_no_follow(path, uid, gid)
+/// Change an entry's numeric owner through a descriptor-relative walk rooted
+/// at `root`, after proving that the opened inode still matches `expected`.
+/// Regular files must remain singly linked at the mutation boundary.
+pub fn set_path_owner_from_snapshot_beneath(
+    root: &Path,
+    expected_root: PathOwnershipSnapshot,
+    relative: &Path,
+    expected: PathOwnershipSnapshot,
+    uid: u32,
+    gid: u32,
+) -> std::io::Result<()> {
+    imp::set_path_owner_from_snapshot_beneath(root, expected_root, relative, expected, uid, gid)
 }
 
 /// Prevent same-UID processes from attaching to or dumping this process on

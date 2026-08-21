@@ -515,7 +515,7 @@ fn native_container_identity(workspace: Option<&Path>) -> Result<Option<(u32, u3
 fn collect_workspace_owners_impl(
     root: &Path,
     reject_multiply_linked_files: bool,
-) -> Result<Vec<(PathBuf, u32, u32)>> {
+) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
     let mut owners = Vec::new();
     let walker = WalkBuilder::new(root)
         .hidden(false)
@@ -531,32 +531,36 @@ fn collect_workspace_owners_impl(
         let Some(file_type) = entry.file_type() else {
             continue;
         };
-        if !file_type.is_symlink() && !file_type.is_dir() && !file_type.is_file() {
+        // Symlink ownership does not control traversal or target access on
+        // Unix. Leaving it unchanged also avoids a final-component race that
+        // cannot be bound to an ordinary file descriptor portably.
+        if !file_type.is_dir() && !file_type.is_file() {
             continue;
         }
-        if reject_multiply_linked_files
-            && file_type.is_file()
-            && ha_core::platform::path_hard_link_count_no_follow(entry.path())? > 1
-        {
+        let snapshot = ha_core::platform::path_ownership_snapshot_no_follow(entry.path())?;
+        if reject_multiply_linked_files && file_type.is_file() && snapshot.hard_link_count > 1 {
             anyhow::bail!(
                 "sandbox workspace contains a multiply-linked file; root ownership handoff cannot prove the inode is workspace-local"
             );
         }
-        let (uid, gid) = ha_core::platform::path_owner_no_follow(entry.path())?;
-        owners.push((entry.into_path(), uid, gid));
+        owners.push((entry.into_path(), snapshot));
     }
     Ok(owners)
 }
 
-fn collect_workspace_owners(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
+fn collect_workspace_owners(
+    root: &Path,
+) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
     collect_workspace_owners_impl(root, false)
 }
 
-fn collect_workspace_owners_for_handoff(root: &Path) -> Result<Vec<(PathBuf, u32, u32)>> {
+fn collect_workspace_owners_for_handoff(
+    root: &Path,
+) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
     collect_workspace_owners_impl(root, true)
 }
 
-const WORKSPACE_OWNERSHIP_JOURNAL_VERSION: u32 = 1;
+const WORKSPACE_OWNERSHIP_JOURNAL_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -564,6 +568,9 @@ struct WorkspaceOwnerEntry {
     relative_path: PathBuf,
     uid: u32,
     gid: u32,
+    device: u64,
+    inode: u64,
+    is_directory: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -583,19 +590,22 @@ impl WorkspaceOwnershipJournal {
         root: &Path,
         target: (u32, u32),
         root_owner: (u32, u32),
-        owners: &[(PathBuf, u32, u32)],
+        owners: &[(PathBuf, ha_core::platform::PathOwnershipSnapshot)],
     ) -> Result<Self> {
         let entries = owners
             .iter()
-            .map(|(path, uid, gid)| {
+            .map(|(path, snapshot)| {
                 let relative_path = path
                     .strip_prefix(root)
                     .context("sandbox ownership entry escaped workspace root")?
                     .to_path_buf();
                 Ok(WorkspaceOwnerEntry {
                     relative_path,
-                    uid: *uid,
-                    gid: *gid,
+                    uid: snapshot.uid,
+                    gid: snapshot.gid,
+                    device: snapshot.device,
+                    inode: snapshot.inode,
+                    is_directory: snapshot.is_directory,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -656,14 +666,20 @@ fn persist_workspace_ownership_journal(
 
 fn restored_owner_for_entry(
     journal: &WorkspaceOwnershipJournal,
-    original: &HashMap<PathBuf, (u32, u32)>,
-    relative_path: &Path,
-    current_owner: (u32, u32),
+    original: Option<&WorkspaceOwnerEntry>,
+    current: ha_core::platform::PathOwnershipSnapshot,
 ) -> Option<(u32, u32)> {
-    original.get(relative_path).copied().or_else(|| {
-        (current_owner == (journal.target_uid, journal.target_gid))
-            .then_some((journal.root_owner_uid, journal.root_owner_gid))
-    })
+    original
+        .filter(|entry| {
+            entry.device == current.device
+                && entry.inode == current.inode
+                && entry.is_directory == current.is_directory
+        })
+        .map(|entry| (entry.uid, entry.gid))
+        .or_else(|| {
+            ((current.uid, current.gid) == (journal.target_uid, journal.target_gid))
+                .then_some((journal.root_owner_uid, journal.root_owner_gid))
+        })
 }
 
 fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
@@ -686,20 +702,43 @@ fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
     let original = journal
         .entries
         .iter()
-        .map(|entry| (entry.relative_path.clone(), (entry.uid, entry.gid)))
+        .map(|entry| (entry.relative_path.clone(), entry))
         .collect::<HashMap<_, _>>();
     let current = collect_workspace_owners(&canonical_root)?;
+    let root_snapshot = current
+        .iter()
+        .find(|(path, _)| path == &canonical_root)
+        .map(|(_, snapshot)| *snapshot)
+        .context("sandbox workspace root disappeared during ownership recovery")?;
+    let journal_root = original
+        .get(Path::new(""))
+        .context("sandbox ownership recovery journal has no root identity")?;
+    if journal_root.device != root_snapshot.device
+        || journal_root.inode != root_snapshot.inode
+        || !journal_root.is_directory
+    {
+        anyhow::bail!("sandbox workspace root inode changed; recovery journal retained");
+    }
     let mut failures = 0usize;
-    for (path, uid, gid) in current.iter().rev() {
+    for (path, snapshot) in current.iter().rev() {
         let relative = path
             .strip_prefix(&canonical_root)
             .context("workspace ownership recovery entry escaped root")?;
-        let desired = restored_owner_for_entry(&journal, &original, relative, (*uid, *gid));
+        let desired =
+            restored_owner_for_entry(&journal, original.get(relative).copied(), *snapshot);
         let Some((desired_uid, desired_gid)) = desired else {
             continue;
         };
-        if (*uid, *gid) != (desired_uid, desired_gid)
-            && ha_core::platform::set_path_owner_no_follow(path, desired_uid, desired_gid).is_err()
+        if (snapshot.uid, snapshot.gid) != (desired_uid, desired_gid)
+            && ha_core::platform::set_path_owner_from_snapshot_beneath(
+                &canonical_root,
+                root_snapshot,
+                relative,
+                *snapshot,
+                desired_uid,
+                desired_gid,
+            )
+            .is_err()
         {
             failures += 1;
         }
@@ -748,17 +787,39 @@ impl WorkspaceOwnershipGuard {
         // conservatively rejected because pathname traversal cannot prove that
         // no additional name exists outside the authorized workspace.
         let original = collect_workspace_owners_for_handoff(&root)?;
-        let root_owner = original
+        let root_snapshot = original
             .iter()
-            .find(|(path, _, _)| path == &root)
-            .map(|(_, uid, gid)| (*uid, *gid))
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| *snapshot)
             .context("sandbox workspace root disappeared during ownership handoff")?;
+        let root_owner = (root_snapshot.uid, root_snapshot.gid);
         let journal = WorkspaceOwnershipJournal::from_owners(&root, target, root_owner, &original)?;
         persist_workspace_ownership_journal(&journal_path, &journal)?;
-        for (path, _, _) in &original {
-            if let Err(error) =
-                ha_core::platform::set_path_owner_no_follow(path, target.0, target.1)
-            {
+        // Files move first, then directories from deepest to root. Every
+        // mutation reopens beneath the captured root descriptor, verifies the
+        // exact dev/inode/type/owner snapshot, rechecks single-link status,
+        // and calls fchown on that descriptor.
+        let handoff_order = original
+            .iter()
+            .filter(|(_, snapshot)| !snapshot.is_directory)
+            .chain(
+                original
+                    .iter()
+                    .rev()
+                    .filter(|(_, snapshot)| snapshot.is_directory),
+            );
+        for (path, snapshot) in handoff_order {
+            let relative = path
+                .strip_prefix(&root)
+                .context("sandbox ownership entry escaped workspace root")?;
+            if let Err(error) = ha_core::platform::set_path_owner_from_snapshot_beneath(
+                &root,
+                root_snapshot,
+                relative,
+                *snapshot,
+                target.0,
+                target.1,
+            ) {
                 let recovery = recover_workspace_ownership(&journal_path);
                 return match recovery {
                     Ok(_) => {
@@ -1717,6 +1778,46 @@ mod tests {
         assert!(collect_workspace_owners(workspace.path()).is_ok());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_a_replaced_inode_at_mutation() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        let root = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical workspace");
+        let victim = root.join("victim.txt");
+        std::fs::write(&victim, "workspace").expect("workspace source");
+        let owners = collect_workspace_owners_for_handoff(&root).expect("ownership snapshot");
+        let root_snapshot = owners
+            .iter()
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("root snapshot");
+        let victim_snapshot = owners
+            .iter()
+            .find(|(path, _)| path == &victim)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("victim snapshot");
+
+        let outside_file = outside.path().join("outside.txt");
+        std::fs::write(&outside_file, "outside").expect("outside source");
+        std::fs::remove_file(&victim).expect("replace victim");
+        std::fs::hard_link(&outside_file, &victim).expect("install raced hard link");
+
+        let error = ha_core::platform::set_path_owner_from_snapshot_beneath(
+            &root,
+            root_snapshot,
+            Path::new("victim.txt"),
+            victim_snapshot,
+            victim_snapshot.uid,
+            victim_snapshot.gid,
+        )
+        .expect_err("the inode opened for mutation must match the snapshot");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
     #[test]
     fn workspace_ownership_journal_recovers_and_is_removed_only_after_success() {
         let workspace = tempfile::tempdir().expect("workspace tempdir");
@@ -1728,8 +1829,8 @@ mod tests {
         let owners = collect_workspace_owners(&root).expect("collect workspace owners");
         let root_owner = owners
             .iter()
-            .find(|(path, _, _)| path == &root)
-            .map(|(_, uid, gid)| (*uid, *gid))
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| (snapshot.uid, snapshot.gid))
             .expect("workspace root owner");
         let journal = WorkspaceOwnershipJournal::from_owners(
             &root,
@@ -1760,32 +1861,40 @@ mod tests {
             root_owner_gid: 0,
             entries: Vec::new(),
         };
-        let original = HashMap::from([(PathBuf::from("source.txt"), (1_000, 1_000))]);
+        let original = WorkspaceOwnerEntry {
+            relative_path: PathBuf::from("source.txt"),
+            uid: 1_000,
+            gid: 1_000,
+            device: 7,
+            inode: 11,
+            is_directory: false,
+        };
+        let current = ha_core::platform::PathOwnershipSnapshot {
+            uid: ROOT_SANDBOX_UID,
+            gid: ROOT_SANDBOX_GID,
+            device: 7,
+            inode: 11,
+            hard_link_count: 1,
+            is_directory: false,
+        };
 
         assert_eq!(
-            restored_owner_for_entry(
-                &journal,
-                &original,
-                Path::new("source.txt"),
-                (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
-            ),
+            restored_owner_for_entry(&journal, Some(&original), current),
             Some((1_000, 1_000))
         );
         assert_eq!(
-            restored_owner_for_entry(
-                &journal,
-                &original,
-                Path::new("created.txt"),
-                (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
-            ),
+            restored_owner_for_entry(&journal, None, current),
             Some((0, 0))
         );
         assert_eq!(
             restored_owner_for_entry(
                 &journal,
-                &original,
-                Path::new("external.txt"),
-                (2_000, 2_000),
+                None,
+                ha_core::platform::PathOwnershipSnapshot {
+                    uid: 2_000,
+                    gid: 2_000,
+                    ..current
+                },
             ),
             None
         );
