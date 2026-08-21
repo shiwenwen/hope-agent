@@ -293,20 +293,52 @@ export default function AcpControlPanel() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div>
+                    <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">
                         {t("settings.acpLaunchArgs", "Launch arguments")}
                       </Label>
-                      <Input
+                      {backend.acpArgs.map((argument, argumentIndex) => (
+                        <div
+                          key={`${backend.id}-argument-${argumentIndex}`}
+                          className="flex items-center gap-1.5"
+                        >
+                          <Input
+                            className="h-7 text-xs"
+                            value={argument}
+                            placeholder="--acp"
+                            aria-label={`${t("settings.acpLaunchArgs", "Launch arguments")} ${argumentIndex + 1}`}
+                            onChange={(e) => {
+                              const acpArgs = [...backend.acpArgs]
+                              acpArgs[argumentIndex] = e.target.value
+                              updateBackend(index, { acpArgs })
+                            }}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0"
+                            aria-label={`${t("common.remove", "Remove")} ${argumentIndex + 1}`}
+                            onClick={() =>
+                              updateBackend(index, {
+                                acpArgs: backend.acpArgs.filter(
+                                  (_, candidateIndex) => candidateIndex !== argumentIndex,
+                                ),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
                         className="h-7 text-xs"
-                        value={backend.acpArgs.join(" ")}
-                        placeholder="--acp"
-                        onChange={(e) =>
-                          updateBackend(index, {
-                            acpArgs: e.target.value.split(/\s+/).filter(Boolean),
-                          })
-                        }
-                      />
+                        onClick={() => updateBackend(index, { acpArgs: [...backend.acpArgs, ""] })}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        {t("common.add", "Add")}
+                      </Button>
                     </div>
                   </div>
 
