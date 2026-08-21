@@ -450,6 +450,64 @@ fn load_links(path: &Path) -> Result<Vec<FigmaLink>> {
     }
 }
 
+fn persist_roundtrip_result(
+    project_id: String,
+    artifact_id: String,
+    preview: FigmaRoundtripPreview,
+    actual_hash: String,
+    raw: String,
+    indeterminate: PathBuf,
+) -> Result<FigmaRoundtripResult> {
+    let external_context = redact_external(&raw);
+    let dir = external_dir(&project_id, &artifact_id)?;
+    std::fs::create_dir_all(dir.join("imports"))?;
+    let context_hash = blake3::hash(external_context.as_bytes())
+        .to_hex()
+        .to_string();
+    write_atomic(
+        &dir.join("imports").join(format!("{context_hash}.txt")),
+        external_context.as_bytes(),
+    )?;
+
+    if preview.direction == FigmaDirection::FigmaToHope {
+        // 固定生成 Hope 新版本；外部上下文另存，不把不可信文本直接解释为 HTML/JS。
+        super::service::update_artifact(super::service::UpdateArtifactInput {
+            id: artifact_id.clone(),
+            title: None,
+            body_html: None,
+            css: None,
+            js: None,
+            message: Some("从 Figma MCP 导入固定上下文".into()),
+            origin: Some("manual".into()),
+            prompt_summary: None,
+            expected_body_hash: None,
+        })?;
+    }
+
+    let link = FigmaLink {
+        id: uuid::Uuid::new_v4().to_string(),
+        artifact_id,
+        provider: "figma-mcp".into(),
+        tool_name: preview.tool_name,
+        direction: preview.direction,
+        local_hash: actual_hash,
+        resource_id: preview.resource_id,
+        node_id: preview.node_id,
+        remote_version: None,
+        remote_url: extract_remote_url(&raw),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let links_path = dir.join("figma-links.json");
+    let mut links = load_links(&links_path)?;
+    links.push(link.clone());
+    write_atomic(&links_path, &serde_json::to_vec_pretty(&links)?)?;
+    let _ = std::fs::remove_file(indeterminate);
+    Ok(FigmaRoundtripResult {
+        link,
+        external_context,
+    })
+}
+
 pub fn list_links(artifact_id: &str) -> Result<Vec<FigmaLink>> {
     let artifact = super::service::get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
@@ -521,54 +579,23 @@ pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripRe
                 );
         }
     };
-    let external_context = redact_external(&raw);
-    let dir = external_dir(&artifact.project_id, &artifact.id)?;
-    std::fs::create_dir_all(dir.join("imports"))?;
-    let context_hash = blake3::hash(external_context.as_bytes())
-        .to_hex()
-        .to_string();
-    write_atomic(
-        &dir.join("imports").join(format!("{context_hash}.txt")),
-        external_context.as_bytes(),
-    )?;
-
-    if preview.direction == FigmaDirection::FigmaToHope {
-        // 固定生成 Hope 新版本；外部上下文另存，不把不可信文本直接解释为 HTML/JS。
-        super::service::update_artifact(super::service::UpdateArtifactInput {
-            id: artifact.id.clone(),
-            title: None,
-            body_html: None,
-            css: None,
-            js: None,
-            message: Some("从 Figma MCP 导入固定上下文".into()),
-            origin: Some("manual".into()),
-            prompt_summary: None,
-            expected_body_hash: None,
-        })?;
-    }
-
-    let link = FigmaLink {
-        id: uuid::Uuid::new_v4().to_string(),
-        artifact_id: artifact.id.clone(),
-        provider: "figma-mcp".into(),
-        tool_name: preview.tool_name,
-        direction: preview.direction,
-        local_hash: actual_hash,
-        resource_id: preview.resource_id,
-        node_id: preview.node_id,
-        remote_version: None,
-        remote_url: extract_remote_url(&raw),
-        created_at: chrono::Utc::now().to_rfc3339(),
-    };
-    let links_path = dir.join("figma-links.json");
-    let mut links = load_links(&links_path)?;
-    links.push(link.clone());
-    write_atomic(&links_path, &serde_json::to_vec_pretty(&links)?)?;
-    let _ = std::fs::remove_file(indeterminate);
-    Ok(FigmaRoundtripResult {
-        link,
-        external_context,
+    let project_id = artifact.project_id;
+    let artifact_id = artifact.id;
+    // Keep the per-artifact async guard alive across this await: receipt
+    // consumption, the external side effect, local persistence, and marker
+    // removal remain one serialized boundary, while rendering/FS/SQLite work
+    // runs outside the Tauri/Axum worker.
+    ha_core::blocking::run_blocking(move || {
+        persist_roundtrip_result(
+            project_id,
+            artifact_id,
+            preview,
+            actual_hash,
+            raw,
+            indeterminate,
+        )
     })
+    .await
 }
 
 #[cfg(test)]
