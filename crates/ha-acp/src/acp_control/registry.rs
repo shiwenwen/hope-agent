@@ -1,6 +1,6 @@
 //! ACP Control Plane — Runtime registry and auto-discovery.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -154,6 +154,14 @@ pub fn resolve_binary(name: &str) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+fn configured_backend_ids(config: &AcpControlConfig) -> HashSet<String> {
+    config
+        .backends
+        .iter()
+        .map(|backend| backend.id.to_lowercase())
+        .collect()
+}
+
 /// Auto-discover ACP backends from $PATH and from config, then register them.
 pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &AcpControlConfig) {
     use super::runtime_stdio::StdioAcpRuntime;
@@ -197,9 +205,14 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
 
     // 2. Auto-discover known binaries not yet registered
     if config.auto_discover {
-        let registered = registry.list_ids().await;
+        // Any explicitly configured ID owns that slot even when disabled,
+        // unresolved, or rejected for missing distribution provenance. Auto
+        // discovery must not bypass a fail-closed configuration decision by
+        // guessing V1 for the same executable.
+        let mut excluded = configured_backend_ids(config);
+        excluded.extend(registry.list_ids().await);
         for (id, name, binary, args) in KNOWN_BINARIES {
-            if registered.iter().any(|r| r.eq_ignore_ascii_case(id)) {
+            if excluded.contains(&id.to_lowercase()) {
                 continue;
             }
             if let Some(path) = resolve_binary(binary) {
@@ -214,5 +227,22 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
                 registry.register(Arc::new(runtime)).await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_backend_ids_are_excluded_even_when_rejected_or_disabled() {
+        let mut config = AcpControlConfig::default();
+        config.backends[0].distribution = None;
+        config.backends[1].enabled = false;
+
+        let excluded = configured_backend_ids(&config);
+
+        assert!(excluded.contains("claude-code"));
+        assert!(excluded.contains("codex-cli"));
     }
 }

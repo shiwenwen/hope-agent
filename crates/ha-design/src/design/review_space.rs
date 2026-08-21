@@ -189,6 +189,13 @@ fn acquire_store_lock(path: &Path) -> Result<std::fs::File> {
     }
 }
 
+pub(super) fn acquire_artifact_review_lock(
+    project_id: &str,
+    artifact_id: &str,
+) -> Result<std::fs::File> {
+    acquire_store_lock(&store_path(project_id, artifact_id)?)
+}
+
 pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
     let artifact_guard = super::service::artifact_lock(&input.artifact_id);
     let _artifact_guard = artifact_guard.lock().unwrap_or_else(|e| e.into_inner());
@@ -197,6 +204,11 @@ pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
     if input.version_number <= 0 || input.version_number > artifact.current_version {
         anyhow::bail!("invalid artifact version");
     }
+    let path = store_path(&artifact.project_id, &artifact.id)?;
+    // This stable OS lock is shared with version cleanup in every process.
+    // Holding it from exact-snapshot validation through grant persistence
+    // prevents another Desktop/HTTP process from pruning between those steps.
+    let _guard = acquire_store_lock(&path)?;
     // Retention can leave gaps below `current_version`; a fixed-version grant
     // is valid only when its exact immutable snapshot still exists.
     super::service::get_artifact_version_html(&artifact.id, input.version_number)?;
@@ -217,8 +229,6 @@ pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
         created_at: now_dt.to_rfc3339(),
         revoked_at: None,
     };
-    let path = store_path(&artifact.project_id, &artifact.id)?;
-    let _guard = acquire_store_lock(&path)?;
     let mut store = load(&path)?;
     store.grants.push(grant.clone());
     store.audit.push(ReviewAuditEvent {
@@ -281,7 +291,9 @@ fn authorize(token: &str) -> Result<(PathBuf, ReviewStore, ReviewGrant)> {
     anyhow::bail!("review grant not found")
 }
 
-pub(super) fn active_version_numbers(
+/// Caller must hold [`acquire_artifact_review_lock`] until DB and disk pruning
+/// are both complete.
+pub(super) fn active_version_numbers_under_lock(
     project_id: &str,
     artifact_id: &str,
 ) -> Result<std::collections::HashSet<i64>> {
@@ -304,6 +316,9 @@ pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
         review_token_artifact_id(token).ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
     let artifact_guard = super::service::artifact_lock(artifact_id);
     let _artifact_guard = artifact_guard.lock().unwrap_or_else(|e| e.into_inner());
+    let artifact = super::service::get_artifact(artifact_id)?
+        .ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
+    let _review_guard = acquire_artifact_review_lock(&artifact.project_id, &artifact.id)?;
     let (_, store, grant) = authorize(token)?;
     let html = super::service::get_artifact_version_html(&grant.artifact_id, grant.version_number)?;
     Ok(ReviewSnapshot {

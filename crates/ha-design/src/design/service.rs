@@ -3226,20 +3226,41 @@ fn cleanup_version_history(
     dir: &std::path::Path,
     keep: i64,
 ) {
-    let protected =
-        match super::review_space::active_version_numbers(&artifact.project_id, &artifact.id) {
-            Ok(versions) => versions,
+    // Serialize the protected-set read and both DB/disk pruning steps with
+    // fixed-version grant validation + persistence in every process sharing
+    // the data root. The in-process artifact mutex alone cannot cover a
+    // Desktop and HTTP daemon running concurrently.
+    let _review_guard =
+        match super::review_space::acquire_artifact_review_lock(&artifact.project_id, &artifact.id)
+        {
+            Ok(guard) => guard,
             Err(error) => {
                 ha_core::app_warn!(
                     "design",
                     "version_cleanup",
-                    "artifact={} skipped cleanup because review grants could not be read: {}",
+                    "artifact={} skipped cleanup because review lock could not be acquired: {}",
                     artifact.id,
                     error
                 );
                 return;
             }
         };
+    let protected = match super::review_space::active_version_numbers_under_lock(
+        &artifact.project_id,
+        &artifact.id,
+    ) {
+        Ok(versions) => versions,
+        Err(error) => {
+            ha_core::app_warn!(
+                "design",
+                "version_cleanup",
+                "artifact={} skipped cleanup because review grants could not be read: {}",
+                artifact.id,
+                error
+            );
+            return;
+        }
+    };
     let protected = protected.into_iter().collect::<Vec<_>>();
     if let Err(error) = db.cleanup_old_versions(&artifact.id, keep, &protected) {
         ha_core::app_warn!(

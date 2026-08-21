@@ -635,6 +635,8 @@ ACP 服务端刻意选择**纯 Rust 原生实现、直接驱动 `AssistantAgent`
 `PromptResponse.usage` 扩展中返回精确的 `inputTokens` / `outputTokens`，终态
 落库优先采用该拆分。
 
+自动发现不得覆盖显式配置的后端 ID：只要 ID 已出现在配置中，无论该项被禁用、二进制不可解析，还是因缺少可信 `distribution` 描述而拒绝注册，都要从自动发现候选中排除。这样旧配置的关闭式失败（fail-closed）拒绝不会被第二轮扫描猜成 ACP v1 并重新启用。
+
 ---
 
 ## 文件索引
