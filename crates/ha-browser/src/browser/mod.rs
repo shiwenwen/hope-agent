@@ -85,28 +85,6 @@ pub(crate) fn global_state_test_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-#[cfg(test)]
-mod cdp_operation_guard_tests {
-    #[tokio::test]
-    async fn multi_step_cdp_workflows_are_process_serialized() {
-        let first = super::acquire_cdp_operation_guard().await;
-        let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
-        let waiter = tokio::spawn(async move {
-            let _second = super::acquire_cdp_operation_guard().await;
-            entered_tx.send(()).unwrap();
-        });
-
-        tokio::task::yield_now().await;
-        assert!(entered_rx.try_recv().is_err());
-        drop(first);
-        tokio::time::timeout(std::time::Duration::from_secs(1), entered_rx.recv())
-            .await
-            .expect("waiting CDP workflow should enter after release")
-            .expect("waiter should report entry");
-        waiter.await.unwrap();
-    }
-}
-
 /// Resolve and authorise a path being handed to `act.upload`. Returns the
 /// canonical absolute path the backend should pass to Chrome, or `Err` if
 /// the file is missing or falls inside a user-configured protected path.
@@ -266,4 +244,26 @@ pub async fn validate_cdp_endpoint_url(url: &str) -> anyhow::Result<()> {
     ha_core::security::ssrf::check_url(trimmed, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod cdp_operation_guard_tests {
+    #[tokio::test]
+    async fn multi_step_cdp_workflows_are_process_serialized() {
+        let first = super::acquire_cdp_operation_guard().await;
+        let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let waiter = tokio::spawn(async move {
+            let _second = super::acquire_cdp_operation_guard().await;
+            entered_tx.send(()).unwrap();
+        });
+
+        tokio::task::yield_now().await;
+        assert!(entered_rx.try_recv().is_err());
+        drop(first);
+        tokio::time::timeout(std::time::Duration::from_secs(1), entered_rx.recv())
+            .await
+            .expect("waiting CDP workflow should enter after release")
+            .expect("waiter should report entry");
+        waiter.await.unwrap();
+    }
 }
