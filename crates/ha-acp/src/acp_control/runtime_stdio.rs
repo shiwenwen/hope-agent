@@ -74,7 +74,11 @@ impl StdioAcpRuntime {
         // Stdio: pipe all three
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // Setup has several fallible steps before the child enters the
+            // runtime registry. Keep this as a last-resort backstop in case an
+            // unexpected early return bypasses explicit termination below.
+            .kill_on_drop(true);
 
         // Prevent the child from becoming a zombie
         #[cfg(unix)]
@@ -168,6 +172,40 @@ impl StdioAcpRuntime {
                     }
                 }
                 // Otherwise it's a notification — ignore during handshake
+            }
+        }
+    }
+
+    async fn terminate_unregistered_child(child: &mut Child, backend_id: &str) {
+        // No session owns this process yet, so a setup failure must make it
+        // terminal before returning to the caller. `wait` reaps the process;
+        // kill_on_drop remains armed if the bounded wait itself cannot finish.
+        if let Some(pid) = child.id() {
+            ha_core::blocking::run_blocking(move || {
+                ha_core::platform::terminate_process_tree(pid);
+            })
+            .await;
+        } else {
+            let _ = child.start_kill();
+        }
+        match tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                ha_core::app_warn!(
+                    "acp_control",
+                    "setup_cleanup",
+                    "Failed to reap rejected ACP backend child: backend_id={}, error={}",
+                    backend_id,
+                    error
+                );
+            }
+            Err(_) => {
+                ha_core::app_warn!(
+                    "acp_control",
+                    "setup_cleanup",
+                    "Timed out reaping rejected ACP backend child: backend_id={}",
+                    backend_id
+                );
             }
         }
     }
@@ -313,14 +351,20 @@ impl AcpRuntime for StdioAcpRuntime {
 
         let mut child = self.spawn_child(Some(&effective_cwd))?;
         let pid = child.id();
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Child stdin unavailable"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Child stdout unavailable"))?;
+        let stdin = match child.stdin.take() {
+            Some(stdin) => stdin,
+            None => {
+                Self::terminate_unregistered_child(&mut child, &self.id).await;
+                anyhow::bail!("Child stdin unavailable");
+            }
+        };
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                Self::terminate_unregistered_child(&mut child, &self.id).await;
+                anyhow::bail!("Child stdout unavailable");
+            }
+        };
 
         let mut handle = ChildHandle {
             child,
@@ -334,7 +378,7 @@ impl AcpRuntime for StdioAcpRuntime {
             AcpBackendProtocol::V1 => serde_json::json!(1),
             AcpBackendProtocol::Legacy02 => serde_json::json!("0.2"),
         };
-        let init_result = Self::send_request(
+        let init_result = match Self::send_request(
             &handle,
             "initialize",
             serde_json::json!({
@@ -350,25 +394,41 @@ impl AcpRuntime for StdioAcpRuntime {
             }),
             1,
         )
-        .await?;
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                Self::terminate_unregistered_child(&mut handle.child, &self.id).await;
+                return Err(error);
+            }
+        };
         if init_result.get("protocolVersion") != Some(&requested_protocol) {
             let actual = init_result
                 .get("protocolVersion")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-            anyhow::bail!(
+            let error = anyhow::anyhow!(
                 "ACP backend '{}' negotiated incompatible protocol: requested {}, received {}",
                 self.id,
                 requested_protocol,
                 actual
             );
+            Self::terminate_unregistered_child(&mut handle.child, &self.id).await;
+            return Err(error);
         }
 
         // Step 2: session/new
         let (session_method, new_params) =
             self.session_start_request(&effective_cwd, params.resume_session_id.as_deref());
 
-        let session_result = Self::send_request(&handle, session_method, new_params, 2).await?;
+        let session_result = match Self::send_request(&handle, session_method, new_params, 2).await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                Self::terminate_unregistered_child(&mut handle.child, &self.id).await;
+                return Err(error);
+            }
+        };
 
         let external_sid = if self.protocol == AcpBackendProtocol::V1 {
             params.resume_session_id.clone().or_else(|| {
@@ -820,5 +880,32 @@ mod tests {
                 context_size: None,
             })
         );
+    }
+
+    #[tokio::test]
+    async fn rejected_setup_child_is_terminated_and_reaped() {
+        #[cfg(unix)]
+        let runtime = StdioAcpRuntime::new(
+            "test".into(),
+            "Test".into(),
+            "sleep".into(),
+            vec!["30".into()],
+            AcpBackendProtocol::V1,
+            HashMap::new(),
+        );
+        #[cfg(windows)]
+        let runtime = StdioAcpRuntime::new(
+            "test".into(),
+            "Test".into(),
+            "ping.exe".into(),
+            vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+            AcpBackendProtocol::V1,
+            HashMap::new(),
+        );
+        let mut child = runtime.spawn_child(None).expect("spawn long-running child");
+
+        StdioAcpRuntime::terminate_unregistered_child(&mut child, "test").await;
+
+        assert!(child.try_wait().expect("inspect child status").is_some());
     }
 }

@@ -731,7 +731,10 @@ fn compatibility_requirement(
 
 fn supermemory_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -> bool {
     match credentials.protocol.as_str() {
-        "platform" | "cloud" => false,
+        // The protocol selector does not authenticate the deployment. Treat a
+        // hosted wire shape on any non-official endpoint as self-hosted so it
+        // cannot bypass the version/capability gate.
+        "platform" | "cloud" => !endpoint_host_ends_with(&credentials.endpoint, "supermemory.ai"),
         "self_hosted" | "self-hosted" => true,
         _ => !endpoint_host_ends_with(&credentials.endpoint, "supermemory.ai"),
     }
@@ -739,7 +742,7 @@ fn supermemory_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -
 
 fn honcho_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -> bool {
     match credentials.protocol.as_str() {
-        "v3" | "cloud" => false,
+        "v3" | "cloud" => !endpoint_host_ends_with(&credentials.endpoint, "honcho.dev"),
         "self_hosted" | "self-hosted" => true,
         _ => !endpoint_host_ends_with(&credentials.endpoint, "honcho.dev"),
     }
@@ -1969,6 +1972,50 @@ mod tests {
             compatibility_credential_fingerprint(ExternalMemoryProviderKind::Zep, &credentials)
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn hosted_protocols_require_the_official_provider_host() {
+        let supermemory_cloud = ExternalMemoryProviderCredentials {
+            schema_version: CREDENTIAL_SCHEMA_VERSION,
+            endpoint: "https://api.supermemory.ai".to_string(),
+            api_key: Some("synthetic-key".to_string()),
+            subject_id: "subject-a".to_string(),
+            protocol: "cloud".to_string(),
+        };
+        assert!(compatibility_requirement(
+            ExternalMemoryProviderKind::Supermemory,
+            Some(&supermemory_cloud)
+        )
+        .is_none());
+        assert!(compatibility_requirement(
+            ExternalMemoryProviderKind::Supermemory,
+            Some(&ExternalMemoryProviderCredentials {
+                endpoint: "https://memory.example.test/supermemory.ai".to_string(),
+                ..supermemory_cloud
+            })
+        )
+        .is_some());
+
+        let honcho_cloud = ExternalMemoryProviderCredentials {
+            schema_version: CREDENTIAL_SCHEMA_VERSION,
+            endpoint: "https://api.honcho.dev".to_string(),
+            api_key: Some("synthetic-key".to_string()),
+            subject_id: "subject-a".to_string(),
+            protocol: "v3".to_string(),
+        };
+        assert!(
+            compatibility_requirement(ExternalMemoryProviderKind::Honcho, Some(&honcho_cloud))
+                .is_none()
+        );
+        assert!(compatibility_requirement(
+            ExternalMemoryProviderKind::Honcho,
+            Some(&ExternalMemoryProviderCredentials {
+                endpoint: "https://honcho.example.test".to_string(),
+                ..honcho_cloud
+            })
+        )
+        .is_some());
     }
 
     #[test]
