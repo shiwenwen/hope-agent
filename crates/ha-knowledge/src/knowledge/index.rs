@@ -235,11 +235,16 @@ pub fn reindex_kb_with_progress(
     let disk = scan_markdown_files(&root);
     let disk_set: HashSet<&str> = disk.iter().map(|s| s.as_str()).collect();
 
+    let document_signature = super::embedding::knowledge_active_embedding_signature();
     let similarity_signature = super::embedding::knowledge_symmetric_embedding_signature();
-    let existing = db.note_index_state(kb_id, similarity_signature.as_deref())?;
+    let existing = db.note_index_state(
+        kb_id,
+        document_signature.as_deref(),
+        similarity_signature.as_deref(),
+    )?;
     let existing_map: HashMap<String, (i64, bool)> = existing
         .iter()
-        .map(|(rel, mtime, _, similarity_current)| (rel.clone(), (*mtime, *similarity_current)))
+        .map(|(rel, mtime, _, vectors_current)| (rel.clone(), (*mtime, *vectors_current)))
         .collect();
 
     let mut report = ReindexReport {
@@ -276,8 +281,8 @@ pub fn reindex_kb_with_progress(
         let skip = !full
             && existing_map
                 .get(rel)
-                .is_some_and(|(prev, similarity_current)| {
-                    *prev == mtime && mtime != 0 && *similarity_current
+                .is_some_and(|(prev, vectors_current)| {
+                    *prev == mtime && mtime != 0 && *vectors_current
                 });
         if !skip {
             if let Err(e) = reindex_one(&db, kb_id, &root, rel) {

@@ -2667,8 +2667,6 @@ pub fn delete_artifact(id: &str) -> Result<()> {
     // 持 artifact_lock：与 finalize_generating_artifact 互斥——要么 finalize 完整跑完（随后本
     // delete 清干净），要么 delete 先删（finalize 内 get 到 None 静默跳过），二者不再交错产孤儿
     // 目录 / 误 emit generate_error。
-    let lock = artifact_lock(id);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let db = open_db()?;
     if let Some(candidate) = db.get_artifact(id)? {
         // Scenario manifests and other artifact sidecars live below the
@@ -2679,6 +2677,12 @@ pub fn delete_artifact(id: &str) -> Result<()> {
         // the directory being removed.
         let _lifecycle_guard =
             acquire_artifact_lifecycle_lock(&candidate.project_id, &candidate.id)?;
+        // Lifecycle locks always precede the process-local artifact mutex.
+        // Figma commits hold the lifecycle lock across an async MCP call and
+        // acquire this mutex later while persisting, so the opposite order
+        // here would deadlock a same-process delete against that commit.
+        let lock = artifact_lock(id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         let Some(a) = db.get_artifact(id)? else {
             return Ok(());
         };

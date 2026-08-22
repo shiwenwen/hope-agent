@@ -368,9 +368,21 @@ pub async fn resolve_reconciliation(
         anyhow::bail!("invalid Figma reconciliation hash");
     }
     let _guard = acquire_artifact_roundtrip_lock(&input.artifact_id).await?;
+    let lookup_artifact_id = input.artifact_id.clone();
+    let project_id = ha_core::blocking::run_blocking(move || {
+        super::service::get_artifact(&lookup_artifact_id)?
+            .map(|artifact| artifact.project_id)
+            .with_context(|| format!("artifact not found: {lookup_artifact_id}"))
+    })
+    .await?;
+    let _lifecycle_guard =
+        acquire_roundtrip_lifecycle_lock(project_id.clone(), input.artifact_id.clone()).await?;
     ha_core::blocking::run_blocking(move || {
         let artifact = super::service::get_artifact(&input.artifact_id)?
             .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
+        if artifact.project_id != project_id {
+            anyhow::bail!("artifact identity changed while waiting for lifecycle lock");
+        }
         let dir = external_dir(&artifact.project_id, &artifact.id)?;
         resolve_receipt_at(&dir.join("pending"), &dir.join("reconciled"), &input)
     })
@@ -408,6 +420,13 @@ async fn acquire_artifact_roundtrip_lock_at(lock_path: PathBuf) -> Result<File> 
     .await
 }
 
+async fn acquire_roundtrip_lifecycle_lock(project_id: String, artifact_id: String) -> Result<File> {
+    ha_core::blocking::run_blocking(move || {
+        super::service::acquire_artifact_lifecycle_lock(&project_id, &artifact_id)
+    })
+    .await
+}
+
 fn discard_pending_previews(pending_dir: &Path) -> Result<()> {
     let entries = match std::fs::read_dir(pending_dir) {
         Ok(entries) => entries,
@@ -429,7 +448,10 @@ fn discard_pending_previews(pending_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn preview_locked(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPreview> {
+fn preview_locked(
+    request: FigmaRoundtripRequest,
+    expected_project_id: &str,
+) -> Result<FigmaRoundtripPreview> {
     validate_tool(request.direction, &request.tool_name)?;
     validate_arguments(&request.arguments)?;
     if request
@@ -445,6 +467,9 @@ fn preview_locked(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPrevie
     }
     let artifact = super::service::get_artifact(&request.artifact_id)?
         .with_context(|| format!("artifact not found: {}", request.artifact_id))?;
+    if artifact.project_id != expected_project_id {
+        anyhow::bail!("artifact identity changed while waiting for lifecycle lock");
+    }
     let pending_dir = external_dir(&artifact.project_id, &artifact.id)?.join("pending");
     if has_indeterminate_receipt(&pending_dir)? {
         anyhow::bail!(
@@ -480,7 +505,16 @@ pub async fn preview(request: FigmaRoundtripRequest) -> Result<FigmaRoundtripPre
         anyhow::bail!("invalid Figma artifact id");
     }
     let _guard = acquire_artifact_roundtrip_lock(&request.artifact_id).await?;
-    ha_core::blocking::run_blocking(move || preview_locked(request)).await
+    let lookup_artifact_id = request.artifact_id.clone();
+    let project_id = ha_core::blocking::run_blocking(move || {
+        super::service::get_artifact(&lookup_artifact_id)?
+            .map(|artifact| artifact.project_id)
+            .with_context(|| format!("artifact not found: {lookup_artifact_id}"))
+    })
+    .await?;
+    let _lifecycle_guard =
+        acquire_roundtrip_lifecycle_lock(project_id.clone(), request.artifact_id.clone()).await?;
+    ha_core::blocking::run_blocking(move || preview_locked(request, &project_id)).await
 }
 
 fn redact_external(raw: &str) -> String {
@@ -670,6 +704,14 @@ pub async fn commit(input: CommitFigmaRoundtripInput) -> Result<FigmaRoundtripRe
     // and final marker removal so no second client can retarget the artifact's
     // roundtrip state between those boundaries.
     let _guard = acquire_artifact_roundtrip_lock(&artifact_id).await?;
+    // Deletion and every Figma sidecar mutation share this stable lock. Keep
+    // it alive from the final local validation and durable indeterminate
+    // receipt through the remote side effect, local artifact update/link
+    // persistence, and receipt removal. A delete either finishes before
+    // prepare_commit (which then fails closed) or waits/fails busy without
+    // removing the artifact underneath an in-flight MCP result.
+    let _lifecycle_guard =
+        acquire_roundtrip_lifecycle_lock(project_id.clone(), artifact_id.clone()).await?;
     let prepared = ha_core::blocking::run_blocking(move || {
         prepare_commit(project_id, artifact_id, path, input)
     })

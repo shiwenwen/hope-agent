@@ -269,38 +269,52 @@ impl IndexDb {
         Ok(row)
     }
 
-    /// `(rel_path, mtime, content_hash, similarity_vectors_current)` for every
-    /// note in a KB — drives incremental reconcile. Passing a symmetric
-    /// signature makes an otherwise unchanged note eligible for one-time
-    /// backfill when the separate similarity index is introduced or replaced.
+    /// `(rel_path, mtime, content_hash, embedding_vectors_current)` for every
+    /// note in a KB — drives incremental reconcile. Required document and
+    /// symmetric signatures are checked independently so a partial provider
+    /// failure remains eligible for retry instead of permanently losing one
+    /// vector-search leg.
     pub fn note_index_state(
         &self,
         kb_id: &str,
+        required_document_signature: Option<&str>,
         required_similarity_signature: Option<&str>,
     ) -> Result<Vec<(String, i64, String, bool)>> {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT n.rel_path, n.mtime, n.content_hash,
                     CASE
-                      WHEN ?2 IS NULL THEN 1
+                      WHEN ?2 IS NULL AND ?3 IS NULL THEN 1
                       WHEN EXISTS (SELECT 1 FROM note_chunk present WHERE present.note_id = n.id)
-                       AND NOT EXISTS (
+                       AND (?2 IS NULL OR NOT EXISTS (
                            SELECT 1 FROM note_chunk stale
                            WHERE stale.note_id = n.id
-                             AND stale.similar_embedding_signature IS NOT ?2
-                       )
+                             AND stale.embedding_signature IS NOT ?2
+                       ))
+                       AND (?3 IS NULL OR NOT EXISTS (
+                           SELECT 1 FROM note_chunk stale
+                           WHERE stale.note_id = n.id
+                             AND stale.similar_embedding_signature IS NOT ?3
+                       ))
                       THEN 1 ELSE 0
                     END
              FROM note n WHERE n.kb_id = ?1",
         )?;
-        let rows = stmt.query_map(params![kb_id, required_similarity_signature], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, i64>(3)? != 0,
-            ))
-        })?;
+        let rows = stmt.query_map(
+            params![
+                kb_id,
+                required_document_signature,
+                required_similarity_signature
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)? != 0,
+                ))
+            },
+        )?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
@@ -1380,10 +1394,33 @@ mod tests {
         assert_eq!(retrieval[0].1, a_id);
         assert_eq!(similarity[0].1, b_id);
         assert!(db
-            .note_index_state(kb, Some("symmetric-signature"))
+            .note_index_state(kb, Some("doc-signature"), Some("symmetric-signature"))
             .unwrap()
             .iter()
             .all(|(_, _, _, current)| *current));
+    }
+
+    #[test]
+    fn incremental_state_retries_when_only_similarity_vectors_are_current() {
+        let dir = tempdir().unwrap();
+        let db = IndexDb::open(&dir.path().join("index.db")).unwrap();
+        db.set_embedding_dims(2);
+        let kb = "kb1";
+
+        let mut partial = input(kb, "A.md", "# A\n\nalpha\n");
+        let chunk_count = partial.chunks.len();
+        partial.similar_chunk_embeddings = Some(vec![vec![1.0, 0.0]; chunk_count]);
+        partial.similar_embedding_signature = Some("symmetric-signature".into());
+        db.replace_note_index(partial).unwrap();
+
+        let state = db
+            .note_index_state(kb, Some("doc-signature"), Some("symmetric-signature"))
+            .unwrap();
+        assert_eq!(state.len(), 1);
+        assert!(
+            !state[0].3,
+            "missing document vectors must keep an unchanged note eligible for retry"
+        );
     }
 
     #[test]
@@ -1401,7 +1438,7 @@ mod tests {
         assert!(db.replace_note_index(invalid).is_err());
 
         let state = db
-            .note_index_state(kb, Some("symmetric-signature"))
+            .note_index_state(kb, Some("doc-signature"), Some("symmetric-signature"))
             .unwrap();
         assert_eq!(state.len(), 1);
         assert!(!state[0].3);

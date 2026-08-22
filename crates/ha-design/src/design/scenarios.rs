@@ -214,8 +214,6 @@ pub fn save(
     expected_hash: &str,
     manifest: ScenariosManifest,
 ) -> Result<ScenariosEnvelope> {
-    let process_lock = super::service::artifact_lock(artifact_id);
-    let _process_guard = process_lock.lock().unwrap_or_else(|e| e.into_inner());
     let artifact = super::service::get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let project_id = artifact.project_id;

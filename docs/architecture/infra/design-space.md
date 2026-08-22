@@ -741,10 +741,10 @@ graph LR
 
 原有 PAT + REST 的设计系统导入保留为兼容回退；产物级往返走 Figma 远程 MCP 与其 OAuth，不在 Hope 保存 OAuth token。`figma_roundtrip` 固定为两段式 owner 操作：
 
-1. `preview` 校验 namespaced 工具白名单、参数大小与凭据字段，计算本地产物哈希，写一份 10 分钟有效的一次性预览；同一制品只保留最新预览，新预览会淘汰尚未提交的旧预览；
+1. `preview` 校验 namespaced 工具白名单、参数大小与凭据字段，计算本地产物哈希，写一份 10 分钟有效的一次性预览；同一产物只保留最新预览，新预览会淘汰尚未提交的旧预览；
 2. `commit` 同时核对预览 id 与预期本地哈希，原子消费回执后才调用 MCP。写向只允许 `generate_figma_design` / `use_figma`，读向只允许 `get_design_context` / `get_screenshot`。
 
-本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并按 BLAKE3 内容寻址存入 `external/imports/`；链接同时记录上下文哈希、制品相对路径，以及 Figma→Hope 对应的新版本号。Figma→Hope 只创建一个固定新版本，把同一份不可信信封挂入该版本既有的 `prompt_summary` 文本溯源，版本历史因此可读取与复制完整上下文，但绝不把外部文本直接解释为 HTML/JS。预览、提交与未决回执裁决共享按制品哈希命名的稳定 OS 排他锁；锁覆盖预览替换、回执复核、`.indeterminate` 标记、MCP 外部调用、链接落盘、标记移除与 reconciliation，桌面和 HTTP 守护进程共享数据目录时也只有一个调用能越过外部副作用边界。锁等待在 blocking 池中有界执行，不能用进程内 `OnceLock<Mutex>` 代替。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放。产品界面列出未决回执，用户核对 Figma 后必须对精确回执明确选择“已发生”或“未发生”；后端以回执 ID + 本地哈希做 CAS 校验，先把裁决原子写入 `external/reconciled/`，再移除 `.indeterminate` 标记，任一步失败均保持阻断，避免重复外部副作用。
+本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并按 BLAKE3 内容寻址存入 `external/imports/`；链接同时记录上下文哈希、产物相对路径，以及 Figma→Hope 对应的新版本号。Figma→Hope 只创建一个固定新版本，把同一份不可信信封挂入该版本既有的 `prompt_summary` 文本溯源，版本历史因此可读取与复制完整上下文，但绝不把外部文本直接解释为 HTML/JS。预览、提交与未决回执裁决共享按产物哈希命名的稳定 OS 排他锁；锁覆盖预览替换、回执复核、`.indeterminate` 标记、MCP 外部调用、链接落盘、标记移除与裁决，桌面和 HTTP 守护进程共享数据目录时也只有一个调用能越过外部副作用边界。它们还与产物删除共享位于产物目录外的稳定生命周期锁：提交从最终产物与回执复核开始，跨 MCP 外部调用一直持锁到本地版本、链接和回执状态全部落盘；预览与裁决的旁路文件写入也在同一锁内并于持锁后复核产物身份。删除因此只能先完整完成、等待，或有界失败，不能在远端副作用进行中移除数据库行和目录。锁等待在 blocking 池中有界执行，不能用进程内 `OnceLock<Mutex>` 代替。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放。产品界面列出未决回执，用户核对 Figma 后必须对精确回执明确选择“已发生”或“未发生”；后端以回执 ID + 本地哈希做 CAS 校验，先把裁决原子写入 `external/reconciled/`，再移除 `.indeterminate` 标记，任一步失败均保持阻断，避免重复外部副作用。
 
 ### 12.7 确定性视觉回归与预览场景
 
