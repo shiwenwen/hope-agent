@@ -185,6 +185,26 @@ fn save_to_path(
     })
 }
 
+fn save_to_path_after_lifecycle_lock<A, R>(
+    path: &Path,
+    expected_hash: &str,
+    manifest: ScenariosManifest,
+    acquire_lifecycle_lock: A,
+    revalidate_artifact: R,
+) -> Result<ScenariosEnvelope>
+where
+    A: FnOnce() -> Result<std::fs::File>,
+    R: FnOnce() -> Result<()>,
+{
+    validate(&manifest)?;
+    let _lifecycle_guard = acquire_lifecycle_lock()?;
+    // The artifact may have been deleted while this writer waited for a
+    // different process. Revalidate only after owning the same stable lock as
+    // deletion, before write_atomic can recreate any missing parent directory.
+    revalidate_artifact()?;
+    save_to_path(path, expected_hash, manifest)
+}
+
 pub fn get(artifact_id: &str) -> Result<ScenariosEnvelope> {
     read_one(&path(artifact_id)?)
 }
@@ -194,7 +214,28 @@ pub fn save(
     expected_hash: &str,
     manifest: ScenariosManifest,
 ) -> Result<ScenariosEnvelope> {
-    save_to_path(&path(artifact_id)?, expected_hash, manifest)
+    let process_lock = super::service::artifact_lock(artifact_id);
+    let _process_guard = process_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let artifact = super::service::get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let project_id = artifact.project_id;
+    let scenarios_path =
+        ha_core::paths::design_artifact_dir(&project_id, artifact_id)?.join("scenarios.json");
+
+    save_to_path_after_lifecycle_lock(
+        &scenarios_path,
+        expected_hash,
+        manifest,
+        || super::service::acquire_artifact_lifecycle_lock(&project_id, artifact_id),
+        || {
+            let current = super::service::get_artifact(artifact_id)?
+                .with_context(|| format!("artifact not found: {artifact_id}"))?;
+            if current.project_id != project_id {
+                anyhow::bail!("artifact identity changed while waiting for lifecycle lock");
+            }
+            Ok(())
+        },
+    )
 }
 
 #[cfg(test)]
@@ -237,5 +278,58 @@ mod tests {
         let current = read_one(&path).expect("current manifest");
         assert_eq!(current.hash, first.hash);
         assert_eq!(current.manifest.scenarios[0].title, "first writer");
+    }
+
+    #[test]
+    fn deletion_wins_the_lifecycle_lock_without_recreating_an_orphan() {
+        let directory = tempfile::tempdir().expect("scenarios lifecycle tempdir");
+        let artifact_dir = directory.path().join("artifact");
+        std::fs::create_dir_all(&artifact_dir).expect("create artifact directory");
+        let scenarios_path = artifact_dir.join("scenarios.json");
+        let original = read_one(&scenarios_path).expect("default manifest");
+        let lifecycle_lock_path = directory.path().join("artifact-lifecycle.lock");
+        let deletion_guard =
+            super::super::service::acquire_artifact_lifecycle_lock_at(lifecycle_lock_path.clone())
+                .expect("deletion lifecycle lock");
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let saved_artifact_dir = artifact_dir.clone();
+        let saved_scenarios_path = scenarios_path.clone();
+        let saver = std::thread::spawn(move || {
+            started_tx.send(()).expect("signal saver start");
+            save_to_path_after_lifecycle_lock(
+                &saved_scenarios_path,
+                &original.hash,
+                original.manifest,
+                || super::super::service::acquire_artifact_lifecycle_lock_at(lifecycle_lock_path),
+                || {
+                    anyhow::ensure!(
+                        saved_artifact_dir.exists(),
+                        "artifact not found after delete"
+                    );
+                    Ok(())
+                },
+            )
+        });
+
+        started_rx.recv().expect("saver started");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            !saver.is_finished(),
+            "scenario save must wait behind artifact deletion"
+        );
+        std::fs::remove_dir_all(&artifact_dir).expect("delete artifact directory");
+        drop(deletion_guard);
+
+        let error = saver
+            .join()
+            .expect("scenario saver thread")
+            .expect_err("deleted artifact must reject the waiting save");
+        assert!(error
+            .to_string()
+            .contains("artifact not found after delete"));
+        assert!(
+            !artifact_dir.exists(),
+            "rejected save must not recreate an orphaned artifact directory"
+        );
     }
 }

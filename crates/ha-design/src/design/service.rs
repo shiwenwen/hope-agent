@@ -2670,7 +2670,21 @@ pub fn delete_artifact(id: &str) -> Result<()> {
     let lock = artifact_lock(id);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let db = open_db()?;
-    if let Some(a) = db.get_artifact(id)? {
+    if let Some(candidate) = db.get_artifact(id)? {
+        // Scenario manifests and other artifact sidecars live below the
+        // artifact directory. The process-local mutex cannot coordinate a
+        // Desktop and HTTP server that share the same data root, so deletion
+        // also takes the stable cross-process lifecycle lock and revalidates
+        // the row after admission. The lock file deliberately lives outside
+        // the directory being removed.
+        let _lifecycle_guard =
+            acquire_artifact_lifecycle_lock(&candidate.project_id, &candidate.id)?;
+        let Some(a) = db.get_artifact(id)? else {
+            return Ok(());
+        };
+        if a.project_id != candidate.project_id {
+            anyhow::bail!("artifact identity changed while waiting for lifecycle lock");
+        }
         db.delete_artifact(id)?;
         if let Ok(dir) = paths::design_artifact_dir(&a.project_id, id) {
             if dir.exists() {
@@ -3309,6 +3323,44 @@ pub(super) fn artifact_lock(artifact_id: &str) -> std::sync::Arc<std::sync::Mute
         .entry(artifact_id.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone()
+}
+
+const ARTIFACT_LIFECYCLE_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const ARTIFACT_LIFECYCLE_LOCK_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+fn artifact_lifecycle_lock_path(project_id: &str, artifact_id: &str) -> Result<std::path::PathBuf> {
+    // Hash the storage identity instead of joining caller-controlled IDs into
+    // the lock path. These stable lock files are never removed with an
+    // artifact: unlinking a held lock file would let another process lock a
+    // replacement inode and enter the same lifecycle concurrently.
+    let identity = format!("{project_id}\0{artifact_id}");
+    let key = blake3::hash(identity.as_bytes()).to_hex();
+    Ok(paths::design_dir()?
+        .join("locks")
+        .join("artifact-lifecycle")
+        .join(format!("{key}.lock")))
+}
+
+pub(super) fn acquire_artifact_lifecycle_lock(
+    project_id: &str,
+    artifact_id: &str,
+) -> Result<std::fs::File> {
+    acquire_artifact_lifecycle_lock_at(artifact_lifecycle_lock_path(project_id, artifact_id)?)
+}
+
+pub(super) fn acquire_artifact_lifecycle_lock_at(
+    lock_path: std::path::PathBuf,
+) -> Result<std::fs::File> {
+    let started = std::time::Instant::now();
+    loop {
+        match ha_core::platform::try_acquire_exclusive_lock(&lock_path)? {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < ARTIFACT_LIFECYCLE_LOCK_TIMEOUT => {
+                std::thread::sleep(ARTIFACT_LIFECYCLE_LOCK_POLL)
+            }
+            None => anyhow::bail!("timed out waiting for artifact lifecycle lock"),
+        }
+    }
 }
 
 pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {

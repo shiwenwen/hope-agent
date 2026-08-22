@@ -752,7 +752,7 @@ graph LR
 - 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。
 - 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`。
 - 通过/失败只由像素差异（变化像素比、平均通道差）与静态 DOM/无障碍规则决定；视觉模型只能作为可选建议，不能覆盖确定性结果。
-- `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。读取返回内容哈希，整文保存必须携带 `expectedHash` 并在跨进程锁内复核，陈旧写入失败关闭。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
+- `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。读取返回内容哈希，整文保存必须携带 `expectedHash` 并在跨进程锁内复核，陈旧写入失败关闭。保存与产物删除还须共用位于产物目录外的稳定生命周期锁，并在持锁后重新确认 DB 产物仍存在；删除先完成时禁止 `write_atomic` 重建孤儿目录。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
 
 ### 12.8 组件清单与固定版本评审
 

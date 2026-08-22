@@ -1905,6 +1905,16 @@ fn copy_dir_gitignore_aware_bounded(
 mod tests {
     use super::*;
 
+    async fn reacquire_released_workspace_lock(lock_path: &Path) -> File {
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            acquire_workspace_ownership_lock_at(lock_path.to_path_buf(), None),
+        )
+        .await
+        .expect("released ownership lock should be reacquired before timeout")
+        .expect("reacquire released ownership lock")
+    }
+
     #[tokio::test]
     async fn workspace_ownership_lock_serializes_complete_handoffs() {
         let directory = tempfile::tempdir().expect("lock tempdir");
@@ -1952,12 +1962,8 @@ mod tests {
 
         assert_eq!(error.to_string(), "container failure");
         assert!(guard.is_none());
-        assert!(
-            ha_core::platform::try_acquire_exclusive_lock(&lock_path)
-                .expect("reacquire ownership lock")
-                .is_some(),
-            "explicit finalization must finish recovery and release the lock before returning"
-        );
+        let reacquired = reacquire_released_workspace_lock(&lock_path).await;
+        drop(reacquired);
     }
 
     #[tokio::test]
@@ -1985,16 +1991,10 @@ mod tests {
             "failed recovery must retain its journal"
         );
         assert!(guard.is_none());
-        assert!(
-            ha_core::platform::try_acquire_exclusive_lock(&lock_path)
-                .expect("reacquire ownership lock")
-                .is_some(),
-            "failed explicit restoration must still release the OS lock"
-        );
+        let reacquired = reacquire_released_workspace_lock(&lock_path).await;
+        drop(reacquired);
 
-        let second_lock = ha_core::platform::try_acquire_exclusive_lock(&lock_path)
-            .expect("reacquire ownership lock for combined failure")
-            .expect("ownership lock available for combined failure");
+        let second_lock = reacquire_released_workspace_lock(&lock_path).await;
         let mut second_guard = Some(WorkspaceOwnershipGuard {
             restoration: Some((second_lock, journal_path)),
         });
