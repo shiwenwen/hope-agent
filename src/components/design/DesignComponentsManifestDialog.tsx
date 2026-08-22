@@ -45,6 +45,7 @@ export function DesignComponentsManifestDialog({ open, onOpenChange, projectId }
   const { t } = useTranslation()
   const tx = getTransport()
   const [publishedHash, setPublishedHash] = useState("")
+  const [draftHash, setDraftHash] = useState("")
   const [draft, setDraft] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -58,6 +59,7 @@ export function DesignComponentsManifestDialog({ open, onOpenChange, projectId }
       .then(([published, currentDraft]) => {
         if (!alive) return
         setPublishedHash(published.hash)
+        setDraftHash(currentDraft.hash)
         setDraft(JSON.stringify(currentDraft.manifest, null, 2))
       })
       .catch((e) => {
@@ -100,8 +102,10 @@ export function DesignComponentsManifestDialog({ open, onOpenChange, projectId }
     try {
       const saved = await tx.call<Envelope>("save_design_components_draft_cmd", {
         projectId,
+        expectedDraftHash: draftHash,
         manifest,
       })
+      setDraftHash(saved.hash)
       setDraft(JSON.stringify(saved.manifest, null, 2))
       toast.success(t("design.components.draftSaved", "组件清单草稿已保存"))
     } catch (e) {
@@ -118,9 +122,15 @@ export function DesignComponentsManifestDialog({ open, onOpenChange, projectId }
     setBusy(true)
     try {
       const saved = await tx.call<Envelope>("publish_design_components_manifest_cmd", {
-        input: { projectId, expectedPublishedHash: publishedHash, manifest },
+        input: {
+          projectId,
+          expectedPublishedHash: publishedHash,
+          expectedDraftHash: draftHash,
+          manifest,
+        },
       })
       setPublishedHash(saved.hash)
+      setDraftHash(saved.hash)
       setDraft(JSON.stringify(saved.manifest, null, 2))
       toast.success(t("design.components.published", "组件清单已发布"))
     } catch (e) {

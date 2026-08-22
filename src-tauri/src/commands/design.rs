@@ -414,10 +414,15 @@ pub async fn get_design_components_manifest_cmd(
 #[tauri::command]
 pub async fn save_design_components_draft_cmd(
     project_id: String,
+    expected_draft_hash: String,
     manifest: ha_design::design::components_manifest::ComponentsManifest,
 ) -> Result<ha_design::design::components_manifest::ManifestEnvelope, CmdError> {
     ha_core::blocking::run_blocking(move || {
-        ha_design::design::components_manifest::save_draft(&project_id, manifest)
+        ha_design::design::components_manifest::save_draft(
+            &project_id,
+            &expected_draft_hash,
+            manifest,
+        )
     })
     .await
     .map_err(Into::into)

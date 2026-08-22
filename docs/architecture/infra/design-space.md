@@ -758,6 +758,7 @@ graph LR
 
 - `components.manifest.json` 是已发布清单，`components.manifest.draft.json` 是未发布草稿；组件最多 1000 个，import path 必须为无 `..` 的相对路径，mode props 必须为有界 JSON object。绑定仓库扫描只读、不执行源码、拒 symlink，并跳过 `node_modules/.git/dist/target`。发布必须带上次读取的已发布 BLAKE3 哈希，陈旧写 fail closed。
 - 固定版本评审 grant 只有 `viewer/commenter` 两种 scope，最长 90 天，锚定 `artifactId + versionNumber`。Bearer 携带版本化的 `artifactId` 定位段和 256 位随机密钥，只在创建回执返回一次，磁盘仅保存完整 bearer 的 BLAKE3 哈希；公开鉴权先按定位段做一次制品主键查询，再只读该制品的一份评审存储，格式错误或随机未命中不得扫描全部制品。支持过期、撤销和审计事件。
+- 组件草稿读回 `hash`，保存与发布均须在共享 OS 锁内复核 `expectedDraftHash`；发布还复核 `expectedPublishedHash`。发布前先把提交正文原子同步为草稿，发布成功后再清草稿；若平台临时拒绝删除，只有确认残留草稿与发布正文逐字节一致才可返回成功，避免旧草稿重新遮住新版本。
 - `review/store.json` 的创建、撤销与新增评论都是完整的读改写事务，事务期间持稳定 `review/store.lock` 上的 OS 级排他锁；桌面与 HTTP 守护进程共享数据目录时不得用进程内 mutex 代替，否则陈旧写会复活已撤销 grant 或丢评论。
 - 评审 bearer 只走 `Authorization` header，禁止进入 URL。公开评审面只能读取固定版本快照或由 commenter 新增锚定评论，不能修改产物正文、创建新版本或取得 owner 权限；owner 仍是唯一可创建/撤销 grant 的主体。
 - **Cloudflare Pages / Vercel 部署（opt-in）**：产物自包含故整站 = 单 `index.html` → 直传大幅简化。**安全红线**：① 所有出站 `guard()` 先过 `ssrf::check_url`（URL host 恒硬编码，`acct`/`name` 只进 path）；② API token **0600** 存 `credentials/*.json`（`platform::write_secure_file`），GUI 读经**脱敏**（回 `hasToken` + mask 哨兵、绝不回明文）——属凭据平面、GUI-only、不进 `ha-settings`；③ owner 命令显式触发，后台自主维护绝不部署。部署历史落 `design_deployments` 表。**部署就绪探测** `probe_deploy_ready`：`*.pages.dev` / `*.vercel.app` 边缘传播有延迟，探测目标是用户公网站点，用 `SsrfPolicy::Default`（放行公网、拦私网/环回/元数据）+ **`redirect::Policy::none()` 禁跟随跳转**——否则公网 URL 可 `302→169.254.169.254/内网` 把探测变成盲 SSRF 内网扫描。

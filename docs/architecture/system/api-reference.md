@@ -1007,8 +1007,8 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（显式 owner 接受，`expectedArtifactHash` 防陈旧写） | ✅ |
 | `get/save_design_scenarios_cmd` | `GET/PUT /api/design/artifacts/{artifactId}/scenarios`（≤12 场景、≤4 视口、本地 route；GET 返回 `manifest + hash`，PUT 必带 `expectedHash` 防陈旧整文覆盖） | ✅ |
 | `get_design_components_manifest_cmd` | `GET /api/design/projects/{projectId}/components?draft=` | ✅ |
-| `save_design_components_draft_cmd` | `PUT /api/design/projects/{projectId}/components/draft` | ✅ |
-| `publish_design_components_manifest_cmd` | `POST /api/design/components/publish`（expected published hash） | ✅ |
+| `save_design_components_draft_cmd` | `PUT /api/design/projects/{projectId}/components/draft`（`expectedDraftHash` 锁内防陈旧整文覆盖） | ✅ |
+| `publish_design_components_manifest_cmd` | `POST /api/design/components/publish`（同时复核 expected published/draft hash；草稿清理失败时只保留与发布版逐字节一致的副本） | ✅ |
 | `scan_design_components_cmd` | `POST /api/design/projects/{projectId}/components/scan`（绑定仓库只读扫描） | ✅ |
 | `preview_figma_roundtrip_cmd` | `POST /api/design/figma-roundtrip/preview`（10 分钟一次性预览，无外部调用） | ✅ |
 | `commit_figma_roundtrip_cmd` | `POST /api/design/figma-roundtrip/commit`（消费预览后调用 Figma MCP） | ✅ |

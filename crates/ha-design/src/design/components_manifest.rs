@@ -60,6 +60,7 @@ pub struct ManifestEnvelope {
 pub struct PublishManifestInput {
     pub project_id: String,
     pub expected_published_hash: String,
+    pub expected_draft_hash: String,
     pub manifest: ComponentsManifest,
 }
 
@@ -147,19 +148,27 @@ pub fn get_published(project_id: &str) -> Result<ManifestEnvelope> {
 
 pub fn get_draft(project_id: &str) -> Result<ManifestEnvelope> {
     let (published, draft) = paths(project_id)?;
+    read_draft_from_paths(&published, &draft)
+}
+
+fn read_draft_from_paths(published: &Path, draft: &Path) -> Result<ManifestEnvelope> {
     if draft.exists() {
-        read_one(&draft, true)
+        read_one(draft, true)
     } else {
-        let mut envelope = read_one(&published, true)?;
+        let mut envelope = read_one(published, true)?;
         envelope.draft = true;
         Ok(envelope)
     }
 }
 
-pub fn save_draft(project_id: &str, manifest: ComponentsManifest) -> Result<ManifestEnvelope> {
+pub fn save_draft(
+    project_id: &str,
+    expected_draft_hash: &str,
+    manifest: ComponentsManifest,
+) -> Result<ManifestEnvelope> {
     validate(&manifest)?;
     let (published, draft) = paths(project_id)?;
-    save_draft_to_paths(&published, &draft, manifest)
+    save_draft_to_paths(&published, &draft, expected_draft_hash, manifest)
 }
 
 fn manifest_lock_path(published: &Path) -> PathBuf {
@@ -174,9 +183,14 @@ fn acquire_manifest_lock(published: &Path) -> Result<std::fs::File> {
 fn save_draft_to_paths(
     published: &Path,
     draft: &Path,
+    expected_draft_hash: &str,
     manifest: ComponentsManifest,
 ) -> Result<ManifestEnvelope> {
     let _manifest_guard = acquire_manifest_lock(published)?;
+    let current = read_draft_from_paths(published, draft)?;
+    if current.hash != expected_draft_hash {
+        anyhow::bail!("stale components manifest: draft version changed");
+    }
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     write_atomic(draft, &bytes)?;
     Ok(ManifestEnvelope {
@@ -186,24 +200,73 @@ fn save_draft_to_paths(
     })
 }
 
-pub fn publish(input: PublishManifestInput) -> Result<ManifestEnvelope> {
+fn clear_synchronized_draft_with<F>(draft: &Path, published_bytes: &[u8], remove: F) -> Result<()>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    match remove(draft) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            let retained = std::fs::read(draft)
+                .context("verify retained components draft after cleanup failure")?;
+            if retained != published_bytes {
+                return Err(error).context(
+                    "remove published components draft; retained draft diverged from publication",
+                );
+            }
+            // The canonical draft is byte-identical to the publication because
+            // publication first synchronizes it under the same OS lock. It is
+            // therefore safe for get_draft() to keep preferring this file even
+            // when Windows temporarily refuses deletion.
+            ha_core::app_warn!(
+                "design",
+                "components_manifest",
+                "Unable to remove the published components draft; retaining the byte-identical synchronized copy: {}",
+                error
+            );
+            Ok(())
+        }
+    }
+}
+
+fn publish_to_paths_with_remove<F>(
+    published: &Path,
+    draft: &Path,
+    input: PublishManifestInput,
+    remove: F,
+) -> Result<ManifestEnvelope>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
     validate(&input.manifest)?;
-    let (published, draft) = paths(&input.project_id)?;
-    let _manifest_guard = acquire_manifest_lock(&published)?;
-    let current = read_one(&published, false)?;
+    let _manifest_guard = acquire_manifest_lock(published)?;
+    let current = read_one(published, false)?;
     if current.hash != input.expected_published_hash {
         anyhow::bail!("stale components manifest: published version changed");
     }
-    let bytes = serde_json::to_vec_pretty(&input.manifest)?;
-    write_atomic(&published, &bytes)?;
-    if draft.exists() {
-        let _ = std::fs::remove_file(draft);
+    let current_draft = read_draft_from_paths(published, draft)?;
+    if current_draft.hash != input.expected_draft_hash {
+        anyhow::bail!("stale components manifest: draft version changed");
     }
+    let bytes = serde_json::to_vec_pretty(&input.manifest)?;
+    // Publishing also saves the submitted document as the canonical draft
+    // first. If publication fails, the user's new draft remains retryable. If
+    // later deletion fails, the surviving draft is already byte-identical to
+    // the published document and cannot shadow it with stale content.
+    write_atomic(draft, &bytes)?;
+    write_atomic(published, &bytes)?;
+    clear_synchronized_draft_with(draft, &bytes, remove)?;
     Ok(ManifestEnvelope {
         manifest: input.manifest,
         hash: hash_bytes(&bytes),
         draft: false,
     })
+}
+
+pub fn publish(input: PublishManifestInput) -> Result<ManifestEnvelope> {
+    let (published, draft) = paths(&input.project_id)?;
+    publish_to_paths_with_remove(&published, &draft, input, |path| std::fs::remove_file(path))
 }
 
 /// 只读候选扫描：不执行代码，只枚举绑定仓库内常见组件文件。
@@ -297,13 +360,131 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let published = dir.path().join("components.manifest.json");
         let draft = dir.path().join("components.manifest.draft.json");
+        let original = read_draft_from_paths(&published, &draft).unwrap();
         let held = acquire_manifest_lock(&published).unwrap();
 
-        assert!(save_draft_to_paths(&published, &draft, ComponentsManifest::default()).is_err());
+        assert!(save_draft_to_paths(
+            &published,
+            &draft,
+            &original.hash,
+            ComponentsManifest::default()
+        )
+        .is_err());
         assert!(!draft.exists());
 
         drop(held);
-        assert!(save_draft_to_paths(&published, &draft, ComponentsManifest::default()).is_ok());
+        assert!(save_draft_to_paths(
+            &published,
+            &draft,
+            &original.hash,
+            ComponentsManifest::default()
+        )
+        .is_ok());
         assert!(draft.exists());
+    }
+
+    #[test]
+    fn stale_draft_save_is_rejected_without_overwriting_the_winner() {
+        let dir = tempfile::tempdir().unwrap();
+        let published = dir.path().join("components.manifest.json");
+        let draft = dir.path().join("components.manifest.draft.json");
+        let original = read_draft_from_paths(&published, &draft).unwrap();
+
+        let mut winner = ComponentsManifest::default();
+        winner.components.push(ComponentEntry {
+            id: "winner".into(),
+            name: "Winner".into(),
+            import_path: "Winner.tsx".into(),
+            export_name: Some("Winner".into()),
+            modes: vec![],
+        });
+        let winner = save_draft_to_paths(&published, &draft, &original.hash, winner).unwrap();
+
+        let error = save_draft_to_paths(
+            &published,
+            &draft,
+            &original.hash,
+            ComponentsManifest::default(),
+        )
+        .expect_err("stale draft save must fail closed");
+        assert!(error.to_string().contains("draft version changed"));
+        assert_eq!(read_one(&draft, true).unwrap().hash, winner.hash);
+    }
+
+    #[test]
+    fn stale_publish_is_rejected_without_discarding_the_newer_draft() {
+        let dir = tempfile::tempdir().unwrap();
+        let published = dir.path().join("components.manifest.json");
+        let draft = dir.path().join("components.manifest.draft.json");
+        let published_before = read_one(&published, false).unwrap();
+        let draft_before = read_draft_from_paths(&published, &draft).unwrap();
+
+        let mut winner = ComponentsManifest::default();
+        winner.components.push(ComponentEntry {
+            id: "winner".into(),
+            name: "Winner".into(),
+            import_path: "Winner.tsx".into(),
+            export_name: Some("Winner".into()),
+            modes: vec![],
+        });
+        let winner = save_draft_to_paths(&published, &draft, &draft_before.hash, winner).unwrap();
+
+        let error = publish_to_paths_with_remove(
+            &published,
+            &draft,
+            PublishManifestInput {
+                project_id: "test".into(),
+                expected_published_hash: published_before.hash.clone(),
+                expected_draft_hash: draft_before.hash,
+                manifest: ComponentsManifest::default(),
+            },
+            |path| std::fs::remove_file(path),
+        )
+        .expect_err("publish with a stale draft hash must fail closed");
+
+        assert!(error.to_string().contains("draft version changed"));
+        assert_eq!(read_one(&draft, true).unwrap().hash, winner.hash);
+        assert_eq!(
+            read_one(&published, false).unwrap().hash,
+            published_before.hash
+        );
+    }
+
+    #[test]
+    fn publish_retains_only_a_synchronized_draft_when_removal_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let published = dir.path().join("components.manifest.json");
+        let draft = dir.path().join("components.manifest.draft.json");
+        let published_before = read_one(&published, false).unwrap();
+        let draft_before = read_draft_from_paths(&published, &draft).unwrap();
+        let mut manifest = ComponentsManifest::default();
+        manifest.components.push(ComponentEntry {
+            id: "published".into(),
+            name: "Published".into(),
+            import_path: "Published.tsx".into(),
+            export_name: Some("Published".into()),
+            modes: vec![],
+        });
+
+        let saved = publish_to_paths_with_remove(
+            &published,
+            &draft,
+            PublishManifestInput {
+                project_id: "test".into(),
+                expected_published_hash: published_before.hash,
+                expected_draft_hash: draft_before.hash,
+                manifest,
+            },
+            |_| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "synthetic removal denial",
+                ))
+            },
+        )
+        .expect("byte-identical retained draft is a reconciled success");
+
+        assert_eq!(read_one(&published, false).unwrap().hash, saved.hash);
+        assert_eq!(read_one(&draft, true).unwrap().hash, saved.hash);
     }
 }

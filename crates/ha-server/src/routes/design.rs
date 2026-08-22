@@ -129,7 +129,9 @@ pub struct SaveScenariosBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveComponentsDraftBody {
+    pub expected_draft_hash: String,
     pub manifest: ha_design::design::components_manifest::ComponentsManifest,
 }
 
@@ -1097,7 +1099,11 @@ pub async fn save_components_draft(
     validate_id(&id)?;
     Ok(Json(
         ha_core::blocking::run_blocking(move || {
-            ha_design::design::components_manifest::save_draft(&id, body.manifest)
+            ha_design::design::components_manifest::save_draft(
+                &id,
+                &body.expected_draft_hash,
+                body.manifest,
+            )
         })
         .await
         .map_err(|e| AppError::internal(e.to_string()))?,
