@@ -919,9 +919,12 @@ impl WorkspaceOwnershipGuard {
         };
         ha_core::blocking::run_blocking(move || {
             // Keep the cross-process lock alive throughout the blocking tree
-            // walk and descriptor-bound ownership restoration.
-            let _exclusive_lock = exclusive_lock;
-            recover_workspace_ownership(&journal_path).map(|_| ())
+            // walk and descriptor-bound ownership restoration, then release it
+            // explicitly before publishing either success or failure back to
+            // the async caller.
+            let recovery = recover_workspace_ownership(&journal_path).map(|_| ());
+            drop(exclusive_lock);
+            recovery
         })
         .await
     }
