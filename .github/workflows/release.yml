@@ -27,6 +27,9 @@ jobs:
     name: build (${{ matrix.platform }})
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+      # v0.35.0 的 macOS lane 在 beforeBuildCommand 的 `tsc -b` 碰到 Node
+      # 默认约 2 GiB old-space 上限；给前端构建留足堆，同时保持在 7 GiB runner 内。
+      NODE_OPTIONS: "--max-old-space-size=4096"
       # 仅 release-tag / dispatch 构建串行化 codegen，换取最小 / 最快二进制（叠加
       # 根 Cargo.toml 的 lto="thin" / strip）。Docker（docker.yml 走 Dockerfile，
       # 不读此 env）与日常 dev 不受影响。
