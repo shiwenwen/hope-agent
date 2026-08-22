@@ -167,6 +167,9 @@ pub fn save_draft(
     manifest: ComponentsManifest,
 ) -> Result<ManifestEnvelope> {
     validate(&manifest)?;
+    let _project_lifecycle_guard = super::service::acquire_project_lifecycle_lock(project_id)?;
+    // Project deletion may have completed before the lock was acquired. Resolve
+    // the paths from the durable project row again while admission stays closed.
     let (published, draft) = paths(project_id)?;
     save_draft_to_paths(&published, &draft, expected_draft_hash, manifest)
 }
@@ -265,6 +268,10 @@ where
 }
 
 pub fn publish(input: PublishManifestInput) -> Result<ManifestEnvelope> {
+    let _project_lifecycle_guard =
+        super::service::acquire_project_lifecycle_lock(&input.project_id)?;
+    // Hold the lifecycle fence through both draft and publication writes so a
+    // completed deletion cannot be followed by write_atomic recreating the dir.
     let (published, draft) = paths(&input.project_id)?;
     publish_to_paths_with_remove(&published, &draft, input, |path| std::fs::remove_file(path))
 }

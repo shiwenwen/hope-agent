@@ -215,6 +215,7 @@ struct BaselinePreparation {
     dir: PathBuf,
     manifest: QualityManifest,
     capture_html: String,
+    _artifact_lifecycle_guard: std::fs::File,
 }
 
 fn artifact_capture_html(project_id: &str, artifact_id: &str) -> Result<String> {
@@ -222,20 +223,59 @@ fn artifact_capture_html(project_id: &str, artifact_id: &str) -> Result<String> 
     std::fs::read_to_string(dir.join("index.html")).context("artifact has no rendered index.html")
 }
 
+fn opening_tag_end(serialized_element: &str, tag: &str) -> Result<usize> {
+    let expected = format!("<{tag}");
+    if !serialized_element
+        .get(..expected.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&expected))
+        || !serialized_element
+            .as_bytes()
+            .get(expected.len())
+            .is_some_and(|next| next.is_ascii_whitespace() || *next == b'>')
+    {
+        anyhow::bail!("artifact capture has an invalid serialized {tag} element");
+    }
+    let mut quote = None;
+    for (offset, byte) in serialized_element.bytes().enumerate().skip(expected.len()) {
+        match (quote, byte) {
+            (None, b'\'' | b'\"') => quote = Some(byte),
+            (Some(active), current) if active == current => quote = None,
+            (None, b'>') => return Ok(offset + 1),
+            _ => {}
+        }
+    }
+    anyhow::bail!("artifact capture has an unterminated {tag} element")
+}
+
 fn inject_capture_csp(html: &str) -> Result<String> {
-    let lower = html.to_ascii_lowercase();
-    let head_start = lower
-        .find("<head")
+    // Select the parser-created document elements instead of searching source
+    // text: comments or attribute values may contain a spoofed `<head>` before
+    // the real element. Rebuilding only the parsed html/head/body structure also
+    // gives the policy a deterministic position before every executable child.
+    let document = scraper::Html::parse_document(html);
+    let root = document.root_element();
+    let head = root
+        .child_elements()
+        .find(|element| element.value().name() == "head")
         .ok_or_else(|| anyhow::anyhow!("artifact capture requires a head element"))?;
-    let head_end = html[head_start..]
-        .find('>')
-        .map(|offset| head_start + offset + 1)
-        .ok_or_else(|| anyhow::anyhow!("artifact capture has an unterminated head element"))?;
+    let body = root
+        .child_elements()
+        .find(|element| element.value().name() == "body")
+        .ok_or_else(|| anyhow::anyhow!("artifact capture requires a body element"))?;
+    let root_html = root.html();
+    let head_html = head.html();
+    let body_html = body.html();
+    let root_open_end = opening_tag_end(&root_html, "html")?;
+    let head_open_end = opening_tag_end(&head_html, "head")?;
     let policy = format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{CAPTURE_CSP}\">");
-    let mut secured = String::with_capacity(html.len() + policy.len());
-    secured.push_str(&html[..head_end]);
+    let mut secured = String::with_capacity(root_html.len() + policy.len() + 15);
+    secured.push_str("<!doctype html>");
+    secured.push_str(&root_html[..root_open_end]);
+    secured.push_str(&head_html[..head_open_end]);
     secured.push_str(&policy);
-    secured.push_str(&html[head_end..]);
+    secured.push_str(&head_html[head_open_end..]);
+    secured.push_str(&body_html);
+    secured.push_str("</html>");
     Ok(secured)
 }
 
@@ -323,8 +363,17 @@ fn finish_quality_run(
 }
 
 fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
+    let candidate = super::service::get_artifact(&input.artifact_id)?
+        .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
+    let artifact_lifecycle_guard =
+        super::service::acquire_artifact_lifecycle_lock(&candidate.project_id, &candidate.id)?;
+    // Deletion may have won before the lifecycle lock was acquired. Re-read
+    // the durable identity under the lock before creating any quality path.
     let artifact = super::service::get_artifact(&input.artifact_id)?
         .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
+    if artifact.project_id != candidate.project_id {
+        anyhow::bail!("artifact identity changed while accepting baseline");
+    }
     let actual = artifact_hash(&input.artifact_id)?;
     if actual != input.expected_artifact_hash {
         anyhow::bail!("stale baseline acceptance: artifact changed");
@@ -339,6 +388,7 @@ fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
         dir,
         manifest,
         capture_html,
+        _artifact_lifecycle_guard: artifact_lifecycle_guard,
     })
 }
 
@@ -489,13 +539,26 @@ mod tests {
 
     #[test]
     fn capture_wrapper_sandboxes_scripts_and_blocks_network() {
-        let artifact = "<!doctype html><html><head><script>window.marker = '</script-safe>';</script></head><body></body></html>";
+        let artifact = "<!-- <head> --><html data-spoof='<head>'><head data-value='>'><script>window.marker = '</script-safe>';</script></head><body></body></html>";
         let secured = inject_capture_csp(artifact).unwrap();
         let policy_pos = secured.find("Content-Security-Policy").unwrap();
         let script_pos = secured.find("<script>").unwrap();
         assert!(policy_pos < script_pos);
         assert!(secured.contains("connect-src 'none'"));
         assert!(secured.contains("default-src 'none'"));
+        assert!(!secured.contains("<!-- <head> -->"));
+        let parsed = scraper::Html::parse_document(&secured);
+        let head = parsed
+            .root_element()
+            .child_elements()
+            .find(|element| element.value().name() == "head")
+            .unwrap();
+        let first = head.child_elements().next().unwrap();
+        assert_eq!(first.value().name(), "meta");
+        assert_eq!(
+            first.value().attr("http-equiv"),
+            Some("Content-Security-Policy")
+        );
 
         let wrapper = capture_wrapper_script(artifact).unwrap();
         assert!(wrapper.contains("setAttribute('sandbox', 'allow-scripts')"));

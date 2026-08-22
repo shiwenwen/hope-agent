@@ -3395,7 +3395,7 @@ fn project_lifecycle_lock_path(project_id: &str) -> Result<std::path::PathBuf> {
         .join(format!("{key}.lock")))
 }
 
-fn acquire_project_lifecycle_lock(project_id: &str) -> Result<std::fs::File> {
+pub(super) fn acquire_project_lifecycle_lock(project_id: &str) -> Result<std::fs::File> {
     acquire_project_lifecycle_lock_at(project_lifecycle_lock_path(project_id)?)
 }
 
