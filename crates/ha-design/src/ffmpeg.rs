@@ -26,6 +26,31 @@ use ha_core::paths;
 
 const READY_MARKER: &str = ".hope-agent-ready";
 const MANIFEST_JSON: &str = include_str!("../resources/ffmpeg-runtime-manifest.json");
+const INSTALL_OS_LOCK_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const INSTALL_OS_LOCK_POLL: Duration = Duration::from_millis(50);
+
+static INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn acquire_install_lock_at(lock_path: &Path, timeout: Duration) -> Result<std::fs::File> {
+    let started = std::time::Instant::now();
+    loop {
+        match ha_core::platform::try_acquire_exclusive_lock(lock_path)
+            .map_err(anyhow::Error::from)?
+        {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < timeout => std::thread::sleep(INSTALL_OS_LOCK_POLL),
+            None => bail!("timed out waiting for the FFmpeg runtime install lock"),
+        }
+    }
+}
+
+async fn acquire_install_lock(runtime_root: &Path) -> Result<std::fs::File> {
+    let lock_path = runtime_root.join("install.lock");
+    ha_core::blocking::run_blocking(move || {
+        acquire_install_lock_at(&lock_path, INSTALL_OS_LOCK_TIMEOUT)
+    })
+    .await
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -317,8 +342,21 @@ where
         return Ok(binary);
     }
 
+    // Serialize in-process callers first, then take a stable OS lock shared by
+    // Desktop, server and ACP processes using the same data root.
+    let _process_install_guard = INSTALL_LOCK.lock().await;
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
+        return Ok(binary);
+    }
+
     let runtime_root = paths::ffmpeg_runtime_dir()?;
     std::fs::create_dir_all(&runtime_root)?;
+    let _cross_process_install_guard = acquire_install_lock(&runtime_root).await?;
+    // A peer may have published the verified runtime while this call waited.
+    // Rechecking under the OS lock avoids a redundant download and promotion.
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
+        return Ok(binary);
+    }
 
     // SSRF: fixed static-build host; the default outbound policy lets it
     // through, but stay consistent with every other outbound call.
@@ -947,6 +985,24 @@ mod tests {
     fn cached_binary_path_none_on_fresh_install() {
         // Must not panic when nothing's downloaded.
         let _ = cached_binary_path();
+    }
+
+    #[test]
+    fn install_lock_is_exclusive_until_the_holder_is_dropped() {
+        let runtime_root = tempfile::tempdir().expect("runtime tempdir");
+        let lock_path = runtime_root.path().join("install.lock");
+        let first =
+            acquire_install_lock_at(&lock_path, Duration::ZERO).expect("first install lock");
+
+        assert!(
+            acquire_install_lock_at(&lock_path, Duration::ZERO).is_err(),
+            "a concurrent runtime publisher must not enter the critical section"
+        );
+        drop(first);
+        assert!(
+            acquire_install_lock_at(&lock_path, Duration::ZERO).is_ok(),
+            "dropping the holder must release the install lock"
+        );
     }
 
     /// Build a zip at `path` containing each `(name, bytes)` entry.

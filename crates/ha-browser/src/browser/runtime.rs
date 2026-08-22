@@ -19,6 +19,8 @@ use ha_core::paths;
 const READY_MARKER: &str = ".hope-agent-ready";
 const MANIFEST_JSON: &str = include_str!("../../resources/chrome-for-testing-manifest.json");
 const MAX_ARCHIVE_BYTES: u64 = 300 * 1024 * 1024;
+const INSTALL_OS_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const INSTALL_OS_LOCK_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Frontend event emitted when a user-triggered feature needs a local
 /// Chrome/Chromium binary but neither a system browser nor the managed Hope
@@ -28,6 +30,30 @@ const MAX_ARCHIVE_BYTES: u64 = 300 * 1024 * 1024;
 pub const REQUIRED_EVENT: &str = "browser:runtime_required";
 
 static INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn acquire_install_lock_at(
+    lock_path: &Path,
+    timeout: std::time::Duration,
+) -> Result<std::fs::File> {
+    let started = std::time::Instant::now();
+    loop {
+        match ha_core::platform::try_acquire_exclusive_lock(lock_path)
+            .map_err(anyhow::Error::from)?
+        {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < timeout => std::thread::sleep(INSTALL_OS_LOCK_POLL),
+            None => bail!("timed out waiting for the Chromium runtime install lock"),
+        }
+    }
+}
+
+async fn acquire_install_lock(runtime_root: &Path) -> Result<std::fs::File> {
+    let lock_path = runtime_root.join("install.lock");
+    ha_core::blocking::run_blocking(move || {
+        acquire_install_lock_at(&lock_path, INSTALL_OS_LOCK_TIMEOUT)
+    })
+    .await
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -214,10 +240,6 @@ pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
-    // Tauri, HTTP, the browser tool and the global missing-runtime dialog can
-    // all request installation. Serialize them so two explicit user actions
-    // cannot race while promoting the same staging directory.
-    let _install_guard = INSTALL_LOCK.lock().await;
     let last_percent = Arc::new(AtomicU64::new(u64::MAX));
     let progress_last_percent = Arc::clone(&last_percent);
     let progress = move |downloaded: u64, total: Option<u64>| {
@@ -270,8 +292,22 @@ where
         return Ok(binary);
     }
 
+    // Keep both same-process and cross-process callers outside the download /
+    // promotion critical section. Desktop, server and ACP can share one data
+    // root, so the async mutex alone is not a sufficient publication boundary.
+    let _process_install_guard = INSTALL_LOCK.lock().await;
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
+        return Ok(binary);
+    }
+
     let runtime_root = paths::browser_runtime_dir()?;
     std::fs::create_dir_all(&runtime_root)?;
+    let _cross_process_install_guard = acquire_install_lock(&runtime_root).await?;
+    // Another process may have completed the exact immutable runtime while we
+    // waited for the OS lock. Recheck before downloading or touching staging.
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
+        return Ok(binary);
+    }
 
     // SSRF remains mandatory even though the embedded manifest validator also
     // restricts downloads to the fixed Chrome for Testing storage host.
@@ -765,6 +801,24 @@ mod tests {
         // monkey-patching HOME, but at minimum the function must not
         // panic when nothing's been downloaded.
         let _ = cached_binary_path();
+    }
+
+    #[test]
+    fn install_lock_is_exclusive_until_the_holder_is_dropped() {
+        let runtime_root = tempfile::tempdir().expect("runtime tempdir");
+        let lock_path = runtime_root.path().join("install.lock");
+        let first = acquire_install_lock_at(&lock_path, std::time::Duration::ZERO)
+            .expect("first install lock");
+
+        assert!(
+            acquire_install_lock_at(&lock_path, std::time::Duration::ZERO).is_err(),
+            "a concurrent runtime publisher must not enter the critical section"
+        );
+        drop(first);
+        assert!(
+            acquire_install_lock_at(&lock_path, std::time::Duration::ZERO).is_ok(),
+            "dropping the holder must release the install lock"
+        );
     }
 
     #[test]

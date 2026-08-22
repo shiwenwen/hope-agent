@@ -263,6 +263,30 @@ impl StdioAcpRuntime {
         }
     }
 
+    fn external_session_id(
+        &self,
+        resume_session_id: Option<&str>,
+        session_result: &serde_json::Value,
+    ) -> anyhow::Result<Option<String>> {
+        let response_session_id = || {
+            session_result
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+        };
+        match self.protocol {
+            AcpBackendProtocol::V1 => {
+                let external_session_id = resume_session_id
+                    .or_else(response_session_id)
+                    .filter(|session_id| !session_id.is_empty())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("ACP backend '{}' returned an invalid sessionId", self.id)
+                    })?;
+                Ok(Some(external_session_id.to_string()))
+            }
+            AcpBackendProtocol::Legacy02 => Ok(response_session_id().map(str::to_string)),
+        }
+    }
+
     fn parse_usage_update(&self, update: &serde_json::Value) -> Option<ParsedUsage> {
         match self.protocol {
             AcpBackendProtocol::V1 => {
@@ -430,19 +454,14 @@ impl AcpRuntime for StdioAcpRuntime {
             }
         };
 
-        let external_sid = if self.protocol == AcpBackendProtocol::V1 {
-            params.resume_session_id.clone().or_else(|| {
-                session_result
-                    .get("sessionId")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-            })
-        } else {
-            session_result
-                .get("sessionId")
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-        };
+        let external_sid =
+            match self.external_session_id(params.resume_session_id.as_deref(), &session_result) {
+                Ok(session_id) => session_id,
+                Err(error) => {
+                    Self::terminate_unregistered_child(&mut handle.child, &self.id).await;
+                    return Err(error);
+                }
+            };
 
         handle.external_session_id = external_sid.clone();
 
@@ -836,6 +855,31 @@ mod tests {
                 })
             )
         );
+    }
+
+    #[test]
+    fn v1_new_session_rejects_missing_non_string_and_empty_session_ids() {
+        let runtime = runtime(AcpBackendProtocol::V1);
+        for result in [
+            serde_json::json!({}),
+            serde_json::json!({"sessionId": 42}),
+            serde_json::json!({"sessionId": ""}),
+        ] {
+            assert!(runtime.external_session_id(None, &result).is_err());
+        }
+        assert_eq!(
+            runtime
+                .external_session_id(None, &serde_json::json!({"sessionId": "external"}))
+                .expect("valid v1 session id"),
+            Some("external".to_string())
+        );
+    }
+
+    #[test]
+    fn v1_resume_rejects_an_empty_external_session_id() {
+        assert!(runtime(AcpBackendProtocol::V1)
+            .external_session_id(Some(""), &serde_json::json!({}))
+            .is_err());
     }
 
     #[test]
