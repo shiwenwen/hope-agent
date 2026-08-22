@@ -3,6 +3,7 @@
 //! 基线是产物目录下的本地真相源；模型视觉评审不参与通过/失败裁决。
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use ha_browser::browser::backend::{BrowserBackend, ImageFormat, ScreenshotParams, SnapshotFormat};
 use ha_browser::browser::cdp_backend::CdpBackend;
 use ha_core::platform::write_atomic;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 
 const MANIFEST_VERSION: u32 = 1;
 const MAX_PNG_BYTES: usize = 32 * 1024 * 1024;
+const CAPTURE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
@@ -204,7 +206,7 @@ struct QualityRunPreparation {
     dir: PathBuf,
     manifest: QualityManifest,
     findings: Vec<StaticFinding>,
-    capture_url: String,
+    capture_html: String,
 }
 
 struct BaselinePreparation {
@@ -212,14 +214,48 @@ struct BaselinePreparation {
     artifact_hash: String,
     dir: PathBuf,
     manifest: QualityManifest,
-    capture_url: String,
+    capture_html: String,
 }
 
-fn artifact_capture_url(project_id: &str, artifact_id: &str) -> Result<String> {
+fn artifact_capture_html(project_id: &str, artifact_id: &str) -> Result<String> {
     let dir = ha_core::paths::design_artifact_dir(project_id, artifact_id)?;
-    url::Url::from_file_path(dir.join("index.html"))
-        .map_err(|_| anyhow::anyhow!("artifact path cannot be represented as a file URL"))
-        .map(|url| url.to_string())
+    std::fs::read_to_string(dir.join("index.html")).context("artifact has no rendered index.html")
+}
+
+fn inject_capture_csp(html: &str) -> Result<String> {
+    let lower = html.to_ascii_lowercase();
+    let head_start = lower
+        .find("<head")
+        .ok_or_else(|| anyhow::anyhow!("artifact capture requires a head element"))?;
+    let head_end = html[head_start..]
+        .find('>')
+        .map(|offset| head_start + offset + 1)
+        .ok_or_else(|| anyhow::anyhow!("artifact capture has an unterminated head element"))?;
+    let policy = format!("<meta http-equiv=\"Content-Security-Policy\" content=\"{CAPTURE_CSP}\">");
+    let mut secured = String::with_capacity(html.len() + policy.len());
+    secured.push_str(&html[..head_end]);
+    secured.push_str(&policy);
+    secured.push_str(&html[head_end..]);
+    Ok(secured)
+}
+
+fn capture_wrapper_script(html: &str) -> Result<String> {
+    let secured = inject_capture_csp(html)?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(secured.as_bytes());
+    Ok(format!(
+        r#"(() => {{
+            document.documentElement.innerHTML = '<head><meta name="referrer" content="no-referrer"><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden;background:white}}iframe{{display:block;width:100%;height:100%;border:0}}</style></head><body></body>';
+            window.__dsQualityReady = false;
+            const frame = document.createElement('iframe');
+            frame.setAttribute('sandbox', 'allow-scripts');
+            frame.setAttribute('referrerpolicy', 'no-referrer');
+            frame.addEventListener('load', () => {{ window.__dsQualityReady = true; }}, {{ once: true }});
+            const bytes = Uint8Array.from(atob('{encoded}'), c => c.charCodeAt(0));
+            frame.srcdoc = new TextDecoder().decode(bytes);
+            document.body.appendChild(frame);
+            return frame.getAttribute('sandbox');
+        }})()"#
+    ))
 }
 
 fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
@@ -228,16 +264,14 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
     let artifact_hash = artifact_hash(artifact_id)?;
     let dir = quality_dir(&artifact.project_id, artifact_id)?;
     let manifest = load_manifest(&dir, artifact_id)?;
-    let html = std::fs::read_to_string(
-        ha_core::paths::design_artifact_dir(&artifact.project_id, artifact_id)?.join("index.html"),
-    )?;
+    let html = artifact_capture_html(&artifact.project_id, artifact_id)?;
     Ok(QualityRunPreparation {
         artifact_id: artifact_id.to_string(),
         artifact_hash,
         dir,
         manifest,
         findings: static_findings(&html),
-        capture_url: artifact_capture_url(&artifact.project_id, artifact_id)?,
+        capture_html: html,
     })
 }
 
@@ -298,12 +332,13 @@ fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
     let dir = quality_dir(&artifact.project_id, &artifact.id)?;
     std::fs::create_dir_all(dir.join("screenshots"))?;
     let manifest = load_manifest(&dir, &artifact.id)?;
+    let capture_html = artifact_capture_html(&artifact.project_id, &artifact.id)?;
     Ok(BaselinePreparation {
         artifact_id: artifact.id.clone(),
         artifact_hash: actual,
         dir,
         manifest,
-        capture_url: artifact_capture_url(&artifact.project_id, &artifact.id)?,
+        capture_html,
     })
 }
 
@@ -339,7 +374,7 @@ fn finish_baseline(
     Ok(prepared.manifest)
 }
 
-async fn capture_all(url: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
+async fn capture_all(html: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
     // CdpBackend is stateless over one global active target. The guard must
     // cover original-target capture, disposable-tab work, close, and restore.
     let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
@@ -362,13 +397,30 @@ async fn capture_all(url: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
     } else {
         None
     };
-    let tab = backend.new_page(Some(url)).await?;
+    let tab = backend.new_page(None).await?;
     let _ = backend.select_page(&tab.target_id).await;
     let result = async {
-        if !tab.url.starts_with("file://") {
-            backend.navigate(url).await?;
+        let wrapper = capture_wrapper_script(html)?;
+        let sandbox = backend.evaluate(&wrapper).await?;
+        if sandbox.as_str() != Some("allow-scripts") {
+            anyhow::bail!("quality capture sandbox was not installed");
         }
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let mut ready = false;
+        for _ in 0..40 {
+            ready = backend
+                .evaluate("window.__dsQualityReady === true")
+                .await?
+                .as_bool()
+                .unwrap_or(false);
+            if ready {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        if !ready {
+            anyhow::bail!("sandboxed artifact did not become ready for capture");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
         let mut captures = Vec::with_capacity(FIXED_VIEWPORTS.len());
         for viewport in FIXED_VIEWPORTS {
             backend.resize(viewport.width, viewport.height).await?;
@@ -402,14 +454,14 @@ pub async fn run(artifact_id: &str) -> Result<QualityRun> {
     let artifact_id = artifact_id.to_string();
     let prepared =
         ha_core::blocking::run_blocking(move || prepare_quality_run(&artifact_id)).await?;
-    let captures = capture_all(&prepared.capture_url).await?;
+    let captures = capture_all(&prepared.capture_html).await?;
     ha_core::blocking::run_blocking(move || finish_quality_run(prepared, captures)).await
 }
 
 /// 显式 owner 操作：以期望源码哈希防止把陈旧画面接受为当前基线。
 pub async fn accept(input: AcceptBaselineInput) -> Result<QualityManifest> {
     let prepared = ha_core::blocking::run_blocking(move || prepare_baseline(input)).await?;
-    let captures = capture_all(&prepared.capture_url).await?;
+    let captures = capture_all(&prepared.capture_html).await?;
     ha_core::blocking::run_blocking(move || finish_baseline(prepared, captures)).await
 }
 
@@ -433,5 +485,22 @@ mod tests {
         assert!(findings
             .iter()
             .any(|f| f.code == "interactive-missing-name"));
+    }
+
+    #[test]
+    fn capture_wrapper_sandboxes_scripts_and_blocks_network() {
+        let artifact = "<!doctype html><html><head><script>window.marker = '</script-safe>';</script></head><body></body></html>";
+        let secured = inject_capture_csp(artifact).unwrap();
+        let policy_pos = secured.find("Content-Security-Policy").unwrap();
+        let script_pos = secured.find("<script>").unwrap();
+        assert!(policy_pos < script_pos);
+        assert!(secured.contains("connect-src 'none'"));
+        assert!(secured.contains("default-src 'none'"));
+
+        let wrapper = capture_wrapper_script(artifact).unwrap();
+        assert!(wrapper.contains("setAttribute('sandbox', 'allow-scripts')"));
+        assert!(wrapper.contains("frame.srcdoc"));
+        assert!(!wrapper.contains("allow-same-origin"));
+        assert!(!wrapper.contains("window.marker"));
     }
 }

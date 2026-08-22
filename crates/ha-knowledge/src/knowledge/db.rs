@@ -742,22 +742,24 @@ impl IndexDb {
     /// the note id. Call [`reresolve_kb_links`] afterward to (re)resolve link
     /// targets across the KB.
     pub fn replace_note_index(&self, input: NoteIndexInput) -> Result<i64> {
-        if let Some(embs) = &input.chunk_embeddings {
-            anyhow::ensure!(
-                embs.len() == input.chunks.len(),
-                "chunk_embeddings length must match chunks"
-            );
-        }
-        if let Some(embs) = &input.similar_chunk_embeddings {
-            anyhow::ensure!(
-                embs.len() == input.chunks.len(),
-                "similar_chunk_embeddings length must match chunks"
-            );
-        }
         let dims = self.embedding_dims();
+        validate_embedding_batch(
+            "chunk_embeddings",
+            input.chunk_embeddings.as_deref(),
+            input.embedding_signature.as_deref(),
+            input.chunks.len(),
+            dims,
+        )?;
+        validate_embedding_batch(
+            "similar_chunk_embeddings",
+            input.similar_chunk_embeddings.as_deref(),
+            input.similar_embedding_signature.as_deref(),
+            input.chunks.len(),
+            dims,
+        )?;
         let mut conn = self.write_conn()?;
         if dims > 0 {
-            let _ = ensure_vec_tables(&conn, dims);
+            ensure_vec_tables(&conn, dims)?;
         }
         let tx = conn.transaction()?;
 
@@ -836,23 +838,19 @@ impl IndexDb {
             let chunk_id = tx.last_insert_rowid();
             if let (Some(embs), true) = (&input.chunk_embeddings, dims > 0) {
                 let emb = &embs[i];
-                if emb.len() as u32 == dims {
-                    let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                    let _ = tx.execute(
-                        "INSERT INTO note_vec(rowid, embedding) VALUES (?1, ?2)",
-                        params![chunk_id, bytes],
-                    );
-                }
+                let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                tx.execute(
+                    "INSERT INTO note_vec(rowid, embedding) VALUES (?1, ?2)",
+                    params![chunk_id, bytes],
+                )?;
             }
             if let (Some(embs), true) = (&input.similar_chunk_embeddings, dims > 0) {
                 let emb = &embs[i];
-                if emb.len() as u32 == dims {
-                    let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                    let _ = tx.execute(
-                        "INSERT INTO note_similarity_vec(rowid, embedding) VALUES (?1, ?2)",
-                        params![chunk_id, bytes],
-                    );
-                }
+                let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                tx.execute(
+                    "INSERT INTO note_similarity_vec(rowid, embedding) VALUES (?1, ?2)",
+                    params![chunk_id, bytes],
+                )?;
             }
         }
 
@@ -1090,6 +1088,34 @@ fn register_sqlite_vec() {
             sqlite_vec::sqlite3_vec_init as *const ()
         )));
     }
+}
+
+fn validate_embedding_batch(
+    label: &str,
+    embeddings: Option<&[Vec<f32>]>,
+    signature: Option<&str>,
+    chunk_count: usize,
+    dims: u32,
+) -> Result<()> {
+    anyhow::ensure!(
+        embeddings.is_some() == signature.is_some(),
+        "{label} and its signature must be provided together"
+    );
+    let Some(embeddings) = embeddings else {
+        return Ok(());
+    };
+    anyhow::ensure!(dims > 0, "{label} requires a configured vector dimension");
+    anyhow::ensure!(
+        embeddings.len() == chunk_count,
+        "{label} length must match chunks"
+    );
+    anyhow::ensure!(
+        embeddings
+            .iter()
+            .all(|embedding| embedding.len() as u32 == dims),
+        "{label} dimensions must match the configured vector dimension"
+    );
+    Ok(())
 }
 
 fn ensure_vec_tables(conn: &Connection, dims: u32) -> Result<()> {
@@ -1358,5 +1384,26 @@ mod tests {
             .unwrap()
             .iter()
             .all(|(_, _, _, current)| *current));
+    }
+
+    #[test]
+    fn invalid_similarity_vectors_never_stamp_the_migration_signature() {
+        let dir = tempdir().unwrap();
+        let db = IndexDb::open(&dir.path().join("index.db")).unwrap();
+        db.set_embedding_dims(2);
+        let kb = "kb1";
+        db.replace_note_index(input(kb, "A.md", "# A\n\nalpha\n"))
+            .unwrap();
+
+        let mut invalid = input(kb, "A.md", "# A\n\nchanged\n");
+        invalid.similar_chunk_embeddings = Some(vec![vec![1.0]; invalid.chunks.len()]);
+        invalid.similar_embedding_signature = Some("symmetric-signature".into());
+        assert!(db.replace_note_index(invalid).is_err());
+
+        let state = db
+            .note_index_state(kb, Some("symmetric-signature"))
+            .unwrap();
+        assert_eq!(state.len(), 1);
+        assert!(!state[0].3);
     }
 }

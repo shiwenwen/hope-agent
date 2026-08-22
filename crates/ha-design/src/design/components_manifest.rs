@@ -158,9 +158,27 @@ pub fn get_draft(project_id: &str) -> Result<ManifestEnvelope> {
 
 pub fn save_draft(project_id: &str, manifest: ComponentsManifest) -> Result<ManifestEnvelope> {
     validate(&manifest)?;
-    let path = paths(project_id)?.1;
+    let (published, draft) = paths(project_id)?;
+    save_draft_to_paths(&published, &draft, manifest)
+}
+
+fn manifest_lock_path(published: &Path) -> PathBuf {
+    published.with_extension("publish.lock")
+}
+
+fn acquire_manifest_lock(published: &Path) -> Result<std::fs::File> {
+    ha_core::platform::try_acquire_exclusive_lock(&manifest_lock_path(published))?
+        .ok_or_else(|| anyhow::anyhow!("components manifest update already in progress"))
+}
+
+fn save_draft_to_paths(
+    published: &Path,
+    draft: &Path,
+    manifest: ComponentsManifest,
+) -> Result<ManifestEnvelope> {
+    let _manifest_guard = acquire_manifest_lock(published)?;
     let bytes = serde_json::to_vec_pretty(&manifest)?;
-    write_atomic(&path, &bytes)?;
+    write_atomic(draft, &bytes)?;
     Ok(ManifestEnvelope {
         manifest,
         hash: hash_bytes(&bytes),
@@ -171,9 +189,7 @@ pub fn save_draft(project_id: &str, manifest: ComponentsManifest) -> Result<Mani
 pub fn publish(input: PublishManifestInput) -> Result<ManifestEnvelope> {
     validate(&input.manifest)?;
     let (published, draft) = paths(&input.project_id)?;
-    let lock_path = published.with_extension("publish.lock");
-    let _publish_guard = ha_core::platform::try_acquire_exclusive_lock(&lock_path)?
-        .ok_or_else(|| anyhow::anyhow!("components manifest publish already in progress"))?;
+    let _manifest_guard = acquire_manifest_lock(&published)?;
     let current = read_one(&published, false)?;
     if current.hash != input.expected_published_hash {
         anyhow::bail!("stale components manifest: published version changed");
@@ -274,5 +290,20 @@ mod tests {
             }],
         };
         assert!(validate(&manifest).is_err());
+    }
+
+    #[test]
+    fn draft_save_uses_the_publication_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let published = dir.path().join("components.manifest.json");
+        let draft = dir.path().join("components.manifest.draft.json");
+        let held = acquire_manifest_lock(&published).unwrap();
+
+        assert!(save_draft_to_paths(&published, &draft, ComponentsManifest::default()).is_err());
+        assert!(!draft.exists());
+
+        drop(held);
+        assert!(save_draft_to_paths(&published, &draft, ComponentsManifest::default()).is_ok());
+        assert!(draft.exists());
     }
 }
