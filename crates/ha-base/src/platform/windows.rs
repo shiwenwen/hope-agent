@@ -9,6 +9,8 @@ use std::process::Command;
 use std::time::Duration;
 use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
 
+use super::PathOwnershipSnapshot;
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
@@ -16,6 +18,42 @@ const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const FILE_SHARE_READ: u32 = 0x0000_0001;
 const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+
+pub(super) fn process_user_group() -> Option<(u32, u32)> {
+    None
+}
+
+pub(super) fn path_owner_no_follow(_path: &Path) -> io::Result<(u32, u32)> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "numeric file ownership is unavailable on Windows",
+    ))
+}
+
+pub(super) fn path_ownership_snapshot_no_follow(_path: &Path) -> io::Result<PathOwnershipSnapshot> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "numeric file ownership is unavailable on Windows",
+    ))
+}
+
+pub(super) fn path_has_security_capability_no_follow(_path: &Path) -> io::Result<bool> {
+    Ok(false)
+}
+
+pub(super) fn set_path_owner_from_snapshot_beneath(
+    _root: &Path,
+    _expected_root: PathOwnershipSnapshot,
+    _relative: &Path,
+    _expected: PathOwnershipSnapshot,
+    _uid: u32,
+    _gid: u32,
+) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "numeric file ownership is unavailable on Windows",
+    ))
+}
 
 fn final_path_for_handle(file: &fs::File) -> io::Result<String> {
     // FILE_NAME_NORMALIZED | VOLUME_NAME_DOS are both zero. Querying the

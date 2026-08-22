@@ -39,6 +39,59 @@ pub fn init_index_db() -> Result<()> {
     Ok(())
 }
 
+/// Make a signature-algorithm/provider-semantics upgrade fail closed: the
+/// newly computed v2 signature excludes all v1 vectors immediately, then the
+/// Primary process resumes the idempotent full Knowledge re-index.
+///
+/// This runs from the `PrimaryOnly` post-initialization startup-task phase,
+/// after `LOCAL_MODEL_JOBS_DB` is installed. Calling it from `init_index_db`
+/// would reject the migration job before that database exists and leave no
+/// later retry in the process.
+pub(crate) fn resume_embedding_signature_migration() {
+    if !ha_core::runtime_lock::is_primary() {
+        return;
+    }
+    let store = ha_core::config::cached_config();
+    let Ok(Some((_model, _runtime, signature))) = ha_core::memory::resolve_memory_embedding_config(
+        &store.knowledge_embedding,
+        &store.embedding_models,
+    ) else {
+        return;
+    };
+    if store
+        .knowledge_embedding
+        .last_reembedded_signature
+        .as_deref()
+        == Some(signature.as_str())
+    {
+        return;
+    }
+    let signature_for_store = signature.clone();
+    if let Err(error) = ha_core::config::mutate_config(
+        ("knowledge_embedding.signature_migration", "startup"),
+        move |config| {
+            config.knowledge_embedding.active_signature = Some(signature_for_store.clone());
+            Ok(())
+        },
+    ) {
+        app_warn!(
+            "knowledge",
+            "embedding_migration",
+            "failed to persist Knowledge embedding signature migration: {}",
+            error
+        );
+        return;
+    }
+    if let Err(error) = super::start_knowledge_reembed_job(None, "signature-migration") {
+        app_warn!(
+            "knowledge",
+            "embedding_migration",
+            "failed to resume Knowledge embedding signature migration: {}",
+            error
+        );
+    }
+}
+
 /// Resolve the active **knowledge** embedding model (`knowledge_embedding`,
 /// independent of memory — D7) and install it on the index DB so note chunks
 /// embed under that model/signature. No-op (clears) when knowledge embedding is
@@ -182,10 +235,16 @@ pub fn reindex_kb_with_progress(
     let disk = scan_markdown_files(&root);
     let disk_set: HashSet<&str> = disk.iter().map(|s| s.as_str()).collect();
 
-    let existing = db.note_index_state(kb_id)?;
-    let existing_map: HashMap<String, i64> = existing
+    let document_signature = super::embedding::knowledge_active_embedding_signature();
+    let similarity_signature = super::embedding::knowledge_symmetric_embedding_signature();
+    let existing = db.note_index_state(
+        kb_id,
+        document_signature.as_deref(),
+        similarity_signature.as_deref(),
+    )?;
+    let existing_map: HashMap<String, (i64, bool)> = existing
         .iter()
-        .map(|(rel, mtime, _)| (rel.clone(), *mtime))
+        .map(|(rel, mtime, _, vectors_current)| (rel.clone(), (*mtime, *vectors_current)))
         .collect();
 
     let mut report = ReindexReport {
@@ -194,7 +253,7 @@ pub fn reindex_kb_with_progress(
     };
 
     // Prune notes whose files are gone.
-    for (rel, _, _) in &existing {
+    for (rel, _, _, _) in &existing {
         if !disk_set.contains(rel.as_str()) {
             if db.delete_note(kb_id, rel).unwrap_or(false) {
                 if let Err(e) = super::schema::delete_note_evidence_index(kb_id, rel) {
@@ -222,7 +281,9 @@ pub fn reindex_kb_with_progress(
         let skip = !full
             && existing_map
                 .get(rel)
-                .is_some_and(|prev| *prev == mtime && mtime != 0);
+                .is_some_and(|(prev, vectors_current)| {
+                    *prev == mtime && mtime != 0 && *vectors_current
+                });
         if !skip {
             if let Err(e) = reindex_one(&db, kb_id, &root, rel) {
                 app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
@@ -292,7 +353,12 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
     let chunks = chunker::chunk(&content, &parsed, &chunk_cfg);
     let title = parsed.title.clone().unwrap_or_else(|| file_stem(rel_path));
 
-    let (chunk_embeddings, embedding_signature) = embed_chunks(db, &chunks);
+    let (
+        chunk_embeddings,
+        embedding_signature,
+        similar_chunk_embeddings,
+        similar_embedding_signature,
+    ) = embed_chunks(db, &chunks);
 
     let input = NoteIndexInput {
         kb_id: kb_id.to_string(),
@@ -305,6 +371,8 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
         chunks,
         chunk_embeddings,
         embedding_signature,
+        similar_chunk_embeddings,
+        similar_embedding_signature,
         links: parsed.links,
         tags: parsed.tags,
     };
@@ -327,23 +395,54 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
 fn embed_chunks(
     db: &IndexDb,
     chunks: &[chunker::ParsedChunk],
-) -> (Option<Vec<Vec<f32>>>, Option<String>) {
+) -> (
+    Option<Vec<Vec<f32>>>,
+    Option<String>,
+    Option<Vec<Vec<f32>>>,
+    Option<String>,
+) {
     if chunks.is_empty() {
-        return (None, None);
+        return (None, None, None, None);
     }
     let Some(embedder) = db.embedder() else {
-        return (None, None);
+        return (None, None, None, None);
     };
-    let signature = super::embedding::knowledge_active_embedding_signature();
     let bodies: Vec<String> = chunks.iter().map(|c| c.body.clone()).collect();
-    match embedder.embed_batch(&bodies) {
-        Ok(vecs) if vecs.len() == chunks.len() => (Some(vecs), signature),
-        Ok(_) => (None, None),
+    let retrieval = match embedder.embed_batch(&bodies, ha_core::memory::EmbeddingPurpose::Document)
+    {
+        Ok(vecs) if vecs.len() == chunks.len() => Some(vecs),
+        Ok(_) => None,
         Err(e) => {
             app_warn!("knowledge", "embedding", "embed batch failed: {}", e);
-            (None, None)
+            None
         }
-    }
+    };
+    let similarity =
+        match embedder.embed_batch(&bodies, ha_core::memory::EmbeddingPurpose::Symmetric) {
+            Ok(vecs) if vecs.len() == chunks.len() => Some(vecs),
+            Ok(_) => None,
+            Err(e) => {
+                app_warn!(
+                    "knowledge",
+                    "embedding",
+                    "symmetric embed batch failed: {}",
+                    e
+                );
+                None
+            }
+        };
+    let retrieval_signature = retrieval
+        .as_ref()
+        .and_then(|_| super::embedding::knowledge_active_embedding_signature());
+    let similarity_signature = similarity
+        .as_ref()
+        .and_then(|_| super::embedding::knowledge_symmetric_embedding_signature());
+    (
+        retrieval,
+        retrieval_signature,
+        similarity,
+        similarity_signature,
+    )
 }
 
 /// Recursively collect `*.md` / `*.markdown` rel-paths under `root`, skipping

@@ -1,6 +1,6 @@
-//! Chromium runtime fallback — downloads + unpacks a pinned Chromium
-//! snapshot when the system has no Chrome / Edge / Brave / Chromium
-//! installed.
+//! Chrome for Testing runtime fallback — downloads and unpacks an immutable,
+//! SHA-256-pinned stable Chrome artifact when the system has no Chrome / Edge /
+//! Brave / Chromium installed.
 //!
 //! Triggered explicitly via `profile.op=install_runtime` or proactively
 //! via settings → Browser → "Install Chromium runtime". Never triggered
@@ -9,11 +9,18 @@
 
 use anyhow::{anyhow, bail, Result};
 use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use ha_core::paths;
 
 const READY_MARKER: &str = ".hope-agent-ready";
+const MANIFEST_JSON: &str = include_str!("../../resources/chrome-for-testing-manifest.json");
+const MAX_ARCHIVE_BYTES: u64 = 300 * 1024 * 1024;
+const INSTALL_OS_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const INSTALL_OS_LOCK_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Frontend event emitted when a user-triggered feature needs a local
 /// Chrome/Chromium binary but neither a system browser nor the managed Hope
@@ -24,77 +31,171 @@ pub const REQUIRED_EVENT: &str = "browser:runtime_required";
 
 static INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Per-platform descriptor for fetching + unpacking the Chromium archive.
-#[derive(Debug, Clone)]
-pub struct RuntimeSpec {
-    pub revision: u32,
-    /// Subdirectory under `chromium-browser-snapshots/`.
-    pub platform_key: &'static str,
-    /// Archive filename inside that subdirectory.
-    pub archive_name: &'static str,
-    /// Path to the runnable Chromium binary RELATIVE to the unzipped
-    /// archive root. e.g. `chrome-mac/Chromium.app/Contents/MacOS/Chromium`.
-    pub binary_relpath: &'static str,
+fn acquire_install_lock_at(
+    lock_path: &Path,
+    timeout: std::time::Duration,
+) -> Result<std::fs::File> {
+    let started = std::time::Instant::now();
+    loop {
+        match ha_core::platform::try_acquire_exclusive_lock(lock_path)
+            .map_err(anyhow::Error::from)?
+        {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < timeout => std::thread::sleep(INSTALL_OS_LOCK_POLL),
+            None => bail!("timed out waiting for the Chromium runtime install lock"),
+        }
+    }
 }
 
-// Pinned revisions per platform. Chromium snapshots build each platform
-// independently, so the same revision number isn't guaranteed to exist
-// across all four — we pin per-platform like Playwright / Puppeteer.
-//
-// Bump procedure:
-// 1. `curl https://commondatastorage.googleapis.com/chromium-browser-snapshots/<platform>/LAST_CHANGE`
-//    for each platform; subtract a small buffer (e.g. -50) so the
-//    revision is unlikely to be pruned in the next few months.
-// 2. HEAD-test each `<archive>.zip` returns 200.
-// 3. Run `ensure_chromium` on each platform to confirm `--version` works.
-//
-// Last verified: 2026-05 (Mac_Arm 1631021, Mac 1631012, Linux_x64 1631027, Win_x64 1631012).
-pub const CHROMIUM_REVISION_MAC_ARM: u32 = 1631021;
-pub const CHROMIUM_REVISION_MAC: u32 = 1631012;
-pub const CHROMIUM_REVISION_LINUX_X64: u32 = 1631027;
-pub const CHROMIUM_REVISION_WIN_X64: u32 = 1631012;
+async fn acquire_install_lock(runtime_root: &Path) -> Result<std::fs::File> {
+    let lock_path = runtime_root.join("install.lock");
+    ha_core::blocking::run_blocking(move || {
+        acquire_install_lock_at(&lock_path, INSTALL_OS_LOCK_TIMEOUT)
+    })
+    .await
+}
 
-/// Resolve the `RuntimeSpec` for the current host. Returns `None` when
-/// Chromium snapshots don't ship for this OS/arch combo.
-pub fn spec_for_current_platform() -> Option<RuntimeSpec> {
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeManifest {
+    schema_version: u32,
+    generated_at: String,
+    minimum_compatible_version: String,
+    artifacts: Vec<RuntimeSpec>,
+}
+
+/// Per-platform descriptor for fetching and unpacking a pinned Chrome for
+/// Testing archive. Values come from the checked-in supply-chain manifest.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSpec {
+    pub version: String,
+    pub revision: u32,
+    pub platform: String,
+    pub archive_url: String,
+    pub archive_size: u64,
+    pub archive_sha256: String,
+    pub published_at: String,
+    pub binary_relpath: String,
+    pub source_name: String,
+    pub source_evidence: String,
+    pub license_name: String,
+    pub license_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeReadyMarker {
+    schema_version: u32,
+    product: String,
+    version: String,
+    revision: u32,
+    platform: String,
+    archive_url: String,
+    archive_size: u64,
+    archive_sha256: String,
+    published_at: String,
+    binary_relpath: String,
+    source_name: String,
+    source_evidence: String,
+    license_name: String,
+    license_url: String,
+    manifest_generated_at: String,
+    minimum_compatible_version: String,
+}
+
+fn current_platform_id() -> Option<&'static str> {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        return Some(RuntimeSpec {
-            revision: CHROMIUM_REVISION_MAC_ARM,
-            platform_key: "Mac_Arm",
-            archive_name: "chrome-mac.zip",
-            binary_relpath: "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        });
-    }
+    return Some("mac-arm64");
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    {
-        return Some(RuntimeSpec {
-            revision: CHROMIUM_REVISION_MAC,
-            platform_key: "Mac",
-            archive_name: "chrome-mac.zip",
-            binary_relpath: "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        });
-    }
+    return Some("mac-x64");
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        return Some(RuntimeSpec {
-            revision: CHROMIUM_REVISION_LINUX_X64,
-            platform_key: "Linux_x64",
-            archive_name: "chrome-linux.zip",
-            binary_relpath: "chrome-linux/chrome",
-        });
-    }
+    return Some("linux64");
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    {
-        return Some(RuntimeSpec {
-            revision: CHROMIUM_REVISION_WIN_X64,
-            platform_key: "Win_x64",
-            archive_name: "chrome-win.zip",
-            binary_relpath: "chrome-win/chrome.exe",
-        });
-    }
+    return Some("win64");
     #[allow(unreachable_code)]
     None
+}
+
+fn embedded_manifest() -> Result<RuntimeManifest> {
+    let manifest: RuntimeManifest = serde_json::from_str(MANIFEST_JSON)
+        .map_err(|e| anyhow!("invalid embedded Chrome for Testing manifest: {e}"))?;
+    if manifest.schema_version != 1 {
+        bail!(
+            "unsupported Chrome for Testing manifest schema {}",
+            manifest.schema_version
+        );
+    }
+    if manifest.generated_at.trim().is_empty()
+        || manifest.minimum_compatible_version.trim().is_empty()
+    {
+        bail!("Chrome for Testing manifest is missing release metadata");
+    }
+    Ok(manifest)
+}
+
+fn validate_spec(spec: &RuntimeSpec) -> Result<()> {
+    if !matches!(
+        spec.platform.as_str(),
+        "mac-arm64" | "mac-x64" | "linux64" | "win64"
+    ) {
+        bail!("unsupported Chrome for Testing platform in manifest");
+    }
+    if spec.version.is_empty()
+        || !spec
+            .version
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b == b'.')
+    {
+        bail!("invalid Chrome for Testing version in manifest");
+    }
+    if spec.archive_size == 0 || spec.archive_size > MAX_ARCHIVE_BYTES {
+        bail!("invalid Chrome for Testing archive size in manifest");
+    }
+    if spec.archive_sha256.len() != 64
+        || !spec.archive_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        bail!("invalid Chrome for Testing SHA-256 in manifest");
+    }
+    let url = reqwest::Url::parse(&spec.archive_url)
+        .map_err(|e| anyhow!("invalid Chrome for Testing archive URL: {e}"))?;
+    if url.scheme() != "https" || url.host_str() != Some("storage.googleapis.com") {
+        bail!("Chrome for Testing archive URL must use the fixed Google storage host");
+    }
+    if !safe_relative_path(&spec.binary_relpath)
+        || spec.source_name.trim().is_empty()
+        || spec.source_evidence.trim().is_empty()
+        || spec.license_name.trim().is_empty()
+        || spec.license_url.trim().is_empty()
+        || spec.published_at.trim().is_empty()
+    {
+        bail!("Chrome for Testing manifest metadata is incomplete");
+    }
+    Ok(())
+}
+
+fn required_spec() -> Result<(RuntimeManifest, RuntimeSpec)> {
+    let platform = current_platform_id().ok_or_else(|| {
+        anyhow!(
+            "Chrome for Testing runtime is not available for this platform / architecture. \
+             Install Google Chrome system-wide or set `executable_path` to a custom Chrome binary."
+        )
+    })?;
+    let manifest = embedded_manifest()?;
+    let spec = manifest
+        .artifacts
+        .iter()
+        .find(|spec| spec.platform == platform)
+        .cloned()
+        .ok_or_else(|| anyhow!("Chrome for Testing manifest has no artifact for {platform}"))?;
+    validate_spec(&spec)?;
+    Ok((manifest, spec))
+}
+
+/// Resolve the `RuntimeSpec` for the current host. Returns `None` when
+/// the embedded manifest does not ship this OS/arch combo.
+pub fn spec_for_current_platform() -> Option<RuntimeSpec> {
+    required_spec().ok().map(|(_, spec)| spec)
 }
 
 /// Event bus channel for Chromium runtime download progress.
@@ -113,14 +214,15 @@ pub const PROGRESS_EVENT: &str = "browser:chromium_download_progress";
 /// language. Emitting is best-effort: headless/CLI callers still receive the
 /// original error from the operation.
 pub fn emit_runtime_required(context: &str, reason: &str) {
+    let spec = spec_for_current_platform();
     if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
         bus.emit(
             REQUIRED_EVENT,
             serde_json::json!({
                 "context": context,
                 "reason": reason,
-                "installSupported": spec_for_current_platform().is_some(),
-                "approxDownloadBytes": 150_u64 * 1024 * 1024,
+                "installSupported": spec.is_some(),
+                "approxDownloadBytes": spec.map(|value| value.archive_size),
             }),
         );
     }
@@ -138,10 +240,6 @@ pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
-    // Tauri, HTTP, the browser tool and the global missing-runtime dialog can
-    // all request installation. Serialize them so two explicit user actions
-    // cannot race while promoting the same staging directory.
-    let _install_guard = INSTALL_LOCK.lock().await;
     let last_percent = Arc::new(AtomicU64::new(u64::MAX));
     let progress_last_percent = Arc::clone(&last_percent);
     let progress = move |downloaded: u64, total: Option<u64>| {
@@ -187,120 +285,193 @@ pub async fn ensure_chromium<F>(progress: F) -> Result<PathBuf>
 where
     F: Fn(u64, Option<u64>) + Send + Sync + 'static,
 {
-    let spec = spec_for_current_platform().ok_or_else(|| {
-        anyhow!(
-            "Chromium runtime is not available for this platform / architecture. \
-             Install Google Chrome system-wide or set `executable_path` to a custom Chrome binary."
-        )
-    })?;
-    let target_dir = paths::chromium_runtime_dir(spec.revision)?;
-    let binary = target_dir.join(spec.binary_relpath);
-    if runtime_ready(&target_dir, &binary) {
+    let (manifest, spec) = required_spec()?;
+    let target_dir = runtime_target_dir(&spec)?;
+    let binary = target_dir.join(&spec.binary_relpath);
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
         return Ok(binary);
     }
-    if binary.exists() {
-        smoke_test_binary(&binary).await?;
-        write_ready_marker(&target_dir, &spec)?;
+
+    // Keep both same-process and cross-process callers outside the download /
+    // promotion critical section. Desktop, server and ACP can share one data
+    // root, so the async mutex alone is not a sufficient publication boundary.
+    let _process_install_guard = INSTALL_LOCK.lock().await;
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
         return Ok(binary);
     }
 
     let runtime_root = paths::browser_runtime_dir()?;
     std::fs::create_dir_all(&runtime_root)?;
+    let _cross_process_install_guard = acquire_install_lock(&runtime_root).await?;
+    // Another process may have completed the exact immutable runtime while we
+    // waited for the OS lock. Recheck before downloading or touching staging.
+    if runtime_ready(&target_dir, &binary, &manifest, &spec) {
+        return Ok(binary);
+    }
 
-    let archive_url = format!(
-        "https://commondatastorage.googleapis.com/chromium-browser-snapshots/{}/{}/{}",
-        spec.platform_key, spec.revision, spec.archive_name,
-    );
-
-    // SSRF: this is a fixed Google CDN host so the default policy lets it
-    // through, but stay consistent with every other outbound call.
+    // SSRF remains mandatory even though the embedded manifest validator also
+    // restricts downloads to the fixed Chrome for Testing storage host.
     let ssrf_cfg = &ha_core::config::cached_config().ssrf;
-    ha_core::security::ssrf::check_url(&archive_url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
-        .await?;
+    ha_core::security::ssrf::check_url(
+        &spec.archive_url,
+        ssrf_cfg.browser(),
+        &ssrf_cfg.trusted_hosts,
+    )
+    .await?;
 
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let archive_path = runtime_root.join(format!(
-        "{}.tmp.{}.{}",
-        spec.archive_name, spec.revision, nonce
+        "chrome-for-testing.{}.{}.tmp.zip",
+        spec.version, nonce
     ));
-    let staging_dir = runtime_root.join(format!(".chromium-{}.{}.tmp", spec.revision, nonce));
+    let staging_dir = runtime_root.join(format!(
+        ".chrome-for-testing-{}-{}.{}.tmp",
+        spec.version, spec.platform, nonce
+    ));
 
     let install_result: Result<PathBuf> = async {
-        download_streaming(&archive_url, &archive_path, &progress).await?;
-        extract_zip(&archive_path, &staging_dir)?;
-        let staged_binary = staging_dir.join(spec.binary_relpath);
+        download_streaming(&spec, &archive_path, &progress).await?;
+        let archive_path_for_prepare = archive_path.clone();
+        let staging_dir_for_prepare = staging_dir.clone();
+        let archive_sha256 = spec.archive_sha256.clone();
+        let binary_relpath = spec.binary_relpath.clone();
+        let staged_binary = ha_core::blocking::run_blocking(move || {
+            verify_sha256(&archive_path_for_prepare, &archive_sha256)?;
+            extract_zip(&archive_path_for_prepare, &staging_dir_for_prepare)?;
+            let staged_binary = staging_dir_for_prepare.join(binary_relpath);
 
-        #[cfg(unix)]
-        chmod_executable(&staged_binary)?;
+            #[cfg(unix)]
+            chmod_executable(&staged_binary)?;
+
+            Ok::<PathBuf, anyhow::Error>(staged_binary)
+        })
+        .await?;
 
         smoke_test_binary(&staged_binary).await?;
-        write_ready_marker(&staging_dir, &spec)?;
-
-        if target_dir.exists() {
-            std::fs::remove_dir_all(&target_dir).map_err(|e| {
-                anyhow!(
-                    "removing incomplete Chromium runtime {}: {}",
-                    target_dir.display(),
-                    e
-                )
-            })?;
-        }
-        std::fs::rename(&staging_dir, &target_dir).map_err(|e| {
-            anyhow!(
-                "promoting Chromium runtime {} -> {}: {}",
-                staging_dir.display(),
-                target_dir.display(),
-                e
-            )
-        })?;
-
-        Ok(target_dir.join(spec.binary_relpath))
+        let staging_dir_for_finalize = staging_dir.clone();
+        let target_dir_for_finalize = target_dir.clone();
+        let manifest_for_finalize = manifest.clone();
+        let spec_for_finalize = spec.clone();
+        ha_core::blocking::run_blocking(move || {
+            write_ready_marker(
+                &staging_dir_for_finalize,
+                &manifest_for_finalize,
+                &spec_for_finalize,
+            )?;
+            promote_staging(&staging_dir_for_finalize, &target_dir_for_finalize, nonce)?;
+            Ok(target_dir_for_finalize.join(&spec_for_finalize.binary_relpath))
+        })
+        .await
     }
     .await;
 
-    let _ = std::fs::remove_file(&archive_path);
-    if install_result.is_err() {
-        let _ = std::fs::remove_dir_all(&staging_dir);
-    }
+    let cleanup_archive = archive_path.clone();
+    let cleanup_staging = staging_dir.clone();
+    let cleanup_failed = install_result.is_err();
+    ha_core::blocking::run_blocking(move || {
+        let _ = std::fs::remove_file(cleanup_archive);
+        if cleanup_failed {
+            let _ = std::fs::remove_dir_all(cleanup_staging);
+        }
+    })
+    .await;
 
     install_result
 }
 
-async fn download_streaming<F>(url: &str, dest: &Path, progress: &F) -> Result<()>
+async fn download_streaming<F>(spec: &RuntimeSpec, dest: &Path, progress: &F) -> Result<()>
 where
     F: Fn(u64, Option<u64>) + Send + Sync,
 {
-    use std::io::Write;
-    let client = ha_core::provider::apply_proxy_for_url(reqwest::Client::builder(), url).build()?;
+    use tokio::io::AsyncWriteExt;
+    let client = ha_core::provider::apply_proxy_for_url(
+        reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()),
+        &spec.archive_url,
+    )
+    .build()?;
     let resp = client
-        .get(url)
+        .get(&spec.archive_url)
         .send()
         .await
-        .map_err(|e| anyhow!("HTTP GET {} failed: {}", url, e))?
+        .map_err(|e| anyhow!("Chrome for Testing download failed: {e}"))?
         .error_for_status()
-        .map_err(|e| anyhow!("HTTP error from {}: {}", url, e))?;
+        .map_err(|e| anyhow!("Chrome for Testing download returned an HTTP error: {e}"))?;
     let total = resp.content_length();
+    if let Some(total) = total {
+        if total != spec.archive_size {
+            bail!(
+                "Chrome for Testing archive length mismatch: expected {}, got {}",
+                spec.archive_size,
+                total
+            );
+        }
+    }
     let mut stream = resp.bytes_stream();
-    let mut file = std::fs::File::create(dest)?;
+    let mut file = tokio::fs::File::create(dest).await?;
     let mut downloaded: u64 = 0;
     // Report at most ~25 times per second to keep the UI from flooding —
     // ~40ms throttle is plenty for a download progress bar.
     let mut last_emit = std::time::Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| anyhow!("stream chunk error: {}", e))?;
-        file.write_all(&chunk)?;
+        file.write_all(&chunk).await?;
         downloaded += chunk.len() as u64;
+        if downloaded > spec.archive_size || downloaded > MAX_ARCHIVE_BYTES {
+            bail!("Chrome for Testing archive exceeded its manifest size");
+        }
         if last_emit.elapsed() >= std::time::Duration::from_millis(40) {
-            progress(downloaded, total);
+            progress(downloaded, Some(spec.archive_size));
             last_emit = std::time::Instant::now();
         }
     }
-    progress(downloaded, total);
-    file.flush()?;
+    if downloaded != spec.archive_size {
+        bail!(
+            "Chrome for Testing archive length mismatch: expected {}, got {}",
+            spec.archive_size,
+            downloaded
+        );
+    }
+    progress(downloaded, Some(spec.archive_size));
+    file.flush().await?;
     Ok(())
+}
+
+fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let actual = format!("{:x}", hasher.finalize());
+    if !actual.eq_ignore_ascii_case(expected) {
+        bail!("Chrome for Testing archive SHA-256 mismatch");
+    }
+    Ok(())
+}
+
+fn safe_relative_path(value: &str) -> bool {
+    let path = Path::new(value);
+    !value.is_empty()
+        && !path.is_absolute()
+        && path
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+fn runtime_target_dir(spec: &RuntimeSpec) -> Result<PathBuf> {
+    validate_spec(spec)?;
+    Ok(paths::browser_runtime_dir()?.join(format!(
+        "chrome-for-testing-{}-{}",
+        spec.version, spec.platform
+    )))
 }
 
 fn extract_zip(archive: &Path, target: &Path) -> Result<()> {
@@ -385,19 +556,161 @@ async fn smoke_test_binary(binary: &Path) -> Result<()> {
     Ok(())
 }
 
-fn runtime_ready(target_dir: &Path, binary: &Path) -> bool {
-    binary.exists() && target_dir.join(READY_MARKER).exists()
+fn expected_ready_marker(manifest: &RuntimeManifest, spec: &RuntimeSpec) -> RuntimeReadyMarker {
+    RuntimeReadyMarker {
+        schema_version: 1,
+        product: "chrome-for-testing".to_string(),
+        version: spec.version.clone(),
+        revision: spec.revision,
+        platform: spec.platform.clone(),
+        archive_url: spec.archive_url.clone(),
+        archive_size: spec.archive_size,
+        archive_sha256: spec.archive_sha256.to_ascii_lowercase(),
+        published_at: spec.published_at.clone(),
+        binary_relpath: spec.binary_relpath.clone(),
+        source_name: spec.source_name.clone(),
+        source_evidence: spec.source_evidence.clone(),
+        license_name: spec.license_name.clone(),
+        license_url: spec.license_url.clone(),
+        manifest_generated_at: manifest.generated_at.clone(),
+        minimum_compatible_version: manifest.minimum_compatible_version.clone(),
+    }
 }
 
-fn write_ready_marker(target_dir: &Path, spec: &RuntimeSpec) -> Result<()> {
-    std::fs::write(
-        target_dir.join(READY_MARKER),
-        format!(
-            "revision={}\nplatform={}\narchive={}\n",
-            spec.revision, spec.platform_key, spec.archive_name
-        ),
-    )?;
+fn read_ready_marker(target_dir: &Path) -> Option<RuntimeReadyMarker> {
+    let data = std::fs::read(target_dir.join(READY_MARKER)).ok()?;
+    serde_json::from_slice(&data).ok()
+}
+
+fn runtime_ready(
+    target_dir: &Path,
+    binary: &Path,
+    manifest: &RuntimeManifest,
+    spec: &RuntimeSpec,
+) -> bool {
+    binary.exists()
+        && read_ready_marker(target_dir)
+            .is_some_and(|marker| marker == expected_ready_marker(manifest, spec))
+}
+
+fn write_ready_marker(
+    target_dir: &Path,
+    manifest: &RuntimeManifest,
+    spec: &RuntimeSpec,
+) -> Result<()> {
+    let data = serde_json::to_vec_pretty(&expected_ready_marker(manifest, spec))?;
+    std::fs::write(target_dir.join(READY_MARKER), data)?;
     Ok(())
+}
+
+fn promote_staging(staging_dir: &Path, target_dir: &Path, nonce: u128) -> Result<()> {
+    if !target_dir.exists() {
+        return std::fs::rename(staging_dir, target_dir).map_err(|e| {
+            anyhow!(
+                "promoting verified Chrome for Testing runtime {} -> {}: {}",
+                staging_dir.display(),
+                target_dir.display(),
+                e
+            )
+        });
+    }
+
+    let backup_dir = target_dir.with_extension(format!("replaced-{nonce}"));
+    std::fs::rename(target_dir, &backup_dir).map_err(|e| {
+        anyhow!(
+            "preserving prior Chrome for Testing runtime {} -> {}: {}",
+            target_dir.display(),
+            backup_dir.display(),
+            e
+        )
+    })?;
+    match std::fs::rename(staging_dir, target_dir) {
+        Ok(()) => {
+            let _ = std::fs::remove_dir_all(&backup_dir);
+            Ok(())
+        }
+        Err(promote_error) => {
+            let restore = std::fs::rename(&backup_dir, target_dir);
+            match restore {
+                Ok(()) => Err(anyhow!(
+                    "promoting verified Chrome for Testing runtime failed; prior runtime restored: {}",
+                    promote_error
+                )),
+                Err(restore_error) => Err(anyhow!(
+                    "promoting verified Chrome for Testing runtime failed and prior runtime could not be restored: {}; restore: {}",
+                    promote_error,
+                    restore_error
+                )),
+            }
+        }
+    }
+}
+
+fn version_key(value: &str) -> Option<Vec<u32>> {
+    value
+        .split('.')
+        .map(str::parse::<u32>)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .ok()
+}
+
+fn previous_verified_binary(
+    runtime_root: &Path,
+    platform: &str,
+    current_version: &str,
+    minimum_compatible_version: &str,
+) -> Option<PathBuf> {
+    let minimum_compatible_key = version_key(minimum_compatible_version)?;
+    let mut candidates = Vec::new();
+    let entries = std::fs::read_dir(runtime_root).ok()?;
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let dir = entry.path();
+        let Some(marker) = read_ready_marker(&dir) else {
+            continue;
+        };
+        if marker.schema_version != 1
+            || marker.product != "chrome-for-testing"
+            || marker.platform != platform
+            || marker.version == current_version
+            || marker.archive_sha256.len() != 64
+            || !marker
+                .archive_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            || marker.archive_size == 0
+            || marker.archive_size > MAX_ARCHIVE_BYTES
+            || marker.source_name.trim().is_empty()
+            || marker.source_evidence.trim().is_empty()
+            || marker.license_name.trim().is_empty()
+            || marker.license_url.trim().is_empty()
+            || !safe_relative_path(&marker.binary_relpath)
+        {
+            continue;
+        }
+        let Ok(url) = reqwest::Url::parse(&marker.archive_url) else {
+            continue;
+        };
+        if url.scheme() != "https" || url.host_str() != Some("storage.googleapis.com") {
+            continue;
+        }
+        let binary = dir.join(&marker.binary_relpath);
+        let Some(key) = version_key(&marker.version) else {
+            continue;
+        };
+        if key >= minimum_compatible_key && binary.exists() {
+            candidates.push((key, binary));
+        }
+    }
+    candidates
+        .into_iter()
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, binary)| binary)
 }
 
 /// Quick path: the cached runtime binary path for the current platform.
@@ -405,13 +718,18 @@ fn write_ready_marker(target_dir: &Path, spec: &RuntimeSpec) -> Result<()> {
 /// isn't supported). Used by `build_launch_config` to short-circuit a
 /// system Chrome miss.
 pub fn cached_binary_path() -> Option<PathBuf> {
-    let spec = spec_for_current_platform()?;
-    let dir = paths::chromium_runtime_dir(spec.revision).ok()?;
-    let binary = dir.join(spec.binary_relpath);
-    if runtime_ready(&dir, &binary) {
+    let (manifest, spec) = required_spec().ok()?;
+    let dir = runtime_target_dir(&spec).ok()?;
+    let binary = dir.join(&spec.binary_relpath);
+    if runtime_ready(&dir, &binary, &manifest, &spec) {
         Some(binary)
     } else {
-        None
+        previous_verified_binary(
+            &paths::browser_runtime_dir().ok()?,
+            &spec.platform,
+            &spec.version,
+            &manifest.minimum_compatible_version,
+        )
     }
 }
 
@@ -442,17 +760,39 @@ mod tests {
     }
 
     #[test]
-    fn spec_revision_matches_per_platform_pin() {
+    fn embedded_manifest_has_a_complete_current_platform_pin() {
         if let Some(spec) = spec_for_current_platform() {
-            let expected = match spec.platform_key {
-                "Mac_Arm" => CHROMIUM_REVISION_MAC_ARM,
-                "Mac" => CHROMIUM_REVISION_MAC,
-                "Linux_x64" => CHROMIUM_REVISION_LINUX_X64,
-                "Win_x64" => CHROMIUM_REVISION_WIN_X64,
-                other => panic!("unexpected platform_key {other}"),
-            };
-            assert_eq!(spec.revision, expected);
+            validate_spec(&spec).expect("current platform spec must validate");
+            assert_eq!(spec.archive_sha256.len(), 64);
+            assert!(spec.archive_url.contains(&spec.version));
+            assert!(!spec.license_name.is_empty());
         }
+    }
+
+    #[test]
+    fn all_embedded_artifacts_are_content_addressed() {
+        let manifest = embedded_manifest().expect("manifest parses");
+        assert_eq!(manifest.artifacts.len(), 4);
+        for spec in manifest.artifacts {
+            validate_spec(&spec).expect("artifact validates");
+        }
+    }
+
+    #[test]
+    fn sha256_verification_rejects_wrong_content() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("archive.zip");
+        std::fs::write(&path, b"verified bytes").expect("write");
+        assert!(verify_sha256(
+            &path,
+            "186287b2d987891f027b4bc8baaf621a3e5a4a73ec78e04b0f65dc309b1ccc03"
+        )
+        .is_ok());
+        assert!(verify_sha256(
+            &path,
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        )
+        .is_err());
     }
 
     #[test]
@@ -461,5 +801,66 @@ mod tests {
         // monkey-patching HOME, but at minimum the function must not
         // panic when nothing's been downloaded.
         let _ = cached_binary_path();
+    }
+
+    #[test]
+    fn install_lock_is_exclusive_until_the_holder_is_dropped() {
+        let runtime_root = tempfile::tempdir().expect("runtime tempdir");
+        let lock_path = runtime_root.path().join("install.lock");
+        let first = acquire_install_lock_at(&lock_path, std::time::Duration::ZERO)
+            .expect("first install lock");
+
+        assert!(
+            acquire_install_lock_at(&lock_path, std::time::Duration::ZERO).is_err(),
+            "a concurrent runtime publisher must not enter the critical section"
+        );
+        drop(first);
+        assert!(
+            acquire_install_lock_at(&lock_path, std::time::Duration::ZERO).is_ok(),
+            "dropping the holder must release the install lock"
+        );
+    }
+
+    #[test]
+    fn previous_runtime_fallback_enforces_the_current_compatibility_floor() {
+        let runtime_root = tempfile::tempdir().expect("runtime tempdir");
+        let (manifest, spec) = required_spec().expect("supported test platform runtime spec");
+
+        let write_candidate = |name: &str, version: &str| {
+            let dir = runtime_root.path().join(name);
+            std::fs::create_dir_all(&dir).expect("candidate directory");
+            let mut marker = expected_ready_marker(&manifest, &spec);
+            marker.version = version.to_string();
+            let binary = dir.join(&marker.binary_relpath);
+            std::fs::create_dir_all(binary.parent().expect("binary parent"))
+                .expect("binary parent directory");
+            std::fs::write(&binary, b"chrome").expect("candidate binary");
+            std::fs::write(
+                dir.join(READY_MARKER),
+                serde_json::to_vec(&marker).expect("candidate marker"),
+            )
+            .expect("write candidate marker");
+            binary
+        };
+
+        let below_floor = write_candidate("below", "150.9.9999.999");
+        let compatible = write_candidate("compatible", &manifest.minimum_compatible_version);
+        let selected = previous_verified_binary(
+            runtime_root.path(),
+            &spec.platform,
+            &spec.version,
+            &manifest.minimum_compatible_version,
+        )
+        .expect("compatible previous runtime");
+
+        assert_eq!(selected, compatible);
+        assert_ne!(selected, below_floor);
+        assert!(previous_verified_binary(
+            runtime_root.path(),
+            &spec.platform,
+            &spec.version,
+            "999.0.0.0",
+        )
+        .is_none());
     }
 }

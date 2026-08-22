@@ -24,7 +24,8 @@ use super::{
 
 pub fn list_skills() -> Vec<SkillSummary> {
     let store = ha_core::config::cached_config();
-    let entries = load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let entries =
+        load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget, None);
     let disabled = &store.disabled_skills;
     entries
         .into_iter()
@@ -142,7 +143,8 @@ pub fn remove_skill_env_var(skill: &str, key: &str, source: &str) -> Result<()> 
 /// `requires.env` are included.
 pub fn get_skills_env_status() -> HashMap<String, HashMap<String, bool>> {
     let store = ha_core::config::cached_config();
-    let entries = load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let entries =
+        load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget, None);
     let mut result = HashMap::new();
     for entry in &entries {
         if entry.requires.env.is_empty() {
@@ -165,7 +167,8 @@ pub fn get_skills_env_status() -> HashMap<String, HashMap<String, bool>> {
 
 pub fn get_skills_status() -> Vec<SkillStatusEntry> {
     let store = ha_core::config::cached_config();
-    let entries = load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    let entries =
+        load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget, None);
     check_all_skills_status(
         &entries,
         &store.disabled_skills,
@@ -394,7 +397,7 @@ pub async fn install_skill_dependency(skill_name: &str, spec_index: usize) -> Re
     let (cmd_program, cmd_args, bins) = {
         let store = ha_core::config::cached_config();
         let entries =
-            load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+            load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget, None);
         let skill = entries
             .into_iter()
             .find(|s| s.name == skill_name)

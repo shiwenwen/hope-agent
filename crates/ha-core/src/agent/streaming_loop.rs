@@ -2906,7 +2906,28 @@ impl AssistantAgent {
                     None => guidance,
                 });
             }
-            let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
+            let effort_requested = self.effective_reasoning_effort(reasoning_effort).await;
+            let effort_effective = effort_requested
+                .as_deref()
+                .and_then(|effort| super::config::clamp_reasoning_effort(model, effort));
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "debug",
+                    "provider",
+                    "reasoning_effort",
+                    "Resolved model-level reasoning effort",
+                    Some(
+                        json!({
+                            "model": model,
+                            "requested_effort": effort_requested.as_deref(),
+                            "effective_effort": effort_effective.as_deref(),
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
+            }
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
             let legacy_memory_suffix = self.current_legacy_memory_suffix();
@@ -3094,7 +3115,7 @@ impl AssistantAgent {
                 prompt_cache_key: Some(round_prompt_cache_key.as_str()),
                 history_for_api: &[],
                 vision_bridge_available: vision_bridge.is_some(),
-                reasoning_effort: effort_live.as_deref(),
+                reasoning_effort: effort_effective.as_deref(),
                 temperature: self.temperature,
                 max_tokens: eval_max_tokens,
                 is_final_round,

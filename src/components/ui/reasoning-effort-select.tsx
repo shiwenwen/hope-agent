@@ -7,7 +7,15 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const
+const REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const
 const INHERIT_VALUE = "__inherit__"
 
 interface ReasoningEffortSelectProps {

@@ -86,6 +86,7 @@
 | [后台任务（Background Jobs）](architecture/agent/background-jobs.md) | 统一后台任务模型（Tool/Subagent/Group）：`JobManager` 门面、两层并发硬配额 + 公平调度、重试、后台 exec 审批 park、output_tail、完成合并注入、owner 面板与端点、`AsyncToolsConfig` | `async_jobs/`, `runtime_tasks.rs` |
 | [Agent Team](architecture/agent/agent-team.md)     | 多 Agent 协作团队、双向通信、Kanban 任务看板、用户自定义模板（内置模板已移除） | `team/`               |
 | [Side Query 缓存](architecture/agent/side-query.md) | 复用 prompt cache 降低侧查询成本 90%       | `agent/side_query.rs` |
+| [技术雷达受控实验门](architecture/agent/radar-experiment-gates.md) | Responses benchmark、Offline Batch、MCP Tasks、A2A、Teams、RAG shadow 与 Design 研究项的默认关闭、准入、停止和回滚决策 | 现有 Provider/MCP/Memory/Knowledge/IM/Design 边界；不新增默认外部入口 |
 | [行为感知](architecture/agent/behavior-awareness.md) | 动态 suffix 注入、三层触发器、LLM Digest、prompt cache 双断点 | `awareness/` |
 | [Failover 系统](architecture/agent/failover.md) | 错误分类、Profile 轮换 + Cooldown + Sticky LRU、退避重试、ContextOverflow 上交 | `failover/` |
 

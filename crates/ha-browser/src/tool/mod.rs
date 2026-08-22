@@ -45,6 +45,10 @@ pub(crate) async fn tool_browser(
     args: &Value,
     ctx: &ha_core::tools::ToolExecContext,
 ) -> Result<String> {
+    // CdpBackend routes through one process-global active target. Hold the
+    // workflow guard across backend selection and the complete high-level
+    // action so app-owned capture workflows cannot be retargeted mid-flight.
+    let _cdp_operation = browser::acquire_cdp_operation_guard().await;
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -616,9 +620,10 @@ async fn profile_install_runtime() -> Result<String> {
     ha_core::app_info!(
         "browser",
         "install_runtime",
-        "downloading Chromium runtime rev={} for {}",
+        "downloading Chrome for Testing runtime version={} revision={} for {}",
+        spec.version,
         spec.revision,
-        spec.platform_key
+        spec.platform
     );
 
     let binary = runtime::install_with_event_bus_progress().await?;

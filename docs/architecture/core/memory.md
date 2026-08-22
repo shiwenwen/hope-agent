@@ -514,6 +514,12 @@ pub struct EmbeddingSelection {
 
 `set_memory_embedding_default(id)` 是切换活跃模型的唯一入口：① 写 `model_config_id`；② `prune_embedding_cache_to_signature()` 清理 cache（防旧 signature 命中）；③ 当 `active_signature != last_reembedded_signature` 时点亮 `needsReembed`（前端提示"模型变了，要不要重建向量"）。
 
+### 嵌入用途与签名 v2
+
+`EmbeddingProvider` 的所有入口都必须显式携带 `EmbeddingPurpose::{Query, Document, Symmetric}`，不得再按单条/批量输入数量推断用途。记忆与 claim 的单条新增、更新及全量重嵌均使用 `Document`，检索使用 `Query`，相似度/聚类路径才使用 `Symmetric`。Voyage、Jina、Cohere 和 Google 的 task、input type 或官方前缀由 provider adapter 按该用途统一编译。
+
+嵌入签名使用 `hope-embedding-signature-v2`，覆盖 provider、endpoint、model、维度、provider 用途语义版本与具体 purpose；缓存键使用相同的 purpose-specific 签名，同文本的查询与文档向量不会互相命中。活跃库签名恒为 `Document` 签名；启动时遇到 v1 或其他旧签名，立即把旧向量视为不匹配，Primary 再启动可取消、幂等的全量重嵌。只有整轮成功才写 `last_reembedded_signature`，因此中断或重启不会把部分迁移误报为完成，也不会把 v1/v2 向量混合返回。
+
 ### 内建预设模板
 
 `embedding_model_templates()`（[`memory/embedding/config.rs`](../../../crates/ha-core/src/memory/embedding/config.rs)）返回内建模板，每个模板可含多个模型，**默认取列表第一个**：
@@ -764,12 +770,18 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 
 能力注册表必须显式枚举所有 provider kind——后端单点是 `external_provider_capabilities()`（[`memory/types.rs`](../../../crates/ha-core/src/memory/types.rs)），新增/收回能力只能改 registry，并同步 health、preflight、privacy summary、协议测试。
 
+**版本与能力门**：普通配置读取和同步预检恒为零网络；只有 owner 在 GUI 或 HTTP 明确执行“测试连接”时，才对受 SSRF 守卫、拒绝重定向、30 秒超时和 64 KiB 响应上限保护的健康端点发请求。探测结果以受限权限文件持久化，端点、主体、协议或当前最低版本要求变化时立即失效；`compatible` 授权最多保留 24 小时，超时后恢复为 `unverified`，必须由 owner 再次显式测试，预检不得自行联网续期。安全下限为 Graphiti `>=0.28.2`（推荐 `0.29.3`）、Supermemory 自托管 `>=0.0.8`、OpenViking `>=0.4.15`、Honcho 自托管 `>=3.0.12`；低于下限的全部同步 fail-closed，未知版本只允许 `PullOnly`，所有可能发送本地记忆的 Manual / Push / Bidirectional 策略都阻塞。Supermemory / Honcho 只有端点主机实际位于各自官方域名时，`cloud` / `platform` / `v3` 协议才按托管服务处理；协议值指向托管形状但端点属于其它域名时仍按自托管执行版本门，配置字段不能单独绕过兼容检查。托管服务和当前未登记版本下限的 provider 显示 `not_required`，但连接失败仍显示 `unverified`。探测和错误投影只保留版本、能力名与脱敏错误，不返回响应正文或凭据。
+
+**Supermemory 范围迁移**：新写入在既有 `containerTags=[subject_id]` 隔离键之外，同时写入 Hope 私有元数据 `hope_agent_subject_id`。读取时先按当前 Documents API 的元数据 `filters` 查询，再对旧 `containerTags` 做兼容读取并按远端文档 ID 去重；这是一段双读迁移期，不能直接删掉旧读路由，否则会让升级前由 Hope 写入的文档静默消失。远端未完成处理的文档仍只停留在 pending，不提升为本地 claim。
+
+**Mem0 Platform v3 合同**：列表请求正文只发送 `filters.user_id`，分页保持在查询字符串，不发送历史版本的 `latest_only` / `show_expired` 等未登记字段。响应即使由服务端返回，凡是带 deleted / expired / tombstone / inactive 状态、布尔标志或已到期时间的记录都在本地再次 fail-closed 过滤；无法解析的到期时间也不进入本地导入。该过滤只做防御性收窄，不把远端结果直接写成 active memory。
+
 关键安全约束：
 
 - **凭据隔离**：非密钥配置落 `AppConfig.memoryProviders`（id、kind、display name、enabled、sync policy、readiness、last sync/error）；endpoint、scope id、protocol、API key 单独落 `~/.hope-agent/credentials/external-memory/{provider}.json`（`write_secure_file` 原子写 + 受限权限），也可用 `HOPE_AGENT_EXTERNAL_MEMORY_<ID>_*` 环境变量覆盖。owner read API **永不回传 API key、完整 endpoint path/query 或凭据文件路径**。
 - **出站过 SSRF**：endpoint 禁 URL credentials/query/fragment，每次请求前走统一 `check_url`；HTTP client 30s timeout、禁 redirect、2MB response cap、固定 UA。
 - **pull 不直写 active memory**：拉回内容统一写 `reference` claim（status=`needs_review`，带 provider evidence），经 Lucid Review 才可能成为 active claim；账本按 remote id + content/version hash 去重，各类上限有硬 cap。
-- **调度与账本**：手动同步、3s 本地写 debounce 和 5min 周期 pull/reconcile 共用进程级 async mutex；单 provider 120s 协作式请求预算（预算耗尽不发新请求，但当前 HTTP 请求与已开始的 claim/ledger checkpoint 必须完成后才释放 mutex）。账本落 `{provider}.sync.json`，仅 Primary 启动自动任务，`manual` policy 永不被后台调度。切换 endpoint/subject/protocol 清账本，单纯轮换 API key 保留断点。
+- **调度与账本**：手动同步、3s 本地写 debounce 和 5min 周期 pull/reconcile 先经进程级 async mutex，再共用 `credentials/external-memory/sync.lock` 的稳定操作系统排他锁；跨进程锁从权威 `config.json`、凭据与账本水合前一直持有到最后一份检查点与健康状态落盘，拿锁后必须重新读取磁盘配置并按 owner / automatic 来源重新裁决实时开关与同步策略，禁止沿用排队前的进程缓存。5min 周期入口不得在拿锁前按进程缓存提前返回，否则另一进程启用自动策略后 Primary 会永久失活。owner 的连接探测、凭据保存 / 清除、Provider 配置变更及孤儿文件清理也必须进入同一锁事务，并在验证或读改写前刷新配置缓存；最终健康 / readiness 更新经 `mutate_config` 的 `config.write.lock` 权威磁盘事务提交，配置读取与写入之间不允许其它进程插入设置写。桌面、Server 和 ACP 共享数据目录时不得让旧缓存重建已删除 Provider、用旧策略或凭据继续导出、重建已删除账本、覆盖无关设置或相互覆盖游标。锁顺序固定为操作系统状态锁 → Provider 进程内写锁 → 配置写锁。单 provider 120s 协作式请求预算（预算耗尽不发新请求，但当前 HTTP 请求与已开始的 claim/ledger checkpoint 必须完成后才释放锁）。账本落 `{provider}.sync.json`，仅 Primary 启动自动任务，`manual` policy 永不被后台调度。切换 endpoint/subject/protocol 清账本，单纯轮换 API key 保留断点。
 
 Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_preflight` / preflight report，只读、不发外部 IO）与"实际发生了什么"（`run_external_memory_provider_sync` / sync report，逐 provider status + 是否真实 IO + 计数）；有未保存草稿时禁运行。
 

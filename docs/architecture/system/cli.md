@@ -10,7 +10,7 @@ Hope Agent 只编译出一个可执行文件 `hope-agent`。它要同时扮演�
 
 - **手写解析、顺序敏感、首个命中即止。** 参数解析不用 clap，而是直接遍历 `std::env::args()`，按固定顺序逐个匹配子命令；匹配到就执行并 `return`，绝不继续往下走。好处是分发路径极短、可预测、零依赖；代价是没有 shell 补全、没有统一 `--help`，而且**未知子命令不会报错，会静默落到桌面启动路径**（`hope-agent typo` 会当成「开桌面」）。
 - **长驻模式共享同一个内核。** 桌面 / server / acp / mcp / knowledge-mcp 五种长驻形态跑的是同一套 `ha-core` 业务逻辑，都经过 `init_runtime(role)` 打开数据库、单例、`EventBus`、channel 插件。它们的区别只在三处：**前端入口**（Tauri WebView / axum / stdio 协议）、**背景任务集合**（完整集 vs 精简集）、**鉴权方式**。
-- **`auth` 与 `pet` 是纯一次性命令。** 两者都不进 `init_runtime`、不开 sessions.db 或长跑后台任务；`auth` 跑完 OAuth、写下凭据与 Provider 配置就退出，`pet` 只创建短期 async runtime，复用 ha-pet 的读取 / preview / commit 管线后退出。
+- **`doctor`、`auth` 与 `pet` 是一次性命令。** 三者都不进 `init_runtime`、不开 sessions.db 或长跑后台任务；`doctor` 只创建短期 async runtime 执行固定只读探针，`auth` 跑完 OAuth、写下凭据与 Provider 配置就退出，`pet` 只创建短期 async runtime，复用 ha-pet 的读取 / preview / commit 管线后退出。
 
 ```mermaid
 flowchart TD
@@ -19,6 +19,7 @@ flowchart TD
     DG --> M{"按 argv[1] 顺序匹配<br/>首个命中即执行并 return"}
     M -->|"--version / -V"| R1["打印 hope-agent X.Y.Z"]
     M -->|"--tcc-probe ID"| R2["打印 TCC 探针 token"]
+    M -->|"doctor"| RD["run_toolchain_doctor"]
     M -->|"knowledge-mcp"| R3["run_knowledge_mcp"]
     M -->|"mcp"| R4["run_mcp"]
     M -->|"pet"| R5["run_pet_cli"]
@@ -34,11 +35,12 @@ flowchart TD
 hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 ```
 
-分发顺序即上图从上到下：**全局 flag → `--version` → `--tcc-probe` → `knowledge-mcp` → `mcp` → `pet` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。
+分发顺序即上图从上到下：**全局 flag → `--version` → `--tcc-probe` → `doctor` → `knowledge-mcp` → `mcp` → `pet` → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。
 
 | 子命令 | 性质 | 触发 | 入口函数 | 说明 |
 | --- | --- | --- | --- | --- |
 | **桌面 GUI** | 长驻进程 | 无子命令（默认） | `run_child` / `run_guardian` | Tauri WebView。生产构建经 Guardian 监督子进程；dev 或用户禁用 Guardian 时直接跑 |
+| **工具链诊断** | 短命令 | `hope-agent doctor [--json]` | `run_toolchain_doctor` | 固定只读探针；输出版本与脱敏诊断码，不安装/升级/启动/改配置 |
 | **HTTP/WS 服务器** | 长驻进程 | `hope-agent server [...]` | `run_server` | axum 守护进程，内嵌 Web GUI；浏览器访问 `http://<bind>` 即得完整 React UI |
 | **Knowledge MCP stdio** | 长驻进程 | `hope-agent knowledge-mcp [...]` | `run_knowledge_mcp` | 把知识空间的模型侧访问 API 暴露为 stdio MCP 工具，供外部 AI host 调用 |
 | **平台 MCP stdio** | 长驻进程 | `hope-agent mcp [...]` | `run_mcp` | 平台级 MCP server（设计空间是首个 provider），把子系统暴露为 stdio MCP 工具；默认只读，`--allow-writes` 才开写。见 [mcp-server](../integration/mcp-server.md) |
@@ -46,7 +48,7 @@ hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 | **ACP stdio** | 长驻进程 | `hope-agent acp [...]` | `run_acp_server` | NDJSON over stdio，给 IDE / 外部客户端直连核心协议 |
 | **Auth 一次性命令** | 短命令 | `hope-agent auth <provider> [...]` | `cli_auth::run` | 终端环境下完成 OAuth（目前仅 Codex / ChatGPT），登录成功落 token、写 Provider 后退出 |
 
-四种长驻模式（桌面、server、acp、两类 mcp）共享 `ha-core` 业务逻辑、`init_runtime(role)` 初始化路径与 `EventBus`；`auth` 与 `pet` 不进 `init_runtime`，只执行一次性业务后退出。
+四种长驻模式（桌面、server、acp、两类 mcp）共享 `ha-core` 业务逻辑、`init_runtime(role)` 初始化路径与 `EventBus`；`doctor`、`auth` 与 `pet` 不进 `init_runtime`，只执行一次性业务后退出。
 
 ```mermaid
 flowchart TD
@@ -63,7 +65,12 @@ flowchart TD
     Init --> Core["ha-core 业务内核"]
     Auth["auth（一次性）"] -. 绕过 init_runtime .-> Cred["只 touch credentials / provider config → 退出"]
     Pet["pet（一次性）"] -. 短期 async runtime .-> PetCore["ha-pet preview / commit → 退出"]
+    Doctor["doctor（一次性）"] -. 短期 async runtime .-> Probe["固定只读探针 → 退出"]
 ```
+
+## `hope-agent doctor` 子命令
+
+`hope-agent doctor` 输出适合终端阅读的单项状态，`hope-agent doctor --json` 输出与设置页、Tauri 和 HTTP 完全相同的 `ToolchainDoctorReport`。探针覆盖操作系统、Docker、Chrome/Chromium、FFmpeg、GitHub CLI、Ollama、Python、LSP 与可选 Office/PDF 工具；固定参数、无 shell、单项超时和输出上限，以及 ANSI/control 清理与凭据脱敏规则见 [可靠性与崩溃自愈](../infra/reliability.md#93-只读工具链诊断)。该命令不初始化 Hope 数据目录，也不安装、升级、启动或重新配置任何系统组件。
 
 ## 全局参数
 

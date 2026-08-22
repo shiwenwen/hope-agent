@@ -961,6 +961,7 @@ export function getEffortOptionsForType(apiType: string | undefined, t: (key: st
   const medium = t("effort.medium")
   const high = t("effort.high")
   const xhigh = t("effort.xhigh")
+  const max = t("effort.max")
   switch (apiType) {
     case "openai-responses":
     case "codex":
@@ -971,6 +972,7 @@ export function getEffortOptionsForType(apiType: string | undefined, t: (key: st
         { value: "medium", label: medium },
         { value: "high", label: high },
         { value: "xhigh", label: xhigh },
+        { value: "max", label: max },
       ]
     case "anthropic":
     case "openai-chat":
@@ -989,17 +991,43 @@ export function getEffortOptionsForType(apiType: string | undefined, t: (key: st
 }
 
 export function getEffortOptionsForModel(
-  model: Pick<AvailableModel, "apiType" | "reasoning" | "thinkingStyle"> | undefined,
+  model:
+    | Pick<AvailableModel, "apiType" | "modelId" | "reasoning" | "thinkingStyle">
+    | undefined,
   t: (key: string) => string,
 ) {
   if (!modelSupportsThinking(model)) {
     return [{ value: "none", label: t("effort.off") }]
   }
+  const id = model?.modelId.toLowerCase() ?? ""
+  if (id.includes("kimi-k3") || id.includes("kimi_k3")) {
+    return [
+      { value: "none", label: t("effort.off") },
+      { value: "low", label: t("effort.low") },
+      { value: "high", label: t("effort.high") },
+      { value: "max", label: t("effort.max") },
+    ]
+  }
+  if (
+    ["claude-fable-5", "claude-mythos-5", "claude-sonnet-5", "claude-opus-5"].some(
+      (prefix) => id.startsWith(prefix),
+    )
+  ) {
+    return [
+      { value: "none", label: t("effort.off") },
+      { value: "low", label: t("effort.low") },
+      { value: "medium", label: t("effort.medium") },
+      { value: "high", label: t("effort.high") },
+      { value: "max", label: t("effort.max") },
+    ]
+  }
   return getEffortOptionsForType(model?.apiType, t)
 }
 
 export function normalizeEffortForModel(
-  model: Pick<AvailableModel, "apiType" | "reasoning" | "thinkingStyle"> | undefined,
+  model:
+    | Pick<AvailableModel, "apiType" | "modelId" | "reasoning" | "thinkingStyle">
+    | undefined,
   effort: string,
   t: (key: string) => string,
 ): string {
@@ -1007,5 +1035,7 @@ export function normalizeEffortForModel(
   if (validOptions.some((opt) => opt.value === effort)) {
     return effort
   }
-  return validOptions.some((opt) => opt.value === "medium") ? "medium" : "none"
+  if (validOptions.some((opt) => opt.value === "medium")) return "medium"
+  if (validOptions.some((opt) => opt.value === "low")) return "low"
+  return "none"
 }

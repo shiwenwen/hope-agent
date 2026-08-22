@@ -44,3 +44,7 @@ ha-core = { path = "../ha-core", features = ["test-support"] }
 
 [lints]
 workspace = true
+
+[features]
+default = []
+eval-runner = []

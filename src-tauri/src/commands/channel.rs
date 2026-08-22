@@ -143,25 +143,7 @@ pub async fn channel_health(account_id: String) -> Result<ChannelHealth, CmdErro
     let registry = crate::get_channel_registry()
         .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
-    // Get running status
-    let mut health = registry.health(&account_id).await;
-
-    // If not running, try probe from config
-    if !health.is_running {
-        let store = ha_core::config::cached_config();
-        if let Some(account) = store.channels.find_account(&account_id) {
-            if let Some(plugin) = registry.get_plugin(&account.channel_id) {
-                if let Ok(probe_health) = plugin.probe(account).await {
-                    health.probe_ok = probe_health.probe_ok;
-                    health.bot_name = probe_health.bot_name;
-                    health.error = probe_health.error;
-                    health.last_probe = probe_health.last_probe;
-                }
-            }
-        }
-    }
-
-    Ok(health)
+    Ok(registry.health_with_probe(&account_id).await)
 }
 
 #[tauri::command]
@@ -169,7 +151,7 @@ pub async fn channel_health_all() -> Result<Vec<(String, ChannelHealth)>, CmdErr
     let registry = crate::get_channel_registry()
         .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
-    Ok(registry.list_running().await)
+    Ok(registry.list_health_with_probes().await)
 }
 
 // ── Validation ───────────────────────────────────────────────────

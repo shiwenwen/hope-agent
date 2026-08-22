@@ -1,10 +1,10 @@
 //! ACP Control Plane — Runtime registry and auto-discovery.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::config::AcpControlConfig;
+use super::config::{AcpBackendProtocol, AcpControlConfig};
 use super::types::{AcpBackendInfo, AcpHealthStatus, AcpRuntime};
 
 /// Global registry of ACP runtime backends.
@@ -136,10 +136,15 @@ impl AcpRuntimeRegistry {
 // ── Auto-discovery ───────────────────────────────────────────────
 
 /// Well-known ACP-compatible binaries to search for in $PATH.
-const KNOWN_BINARIES: &[(&str, &str, &str)] = &[
-    ("claude-code", "Claude Code", "claude"),
-    ("codex-cli", "Codex CLI", "codex"),
-    ("gemini-cli", "Gemini CLI", "gemini"),
+const KNOWN_BINARIES: &[(&str, &str, &str, &[&str])] = &[
+    (
+        "claude-code",
+        "Claude Code (ACP adapter)",
+        "claude-agent-acp",
+        &[],
+    ),
+    ("codex-cli", "Codex (ACP adapter)", "codex-acp", &[]),
+    ("gemini-cli", "Gemini CLI", "gemini", &["--acp"]),
 ];
 
 /// Resolve a binary name to its full path using `which`.
@@ -149,6 +154,14 @@ pub fn resolve_binary(name: &str) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+fn configured_backend_ids(config: &AcpControlConfig) -> HashSet<String> {
+    config
+        .backends
+        .iter()
+        .map(|backend| backend.id.to_lowercase())
+        .collect()
+}
+
 /// Auto-discover ACP backends from $PATH and from config, then register them.
 pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &AcpControlConfig) {
     use super::runtime_stdio::StdioAcpRuntime;
@@ -156,6 +169,15 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
     // 1. Register from user config
     for backend in &config.backends {
         if !backend.enabled {
+            continue;
+        }
+        if backend.distribution.is_none() {
+            app_warn!(
+                "acp_control",
+                "distribution",
+                "ACP backend '{}' has no verified distribution descriptor; refusing to register it",
+                backend.id
+            );
             continue;
         }
         let binary_path = if std::path::Path::new(&backend.binary).is_absolute() {
@@ -174,6 +196,7 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
                 backend.name.clone(),
                 path,
                 backend.acp_args.clone(),
+                backend.protocol,
                 backend.env.clone(),
             );
             registry.register(Arc::new(runtime)).await;
@@ -182,9 +205,14 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
 
     // 2. Auto-discover known binaries not yet registered
     if config.auto_discover {
-        let registered = registry.list_ids().await;
-        for (id, name, binary) in KNOWN_BINARIES {
-            if registered.iter().any(|r| r.eq_ignore_ascii_case(id)) {
+        // Any explicitly configured ID owns that slot even when disabled,
+        // unresolved, or rejected for missing distribution provenance. Auto
+        // discovery must not bypass a fail-closed configuration decision by
+        // guessing V1 for the same executable.
+        let mut excluded = configured_backend_ids(config);
+        excluded.extend(registry.list_ids().await);
+        for (id, name, binary, args) in KNOWN_BINARIES {
+            if excluded.contains(&id.to_lowercase()) {
                 continue;
             }
             if let Some(path) = resolve_binary(binary) {
@@ -192,11 +220,29 @@ pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &
                     id.to_string(),
                     name.to_string(),
                     path,
-                    vec![],
+                    args.iter().map(|arg| (*arg).to_string()).collect(),
+                    AcpBackendProtocol::V1,
                     HashMap::new(),
                 );
                 registry.register(Arc::new(runtime)).await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_backend_ids_are_excluded_even_when_rejected_or_disabled() {
+        let mut config = AcpControlConfig::default();
+        config.backends[0].distribution = None;
+        config.backends[1].enabled = false;
+
+        let excluded = configured_backend_ids(&config);
+
+        assert!(excluded.contains("claude-code"));
+        assert!(excluded.contains("codex-cli"));
     }
 }

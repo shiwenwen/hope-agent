@@ -1101,10 +1101,25 @@ impl DesignDb {
     /// 版本上限淘汰（W4-O：里程碑保护）。超出 `keep` 时**优先淘汰最旧的 `manual`（微调自动保存）
     /// 版本**，保留 `ai` / `restore` 里程碑与当前（最新 version_number）版本——否则一轮重度可视化
     /// 微调会把 AI 生成的里程碑从 50 条上限里挤掉。仅当 manual 淘尽仍超限才淘汰最旧的 ai/restore。
-    /// `origin` 为 NULL 的历史行按 `manual` 处理（优先淘汰）。
-    pub fn cleanup_old_versions(&self, artifact_id: &str, keep: i64) -> Result<u64> {
+    /// `origin` 为 NULL 的历史行按 `manual` 处理（优先淘汰）。`protected_versions` 是仍被
+    /// 有效固定版本评审授权引用的快照，即使因此暂时超过 `keep` 也不得删除。
+    pub fn cleanup_old_versions(
+        &self,
+        artifact_id: &str,
+        keep: i64,
+        protected_versions: &[i64],
+    ) -> Result<u64> {
         let conn = self.lock()?;
-        let deleted = conn.execute(
+        let protected_clause = if protected_versions.is_empty() {
+            String::new()
+        } else {
+            let placeholders = (0..protected_versions.len())
+                .map(|index| format!("?{}", index + 3))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("AND version_number NOT IN ({placeholders})")
+        };
+        let sql = format!(
             "DELETE FROM design_artifact_versions
              WHERE artifact_id = ?1 AND version_number IN (
                 SELECT version_number FROM design_artifact_versions
@@ -1112,14 +1127,25 @@ impl DesignDb {
                   AND version_number <> (
                     SELECT MAX(version_number) FROM design_artifact_versions WHERE artifact_id = ?1
                   )
+                  {protected_clause}
                 ORDER BY (COALESCE(origin, 'manual') = 'manual') DESC, version_number ASC
                 LIMIT MAX(
                     0,
                     (SELECT COUNT(*) FROM design_artifact_versions WHERE artifact_id = ?1) - ?2
                 )
-             )",
-            rusqlite::params![artifact_id, keep],
-        )?;
+             )"
+        );
+        let mut params = vec![
+            rusqlite::types::Value::Text(artifact_id.to_string()),
+            rusqlite::types::Value::Integer(keep),
+        ];
+        params.extend(
+            protected_versions
+                .iter()
+                .copied()
+                .map(rusqlite::types::Value::Integer),
+        );
+        let deleted = conn.execute(&sql, rusqlite::params_from_iter(params))?;
         Ok(deleted as u64)
     }
 
@@ -2022,7 +2048,7 @@ mod tests {
         db.create_version(&mk(106, "manual")).unwrap();
         db.create_version(&mk(107, "manual")).unwrap();
 
-        db.cleanup_old_versions(&aid, 4).unwrap();
+        db.cleanup_old_versions(&aid, 4, &[]).unwrap();
         let remaining: std::collections::HashSet<i64> = db
             .list_versions(&aid)
             .unwrap()
@@ -2042,6 +2068,34 @@ mod tests {
             !remaining.contains(&101),
             "oldest manual v101 must be evicted"
         );
+    }
+
+    #[test]
+    fn cleanup_preserves_explicit_review_versions_beyond_limit() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        for n in 1..=5 {
+            db.create_version(&DesignArtifactVersion {
+                id: 0,
+                artifact_id: aid.clone(),
+                version_number: n,
+                message: None,
+                critique_score: None,
+                origin: Some("manual".into()),
+                prompt_summary: None,
+                created_at: format!("t{n}"),
+            })
+            .unwrap();
+        }
+
+        db.cleanup_old_versions(&aid, 2, &[1, 2]).unwrap();
+        let remaining: std::collections::HashSet<i64> = db
+            .list_versions(&aid)
+            .unwrap()
+            .into_iter()
+            .map(|version| version.version_number)
+            .collect();
+        assert_eq!(remaining, std::collections::HashSet::from([1, 2, 5]));
     }
 
     #[test]

@@ -25,6 +25,29 @@ const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 600;
 /// Per-stream capture cap (§7.9).
 const MAX_CAPTURE_BYTES: usize = 1024 * 1024; // 1 MiB
 
+/// Non-secret process variables command Hooks may inherit without declaring
+/// them. HOME and credential/tool-specific variables are deliberately absent.
+#[cfg(unix)]
+const SAFE_PROCESS_ENV: &[&str] = &["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR"];
+#[cfg(windows)]
+const SAFE_PROCESS_ENV: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "TEMP",
+    "TMP",
+];
+
+fn valid_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 pub struct CommandHandler {
     config: CommandHookConfig,
 }
@@ -90,6 +113,31 @@ impl CommandHandler {
         if let Some(dir) = env.cwd.as_ref().filter(|d| d.is_dir()) {
             cmd.current_dir(dir);
         }
+        // Project Hooks are code execution, but they must not automatically
+        // inherit the Hope Agent process's API keys/OAuth tokens. Start from a
+        // minimal environment; copy only stable runtime variables and the
+        // names explicitly declared by this Hook. Synthetic Hook variables are
+        // applied last so a declaration cannot spoof their values.
+        cmd.env_clear();
+        for name in SAFE_PROCESS_ENV {
+            if let Some(value) = std::env::var_os(name) {
+                cmd.env(name, value);
+            }
+        }
+        for name in &self.config.allowed_env_vars {
+            if !valid_env_name(name) {
+                crate::app_warn!(
+                    "hooks",
+                    "command_env",
+                    "ignored invalid allowedEnvVars name: {}",
+                    name
+                );
+                continue;
+            }
+            if let Some(value) = std::env::var_os(name) {
+                cmd.env(name, value);
+            }
+        }
         for (k, v) in env.as_vars() {
             cmd.env(k, v);
         }
@@ -107,13 +155,18 @@ impl HookHandler for CommandHandler {
         // (`async_rewake` flips whether the detached child's output is captured
         // and injected on exit 2 — a real semantic difference).
         format!(
-            "{}|args={:?}|shell={:?}|timeout={:?}|async={:?}|async_rewake={:?}",
+            "{}|args={:?}|shell={:?}|timeout={:?}|async={:?}|async_rewake={:?}|allowed_env={:?}",
             self.config.command,
             self.config.args,
             self.config.shell,
             self.config.timeout,
             self.config.async_run,
             self.config.async_rewake,
+            {
+                let mut names = self.config.allowed_env_vars.clone();
+                names.sort();
+                names
+            },
         )
     }
 
@@ -427,6 +480,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(0));
@@ -446,6 +500,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(2));
@@ -465,6 +520,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(0));
@@ -484,6 +540,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         // 1s deadline against a 5s sleep.
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(1)).await;
@@ -530,6 +587,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         let r = h
             .run(&pretooluse_input(), &HookEnv::empty(), deadline(1))
@@ -561,6 +619,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         let r = h.run(&dummy_input(), &env, deadline(10)).await;
         let _ = std::fs::remove_dir_all(&dir);
@@ -584,15 +643,19 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         };
         let mut diff_shell = base.clone();
         diff_shell.shell = Some(HookShell::Powershell);
         let mut diff_timeout = base.clone();
         diff_timeout.timeout = Some(30);
+        let mut diff_env = base.clone();
+        diff_env.allowed_env_vars = vec!["EXPLICIT_VALUE".to_string()];
 
         let id_base = CommandHandler::new(base.clone()).identity();
         assert_ne!(id_base, CommandHandler::new(diff_shell).identity());
         assert_ne!(id_base, CommandHandler::new(diff_timeout).identity());
+        assert_ne!(id_base, CommandHandler::new(diff_env).identity());
         // Same config → same identity (dedup still collapses true duplicates).
         assert_eq!(id_base, CommandHandler::new(base).identity());
     }
@@ -606,6 +669,7 @@ mod tests {
         let h = CommandHandler::new(CommandHookConfig {
             command: "exit 2".into(),
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: Some(true),
@@ -644,6 +708,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         });
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(30)).await;
         assert_eq!(r.exit_code, Some(0));
@@ -669,6 +734,37 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn process_secrets_require_an_explicit_environment_declaration() {
+        let name = format!("HA_HOOK_SECRET_CANARY_{}", std::process::id());
+        std::env::set_var(&name, "must-not-inherit");
+        let base = CommandHookConfig {
+            command: format!("printf '%s' \"${{{name}-missing}}\""),
+            shell: Some(HookShell::Bash),
+            timeout: None,
+            async_run: None,
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+            args: Vec::new(),
+            allowed_env_vars: Vec::new(),
+        };
+
+        let hidden = CommandHandler::new(base.clone())
+            .run(&dummy_input(), &HookEnv::empty(), deadline(10))
+            .await;
+        assert_eq!(hidden.stdout, "missing");
+
+        let mut declared = base;
+        declared.allowed_env_vars = vec![name.clone()];
+        let inherited = CommandHandler::new(declared)
+            .run(&dummy_input(), &HookEnv::empty(), deadline(10))
+            .await;
+        std::env::remove_var(name);
+        assert_eq!(inherited.stdout, "must-not-inherit");
+    }
+
     #[test]
     fn identity_distinguishes_async_rewake() {
         // Two identical command hooks differing only in `async_rewake` have
@@ -684,6 +780,7 @@ mod tests {
             once: None,
             async_rewake: None,
             args: Vec::new(),
+            allowed_env_vars: Vec::new(),
         };
         let mut with_rewake = base.clone();
         with_rewake.async_rewake = Some(true);

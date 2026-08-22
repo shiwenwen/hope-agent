@@ -845,13 +845,17 @@ impl SqliteMemoryBackend {
     }
 
     /// Generate embedding for text, with optional caching to reduce API calls.
-    pub(crate) fn generate_embedding(&self, text: &str) -> Option<Vec<f32>> {
+    pub(crate) fn generate_embedding(
+        &self,
+        text: &str,
+        purpose: crate::memory::EmbeddingPurpose,
+    ) -> Option<Vec<f32>> {
         let guard = self.embedder.read().unwrap_or_else(|e| e.into_inner());
         let embedder = guard.as_ref()?;
 
         let cache_cfg = crate::memory::helpers::load_embedding_cache_config();
         if !cache_cfg.enabled {
-            return embedder.embed(text).ok();
+            return embedder.embed(text, purpose).ok();
         }
 
         // Compute content hash
@@ -870,7 +874,8 @@ impl SqliteMemoryBackend {
             )
             .ok()
             .flatten()
-            .map(|(model, _runtime, signature)| {
+            .map(|(model, _runtime, _document_signature)| {
+                let signature = model.signature_for(purpose);
                 (
                     format!("{:?}", model.provider_type),
                     model.api_model.unwrap_or_default(),
@@ -902,7 +907,7 @@ impl SqliteMemoryBackend {
         }
 
         // Cache miss: compute embedding
-        let emb = embedder.embed(text).ok()?;
+        let emb = embedder.embed(text, purpose).ok()?;
 
         // Store in cache (write)
         if let Ok(conn) = self.write_conn() {
@@ -950,6 +955,7 @@ impl SqliteMemoryBackend {
         label: &str,
         file_path: &str,
         mime_type: &str,
+        purpose: crate::memory::EmbeddingPurpose,
     ) -> Option<Vec<f32>> {
         let guard = self.embedder.read().unwrap_or_else(|e| e.into_inner());
         let embedder = guard.as_ref()?;
@@ -957,7 +963,7 @@ impl SqliteMemoryBackend {
         // Check multimodal config
         let mm_cfg = crate::memory::helpers::load_multimodal_config();
         if !mm_cfg.enabled {
-            return embedder.embed(label).ok();
+            return embedder.embed(label, purpose).ok();
         }
 
         if !embedder.supports_multimodal() {
@@ -972,7 +978,7 @@ impl SqliteMemoryBackend {
                     None,
                 );
             }
-            return embedder.embed(label).ok();
+            return embedder.embed(label, purpose).ok();
         }
 
         // Validate file
@@ -989,7 +995,7 @@ impl SqliteMemoryBackend {
                     None,
                 );
             }
-            return embedder.embed(label).ok();
+            return embedder.embed(label, purpose).ok();
         }
 
         let metadata = std::fs::metadata(path).ok()?;
@@ -1009,7 +1015,7 @@ impl SqliteMemoryBackend {
                     None,
                 );
             }
-            return embedder.embed(label).ok();
+            return embedder.embed(label, purpose).ok();
         }
 
         let file_data = std::fs::read(path).ok()?;
@@ -1019,7 +1025,7 @@ impl SqliteMemoryBackend {
             file_data,
         };
 
-        match embedder.embed_multimodal(&input) {
+        match embedder.embed_multimodal(&input, purpose) {
             Ok(emb) => Some(emb),
             Err(e) => {
                 if let Some(logger) = crate::get_logger() {
@@ -1033,7 +1039,7 @@ impl SqliteMemoryBackend {
                         None,
                     );
                 }
-                embedder.embed(label).ok()
+                embedder.embed(label, purpose).ok()
             }
         }
     }
@@ -1079,7 +1085,9 @@ impl SqliteMemoryBackend {
 
                 let guard = self.embedder.read().unwrap_or_else(|e| e.into_inner());
                 if let Some(embedder) = guard.as_ref() {
-                    match embedder.embed_batch_async(&batch_items) {
+                    match embedder
+                        .embed_batch_async(&batch_items, crate::memory::EmbeddingPurpose::Document)
+                    {
                         Ok(results) => {
                             for (id_str, emb) in &results {
                                 let id: i64 = id_str.parse().unwrap_or(0);
@@ -1098,6 +1106,7 @@ impl SqliteMemoryBackend {
                                     &entry.content,
                                     entry.attachment_path.as_deref().unwrap_or(""),
                                     entry.attachment_mime.as_deref().unwrap_or(""),
+                                    crate::memory::EmbeddingPurpose::Document,
                                 ) {
                                     let emb_bytes: Vec<u8> =
                                         emb.iter().flat_map(|f| f.to_le_bytes()).collect();
@@ -1134,9 +1143,14 @@ impl SqliteMemoryBackend {
             let emb = if let (Some(ref att_path), Some(ref att_mime)) =
                 (&entry.attachment_path, &entry.attachment_mime)
             {
-                self.generate_multimodal_embedding(&entry.content, att_path, att_mime)
+                self.generate_multimodal_embedding(
+                    &entry.content,
+                    att_path,
+                    att_mime,
+                    crate::memory::EmbeddingPurpose::Document,
+                )
             } else {
-                self.generate_embedding(&entry.content)
+                self.generate_embedding(&entry.content, crate::memory::EmbeddingPurpose::Document)
             };
             if let Some(emb) = emb {
                 let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
@@ -1238,7 +1252,8 @@ impl SqliteMemoryBackend {
         if dims == 0 {
             return;
         }
-        let Some(emb) = self.generate_embedding(content) else {
+        let Some(emb) = self.generate_embedding(content, crate::memory::EmbeddingPurpose::Document)
+        else {
             return;
         };
         let Some(signature) = crate::memory::helpers::active_embedding_signature() else {

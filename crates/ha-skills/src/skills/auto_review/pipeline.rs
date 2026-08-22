@@ -240,10 +240,11 @@ async fn run_inner(
     }
 
     // ── Build top-K dedup candidates with full body ────────────────────
-    let entries: Vec<SkillEntry> = load_all_skills_with_extra(&cached_config().extra_skills_dirs)
-        .into_iter()
-        .filter(|s| s.source != "bundled")
-        .collect();
+    let entries: Vec<SkillEntry> =
+        load_all_skills_with_extra(&cached_config().extra_skills_dirs, None)
+            .into_iter()
+            .filter(|s| s.source != "bundled")
+            .collect();
     let dedup_block = build_dedup_block(&entries, &conv_keys, cfg);
     let blacklist_block = recent_discards
         .iter()

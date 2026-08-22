@@ -19,6 +19,16 @@ export function externalMemoryProviderSyncBlockReasonLabel(
       return t("settings.memoryExternalProviderBlockPolicyUnsupported", "Policy unsupported")
     case "adapter_unavailable":
       return t("settings.memoryExternalProviderBlockAdapterUnavailable", "Adapter unavailable")
+    case "compatibility_unverified":
+      return t(
+        "settings.memoryExternalProviderBlockCompatibilityUnverified",
+        "Compatibility unverified",
+      )
+    case "compatibility_blocked":
+      return t(
+        "settings.memoryExternalProviderBlockCompatibilityBlocked",
+        "Unsafe provider version",
+      )
     case "last_error":
       return t("settings.memoryExternalProviderBlockLastError", "Last error")
     default:

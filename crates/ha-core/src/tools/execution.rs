@@ -1722,28 +1722,52 @@ fn extract_touched_paths(tool_name: &str, args: &Value) -> Vec<String> {
 /// of the skill system when discovery changes. The fast-path lets us skip
 /// the filesystem-scanning `get_invocable_skills` call on every file op when
 /// no skill actually declares `paths:` (the common case).
-static HAS_PATHS_SKILLS_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(u64, bool)>>> =
+type PathsSkillCache = Option<(
+    u64,
+    std::collections::HashMap<Option<std::path::PathBuf>, bool>,
+)>;
+static HAS_PATHS_SKILLS_CACHE: std::sync::OnceLock<std::sync::Mutex<PathsSkillCache>> =
     std::sync::OnceLock::new();
 
-fn any_paths_skills(cfg: &crate::config::AppConfig) -> bool {
+fn any_paths_skills(
+    cfg: &crate::config::AppConfig,
+    workspace_dir: Option<&std::path::Path>,
+) -> bool {
     let current_version = crate::skills::skill_cache_version();
+    let workspace_key =
+        workspace_dir.map(|dir| dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()));
     let cache = HAS_PATHS_SKILLS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
     if let Ok(guard) = cache.lock() {
-        if let Some((v, b)) = *guard {
-            if v == current_version {
-                return b;
+        if let Some((version, entries)) = guard.as_ref() {
+            if *version == current_version {
+                if let Some(has_any) = entries.get(&workspace_key) {
+                    return *has_any;
+                }
             }
         }
     }
 
-    let catalog =
-        crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let catalog = crate::skills_hooks::invocable_skills(
+        &cfg.extra_skills_dirs,
+        &cfg.disabled_skills,
+        workspace_dir,
+    );
     let has_any = catalog
         .iter()
         .any(|s| s.paths.as_ref().map(|p| !p.is_empty()).unwrap_or(false));
 
     if let Ok(mut guard) = cache.lock() {
-        *guard = Some((current_version, has_any));
+        if guard.as_ref().map(|(version, _)| *version) != Some(current_version) {
+            *guard = Some((current_version, std::collections::HashMap::new()));
+        }
+        if let Some((_, entries)) = guard.as_mut() {
+            // Bound daemon/session churn without making cache eviction part of
+            // correctness: a miss simply performs another discovery pass.
+            if entries.len() >= 128 && !entries.contains_key(&workspace_key) {
+                entries.clear();
+            }
+            entries.insert(workspace_key, has_any);
+        }
     }
     has_any
 }
@@ -1763,12 +1787,16 @@ fn maybe_activate_conditional_skills(name: &str, args: &Value, ctx: &ToolExecCon
     }
     // Fast path: if no skill in the catalog declares `paths:`, skip the
     // full discovery pass. Cache invalidates with skill_cache_version.
-    if !any_paths_skills(&cfg) {
+    let cwd = ctx.default_path();
+    let workspace_dir = ctx.session_working_dir.as_deref().map(std::path::Path::new);
+    if !any_paths_skills(&cfg, workspace_dir) {
         return;
     }
-    let cwd = ctx.default_path();
-    let catalog =
-        crate::skills_hooks::invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let catalog = crate::skills_hooks::invocable_skills(
+        &cfg.extra_skills_dirs,
+        &cfg.disabled_skills,
+        workspace_dir,
+    );
     let activated = crate::skills::activate_skills_for_paths(session_id, &paths, cwd, &catalog);
     if !activated.is_empty() {
         crate::skills::bump_skill_version();

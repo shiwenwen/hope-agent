@@ -198,10 +198,14 @@ async fn handle_skill_command(
     let env_check =
         crate::skills::skill_env_check_enabled_for_agent(Some(agent_id), store.skill_env_check);
     let skill_env = store.skill_env.clone();
-    let skills =
-        crate::skills_hooks::invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
-    // Command ownership must use the same globally surfaced catalog as the UI
-    // and `/help`; the per-Agent switch below still decides whether activation
+    let working_dir = crate::session::effective_session_working_dir(session_id);
+    let skills = crate::skills_hooks::invocable_skills(
+        &store.extra_skills_dirs,
+        &store.disabled_skills,
+        working_dir.as_deref().map(std::path::Path::new),
+    );
+    // Command ownership uses the session-scoped catalog also rendered by
+    // `/help`; the per-Agent switch below still decides whether activation
     // returns a setup diagnostic after a command has been matched.
     let skills = crate::skills::filter_catalog_eligible_skills(
         skills,

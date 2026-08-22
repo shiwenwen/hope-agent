@@ -94,6 +94,7 @@ pub fn compute_breakdown(
         &definition.config.capabilities.skills,
         definition.config.capabilities.skill_env_check,
         None,
+        None,
     )
     .len();
 

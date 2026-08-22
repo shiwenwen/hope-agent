@@ -4279,6 +4279,26 @@ export interface GitOperationRun {
   completedAt?: number | null;
 }
 
+export type ToolchainDoctorStatus = "detected" | "supported" | "degraded" | "blocked";
+
+export interface ToolchainDoctorCheck {
+  id: string;
+  status: ToolchainDoctorStatus;
+  detectedVersion?: string;
+  minimumVersion?: string;
+  relatedVersions?: Record<string, string>;
+  detailCode: string;
+  facts?: string[];
+}
+
+export interface ToolchainDoctorReport {
+  generatedAt: string;
+  platform: string;
+  readOnly: true;
+  checks: ToolchainDoctorCheck[];
+  summary: Record<ToolchainDoctorStatus, number>;
+}
+
 /**
  * Returns `true` when the app is running inside a Tauri webview.
  *

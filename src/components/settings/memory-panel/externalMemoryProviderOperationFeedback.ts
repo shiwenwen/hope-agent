@@ -8,6 +8,7 @@ export type ExternalMemoryProviderOperation =
   | "loadCredentials"
   | "saveCredentials"
   | "clearCredentials"
+  | "testConnection"
   | "copyPreflightDiagnostics"
   | "copySyncDiagnostics"
 
@@ -66,6 +67,8 @@ function externalMemoryProviderOperationFallback(
       return "Failed to save external memory provider connection"
     case "clearCredentials":
       return "Failed to clear external memory provider connection"
+    case "testConnection":
+      return "Failed to test external memory provider connection"
     case "copyPreflightDiagnostics":
       return "Failed to copy external memory provider preflight"
     case "copySyncDiagnostics":

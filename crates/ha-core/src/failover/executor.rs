@@ -32,7 +32,7 @@ use std::time::Duration;
 use crate::provider::{ApiType, AuthProfile, ProviderConfig};
 
 use super::{
-    classify_error_with_evidence, next_profile, retry_delay_ms, select_profile,
+    classify_error_with_evidence, effective_retry_delay_ms, next_profile, select_profile,
     ContextOverflowEvidence, FailoverReason, PROFILE_COOLDOWNS, PROFILE_STICKY,
 };
 
@@ -292,6 +292,9 @@ where
                 }
 
                 let err_str = e.to_string();
+                let retry_after_ms = e
+                    .downcast_ref::<super::ProviderApiError>()
+                    .and_then(super::ProviderApiError::retry_after_ms);
                 let (mut reason, overflow_evidence) = classify_error_with_evidence(&e);
                 if let Some(evidence) = overflow_evidence
                     .as_ref()
@@ -345,8 +348,12 @@ where
                             last_error: err_str,
                         });
                     }
-                    let delay =
-                        retry_delay_ms(retry_count, policy.retry_base_ms, policy.retry_max_ms);
+                    let delay = effective_retry_delay_ms(
+                        retry_count,
+                        policy.retry_base_ms,
+                        policy.retry_max_ms,
+                        retry_after_ms,
+                    );
                     let next_attempt = retry_count + 1;
                     let wait_outcome = if let Some(ref cb) = on_retry {
                         let recovery_wait = crate::recovery_control::register(session_id);

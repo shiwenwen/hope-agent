@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 pub use ha_config_schema::channel::{
     ChannelAccountConfig, ChannelId, DmPolicy, GroupPolicy, ImReplyMode, SecurityConfig,
     TelegramChannelConfig, TelegramGroupConfig, TelegramTopicConfig,
-    SETTINGS_KEY_AUTO_TRANSCRIBE_VOICE, SETTINGS_KEY_IM_REPLY_MODE, SETTINGS_KEY_KB_ACCESS_CHATS,
-    SETTINGS_KEY_KB_ACCESS_OPT_IN, SETTINGS_KEY_SHOW_THINKING,
+    SETTINGS_KEY_AUTO_TRANSCRIBE_VOICE, SETTINGS_KEY_DISCORD_CHANNEL_OBFUSCATION,
+    SETTINGS_KEY_DISCORD_FILE_REQUESTS, SETTINGS_KEY_GOOGLE_CHAT_STANDARD_MARKDOWN,
+    SETTINGS_KEY_IMSG_PROTOCOL_V1, SETTINGS_KEY_IM_REPLY_MODE, SETTINGS_KEY_KB_ACCESS_CHATS,
+    SETTINGS_KEY_KB_ACCESS_OPT_IN, SETTINGS_KEY_NATIVE_REPLY, SETTINGS_KEY_SHOW_THINKING,
 };
 
 // ── Chat Type ────────────────────────────────────────────────────
@@ -653,6 +655,23 @@ pub struct InlineButton {
 
 // ── Channel Health ───────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountCapabilitySnapshot {
+    /// Adapter-owned, fixed identifier such as `signal-cli` or
+    /// `whatsapp-bridge`; never copied from an arbitrary Bridge response.
+    pub source: String,
+    /// Sanitized, length-bounded runtime version when it can be detected.
+    pub version: Option<String>,
+    pub observed_at: String,
+    /// Adapter allowlist only. Unrecognized external strings cannot grant a
+    /// capability or become UI/log output.
+    pub capabilities: Vec<String>,
+    /// `compatible`, `warning`, `blocked`, or `unknown`.
+    pub compatibility: String,
+    pub warning: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelHealth {
@@ -662,6 +681,8 @@ pub struct ChannelHealth {
     pub error: Option<String>,
     pub uptime_secs: Option<u64>,
     pub bot_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_snapshot: Option<AccountCapabilitySnapshot>,
 }
 
 // ── Delivery Result ──────────────────────────────────────────────

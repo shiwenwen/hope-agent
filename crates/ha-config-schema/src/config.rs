@@ -1582,14 +1582,15 @@ pub struct AppConfig {
     /// Master kill switch for all hooks (`disableAllHooks` in the protocol).
     #[serde(default)]
     pub disable_all_hooks: bool,
-    /// Whether project/local scope hooks (`<cwd>/.hope-agent/hooks.json` and
-    /// `hooks.local.json`) are loaded at all. Off by default: a repository's
-    /// checked-in hooks must not auto-execute shell / HTTP / LLM / sub-agents
-    /// just because a session's working dir points at it (supply-chain guard).
-    /// User opts in globally via Settings → Hooks; user/managed scopes are
-    /// unaffected.
+    /// Deprecated pre-v0.35 global project Hook switch. Retained only for wire
+    /// compatibility and ignored by execution; no global trust migration is
+    /// possible without silently trusting future working directories.
     #[serde(default)]
     pub hooks_allow_project_scope: bool,
+    /// Canonical, content-bound workspace trust records for project/local
+    /// Hooks. Each workspace must be approved independently in the GUI.
+    #[serde(default)]
+    pub hook_workspace_trusts: Vec<crate::hooks::HookWorkspaceTrust>,
 
     /// Auto-update behavior: background check cadence, silent download, and
     /// user notification. Shared single source of truth for both the desktop
@@ -1751,6 +1752,7 @@ impl Default for AppConfig {
             hooks: crate::hooks::HooksConfig::default(),
             disable_all_hooks: false,
             hooks_allow_project_scope: false,
+            hook_workspace_trusts: vec![],
             auto_update: crate::updater::AutoUpdateConfig::default(),
             function_models: FunctionModelsConfig::default(),
         }

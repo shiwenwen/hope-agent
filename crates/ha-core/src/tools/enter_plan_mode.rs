@@ -103,6 +103,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 },
             ],
             input_kind: None,
+            file_constraints: None,
             allow_custom: false,
             multi_select: false,
             template: None,

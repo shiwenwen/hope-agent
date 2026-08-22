@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::model::{CallToolRequestParams, CallToolResult, Content, RawContent};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use serde_json::Value;
 use tokio::time::timeout;
 
@@ -223,7 +223,7 @@ async fn dispatch_inner(
     Ok(body)
 }
 
-/// Collapse a heterogeneous `Vec<Content>` into a single string digestible
+/// Collapse a heterogeneous `Vec<ContentBlock>` into a single string digestible
 /// by the main conversation loop. The shape is intentionally close to
 /// what the built-in text tools already return so the LLM sees a
 /// familiar format.
@@ -233,7 +233,7 @@ async fn dispatch_inner(
 ///   Phase 5 will persist the image to disk + return a file reference).
 /// * `EmbeddedResource` — `[resource mime=… uri=…]\n<body>`.
 /// * `ResourceLink` — `[resource_link uri=…]`.
-pub fn normalize_content(blocks: &[Content]) -> String {
+pub fn normalize_content(blocks: &[ContentBlock]) -> String {
     if blocks.is_empty() {
         return String::new();
     }
@@ -242,21 +242,22 @@ pub fn normalize_content(blocks: &[Content]) -> String {
         if i > 0 {
             out.push_str("\n\n");
         }
-        match &block.raw {
-            RawContent::Text(t) => {
+        match block {
+            ContentBlock::Text(t) => {
                 out.push_str(&t.text);
             }
-            RawContent::Image(img) => {
+            ContentBlock::Image(img) => {
                 out.push_str(&format!(
                     "[image mime={} size_b64={}]",
                     img.mime_type,
                     img.data.len()
                 ));
             }
-            RawContent::Resource(r) => {
+            ContentBlock::Resource(r) => {
                 let uri = match &r.resource {
                     rmcp::model::ResourceContents::TextResourceContents { uri, .. } => uri.as_str(),
                     rmcp::model::ResourceContents::BlobResourceContents { uri, .. } => uri.as_str(),
+                    _ => "unsupported:",
                 };
                 let body = match &r.resource {
                     rmcp::model::ResourceContents::TextResourceContents { text, .. } => {
@@ -265,19 +266,21 @@ pub fn normalize_content(blocks: &[Content]) -> String {
                     rmcp::model::ResourceContents::BlobResourceContents { blob, .. } => {
                         format!("[blob base64 size={}]", blob.len())
                     }
+                    _ => "[unsupported resource content]".to_string(),
                 };
                 out.push_str(&format!("[resource uri={}]\n{}", uri, body));
             }
-            RawContent::ResourceLink(link) => {
+            ContentBlock::ResourceLink(link) => {
                 out.push_str(&format!("[resource_link uri={}]", link.uri));
             }
-            RawContent::Audio(a) => {
+            ContentBlock::Audio(a) => {
                 out.push_str(&format!(
                     "[audio mime={} size_b64={}]",
                     a.mime_type,
                     a.data.len()
                 ));
             }
+            _ => out.push_str("[unsupported MCP content block]"),
         }
     }
     out
@@ -286,16 +289,8 @@ pub fn normalize_content(blocks: &[Content]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rmcp::model::{Content, RawContent, RawTextContent};
-
-    fn text(t: &str) -> Content {
-        Content {
-            raw: RawContent::Text(RawTextContent {
-                text: t.to_string(),
-                meta: None,
-            }),
-            annotations: None,
-        }
+    fn text(t: &str) -> ContentBlock {
+        ContentBlock::text(t)
     }
 
     #[test]

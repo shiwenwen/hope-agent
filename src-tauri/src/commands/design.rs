@@ -353,6 +353,178 @@ pub async fn revoke_design_share_cmd(artifact_id: String) -> Result<bool, CmdErr
         .map_err(Into::into)
 }
 
+// ── 设计质量 / 场景 / 组件 / Figma / 固定版本评审 ────────────────
+
+#[tauri::command]
+pub async fn run_design_visual_regression_cmd(
+    artifact_id: String,
+) -> Result<ha_design::design::quality::QualityRun, CmdError> {
+    ha_design::design::quality::run(&artifact_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn accept_design_visual_baseline_cmd(
+    input: ha_design::design::quality::AcceptBaselineInput,
+) -> Result<ha_design::design::quality::QualityManifest, CmdError> {
+    ha_design::design::quality::accept(input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_design_scenarios_cmd(
+    artifact_id: String,
+) -> Result<ha_design::design::scenarios::ScenariosEnvelope, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::scenarios::get(&artifact_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn save_design_scenarios_cmd(
+    artifact_id: String,
+    expected_hash: String,
+    manifest: ha_design::design::scenarios::ScenariosManifest,
+) -> Result<ha_design::design::scenarios::ScenariosEnvelope, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_design::design::scenarios::save(&artifact_id, &expected_hash, manifest)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_design_components_manifest_cmd(
+    project_id: String,
+    draft: bool,
+) -> Result<ha_design::design::components_manifest::ManifestEnvelope, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        if draft {
+            ha_design::design::components_manifest::get_draft(&project_id)
+        } else {
+            ha_design::design::components_manifest::get_published(&project_id)
+        }
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn save_design_components_draft_cmd(
+    project_id: String,
+    expected_draft_hash: String,
+    manifest: ha_design::design::components_manifest::ComponentsManifest,
+) -> Result<ha_design::design::components_manifest::ManifestEnvelope, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_design::design::components_manifest::save_draft(
+            &project_id,
+            &expected_draft_hash,
+            manifest,
+        )
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn publish_design_components_manifest_cmd(
+    input: ha_design::design::components_manifest::PublishManifestInput,
+) -> Result<ha_design::design::components_manifest::ManifestEnvelope, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::components_manifest::publish(input))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn scan_design_components_cmd(
+    project_id: String,
+) -> Result<Vec<ha_design::design::components_manifest::ComponentEntry>, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_design::design::components_manifest::scan_candidates(&project_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn preview_figma_roundtrip_cmd(
+    input: ha_design::design::figma_roundtrip::FigmaRoundtripRequest,
+) -> Result<ha_design::design::figma_roundtrip::FigmaRoundtripPreview, CmdError> {
+    ha_design::design::figma_roundtrip::preview(input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn commit_figma_roundtrip_cmd(
+    input: ha_design::design::figma_roundtrip::CommitFigmaRoundtripInput,
+) -> Result<ha_design::design::figma_roundtrip::FigmaRoundtripResult, CmdError> {
+    ha_design::design::figma_roundtrip::commit(input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_figma_roundtrip_reconciliations_cmd(
+    artifact_id: String,
+) -> Result<Vec<ha_design::design::figma_roundtrip::FigmaRoundtripReconciliation>, CmdError> {
+    ha_design::design::figma_roundtrip::list_reconciliations(&artifact_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn resolve_figma_roundtrip_reconciliation_cmd(
+    input: ha_design::design::figma_roundtrip::ResolveFigmaReconciliationInput,
+) -> Result<ha_design::design::figma_roundtrip::FigmaRoundtripReconciliation, CmdError> {
+    ha_design::design::figma_roundtrip::resolve_reconciliation(input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_figma_roundtrip_links_cmd(
+    artifact_id: String,
+) -> Result<Vec<ha_design::design::figma_roundtrip::FigmaLink>, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_design::design::figma_roundtrip::list_links(&artifact_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn create_design_review_space_cmd(
+    input: ha_design::design::review_space::CreateReviewInput,
+) -> Result<ha_design::design::review_space::CreatedReviewGrant, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::review_space::create(input))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_design_review_spaces_cmd(
+    artifact_id: String,
+) -> Result<Vec<ha_design::design::review_space::ReviewGrant>, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::review_space::list(&artifact_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn revoke_design_review_space_cmd(
+    artifact_id: String,
+    grant_id: String,
+) -> Result<bool, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_design::design::review_space::revoke(&artifact_id, &grant_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
 // ── Cloudflare Pages 部署（B7-2，owner 平面 opt-in）─────────────────
 
 /// 保存 CF 部署配置（token 0600 落 credentials；token=mask 保留原值）。
@@ -881,10 +1053,11 @@ pub async fn get_design_config_cmd() -> Result<DesignConfig, CmdError> {
 
 #[tauri::command]
 pub async fn save_design_config_cmd(config: DesignConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("design", "tauri"), |store| {
-        store.design = config.clone();
+    ha_core::config::mutate_config_async(("design", "tauri"), move |store| {
+        store.design = config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(())
 }
 

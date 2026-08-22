@@ -172,7 +172,7 @@ async fn run_auto_curator_pass() {
 /// (`run_skills_curator_now`) and the optional periodic task.
 pub fn run_curator_pass() -> Result<CuratorReport> {
     let config = ha_core::config::cached_config();
-    let entries: Vec<SkillEntry> = load_all_skills_with_extra(&config.extra_skills_dirs)
+    let entries: Vec<SkillEntry> = load_all_skills_with_extra(&config.extra_skills_dirs, None)
         .into_iter()
         // Only managed (~/.hope-agent/skills/) drafts; we never touch
         // bundled / project / extra-dir skills via the curator.
@@ -265,7 +265,7 @@ pub fn apply_merge_keep_id(keep_id: &str, member_ids: &[String]) -> Result<usize
         return Err(anyhow!("keep_id `{}` is not in the member list", keep_id));
     }
     let config = ha_core::config::cached_config();
-    let entries = load_all_skills_with_extra(&config.extra_skills_dirs);
+    let entries = load_all_skills_with_extra(&config.extra_skills_dirs, None);
 
     let is_managed_draft = |id: &str| -> bool {
         entries

@@ -12,8 +12,9 @@ import {
 } from "@/components/ui/select"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { KeyRound, Link2, Loader2, Save, Trash2 } from "lucide-react"
+import { Activity, KeyRound, Link2, Loader2, Save, Trash2 } from "lucide-react"
 import type {
+  ExternalMemoryProviderCompatibilityReport,
   ExternalMemoryProviderConfig,
   ExternalMemoryProviderCredentialInput,
   ExternalMemoryProviderCredentialStatus,
@@ -142,6 +143,9 @@ export default function ExternalMemoryProviderCredentials({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [compatibility, setCompatibility] =
+    useState<ExternalMemoryProviderCompatibilityReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const applyStatus = useCallback(
@@ -170,6 +174,7 @@ export default function ExternalMemoryProviderCredentials({
         { providerId: provider.id },
       )
       applyStatus(next ?? null)
+      setCompatibility(null)
       setError(null)
     } catch (cause) {
       logger.error(
@@ -208,6 +213,7 @@ export default function ExternalMemoryProviderCredentials({
         { providerId: provider.id, credentials },
       )
       applyStatus(next ?? null)
+      setCompatibility(null)
       setError(null)
       toast.success(t("settings.memoryExternalProviderConnectionSaved", "Connection saved"))
     } catch (cause) {
@@ -232,6 +238,7 @@ export default function ExternalMemoryProviderCredentials({
       })
       setDraft(defaultDraft(provider))
       applyStatus(null)
+      setCompatibility(null)
       setError(null)
       toast.success(t("settings.memoryExternalProviderConnectionCleared", "Connection cleared"))
     } catch (cause) {
@@ -245,6 +252,50 @@ export default function ExternalMemoryProviderCredentials({
       setError(failure.description ? `${failure.title}\n${failure.description}` : failure.title)
     } finally {
       setClearing(false)
+    }
+  }
+
+  const testConnection = async () => {
+    setTesting(true)
+    try {
+      const report = await getTransport().call<ExternalMemoryProviderCompatibilityReport>(
+        "test_external_memory_provider_connection",
+        { providerId: provider.id },
+      )
+      setCompatibility(report)
+      setError(report.error || null)
+      if (report.status === "blocked") {
+        toast.error(
+          t("settings.memoryExternalProviderCompatibilityBlocked", {
+            defaultValue: "Provider version is below the safe minimum",
+          }),
+        )
+      } else if (report.status === "unverified") {
+        toast.warning(
+          t("settings.memoryExternalProviderCompatibilityUnverified", {
+            defaultValue: "Connection reached, but the provider version could not be verified",
+          }),
+        )
+      } else {
+        toast.success(
+          t("settings.memoryExternalProviderCompatibilityPassed", {
+            defaultValue: "Connection and compatibility check passed",
+          }),
+        )
+      }
+    } catch (cause) {
+      logger.error(
+        "settings",
+        "ExternalMemoryProviderCredentials::test",
+        "Failed to test external memory provider connection",
+        cause,
+      )
+      const failure = externalMemoryProviderOperationErrorToast("testConnection", t, cause)
+      setError(
+        failure.description ? failure.title + "\n" + failure.description : failure.title,
+      )
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -384,8 +435,43 @@ export default function ExternalMemoryProviderCredentials({
           {error}
         </div>
       )}
+      {compatibility && (
+        <div
+          className={
+            "mt-2 rounded px-2 py-1.5 text-[11px] " +
+            (compatibility.status === "blocked"
+              ? "bg-destructive/10 text-destructive"
+              : compatibility.status === "unverified"
+                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300")
+          }
+        >
+          {t("settings.memoryExternalProviderCompatibilitySummary", {
+            defaultValue:
+              "Status: {{status}} · detected {{detected}} · minimum {{minimum}}",
+            status: compatibility.status,
+            detected: compatibility.detectedVersion || "unknown",
+            minimum: compatibility.minimumVersion || "not required",
+          })}
+        </div>
+      )}
 
       <div className="mt-2 flex flex-wrap justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5"
+          disabled={testing || saving || clearing || configDirty || !status?.configured}
+          onClick={() => void testConnection()}
+        >
+          {testing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Activity className="h-3.5 w-3.5" />
+          )}
+          {t("settings.memoryExternalProviderConnectionTest", "Test connection")}
+        </Button>
         <Button
           type="button"
           variant="outline"

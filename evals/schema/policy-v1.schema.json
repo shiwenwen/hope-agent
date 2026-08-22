@@ -30,6 +30,7 @@
           "context_compaction_contract",
           "domain_trace_fixture",
           "dreaming_golden",
+          "knowledge_retrieval_evidence",
           "memory_retrieval_scale"
         ]
       }

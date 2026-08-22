@@ -124,6 +124,8 @@ flowchart TD
 
 [`cdp_backend.rs`](../../../crates/ha-browser/src/browser/cdp_backend.rs) 包装 [`browser_state`](../../../crates/ha-browser/src/browser_state.rs) 全局单例。`browser_state` 维护 `chromiumoxide` 的 `Browser` handle、`Page` 池、`active_page_id`、`ElementRef` 表和 CDP event handler 任务；`CdpBackend` 只是 trait 适配薄壳，自己不持状态。它长期保留，服务 fallback、Docker/headless、自托管和无扩展场景。
 
+**全局目标串行化**：单个 `CdpBackend` 方法会安全快照当前页，但 `select → resize → screenshot → close → restore` 这类多步流程若只逐方法加锁，仍会被另一调用在步骤间改写 `active_page_id`。所有浏览器工具调用、CDP 实时帧、BrowserPanel 导航 / 生命周期操作，以及设计制品的截图、PDF、视频和视觉回归捕获，必须在整个高层流程持有 `acquire_cdp_operation_guard()`；扩展后端的实时帧不占此锁。新增直接使用 `CdpBackend` 的多步入口不得绕过该守卫。
+
 **Stale-ref 一次自恢复**：页面结构变化会让上一轮 snapshot 里的 ref 失效。当 `act` 失败且错误匹配 `is_stale_ref_error`（`not found` / `no such element` / `stale` / `detached`）时，内部触发一次自愈：
 
 ```mermaid
@@ -513,17 +515,17 @@ BrowserPanel 负责实时画面；WorkspacePanel 只展示本会话浏览器工�
 
 > `target=system`（用 CDP 接管用户日常 Chrome）已删且从未稳定——Chrome 148+ 架构性禁止 `--remote-debugging-port` 落在默认 user-data-dir 上。真实 daily Chrome / 已登录 tab 走 ExtensionBackend claim；`profile=user_attach` 只是 CDP fallback 的 Hope Agent 持久 profile。
 
-### Chromium 运行时自动安装
+### Chrome for Testing 运行时自动安装
 
 `profile.op=install_runtime` 工具、settings 的「Install Chromium runtime」按钮、全局缺失运行时对话框、`POST /api/browser/install-chromium-runtime` 都进入 [`browser/runtime.rs::ensure_chromium`](../../../crates/ha-browser/src/browser/runtime.rs)：
 
-- 平台 / 架构 → `RuntimeSpec`（4 个支持目标：Mac / Mac_Arm / Linux_x64 / Win_x64）
-- pinned revision **每平台独立**（`CHROMIUM_REVISION_MAC_ARM` / `_MAC` / `_LINUX_X64` / `_WIN_X64`）——Chromium snapshots 每平台独立 trigger 构建，同一 revision 不保证四平台都存在，所以仿 Playwright / Puppeteer 走 per-platform map。升级按四个 `LAST_CHANGE` 各自取值 + HEAD 200 验证 + `--version` smoke test
-- `commondatastorage.googleapis.com/chromium-browser-snapshots/{platform}/{rev}/{archive}` 经 SSRF 检查后流式下载，复用全局 proxy 配置
-- `zip::ZipArchive::by_index` + `mangled_name`（zip-slip 防护）+ Unix 解压后 `chmod +x` + 启动 `<bin> --version` smoke-test 确认可执行
-- 先解压到同目录 staging，smoke-test 通过后写 `.hope-agent-ready` marker 并原子 promote 到 `~/.hope-agent/browser/runtime/chromium-{revision}/`；后续 `build_launch_config` 三级 fallback 只命中带 ready marker 的 runtime，避免 partial install 污染缓存
+- 唯一来源是随二进制编译的 [`chrome-for-testing-manifest.json`](../../../crates/ha-browser/resources/chrome-for-testing-manifest.json)：逐平台记录 stable 版本、revision、精确字节数、SHA-256、发布时间、可执行文件相对路径、上游证据与许可证。当前覆盖 `mac-arm64`、`mac-x64`、`linux64`、`win64`。
+- URL 只允许 `https://storage.googleapis.com` 的版本化 Chrome for Testing 资产；仍先走集中 SSRF 策略，HTTP redirect 关闭。响应长度必须等于 manifest，且不超过 300 MiB。
+- 下载完成后先计算 SHA-256，摘要不符 fail closed；只有通过摘要、zip-slip 防护、Unix `chmod +x` 和 `--version` 冒烟的内容才进入 staging。
+- ready marker 是完整的 JSON 供应链回执，不再只记 revision；它必须与当前 manifest 逐字段一致。提升采用“旧目录先改名保留 → staging 原子改名 → 失败恢复”的交换流程，任何失败都不删除其它已验证版本。
+- 缓存目录为 `~/.hope-agent/browser/runtime/chrome-for-testing-{version}-{platform}/`。当前版本不可用时，只可回退到同平台、带完整供应链回执的上一版本；旧 Chromium snapshot marker 与 rolling URL 永不被自动信任。
 
-下载进度走 EventBus `browser:chromium_download_progress`，stage `downloading` / `ready`，throttle 至每百分位 + 40ms 双限流。所有安装入口先取进程级 async mutex，并发点击串行复用同一幂等安装流程，不会同时 promote 同一 staging 目录；失败 partial 文件主动清理。
+下载进度走 EventBus `browser:chromium_download_progress`，stage `downloading` / `ready`，throttle 至每百分位 + 40ms 双限流。所有安装入口先取进程级 async mutex，并发点击串行复用同一幂等安装流程，不会同时提升同一 staging 目录；失败的临时归档与 staging 主动清理。
 
 `build_launch_config` 的 fallback 链（未传 `executable_path` 时）：
 

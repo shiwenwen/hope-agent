@@ -107,7 +107,7 @@ pub fn external_provider_capabilities(
 /// not an execution log; it separates user-selected policy intent from runtime
 /// adapter readiness so health consumers do not confuse planned sync with data
 /// actually being able to move.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExternalMemoryProviderDataFlow {
     #[default]
@@ -154,7 +154,43 @@ pub enum ExternalMemoryProviderSyncBlockReason {
     EndpointMissing,
     PolicyUnsupported,
     AdapterUnavailable,
+    CompatibilityUnverified,
+    CompatibilityBlocked,
     LastError,
+}
+
+/// Result of the most recent owner-triggered version/capability probe. Config
+/// preflight never performs this probe; missing evidence remains unverified.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalMemoryProviderCompatibilityStatus {
+    /// This provider/protocol has no version safety floor in the current
+    /// compatibility matrix.
+    NotRequired,
+    Compatible,
+    #[default]
+    Unverified,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMemoryProviderCompatibilityReport {
+    pub provider_id: String,
+    pub kind: ExternalMemoryProviderKind,
+    pub status: ExternalMemoryProviderCompatibilityStatus,
+    pub checked_at: String,
+    pub external_io_performed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_version: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Owner-visible health projection for one external provider config.
@@ -191,6 +227,16 @@ pub struct ExternalMemoryProviderHealth {
     pub requires_explicit_action: bool,
     #[serde(default)]
     pub automatic_sync: bool,
+    #[serde(default)]
+    pub compatibility_status: ExternalMemoryProviderCompatibilityStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility_checked_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility_error: Option<String>,
     #[serde(default)]
     pub endpoint_configured: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -319,17 +365,35 @@ impl ExternalMemoryProviderHealth {
         global_enabled: bool,
         capabilities: ExternalMemoryProviderCapabilities,
     ) -> Self {
+        let compatibility =
+            super::external_provider::external_memory_provider_compatibility_snapshot(config);
         let active = global_enabled && config.enabled && config.sync_policy.is_active();
         let policy_supported = sync_policy_supported_by(&config.sync_policy, &capabilities);
         let endpoint_ready = !capabilities.requires_endpoint || config.endpoint_configured;
-        let runtime_sync_enabled =
-            active && policy_supported && capabilities.adapter_available && endpoint_ready;
+        let compatibility_ready = match compatibility.status {
+            ExternalMemoryProviderCompatibilityStatus::NotRequired
+            | ExternalMemoryProviderCompatibilityStatus::Compatible => true,
+            // An unverified endpoint is allowed to perform pull-only sync so
+            // owners can inspect imported candidates. Any policy capable of
+            // sending local memory remains fail-closed until a compatible
+            // version has been observed explicitly.
+            ExternalMemoryProviderCompatibilityStatus::Unverified => {
+                matches!(config.sync_policy, ExternalMemorySyncPolicy::PullOnly)
+            }
+            ExternalMemoryProviderCompatibilityStatus::Blocked => false,
+        };
+        let runtime_sync_enabled = active
+            && policy_supported
+            && capabilities.adapter_available
+            && endpoint_ready
+            && compatibility_ready;
         let sync_block_reasons = external_provider_sync_block_reasons(
             config,
             global_enabled,
             &capabilities,
             policy_supported,
             endpoint_ready,
+            &compatibility.status,
         );
         let policy_data_flow = if active {
             sync_policy_data_flow(&config.sync_policy)
@@ -346,6 +410,7 @@ impl ExternalMemoryProviderHealth {
         } else if !policy_supported
             || !capabilities.adapter_available
             || !endpoint_ready
+            || !compatibility_ready
             || config.last_error.is_some()
         {
             MemoryHealthStatus::Warning
@@ -379,6 +444,12 @@ impl ExternalMemoryProviderHealth {
                         | ExternalMemorySyncPolicy::PushOnly
                         | ExternalMemorySyncPolicy::Bidirectional
                 ),
+            compatibility_status: compatibility.status,
+            detected_version: compatibility.detected_version,
+            minimum_version: compatibility.minimum_version,
+            compatibility_checked_at: (!compatibility.checked_at.is_empty())
+                .then_some(compatibility.checked_at),
+            compatibility_error: compatibility.error,
             endpoint_configured: config.endpoint_configured,
             last_sync_at: config.last_sync_at.clone(),
             last_error: config.last_error.clone(),
@@ -580,6 +651,7 @@ fn external_provider_sync_block_reasons(
     capabilities: &ExternalMemoryProviderCapabilities,
     policy_supported: bool,
     endpoint_ready: bool,
+    compatibility_status: &ExternalMemoryProviderCompatibilityStatus,
 ) -> Vec<ExternalMemoryProviderSyncBlockReason> {
     let mut reasons = Vec::new();
     if !global_enabled {
@@ -600,6 +672,19 @@ fn external_provider_sync_block_reasons(
         }
         if !capabilities.adapter_available {
             reasons.push(ExternalMemoryProviderSyncBlockReason::AdapterUnavailable);
+        }
+        if endpoint_ready {
+            match compatibility_status {
+                ExternalMemoryProviderCompatibilityStatus::Unverified
+                    if !matches!(config.sync_policy, ExternalMemorySyncPolicy::PullOnly) =>
+                {
+                    reasons.push(ExternalMemoryProviderSyncBlockReason::CompatibilityUnverified);
+                }
+                ExternalMemoryProviderCompatibilityStatus::Blocked => {
+                    reasons.push(ExternalMemoryProviderSyncBlockReason::CompatibilityBlocked);
+                }
+                _ => {}
+            }
         }
         if config.last_error.is_some() {
             reasons.push(ExternalMemoryProviderSyncBlockReason::LastError);
@@ -2201,9 +2286,9 @@ mod tests {
         let cfg = ExternalMemoryProvidersConfig {
             enabled: true,
             providers: vec![ExternalMemoryProviderConfig {
-                id: "zep-main".to_string(),
-                kind: ExternalMemoryProviderKind::Zep,
-                display_name: "Zep".to_string(),
+                id: "custom-main".to_string(),
+                kind: ExternalMemoryProviderKind::Custom,
+                display_name: "Custom".to_string(),
                 enabled: true,
                 sync_policy: ExternalMemorySyncPolicy::PushOnly,
                 endpoint_configured: true,

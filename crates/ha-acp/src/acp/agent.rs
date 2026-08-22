@@ -22,11 +22,10 @@ use ha_core::provider;
 use ha_core::session::{self, SessionDB, SessionIdeContext};
 use ha_core::turn_durability::{FlushReason, TurnDurabilitySink};
 
-/// ACP protocol version we advertise
-const ACP_PROTOCOL_VERSION: &str = "0.2";
 const ACP_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
 const ACP_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 const ACP_INBOUND_QUEUE_CAPACITY: usize = 256;
+const ACP_PERMISSION_REQUEST_ID_PREFIX: &str = "acp-permission:";
 
 type AcpCancelStates = Arc<Mutex<HashMap<String, Arc<AcpCancelState>>>>;
 
@@ -273,6 +272,112 @@ fn observe_acp_control_message(msg: &JsonRpcMessage, states: &AcpCancelStates) -
     }
 }
 
+fn install_acp_permission_forwarder() {
+    ha_core::tools::set_approval_request_forwarder(Some(Arc::new(|request| {
+        let Some(session_id) = request.session_id.as_deref() else {
+            return false;
+        };
+        let strict = request
+            .reason
+            .as_ref()
+            .is_some_and(|reason| reason.kind.is_strict());
+        let mut options = vec![serde_json::json!({
+            "optionId": "allow-once",
+            "name": "Allow once",
+            "kind": "allow_once"
+        })];
+        if !strict && !request.incognito {
+            options.push(serde_json::json!({
+                "optionId": "allow-always",
+                "name": "Always allow",
+                "kind": "allow_always"
+            }));
+        }
+        options.push(serde_json::json!({
+            "optionId": "reject-once",
+            "name": "Reject",
+            "kind": "reject_once"
+        }));
+        let outbound = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": format!("{ACP_PERMISSION_REQUEST_ID_PREFIX}{}", request.request_id),
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": session_id,
+                "toolCall": {
+                    "toolCallId": request.request_id,
+                    "title": request.command,
+                    "status": "pending",
+                    "rawInput": {
+                        "cwd": request.cwd,
+                        "reason": request.reason,
+                    }
+                },
+                "options": options
+            }
+        });
+        let Ok(line) = serde_json::to_string(&outbound) else {
+            return false;
+        };
+        use std::io::Write;
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        writeln!(handle, "{line}")
+            .and_then(|_| handle.flush())
+            .is_ok()
+    })));
+}
+
+fn handle_acp_permission_response(msg: &JsonRpcMessage) -> bool {
+    let Some(request_id) = msg
+        .id
+        .as_ref()
+        .and_then(Value::as_str)
+        .and_then(|id| id.strip_prefix(ACP_PERMISSION_REQUEST_ID_PREFIX))
+    else {
+        return false;
+    };
+    let option_id = msg
+        .result
+        .as_ref()
+        .and_then(|result| result.get("outcome"))
+        .and_then(|outcome| {
+            (outcome.get("outcome").and_then(Value::as_str) == Some("selected"))
+                .then(|| outcome.get("optionId").and_then(Value::as_str))
+                .flatten()
+        });
+    let request_id = request_id.to_string();
+    let option_id = option_id.map(str::to_string);
+    let _ = std::thread::Builder::new()
+        .name("ha-acp-permission-response".to_string())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(async move {
+                let response = match option_id.as_deref() {
+                    Some("allow-once") => ha_core::tools::ApprovalResponse::AllowOnce,
+                    Some("allow-always")
+                        if ha_core::tools::pending_approval_allows_always(&request_id).await =>
+                    {
+                        ha_core::tools::ApprovalResponse::AllowAlways
+                    }
+                    _ => ha_core::tools::ApprovalResponse::Deny,
+                };
+                let _ = ha_core::tools::submit_approval_response(
+                    &request_id,
+                    response,
+                    ha_core::tools::ApprovalResolutionSource::Acp,
+                )
+                .await;
+            });
+        });
+    true
+}
+
 fn spawn_acp_stop_cleanup(db: Arc<SessionDB>, internal_session_id: String) {
     let session_for_log = internal_session_id.clone();
     if let Err(error) = std::thread::Builder::new()
@@ -428,12 +533,19 @@ fn finalize_acp_user_stop(
 /// hook. Writing from the model callback would expose bytes before the journal
 /// or emergency spool had acknowledged them.
 struct AcpDurableEventSink {
+    protocol_version: AcpProtocolVersion,
     session_id: String,
+    message_id: String,
 }
 
 impl EventSink for AcpDurableEventSink {
     fn send(&self, event: &str) {
-        let Some(notification) = event_mapper::map_agent_event(&self.session_id, event) else {
+        let Some(notification) = event_mapper::map_agent_event(
+            &self.protocol_version,
+            &self.session_id,
+            &self.message_id,
+            event,
+        ) else {
             return;
         };
         let Ok(json) = serde_json::to_string(&notification) else {
@@ -453,6 +565,7 @@ pub struct AcpAgent {
     pub sessions: AcpSessionStore,
     pub session_db: Arc<SessionDB>,
     pub initialized: bool,
+    pub protocol_version: AcpProtocolVersion,
     pub verbose: bool,
     /// Default agent ID (from CLI flag)
     pub default_agent_id: String,
@@ -502,6 +615,7 @@ impl AcpAgent {
             sessions: AcpSessionStore::new(32),
             session_db,
             initialized: false,
+            protocol_version: AcpProtocolVersion::V1(ACP_PROTOCOL_VERSION_V1),
             verbose,
             default_agent_id,
             cancel_states: Arc::new(Mutex::new(HashMap::new())),
@@ -557,6 +671,7 @@ impl AcpAgent {
 
     /// Main loop: read messages from stdin, dispatch, respond
     pub fn run(&mut self) -> Result<()> {
+        install_acp_permission_forwarder();
         // Prompt handling is intentionally synchronous, but cancellation is a
         // notification on the same stdin stream. A dedicated reader must arm
         // and flip the turn token before queueing messages, otherwise the main
@@ -586,6 +701,9 @@ impl AcpAgent {
                         Ok(_) if line.trim().is_empty() => continue,
                         Ok(_) => match serde_json::from_str::<JsonRpcMessage>(line.trim()) {
                             Ok(msg) => {
+                                if handle_acp_permission_response(&msg) {
+                                    continue;
+                                }
                                 if msg.method.as_deref() == Some("session/cancel") {
                                     if let Some(session_id) =
                                         observe_acp_control_message(&msg, &cancel_states)
@@ -741,6 +859,7 @@ impl AcpAgent {
             "initialize" => self.do_initialize(params, id),
             "session/new" => self.do_new_session(params, id),
             "session/load" => self.do_load_session(params, id),
+            "session/resume" => self.do_resume_session(params, id),
             "session/prompt" => self.do_prompt(params, id),
             "session/setMode" => self.do_set_session_mode(params, id),
             "session/setConfigOption" => self.do_set_config_option(params, id),
@@ -769,24 +888,14 @@ impl AcpAgent {
             self.sessions.set_client_capabilities(caps);
         }
 
+        self.protocol_version = AcpProtocolVersion::negotiated(&req.protocol_version);
         self.initialized = true;
-
-        // Epic D / DEADLOCK-1: ACP has no outbound `session/request_permission`
-        // forwarding yet, so a tool that needs approval can't reach the editor.
-        // The unattended-surface check (permission::approval_surface) fail-closes
-        // those to a clear deny instead of hanging the prompt forever — surface
-        // it up front so the operator knows interactive approvals won't appear in
-        // the editor and can switch that agent to YOLO / auto-approve if it needs
-        // to edit. (`set_acp_permission_capable` stays false until real
-        // forwarding lands.)
-        app_warn!(
-            "acp",
-            "initialize",
-            "ACP mode has no approval-forwarding channel; tools that need approval are auto-denied (fail-closed). Use YOLO / per-agent auto-approve for unattended ACP editing."
+        ha_core::permission::approval_surface::set_acp_permission_capable(
+            self.protocol_version.is_v1(),
         );
 
         let response = InitializeResponse {
-            protocol_version: ACP_PROTOCOL_VERSION.to_string(),
+            protocol_version: self.protocol_version.clone(),
             agent_capabilities: AgentCapabilities {
                 load_session: true,
                 prompt_capabilities: PromptCapabilities {
@@ -794,8 +903,14 @@ impl AcpAgent {
                     audio: false,
                     embedded_context: true,
                 },
+                // Hope currently does not connect the per-session mcpServers
+                // supplied by an ACP client, so it must not advertise either
+                // transport until that execution path exists.
+                mcp_capabilities: None,
                 session_capabilities: Some(SessionCapabilities {
-                    list: Value::Object(serde_json::Map::new()),
+                    list: Some(Value::Object(serde_json::Map::new())),
+                    resume: Some(Value::Object(serde_json::Map::new())),
+                    close: Some(Value::Object(serde_json::Map::new())),
                 }),
             },
             agent_info: AgentInfo {
@@ -949,6 +1064,59 @@ impl AcpAgent {
         JsonRpcResponse::success(id.clone(), serde_json::to_value(&response).unwrap())
     }
 
+    // ── session/resume ──────────────────────────────────────────
+
+    fn do_resume_session(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
+        let req: ResumeSessionRequest = match serde_json::from_value(params.clone()) {
+            Ok(request) => request,
+            Err(error) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, error.to_string())
+            }
+        };
+        let session_meta = match self.session_db.get_session(&req.session_id) {
+            Ok(Some(meta)) => meta,
+            Ok(None) => {
+                return JsonRpcResponse::error(
+                    id.clone(),
+                    ERROR_INVALID_PARAMS,
+                    "Session not found",
+                )
+            }
+            Err(error) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, error.to_string())
+            }
+        };
+        let agent_id = session_meta.agent_id.clone();
+        persist_acp_ide_context(&self.session_db, &req.session_id, &req.meta);
+        let agent = match self.build_agent(&agent_id, &req.session_id) {
+            Ok(agent) => agent,
+            Err(error) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, error.to_string())
+            }
+        };
+        restore_agent_context(&self.session_db, &req.session_id, &agent);
+        let acp_session = AcpSession {
+            session_id: req.session_id.clone(),
+            internal_session_id: req.session_id.clone(),
+            agent_id: agent_id.clone(),
+            cwd: req.cwd,
+            agent,
+            cancel: Arc::new(AtomicBool::new(false)),
+            active_prompt: false,
+            created_at: now_epoch_secs(),
+            last_activity_at: now_epoch_secs(),
+        };
+        if let Err(error) = self.sessions.insert(acp_session) {
+            return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, error.to_string());
+        }
+        self.reconcile_cancel_states();
+        let response = ResumeSessionResponse {
+            config_options: Some(self.build_config_options(&agent_id)),
+            modes: Some(self.build_modes(&agent_id)),
+        };
+        JsonRpcResponse::success(id.clone(), serde_json::to_value(response).unwrap())
+    }
+
     // ── session/prompt ──────────────────────────────────────────
 
     fn do_prompt(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
@@ -1080,14 +1248,16 @@ impl AcpAgent {
                     let _ = self
                         .session_db
                         .append_message(&session_id, &session::NewMessage::event(&notice));
-                    let update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut update = session_update_params(
+                        &self.protocol_version,
+                        &session_id,
+                        serde_json::json!({
                             "sessionUpdate": "agent_message_chunk",
+                            "messageId": format!("msg-agent-{turn_id}"),
                             "content": { "type": "text", "text": notice }
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    update["final"] = Value::Bool(true);
                     let _ = self
                         .transport
                         .write_notification(&JsonRpcNotification::new("session/update", update));
@@ -1163,14 +1333,15 @@ impl AcpAgent {
             None,
         ) {
             // Emit session_info_update
-            let notif = serde_json::json!({
-                "sessionId": session_id,
-                "sessionUpdate": {
+            let notif = session_update_params(
+                &self.protocol_version,
+                &session_id,
+                serde_json::json!({
                     "sessionUpdate": "session_info_update",
                     "title": title,
                     "updatedAt": chrono::Utc::now().to_rfc3339(),
-                }
-            });
+                }),
+            );
             let _ = self
                 .transport
                 .write_notification(&JsonRpcNotification::new("session/update", notif));
@@ -1528,7 +1699,9 @@ impl AcpAgent {
                 None,
                 None,
                 Arc::new(AcpDurableEventSink {
+                    protocol_version: self.protocol_version.clone(),
                     session_id: session_id_owned.clone(),
+                    message_id: format!("msg-agent-{}", uuid::Uuid::new_v4()),
                 }),
                 cancel.clone(),
                 None,
@@ -2149,25 +2322,29 @@ impl AcpAgent {
         for msg in &messages {
             let notif = match msg.role {
                 session::MessageRole::User => {
-                    let update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut update = session_update_params(
+                        &self.protocol_version,
+                        session_id,
+                        serde_json::json!({
                             "sessionUpdate": "user_message_chunk",
+                            "messageId": format!("msg-user-{}", msg.id),
                             "content": { "type": "text", "text": msg.content }
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    update["final"] = Value::Bool(true);
                     Some(JsonRpcNotification::new("session/update", update))
                 }
                 session::MessageRole::Assistant | session::MessageRole::TextBlock => {
-                    let update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut update = session_update_params(
+                        &self.protocol_version,
+                        session_id,
+                        serde_json::json!({
                             "sessionUpdate": "agent_message_chunk",
+                            "messageId": format!("msg-agent-{}", msg.id),
                             "content": { "type": "text", "text": msg.content }
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    update["final"] = Value::Bool(true);
                     Some(JsonRpcNotification::new("session/update", update))
                 }
                 session::MessageRole::Tool => {
@@ -2179,16 +2356,17 @@ impl AcpAgent {
                         "completed"
                     };
 
-                    let start_update = serde_json::json!({
-                        "sessionId": session_id,
-                        "sessionUpdate": {
+                    let mut start_update = session_update_params(
+                        &self.protocol_version,
+                        session_id,
+                        serde_json::json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": call_id,
                             "title": tool_name,
                             "status": status,
-                        },
-                        "final": true,
-                    });
+                        }),
+                    );
+                    start_update["final"] = Value::Bool(true);
                     let _ = self.transport.write_notification(&JsonRpcNotification::new(
                         "session/update",
                         start_update,
@@ -2200,16 +2378,17 @@ impl AcpAgent {
                         } else {
                             result.clone()
                         };
-                        let result_update = serde_json::json!({
-                            "sessionId": session_id,
-                            "sessionUpdate": {
+                        let mut result_update = session_update_params(
+                            &self.protocol_version,
+                            session_id,
+                            serde_json::json!({
                                 "sessionUpdate": "tool_call_update",
                                 "toolCallId": call_id,
                                 "status": status,
-                                "content": [{"type": "text", "content": {"type": "text", "text": truncated}}]
-                            },
-                            "final": true,
-                        });
+                                "content": [{"type": "content", "content": {"type": "text", "text": truncated}}]
+                            }),
+                        );
+                        result_update["final"] = Value::Bool(true);
                         Some(JsonRpcNotification::new("session/update", result_update))
                     } else {
                         None

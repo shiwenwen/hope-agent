@@ -78,6 +78,20 @@ impl ManagedProcess {
         self.child.stdin.as_mut()
     }
 
+    /// Detach the stdout receiver from the process handle. Long-running RPC
+    /// adapters must not hold a mutex over the whole [`ManagedProcess`] while
+    /// awaiting stdout, because that would block concurrent stdin writes.
+    pub fn take_stdout_rx(&mut self) -> mpsc::Receiver<String> {
+        let (_tx, closed_rx) = mpsc::channel(1);
+        std::mem::replace(&mut self.stdout_rx, closed_rx)
+    }
+
+    /// Detach the stderr receiver for independent diagnostic consumption.
+    pub fn take_stderr_rx(&mut self) -> mpsc::Receiver<String> {
+        let (_tx, closed_rx) = mpsc::channel(1);
+        std::mem::replace(&mut self.stderr_rx, closed_rx)
+    }
+
     /// Check if the process is still running.
     pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>> {
         Ok(self.child.try_wait()?)

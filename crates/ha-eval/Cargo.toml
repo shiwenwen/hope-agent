@@ -66,4 +66,4 @@ workspace = true
 # Normal CLI/Sidecar builds contain every deterministic adapter. PR smoke
 # builds disable defaults so they can reuse ha-core's ordinary feature set.
 default = ["full-runner"]
-full-runner = ["ha-core/eval-runner"]
+full-runner = ["ha-core/eval-runner", "ha-knowledge/eval-runner"]

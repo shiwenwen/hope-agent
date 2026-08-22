@@ -49,6 +49,16 @@ pub fn embed_pending_refs<T: Serialize>(raw: &mut serde_json::Value, refs: Vec<T
     }
 }
 
+/// Cheap, provider-agnostic check used by gated workflows that need to know
+/// whether an inbound message carries deferred media without deserializing or
+/// consuming the provider-specific reference payload.
+pub fn has_pending_refs(msg: &MsgContext) -> bool {
+    msg.raw
+        .get(PENDING_MEDIA_KEY)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|refs| !refs.is_empty())
+}
+
 /// Take and remove deferred-download refs from `msg.raw`. Returns empty
 /// when no refs were embedded or the payload is malformed — we silently
 /// drop bad payloads rather than fail the message, the surrounding text

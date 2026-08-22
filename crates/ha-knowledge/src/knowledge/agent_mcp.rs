@@ -9,13 +9,13 @@ use std::io::{self, BufRead, Write};
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
+use ha_core::mcp_protocol::{discover_result, McpProtocolSession};
+
 use super::agent_api;
 use super::types::{
     KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput, KnowledgeAgentReadInput,
     KnowledgeAgentSearchInput, KnowledgeAgentSourcesInput,
 };
-
-const PROTOCOL_VERSION: &str = "2025-03-26";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KnowledgeMcpOptions {
@@ -31,6 +31,7 @@ pub fn run_stdio(options: KnowledgeMcpOptions) -> Result<()> {
         .map_err(|e| anyhow!("failed to create MCP runtime: {e}"))?;
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
+    let mut protocol = McpProtocolSession::default();
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -38,7 +39,7 @@ pub fn run_stdio(options: KnowledgeMcpOptions) -> Result<()> {
             continue;
         }
         let response = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle_message(message, options, Some(&runtime)),
+            Ok(message) => handle_message(message, options, Some(&runtime), &mut protocol),
             Err(e) => Some(jsonrpc_error(
                 Value::Null,
                 -32700,
@@ -58,6 +59,7 @@ pub fn handle_message(
     message: Value,
     options: KnowledgeMcpOptions,
     runtime: Option<&tokio::runtime::Runtime>,
+    protocol: &mut McpProtocolSession,
 ) -> Option<Value> {
     let id = message.get("id").cloned();
     let Some(method) = message.get("method").and_then(Value::as_str) else {
@@ -66,33 +68,61 @@ pub fn handle_message(
     let params = message.get("params").cloned().unwrap_or(Value::Null);
 
     match method {
-        "initialize" => id.map(|id| jsonrpc_result(id, initialize_result())),
-        "ping" => id.map(|id| jsonrpc_result(id, json!({}))),
+        "server/discover" => id.map(|id| jsonrpc_result(id, discovery_result_value())),
+        "initialize" => {
+            let version = protocol.negotiate_initialize(&params);
+            id.map(|id| jsonrpc_result(id, initialize_result(version)))
+        }
+        "ping" => id.map(|id| jsonrpc_result(id, protocol.complete_result(json!({})))),
         "notifications/initialized" => None,
-        "tools/list" => id.map(|id| jsonrpc_result(id, tools_list_result(options))),
+        "tools/list" => {
+            id.map(|id| jsonrpc_result(id, protocol.complete_result(tools_list_result(options))))
+        }
         "tools/call" => id.map(|id| match call_tool(params, options, runtime) {
-            Ok(result) => jsonrpc_result(id, result),
-            Err(e) => jsonrpc_result(id, tool_text_result(e.to_string(), true)),
+            Ok(result) => jsonrpc_result(id, protocol.complete_result(result)),
+            Err(e) => jsonrpc_result(
+                id,
+                protocol.complete_result(tool_text_result(e.to_string(), true)),
+            ),
         }),
-        "resources/list" => id.map(|id| jsonrpc_result(id, json!({ "resources": [] }))),
-        "prompts/list" => id.map(|id| jsonrpc_result(id, json!({ "prompts": [] }))),
+        "resources/list" => {
+            id.map(|id| jsonrpc_result(id, protocol.complete_result(json!({ "resources": [] }))))
+        }
+        "prompts/list" => {
+            id.map(|id| jsonrpc_result(id, protocol.complete_result(json!({ "prompts": [] }))))
+        }
         _ => id.map(|id| jsonrpc_error(id, -32601, format!("method not found: {method}"))),
     }
 }
 
-fn initialize_result() -> Value {
+fn capabilities() -> Value {
     json!({
-        "protocolVersion": PROTOCOL_VERSION,
-        "capabilities": {
-            "tools": { "listChanged": false },
-            "resources": {},
-            "prompts": {}
-        },
+        "tools": { "listChanged": false },
+        "resources": {},
+        "prompts": {}
+    })
+}
+
+const INSTRUCTIONS: &str = "Use the knowledge_* tools to read Hope Agent Knowledge Space notes. Raw sources are returned only when explicitly requested.";
+
+fn discovery_result_value() -> Value {
+    discover_result(
+        capabilities(),
+        "hope-agent-knowledge",
+        ha_core::app_version(),
+        INSTRUCTIONS,
+    )
+}
+
+fn initialize_result(protocol_version: &str) -> Value {
+    json!({
+        "protocolVersion": protocol_version,
+        "capabilities": capabilities(),
         "serverInfo": {
             "name": "hope-agent-knowledge",
             "version": ha_core::app_version()
         },
-        "instructions": "Use the knowledge_* tools to read Hope Agent Knowledge Space notes. Raw sources are returned only when explicitly requested."
+        "instructions": INSTRUCTIONS
     })
 }
 
@@ -290,6 +320,7 @@ mod tests {
             json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" }),
             KnowledgeMcpOptions::default(),
             None,
+            &mut McpProtocolSession::default(),
         )
         .expect("response");
         assert_eq!(
@@ -300,6 +331,7 @@ mod tests {
             response["result"]["capabilities"]["tools"]["listChanged"],
             false
         );
+        assert_eq!(response["result"]["protocolVersion"], "2026-07-28");
     }
 
     #[test]
@@ -308,6 +340,7 @@ mod tests {
             json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
             KnowledgeMcpOptions::default(),
             None,
+            &mut McpProtocolSession::default(),
         )
         .expect("response");
         let tools = response["result"]["tools"].as_array().expect("tools");
@@ -328,6 +361,7 @@ mod tests {
                 allow_proposals: true,
             },
             None,
+            &mut McpProtocolSession::default(),
         )
         .expect("response");
         let tools = response["result"]["tools"].as_array().expect("tools");
@@ -342,6 +376,7 @@ mod tests {
             json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
             KnowledgeMcpOptions::default(),
             None,
+            &mut McpProtocolSession::default(),
         );
         assert!(response.is_none());
     }
@@ -360,6 +395,7 @@ mod tests {
             }),
             KnowledgeMcpOptions::default(),
             None,
+            &mut McpProtocolSession::default(),
         )
         .expect("response");
         assert_eq!(response["result"]["isError"], true);

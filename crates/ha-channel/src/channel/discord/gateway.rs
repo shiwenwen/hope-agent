@@ -21,6 +21,9 @@ const OP_HEARTBEAT_ACK: u64 = 11;
 /// Discord Gateway Intents bitmask.
 /// GUILDS(1<<0) | GUILD_MESSAGES(1<<9) | DIRECT_MESSAGES(1<<12) | MESSAGE_CONTENT(1<<15)
 const GATEWAY_INTENTS: u64 = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
+/// Temporary Identify capability for Discord private-channel obfuscation.
+const GATEWAY_CAPABILITY_CHANNEL_OBFUSCATION: u64 = 1 << 15;
+const CHANNEL_FLAG_OBFUSCATED: u64 = 1 << 17;
 
 const MAX_RECONNECT_ATTEMPTS: usize = 50;
 
@@ -37,8 +40,9 @@ const DISCORD_CHANNEL_TYPE_GUILD_MEDIA: u64 = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DiscordChannelInfo {
-    channel_type: u64,
+    channel_type: Option<u64>,
     parent_id: Option<String>,
+    obfuscated: bool,
 }
 
 /// Run the Discord gateway WebSocket loop.
@@ -52,6 +56,7 @@ pub async fn run_gateway_loop(
     bot_username: String,
     inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
+    channel_obfuscation: bool,
 ) {
     app_info!(
         "channel",
@@ -200,7 +205,7 @@ pub async fn run_gateway_loop(
             }
         } else {
             // Full IDENTIFY
-            send_identify(&mut ws, api.token()).await
+            send_identify(&mut ws, api.token(), channel_obfuscation).await
         };
 
         if !identify_success {
@@ -459,6 +464,19 @@ pub async fn run_gateway_loop(
                                                     Some(callback_source),
                                                 ).await;
                                             });
+                                        } else if crate::channel::worker::ask_user::is_ask_user_file_open_callback(custom_id) {
+                                            let api_clone = api.clone();
+                                            let interaction = d.clone();
+                                            let custom_id = custom_id.to_string();
+                                            tokio::spawn(async move {
+                                                open_ask_user_file_modal(
+                                                    &api_clone,
+                                                    &interaction,
+                                                    &custom_id,
+                                                    &callback_source,
+                                                )
+                                                .await;
+                                            });
                                         } else if crate::channel::worker::ask_user::is_ask_user_callback(custom_id) {
                                             // Dispatch ask_user callback (uses generic
                                             // spawn_callback_handler; Discord interaction
@@ -504,6 +522,31 @@ pub async fn run_gateway_loop(
                                             });
                                         }
                                         // Don't pass component interactions to convert_interaction
+                                    } else if interaction_type == 5 {
+                                        let custom_id = d
+                                            .get("data")
+                                            .and_then(|data| data.get("custom_id"))
+                                            .and_then(|value| value.as_str())
+                                            .unwrap_or("");
+                                        if crate::channel::worker::ask_user::is_ask_user_file_modal_submit(custom_id) {
+                                            let api_clone = api.clone();
+                                            let interaction = d.clone();
+                                            let custom_id = custom_id.to_string();
+                                            let account_id = account_id.clone();
+                                            let inbound_tx = inbound_tx.clone();
+                                            let channel_cache = channel_cache.clone();
+                                            tokio::spawn(async move {
+                                                handle_ask_user_file_modal_submit(
+                                                    &api_clone,
+                                                    &interaction,
+                                                    &custom_id,
+                                                    &account_id,
+                                                    &inbound_tx,
+                                                    &channel_cache,
+                                                )
+                                                .await;
+                                            });
+                                        }
                                     } else if let Some(ctx) = convert_interaction(
                                         d,
                                         &account_id,
@@ -622,8 +665,8 @@ async fn recv_hello(ws: &mut WsConnection, cancel: &CancellationToken) -> Option
 }
 
 /// Send the IDENTIFY payload.
-async fn send_identify(ws: &mut WsConnection, token: &str) -> bool {
-    let identify = build_identify_payload(token);
+async fn send_identify(ws: &mut WsConnection, token: &str, channel_obfuscation: bool) -> bool {
+    let identify = build_identify_payload(token, channel_obfuscation);
 
     match ws.send_json(&identify).await {
         Ok(()) => {
@@ -642,8 +685,8 @@ async fn send_identify(ws: &mut WsConnection, token: &str) -> bool {
     }
 }
 
-fn build_identify_payload(token: &str) -> serde_json::Value {
-    serde_json::json!({
+fn build_identify_payload(token: &str, channel_obfuscation: bool) -> serde_json::Value {
+    let mut payload = serde_json::json!({
         "op": OP_IDENTIFY,
         "d": {
             "token": token,
@@ -654,7 +697,11 @@ fn build_identify_payload(token: &str) -> serde_json::Value {
                 "device": "hope-agent"
             }
         }
-    })
+    });
+    if channel_obfuscation {
+        payload["d"]["capabilities"] = serde_json::json!(GATEWAY_CAPABILITY_CHANNEL_OBFUSCATION);
+    }
+    payload
 }
 
 // ── Event Converters ────────────────────────────────────────────
@@ -712,18 +759,27 @@ fn upsert_channel_info(
     let Some(id) = channel.get("id").and_then(|v| v.as_str()) else {
         return;
     };
-    let Some(channel_type) = channel.get("type").and_then(|v| v.as_u64()) else {
-        return;
-    };
+    let channel_type = channel.get("type").and_then(|v| v.as_u64());
     let parent_id = channel
         .get("parent_id")
         .and_then(|v| v.as_str())
         .map(str::to_string);
+    let flags = channel
+        .get("flags")
+        .and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_str().and_then(|raw| raw.parse().ok()))
+        })
+        .unwrap_or_default();
+    let obfuscated = flags & CHANNEL_FLAG_OBFUSCATED != 0
+        || channel.get("name").and_then(serde_json::Value::as_str) == Some("___hidden___");
     cache.insert(
         id.to_string(),
         DiscordChannelInfo {
             channel_type,
             parent_id,
+            obfuscated,
         },
     );
 }
@@ -737,13 +793,25 @@ fn is_thread_channel_type(channel_type: u64) -> bool {
     )
 }
 
+fn channel_is_obfuscated(channel_id: &str, cache: &HashMap<String, DiscordChannelInfo>) -> bool {
+    let Some(info) = cache.get(channel_id) else {
+        return false;
+    };
+    info.obfuscated
+        || info
+            .parent_id
+            .as_deref()
+            .and_then(|parent_id| cache.get(parent_id))
+            .is_some_and(|parent| parent.obfuscated)
+}
+
 fn chat_type_from_channel(
     channel_id: &str,
     has_guild: bool,
     cache: &HashMap<String, DiscordChannelInfo>,
 ) -> (ChatType, Option<String>, String) {
     if !has_guild {
-        let chat_type = match cache.get(channel_id).map(|info| info.channel_type) {
+        let chat_type = match cache.get(channel_id).and_then(|info| info.channel_type) {
             Some(DISCORD_CHANNEL_TYPE_GROUP_DM) => ChatType::Group,
             Some(DISCORD_CHANNEL_TYPE_DM) | Some(_) | None => ChatType::Dm,
         };
@@ -754,12 +822,12 @@ fn chat_type_from_channel(
         return (ChatType::Group, None, channel_id.to_string());
     };
 
-    if is_thread_channel_type(info.channel_type) {
+    if info.channel_type.is_some_and(is_thread_channel_type) {
         let parent_id = info.parent_id.clone();
         let parent_type = parent_id
             .as_deref()
             .and_then(|pid| cache.get(pid))
-            .map(|parent| parent.channel_type);
+            .and_then(|parent| parent.channel_type);
         let chat_type = match parent_type {
             Some(DISCORD_CHANNEL_TYPE_GUILD_FORUM | DISCORD_CHANNEL_TYPE_GUILD_MEDIA) => {
                 ChatType::Forum
@@ -772,8 +840,10 @@ fn chat_type_from_channel(
     }
 
     let chat_type = match info.channel_type {
-        DISCORD_CHANNEL_TYPE_GUILD_FORUM | DISCORD_CHANNEL_TYPE_GUILD_MEDIA => ChatType::Forum,
-        DISCORD_CHANNEL_TYPE_GUILD_NEWS => ChatType::Channel,
+        Some(DISCORD_CHANNEL_TYPE_GUILD_FORUM | DISCORD_CHANNEL_TYPE_GUILD_MEDIA) => {
+            ChatType::Forum
+        }
+        Some(DISCORD_CHANNEL_TYPE_GUILD_NEWS) => ChatType::Channel,
         _ => ChatType::Group,
     };
     (chat_type, None, channel_id.to_string())
@@ -797,6 +867,12 @@ fn convert_message_create(
     }
 
     let raw_channel_id = d["channel_id"].as_str()?;
+    if channel_is_obfuscated(raw_channel_id, channel_cache) {
+        // Hidden channels must never become selectable delivery targets or
+        // inbound conversation bindings, even when a malformed fixture pairs
+        // an obfuscated cache entry with a message dispatch.
+        return None;
+    }
     let message_id = d["id"].as_str()?.to_string();
 
     let has_guild = d.get("guild_id").and_then(|v| v.as_str()).is_some();
@@ -942,6 +1018,216 @@ fn ack_component_interaction(api: Arc<DiscordApi>, d: &serde_json::Value) {
     });
 }
 
+async fn open_ask_user_file_modal(
+    api: &DiscordApi,
+    interaction: &serde_json::Value,
+    custom_id: &str,
+    callback_source: &crate::channel::worker::ask_user::InteractiveCallbackSource,
+) {
+    let interaction_id = interaction["id"].as_str().unwrap_or("");
+    let interaction_token = interaction["token"].as_str().unwrap_or("");
+    if interaction_id.is_empty() || interaction_token.is_empty() {
+        return;
+    }
+    match crate::channel::worker::ask_user::build_discord_file_modal(custom_id, callback_source)
+        .await
+    {
+        Ok(modal) => {
+            if let Err(error) = api
+                .create_interaction_response(interaction_id, interaction_token, 9, Some(modal))
+                .await
+            {
+                app_warn!(
+                    "channel",
+                    "discord::gateway",
+                    "Failed to open ask_user file modal: {}",
+                    ha_core::logging::redact_sensitive(&error.to_string())
+                );
+            }
+        }
+        Err(error) => {
+            let data = serde_json::json!({
+                "content": format!("File request unavailable: {}", ha_core::logging::redact_sensitive(&error.to_string())),
+                "flags": 64
+            });
+            let _ = api
+                .create_interaction_response(interaction_id, interaction_token, 4, Some(data))
+                .await;
+        }
+    }
+}
+
+async fn handle_ask_user_file_modal_submit(
+    api: &DiscordApi,
+    interaction: &serde_json::Value,
+    custom_id: &str,
+    account_id: &str,
+    inbound_tx: &tokio::sync::mpsc::Sender<InboundEvent>,
+    channel_cache: &Arc<tokio::sync::Mutex<HashMap<String, DiscordChannelInfo>>>,
+) {
+    let interaction_id = interaction["id"].as_str().unwrap_or("");
+    let interaction_token = interaction["token"].as_str().unwrap_or("");
+    if interaction_id.is_empty() || interaction_token.is_empty() {
+        return;
+    }
+    let raw_channel_id = interaction["channel_id"].as_str().unwrap_or("");
+    let has_guild = interaction
+        .get("guild_id")
+        .and_then(serde_json::Value::as_str)
+        .is_some();
+    let (chat_type, thread_id, chat_id) = {
+        let cache = channel_cache.lock().await;
+        chat_type_from_channel(raw_channel_id, has_guild, &cache)
+    };
+    let callback_source = crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+        ChannelId::Discord,
+        account_id,
+        &chat_id,
+        thread_id.as_deref(),
+    );
+    if let Err(error) = crate::channel::worker::ask_user::validate_discord_file_modal_submit(
+        custom_id,
+        &callback_source,
+    )
+    .await
+    {
+        let data = serde_json::json!({
+            "content": format!("File request unavailable: {}", ha_core::logging::redact_sensitive(&error.to_string())),
+            "flags": 64
+        });
+        let _ = api
+            .create_interaction_response(interaction_id, interaction_token, 4, Some(data))
+            .await;
+        return;
+    }
+
+    let Some(ctx) =
+        convert_file_modal_submit(interaction, account_id, chat_type, chat_id, thread_id)
+    else {
+        let data = serde_json::json!({
+            "content": "The selected file metadata was incomplete. Please try again.",
+            "flags": 64
+        });
+        let _ = api
+            .create_interaction_response(interaction_id, interaction_token, 4, Some(data))
+            .await;
+        return;
+    };
+
+    let acknowledgement = serde_json::json!({
+        "content": "File received. Validating it now…",
+        "flags": 64
+    });
+    if let Err(error) = api
+        .create_interaction_response(interaction_id, interaction_token, 4, Some(acknowledgement))
+        .await
+    {
+        app_warn!(
+            "channel",
+            "discord::gateway",
+            "Failed to acknowledge ask_user file modal: {}",
+            ha_core::logging::redact_sensitive(&error.to_string())
+        );
+    }
+    if let Err(error) = inbound_tx.send(InboundEvent::Message(ctx)).await {
+        app_error!(
+            "channel",
+            "discord::gateway",
+            "Failed to dispatch ask_user file modal response: {}",
+            error
+        );
+    }
+}
+
+fn modal_file_values(data: &serde_json::Value) -> Vec<String> {
+    fn visit(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    visit(value, out);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                if map.get("type").and_then(serde_json::Value::as_u64) == Some(19) {
+                    if let Some(values) = map.get("values").and_then(serde_json::Value::as_array) {
+                        out.extend(
+                            values
+                                .iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .map(str::to_string),
+                        );
+                    }
+                }
+                for value in map.values() {
+                    visit(value, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut values = Vec::new();
+    visit(
+        data.get("components").unwrap_or(&serde_json::Value::Null),
+        &mut values,
+    );
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn convert_file_modal_submit(
+    interaction: &serde_json::Value,
+    account_id: &str,
+    chat_type: ChatType,
+    chat_id: String,
+    thread_id: Option<String>,
+) -> Option<MsgContext> {
+    let data = interaction.get("data")?;
+    let values = modal_file_values(data);
+    if values.len() != 1 {
+        return None;
+    }
+    let attachments = data.get("resolved")?.get("attachments")?.as_object()?;
+    let selected = attachments.get(&values[0])?.clone();
+    let envelope = serde_json::json!({ "attachments": [selected] });
+    let pending_media = super::inbound_media::parse_message_attachments(&envelope);
+    if pending_media.len() != 1 {
+        return None;
+    }
+    let user = interaction
+        .get("member")
+        .and_then(|member| member.get("user"))
+        .or_else(|| interaction.get("user"))?;
+    let mut raw = interaction.clone();
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
+    Some(MsgContext {
+        channel_id: ChannelId::Discord,
+        account_id: account_id.to_string(),
+        sender_id: user.get("id")?.as_str()?.to_string(),
+        sender_name: user
+            .get("global_name")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| user.get("username").and_then(serde_json::Value::as_str))
+            .map(str::to_string),
+        sender_username: user
+            .get("username")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        sender_tenant_id: None,
+        chat_id,
+        chat_type,
+        chat_title: None,
+        thread_id,
+        message_id: interaction.get("id")?.as_str()?.to_string(),
+        text: None,
+        media: Vec::new(),
+        reply_to_message_id: None,
+        timestamp: chrono::Utc::now(),
+        was_mentioned: true,
+        raw,
+    })
+}
+
 /// Handle an approval button component interaction: submit the approval response
 /// and update the original message to show the result.
 async fn handle_approval_component(
@@ -1072,19 +1358,123 @@ mod tests {
 
     fn channel_info(channel_type: u64, parent_id: Option<&str>) -> DiscordChannelInfo {
         DiscordChannelInfo {
-            channel_type,
+            channel_type: Some(channel_type),
             parent_id: parent_id.map(str::to_string),
+            obfuscated: false,
         }
     }
 
     #[test]
     fn identify_payload_uses_runtime_os() {
-        let payload = build_identify_payload("Bot token");
+        let payload = build_identify_payload("Bot token", false);
         assert_eq!(
             payload["d"]["properties"]["os"].as_str(),
             Some(std::env::consts::OS)
         );
         assert_eq!(payload["d"]["token"].as_str(), Some("Bot token"));
+        assert!(payload["d"].get("capabilities").is_none());
+    }
+
+    #[test]
+    fn identify_payload_opts_into_channel_obfuscation_explicitly() {
+        let payload = build_identify_payload("Bot token", true);
+        assert_eq!(
+            payload["d"]["capabilities"].as_u64(),
+            Some(GATEWAY_CAPABILITY_CHANNEL_OBFUSCATION)
+        );
+    }
+
+    #[test]
+    fn modal_file_values_only_collects_file_upload_component() {
+        let data = serde_json::json!({
+            "components": [{
+                "type": 18,
+                "component": {
+                    "type": 19,
+                    "custom_id": "upload",
+                    "values": ["file-2", "file-1", "file-1"]
+                }
+            }, {
+                "type": 18,
+                "component": { "type": 4, "values": ["not-a-file"] }
+            }]
+        });
+        assert_eq!(modal_file_values(&data), ["file-1", "file-2"]);
+    }
+
+    #[test]
+    fn file_modal_submit_becomes_one_deferred_attachment() {
+        let interaction = serde_json::json!({
+            "id": "interaction-1",
+            "user": { "id": "user-1", "username": "tester" },
+            "data": {
+                "custom_id": "ask_user:req:fm:0",
+                "components": [{
+                    "type": 18,
+                    "component": { "type": 19, "values": ["att-1"] }
+                }],
+                "resolved": { "attachments": {
+                    "att-1": {
+                        "id": "att-1",
+                        "url": "https://cdn.discordapp.com/ephemeral-attachments/a/att-1/test.pdf",
+                        "filename": "test.pdf",
+                        "content_type": "application/pdf",
+                        "size": 128
+                    }
+                }}
+            }
+        });
+        let ctx =
+            convert_file_modal_submit(&interaction, "account", ChatType::Dm, "chat".into(), None)
+                .expect("valid file modal submit");
+        assert!(ctx.media.is_empty());
+        assert!(crate::channel::inbound_media_common::has_pending_refs(&ctx));
+    }
+
+    #[test]
+    fn obfuscated_channel_is_hidden_until_full_update_restores_it() {
+        let mut cache = HashMap::new();
+        upsert_channel_info(
+            &mut cache,
+            &serde_json::json!({
+                "id": "private",
+                "type": DISCORD_CHANNEL_TYPE_GUILD_TEXT,
+                "name": "___hidden___",
+                "flags": CHANNEL_FLAG_OBFUSCATED,
+                "parent_id": null,
+            }),
+        );
+        assert!(channel_is_obfuscated("private", &cache));
+
+        upsert_channel_info(
+            &mut cache,
+            &serde_json::json!({
+                "id": "private",
+                "type": DISCORD_CHANNEL_TYPE_GUILD_TEXT,
+                "name": "restored",
+                "flags": 0,
+                "parent_id": null,
+            }),
+        );
+        assert!(!channel_is_obfuscated("private", &cache));
+    }
+
+    #[test]
+    fn obfuscated_parent_hides_child_thread() {
+        let mut cache = HashMap::new();
+        cache.insert(
+            "parent".to_string(),
+            DiscordChannelInfo {
+                channel_type: Some(DISCORD_CHANNEL_TYPE_GUILD_TEXT),
+                parent_id: None,
+                obfuscated: true,
+            },
+        );
+        cache.insert(
+            "thread".to_string(),
+            channel_info(DISCORD_CHANNEL_TYPE_PUBLIC_THREAD, Some("parent")),
+        );
+        assert!(channel_is_obfuscated("thread", &cache));
     }
 
     #[test]

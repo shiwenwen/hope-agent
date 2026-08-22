@@ -94,6 +94,8 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
     // file:// URL——自包含产物的相对 CSS/JS/图片都在同目录，可直接加载。
     let url = format!("file://{}", index.to_string_lossy());
 
+    let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
+
     let backend = ha_browser::browser::acquire_backend()
         .await
         .context("no browser backend available for native export")?;
@@ -247,6 +249,7 @@ async fn capture_video_inner(
     max_secs: u32,
     work: &std::path::Path,
 ) -> Result<Vec<u8>> {
+    let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
     let backend = ha_browser::browser::acquire_backend()
         .await
         .context("no browser backend available for native video export")?;

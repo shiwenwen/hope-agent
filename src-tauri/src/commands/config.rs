@@ -1298,14 +1298,19 @@ pub async fn set_session_awareness_override(
 }
 
 /// Read the hooks settings for the Settings → Hooks GUI: the
-/// `disable_all_hooks` master switch + the user-scope `hooks` map. Project /
-/// local / managed scopes are file-based and not surfaced here.
+/// `disable_all_hooks` master switch + user-scope hooks + content-bound trusted
+/// workspace paths. Project/local files remain file-based and are never
+/// returned with their stored hashes.
 #[tauri::command]
 pub async fn get_hooks_config() -> Result<ha_core::hooks::config::HooksSettings, CmdError> {
     let cfg = ha_core::config::cached_config();
     Ok(ha_core::hooks::config::HooksSettings {
         disable_all_hooks: cfg.disable_all_hooks,
-        allow_project_scope: cfg.hooks_allow_project_scope,
+        trusted_project_scopes: cfg
+            .hook_workspace_trusts
+            .iter()
+            .map(|trust| trust.canonical_path.clone())
+            .collect(),
         hooks: cfg.hooks.clone(),
     })
 }
@@ -1318,9 +1323,24 @@ pub async fn get_hooks_config() -> Result<ha_core::hooks::config::HooksSettings,
 pub async fn save_hooks_config(
     config: ha_core::hooks::config::HooksSettings,
 ) -> Result<(), CmdError> {
+    let existing_trusts = ha_core::config::cached_config()
+        .hook_workspace_trusts
+        .clone();
+    let trusted_paths = config.trusted_project_scopes;
+    let reconcile_from = existing_trusts.clone();
+    let trusted_workspaces = ha_core::blocking::run_blocking(move || {
+        ha_core::hooks::scopes::reconcile_workspace_trusts(trusted_paths, &reconcile_from)
+    })
+    .await?;
     ha_core::config::mutate_config_async(("hooks", "settings-ui"), move |store| {
+        if store.hook_workspace_trusts != existing_trusts {
+            anyhow::bail!("Hook workspace trust changed; reload settings before saving");
+        }
         store.disable_all_hooks = config.disable_all_hooks;
-        store.hooks_allow_project_scope = config.allow_project_scope;
+        // The pre-v0.35 global boolean is retained only for wire compatibility.
+        // Never migrate it into trust: doing so would authorize every future cwd.
+        store.hooks_allow_project_scope = false;
+        store.hook_workspace_trusts = trusted_workspaces;
         store.hooks = config.hooks;
         Ok(())
     })

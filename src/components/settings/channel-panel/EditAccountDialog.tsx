@@ -51,7 +51,12 @@ import {
   IM_REPLY_MODE_DEFAULT,
   SHOW_THINKING_DEFAULT,
   channelSupportsStreamPreview,
+  readDiscordChannelObfuscation,
+  readDiscordFileRequests,
+  readGoogleChatStandardMarkdown,
   readImReplyMode,
+  readImsgProtocolV1,
+  readNativeReply,
   readShowThinking,
 } from "./types"
 
@@ -83,6 +88,11 @@ export default function EditAccountDialog({
   const [notifySessionEviction, setNotifySessionEviction] = useState(true)
   const [notifyStartup, setNotifyStartup] = useState(true)
   const [imReplyMode, setImReplyMode] = useState<ImReplyMode>(IM_REPLY_MODE_DEFAULT)
+  const [nativeReply, setNativeReply] = useState<boolean>(true)
+  const [imsgProtocolV1, setImsgProtocolV1] = useState<boolean>(true)
+  const [googleChatStandardMarkdown, setGoogleChatStandardMarkdown] = useState<boolean>(true)
+  const [discordChannelObfuscation, setDiscordChannelObfuscation] = useState<boolean>(false)
+  const [discordFileRequests, setDiscordFileRequests] = useState<boolean>(false)
   const [showThinking, setShowThinking] = useState<boolean>(SHOW_THINKING_DEFAULT)
   const [autoTranscribeVoice, setAutoTranscribeVoice] = useState<boolean>(false)
   // WS8: account-level opt-in to knowledge-base access from this IM channel.
@@ -119,6 +129,11 @@ export default function EditAccountDialog({
       setNotifySessionEviction(account.notifySessionEviction ?? true)
       setNotifyStartup(account.notifyStartup ?? true)
       setImReplyMode(readImReplyMode(account))
+      setNativeReply(readNativeReply(account))
+      setImsgProtocolV1(readImsgProtocolV1(account))
+      setGoogleChatStandardMarkdown(readGoogleChatStandardMarkdown(account))
+      setDiscordChannelObfuscation(readDiscordChannelObfuscation(account))
+      setDiscordFileRequests(readDiscordFileRequests(account))
       setShowThinking(readShowThinking(account))
       setAutoTranscribeVoice(
         Boolean(
@@ -177,6 +192,14 @@ export default function EditAccountDialog({
       const commonSettings = {
         ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
         imReplyMode,
+        ...((account.channelId === "telegram" || account.channelId === "slack")
+          ? { nativeReply }
+          : {}),
+        ...(account.channelId === "imessage" ? { imsgProtocolV1 } : {}),
+        ...(account.channelId === "googlechat" ? { googleChatStandardMarkdown } : {}),
+        ...(account.channelId === "discord"
+          ? { discordChannelObfuscation, discordFileRequests }
+          : {}),
         showThinking,
         // WS8 account opt-in; the per-group confirmed-chat list (`kbAccessChats`)
         // is preserved by the spread above and only edited via the `/kb` command.
@@ -194,6 +217,11 @@ export default function EditAccountDialog({
       // through channel_update_account (which restarts the listener).
       const originalToken = (account.credentials as Record<string, string>).token ?? ""
       const originalImReplyMode = readImReplyMode(account)
+      const originalNativeReply = readNativeReply(account)
+      const originalImsgProtocolV1 = readImsgProtocolV1(account)
+      const originalGoogleChatStandardMarkdown = readGoogleChatStandardMarkdown(account)
+      const originalDiscordChannelObfuscation = readDiscordChannelObfuscation(account)
+      const originalDiscordFileRequests = readDiscordFileRequests(account)
       const originalShowThinking = readShowThinking(account)
       const originalKbAccessOptIn = Boolean(
         (account.settings as Record<string, unknown> | null | undefined)?.kbAccessOptIn,
@@ -213,6 +241,14 @@ export default function EditAccountDialog({
         telegramApiRootChanged ||
         wechatChanged ||
         imReplyMode !== originalImReplyMode ||
+        ((account.channelId === "telegram" || account.channelId === "slack") &&
+          nativeReply !== originalNativeReply) ||
+        (account.channelId === "imessage" && imsgProtocolV1 !== originalImsgProtocolV1) ||
+        (account.channelId === "googlechat" &&
+          googleChatStandardMarkdown !== originalGoogleChatStandardMarkdown) ||
+        (account.channelId === "discord" &&
+          (discordChannelObfuscation !== originalDiscordChannelObfuscation ||
+            discordFileRequests !== originalDiscordFileRequests)) ||
         showThinking !== originalShowThinking ||
         kbAccessOptIn !== originalKbAccessOptIn ||
         JSON.stringify({ dmPolicy, userAllowlist, groupPolicy, groups, channels }) !==
@@ -533,6 +569,74 @@ export default function EditAccountDialog({
               })()}
             </p>
           </div>
+
+          {(account.channelId === "telegram" || account.channelId === "slack") && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>{t("channels.nativeReply")}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("channels.nativeReplyHint")}
+                </p>
+              </div>
+              <Switch checked={nativeReply} onCheckedChange={setNativeReply} />
+            </div>
+          )}
+
+          {account.channelId === "imessage" && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>{t("channels.imsgProtocolV1")}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("channels.imsgProtocolV1Hint")}
+                </p>
+              </div>
+              <Switch checked={imsgProtocolV1} onCheckedChange={setImsgProtocolV1} />
+            </div>
+          )}
+
+          {account.channelId === "googlechat" && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>{t("channels.googleChatStandardMarkdown")}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("channels.googleChatStandardMarkdownHint")}
+                </p>
+              </div>
+              <Switch
+                checked={googleChatStandardMarkdown}
+                onCheckedChange={setGoogleChatStandardMarkdown}
+              />
+            </div>
+          )}
+
+          {account.channelId === "discord" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>{t("channels.discordChannelObfuscation")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("channels.discordChannelObfuscationHint")}
+                  </p>
+                </div>
+                <Switch
+                  checked={discordChannelObfuscation}
+                  onCheckedChange={setDiscordChannelObfuscation}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>{t("channels.discordFileRequests")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("channels.discordFileRequestsHint")}
+                  </p>
+                </div>
+                <Switch
+                  checked={discordFileRequests}
+                  onCheckedChange={setDiscordFileRequests}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Show Thinking toggle — mirrors `/reason` slash command. */}
           <div className="flex items-center justify-between">

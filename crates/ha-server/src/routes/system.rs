@@ -44,3 +44,11 @@ pub async fn get_system_timezone() -> Result<Json<String>, AppError> {
     }
     Ok(Json("UTC".to_string()))
 }
+
+/// `GET /api/system/toolchain-doctor` — fixed, read-only host dependency
+/// probes. This endpoint never installs, upgrades, starts, or reconfigures a
+/// dependency and returns only bounded structured facts.
+pub async fn get_toolchain_doctor_report(
+) -> Result<Json<ha_core::toolchain_doctor::ToolchainDoctorReport>, AppError> {
+    Ok(Json(ha_core::toolchain_doctor::diagnose_toolchain().await))
+}

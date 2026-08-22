@@ -32,7 +32,7 @@ The left side of the Settings page is a navigation column. The table below tells
 | **MCP Servers** | [MCP connections](11-connect-and-extend.md#111-mcp-connecting-external-tools) |
 | **Memory** | [Memory extraction / recall / budget, embedding, Dreaming](04-memory.md) |
 | **Knowledge** | [Knowledge bases, retrieval, passive recall, autonomous maintenance, Sprite](05-knowledge-space.md) |
-| **Design Space** | [Design Space toggles, auto-preview, export parameters](06-design-space.md#610-settings) |
+| **Design Space** | [Design Space toggles, auto-preview, export parameters](06-design-space.md#611-settings) |
 | **Chat & Context** | Basic chat behavior, behavior awareness, context compaction |
 | **Archived conversations** | Search, filter by type / project, restore conversations, or permanently delete after confirmation |
 | **Scheduled Tasks** | [Concurrency limit, timeout, catch-up window](09-multi-agent-and-scheduling.md#94-scheduled-tasks-cron) |

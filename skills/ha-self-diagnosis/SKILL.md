@@ -78,7 +78,8 @@ Use these in order:
 1. Live source and docs — the working-directory checkout, or a version-matched clone under `~/.hope-agent/source-cache/` (see self-study to bootstrap one).
 2. Local runtime data under `~/.hope-agent/`: start with `logs.db` and `sessions.db`, then the subsystem-specific store — `memory.db`, `knowledge/index.db`, `cron.db`, `background_jobs.db`, `local_model_jobs.db`, `recap/recap.db`, `canvas/canvas.db` — and non-DB state like `crash_journal.json` / `config.json`.
 3. Settings via `get_settings`.
-4. Bundled references in this skill:
+4. Host/runtime dependency reports: prefer the owner-visible **Settings → About → Toolchain Doctor** report, or run `hope-agent doctor --json` through `exec` when the installed binary supports it. Treat its stable diagnostic codes as read-only evidence; never turn diagnosis into an installer, service start, Docker context switch, daemon mutation, or system upgrade.
+5. Bundled references in this skill:
    - `references/diagnostic-playbook.md`
    - `references/issue-template.md`
 

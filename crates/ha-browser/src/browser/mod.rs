@@ -61,6 +61,18 @@ pub use ha_config_schema::browser::{
     BrowserBackendPreference, BrowserConfig, BrowserMode, BrowserProfileConfig, LaunchCircuitConfig,
 };
 
+/// Serialize workflows that address [`cdp_backend::CdpBackend`] through its
+/// process-global active target. A single backend method snapshots the active
+/// page safely, but a multi-step sequence such as select → resize → screenshot
+/// must hold this guard for the entire sequence or another caller can retarget
+/// the shared browser between steps.
+pub async fn acquire_cdp_operation_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
+}
+
 /// Process-wide serialization lock for tests that mutate browser-module global
 /// state — the active-backend cache ([`backend_select`]) and the tab registry
 /// ([`extension::registry`]). Sync tests acquire it with `blocking_lock()`,
@@ -232,4 +244,26 @@ pub async fn validate_cdp_endpoint_url(url: &str) -> anyhow::Result<()> {
     ha_core::security::ssrf::check_url(trimmed, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod cdp_operation_guard_tests {
+    #[tokio::test]
+    async fn multi_step_cdp_workflows_are_process_serialized() {
+        let first = super::acquire_cdp_operation_guard().await;
+        let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let waiter = tokio::spawn(async move {
+            let _second = super::acquire_cdp_operation_guard().await;
+            entered_tx.send(()).unwrap();
+        });
+
+        tokio::task::yield_now().await;
+        assert!(entered_rx.try_recv().is_err());
+        drop(first);
+        tokio::time::timeout(std::time::Duration::from_secs(1), entered_rx.recv())
+            .await
+            .expect("waiting CDP workflow should enter after release")
+            .expect("waiter should report entry");
+        waiter.await.unwrap();
+    }
 }

@@ -908,6 +908,39 @@ async fn handle_inbound_message_inner(
         )?
     };
 
+    // A file answer is an interaction response, not a new chat turn. Only
+    // inspect/materialize it after account access, mention policy, and the
+    // exact session attach have all been resolved. Queued replays can never
+    // answer a live request because their original route authority may be
+    // stale by the time they are replayed.
+    let carries_media =
+        !msg.media.is_empty() || crate::channel::inbound_media_common::has_pending_refs(&msg);
+    if !is_queued_replay
+        && !is_stop_command
+        && carries_media
+        && super::ask_user::has_pending_file_request(&msg).await
+    {
+        if let Err(error) = plugin.materialize_pending_media(&account, &mut msg).await {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "[{}] Failed to materialize ask_user file response {}: {}",
+                channel_id_str,
+                msg.message_id,
+                ha_core::logging::redact_sensitive(&error.to_string())
+            );
+        }
+        if super::ask_user::try_handle_ask_user_file_reply(&msg, &session_id).await {
+            app_info!(
+                "channel",
+                "ask_user",
+                "[{}] Attachment consumed as an ask_user file response",
+                channel_id_str
+            );
+            return Ok(());
+        }
+    }
+
     // 4. Prepare inbound text. Reply-only slash commands (e.g. /status)
     // are persisted as event history below, but never as user turns and
     // never into model-facing context.

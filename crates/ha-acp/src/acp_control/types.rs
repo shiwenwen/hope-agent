@@ -173,6 +173,10 @@ pub enum AcpStreamEvent {
     Usage {
         input_tokens: u64,
         output_tokens: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_used: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_size: Option<u64>,
     },
 
     /// An error occurred during the turn.

@@ -806,13 +806,14 @@ fn options_help_text_lists_every_option_with_placeholder() {
             "medium".into(),
             "high".into(),
             "xhigh".into(),
+            "max".into(),
         ],
     );
     assert!(
         text.starts_with("Usage: `/thinking <level>`"),
         "missing usage line: {text}"
     );
-    for opt in ["off", "low", "medium", "high", "xhigh"] {
+    for opt in ["off", "low", "medium", "high", "xhigh", "max"] {
         assert!(
             text.contains(&format!("- `{opt}`")),
             "missing option {opt} in: {text}"

@@ -71,10 +71,10 @@ pub async fn list_resources(server_name_or_id: &str) -> Result<Vec<ResourceSumma
     Ok(resources
         .into_iter()
         .map(|r| ResourceSummary {
-            uri: r.raw.uri,
-            name: r.raw.name,
-            description: r.raw.description,
-            mime_type: r.raw.mime_type,
+            uri: r.uri,
+            name: r.name,
+            description: r.description,
+            mime_type: r.mime_type,
         })
         .collect())
 }
@@ -90,32 +90,32 @@ pub async fn read_resource(server_name_or_id: &str, uri: &str) -> Result<Vec<Rea
         .read_resource(model::ReadResourceRequestParams::new(uri))
         .await
         .map_err(|e| anyhow!("resources/read failed: {e}"))?;
-    Ok(result
+    result
         .contents
         .into_iter()
         .map(normalize_resource_content)
-        .collect())
+        .collect()
 }
 
-fn normalize_resource_content(c: model::ResourceContents) -> ReadResourcePart {
+fn normalize_resource_content(c: model::ResourceContents) -> Result<ReadResourcePart> {
     match c {
         model::ResourceContents::TextResourceContents {
             uri,
             text,
             mime_type,
             meta: _,
-        } => ReadResourcePart {
+        } => Ok(ReadResourcePart {
             uri,
             mime_type,
             text: Some(text),
             blob_base64: None,
-        },
+        }),
         model::ResourceContents::BlobResourceContents {
             uri,
             blob,
             mime_type,
             meta: _,
-        } => ReadResourcePart {
+        } => Ok(ReadResourcePart {
             uri,
             mime_type,
             text: None,
@@ -123,7 +123,8 @@ fn normalize_resource_content(c: model::ResourceContents) -> ReadResourcePart {
             // in case a non-conforming server hands back raw bytes in
             // the field (rare but observed in the wild).
             blob_base64: Some(maybe_reencode(&blob)),
-        },
+        }),
+        _ => Err(anyhow!("unsupported MCP resource content variant")),
     }
 }
 

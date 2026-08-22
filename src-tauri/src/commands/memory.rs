@@ -994,6 +994,15 @@ pub async fn run_external_memory_provider_sync(
 }
 
 #[tauri::command]
+pub async fn test_external_memory_provider_connection(
+    provider_id: String,
+) -> Result<memory::ExternalMemoryProviderCompatibilityReport, CmdError> {
+    memory::test_external_memory_provider_connection(provider_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_external_memory_provider_credential_status(
     provider_id: String,
 ) -> Result<memory::ExternalMemoryProviderCredentialStatus, CmdError> {

@@ -4,7 +4,7 @@
 //! `ha_core::sandbox`；本模块经 `crate::wire()` 注册为
 //! [`ha_core::vcs_hooks::VcsHooks`] 的沙箱三口。
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bollard::models::{ContainerCreateBody, HostConfig};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, LogsOptions, RemoveContainerOptions,
@@ -18,9 +18,10 @@ use ha_core::sandbox::{
 };
 use ha_core::truncate_utf8;
 use ignore::WalkBuilder;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -31,6 +32,9 @@ use tokio_util::sync::CancellationToken;
 
 const ISOLATED_COPY_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const ISOLATED_COPY_MAX_ENTRIES: u64 = 50_000;
+const ISOLATED_COPY_CHUNK_BYTES: usize = 64 * 1024;
+const ROOT_SANDBOX_UID: u32 = 65_534;
+const ROOT_SANDBOX_GID: u32 = 65_534;
 const ISOLATED_COPY_EXCLUDED_DIRS: &[&str] = &[
     ".git",
     ".hg",
@@ -413,6 +417,8 @@ async fn available_sandbox_backend() -> Option<AvailableSandboxBackend> {
 
 /// Ensure the specified image is available locally, pulling if needed.
 async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
+    ha_core::sandbox::validate_sandbox_image_reference(image)?;
+
     // Check if image exists locally
     if docker.inspect_image(image).await.is_ok() {
         return Ok(());
@@ -420,15 +426,12 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
 
     app_info!("sandbox", "docker", "Pulling Docker image: {}", image);
 
-    let (repo, tag) = if let Some(idx) = image.rfind(':') {
-        (&image[..idx], &image[idx + 1..])
-    } else {
-        (image, "latest")
-    };
-
     let options = CreateImageOptions {
-        from_image: Some(repo.to_string()),
-        tag: Some(tag.to_string()),
+        // Docker accepts name[:tag]@digest directly in fromImage. Keeping the
+        // complete reference is essential: splitting on the final colon would
+        // mistake sha256 for a mutable tag and silently drop content identity.
+        from_image: Some(image.to_string()),
+        tag: None,
         ..Default::default()
     };
 
@@ -446,7 +449,618 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
         }
     }
 
+    docker.inspect_image(image).await.map_err(|e| {
+        anyhow::anyhow!(
+            "Docker reported a successful pull but the pinned image '{}' is unavailable: {}",
+            image,
+            e
+        )
+    })?;
+
     Ok(())
+}
+
+fn hardened_host_config(config: &SandboxConfig, binds: Option<Vec<String>>) -> HostConfig {
+    let mut host_config = HostConfig {
+        binds,
+        readonly_rootfs: Some(config.read_only),
+        network_mode: Some(config.network_mode.clone()),
+        cap_drop: config.cap_drop_all.then(|| vec!["ALL".to_string()]),
+        security_opt: config
+            .no_new_privileges
+            .then(|| vec!["no-new-privileges".to_string()]),
+        pids_limit: config.pids_limit,
+        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
+            Some(
+                config
+                    .tmpfs
+                    .iter()
+                    .map(|entry| {
+                        let mut parts = entry.splitn(2, ':');
+                        (
+                            parts.next().unwrap_or_default().to_string(),
+                            parts.next().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect::<HashMap<_, _>>(),
+            )
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+    host_config.memory = config.memory_limit;
+    host_config.nano_cpus = config.cpu_limit.map(|cpus| (cpus * 1_000_000_000.0) as i64);
+    host_config
+}
+
+fn native_container_identity(workspace: Option<&Path>) -> Result<Option<(u32, u32)>> {
+    let Some((process_uid, process_gid)) = ha_core::platform::process_user_group() else {
+        return Ok(None);
+    };
+    if process_uid != 0 {
+        return Ok(Some((process_uid, process_gid)));
+    }
+    if let Some(workspace) = workspace {
+        let owner = ha_core::platform::path_owner_no_follow(workspace)
+            .context("inspect sandbox workspace owner")?;
+        if owner.0 != 0 {
+            return Ok(Some(owner));
+        }
+    }
+    // A root-owned Hope process must not turn the sandbox container into a
+    // root execution surface. Nobody is available in Debian slim.
+    Ok(Some((ROOT_SANDBOX_UID, ROOT_SANDBOX_GID)))
+}
+
+fn collect_workspace_owners_impl(
+    root: &Path,
+    reject_multiply_linked_files: bool,
+) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
+    let mut owners = Vec::new();
+    let walker = WalkBuilder::new(root)
+        .hidden(false)
+        .ignore(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .parents(false)
+        .follow_links(false)
+        .build();
+    for entry in walker {
+        let entry = entry.context("walk sandbox workspace ownership")?;
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+        // Symlink ownership does not control traversal or target access on
+        // Unix. Leaving it unchanged also avoids a final-component race that
+        // cannot be bound to an ordinary file descriptor portably.
+        if !file_type.is_dir() && !file_type.is_file() {
+            continue;
+        }
+        let snapshot = ha_core::platform::path_ownership_snapshot_no_follow(entry.path())?;
+        if reject_multiply_linked_files {
+            let has_security_capability = file_type.is_file()
+                && ha_core::platform::path_has_security_capability_no_follow(entry.path())?;
+            validate_workspace_handoff_entry(
+                file_type.is_file(),
+                snapshot,
+                has_security_capability,
+            )?;
+        }
+        owners.push((entry.into_path(), snapshot));
+    }
+    Ok(owners)
+}
+
+fn validate_workspace_handoff_entry(
+    is_file: bool,
+    snapshot: ha_core::platform::PathOwnershipSnapshot,
+    has_security_capability: bool,
+) -> Result<()> {
+    if is_file && snapshot.hard_link_count > 1 {
+        anyhow::bail!(
+            "sandbox workspace contains a multiply-linked file; root ownership handoff cannot prove the inode is workspace-local"
+        );
+    }
+    if snapshot.special_mode_bits != 0 {
+        anyhow::bail!(
+            "sandbox workspace contains a setuid/setgid entry; ownership handoff would irreversibly clear its special mode bits"
+        );
+    }
+    if is_file && has_security_capability {
+        anyhow::bail!(
+            "sandbox workspace contains a Linux file capability; ownership handoff would irreversibly clear it"
+        );
+    }
+    Ok(())
+}
+
+fn collect_workspace_owners(
+    root: &Path,
+) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
+    collect_workspace_owners_impl(root, false)
+}
+
+fn collect_workspace_owners_for_handoff(
+    root: &Path,
+) -> Result<Vec<(PathBuf, ha_core::platform::PathOwnershipSnapshot)>> {
+    collect_workspace_owners_impl(root, true)
+}
+
+fn verify_regular_file_links_are_workspace_local(
+    entries: &[(PathBuf, ha_core::platform::PathOwnershipSnapshot)],
+) -> Result<()> {
+    let mut workspace_names = HashMap::<(u64, u64), u64>::new();
+    for (_, snapshot) in entries {
+        if !snapshot.is_directory {
+            *workspace_names
+                .entry((snapshot.device, snapshot.inode))
+                .or_default() += 1;
+        }
+    }
+    for (_, snapshot) in entries {
+        if snapshot.is_directory {
+            continue;
+        }
+        let names = workspace_names
+            .get(&(snapshot.device, snapshot.inode))
+            .copied()
+            .unwrap_or_default();
+        if names != snapshot.hard_link_count {
+            anyhow::bail!(
+                "sandbox workspace ownership recovery found a regular-file link outside the authorized workspace"
+            );
+        }
+    }
+    Ok(())
+}
+
+const WORKSPACE_OWNERSHIP_JOURNAL_VERSION: u32 = 2;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceOwnerEntry {
+    relative_path: PathBuf,
+    uid: u32,
+    gid: u32,
+    device: u64,
+    inode: u64,
+    is_directory: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceOwnershipJournal {
+    version: u32,
+    root: PathBuf,
+    target_uid: u32,
+    target_gid: u32,
+    root_owner_uid: u32,
+    root_owner_gid: u32,
+    entries: Vec<WorkspaceOwnerEntry>,
+}
+
+impl WorkspaceOwnershipJournal {
+    fn from_owners(
+        root: &Path,
+        target: (u32, u32),
+        root_owner: (u32, u32),
+        owners: &[(PathBuf, ha_core::platform::PathOwnershipSnapshot)],
+    ) -> Result<Self> {
+        let entries = owners
+            .iter()
+            .map(|(path, snapshot)| {
+                let relative_path = path
+                    .strip_prefix(root)
+                    .context("sandbox ownership entry escaped workspace root")?
+                    .to_path_buf();
+                Ok(WorkspaceOwnerEntry {
+                    relative_path,
+                    uid: snapshot.uid,
+                    gid: snapshot.gid,
+                    device: snapshot.device,
+                    inode: snapshot.inode,
+                    is_directory: snapshot.is_directory,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            version: WORKSPACE_OWNERSHIP_JOURNAL_VERSION,
+            root: root.to_path_buf(),
+            target_uid: target.0,
+            target_gid: target.1,
+            root_owner_uid: root_owner.0,
+            root_owner_gid: root_owner.1,
+            entries,
+        })
+    }
+
+    fn validate(&self) -> Result<()> {
+        if self.version != WORKSPACE_OWNERSHIP_JOURNAL_VERSION {
+            anyhow::bail!("unsupported sandbox workspace ownership journal version");
+        }
+        if !self.root.is_absolute() {
+            anyhow::bail!("sandbox workspace ownership journal root is not absolute");
+        }
+        if (self.target_uid, self.target_gid) != (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID) {
+            anyhow::bail!("sandbox workspace ownership journal target identity is invalid");
+        }
+        let mut paths = HashSet::with_capacity(self.entries.len());
+        let mut identities = HashSet::with_capacity(self.entries.len());
+        let mut root_entry = None;
+        for entry in &self.entries {
+            if entry.relative_path.is_absolute()
+                || entry
+                    .relative_path
+                    .components()
+                    .any(|component| !matches!(component, std::path::Component::Normal(_)))
+            {
+                anyhow::bail!("sandbox workspace ownership journal contains an unsafe path");
+            }
+            if !paths.insert(entry.relative_path.clone()) {
+                anyhow::bail!("sandbox workspace ownership journal contains duplicate paths");
+            }
+            if !identities.insert((entry.device, entry.inode, entry.is_directory)) {
+                anyhow::bail!(
+                    "sandbox workspace ownership journal contains duplicate inode identities"
+                );
+            }
+            if entry.relative_path.as_os_str().is_empty() {
+                root_entry = Some((entry.uid, entry.gid));
+            }
+        }
+        if root_entry != Some((self.root_owner_uid, self.root_owner_gid)) {
+            anyhow::bail!("sandbox workspace ownership journal root owner is inconsistent");
+        }
+        Ok(())
+    }
+}
+
+fn persist_workspace_ownership_journal(
+    journal_path: &Path,
+    journal: &WorkspaceOwnershipJournal,
+) -> Result<()> {
+    let bytes = serde_json::to_vec(journal).context("serialize workspace ownership journal")?;
+    ha_core::platform::write_secure_file(journal_path, &bytes)
+        .context("persist workspace ownership journal before changing host ownership")
+}
+
+fn restored_owner_for_entry(
+    journal: &WorkspaceOwnershipJournal,
+    original_inode: Option<&WorkspaceOwnerEntry>,
+    current: ha_core::platform::PathOwnershipSnapshot,
+) -> Option<(u32, u32)> {
+    original_inode
+        .map(|entry| (entry.uid, entry.gid))
+        .or_else(|| {
+            ((current.uid, current.gid) == (journal.target_uid, journal.target_gid))
+                .then_some((journal.root_owner_uid, journal.root_owner_gid))
+        })
+}
+
+fn recover_workspace_ownership(journal_path: &Path) -> Result<bool> {
+    let bytes = match std::fs::read(journal_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).context("read workspace ownership recovery journal"),
+    };
+    let journal: WorkspaceOwnershipJournal =
+        serde_json::from_slice(&bytes).context("parse workspace ownership recovery journal")?;
+    journal.validate()?;
+    let canonical_root = journal
+        .root
+        .canonicalize()
+        .context("resolve workspace from ownership recovery journal")?;
+    if canonical_root != journal.root {
+        anyhow::bail!("workspace ownership recovery journal root identity changed");
+    }
+
+    let original_by_path = journal
+        .entries
+        .iter()
+        .map(|entry| (entry.relative_path.clone(), entry))
+        .collect::<HashMap<_, _>>();
+    let original_by_inode = journal
+        .entries
+        .iter()
+        .map(|entry| ((entry.device, entry.inode, entry.is_directory), entry))
+        .collect::<HashMap<_, _>>();
+    let current = collect_workspace_owners(&canonical_root)?;
+    let root_snapshot = current
+        .iter()
+        .find(|(path, _)| path == &canonical_root)
+        .map(|(_, snapshot)| *snapshot)
+        .context("sandbox workspace root disappeared during ownership recovery")?;
+    let journal_root = original_by_path
+        .get(Path::new(""))
+        .context("sandbox ownership recovery journal has no root identity")?;
+    if journal_root.device != root_snapshot.device
+        || journal_root.inode != root_snapshot.inode
+        || !journal_root.is_directory
+    {
+        anyhow::bail!("sandbox workspace root inode changed; recovery journal retained");
+    }
+    // The sandbox can legitimately create additional names for an existing
+    // inode. Admit those links only when the full workspace scan accounts for
+    // every name reported by st_nlink; the descriptor-bound mutation below
+    // rechecks that count immediately before fchown.
+    verify_regular_file_links_are_workspace_local(&current)?;
+    let mut failures = 0usize;
+    let mut restored_regular_inodes = HashSet::new();
+    for (path, snapshot) in current.iter().rev() {
+        if !snapshot.is_directory
+            && !restored_regular_inodes.insert((snapshot.device, snapshot.inode))
+        {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(&canonical_root)
+            .context("workspace ownership recovery entry escaped root")?;
+        let original_inode = original_by_inode
+            .get(&(snapshot.device, snapshot.inode, snapshot.is_directory))
+            .copied();
+        let desired = restored_owner_for_entry(&journal, original_inode, *snapshot);
+        let Some((desired_uid, desired_gid)) = desired else {
+            continue;
+        };
+        if (snapshot.uid, snapshot.gid) != (desired_uid, desired_gid)
+            && ha_core::platform::set_path_owner_from_snapshot_beneath(
+                &canonical_root,
+                root_snapshot,
+                relative,
+                *snapshot,
+                desired_uid,
+                desired_gid,
+            )
+            .is_err()
+        {
+            failures += 1;
+        }
+    }
+    if failures > 0 {
+        anyhow::bail!(
+            "failed to restore ownership for {failures} sandbox workspace entries; recovery journal retained"
+        );
+    }
+    match std::fs::remove_file(journal_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).context("remove completed workspace ownership recovery journal")
+        }
+    }
+    app_info!(
+        "sandbox",
+        "ownership_recovery",
+        "Restored sandbox workspace ownership from durable recovery journal"
+    );
+    Ok(true)
+}
+
+struct WorkspaceOwnershipGuard {
+    // The OS advisory lock stays held until ownership restoration completes.
+    // A global lock deliberately also covers overlapping roots (for example a
+    // project and one of its subdirectories), which exact-path locks cannot.
+    restoration: Option<(File, PathBuf)>,
+}
+
+impl WorkspaceOwnershipGuard {
+    fn acquire(
+        root: PathBuf,
+        target: (u32, u32),
+        exclusive_lock: File,
+        journal_path: PathBuf,
+    ) -> Result<Self> {
+        let root = root
+            .canonicalize()
+            .context("canonicalize sandbox workspace before ownership handoff")?;
+        // A hard link changes ownership for its shared inode, including names
+        // outside this tree. Reject every multiply-linked regular file before
+        // publishing a journal or mutating any owner; internal hard links are
+        // conservatively rejected because pathname traversal cannot prove that
+        // no additional name exists outside the authorized workspace.
+        let original = collect_workspace_owners_for_handoff(&root)?;
+        let root_snapshot = original
+            .iter()
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| *snapshot)
+            .context("sandbox workspace root disappeared during ownership handoff")?;
+        let root_owner = (root_snapshot.uid, root_snapshot.gid);
+        let journal = WorkspaceOwnershipJournal::from_owners(&root, target, root_owner, &original)?;
+        persist_workspace_ownership_journal(&journal_path, &journal)?;
+        // Files move first, then directories from deepest to root. Every
+        // mutation reopens beneath the captured root descriptor, verifies the
+        // exact dev/inode/type/owner snapshot, rechecks the captured link
+        // count, and calls fchown on that descriptor.
+        let handoff_order = original
+            .iter()
+            .filter(|(_, snapshot)| !snapshot.is_directory)
+            .chain(
+                original
+                    .iter()
+                    .rev()
+                    .filter(|(_, snapshot)| snapshot.is_directory),
+            );
+        for (path, snapshot) in handoff_order {
+            let relative = path
+                .strip_prefix(&root)
+                .context("sandbox ownership entry escaped workspace root")?;
+            if let Err(error) = ha_core::platform::set_path_owner_from_snapshot_beneath(
+                &root,
+                root_snapshot,
+                relative,
+                *snapshot,
+                target.0,
+                target.1,
+            ) {
+                let recovery = recover_workspace_ownership(&journal_path);
+                return match recovery {
+                    Ok(_) => {
+                        Err(error).context("hand sandbox workspace ownership to non-root UID")
+                    }
+                    Err(recovery_error) => Err(error).context(format!(
+                        "hand sandbox workspace ownership to non-root UID; recovery also failed: {recovery_error:#}"
+                    )),
+                };
+            }
+        }
+        Ok(Self {
+            restoration: Some((exclusive_lock, journal_path)),
+        })
+    }
+
+    fn take_restoration(&mut self) -> Option<(File, PathBuf)> {
+        self.restoration.take()
+    }
+
+    async fn restore(mut self) -> Result<()> {
+        let Some((exclusive_lock, journal_path)) = self.take_restoration() else {
+            return Ok(());
+        };
+        ha_core::blocking::run_blocking(move || {
+            // Keep the cross-process lock alive throughout the blocking tree
+            // walk and descriptor-bound ownership restoration, then release it
+            // explicitly before publishing either success or failure back to
+            // the async caller.
+            let recovery = recover_workspace_ownership(&journal_path).map(|_| ());
+            drop(exclusive_lock);
+            recovery
+        })
+        .await
+    }
+}
+
+async fn acquire_workspace_ownership_lock_at(
+    lock_path: PathBuf,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<File> {
+    loop {
+        if cancellation_token
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            anyhow::bail!("Sandbox execution cancelled while waiting for workspace ownership");
+        }
+        let candidate = lock_path.clone();
+        let lock = ha_core::blocking::run_blocking(move || {
+            ha_core::platform::try_acquire_exclusive_lock(&candidate).with_context(|| {
+                format!(
+                    "lock sandbox workspace ownership at {}",
+                    candidate.display()
+                )
+            })
+        })
+        .await?;
+        if let Some(lock) = lock {
+            if cancellation_token
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            {
+                drop(lock);
+                anyhow::bail!("Sandbox execution cancelled while waiting for workspace ownership");
+            }
+            return Ok(lock);
+        }
+        match cancellation_token.as_ref() {
+            Some(token) => {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                    _ = token.cancelled() => {
+                        anyhow::bail!("Sandbox execution cancelled while waiting for workspace ownership");
+                    }
+                }
+            }
+            None => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
+    }
+}
+
+impl Drop for WorkspaceOwnershipGuard {
+    fn drop(&mut self) {
+        let Some((exclusive_lock, journal_path)) = self.take_restoration() else {
+            return;
+        };
+        // Normal execution calls `restore().await`, which uses the blocking
+        // pool. Drop is only an emergency path (panic/cancellation between
+        // preparation and explicit finalization), so it must never traverse a
+        // large workspace on a Tokio worker. A dedicated thread keeps the OS
+        // lock held until recovery completes; if spawning fails, dropping the
+        // captured lock still leaves the durable journal for next startup.
+        if let Err(error) = std::thread::Builder::new()
+            .name("hope-sandbox-owner-restore".to_string())
+            .spawn(move || {
+                let _exclusive_lock = exclusive_lock;
+                if let Err(error) = recover_workspace_ownership(&journal_path) {
+                    app_warn!(
+                        "sandbox",
+                        "ownership_restore",
+                        "Failed to restore sandbox workspace ownership in emergency fallback; durable recovery journal retained: {}",
+                        error
+                    );
+                }
+            })
+        {
+            app_warn!(
+                "sandbox",
+                "ownership_restore",
+                "Failed to start emergency sandbox workspace ownership restoration; durable recovery journal retained: {}",
+                error
+            );
+        }
+    }
+}
+
+async fn finalize_workspace_ownership<T>(
+    guard: &mut Option<WorkspaceOwnershipGuard>,
+    result: Result<T>,
+) -> Result<T> {
+    if let Some(guard) = guard.take() {
+        if let Err(error) = guard.restore().await {
+            app_warn!(
+                "sandbox",
+                "ownership_restore",
+                "Failed to restore sandbox workspace ownership; durable recovery journal retained: {}",
+                error
+            );
+            return match result {
+                Ok(_) => Err(error).context(
+                    "restore sandbox workspace ownership before reporting command success",
+                ),
+                Err(execution_error) => Err(execution_error).context(format!(
+                    "sandbox execution failed and workspace ownership restoration also failed: {error:#}"
+                )),
+            };
+        }
+    }
+    result
+}
+
+async fn prepare_workspace_ownership(
+    workspace: &Path,
+    identity: Option<(u32, u32)>,
+    cancellation_token: Option<CancellationToken>,
+) -> Result<Option<WorkspaceOwnershipGuard>> {
+    if ha_core::platform::process_user_group().map(|value| value.0) != Some(0)
+        || identity != Some((ROOT_SANDBOX_UID, ROOT_SANDBOX_GID))
+    {
+        return Ok(None);
+    }
+    let lock_path = ha_core::paths::root_dir()?.join("sandbox-workspace-ownership.lock");
+    let journal_path = ha_core::paths::root_dir()?.join("sandbox-workspace-ownership.json");
+    let exclusive_lock = acquire_workspace_ownership_lock_at(lock_path, cancellation_token).await?;
+    let workspace = workspace.to_path_buf();
+    ha_core::blocking::run_blocking(move || {
+        recover_workspace_ownership(&journal_path)?;
+        WorkspaceOwnershipGuard::acquire(
+            workspace,
+            (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
+            exclusive_lock,
+            journal_path,
+        )
+        .map(Some)
+    })
+    .await
 }
 
 /// Execute a command inside a Docker container.
@@ -473,20 +1087,6 @@ async fn exec_in_native_docker(
         Vec::new()
     };
 
-    // Resolve current UID:GID to avoid permission issues on mounted volumes
-    let user = {
-        #[cfg(unix)]
-        {
-            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
-                libc::getgid()
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            String::new()
-        }
-    };
-
     // Resolve absolute path for the working directory mount
     let host_cwd = std::path::Path::new(cwd).canonicalize().map_err(|e| {
         anyhow::anyhow!(
@@ -499,50 +1099,14 @@ async fn exec_in_native_docker(
     // Validate bind mount path
     validate_bind_mount(&host_cwd)?;
 
+    let identity = native_container_identity(Some(&host_cwd))?;
+    let user = identity.map(|(uid, gid)| format!("{uid}:{gid}"));
+    let mut ownership_guard =
+        prepare_workspace_ownership(&host_cwd, identity, cancellation_token.clone()).await?;
+
     let bind_mount = format!("{}:/workspace", host_cwd.display());
 
-    // Build host config with resource limits and security hardening
-    let mut host_config = HostConfig {
-        binds: Some(vec![bind_mount]),
-        // Security: read-only root filesystem
-        readonly_rootfs: Some(config.read_only),
-        // Security: network isolation
-        network_mode: Some(config.network_mode.clone()),
-        // Security: drop all capabilities
-        cap_drop: if config.cap_drop_all {
-            Some(vec!["ALL".to_string()])
-        } else {
-            None
-        },
-        // Security: prevent privilege escalation
-        security_opt: if config.no_new_privileges {
-            Some(vec!["no-new-privileges".to_string()])
-        } else {
-            None
-        },
-        // Security: PID limit
-        pids_limit: config.pids_limit,
-        // tmpfs mounts for writable temp dirs when root is read-only
-        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
-            let mut map = HashMap::new();
-            for entry in &config.tmpfs {
-                let parts: Vec<&str> = entry.splitn(2, ':').collect();
-                let mount_point = parts[0].to_string();
-                let options = parts.get(1).unwrap_or(&"").to_string();
-                map.insert(mount_point, options);
-            }
-            Some(map)
-        } else {
-            None
-        },
-        ..Default::default()
-    };
-    if let Some(mem) = config.memory_limit {
-        host_config.memory = Some(mem);
-    }
-    if let Some(cpus) = config.cpu_limit {
-        host_config.nano_cpus = Some((cpus * 1_000_000_000.0) as i64);
-    }
+    let host_config = hardened_host_config(config, Some(vec![bind_mount]));
 
     // Create container
     let container_config = ContainerCreateBody {
@@ -558,7 +1122,7 @@ async fn exec_in_native_docker(
         } else {
             Some(env_vec)
         },
-        user: if user.is_empty() { None } else { Some(user) },
+        user,
         host_config: Some(host_config),
         attach_stdout: Some(true),
         attach_stderr: Some(true),
@@ -574,7 +1138,7 @@ async fn exec_in_native_docker(
             .unwrap_or("tmp")
     );
 
-    let container = docker
+    let container = match docker
         .create_container(
             Some(CreateContainerOptions {
                 name: Some(container_name.clone()),
@@ -583,7 +1147,16 @@ async fn exec_in_native_docker(
             container_config,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
+    {
+        Ok(container) => container,
+        Err(error) => {
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Failed to create container: {}", error)),
+            )
+            .await;
+        }
+    };
 
     let container_id = container.id.clone();
 
@@ -599,7 +1172,11 @@ async fn exec_in_native_docker(
                 cleanup_err
             );
         }
-        return Err(anyhow::anyhow!("Failed to start container: {}", e));
+        return finalize_workspace_ownership(
+            &mut ownership_guard,
+            Err(anyhow::anyhow!("Failed to start container: {}", e)),
+        )
+        .await;
     }
 
     app_info!(
@@ -628,7 +1205,11 @@ async fn exec_in_native_docker(
         SandboxWaitOutcome::Exited(Err(e)) => {
             app_warn!("sandbox", "docker", "Container wait error: {}", e);
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Container execution failed: {}", e));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Container execution failed: {}", e)),
+            )
+            .await;
         }
         SandboxWaitOutcome::TimedOut => {
             app_warn!(
@@ -649,7 +1230,11 @@ async fn exec_in_native_docker(
             );
             let _ = docker.stop_container(&container_id, None).await;
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Sandbox execution cancelled"));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Sandbox execution cancelled")),
+            )
+            .await;
         }
     };
 
@@ -667,14 +1252,23 @@ async fn exec_in_native_docker(
             e
         );
     }
-    let (stdout, stderr) = logs_result?;
+    let (stdout, stderr) = match logs_result {
+        Ok(logs) => logs,
+        Err(error) => {
+            return finalize_workspace_ownership(&mut ownership_guard, Err(error)).await;
+        }
+    };
 
-    Ok(SandboxResult {
-        stdout,
-        stderr,
-        exit_code,
-        timed_out,
-    })
+    finalize_workspace_ownership(
+        &mut ownership_guard,
+        Ok(SandboxResult {
+            stdout,
+            stderr,
+            exit_code,
+            timed_out,
+        }),
+    )
+    .await
 }
 
 enum WslRunOutcome {
@@ -783,6 +1377,7 @@ async fn exec_in_wsl_docker(
     cancellation_token: Option<CancellationToken>,
     docker_endpoint: &str,
 ) -> Result<SandboxResult> {
+    ha_core::sandbox::validate_sandbox_image_reference(&config.image)?;
     let host_cwd = Path::new(cwd).canonicalize().map_err(|e| {
         anyhow::anyhow!(
             "Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.",
@@ -1064,6 +1659,7 @@ pub async fn exec_in_sandbox_mode(
             archive_path.to_path_buf(),
             preparation_deadline,
             cancellation_token.clone(),
+            native_container_identity(None)?.map(|(uid, gid)| (u64::from(uid), u64::from(gid))),
         )
         .await?;
         // 把「已消耗时间」从 caller 的 timeout_secs 里扣掉，别再给 container
@@ -1214,6 +1810,78 @@ fn find_git_root_for_ignore(path: &Path) -> Option<PathBuf> {
     None
 }
 
+fn copy_stream_bounded<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    expected_size: u64,
+    limits: &IsolatedCopyLimits,
+    stats: &IsolatedCopyStats,
+) -> Result<()> {
+    let mut buffer = [0_u8; ISOLATED_COPY_CHUNK_BYTES];
+    let mut copied = 0_u64;
+    loop {
+        limits.check(stats)?;
+        let read = reader.read(&mut buffer)?;
+        // A blocking read may have consumed the remaining deadline or observed
+        // cancellation. Recheck before publishing even this bounded chunk.
+        limits.check(stats)?;
+        if read == 0 {
+            break;
+        }
+        let next = copied
+            .checked_add(read as u64)
+            .ok_or_else(|| anyhow::anyhow!("isolated sandbox source size overflow"))?;
+        if next > expected_size {
+            anyhow::bail!("isolated sandbox source file grew while it was being copied");
+        }
+        writer.write_all(&buffer[..read])?;
+        copied = next;
+    }
+    if copied != expected_size {
+        anyhow::bail!("isolated sandbox source file changed size while it was being copied");
+    }
+    Ok(())
+}
+
+fn copy_file_bounded(
+    source_root: &Path,
+    relative_path: &Path,
+    dst: &Path,
+    limits: &IsolatedCopyLimits,
+    stats: &mut IsolatedCopyStats,
+) -> Result<()> {
+    let result = (|| -> Result<()> {
+        // Consume the descriptor returned by the authorized-root traversal.
+        // Reopening `source_root.join(relative_path)` here would let a
+        // post-walk symlink or reparse-point swap redirect the copy outside
+        // the workspace.
+        let mut source = ha_core::platform::open_file_beneath(source_root, relative_path)
+            .with_context(|| {
+                format!(
+                    "open isolated sandbox source '{}' beneath authorized workspace",
+                    relative_path.display()
+                )
+            })?;
+        let metadata = source.metadata()?;
+        let expected_size = metadata.len();
+        stats.bytes = stats.bytes.saturating_add(expected_size);
+        limits.check(stats)?;
+        let permissions = metadata.permissions();
+        let mut destination = File::create(dst)?;
+        copy_stream_bounded(&mut source, &mut destination, expected_size, limits, stats)?;
+        destination.flush()?;
+        drop(destination);
+        std::fs::set_permissions(dst, permissions)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        // The isolated root is temporary, but removing a partial file keeps the
+        // failure state unambiguous for callers and tests inspecting the copy.
+        let _ = std::fs::remove_file(dst);
+    }
+    result
+}
+
 fn copy_dir_gitignore_aware_bounded(
     src: &Path,
     dst: &Path,
@@ -1222,10 +1890,12 @@ fn copy_dir_gitignore_aware_bounded(
 ) -> Result<()> {
     limits.check(stats)?;
     std::fs::create_dir_all(dst)?;
-    let source_root = src.to_path_buf();
+    let source_root = src
+        .canonicalize()
+        .with_context(|| format!("canonicalize isolated sandbox source '{}'", src.display()))?;
     let filter_root = source_root.clone();
-    let inside_git_repo = find_git_root_for_ignore(src).is_some();
-    let walker = WalkBuilder::new(src)
+    let inside_git_repo = find_git_root_for_ignore(&source_root).is_some();
+    let walker = WalkBuilder::new(&source_root)
         .hidden(false)
         .ignore(true)
         .git_ignore(true)
@@ -1287,13 +1957,11 @@ fn copy_dir_gitignore_aware_bounded(
         } else if file_type.is_file() {
             stats.entries = stats.entries.saturating_add(1);
             stats.files = stats.files.saturating_add(1);
-            let file_size = std::fs::metadata(src_path)?.len();
-            stats.bytes = stats.bytes.saturating_add(file_size);
             limits.check(stats)?;
             if let Some(parent) = dst_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(src_path, dst_path)?;
+            copy_file_bounded(&source_root, rel_path, &dst_path, limits, stats)?;
         } else {
             app_debug!(
                 "sandbox",
@@ -1309,6 +1977,360 @@ fn copy_dir_gitignore_aware_bounded(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn reacquire_released_workspace_lock(lock_path: &Path) -> File {
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            acquire_workspace_ownership_lock_at(lock_path.to_path_buf(), None),
+        )
+        .await
+        .expect("released ownership lock should be reacquired before timeout")
+        .expect("reacquire released ownership lock")
+    }
+
+    #[tokio::test]
+    async fn workspace_ownership_lock_serializes_complete_handoffs() {
+        let directory = tempfile::tempdir().expect("lock tempdir");
+        let lock_path = directory.path().join("ownership.lock");
+        let first = acquire_workspace_ownership_lock_at(lock_path.clone(), None)
+            .await
+            .expect("first ownership lock");
+        let waiter = tokio::spawn(async move {
+            acquire_workspace_ownership_lock_at(lock_path, None)
+                .await
+                .expect("second ownership lock")
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !waiter.is_finished(),
+            "a second ownership handoff must wait for restoration"
+        );
+        drop(first);
+        let second = tokio::time::timeout(Duration::from_secs(2), waiter)
+            .await
+            .expect("second handoff should acquire after release")
+            .expect("ownership lock task");
+        drop(second);
+    }
+
+    #[tokio::test]
+    async fn explicit_workspace_ownership_finalize_restores_before_returning() {
+        let directory = tempfile::tempdir().expect("ownership tempdir");
+        let lock_path = directory.path().join("ownership.lock");
+        let lock = ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+            .expect("acquire ownership lock")
+            .expect("ownership lock available");
+        let mut guard = Some(WorkspaceOwnershipGuard {
+            // A missing journal is the idempotent already-restored case.
+            restoration: Some((lock, directory.path().join("missing-journal.json"))),
+        });
+
+        let error = finalize_workspace_ownership::<()>(
+            &mut guard,
+            Err(anyhow::anyhow!("container failure")),
+        )
+        .await
+        .expect_err("the container result must be preserved");
+
+        assert_eq!(error.to_string(), "container failure");
+        assert!(guard.is_none());
+        let reacquired = reacquire_released_workspace_lock(&lock_path).await;
+        drop(reacquired);
+    }
+
+    #[tokio::test]
+    async fn explicit_workspace_ownership_finalize_reports_restore_failure() {
+        let directory = tempfile::tempdir().expect("ownership tempdir");
+        let lock_path = directory.path().join("ownership.lock");
+        let lock = ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+            .expect("acquire ownership lock")
+            .expect("ownership lock available");
+        let journal_path = directory.path().join("invalid-journal.json");
+        std::fs::write(&journal_path, b"not json").expect("write invalid journal");
+        let mut guard = Some(WorkspaceOwnershipGuard {
+            restoration: Some((lock, journal_path.clone())),
+        });
+
+        let error = finalize_workspace_ownership(&mut guard, Ok("command succeeded"))
+            .await
+            .expect_err("ownership restoration must override command success");
+
+        assert!(error
+            .to_string()
+            .contains("restore sandbox workspace ownership before reporting command success"));
+        assert!(
+            journal_path.exists(),
+            "failed recovery must retain its journal"
+        );
+        assert!(guard.is_none());
+        let reacquired = reacquire_released_workspace_lock(&lock_path).await;
+        drop(reacquired);
+
+        let second_lock = reacquire_released_workspace_lock(&lock_path).await;
+        let mut second_guard = Some(WorkspaceOwnershipGuard {
+            restoration: Some((second_lock, journal_path)),
+        });
+        let combined = finalize_workspace_ownership::<()>(
+            &mut second_guard,
+            Err(anyhow::anyhow!("container failure")),
+        )
+        .await
+        .expect_err("execution and restoration failures must be combined");
+        let combined = format!("{combined:#}");
+        assert!(combined.contains("container failure"));
+        assert!(combined.contains("workspace ownership restoration also failed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_multiply_linked_files() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        let source = outside.path().join("outside.txt");
+        std::fs::write(&source, "protected").expect("outside source");
+        std::fs::hard_link(&source, workspace.path().join("linked.txt"))
+            .expect("workspace hard link");
+
+        let error = collect_workspace_owners_for_handoff(workspace.path())
+            .expect_err("hard-linked inode must fail closed");
+        assert!(error.to_string().contains("multiply-linked"));
+        assert!(collect_workspace_owners(workspace.path()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_recovery_accepts_only_workspace_local_hard_links() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let root = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical workspace");
+        let source = root.join("source.txt");
+        std::fs::write(&source, "workspace").expect("workspace source");
+        std::fs::hard_link(&source, root.join("internal.txt")).expect("internal hard link");
+        let internal = collect_workspace_owners(&root).expect("collect internal links");
+        verify_regular_file_links_are_workspace_local(&internal)
+            .expect("every hard-link name is beneath the workspace");
+        let root_snapshot = internal
+            .iter()
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("root snapshot");
+        let source_snapshot = internal
+            .iter()
+            .find(|(path, _)| path == &source)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("source snapshot");
+        ha_core::platform::set_path_owner_from_snapshot_beneath(
+            &root,
+            root_snapshot,
+            Path::new("source.txt"),
+            source_snapshot,
+            source_snapshot.uid,
+            source_snapshot.gid,
+        )
+        .expect("a verified workspace-local hard link may restore its inode once");
+
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        std::fs::hard_link(&source, outside.path().join("outside.txt")).expect("outside hard link");
+        let escaped = collect_workspace_owners(&root).expect("collect escaped links");
+        let error = verify_regular_file_links_are_workspace_local(&escaped)
+            .expect_err("an outside hard-link name must fail closed");
+        assert!(error.to_string().contains("outside"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_setid_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let executable = workspace.path().join("special");
+        std::fs::write(&executable, "#!/bin/sh\n").expect("workspace executable");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o4755))
+            .expect("set setuid bit");
+
+        let error = collect_workspace_owners_for_handoff(workspace.path())
+            .expect_err("setuid file must fail before ownership mutation");
+        assert!(error.to_string().contains("setuid/setgid"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_linux_file_capabilities() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let executable = workspace.path().join("capable");
+        std::fs::write(&executable, "#!/bin/sh\n").expect("workspace executable");
+        let snapshot = ha_core::platform::path_ownership_snapshot_no_follow(&executable)
+            .expect("ownership snapshot");
+
+        let error = validate_workspace_handoff_entry(true, snapshot, true)
+            .expect_err("file capabilities must fail before ownership mutation");
+        assert!(error.to_string().contains("file capability"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_handoff_rejects_a_replaced_inode_at_mutation() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        let root = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical workspace");
+        let victim = root.join("victim.txt");
+        std::fs::write(&victim, "workspace").expect("workspace source");
+        let owners = collect_workspace_owners_for_handoff(&root).expect("ownership snapshot");
+        let root_snapshot = owners
+            .iter()
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("root snapshot");
+        let victim_snapshot = owners
+            .iter()
+            .find(|(path, _)| path == &victim)
+            .map(|(_, snapshot)| *snapshot)
+            .expect("victim snapshot");
+
+        let outside_file = outside.path().join("outside.txt");
+        std::fs::write(&outside_file, "outside").expect("outside source");
+        std::fs::remove_file(&victim).expect("replace victim");
+        std::fs::hard_link(&outside_file, &victim).expect("install raced hard link");
+
+        let error = ha_core::platform::set_path_owner_from_snapshot_beneath(
+            &root,
+            root_snapshot,
+            Path::new("victim.txt"),
+            victim_snapshot,
+            victim_snapshot.uid,
+            victim_snapshot.gid,
+        )
+        .expect_err("the inode opened for mutation must match the snapshot");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_ownership_journal_recovers_and_is_removed_only_after_success() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        std::fs::write(workspace.path().join("source.txt"), "content").expect("workspace file");
+        let root = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical workspace");
+        let owners = collect_workspace_owners(&root).expect("collect workspace owners");
+        let root_owner = owners
+            .iter()
+            .find(|(path, _)| path == &root)
+            .map(|(_, snapshot)| (snapshot.uid, snapshot.gid))
+            .expect("workspace root owner");
+        let journal = WorkspaceOwnershipJournal::from_owners(
+            &root,
+            (ROOT_SANDBOX_UID, ROOT_SANDBOX_GID),
+            root_owner,
+            &owners,
+        )
+        .expect("build ownership journal");
+        let journal_dir = tempfile::tempdir().expect("journal tempdir");
+        let journal_path = journal_dir.path().join("ownership.json");
+        persist_workspace_ownership_journal(&journal_path, &journal)
+            .expect("persist ownership journal");
+        assert!(journal_path.exists());
+
+        assert!(recover_workspace_ownership(&journal_path).expect("recover ownership"));
+        assert!(!journal_path.exists());
+        assert!(!recover_workspace_ownership(&journal_path).expect("idempotent recovery"));
+    }
+
+    #[test]
+    fn workspace_ownership_recovery_restores_originals_and_new_target_owned_entries() {
+        let journal = WorkspaceOwnershipJournal {
+            version: WORKSPACE_OWNERSHIP_JOURNAL_VERSION,
+            root: PathBuf::from("/workspace"),
+            target_uid: ROOT_SANDBOX_UID,
+            target_gid: ROOT_SANDBOX_GID,
+            root_owner_uid: 0,
+            root_owner_gid: 0,
+            entries: Vec::new(),
+        };
+        let original = WorkspaceOwnerEntry {
+            relative_path: PathBuf::from("source.txt"),
+            uid: 1_000,
+            gid: 1_000,
+            device: 7,
+            inode: 11,
+            is_directory: false,
+        };
+        let current = ha_core::platform::PathOwnershipSnapshot {
+            uid: ROOT_SANDBOX_UID,
+            gid: ROOT_SANDBOX_GID,
+            device: 7,
+            inode: 11,
+            hard_link_count: 1,
+            special_mode_bits: 0,
+            is_directory: false,
+        };
+
+        assert_eq!(
+            restored_owner_for_entry(&journal, Some(&original), current),
+            Some((1_000, 1_000))
+        );
+        assert_eq!(
+            restored_owner_for_entry(&journal, None, current),
+            Some((0, 0))
+        );
+        assert_eq!(
+            restored_owner_for_entry(
+                &journal,
+                None,
+                ha_core::platform::PathOwnershipSnapshot {
+                    uid: 2_000,
+                    gid: 2_000,
+                    ..current
+                },
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn invalid_workspace_ownership_journal_is_retained_fail_closed() {
+        let journal_dir = tempfile::tempdir().expect("journal tempdir");
+        let journal_path = journal_dir.path().join("ownership.json");
+        std::fs::write(&journal_path, b"not-json").expect("write invalid journal");
+
+        assert!(recover_workspace_ownership(&journal_path).is_err());
+        assert!(
+            journal_path.exists(),
+            "an unreadable recovery record must never be discarded"
+        );
+    }
+
+    #[test]
+    fn default_container_boundary_is_hardened_and_bounded() {
+        let config = SandboxConfig::default();
+        let host = hardened_host_config(&config, None);
+        assert_eq!(host.readonly_rootfs, Some(true));
+        assert_eq!(host.network_mode.as_deref(), Some("none"));
+        assert_eq!(host.cap_drop, Some(vec!["ALL".to_string()]));
+        assert_eq!(
+            host.security_opt,
+            Some(vec!["no-new-privileges".to_string()])
+        );
+        assert_eq!(host.pids_limit, Some(256));
+        assert_eq!(host.memory, Some(512 * 1024 * 1024));
+        assert_eq!(host.nano_cpus, Some(1_000_000_000));
+        let tmpfs = host.tmpfs.expect("writable temp mounts");
+        assert_eq!(tmpfs.get("/tmp").map(String::as_str), Some("size=64M"));
+        assert_eq!(tmpfs.get("/var/tmp").map(String::as_str), Some("size=32M"));
+        assert_eq!(tmpfs.get("/run").map(String::as_str), Some("size=16M"));
+        #[cfg(unix)]
+        assert_ne!(
+            native_container_identity(None).expect("resolve container identity"),
+            Some((0, 0))
+        );
+    }
 
     #[test]
     fn isolated_copy_copies_regular_files_and_skips_generated_dirs() {
@@ -1446,6 +2468,51 @@ mod tests {
         assert!(err.to_string().contains("too large to copy safely"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn isolated_copy_rejects_a_file_replaced_by_an_outside_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let source = tempfile::tempdir().expect("source tempdir");
+        let destination = tempfile::tempdir().expect("destination tempdir");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        std::fs::write(outside.path().join("credentials.json"), "secret")
+            .expect("write outside secret");
+        symlink(
+            outside.path().join("credentials.json"),
+            source.path().join("candidate.txt"),
+        )
+        .expect("replace candidate with symlink");
+
+        let limits = IsolatedCopyLimits {
+            max_bytes: 1024,
+            max_entries: 10,
+            deadline: None,
+            cancellation_token: None,
+        };
+        let mut stats = IsolatedCopyStats {
+            entries: 1,
+            files: 1,
+            ..Default::default()
+        };
+        let destination_file = destination.path().join("candidate.txt");
+        let error = copy_file_bounded(
+            &source.path().canonicalize().expect("canonical source"),
+            Path::new("candidate.txt"),
+            &destination_file,
+            &limits,
+            &mut stats,
+        )
+        .expect_err("a post-walk symlink replacement must fail closed");
+
+        assert!(
+            error.to_string().contains("beneath authorized workspace"),
+            "unexpected error: {error:#}"
+        );
+        assert!(!destination_file.exists());
+        assert_eq!(stats.bytes, 0);
+    }
+
     #[test]
     fn isolated_copy_honors_cancellation() {
         let source = tempfile::tempdir().expect("source tempdir");
@@ -1470,6 +2537,59 @@ mod tests {
         .expect_err("copy should fail when cancelled");
 
         assert!(err.to_string().contains("preparation cancelled"));
+    }
+
+    #[test]
+    fn isolated_copy_checks_cancellation_between_file_chunks() {
+        struct CancellingWriter {
+            bytes: Vec<u8>,
+            token: CancellationToken,
+        }
+
+        impl Write for CancellingWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.bytes.extend_from_slice(buf);
+                self.token.cancel();
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let source = vec![7_u8; ISOLATED_COPY_CHUNK_BYTES * 3];
+        let mut reader = std::io::Cursor::new(source.clone());
+        let cancellation_token = CancellationToken::new();
+        let limits = IsolatedCopyLimits {
+            max_bytes: source.len() as u64,
+            max_entries: 1,
+            deadline: None,
+            cancellation_token: Some(cancellation_token.clone()),
+        };
+        let stats = IsolatedCopyStats {
+            bytes: source.len() as u64,
+            entries: 1,
+            files: 1,
+            dirs: 0,
+        };
+        let mut writer = CancellingWriter {
+            bytes: Vec::new(),
+            token: cancellation_token,
+        };
+
+        let error = copy_stream_bounded(
+            &mut reader,
+            &mut writer,
+            source.len() as u64,
+            &limits,
+            &stats,
+        )
+        .expect_err("copy should stop before reading a second chunk");
+
+        assert!(error.to_string().contains("preparation cancelled"));
+        assert_eq!(writer.bytes.len(), ISOLATED_COPY_CHUNK_BYTES);
+        assert!(writer.bytes.len() < source.len());
     }
 }
 
@@ -1501,27 +2621,32 @@ async fn wait_for_container_with_limits(
     timeout_secs: u64,
     cancellation_token: Option<CancellationToken>,
 ) -> SandboxWaitOutcome {
-    match (timeout_secs, cancellation_token) {
-        (0, None) => SandboxWaitOutcome::Exited(wait_for_container(docker, container_id).await),
-        (0, Some(token)) => {
+    let deadline = (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs));
+    wait_for_container_until(docker, container_id, deadline, cancellation_token).await
+}
+
+async fn wait_for_container_until(
+    docker: &Docker,
+    container_id: &str,
+    deadline: Option<Instant>,
+    cancellation_token: Option<CancellationToken>,
+) -> SandboxWaitOutcome {
+    match (deadline, cancellation_token) {
+        (None, None) => SandboxWaitOutcome::Exited(wait_for_container(docker, container_id).await),
+        (None, Some(token)) => {
             tokio::select! {
                 result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
                 _ = token.cancelled() => SandboxWaitOutcome::Cancelled,
             }
         }
-        (secs, None) => {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(secs),
-                wait_for_container(docker, container_id),
-            )
-            .await
-            {
-                Ok(result) => SandboxWaitOutcome::Exited(result),
-                Err(_) => SandboxWaitOutcome::TimedOut,
+        (Some(deadline), None) => {
+            tokio::select! {
+                result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
+                _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => SandboxWaitOutcome::TimedOut,
             }
         }
-        (secs, Some(token)) => {
-            let timer = tokio::time::sleep(std::time::Duration::from_secs(secs));
+        (Some(deadline), Some(token)) => {
+            let timer = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline));
             tokio::pin!(timer);
             tokio::select! {
                 result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
@@ -1830,7 +2955,7 @@ async fn upload_workspace_archive(
     docker: &Docker,
     container_id: &str,
     archive_path: &Path,
-    timeout_secs: u64,
+    deadline: Option<Instant>,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<()> {
     let file = tokio::fs::File::open(archive_path)
@@ -1854,10 +2979,11 @@ async fn upload_workspace_archive(
     };
     tokio::pin!(cancellation);
     let timeout = async {
-        if timeout_secs == 0 {
-            std::future::pending::<()>().await;
-        } else {
-            tokio::time::sleep(Duration::from_secs(timeout_secs)).await;
+        match deadline {
+            Some(deadline) => {
+                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await
+            }
+            None => std::future::pending::<()>().await,
         }
     };
     tokio::pin!(timeout);
@@ -1867,10 +2993,7 @@ async fn upload_workspace_archive(
             anyhow::anyhow!("Failed to upload isolated workspace through the Docker API")
         }),
         _ = &mut cancellation => Err(anyhow::anyhow!("Sandbox workspace upload cancelled")),
-        _ = &mut timeout => Err(anyhow::anyhow!(
-            "Sandbox workspace upload timed out after {}s",
-            timeout_secs
-        )),
+        _ = &mut timeout => Err(anyhow::anyhow!("Sandbox workspace upload timed out")),
     };
     if result.is_ok() {
         app_info!(
@@ -1908,82 +3031,36 @@ async fn exec_in_native_docker_with_workspace(
         Vec::new()
     };
 
-    // Resolve current UID:GID to avoid permission issues on mounted volumes
-    let user = {
-        #[cfg(unix)]
-        {
-            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
-                libc::getgid()
-            })
+    let bind_workspace = match workspace {
+        NativeWorkspaceSource::Bind(path) => Some(path),
+        NativeWorkspaceSource::Archive(_) => None,
+    };
+    if let Some(path) = bind_workspace {
+        // Ownership handoff is a host mutation, so the mount boundary must be
+        // authorized before we touch any entry beneath it.
+        validate_bind_mount(path)?;
+    }
+    let identity = native_container_identity(bind_workspace)?;
+    let user = identity.map(|(uid, gid)| format!("{uid}:{gid}"));
+    let mut ownership_guard = match bind_workspace {
+        Some(path) => {
+            prepare_workspace_ownership(path, identity, cancellation_token.clone()).await?
         }
-        #[cfg(not(unix))]
-        {
-            String::new()
-        }
+        None => None,
     };
 
     let (binds, volumes) = match workspace {
-        NativeWorkspaceSource::Bind(host_cwd) => {
-            // 老 exec_in_native_docker 的守卫在**调用点**做（line ~500 前置
-            // validate_bind_mount）。搬进 _with_workspace 后调用点消失，若
-            // 未来直接构造 Bind（`Bind` 现在 dead_code，注释里说"下一刀会
-            // 构造"），bind mount `/etc`、`/var/run/docker.sock`、根目录成为
-            // 可能。在此就地校验，让 Bind arm 与 exec_in_native_docker 的
-            // 守卫等价，收编时不留漏点。
-            validate_bind_mount(host_cwd)?;
-            (
-                Some(vec![format!("{}:/workspace", host_cwd.display())]),
-                None,
-            )
-        }
+        NativeWorkspaceSource::Bind(host_cwd) => (
+            Some(vec![format!("{}:/workspace", host_cwd.display())]),
+            None,
+        ),
         // The anonymous volume is populated through Docker's archive API and
         // removed together with the container. It avoids interpreting a path
         // from the parent container in the host daemon's namespace.
         NativeWorkspaceSource::Archive(_) => (None, Some(vec!["/workspace".to_string()])),
     };
 
-    // Build host config with resource limits and security hardening
-    let mut host_config = HostConfig {
-        binds,
-        // Security: read-only root filesystem
-        readonly_rootfs: Some(config.read_only),
-        // Security: network isolation
-        network_mode: Some(config.network_mode.clone()),
-        // Security: drop all capabilities
-        cap_drop: if config.cap_drop_all {
-            Some(vec!["ALL".to_string()])
-        } else {
-            None
-        },
-        // Security: prevent privilege escalation
-        security_opt: if config.no_new_privileges {
-            Some(vec!["no-new-privileges".to_string()])
-        } else {
-            None
-        },
-        // Security: PID limit
-        pids_limit: config.pids_limit,
-        // tmpfs mounts for writable temp dirs when root is read-only
-        tmpfs: if config.read_only && !config.tmpfs.is_empty() {
-            let mut map = HashMap::new();
-            for entry in &config.tmpfs {
-                let parts: Vec<&str> = entry.splitn(2, ':').collect();
-                let mount_point = parts[0].to_string();
-                let options = parts.get(1).unwrap_or(&"").to_string();
-                map.insert(mount_point, options);
-            }
-            Some(map)
-        } else {
-            None
-        },
-        ..Default::default()
-    };
-    if let Some(mem) = config.memory_limit {
-        host_config.memory = Some(mem);
-    }
-    if let Some(cpus) = config.cpu_limit {
-        host_config.nano_cpus = Some((cpus * 1_000_000_000.0) as i64);
-    }
+    let host_config = hardened_host_config(config, binds);
 
     // Create container
     let container_config = ContainerCreateBody {
@@ -1999,7 +3076,7 @@ async fn exec_in_native_docker_with_workspace(
         } else {
             Some(env_vec)
         },
-        user: if user.is_empty() { None } else { Some(user) },
+        user,
         volumes,
         host_config: Some(host_config),
         attach_stdout: Some(true),
@@ -2016,7 +3093,7 @@ async fn exec_in_native_docker_with_workspace(
             .unwrap_or("tmp")
     );
 
-    let container = docker
+    let container = match docker
         .create_container(
             Some(CreateContainerOptions {
                 name: Some(container_name.clone()),
@@ -2025,16 +3102,29 @@ async fn exec_in_native_docker_with_workspace(
             container_config,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to create container: {}", e))?;
+    {
+        Ok(container) => container,
+        Err(error) => {
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Failed to create container: {}", error)),
+            )
+            .await;
+        }
+    };
 
     let container_id = container.id.clone();
+    // Upload and command execution consume one absolute budget. Reusing a
+    // duration for both stages can otherwise nearly double caller wall time.
+    let execution_deadline =
+        (timeout_secs > 0).then(|| Instant::now() + Duration::from_secs(timeout_secs));
 
     if let NativeWorkspaceSource::Archive(archive_path) = workspace {
         if let Err(error) = upload_workspace_archive(
             &docker,
             &container_id,
             archive_path,
-            timeout_secs,
+            execution_deadline,
             cancellation_token.as_ref(),
         )
         .await
@@ -2048,7 +3138,7 @@ async fn exec_in_native_docker_with_workspace(
                     cleanup_error
                 );
             }
-            return Err(error);
+            return finalize_workspace_ownership(&mut ownership_guard, Err(error)).await;
         }
     }
 
@@ -2064,7 +3154,11 @@ async fn exec_in_native_docker_with_workspace(
                 cleanup_err
             );
         }
-        return Err(anyhow::anyhow!("Failed to start container: {}", e));
+        return finalize_workspace_ownership(
+            &mut ownership_guard,
+            Err(anyhow::anyhow!("Failed to start container: {}", e)),
+        )
+        .await;
     }
 
     app_info!(
@@ -2081,10 +3175,10 @@ async fn exec_in_native_docker_with_workspace(
 
     // Wait for container to finish. `timeout_secs = 0` disables the exec-level
     // timeout and lets Docker wait until the container exits naturally.
-    let (exit_code, timed_out) = match wait_for_container_with_limits(
+    let (exit_code, timed_out) = match wait_for_container_until(
         &docker,
         &container_id,
-        timeout_secs,
+        execution_deadline,
         cancellation_token,
     )
     .await
@@ -2093,7 +3187,11 @@ async fn exec_in_native_docker_with_workspace(
         SandboxWaitOutcome::Exited(Err(e)) => {
             app_warn!("sandbox", "docker", "Container wait error: {}", e);
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Container execution failed: {}", e));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Container execution failed: {}", e)),
+            )
+            .await;
         }
         SandboxWaitOutcome::TimedOut => {
             app_warn!(
@@ -2114,7 +3212,11 @@ async fn exec_in_native_docker_with_workspace(
             );
             let _ = docker.stop_container(&container_id, None).await;
             stop_and_cleanup_container(&docker, &container_id).await;
-            return Err(anyhow::anyhow!("Sandbox execution cancelled"));
+            return finalize_workspace_ownership(
+                &mut ownership_guard,
+                Err(anyhow::anyhow!("Sandbox execution cancelled")),
+            )
+            .await;
         }
     };
 
@@ -2132,7 +3234,7 @@ async fn exec_in_native_docker_with_workspace(
                     cleanup_error
                 );
             }
-            return Err(error);
+            return finalize_workspace_ownership(&mut ownership_guard, Err(error)).await;
         }
     };
 
@@ -2147,12 +3249,16 @@ async fn exec_in_native_docker_with_workspace(
         );
     }
 
-    Ok(SandboxResult {
-        stdout,
-        stderr,
-        exit_code,
-        timed_out,
-    })
+    finalize_workspace_ownership(
+        &mut ownership_guard,
+        Ok(SandboxResult {
+            stdout,
+            stderr,
+            exit_code,
+            timed_out,
+        }),
+    )
+    .await
 }
 
 async fn exec_in_native_docker_archive(
@@ -2179,9 +3285,16 @@ async fn create_workspace_archive(
     destination: PathBuf,
     deadline: Option<Instant>,
     cancellation_token: Option<CancellationToken>,
+    archive_owner: Option<(u64, u64)>,
 ) -> Result<()> {
     tokio::task::spawn_blocking(move || {
-        write_workspace_archive(&source, &destination, deadline, cancellation_token)
+        write_workspace_archive(
+            &source,
+            &destination,
+            deadline,
+            cancellation_token,
+            archive_owner,
+        )
     })
     .await
     .map_err(|e| anyhow::anyhow!("Isolated workspace archive task panicked: {e}"))?
@@ -2224,6 +3337,7 @@ fn write_workspace_archive(
     destination: &Path,
     deadline: Option<Instant>,
     cancellation_token: Option<CancellationToken>,
+    archive_owner: Option<(u64, u64)>,
 ) -> Result<()> {
     check_isolated_archive_guard(deadline, cancellation_token.as_ref())?;
     let file = File::create(destination)
@@ -2300,6 +3414,10 @@ fn write_workspace_archive(
 
         let mut header = tar::Header::new_gnu();
         header.set_metadata(&metadata);
+        if let Some((uid, gid)) = archive_owner {
+            header.set_uid(uid);
+            header.set_gid(gid);
+        }
         if file_type.is_dir() {
             archive
                 .append_data(&mut header, archive_path, std::io::empty())
@@ -2340,7 +3458,7 @@ fn write_workspace_archive(
 
 #[cfg(test)]
 mod archive_tests {
-    use super::write_workspace_archive;
+    use super::{write_workspace_archive, ROOT_SANDBOX_GID, ROOT_SANDBOX_UID};
     use std::fs;
     use std::time::Instant;
 
@@ -2351,8 +3469,14 @@ mod archive_tests {
         fs::create_dir_all(source.path().join("src")).expect("source directory");
         fs::write(source.path().join("src/main.rs"), "fn main() {}\n").expect("source file");
         let archive_file = tempfile::NamedTempFile::new().expect("archive tempfile");
-        write_workspace_archive(source.path(), archive_file.path(), None, None)
-            .expect("write archive");
+        write_workspace_archive(
+            source.path(),
+            archive_file.path(),
+            None,
+            None,
+            Some((u64::from(ROOT_SANDBOX_UID), u64::from(ROOT_SANDBOX_GID))),
+        )
+        .expect("write archive");
 
         let file = fs::File::open(archive_file.path()).expect("open archive");
         let mut archive = tar::Archive::new(file);
@@ -2360,11 +3484,10 @@ mod archive_tests {
             .entries()
             .expect("archive entries")
             .map(|entry| {
-                entry
-                    .expect("archive entry")
-                    .path()
-                    .expect("archive path")
-                    .into_owned()
+                let entry = entry.expect("archive entry");
+                assert_eq!(entry.header().uid().expect("archive uid"), 65_534);
+                assert_eq!(entry.header().gid().expect("archive gid"), 65_534);
+                entry.path().expect("archive path").into_owned()
             })
             .collect::<Vec<_>>();
 
@@ -2386,6 +3509,7 @@ mod archive_tests {
             cancelled_archive.path(),
             None,
             Some(cancellation_token),
+            None,
         )
         .expect_err("cancelled archive should fail");
         assert!(cancelled
@@ -2397,6 +3521,7 @@ mod archive_tests {
             source.path(),
             timed_out_archive.path(),
             Some(Instant::now()),
+            None,
             None,
         )
         .expect_err("timed out archive should fail");

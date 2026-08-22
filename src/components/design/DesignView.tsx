@@ -82,6 +82,7 @@ import {
   Loader2 as Loader2Icon,
   FolderGit2,
   Hammer,
+  Repeat2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { getTransport, useTransportRevision } from "@/lib/transport-provider"
@@ -121,6 +122,13 @@ import MediaGenerateDialog, {
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
+import { DesignFigmaRoundtrip } from "@/components/design/DesignFigmaRoundtrip"
+import {
+  DesignScenariosControl,
+  type DesignScenario,
+  type DesignScenarioViewport,
+} from "@/components/design/DesignScenariosControl"
+import { DesignComponentsManifestDialog } from "@/components/design/DesignComponentsManifestDialog"
 import { DesignCodeBinding } from "@/components/design/DesignCodeBinding"
 import { DesignRepoBinding } from "@/components/design/DesignRepoBinding"
 import { logger } from "@/lib/logger"
@@ -197,6 +205,7 @@ import type {
   CommentPlacement,
   CodeBindingInfo,
   ImplementToCodeResult,
+  DesignQualityRun,
 } from "@/types/design"
 import {
   ARTIFACT_KINDS,
@@ -578,6 +587,8 @@ export default function DesignView({
   const [tokenExportOpen, setTokenExportOpen] = useState(false)
   const [tokenExportSystem, setTokenExportSystem] = useState<DesignSystemMeta | null>(null)
   const [figmaImportOpen, setFigmaImportOpen] = useState(false)
+  const [figmaRoundtripOpen, setFigmaRoundtripOpen] = useState(false)
+  const [componentsManifestOpen, setComponentsManifestOpen] = useState(false)
   const [codeBindOpen, setCodeBindOpen] = useState(false)
   const [codeBindSystem, setCodeBindSystem] = useState<DesignSystemMeta | null>(null)
   const [repoBindOpen, setRepoBindOpen] = useState(false)
@@ -661,6 +672,7 @@ export default function DesignView({
   // 即时失效旧通道，避免复用同一 WindowProxy 时旧文档延迟消息串到新产物。
   const previewTextSelectionChannelRef = useRef<PreviewTextSelectionChannel | null>(null)
   const previewTextSelectionNavigationKeyRef = useRef("")
+  const previewScenarioRef = useRef<{ artifactId: string; scenario: DesignScenario } | null>(null)
   // 预览重载中（Wave 2-⑥）：src 变→true，onLoad→false；驱动叠层 spinner，让改稿读作「更新中」
   // 而非白屏/坏页。旧帧因 iframe 不再按 key 重挂而垫在下面直到新帧就绪。
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -3197,7 +3209,9 @@ export default function DesignView({
   const [reviewFindings, setReviewFindings] = useState<
     { lens: string; severity: string; message: string }[] | null
   >(null)
+  const [visualQuality, setVisualQuality] = useState<DesignQualityRun | null>(null)
   const [reviewing, setReviewing] = useState(false)
+  const [acceptingBaseline, setAcceptingBaseline] = useState(false)
   const runQualityReview = useCallback(async () => {
     const aid = activeArtifactRef.current?.id
     if (!aid || reviewing) return
@@ -3208,6 +3222,16 @@ export default function DesignView({
         { id: aid },
       )
       setReviewFindings(Array.isArray(f) ? f : [])
+      try {
+        const visual = await tx.call<DesignQualityRun>("run_design_visual_regression_cmd", {
+          artifactId: aid,
+        })
+        setVisualQuality(visual)
+      } catch (e) {
+        setVisualQuality(null)
+        logger.warn("design", "DesignView::visualRegression", "visual regression unavailable", e)
+        toast.warning(t("design.review.visualUnavailable", "视觉回归不可用，请检查浏览器渲染后端"))
+      }
     } catch (e) {
       logger.error("design", "DesignView::qualityReview", "review failed", e)
       toast.error(t("design.err.load", "加载失败"))
@@ -3215,6 +3239,29 @@ export default function DesignView({
       setReviewing(false)
     }
   }, [tx, reviewing, t])
+
+  const acceptVisualBaseline = useCallback(async () => {
+    if (!visualQuality || acceptingBaseline) return
+    setAcceptingBaseline(true)
+    try {
+      await tx.call("accept_design_visual_baseline_cmd", {
+        input: {
+          artifactId: visualQuality.artifactId,
+          expectedArtifactHash: visualQuality.artifactHash,
+        },
+      })
+      const rerun = await tx.call<DesignQualityRun>("run_design_visual_regression_cmd", {
+        artifactId: visualQuality.artifactId,
+      })
+      setVisualQuality(rerun)
+      toast.success(t("design.review.baselineAccepted", "已接受当前画面为视觉基线"))
+    } catch (e) {
+      logger.error("design", "DesignView::acceptBaseline", "accept baseline failed", e)
+      toast.error(t("design.review.baselineFailed", "接受视觉基线失败"))
+    } finally {
+      setAcceptingBaseline(false)
+    }
+  }, [visualQuality, acceptingBaseline, tx, t])
 
   // 页面级样式（body 背景/文字色/最大宽度）：与 oid 元素微调正交，落 CSS 标记块 + 重渲染。
   const [pageStyleOpen, setPageStyleOpen] = useState(false)
@@ -3686,6 +3733,14 @@ export default function DesignView({
     if (commentModeRef.current) {
       postToIframe({ type: "ds_comment_mode", on: true })
       postToIframe({ type: "ds_comments_set", comments: commentsRef.current })
+    }
+    const scenarioProjection = previewScenarioRef.current
+    if (artifact && scenarioProjection?.artifactId === artifact.id) {
+      postToIframe({
+        type: "ds_scenario",
+        route: scenarioProjection.scenario.route,
+        state: scenarioProjection.scenario.state,
+      })
     }
     // 滚动保温（Wave 2-⑥）：回写该产物重载前 / 上次的滚动位置（无记录=保持顶部）。
     // 延一帧确保桥已就绪接收；新产物首开无记录故天然停在顶部。
@@ -4346,6 +4401,18 @@ export default function DesignView({
     },
     [activeArtifactId, previewDevice],
   )
+  const applyPreviewScenario = useCallback(
+    (scenario: DesignScenario, viewport?: DesignScenarioViewport) => {
+      if (!activeArtifactId) return
+      previewScenarioRef.current = { artifactId: activeArtifactId, scenario }
+      postToIframe({ type: "ds_scenario", route: scenario.route, state: scenario.state })
+      if (viewport) {
+        commitCustomViewport(viewport)
+        changeDevice("custom")
+      }
+    },
+    [activeArtifactId, changeDevice, commitCustomViewport, postToIframe],
+  )
   // 测量预览面尺寸（统一渲染的「适应」缩放 + 设备模式都依赖）。useLayoutEffect：paint 前先同步量
   // 一次，令首帧「适应」即按面板尺寸精确缩放、无 natural→fit 跳一下。用 clientWidth/Height（含 p-4
   // padding 的盒），frame 里再 `-32` 取内容区。deps 含 showGrid —— 产物墙开关会卸载/重挂预览面，不带
@@ -4791,9 +4858,10 @@ export default function DesignView({
   // 同一 index.html——不带 cache-bust 时 remount 会取回缓存的旧页（server 模式尤甚，卡旧内容 ≤60s）。
   const activePreviewId = activeArtifact?.id ?? ""
   const activePreviewPath = activeArtifact?.artifactPath ?? ""
-  const previewIdentity = activePreviewId && activePreviewPath
-    ? JSON.stringify([transportRevision, activePreviewId, activePreviewPath])
-    : ""
+  const previewIdentity =
+    activePreviewId && activePreviewPath
+      ? JSON.stringify([transportRevision, activePreviewId, activePreviewPath])
+      : ""
   useEffect(() => {
     let cancelled = false
     if (!activePreviewId || !activePreviewPath) return
@@ -5163,6 +5231,18 @@ export default function DesignView({
                     >
                       <Frame className="h-3.5 w-3.5" />
                       {t("design.figma.entry", "从 Figma 导入…")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => {
+                        setSystemPickerOpen(false)
+                        setComponentsManifestOpen(true)
+                      }}
+                    >
+                      <Blocks className="h-3.5 w-3.5" />
+                      {t("design.components.title", "组件清单")}
                     </Button>
                     {activeProject.defaultSystemId && (
                       <Button
@@ -6011,6 +6091,12 @@ export default function DesignView({
                           </IconTip>
                         )}
                       {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
+                        <DesignScenariosControl
+                          artifactId={activeArtifact.id}
+                          onApply={applyPreviewScenario}
+                        />
+                      )}
+                      {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
                         <IconTip
                           label={
                             parseIsRtl(activeArtifact.metadata)
@@ -6064,6 +6150,23 @@ export default function DesignView({
                           <History className="h-3.5 w-3.5" />
                         </Button>
                       </IconTip>
+                      <IconTip
+                        label={t("design.figmaRoundtrip.title", "Figma 安全往返")}
+                        side="bottom"
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          disabled={
+                            activeArtifact.status !== "ready" &&
+                            activeArtifact.status !== "needs_review"
+                          }
+                          onClick={() => setFigmaRoundtripOpen(true)}
+                        >
+                          <Repeat2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
                       {tx.supportsLocalFileOps() ? (
                         // 桌面无公网服务器：分享 = 一键导出可分享 HTML（保持一键，不加弹层）。
                         <IconTip label={t("design.share.button", "分享")} side="bottom">
@@ -6106,6 +6209,7 @@ export default function DesignView({
                             <DesignSharePanel
                               open={shareOpen}
                               artifactId={activeArtifact.id}
+                              currentVersion={activeArtifact.currentVersion}
                               origin={window.location.origin}
                             />
                           )}
@@ -7010,6 +7114,24 @@ export default function DesignView({
           if (activeProjectRef.current) void setProjectSystem(systemId)
         }}
       />
+      {activeArtifact && (
+        <DesignFigmaRoundtrip
+          open={figmaRoundtripOpen}
+          onOpenChange={setFigmaRoundtripOpen}
+          artifactId={activeArtifact.id}
+          onImported={() => {
+            void refreshView()
+            setPreviewKey((key) => key + 1)
+          }}
+        />
+      )}
+      {activeProject && (
+        <DesignComponentsManifestDialog
+          open={componentsManifestOpen}
+          onOpenChange={setComponentsManifestOpen}
+          projectId={activeProject.id}
+        />
+      )}
 
       {/* 绑定代码工程 + 同步 token（P3 工程轴 D） */}
       <DesignCodeBinding
@@ -7280,7 +7402,15 @@ export default function DesignView({
       </Dialog>
 
       {/* 多镜头质量审查结果 */}
-      <Dialog open={reviewFindings !== null} onOpenChange={(o) => !o && setReviewFindings(null)}>
+      <Dialog
+        open={reviewFindings !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setReviewFindings(null)
+            setVisualQuality(null)
+          }
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -7288,6 +7418,51 @@ export default function DesignView({
               {t("design.review.qualityTitle", "质量审查")}
             </DialogTitle>
           </DialogHeader>
+          {visualQuality && (
+            <div className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-medium">
+                    {t("design.review.visualTitle", "确定性视觉回归")}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {visualQuality.deterministicPassed
+                      ? t("design.review.visualPassed", "固定视口与静态检查均通过")
+                      : t("design.review.visualNeedsBaseline", "存在差异或尚未建立基线")}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={acceptingBaseline}
+                  onClick={() => void acceptVisualBaseline()}
+                >
+                  {acceptingBaseline && <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                  {t("design.review.acceptBaseline", "接受为基线")}
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {visualQuality.diffs.map((diff) => (
+                  <div
+                    key={`${diff.viewport.width}x${diff.viewport.height}`}
+                    className={cn(
+                      "rounded border px-1.5 py-1 text-center text-[10px]",
+                      diff.passed
+                        ? "border-emerald-500/30 text-emerald-600"
+                        : "border-amber-500/30 text-amber-600",
+                    )}
+                  >
+                    {diff.viewport.width}×{diff.viewport.height}
+                    <br />
+                    {diff.changedRatio == null
+                      ? t("design.review.noBaseline", "无基线")
+                      : `${(diff.changedRatio * 100).toFixed(2)}%`}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {reviewFindings && reviewFindings.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
               <CheckCircle2 className="h-7 w-7 text-emerald-500" />
@@ -7316,7 +7491,13 @@ export default function DesignView({
             </ul>
           )}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setReviewFindings(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setReviewFindings(null)
+                setVisualQuality(null)
+              }}
+            >
               {t("common.close", "关闭")}
             </Button>
           </DialogFooter>

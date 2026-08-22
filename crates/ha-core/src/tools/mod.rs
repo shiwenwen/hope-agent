@@ -138,9 +138,10 @@ pub(crate) use task::{task_snapshot_data, TASK_REMINDER_INSTRUCTION};
 
 pub use approval::{
     approval_timeout_secs, deny_all_pending, deny_pending_for_session, emit_approval_resolved,
-    list_pending_approval_requests, pending_approval_session_id, pending_request_ids_for_session,
-    submit_approval_response, ApprovalReasonKind, ApprovalRequest, ApprovalResolutionSource,
-    ApprovalResponse, ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
+    list_pending_approval_requests, pending_approval_allows_always, pending_approval_session_id,
+    pending_request_ids_for_session, set_approval_request_forwarder, submit_approval_response,
+    ApprovalReasonKind, ApprovalRequest, ApprovalResolutionSource, ApprovalResponse,
+    ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
 };
 pub use definitions::{
     background_policy_for_tool, get_available_tools, get_core_tools, get_core_tools_for_provider,

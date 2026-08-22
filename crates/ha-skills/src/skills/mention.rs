@@ -18,6 +18,7 @@
 //! [`build_skill_context_payload`], and inject into the user-owned turn context
 //! (see `chat_engine::engine`), parallel to `knowledge::inject`.
 
+use std::path::Path;
 #[cfg(test)]
 use std::sync::OnceLock;
 
@@ -71,11 +72,12 @@ fn is_mentionable_on_this_os(name: &str) -> bool {
 /// Built-in skills eligible for `@skill` on this host: allowlist ∩ currently
 /// invocable (respects `disabled_skills` / `user_invocable` / discoverable) ∩
 /// OS gate. Returned in [`AT_MENTIONABLE_SKILLS`] order.
-fn mentionable_entries(agent_id: Option<&str>) -> Vec<SkillEntry> {
+fn mentionable_entries(agent_id: Option<&str>, workspace_dir: Option<&Path>) -> Vec<SkillEntry> {
     let cfg = ha_core::config::cached_config();
     let env_check =
         ha_core::skills::skill_env_check_enabled_for_agent(agent_id, cfg.skill_env_check);
-    let invocable = get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let invocable =
+        get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills, workspace_dir);
     AT_MENTIONABLE_SKILLS
         .iter()
         .filter(|n| is_mentionable_on_this_os(n))
@@ -93,7 +95,7 @@ fn mentionable_entries(agent_id: Option<&str>) -> Vec<SkillEntry> {
 
 /// Menu rows for the composer `@skill` section (allowlist ∩ invocable ∩ OS).
 pub fn list_mentionable_skills() -> Vec<MentionableSkill> {
-    mentionable_entries(None)
+    mentionable_entries(None, None)
         .into_iter()
         .map(|s| MentionableSkill {
             name: s.name,
@@ -138,7 +140,7 @@ fn scan_skill_mention_names(message: &str) -> Vec<String> {
 #[cfg(test)]
 fn resolve_inline_skill_mentions(message: &str) -> Option<MentionSkillActivation> {
     let names = scan_skill_mention_names(message);
-    resolve_named_skill_mentions(&names, None)
+    resolve_named_skill_mentions(&names, None, None)
 }
 
 /// Typed mention entrypoint. The caller proves the UI gesture and source span;
@@ -148,12 +150,13 @@ fn resolve_inline_skill_mentions(message: &str) -> Option<MentionSkillActivation
 pub fn resolve_named_skill_mentions(
     names: &[String],
     agent_id: Option<&str>,
+    workspace_dir: Option<&Path>,
 ) -> Option<MentionSkillActivation> {
     if names.is_empty() {
         return None;
     }
 
-    let entries = mentionable_entries(agent_id);
+    let entries = mentionable_entries(agent_id, workspace_dir);
     let mut requested = Vec::new();
     for name in names {
         if requested

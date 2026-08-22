@@ -452,7 +452,13 @@ fn spawn_stream_pipeline_inner(
     prelude: Option<StreamPipelinePrelude>,
 ) -> StreamPipeline {
     let reply_mode = account.im_reply_mode();
-    let capabilities = plugin.capabilities();
+    let mut capabilities = plugin.capabilities();
+    if !account.native_reply_enabled() {
+        // Account-level rollout/rollback switch. Clearing the capability once
+        // here makes preview selection and terminal delivery share the same
+        // fallback contract; neither phase can accidentally revive native.
+        capabilities.native_reply = None;
+    }
     let max_msg_len = capabilities.streaming_preview_max_bytes.unwrap_or(4096);
     let mut preview_transport = match reply_mode {
         ImReplyMode::Preview | ImReplyMode::Split => select_stream_preview_transport(

@@ -10,8 +10,8 @@ pub(crate) mod utils;
 pub use config::{
     active_signature_for, embedding_model_templates, embedding_presets, memory_embedding_state,
     resolve_memory_embedding_config, EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate,
-    EmbeddingModelTemplateModel, EmbeddingPreset, EmbeddingProviderType, EmbeddingSelection,
-    EmbeddingSelectionState, EmbeddingSetDefaultResult,
+    EmbeddingModelTemplateModel, EmbeddingPreset, EmbeddingProviderType, EmbeddingPurpose,
+    EmbeddingSelection, EmbeddingSelectionState, EmbeddingSetDefaultResult,
 };
 pub use factory::create_embedding_provider;
 

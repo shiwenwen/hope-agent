@@ -258,6 +258,33 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
                         ? t("channels.starting")
                         : t("channels.stopped")}
                     {health?.botName && ` · ${health.botName}`}
+                    {health?.capabilitySnapshot && (
+                      <span
+                        className={
+                          health.capabilitySnapshot.compatibility === "blocked"
+                            ? "text-destructive ml-1"
+                            : health.capabilitySnapshot.compatibility === "warning" ||
+                                health.capabilitySnapshot.compatibility === "unknown"
+                              ? "text-amber-600 ml-1"
+                              : "ml-1"
+                        }
+                        data-ha-title-tip={
+                          [
+                            health.capabilitySnapshot.warning,
+                            health.capabilitySnapshot.capabilities.length
+                              ? `Capabilities: ${health.capabilitySnapshot.capabilities.join(", ")}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        }
+                      >
+                        · {health.capabilitySnapshot.source}
+                        {health.capabilitySnapshot.version
+                          ? ` ${health.capabilitySnapshot.version}`
+                          : " (version unknown)"}
+                      </span>
+                    )}
                     {account.agentId && (() => {
                       const agent = agents.find(a => a.id === account.agentId)
                       return agent ? (

@@ -123,6 +123,14 @@ pub struct AskUserQuestion {
     /// rendering is a **frontend** concern — the answer channel is unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_kind: Option<String>,
+    /// Server-enforced constraints for `input_kind = "file"`.
+    ///
+    /// The initial shared contract is deliberately narrow: one PDF, plain
+    /// text, or Markdown file, capped at 10 MiB. Providers may render a native
+    /// picker or fall back to binding the next attachment on the exact IM
+    /// route, but neither rendering path may relax these limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_constraints: Option<AskUserFileConstraints>,
     /// Whether to render a free-form custom input alongside the options.
     ///
     /// 保留该字段以维持原有的开关能力。当前在工具入口强制覆盖为 `true`，
@@ -147,6 +155,16 @@ pub struct AskUserQuestion {
     /// match an option value, or can be a free-form string for custom input.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub default_values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserFileConstraints {
+    /// Canonical MIME allowlist. The first implementation accepts only
+    /// `application/pdf`, `text/plain`, and `text/markdown`.
+    pub types: Vec<String>,
+    pub max_bytes: u64,
+    pub count: u8,
 }
 
 /// A group of questions sent together.
@@ -223,4 +241,17 @@ pub struct AskUserQuestionAnswer {
     pub selected: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_input: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<AskUserFileAnswer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserFileAnswer {
+    pub name: String,
+    pub mime_type: String,
+    pub size: u64,
+    /// Canonical session-attachment path produced by the channel media
+    /// boundary. Raw provider URLs are never returned as an answer.
+    pub file_path: String,
 }

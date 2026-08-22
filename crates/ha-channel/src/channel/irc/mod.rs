@@ -265,6 +265,7 @@ impl ChannelPlugin for IrcPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Some(nick),
+                capability_snapshot: None,
             }),
             Err(e) => Ok(ChannelHealth {
                 is_running: false,
@@ -273,6 +274,7 @@ impl ChannelPlugin for IrcPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

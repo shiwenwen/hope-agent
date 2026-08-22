@@ -6,10 +6,11 @@
 //! prompts; concrete adapters own only network protocol translation.
 
 use std::collections::{BTreeMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
 use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -17,10 +18,14 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::paths::{external_memory_credential_path, external_memory_sync_state_path};
+use crate::paths::{
+    external_memory_compatibility_path, external_memory_credential_path,
+    external_memory_sync_lock_path, external_memory_sync_state_path,
+};
 use crate::platform::write_secure_file;
 
 use super::{
+    ExternalMemoryProviderCompatibilityReport, ExternalMemoryProviderCompatibilityStatus,
     ExternalMemoryProviderConfig, ExternalMemoryProviderKind,
     ExternalMemoryProviderPreflightAction, ExternalMemoryProviderSyncReport,
     ExternalMemoryProviderSyncResult, ExternalMemoryProviderSyncStatus,
@@ -37,6 +42,7 @@ mod supermemory;
 mod zep;
 
 const CREDENTIAL_SCHEMA_VERSION: u32 = 1;
+const COMPATIBILITY_SCHEMA_VERSION: u32 = 1;
 const MAX_ENDPOINT_CHARS: usize = 2_048;
 const MAX_SUBJECT_ID_CHARS: usize = 256;
 const MAX_PROTOCOL_CHARS: usize = 48;
@@ -44,6 +50,12 @@ const SYNC_STATE_SCHEMA_VERSION: u32 = 1;
 const MAX_IMPORTED_CONTENT_CHARS: usize = 16_000;
 const IMPORT_LEDGER_CHECKPOINT_EVERY: usize = 100;
 const PROVIDER_SYNC_TIMEOUT: Duration = Duration::from_secs(120);
+const PROVIDER_SYNC_LOCK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const PROVIDER_SYNC_LOCK_POLL: Duration = Duration::from_millis(25);
+/// A successful compatibility probe is an owner-granted capability to send
+/// local memories. Keep that grant short-lived so a server replaced in place
+/// cannot inherit compatibility evidence indefinitely.
+const COMPATIBILITY_GRANT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 tokio::task_local! {
     static PROVIDER_SYNC_DEADLINE: std::time::Instant;
 }
@@ -131,6 +143,32 @@ pub(crate) struct ExternalMemoryProviderCredentials {
     pub protocol: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredExternalMemoryProviderCompatibility {
+    schema_version: u32,
+    /// Hash of the exact provider kind and credentials used by the probe.
+    /// This is kept out of the owner-facing report so it cannot become a
+    /// credential-correlation surface through transport APIs.
+    #[serde(default)]
+    credential_fingerprint: String,
+    report: ExternalMemoryProviderCompatibilityReport,
+}
+
+#[derive(Clone, Copy)]
+struct VersionRequirement {
+    minimum: &'static str,
+    recommended: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ParsedVersion {
+    major: u64,
+    minor: u64,
+    patch: u64,
+    prerelease: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ExternalMemoryProviderSyncLedger {
@@ -177,18 +215,71 @@ pub(crate) trait ExternalMemoryProviderAdapter: Send + Sync {
     ) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure>;
 }
 
+#[derive(Clone, Copy)]
+enum ExternalMemoryProviderSyncOrigin {
+    Owner,
+    Automatic,
+}
+
 pub async fn execute_external_memory_provider_sync(
     config: ExternalMemoryProvidersConfig,
     stats: MemoryStats,
     stats_error: Option<String>,
 ) -> ExternalMemoryProviderSyncReport {
-    // Credentials and sync ledgers are process-shared files. Serializing all
-    // provider runs avoids duplicate exports and lost ledger updates when a
-    // manual run overlaps the debounce or periodic scheduler.
+    execute_external_memory_provider_sync_for_origin(
+        config,
+        stats,
+        stats_error,
+        ExternalMemoryProviderSyncOrigin::Owner,
+    )
+    .await
+}
+
+async fn execute_external_memory_provider_sync_for_origin(
+    requested_config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    origin: ExternalMemoryProviderSyncOrigin,
+) -> ExternalMemoryProviderSyncReport {
+    // The async mutex avoids occupying multiple blocking-pool workers for
+    // same-process contenders. The OS lock is the actual data boundary: GUI,
+    // server and ACP processes share credentials, ledgers and health fields.
     let _sync_guard = EXTERNAL_PROVIDER_SYNC_LOCK.lock().await;
-    let config =
-        crate::blocking::run_blocking(move || hydrate_external_memory_provider_config(config))
-            .await;
+    let _cross_process_guard = match acquire_external_memory_state_lock_async().await {
+        Ok(guard) => guard,
+        Err(error) => {
+            return sync_lock_failure_report(
+                requested_config,
+                stats,
+                stats_error,
+                error.to_string(),
+            )
+        }
+    };
+    // Keep `_cross_process_guard` alive from before the authoritative config,
+    // credential and ledger hydration through the final checkpoint and health
+    // persistence below. The caller's snapshot is intentionally used only for
+    // lock/reload failure projection: it may have waited behind an owner
+    // policy mutation in another process.
+    let live_config = crate::blocking::run_blocking(move || -> Result<_> {
+        let snapshot = crate::config::reload_config_snapshot_from_disk()
+            .context("reload external memory provider configuration")?;
+        let mut config = snapshot.memory_providers.clone();
+        apply_external_memory_sync_origin(&mut config, origin);
+        Ok(hydrate_external_memory_provider_config(config))
+    })
+    .await;
+    let config = match live_config {
+        Ok(config) => config,
+        Err(error) => {
+            return sync_config_reload_failure_report(
+                requested_config,
+                stats,
+                stats_error,
+                error.to_string(),
+            )
+        }
+    };
     let preflight = super::types::external_memory_sync_preflight_with_stats_status(
         &config,
         &stats,
@@ -254,6 +345,127 @@ pub async fn execute_external_memory_provider_sync(
     summarize_sync_report(preflight_summary(results, preflight_report))
 }
 
+fn apply_external_memory_sync_origin(
+    config: &mut ExternalMemoryProvidersConfig,
+    origin: ExternalMemoryProviderSyncOrigin,
+) {
+    if !matches!(origin, ExternalMemoryProviderSyncOrigin::Automatic) {
+        return;
+    }
+    for provider in &mut config.providers {
+        if !matches!(
+            provider.sync_policy,
+            super::ExternalMemorySyncPolicy::PullOnly
+                | super::ExternalMemorySyncPolicy::PushOnly
+                | super::ExternalMemorySyncPolicy::Bidirectional
+        ) {
+            provider.enabled = false;
+        }
+    }
+}
+
+fn acquire_external_memory_state_lock() -> Result<File> {
+    let lock_path = external_memory_sync_lock_path()?;
+    acquire_external_memory_state_lock_at(&lock_path)
+}
+
+fn acquire_external_memory_state_lock_at(lock_path: &Path) -> Result<File> {
+    let started = Instant::now();
+    loop {
+        match crate::platform::try_acquire_exclusive_lock(lock_path)
+            .context("lock external memory provider state")?
+        {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < PROVIDER_SYNC_LOCK_TIMEOUT => {
+                std::thread::sleep(PROVIDER_SYNC_LOCK_POLL)
+            }
+            None => bail!("timed out waiting for the external memory provider state lock"),
+        }
+    }
+}
+
+async fn acquire_external_memory_state_lock_async() -> Result<File> {
+    let lock_path = external_memory_sync_lock_path()?;
+    acquire_external_memory_state_lock_at_async(lock_path).await
+}
+
+async fn acquire_external_memory_state_lock_at_async(lock_path: PathBuf) -> Result<File> {
+    crate::blocking::run_blocking(move || acquire_external_memory_state_lock_at(&lock_path)).await
+}
+
+fn sync_lock_failure_report(
+    config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    error: String,
+) -> ExternalMemoryProviderSyncReport {
+    sync_preflight_failure_report(
+        config,
+        stats,
+        stats_error,
+        format!("external memory sync lock unavailable: {error}"),
+    )
+}
+
+fn sync_config_reload_failure_report(
+    config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    error: String,
+) -> ExternalMemoryProviderSyncReport {
+    sync_preflight_failure_report(
+        config,
+        stats,
+        stats_error,
+        format!("external memory sync configuration unavailable: {error}"),
+    )
+}
+
+fn sync_preflight_failure_report(
+    config: ExternalMemoryProvidersConfig,
+    stats: MemoryStats,
+    stats_error: Option<String>,
+    failure: String,
+) -> ExternalMemoryProviderSyncReport {
+    let preflight = super::types::external_memory_sync_preflight_with_stats_status(
+        &config,
+        &stats,
+        stats_error,
+    );
+    let providers = preflight
+        .providers
+        .iter()
+        .cloned()
+        .map(|provider| {
+            let status = match provider.action {
+                ExternalMemoryProviderPreflightAction::Off => ExternalMemoryProviderSyncStatus::Off,
+                ExternalMemoryProviderPreflightAction::Blocked => {
+                    ExternalMemoryProviderSyncStatus::Blocked
+                }
+                ExternalMemoryProviderPreflightAction::WouldSync => {
+                    ExternalMemoryProviderSyncStatus::Failed
+                }
+            };
+            let error =
+                (status == ExternalMemoryProviderSyncStatus::Failed).then(|| failure.clone());
+            ExternalMemoryProviderSyncResult {
+                id: provider.id.clone(),
+                kind: provider.kind,
+                display_name: provider.display_name.clone(),
+                status,
+                external_io_performed: false,
+                preflight: provider,
+                imported_memory_count: 0,
+                exported_memory_count: 0,
+                updated_memory_count: 0,
+                skipped_memory_count: 0,
+                error,
+            }
+        })
+        .collect();
+    summarize_sync_report(preflight_summary(providers, preflight))
+}
+
 /// Debounced automatic sync trigger for local memory writes. Manual providers
 /// are stripped from the execution snapshot, so this can never turn an owner-
 /// initiated policy into background network traffic.
@@ -303,23 +515,22 @@ pub fn spawn_external_memory_provider_sync_loop() {
 
 async fn run_automatic_external_memory_provider_sync() {
     let mut config = crate::config::cached_config().memory_providers.clone();
-    for provider in &mut config.providers {
-        if !matches!(
-            provider.sync_policy,
-            super::ExternalMemorySyncPolicy::PullOnly
-                | super::ExternalMemorySyncPolicy::PushOnly
-                | super::ExternalMemorySyncPolicy::Bidirectional
-        ) {
-            provider.enabled = false;
-        }
-    }
-    if !config.enabled || !config.providers.iter().any(|provider| provider.enabled) {
-        return;
-    }
+    // This snapshot is only a failure-report projection. Do not return early
+    // from it: a sibling desktop/server/ACP process may have enabled automatic
+    // sync since this process last refreshed its cache. The execution path
+    // acquires the shared state lock and reapplies this filter to authoritative
+    // config.json before deciding whether any provider is runnable.
+    apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Automatic);
     let (stats, stats_error) =
         crate::blocking::run_blocking(super::helpers::external_memory_provider_stats_for_planning)
             .await;
-    let report = execute_external_memory_provider_sync(config, stats, stats_error).await;
+    let report = execute_external_memory_provider_sync_for_origin(
+        config,
+        stats,
+        stats_error,
+        ExternalMemoryProviderSyncOrigin::Automatic,
+    )
+    .await;
     if report.failed_provider_count > 0 {
         app_warn!(
             "memory",
@@ -501,6 +712,469 @@ fn adapter_for(
     }
 }
 
+/// Owner-triggered network probe. Configuration preflight deliberately never
+/// calls this function: version/capability IO happens only after an explicit UI
+/// or owner HTTP action.
+pub async fn test_external_memory_provider_connection(
+    provider_id: String,
+) -> Result<ExternalMemoryProviderCompatibilityReport> {
+    validate_provider_id(&provider_id)?;
+    // A probe reads credentials and publishes compatibility evidence. Keep
+    // that full lifecycle in the same transaction as sync and owner mutation,
+    // so cleared/replaced credentials cannot be used after their mutation.
+    let _cross_process_guard = acquire_external_memory_state_lock_async().await?;
+    let config = crate::blocking::run_blocking(|| {
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload external memory provider configuration")
+    })
+    .await?;
+    let provider = config
+        .memory_providers
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("external memory provider not found"))?;
+    let (credentials, _) = resolve_external_memory_provider_credentials_async(&provider_id)
+        .await?
+        .ok_or_else(|| anyhow!("provider credentials are missing"))?;
+    let credential_fingerprint = compatibility_credential_fingerprint(provider.kind, &credentials)?;
+    let requirement = compatibility_requirement(provider.kind, Some(&credentials));
+    let checked_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    let endpoint = match http::validated_endpoint(&credentials.endpoint).await {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            let report =
+                compatibility_failure_report(&provider, requirement, checked_at, false, &error);
+            persist_compatibility_report_async(report.clone(), credential_fingerprint).await?;
+            return Ok(report);
+        }
+    };
+    let probe_url = compatibility_probe_url(provider.kind, &endpoint)?;
+    http::validated_endpoint(&probe_url).await?;
+    let client = http::client()?;
+    let request = compatibility_probe_auth(client.get(&probe_url), provider.kind, &credentials);
+    let response = tokio::time::timeout(
+        Duration::from_secs(30),
+        http::send_probe(request, compatibility_version_headers(provider.kind)),
+    )
+    .await;
+    let report = match response {
+        Ok(Ok(response)) => {
+            let detected_version =
+                detect_provider_version(&response.body, &response.version_headers);
+            let status = match (requirement, detected_version.as_deref()) {
+                (None, _) => ExternalMemoryProviderCompatibilityStatus::NotRequired,
+                (Some(requirement), Some(version))
+                    if version_meets_minimum(version, requirement.minimum) =>
+                {
+                    ExternalMemoryProviderCompatibilityStatus::Compatible
+                }
+                (Some(_), Some(_)) => ExternalMemoryProviderCompatibilityStatus::Blocked,
+                (Some(_), None) => ExternalMemoryProviderCompatibilityStatus::Unverified,
+            };
+            ExternalMemoryProviderCompatibilityReport {
+                provider_id: provider.id.clone(),
+                kind: provider.kind,
+                status,
+                checked_at,
+                external_io_performed: true,
+                detected_version,
+                minimum_version: requirement.map(|item| item.minimum.to_string()),
+                recommended_version: requirement.map(|item| item.recommended.to_string()),
+                capabilities: detected_provider_capabilities(provider.kind, &response.body),
+                error: None,
+            }
+        }
+        Ok(Err(error)) => {
+            compatibility_failure_report(&provider, requirement, checked_at, true, &error)
+        }
+        Err(_) => compatibility_failure_report(
+            &provider,
+            requirement,
+            checked_at,
+            true,
+            &anyhow!("external memory provider compatibility probe timed out"),
+        ),
+    };
+    persist_compatibility_report_async(report.clone(), credential_fingerprint).await?;
+    Ok(report)
+}
+
+fn compatibility_credential_fingerprint(
+    kind: ExternalMemoryProviderKind,
+    credentials: &ExternalMemoryProviderCredentials,
+) -> Result<String> {
+    let material = serde_json::to_vec(&serde_json::json!({
+        "kind": kind.as_str(),
+        "endpoint": credentials.endpoint,
+        "apiKey": credentials.api_key,
+        "subjectId": credentials.subject_id,
+        "protocol": credentials.protocol,
+    }))
+    .context("serialize external memory compatibility fingerprint")?;
+    Ok(format!("{:x}", Sha256::digest(material)))
+}
+
+fn compatibility_failure_report(
+    provider: &ExternalMemoryProviderConfig,
+    requirement: Option<VersionRequirement>,
+    checked_at: String,
+    external_io_performed: bool,
+    error: &anyhow::Error,
+) -> ExternalMemoryProviderCompatibilityReport {
+    ExternalMemoryProviderCompatibilityReport {
+        provider_id: provider.id.clone(),
+        kind: provider.kind,
+        status: ExternalMemoryProviderCompatibilityStatus::Unverified,
+        checked_at,
+        external_io_performed,
+        detected_version: None,
+        minimum_version: requirement.map(|item| item.minimum.to_string()),
+        recommended_version: requirement.map(|item| item.recommended.to_string()),
+        capabilities: Vec::new(),
+        error: Some(truncate_error(&error.to_string())),
+    }
+}
+
+fn compatibility_probe_url(kind: ExternalMemoryProviderKind, endpoint: &str) -> Result<String> {
+    match kind {
+        ExternalMemoryProviderKind::Zep => http::endpoint_with_path(endpoint, &["healthcheck"]),
+        ExternalMemoryProviderKind::OpenViking => {
+            http::endpoint_with_path(endpoint, &["api", "v1", "health"])
+        }
+        ExternalMemoryProviderKind::Custom => Ok(endpoint.to_string()),
+        _ => http::endpoint_with_path(endpoint, &["health"]),
+    }
+}
+
+fn compatibility_probe_auth(
+    request: reqwest::RequestBuilder,
+    kind: ExternalMemoryProviderKind,
+    credentials: &ExternalMemoryProviderCredentials,
+) -> reqwest::RequestBuilder {
+    let Some(api_key) = credentials.api_key.as_deref() else {
+        return request;
+    };
+    match kind {
+        ExternalMemoryProviderKind::Mem0
+            if matches!(
+                credentials.protocol.as_str(),
+                "platform" | "platform_v3" | "cloud" | "cloud_v3"
+            ) =>
+        {
+            request.header(reqwest::header::AUTHORIZATION, format!("Token {api_key}"))
+        }
+        ExternalMemoryProviderKind::Mem0 => request.header("X-API-Key", api_key),
+        _ => request.bearer_auth(api_key),
+    }
+}
+
+fn compatibility_version_headers(kind: ExternalMemoryProviderKind) -> &'static [&'static str] {
+    match kind {
+        ExternalMemoryProviderKind::Mem0 => &["x-mem0-version"],
+        ExternalMemoryProviderKind::Zep => &["x-zep-version", "x-graphiti-version"],
+        ExternalMemoryProviderKind::Supermemory => &["x-supermemory-version"],
+        ExternalMemoryProviderKind::Honcho => &["x-honcho-version"],
+        ExternalMemoryProviderKind::Hindsight => &["x-hindsight-version"],
+        ExternalMemoryProviderKind::OpenViking => &["x-openviking-version"],
+        ExternalMemoryProviderKind::Custom => &[],
+    }
+}
+
+fn compatibility_requirement(
+    kind: ExternalMemoryProviderKind,
+    credentials: Option<&ExternalMemoryProviderCredentials>,
+) -> Option<VersionRequirement> {
+    match kind {
+        ExternalMemoryProviderKind::Zep => Some(VersionRequirement {
+            minimum: "0.28.2",
+            recommended: "0.29.3",
+        }),
+        ExternalMemoryProviderKind::Supermemory
+            if credentials.is_none_or(supermemory_is_self_hosted) =>
+        {
+            Some(VersionRequirement {
+                minimum: "0.0.8",
+                recommended: "0.0.8",
+            })
+        }
+        ExternalMemoryProviderKind::Honcho if credentials.is_none_or(honcho_is_self_hosted) => {
+            Some(VersionRequirement {
+                minimum: "3.0.12",
+                recommended: "3.0.12",
+            })
+        }
+        ExternalMemoryProviderKind::OpenViking => Some(VersionRequirement {
+            minimum: "0.4.15",
+            recommended: "0.4.15",
+        }),
+        _ => None,
+    }
+}
+
+fn supermemory_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -> bool {
+    match credentials.protocol.as_str() {
+        // The protocol selector does not authenticate the deployment. Treat a
+        // hosted wire shape on any non-official endpoint as self-hosted so it
+        // cannot bypass the version/capability gate.
+        "platform" | "cloud" => !endpoint_host_ends_with(&credentials.endpoint, "supermemory.ai"),
+        "self_hosted" | "self-hosted" => true,
+        _ => !endpoint_host_ends_with(&credentials.endpoint, "supermemory.ai"),
+    }
+}
+
+fn honcho_is_self_hosted(credentials: &ExternalMemoryProviderCredentials) -> bool {
+    match credentials.protocol.as_str() {
+        "v3" | "cloud" => !endpoint_host_ends_with(&credentials.endpoint, "honcho.dev"),
+        "self_hosted" | "self-hosted" => true,
+        _ => !endpoint_host_ends_with(&credentials.endpoint, "honcho.dev"),
+    }
+}
+
+fn endpoint_host_ends_with(endpoint: &str, suffix: &str) -> bool {
+    url::Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == suffix || host.ends_with(&format!(".{suffix}")))
+}
+
+fn detect_provider_version(body: &[u8], version_headers: &[String]) -> Option<String> {
+    let json = serde_json::from_slice::<serde_json::Value>(body).ok();
+    let body_candidates = json.as_ref().into_iter().flat_map(|value| {
+        [
+            "/version",
+            "/data/version",
+            "/info/version",
+            "/server/version",
+            "/build/version",
+            "/app/version",
+        ]
+        .into_iter()
+        .filter_map(|pointer| value.pointer(pointer).and_then(serde_json::Value::as_str))
+    });
+    body_candidates
+        .chain(version_headers.iter().map(String::as_str))
+        .find_map(extract_version)
+}
+
+fn extract_version(value: &str) -> Option<String> {
+    static VERSION_RE: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)\bv?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9a-z.-]+)?\b")
+            .expect("valid provider version regex")
+    });
+    VERSION_RE
+        .find(value)
+        .map(|matched| matched.as_str().trim_start_matches(['v', 'V']).to_string())
+}
+
+fn parse_version(value: &str) -> Option<ParsedVersion> {
+    static VERSION_RE: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"(?i)^v?(\d+)\.(\d+)\.(\d+)([-+][0-9a-z.-]+)?$")
+            .expect("valid exact provider version regex")
+    });
+    let captures = VERSION_RE.captures(value.trim())?;
+    Some(ParsedVersion {
+        major: captures.get(1)?.as_str().parse().ok()?,
+        minor: captures.get(2)?.as_str().parse().ok()?,
+        patch: captures.get(3)?.as_str().parse().ok()?,
+        prerelease: captures
+            .get(4)
+            .is_some_and(|suffix| suffix.as_str().starts_with('-')),
+    })
+}
+
+fn version_meets_minimum(detected: &str, minimum: &str) -> bool {
+    let (Some(detected), Some(minimum)) = (parse_version(detected), parse_version(minimum)) else {
+        return false;
+    };
+    let detected_core = (detected.major, detected.minor, detected.patch);
+    let minimum_core = (minimum.major, minimum.minor, minimum.patch);
+    detected_core > minimum_core || (detected_core == minimum_core && !detected.prerelease)
+}
+
+fn detected_provider_capabilities(kind: ExternalMemoryProviderKind, body: &[u8]) -> Vec<String> {
+    let mut capabilities = vec![
+        "pull".to_string(),
+        "push".to_string(),
+        "bidirectional".to_string(),
+        format!("adapter:{}", kind.as_str()),
+    ];
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
+        if let Some(object) = value
+            .get("capabilities")
+            .and_then(serde_json::Value::as_object)
+        {
+            capabilities.extend(
+                object
+                    .iter()
+                    .filter(|(_, value)| value.as_bool() == Some(true) || value.as_str().is_some())
+                    .map(|(key, _)| key.chars().take(64).collect::<String>())
+                    .take(28),
+            );
+        }
+    }
+    capabilities.sort();
+    capabilities.dedup();
+    capabilities
+}
+
+pub(crate) fn external_memory_provider_compatibility_snapshot(
+    provider: &ExternalMemoryProviderConfig,
+) -> ExternalMemoryProviderCompatibilityReport {
+    let current_credentials = resolve_external_memory_provider_credentials(&provider.id)
+        .ok()
+        .flatten()
+        .map(|(credentials, _)| credentials);
+    let current_fingerprint = current_credentials.as_ref().and_then(|credentials| {
+        compatibility_credential_fingerprint(provider.kind, credentials).ok()
+    });
+    let current_requirement =
+        compatibility_requirement(provider.kind, current_credentials.as_ref());
+    match load_compatibility_report(&provider.id) {
+        Ok(Some(stored))
+            if stored.report.provider_id == provider.id
+                && stored.report.kind == provider.kind
+                && !stored.credential_fingerprint.is_empty()
+                && current_fingerprint.as_deref()
+                    == Some(stored.credential_fingerprint.as_str())
+                && compatibility_report_is_current(
+                    &stored.report,
+                    current_requirement,
+                    chrono::Utc::now(),
+                ) =>
+        {
+            stored.report
+        }
+        Ok(_) => default_compatibility_report(provider, None),
+        Err(error) => default_compatibility_report(provider, Some(&error)),
+    }
+}
+
+fn compatibility_report_is_current(
+    report: &ExternalMemoryProviderCompatibilityReport,
+    requirement: Option<VersionRequirement>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if report.minimum_version.as_deref() != requirement.map(|item| item.minimum) {
+        return false;
+    }
+
+    match report.status {
+        ExternalMemoryProviderCompatibilityStatus::Compatible => {
+            let (Some(requirement), Some(detected_version)) =
+                (requirement, report.detected_version.as_deref())
+            else {
+                return false;
+            };
+            if !version_meets_minimum(detected_version, requirement.minimum) {
+                return false;
+            }
+            let Ok(checked_at) = chrono::DateTime::parse_from_rfc3339(&report.checked_at) else {
+                return false;
+            };
+            let checked_at = checked_at.with_timezone(&chrono::Utc);
+            checked_at <= now
+                && now
+                    .signed_duration_since(checked_at)
+                    .to_std()
+                    .is_ok_and(|age| age <= COMPATIBILITY_GRANT_MAX_AGE)
+        }
+        ExternalMemoryProviderCompatibilityStatus::NotRequired => requirement.is_none(),
+        ExternalMemoryProviderCompatibilityStatus::Unverified
+        | ExternalMemoryProviderCompatibilityStatus::Blocked => true,
+    }
+}
+
+fn default_compatibility_report(
+    provider: &ExternalMemoryProviderConfig,
+    error: Option<&anyhow::Error>,
+) -> ExternalMemoryProviderCompatibilityReport {
+    let credentials = resolve_external_memory_provider_credentials(&provider.id)
+        .ok()
+        .flatten()
+        .map(|(credentials, _)| credentials);
+    let requirement = compatibility_requirement(provider.kind, credentials.as_ref());
+    ExternalMemoryProviderCompatibilityReport {
+        provider_id: provider.id.clone(),
+        kind: provider.kind,
+        status: if requirement.is_some() {
+            ExternalMemoryProviderCompatibilityStatus::Unverified
+        } else {
+            ExternalMemoryProviderCompatibilityStatus::NotRequired
+        },
+        checked_at: String::new(),
+        external_io_performed: false,
+        detected_version: None,
+        minimum_version: requirement.map(|item| item.minimum.to_string()),
+        recommended_version: requirement.map(|item| item.recommended.to_string()),
+        capabilities: Vec::new(),
+        error: error.map(|error| truncate_error(&error.to_string())),
+    }
+}
+
+fn load_compatibility_report(
+    provider_id: &str,
+) -> Result<Option<StoredExternalMemoryProviderCompatibility>> {
+    validate_provider_id(provider_id)?;
+    let path = external_memory_compatibility_path(provider_id)?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(anyhow!("read {}: {error}", path.display())),
+    };
+    let stored: StoredExternalMemoryProviderCompatibility = serde_json::from_slice(&bytes)
+        .map_err(|error| anyhow!("parse {}: {error}", path.display()))?;
+    if stored.schema_version != COMPATIBILITY_SCHEMA_VERSION {
+        bail!(
+            "unsupported external memory compatibility schema version {}",
+            stored.schema_version
+        );
+    }
+    Ok(Some(stored))
+}
+
+async fn persist_compatibility_report_async(
+    report: ExternalMemoryProviderCompatibilityReport,
+    credential_fingerprint: String,
+) -> Result<()> {
+    crate::blocking::run_blocking(move || {
+        let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+            .lock()
+            .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+        validate_provider_id(&report.provider_id)?;
+        let live_provider = crate::config::cached_config()
+            .memory_providers
+            .providers
+            .iter()
+            .find(|provider| provider.id == report.provider_id)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!("external memory provider changed during compatibility probe")
+            })?;
+        let live_credentials = resolve_external_memory_provider_credentials(&report.provider_id)?
+            .map(|(credentials, _)| credentials)
+            .ok_or_else(|| anyhow!("provider credentials changed during compatibility probe"))?;
+        let live_fingerprint =
+            compatibility_credential_fingerprint(live_provider.kind, &live_credentials)?;
+        if live_provider.kind != report.kind || live_fingerprint != credential_fingerprint {
+            bail!("external memory provider changed during compatibility probe");
+        }
+        let path = external_memory_compatibility_path(&report.provider_id)?;
+        let stored = StoredExternalMemoryProviderCompatibility {
+            schema_version: COMPATIBILITY_SCHEMA_VERSION,
+            credential_fingerprint,
+            report,
+        };
+        let bytes = serde_json::to_vec_pretty(&stored)
+            .context("serialize external memory compatibility report")?;
+        write_secure_file(&path, &bytes)
+            .map_err(|error| anyhow!("write {}: {error}", path.display()))
+    })
+    .await
+}
+
 pub fn hydrate_external_memory_provider_config(
     mut config: ExternalMemoryProvidersConfig,
 ) -> ExternalMemoryProvidersConfig {
@@ -539,7 +1213,13 @@ fn persist_sync_health(results: &[ExternalMemoryProviderSyncResult]) {
         return;
     }
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    if let Err(err) =
+    let persist_result = (|| -> Result<()> {
+        // Sync may hold the provider state lock across network IO. Refresh
+        // immediately before the config read-modify-write so unrelated
+        // settings committed by another process are not overwritten by the
+        // old process-local cache.
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload configuration before external memory sync health update")?;
         crate::config::mutate_config(("memory_providers.sync", "owner"), move |store| {
             for (id, status, error) in &updates {
                 let Some(provider) = store
@@ -563,7 +1243,8 @@ fn persist_sync_health(results: &[ExternalMemoryProviderSyncResult]) {
             }
             Ok(())
         })
-    {
+    })();
+    if let Err(err) = persist_result {
         app_warn!(
             "memory",
             "external_provider_sync_health_persist_failed",
@@ -792,6 +1473,15 @@ pub async fn save_external_memory_provider_credentials(
     input: ExternalMemoryProviderCredentialInput,
 ) -> Result<ExternalMemoryProviderCredentialStatus> {
     validate_provider_id(&input.provider_id)?;
+    // The existing credential values participate in partial-update semantics,
+    // so acquire before reading them and retain the guard through config,
+    // credential, ledger and compatibility publication/rollback.
+    let _cross_process_guard = acquire_external_memory_state_lock_async().await?;
+    let fresh_config = crate::blocking::run_blocking(|| {
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload external memory provider configuration")
+    })
+    .await?;
     ensure_provider_exists(&input.provider_id)?;
 
     let provider_id_for_load = input.provider_id.clone();
@@ -805,7 +1495,7 @@ pub async fn save_external_memory_provider_credentials(
     } else {
         normalize_endpoint(&input.endpoint)?
     };
-    let ssrf = crate::config::cached_config().ssrf.clone();
+    let ssrf = fresh_config.ssrf.clone();
     crate::security::ssrf::check_url(&endpoint, ssrf.default_policy, &ssrf.trusted_hosts)
         .await
         .context("external memory provider endpoint rejected")?;
@@ -846,17 +1536,33 @@ pub async fn save_external_memory_provider_credentials(
     };
     let provider_id = input.provider_id;
     crate::blocking::run_blocking(move || {
+        let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+            .lock()
+            .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+        // Endpoint validation above may await DNS/network policy work. Reload
+        // again immediately before the config mutation so unrelated settings
+        // committed by another process during that wait remain intact.
+        crate::config::reload_config_snapshot_from_disk()
+            .context("reload configuration before external memory credential update")?;
+        ensure_provider_exists(&provider_id)?;
         let credential_path = external_memory_credential_path(&provider_id)?;
         let ledger_path = external_memory_sync_state_path(&provider_id)?;
+        let compatibility_path = external_memory_compatibility_path(&provider_id)?;
         let previous_credential_bytes = read_optional_file(&credential_path)?;
         let previous_ledger_bytes = if reset_sync_ledger {
             read_optional_file(&ledger_path)?
         } else {
             None
         };
+        let previous_compatibility_bytes = if reset_sync_ledger {
+            read_optional_file(&compatibility_path)?
+        } else {
+            None
+        };
         persist_credentials(&provider_id, &credentials)?;
         if reset_sync_ledger {
             remove_sync_ledger(&provider_id)?;
+            remove_compatibility_report(&provider_id)?;
         }
 
         let provider_id_for_config = provider_id.clone();
@@ -876,6 +1582,10 @@ pub async fn save_external_memory_provider_credentials(
             restore_optional_secure_file(&credential_path, previous_credential_bytes.as_deref())?;
             if reset_sync_ledger {
                 restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+                restore_optional_secure_file(
+                    &compatibility_path,
+                    previous_compatibility_bytes.as_deref(),
+                )?;
             }
             return Err(err).context("persist external memory provider readiness");
         }
@@ -911,17 +1621,26 @@ pub fn get_external_memory_provider_credential_status(
 
 pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<()> {
     validate_provider_id(provider_id)?;
+    let _cross_process_guard = acquire_external_memory_state_lock()?;
+    let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    crate::config::reload_config_snapshot_from_disk()
+        .context("reload external memory provider configuration")?;
     ensure_provider_exists(provider_id)?;
     let path = external_memory_credential_path(provider_id)?;
     let ledger_path = external_memory_sync_state_path(provider_id)?;
+    let compatibility_path = external_memory_compatibility_path(provider_id)?;
     let previous_credential_bytes = read_optional_file(&path)?;
     let previous_ledger_bytes = read_optional_file(&ledger_path)?;
+    let previous_compatibility_bytes = read_optional_file(&compatibility_path)?;
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(anyhow!("remove {}: {err}", path.display())),
     }
     remove_sync_ledger(provider_id)?;
+    remove_compatibility_report(provider_id)?;
 
     let provider_id_owned = provider_id.to_string();
     if let Err(err) =
@@ -940,6 +1659,7 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
     {
         restore_optional_secure_file(&path, previous_credential_bytes.as_deref())?;
         restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+        restore_optional_secure_file(&compatibility_path, previous_compatibility_bytes.as_deref())?;
         return Err(err).context("clear external memory provider readiness");
     }
     Ok(())
@@ -974,13 +1694,25 @@ fn remove_sync_ledger(provider_id: &str) -> Result<()> {
     }
 }
 
+fn remove_compatibility_report(provider_id: &str) -> Result<()> {
+    let path = external_memory_compatibility_path(provider_id)?;
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(anyhow!("remove {}: {err}", path.display())),
+    }
+}
+
 pub fn save_external_memory_providers_config(
     config: ExternalMemoryProvidersConfig,
     source: &'static str,
 ) -> Result<()> {
+    let _cross_process_guard = acquire_external_memory_state_lock()?;
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    crate::config::reload_config_snapshot_from_disk()
+        .context("reload configuration before external memory provider update")?;
     let config = config.normalized();
     let valid_ids = config
         .providers
@@ -1004,18 +1736,22 @@ pub fn save_external_memory_providers_config(
 
 /// Atomically merge a partial owner-plane patch into the non-secret external
 /// provider config. Provider entries are merged by id; deletion requires an
-/// explicit `removeProviderIds` entry. The provider lifecycle lock remains held
-/// through orphan cleanup so a concurrent Settings UI save cannot re-add an id
-/// between the config commit and credential deletion.
+/// explicit `removeProviderIds` entry. The process-local lifecycle mutex and
+/// process-shared state lock remain held through orphan cleanup so neither a
+/// concurrent Settings UI save nor a sync can cross the config commit and
+/// credential deletion boundary.
 pub fn patch_external_memory_providers_config(
     patch: serde_json::Value,
     source: &str,
 ) -> Result<ExternalMemoryProvidersConfig> {
     let patch: ExternalMemoryProvidersPatch =
         serde_json::from_value(patch).context("parse external memory providers patch")?;
+    let _cross_process_guard = acquire_external_memory_state_lock()?;
     let _provider_write_guard = EXTERNAL_PROVIDER_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|_| anyhow!("external memory provider config write lock poisoned"))?;
+    crate::config::reload_config_snapshot_from_disk()
+        .context("reload configuration before external memory provider patch")?;
     let (config, valid_ids) =
         crate::config::mutate_config(("memory_providers", source), move |store| -> Result<_> {
             let config = apply_external_memory_providers_patch(&store.memory_providers, patch)?;
@@ -1208,7 +1944,8 @@ fn prune_orphan_provider_files(valid_ids: &std::collections::HashSet<String>) ->
             continue;
         };
         let provider_id = name
-            .strip_suffix(".sync.json")
+            .strip_suffix(".compat.json")
+            .or_else(|| name.strip_suffix(".sync.json"))
             .or_else(|| name.strip_suffix(".json"));
         let Some(provider_id) = provider_id else {
             continue;
@@ -1356,6 +2093,276 @@ mod tests {
         assert!(validate_provider_id("mem0-main").is_ok());
         assert!(validate_provider_id("../mem0").is_err());
         assert!(validate_provider_id("Mem0").is_err());
+    }
+
+    #[tokio::test]
+    async fn sync_and_synchronous_mutation_paths_share_one_os_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("external-memory-sync.lock");
+        let first = acquire_external_memory_state_lock_at_async(lock_path.clone())
+            .await
+            .unwrap();
+        let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let waiter = tokio::task::spawn_blocking(move || {
+            let _second = acquire_external_memory_state_lock_at(&lock_path).unwrap();
+            entered_tx.send(()).unwrap();
+        });
+
+        tokio::task::yield_now().await;
+        assert!(entered_rx.try_recv().is_err());
+        drop(first);
+        tokio::time::timeout(Duration::from_secs(1), entered_rx.recv())
+            .await
+            .expect("waiting provider sync should enter after release")
+            .expect("waiter should report entry");
+        waiter.await.unwrap();
+    }
+
+    #[test]
+    fn automatic_sync_origin_filters_the_live_policy_snapshot() {
+        let mut config = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![
+                ExternalMemoryProviderConfig {
+                    enabled: true,
+                    sync_policy: super::super::ExternalMemorySyncPolicy::PushOnly,
+                    ..test_provider("automatic")
+                },
+                ExternalMemoryProviderConfig {
+                    enabled: true,
+                    sync_policy: super::super::ExternalMemorySyncPolicy::Manual,
+                    ..test_provider("manual")
+                },
+            ],
+        };
+
+        apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Automatic);
+
+        assert!(config.providers[0].enabled);
+        assert!(!config.providers[1].enabled);
+    }
+
+    #[test]
+    fn owner_sync_origin_preserves_the_live_policy_snapshot() {
+        let mut config = ExternalMemoryProvidersConfig {
+            enabled: true,
+            providers: vec![ExternalMemoryProviderConfig {
+                enabled: true,
+                sync_policy: super::super::ExternalMemorySyncPolicy::Manual,
+                ..test_provider("manual")
+            }],
+        };
+
+        apply_external_memory_sync_origin(&mut config, ExternalMemoryProviderSyncOrigin::Owner);
+
+        assert!(config.providers[0].enabled);
+    }
+
+    #[test]
+    fn automatic_sync_refreshes_live_policy_when_process_cache_is_disabled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            let original = crate::config::cached_config();
+            struct RestoreCache(std::sync::Arc<crate::config::AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    crate::config::replace_cache_for_test((*self.0).clone());
+                }
+            }
+            let _restore = RestoreCache(original);
+
+            crate::config::replace_cache_for_test(crate::config::AppConfig::default());
+            let live_provider = ExternalMemoryProviderConfig {
+                enabled: true,
+                sync_policy: super::super::ExternalMemorySyncPolicy::PushOnly,
+                endpoint_configured: false,
+                ..test_provider("automatic")
+            };
+            let live = crate::config::AppConfig {
+                memory_providers: ExternalMemoryProvidersConfig {
+                    enabled: true,
+                    providers: vec![live_provider],
+                },
+                ..crate::config::AppConfig::default()
+            };
+            std::fs::write(
+                temp.path().join("config.json"),
+                serde_json::to_vec_pretty(&live).expect("serialize live config"),
+            )
+            .expect("write live config");
+
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime")
+                .block_on(run_automatic_external_memory_provider_sync());
+
+            let refreshed = crate::config::cached_config();
+            assert!(refreshed.memory_providers.enabled);
+            assert_eq!(refreshed.memory_providers.providers.len(), 1);
+            assert_eq!(refreshed.memory_providers.providers[0].id, "automatic");
+        });
+    }
+
+    #[test]
+    fn provider_version_floor_rejects_old_and_prerelease_builds() {
+        assert!(!version_meets_minimum("0.28.1", "0.28.2"));
+        assert!(!version_meets_minimum("0.28.2-rc.1", "0.28.2"));
+        assert!(version_meets_minimum("0.28.2", "0.28.2"));
+        assert!(version_meets_minimum("0.29.3", "0.28.2"));
+    }
+
+    #[test]
+    fn compatibility_grant_requires_fresh_evidence_for_the_current_floor() {
+        let now = chrono::Utc::now();
+        let requirement = VersionRequirement {
+            minimum: "0.28.2",
+            recommended: "0.29.3",
+        };
+        let mut report = ExternalMemoryProviderCompatibilityReport {
+            provider_id: "zep-main".to_string(),
+            kind: ExternalMemoryProviderKind::Zep,
+            status: ExternalMemoryProviderCompatibilityStatus::Compatible,
+            checked_at: now.to_rfc3339(),
+            external_io_performed: true,
+            detected_version: Some("0.29.3".to_string()),
+            minimum_version: Some(requirement.minimum.to_string()),
+            recommended_version: Some(requirement.recommended.to_string()),
+            capabilities: Vec::new(),
+            error: None,
+        };
+
+        assert!(compatibility_report_is_current(
+            &report,
+            Some(requirement),
+            now
+        ));
+
+        report.checked_at = (now - chrono::Duration::hours(25)).to_rfc3339();
+        assert!(!compatibility_report_is_current(
+            &report,
+            Some(requirement),
+            now
+        ));
+
+        report.checked_at = now.to_rfc3339();
+        let raised_floor = VersionRequirement {
+            minimum: "0.30.0",
+            recommended: "0.30.0",
+        };
+        assert!(!compatibility_report_is_current(
+            &report,
+            Some(raised_floor),
+            now
+        ));
+    }
+
+    #[test]
+    fn compatibility_fingerprint_changes_with_any_probe_identity_input() {
+        let credentials = ExternalMemoryProviderCredentials {
+            schema_version: CREDENTIAL_SCHEMA_VERSION,
+            endpoint: "https://memory.example.test".to_string(),
+            api_key: Some("synthetic-key-a".to_string()),
+            subject_id: "subject-a".to_string(),
+            protocol: "auto".to_string(),
+        };
+        let baseline =
+            compatibility_credential_fingerprint(ExternalMemoryProviderKind::Mem0, &credentials)
+                .unwrap();
+        for changed in [
+            ExternalMemoryProviderCredentials {
+                endpoint: "https://other.example.test".to_string(),
+                ..credentials.clone()
+            },
+            ExternalMemoryProviderCredentials {
+                api_key: Some("synthetic-key-b".to_string()),
+                ..credentials.clone()
+            },
+            ExternalMemoryProviderCredentials {
+                subject_id: "subject-b".to_string(),
+                ..credentials.clone()
+            },
+            ExternalMemoryProviderCredentials {
+                protocol: "platform".to_string(),
+                ..credentials.clone()
+            },
+        ] {
+            assert_ne!(
+                baseline,
+                compatibility_credential_fingerprint(ExternalMemoryProviderKind::Mem0, &changed)
+                    .unwrap()
+            );
+        }
+        assert_ne!(
+            baseline,
+            compatibility_credential_fingerprint(ExternalMemoryProviderKind::Zep, &credentials)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn hosted_protocols_require_the_official_provider_host() {
+        let supermemory_cloud = ExternalMemoryProviderCredentials {
+            schema_version: CREDENTIAL_SCHEMA_VERSION,
+            endpoint: "https://api.supermemory.ai".to_string(),
+            api_key: Some("synthetic-key".to_string()),
+            subject_id: "subject-a".to_string(),
+            protocol: "cloud".to_string(),
+        };
+        assert!(compatibility_requirement(
+            ExternalMemoryProviderKind::Supermemory,
+            Some(&supermemory_cloud)
+        )
+        .is_none());
+        assert!(compatibility_requirement(
+            ExternalMemoryProviderKind::Supermemory,
+            Some(&ExternalMemoryProviderCredentials {
+                endpoint: "https://memory.example.test/supermemory.ai".to_string(),
+                ..supermemory_cloud
+            })
+        )
+        .is_some());
+
+        let honcho_cloud = ExternalMemoryProviderCredentials {
+            schema_version: CREDENTIAL_SCHEMA_VERSION,
+            endpoint: "https://api.honcho.dev".to_string(),
+            api_key: Some("synthetic-key".to_string()),
+            subject_id: "subject-a".to_string(),
+            protocol: "v3".to_string(),
+        };
+        assert!(
+            compatibility_requirement(ExternalMemoryProviderKind::Honcho, Some(&honcho_cloud))
+                .is_none()
+        );
+        assert!(compatibility_requirement(
+            ExternalMemoryProviderKind::Honcho,
+            Some(&ExternalMemoryProviderCredentials {
+                endpoint: "https://honcho.example.test".to_string(),
+                ..honcho_cloud
+            })
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn provider_version_detection_is_bounded_to_version_fields_and_headers() {
+        let body = serde_json::json!({
+            "status": "ok",
+            "info": { "version": "v0.29.3" },
+            "secret": "token=synthetic-canary"
+        });
+        assert_eq!(
+            detect_provider_version(
+                &serde_json::to_vec(&body).unwrap(),
+                &["graphiti/0.28.2".to_string()]
+            )
+            .as_deref(),
+            Some("0.29.3")
+        );
+        assert_eq!(
+            detect_provider_version(&serde_json::to_vec(&body).unwrap(), &[]).as_deref(),
+            Some("0.29.3")
+        );
     }
 
     #[test]

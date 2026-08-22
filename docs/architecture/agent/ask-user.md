@@ -487,10 +487,18 @@ IM 路径集中在 [`worker/ask_user.rs`](../../../crates/ha-channel/src/channel
 ```
 ask_user:{request_id}:s:{question_index}:{option_index}  // 普通选项
 ask_user:{request_id}:d:{question_index}                 // multi-select 完成
+ask_user:{request_id}:f:{question_index}                 // Discord 打开文件模态框
+ask_user:{request_id}:fm:{question_index}                // Discord 文件模态框提交
 ask_user:{request_id}:c                                  // 整体取消
 ```
 
 布局：每题选项按顺序填、满 3 个换行（Telegram 友好的短行）；不满 3 的独占一行；`multi_select` 题追加一行 `✅ Done with Q{N}`；所有题填完追加一行 `❌ Cancel`。按钮显示文本形如 `[1a] ★ 标签`，`option_marker(qi, oi)` 生成 `qi` 十进制 + `oi` 单字母（`a..z`）的编号。全部 callback 受 Telegram 最严的 64-byte 上限；超限则发送前回退文本。旧 `select/done/cancel` 格式仅作滚动重启期读取兼容，同样经过 identity、timeout 与越界检查。
+
+### 受限文件输入
+
+`input_kind=file` 是公共问答语义，不承载 Discord/Slack 私有 JSON。当前 PoC 必须独占一组问题，`AskUserFileConstraints` 强制 `count=1`、最大 10 MiB，类型只允许 `application/pdf`、`text/plain`、`text/markdown`。工具只允许在已经绑定 IM 的会话中发出文件题。
+
+Discord 在账号开关打开时使用原生 File Upload 模态框；其余渠道和关闭开关的 Discord 使用“下一条附件”文本回退。两条路径最终都进入 dispatcher 的同一边界：先过账号 access 与 mention gate，再验证 exact route + attach row + session、超时、单文件数量、声明与实际大小、扩展名与 PDF magic/UTF-8 内容，最后由公共媒体边界复制到本会话附件目录。跨账号、跨聊天、跨 thread、旧 attach、过期请求和原始远端 URL 均不能绑定；拒绝时保留 pending 供用户重试。
 
 ### 文本回复解析
 

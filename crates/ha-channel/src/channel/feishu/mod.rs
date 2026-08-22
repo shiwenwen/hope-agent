@@ -446,6 +446,7 @@ impl ChannelPlugin for FeishuPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Some(info.app_name),
+                capability_snapshot: None,
             }),
             Err(e) => Ok(ChannelHealth {
                 is_running: false,
@@ -454,6 +455,7 @@ impl ChannelPlugin for FeishuPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

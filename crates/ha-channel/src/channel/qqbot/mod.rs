@@ -321,6 +321,7 @@ impl ChannelPlugin for QqBotPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Some(format!("QQ Bot ({})", app_id)),
+                capability_snapshot: None,
             }),
             Err(e) => Ok(ChannelHealth {
                 is_running: false,
@@ -329,6 +330,7 @@ impl ChannelPlugin for QqBotPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

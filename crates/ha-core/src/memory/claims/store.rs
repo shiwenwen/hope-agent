@@ -1193,7 +1193,10 @@ impl ClaimStore {
             return Vec::new();
         };
         let query = query.chars().take(MAX_LIST_QUERY_CHARS).collect::<String>();
-        let Some(emb) = self.backend.generate_embedding(&query) else {
+        let Some(emb) = self
+            .backend
+            .generate_embedding(&query, crate::memory::EmbeddingPurpose::Query)
+        else {
             return Vec::new();
         };
 
@@ -1395,7 +1398,7 @@ impl ClaimStore {
         // reader acquisition and four-way pool deadlock under concurrent chats.
         let vector_query = crate::memory::helpers::active_embedding_signature().and_then(|sig| {
             self.backend
-                .generate_embedding(query)
+                .generate_embedding(query, crate::memory::EmbeddingPurpose::Query)
                 .map(|embedding| (sig, embedding))
         });
 

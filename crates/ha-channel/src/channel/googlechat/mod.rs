@@ -43,6 +43,7 @@ async fn get_or_start_webhook_server() -> Result<Arc<WebhookServer>> {
 struct RunningAccount {
     api: Arc<GoogleChatApi>,
     cancel: CancellationToken,
+    standard_markdown: bool,
 }
 
 /// Google Chat channel plugin implementation.
@@ -103,6 +104,14 @@ impl GoogleChatPlugin {
         accounts
             .get(account_id)
             .map(|a| a.api.clone())
+            .ok_or_else(|| anyhow::anyhow!("Google Chat account '{}' is not running", account_id))
+    }
+
+    async fn get_outbound_account(&self, account_id: &str) -> Result<(Arc<GoogleChatApi>, bool)> {
+        let accounts = self.accounts.lock().await;
+        accounts
+            .get(account_id)
+            .map(|account| (account.api.clone(), account.standard_markdown))
             .ok_or_else(|| anyhow::anyhow!("Google Chat account '{}' is not running", account_id))
     }
 }
@@ -284,7 +293,14 @@ impl ChannelPlugin for GoogleChatPlugin {
         // Store running account state
         {
             let mut accounts = self.accounts.lock().await;
-            accounts.insert(account.id.clone(), RunningAccount { api, cancel });
+            accounts.insert(
+                account.id.clone(),
+                RunningAccount {
+                    api,
+                    cancel,
+                    standard_markdown: account.google_chat_standard_markdown_enabled(),
+                },
+            );
         }
 
         Ok(())
@@ -336,7 +352,7 @@ impl ChannelPlugin for GoogleChatPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         validate_google_chat_buttons(&payload.buttons)?;
-        let api = self.get_api(account_id).await?;
+        let (api, standard_markdown) = self.get_outbound_account(account_id).await?;
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {
@@ -352,8 +368,19 @@ impl ChannelPlugin for GoogleChatPlugin {
 
             let thread_key = payload.thread_id.as_deref();
             let cards_ref = cards_v2.as_deref();
+            let compiled_text = if standard_markdown {
+                format::compile_standard_markdown_mentions(text)
+            } else {
+                format::markdown_to_googlechat(text)
+            };
             let result = api
-                .send_message(chat_id, text, thread_key, cards_ref)
+                .send_message(
+                    chat_id,
+                    &compiled_text,
+                    thread_key,
+                    cards_ref,
+                    standard_markdown,
+                )
                 .await?;
 
             let msg_name = result
@@ -390,7 +417,10 @@ impl ChannelPlugin for GoogleChatPlugin {
         let api = self.get_api(account_id).await?;
 
         if let Some(ref text) = payload.text {
-            let result = api.update_message(message_id, text).await?;
+            // `markupSyntax` is create-only. Updates keep the legacy Chat
+            // syntax regardless of the account's create-message flag.
+            let legacy_text = format::markdown_to_googlechat(text);
+            let result = api.update_message(message_id, &legacy_text).await?;
             let msg_name = result
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -426,6 +456,7 @@ impl ChannelPlugin for GoogleChatPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
             Err(e) => Ok(ChannelHealth {
                 is_running: false,
@@ -434,6 +465,7 @@ impl ChannelPlugin for GoogleChatPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }
@@ -447,7 +479,9 @@ impl ChannelPlugin for GoogleChatPlugin {
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {
-        format::markdown_to_googlechat(markdown)
+        // Account-scoped standard/legacy compilation happens at the outbound
+        // adapter boundary where the concrete account is known.
+        markdown.to_string()
     }
 
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String> {

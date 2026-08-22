@@ -31,6 +31,7 @@ use self::api::WhatsAppApi;
 /// Running account state for a WhatsApp bridge connection.
 struct RunningAccount {
     api: Arc<WhatsAppApi>,
+    capability_snapshot: AccountCapabilitySnapshot,
 }
 
 /// WhatsApp channel plugin implementation.
@@ -78,6 +79,64 @@ impl WhatsAppPlugin {
             .get(account_id)
             .map(|a| a.api.clone())
             .ok_or_else(|| anyhow::anyhow!("WhatsApp account '{}' is not running", account_id))
+    }
+
+    async fn live_send_preflight(&self, account_id: &str, api: &WhatsAppApi) -> Result<()> {
+        let health = api.health().await?;
+        health.validate_security()?;
+        let snapshot = whatsapp_capability_snapshot(&health);
+        if let Some(running) = self.accounts.lock().await.get_mut(account_id) {
+            running.capability_snapshot = snapshot;
+        }
+        if !health.connected {
+            anyhow::bail!("WhatsApp bridge is not connected");
+        }
+        Ok(())
+    }
+}
+
+fn sanitized_runtime_version(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    (!raw.is_empty()
+        && raw.len() <= 80
+        && raw
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '+' | '_' | '@')))
+    .then(|| raw.to_string())
+}
+
+fn whatsapp_capability_snapshot(health: &api::HealthResponse) -> AccountCapabilitySnapshot {
+    let security_error = health.validate_security().err();
+    let disclosed_identity = health
+        .implementation
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let version = sanitized_runtime_version(health.version.as_deref());
+    let (compatibility, warning) = if let Some(error) = security_error {
+        (
+            "blocked".to_string(),
+            Some(ha_core::truncate_utf8(&error.to_string(), 200).to_string()),
+        )
+    } else if !disclosed_identity || version.is_none() {
+        (
+            "unknown".to_string(),
+            Some("Bridge implementation/version is undisclosed or invalid".into()),
+        )
+    } else {
+        ("compatible".to_string(), None)
+    };
+    AccountCapabilitySnapshot {
+        source: "whatsapp-bridge".into(),
+        version,
+        observed_at: chrono::Utc::now().to_rfc3339(),
+        capabilities: health
+            .capability_names()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        compatibility,
+        warning,
     }
 }
 
@@ -138,6 +197,7 @@ impl ChannelPlugin for WhatsAppPlugin {
             ));
         }
         health.validate_security()?;
+        let capability_snapshot = whatsapp_capability_snapshot(&health);
 
         let account_name = health
             .account_name
@@ -166,7 +226,13 @@ impl ChannelPlugin for WhatsAppPlugin {
 
         {
             let mut accounts = self.accounts.lock().await;
-            accounts.insert(account.id.clone(), RunningAccount { api: api.clone() });
+            accounts.insert(
+                account.id.clone(),
+                RunningAccount {
+                    api: api.clone(),
+                    capability_snapshot,
+                },
+            );
         }
 
         app_info!(
@@ -245,6 +311,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
+        self.live_send_preflight(account_id, &api).await?;
 
         if !payload.media.is_empty() {
             let prepared = match media::prepare_whatsapp_media(&payload.media).await {
@@ -326,6 +393,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         match api.health().await {
             Ok(health) => {
                 let security_error = health.validate_security().err().map(|e| e.to_string());
+                let capability_snapshot = whatsapp_capability_snapshot(&health);
                 Ok(ChannelHealth {
                     is_running: false,
                     last_probe: Some(chrono::Utc::now().to_rfc3339()),
@@ -333,6 +401,7 @@ impl ChannelPlugin for WhatsAppPlugin {
                     error: security_error.or(health.error),
                     uptime_secs: None,
                     bot_name: health.account_name.or(health.phone),
+                    capability_snapshot: Some(capability_snapshot),
                 })
             }
             Err(err) => Ok(ChannelHealth {
@@ -342,6 +411,7 @@ impl ChannelPlugin for WhatsAppPlugin {
                 error: Some(err.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }

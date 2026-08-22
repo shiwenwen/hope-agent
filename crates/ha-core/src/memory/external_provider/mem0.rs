@@ -170,7 +170,7 @@ async fn pull_platform_memories(
         let request = apply_auth(
             client
                 .post(&url)
-                .json(&json!({"filters": {"user_id": credentials.subject_id}})),
+                .json(&mem0_platform_list_body(&credentials.subject_id)),
             credentials,
             Mem0Protocol::PlatformV3,
         )
@@ -187,6 +187,14 @@ async fn pull_platform_memories(
     }
     memories.truncate(MAX_REMOTE_MEMORIES_PER_RUN);
     Ok(memories)
+}
+
+fn mem0_platform_list_body(subject_id: &str) -> Value {
+    // Platform v3 get-all currently documents only an entity filter in the
+    // request body; pagination belongs in the query string. Do not rely on
+    // historical latest_only/show_expired defaults that are absent from the v3
+    // REST contract. Inactive records are filtered again on the response path.
+    json!({"filters": {"user_id": subject_id}})
 }
 
 async fn pull_oss_memories(
@@ -436,6 +444,9 @@ fn parse_remote_memories(value: &Value) -> Vec<RemoteMemory> {
     items
         .iter()
         .filter_map(|item| {
+            if !remote_memory_is_active(item) {
+                return None;
+            }
             let id = item
                 .get("id")
                 .or_else(|| item.get("memory_id"))
@@ -453,6 +464,50 @@ fn parse_remote_memories(value: &Value) -> Vec<RemoteMemory> {
             })
         })
         .collect()
+}
+
+fn remote_memory_is_active(item: &Value) -> bool {
+    for key in [
+        "deleted",
+        "is_deleted",
+        "expired",
+        "is_expired",
+        "tombstone",
+    ] {
+        if item.get(key).and_then(Value::as_bool) == Some(true) {
+            return false;
+        }
+    }
+    if item
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|status| {
+            matches!(
+                status.to_ascii_lowercase().as_str(),
+                "deleted" | "expired" | "tombstoned" | "removed" | "inactive"
+            )
+        })
+    {
+        return false;
+    }
+    for key in ["expires_at", "expiration_date", "expired_at", "deleted_at"] {
+        let Some(raw) = item.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        // A deletion timestamp is terminal regardless of its value. Expiry
+        // timestamps fail closed when malformed rather than importing a record
+        // whose lifecycle is unknown.
+        if key == "deleted_at" {
+            return false;
+        }
+        let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(raw) else {
+            return false;
+        };
+        if timestamp.with_timezone(&chrono::Utc) <= chrono::Utc::now() {
+            return false;
+        }
+    }
+    true
 }
 
 fn value_to_id(value: &Value) -> Option<String> {
@@ -503,6 +558,34 @@ mod tests {
         let oss = json!([{"id": 2, "content": "beta"}]);
         assert_eq!(parse_remote_memories(&platform)[0].id, "m1");
         assert_eq!(parse_remote_memories(&oss)[0].id, "2");
+    }
+
+    #[test]
+    fn platform_v3_list_contract_keeps_scope_in_filters_only() {
+        assert_eq!(
+            mem0_platform_list_body("alice"),
+            json!({"filters": {"user_id": "alice"}})
+        );
+    }
+
+    #[test]
+    fn expired_and_tombstoned_memories_never_enter_import_candidates() {
+        let value = json!({
+            "results": [
+                {"id": "active", "memory": "keep"},
+                {"id": "deleted", "memory": "drop", "deleted": true},
+                {"id": "expired", "memory": "drop", "status": "expired"},
+                {"id": "tombstone", "memory": "drop", "deleted_at": "2026-01-01T00:00:00Z"}
+            ]
+        });
+        let parsed = parse_remote_memories(&value);
+        assert_eq!(
+            parsed
+                .iter()
+                .map(|memory| memory.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["active"]
+        );
     }
 
     #[test]

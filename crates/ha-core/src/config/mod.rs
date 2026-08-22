@@ -19,7 +19,9 @@ pub use persistence::{
     mutate_config, mutate_config_async, reload_cache_from_disk, save_config, ConfigHealth,
     ModelEvalCodexCredential,
 };
-pub(crate) use persistence::{register_side_effects, ConfigSideEffects};
+pub(crate) use persistence::{
+    register_side_effects, reload_config_snapshot_from_disk, ConfigSideEffects,
+};
 // 类型已下沉 ha-config-schema（含文末纯类型测试），glob 再导出保持
 // `crate::config::Xxx` 全部既有路径不变；persistence（cached_config /
 // mutate_config 读写 contract）留在本 crate。

@@ -74,7 +74,7 @@ flowchart TD
 | `types.rs` | `HookEvent`（30 事件）/ `HookInput` / `HookOutput` / `HookOutcome` / `HookDecision` / `PermissionMode` |
 | `config.rs` | `HooksConfigExt` 行为 trait（`groups_for` / `is_empty` / `merge_from`）+ 原地再导出 schema 类型（保持 `hooks::config::*` 路径不变） |
 | `mod.rs` | `HookDispatcher::dispatch`（唯一入口）+ `fire_*` 助手 + per-session 去重与 Stop/PreCompact 计数器 |
-| `scopes.rs` | 四层 scope 解析 + per-cwd 缓存 + generation 失效 |
+| `scopes.rs` | 四层作用域解析 + 逐工作目录缓存 + 路径/内容信任校验 |
 | `registry.rs` | `ArcSwap<HookRegistry>` + `reload_from_config` |
 | `matcher.rs` | 三语法 matcher + 别名归一化 |
 | `parse.rs` | 退出码 + JSON/plaintext → `HookContribution` |
@@ -99,7 +99,7 @@ flowchart TD
     G0["definitely_no_handlers_for(event)<br/>cwd-free 预闸：省掉查库建 input"]
     N1["noop"]
     G1["any_handlers_for(event, cwd)<br/>无 handler 直接 noop"]
-    R["resolve_for_cwd(cwd)<br/>global(user+managed) ∪ project ∪ local，per-cwd 缓存"]
+    R["resolve_for_cwd(cwd)<br/>全局（用户+托管）∪ 项目 ∪ 本地，逐工作目录缓存"]
     M["matcher 过滤（按事件的目标字段）"]
     S["should_run_handler（if 条件 + once 去重）"]
     ST["emit statusMessage（如配置）"]
@@ -117,7 +117,7 @@ flowchart TD
 
 精确的「有没有 handler」判断需要 cwd（project/local scope 按会话工作目录解析），而 cwd 来自 `sessions.working_dir` 查库——`fire_*` 得先建好 input 才拿得到。于是**没配任何 hook 也会照查一次库**，对 `fire_file_changed` / `fire_stop` / `dispatch_permission_request` 这类每轮或每次审批都跑的路径尤其浪费。
 
-所以每个 `fire_*` / `dispatch_*` 先过一道**不需要 cwd** 的粗闸 `definitely_no_handlers_for`：当 kill switch 开启、或（project scope 关 ∧ 全局无 handler）时直接返回，跳过建 input 与查库。当 project scope 开启时它**拒绝作答**（返回 false），把判断交回二级精确 gate——**预闸只许省事，永不许放行**。
+所以每个 `fire_*` / `dispatch_*` 先过一道**不需要 cwd** 的粗闸 `definitely_no_handlers_for`：当总开关开启，或（没有任何工作区信任记录且全局无处理器）时直接返回，跳过构建输入与查库。只要存在工作区信任记录，它就**拒绝作答**（返回 `false`），把判断交回二级精确闸——**预闸只许省事，永不许放行**。
 
 - 正确性（预闸绝不跳过 project-scope 才有的 handler）由 `scopes::tests::cwd_free_pregate_only_ever_skips_work` 钉住。
 - 反向的正向性（配了 hook 仍能穿过预闸真触发）由端到端集成测试 `hooks_e2e.rs` 的 `fire_*` 存活断言钉住——把预闸改成永真会让它超时失败。
@@ -297,7 +297,7 @@ sequenceDiagram
 五种 `HandlerConfig`（公共字段见 [Handler 执行](#10-handler-执行)）：
 
 ```jsonc
-{ "type": "command",  "command": "...", "args": [], "shell": "bash|powershell", "async": false, "asyncRewake": false, "timeout": 600 }
+{ "type": "command",  "command": "...", "args": [], "shell": "bash|powershell", "allowedEnvVars": ["DECLARED_NAME"], "async": false, "asyncRewake": false, "timeout": 600 }
 { "type": "http",     "url": "https://…", "headers": {"Authorization": "Bearer ${TOKEN}"}, "allowedEnvVars": ["TOKEN"], "timeout": 600 }
 { "type": "mcp_tool", "server": "...", "tool": "...", "input": { "path": "${tool_input.file_path}" }, "timeout": 600 }
 { "type": "prompt",   "prompt": "...", "modelOverride": {…}, "timeout": 30 }
@@ -320,28 +320,29 @@ sequenceDiagram
 |-------|------|------|
 | **user** | `~/.hope-agent/config.json` 的 `hooks` | 全局，编进 `registry::global()` |
 | **managed** | `/etc/hope-agent/hooks.json`（Win：`%PROGRAMDATA%\hope-agent\hooks.json`）| 全局（企业下发），合进 `registry::global()` |
-| **project** | `<会话工作目录>/.hope-agent/hooks.json` | 随仓库共享，按 cwd 解析（默认关）|
-| **local** | `<会话工作目录>/.hope-agent/hooks.local.json` | git-ignored 开发者私有，按 cwd 解析（默认关）|
+| **项目** | `<会话工作目录>/.hope-agent/hooks.json` | 随仓库共享，逐工作区与内容授权 |
+| **本地** | `<会话工作目录>/.hope-agent/hooks.local.json` | git-ignored 开发者私有，逐工作区与内容授权 |
 
 ```mermaid
 flowchart TD
     U["user<br/>~/.hope-agent/config.json"] --> G["registry::global()"]
     Mg["managed<br/>/etc/hope-agent/hooks.json"] --> G
-    G --> R["resolve_for_cwd(cwd)<br/>per-cwd 缓存（mtime + generation 失效）"]
-    P["project<br/>&lt;cwd&gt;/.hope-agent/hooks.json"] -->|allowProjectScope 开时| R
-    L["local<br/>&lt;cwd&gt;/.hope-agent/hooks.local.json"] -->|allowProjectScope 开时| R
+    G --> R["resolve_for_cwd(cwd)<br/>逐工作目录缓存（内容哈希 + generation 失效）"]
+    P["项目<br/>&lt;cwd&gt;/.hope-agent/hooks.json"] -->|canonical 路径与内容哈希均获授权| R
+    L["本地<br/>&lt;cwd&gt;/.hope-agent/hooks.local.json"] -->|canonical 路径与内容哈希均获授权| R
     R --> EFF["有效 registry（UNION，无覆盖）"]
 ```
 
 - **UNION 语义**：所有命中 scope 的 hook 都跑，没有覆盖优先级。
-- project / local 依赖会话工作目录（`sessions.working_dir`，无 home 回退），dispatch 时经 `scopes::resolve_for_cwd` 合并到全局之上，**per-cwd 缓存**（mtime + 全局 reload generation 失效）；无 project/local 文件时返回全局 registry（≤2 次 stat）。
-- **project / local 默认关闭**（`hooks_allow_project_scope`，`AppConfig` 字段，默认 `false`）：仓库 check-in 的 hooks 不应因会话 cwd 指向就自动跑 shell / HTTP / LLM / 子 Agent（供应链防护）。开关为 `false` 时 `resolve_for_cwd` 直接返回全局、**绝不读取** project/local 文件；用户在 Settings → Hooks 显式开启才加载。
+- 项目 / 本地作用域依赖会话工作目录（`sessions.working_dir`，无 home 回退），dispatch 时经 `scopes::resolve_for_cwd` 合并到全局之上。缓存以 canonical cwd + project/local 文件 BLAKE3 + 全局 reload generation 为键；未授权时直接返回全局 registry。
+- **逐工作区、逐内容授权**：Settings → Hooks 只提交绝对路径；后端仅为**新加入**的路径重新 canonicalize 并计算两个 Hook 文件的 BLAKE3，已有路径必须原样保留 `hook_workspace_trusts` 中的旧哈希，禁止无关设置保存时静默重新授权。执行时路径与两个内容哈希必须同时吻合；路径别名、symlink、目录移动、新增/删除文件、任一内容变化均 fail closed。重新批准必须先移除并保存该工作区，再重新添加并保存。
+- **旧全局开关不迁移**：`hooks_allow_project_scope` 仅为旧配置反序列化保留，执行层忽略，保存新设置时清为 `false`。不得把旧 `true` 自动转成信任记录，否则会继续授权所有未来 cwd。
 - **`disable_all_hooks` 主开关**：同步短路返回**空** registry（不依赖异步 `config:changed` 重载，避免开关刚翻、旧 registry 仍被用的窗口），一键关闭所有 scope。
-- **热重载**：`config:changed` 触发 `registry::reload_from_config`（user + managed 合并 + bump generation），per-cwd 缓存随 generation 失效。
+- **热重载**：`config:changed` 触发 `registry::reload_from_config`（用户 + 托管合并 + bump generation），逐工作目录缓存随 generation 失效。
 
-### 已知限制：信任是全局而非按项目（安全红线）
+### 工作区信任红线
 
-`hooks_allow_project_scope` 是单个全局布尔，**一旦开启便对所有工作目录生效**。为某个可信项目打开后，后续任意会话只要 cwd 指向另一个仓库，那个仓库 check-in 的 project/local hooks 同样会执行——等于把「信任此项目」放大为「信任所有未来 cwd」。当前缓解仅靠**默认关闭 + 显式 opt-in**。细粒度的 per-cwd / canonical-project 信任（首次发现即登记路径 + 可选文件 hash/mtime，解析前校验该 cwd 已单独授权，类比 VS Code workspace trust / `direnv allow`）属未落地项，见 [Roadmap](#18-roadmap未落地)。在该模型落地前，**只在信任所有可能进入的工作目录时才开启此开关**。
+信任记录只有后端能生成完整形状；GUI/HTTP 请求只带路径，不能自报哈希。信任是「此 canonical 工作区的这两个文件当前内容」，不是「路径前缀」、仓库身份或一次永久授权。解析与 registry 编译之间会再次对实际读取的字节验哈希，避免文件在首次校验后变更而借旧哈希执行。任何不确定状态都只保留用户 / 托管作用域。
 
 ---
 
@@ -470,7 +471,7 @@ Hook 在对应生命周期点只执行一次。输出一旦被取入当前 turn/
 
 ## 13. 环境变量
 
-`env::build_for_command` 注入给 command hook（覆盖父进程同名项）：
+command Hook 子进程先 `env_clear()`，再继承最小运行环境（Unix：`PATH` / locale / `TERM` / `TMPDIR`；Windows：`PATH` / `PATHEXT` / `SYSTEMROOT` / `WINDIR` / `COMSPEC` / `TEMP` / `TMP`）、配置显式声明的 `allowedEnvVars`，最后注入下列合成变量（同名时覆盖声明值）：
 
 | 变量 | 值 |
 |------|-----|
@@ -480,9 +481,9 @@ Hook 在对应生命周期点只执行一次。输出一旦被取入当前 turn/
 | `HOPE_TRANSCRIPT_PATH` | JSONL 镜像路径 |
 | `CLAUDE_CODE_REMOTE` | `"false"` 桌面 / `"true"` server·ACP（对齐官方）|
 | `CLAUDE_EFFORT` | 官方 effort 级别（`effort` 有值时注入，取自全局 reasoning-effort cell，见 §6；未设时不注入）|
-| `PATH` | 登录 shell PATH（`tools::exec::get_login_shell_path()`，避免 `npm` / `python` 找不到；Windows 继承）|
+| `PATH` | 登录 shell PATH（`tools::exec::get_login_shell_path()`，避免 `npm` / `python` 找不到；Windows 使用最小继承值）|
 
-http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` 插值（`resolve_allowed_env` 先查合成 env 再查进程 env，未解析留字面量 + warn）。
+command Hook 的 `allowedEnvVars` 只复制命名变量，不记录值；变量名必须符合 `[A-Za-z_][A-Za-z0-9_]*`。http Hook 的 header value 同样按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` 插值（`resolve_allowed_env` 先查合成 env 再查进程 env，未解析留字面量 + warn）。
 
 `CLAUDE_ENV_FILE`（让 hook 持久化一批 session 级 env）当前未实现（`env.rs` 标注 out of phase），见 Roadmap。
 
@@ -491,8 +492,8 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` �
 ## 14. Transcript 镜像
 
 - `transcript_path` = `~/.hope-agent/sessions/{id}/transcript.jsonl`，官方脚本可 `jq` 读取。
-- **启动期 backfill**：`app_init` 调 `TranscriptMirror::backfill_all(&db)`，对无 transcript 的旧会话按 SQLite 回放重建（跳 incognito）。仅在全局或（开了 project scope 的）project scope 有 hook、且文件不存在时才建。
-- **live 追加**：消息持久化时 `append_persisted` 追加。调用点 gate 在 user / managed scope 有 hook 时才追加（避免每消息持久化热路径上的 stat）；project-only 会话退化为 backfill-only（允许 drift）。
+- **启动期 backfill**：`app_init` 调 `TranscriptMirror::backfill_all(&db)`，对无 transcript 的旧会话按 SQLite 回放重建（跳 incognito）。仅在全局或受信任工作区有 Hook、且文件不存在时才建。
+- **实时追加**：消息持久化时 `append_persisted` 追加。调用点先查用户 / 托管作用域；仅存在工作区信任时再精确解析本会话 cwd，项目-only 会话也保持镜像最新。
 - 行 schema 共享 `build_line`（type / message / timestamp / uuid / parentUuid / sessionId / cwd / version）。
 
 ---
@@ -500,11 +501,11 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` �
 ## 15. 安全与审计
 
 - **零 secret 入日志（机制：根本不记 payload）**：`audit::log_dispatch` 只写 event / handler 数 / 决策 / continue / ctx 块数 / 耗时；`env` 只投 common 字段；`emit_hook_status` 只带 sessionId / event / handlerType。「API Key 禁入日志」红线由**结构**满足——hooks 模块内**没有任何脱敏调用**（`grep redact crates/ha-core/src/hooks/` 为空），别误以为有一层 `redact_sensitive` 兜底。
-- **hook 子进程继承宿主全量环境（比 payload 更大的暴露面）**：`runner/command.rs` **不调用 `.env_clear()`**，`env` 只是在继承的环境上**追加**上表那几个 `CLAUDE_*` / `HOPE_*` 覆盖项。所以 hook 命令能读到 hope-agent 进程的所有环境变量。http handler 另有 `allowedEnvVars` 白名单转发（`X-Hope-Env-*`），其文档用例本身就是转发 `Authorization: Bearer $TOKEN`——「凭据进 hook env」是已发布的设计，不是疏漏。
-- **payload 出站不脱敏（刻意，对齐官方）**：`tool_input` / `prompt` / `tool_response` **原样**进三个出口——command handler stdin、http handler body、prompt handler 拼进 LLM 指令（prompt handler 侧有 `PROMPT_MAX_PAYLOAD_CHARS` 大小上限防超大 `tool_input` 按文件体积计费，但**不脱敏**）。官方 hooks 同样交付原始 `tool_input`（否则判 `.tool_input.command` 的脚本无法工作），故这是对齐决定而非疏漏；边界由 opt-in + project/local 默认关承担。**含义**：给某工具配 hook＝授权该 hook 读到该工具全部入参（含其中凭据）；`PermissionRequest` / `PermissionDenied` 尤甚（受审批的调用天然偏携密）。若日后要脱敏，须**同时**覆盖 `PreToolUse`，只脱一半比两端都不脱更糟。
+- **Hook 子进程最小环境**：`runner/command.rs` 先清空父进程环境，只继承 §13 的最小运行变量；额外值必须在 `allowedEnvVars` 逐名声明，且合成的 `HOPE_*` / `CLAUDE_*` 最后覆盖，仓库 Hook 不能用声明伪造会话身份。日志和审计只记录变量名，绝不记录值。http handler 也使用 `allowedEnvVars` 白名单转发（`X-Hope-Env-*`）。
+- **payload 出站不脱敏（刻意，对齐官方）**：`tool_input` / `prompt` / `tool_response` **原样**进三个出口——command handler stdin、http handler body、prompt handler 拼进 LLM 指令（prompt handler 侧有 `PROMPT_MAX_PAYLOAD_CHARS` 大小上限防超大 `tool_input` 按文件体积计费，但**不脱敏**）。官方 hooks 同样交付原始 `tool_input`（否则判 `.tool_input.command` 的脚本无法工作），故这是对齐决定而非疏漏；边界由用户作用域显式配置 + 项目/本地逐工作区、逐内容授权承担。**含义**：给某工具配 hook＝授权该 hook 读到该工具全部入参（含其中凭据）；`PermissionRequest` / `PermissionDenied` 尤甚（受审批的调用天然偏携密）。若日后要脱敏，须**同时**覆盖 `PreToolUse`，只脱一半比两端都不脱更糟。
 - **SSRF 统一**：http hook URL 必走 `security::ssrf::check_url`，不跟随重定向（§10.2）。
 - **阻断事件 fail-closed**：http hook 在 `is_blocking()` 事件上一律 Block（§10.2），防鉴权过期静默放行。
-- **供应链防护**：project / local 默认关（§8），仓库 hooks 不因 cwd 指向自动跑。**已知限制**：opt-in 是全局而非按项目——开启后所有 cwd 一律生效（见 §8），per-cwd 细粒度信任见 Roadmap。
+- **供应链防护**：项目 / 本地作用域逐工作区、逐内容授权（§8）；仓库 Hook 不因 cwd 指向自动运行，内容变化也不会继承旧授权。
 - **kill switch 同步**：`disable_all_hooks` 同步短路空 registry，不留异步重载窗口。
 - **shell 注入**：hook 配置本身是 shell 字符串，用户自行 quote（GUI placeholder 预填 `"$CLAUDE_PROJECT_DIR"` + 空格路径警示）；stdin JSON 经 serde 编码无注入；stdout 用 `serde_json` 解析不 eval。
 - **审计埋点**（category=`hooks`）：`dispatch` / 各 `runner.*` / `decision` / `config` / `transcript` / `env` / `security`（SSRF 拒绝 / 未授权 env 引用）。
@@ -534,7 +535,7 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` �
 其余测试：
 
 - **单元**（inline `#[cfg(test)]`）：matcher / config / parse / condition / decision / 各 runner；另有 Stop continue 计数器 cap/reset/不泄漏（零 IO 确定性）与预闸 soundness（`cwd_free_pregate_only_ever_skips_work`）。
-- **其它集成**（`crates/ha-core/tests/`，各**一个** `#[test]`/binary——`install_hook` 写进程全局 config、`reload_from_config` 换全局 registry，同 binary 两个 test fn 必 flake）：`hooks_e2e.rs`（config→reload→dispatch 全链 + SessionStart once-per-session + overflow + hot-reload 清除 + PermissionRequest tool_name matcher 真链路）、`hooks_project_scope.rs`（project-scope opt-in 闸）、`hooks_pre_tool_continue_false.rs`（`continue:false` 聚合）。
+- **其它集成**（`crates/ha-core/tests/`，各**一个** `#[test]`/binary——`install_hook` 写进程全局 config、`reload_from_config` 换全局 registry，同 binary 两个 test fn 必 flake）：`hooks_e2e.rs`（config→reload→dispatch 全链 + SessionStart once-per-session + overflow + hot-reload 清除 + PermissionRequest tool_name matcher 真链路）、`hooks_project_scope.rs`（工作区路径+内容授权闸）、`hooks_pre_tool_continue_false.rs`（`continue:false` 聚合）。
 - **兼容 fixture**（`tests/fixtures/hooks/claude-code-compat/`，三十余个）：跑**未改动**的官方风格 jq 脚本证明字段级对齐；脚本一律 `[ -n "$x" ] || exit 1`——字段改名会**大声失败**而非静默回显空串。`jq` 缺失自动跳过；CI Unix legs 装 jq 确保真跑。
 - 跑：`cargo test -p ha-core --test hooks_compat --test hooks_compat_payload --test hooks_compat_blocking --test hooks_compat_output --test hooks_stop_continue`（需 jq）。加测试时连变异验证一起做：回退它守的那行，确认测试真的红。
 
@@ -545,7 +546,7 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` �
 实质引擎、协议、5 handler、4 scope、决策聚合、transcript、env、审计、编辑型 GUI 均已落地。以下为设计规划但尚未建的能力，按优先级：
 
 ### GUI / 传输面
-- **GUI Tab**：当前仅 By Event 编辑视图 + `disableAllHooks` / `allowProjectScope` 开关；缺 Overview（24h 指标）/ Test Runner（手动 dispatch 试跑）/ Emergency（overflow 文件查看 + 导出）/ Scope（多源合并视图带来源标签）。
+- **GUI 页签**：当前含按事件编辑视图、`disableAllHooks` 总开关与工作区内容信任清单；缺 Overview（24h 指标）/ Test Runner（手动 dispatch 试跑）/ Emergency（overflow 文件查看 + 导出）/ Scope（多源合并视图带来源标签）。
 - **传输命令**：当前仅 `get_hooks_config` / `save_hooks_config`（Tauri + HTTP 各 2）；缺 `hooks_test_run` / `hooks_metrics_24h` / `hooks_set_scope` / `hooks_emergency_disable` / `hooks_overflow_list` / `hooks_export` / `hooks_list_all`。
 - **前端测试**：HooksPanel 的 Vitest / RTL 渲染 + 保存 + invoke 用例。
 
@@ -571,9 +572,6 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR` / `${VAR}` �
 - **Dashboard `hooks_health` 区块** + **Learning Tracker `hook_*` 事件** + **metrics rolling-window**（SQLite metrics + 自动清理窗口）。
 - **`CLAUDE_ENV_FILE` 机制**：让 hook 在 SessionStart / CwdChanged / FileChanged 持久化 session 级 env（`env` 已留位）。
 - **并发 / 资源上限可调**：`max_parallel_handlers` / `http_max_concurrent` 等 tunable。
-
-### 安全模型
-- **per-cwd / per-project 信任存储**：把当前全局的 `hooks_allow_project_scope` 升级为细粒度信任——首次在某 cwd 发现 project/local hooks 时登记 canonical 路径（可选文件 hash/mtime），解析前校验该 cwd 已单独授权；类比 VS Code workspace trust / `direnv allow`。解决 §8 登记的「信任放大到所有未来 cwd」限制，需配套 GUI 授权入口 + 传输命令。
 
 ### 协议深化
 - **`defer` headless 流**：需先做 `-p` 非交互模式（当前降级为 ask）。

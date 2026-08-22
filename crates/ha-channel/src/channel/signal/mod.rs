@@ -32,6 +32,7 @@ struct RunningAccount {
     #[allow(dead_code)]
     account_phone: String,
     daemon: Option<SignalDaemon>,
+    capability_snapshot: AccountCapabilitySnapshot,
 }
 
 /// Signal channel plugin implementation.
@@ -88,6 +89,79 @@ impl SignalPlugin {
             .get(account_id)
             .map(|a| a.client.clone())
             .ok_or_else(|| anyhow::anyhow!("Signal account '{}' is not running", account_id))
+    }
+}
+
+const SIGNAL_CLI_MIN_OBSERVED_VERSION: (u64, u64, u64) = (0, 14, 0);
+
+fn parse_signal_cli_version(raw: &str) -> Option<String> {
+    raw.lines()
+        .flat_map(str::split_whitespace)
+        .map(|token| token.trim_matches(|ch: char| matches!(ch, ',' | ';' | '(' | ')')))
+        .find(|token| {
+            token.chars().any(|ch| ch.is_ascii_digit())
+                && token
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '+' | '_'))
+        })
+        .map(|token| ha_core::truncate_utf8(token.trim_start_matches(['v', 'V']), 40).to_string())
+        .filter(|version| !version.is_empty())
+}
+
+fn signal_version_tuple(version: &str) -> Option<(u64, u64, u64)> {
+    let core = version.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next().unwrap_or("0").parse().ok()?,
+    ))
+}
+
+async fn detect_signal_cli_snapshot(binary: &std::path::Path) -> AccountCapabilitySnapshot {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::process::Command::new(binary)
+            .arg("--version")
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let version = match output {
+        Ok(Ok(output)) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            parse_signal_cli_version(if stdout.trim().is_empty() {
+                &stderr
+            } else {
+                &stdout
+            })
+        }
+        _ => None,
+    };
+    let (compatibility, warning) = match version.as_deref().and_then(signal_version_tuple) {
+        Some(version) if version < SIGNAL_CLI_MIN_OBSERVED_VERSION => (
+            "warning".to_string(),
+            Some("signal-cli is older than the observed 0.14.0 compatibility baseline".into()),
+        ),
+        Some(_) => ("compatible".to_string(), None),
+        None => (
+            "unknown".to_string(),
+            Some("signal-cli version could not be detected; messaging remains warning-only".into()),
+        ),
+    };
+    AccountCapabilitySnapshot {
+        source: "signal-cli".into(),
+        version,
+        observed_at: chrono::Utc::now().to_rfc3339(),
+        capabilities: vec![
+            "media".into(),
+            "reply".into(),
+            "typing".into(),
+            "unsend".into(),
+        ],
+        compatibility,
+        warning,
     }
 }
 
@@ -181,10 +255,23 @@ impl ChannelPlugin for SignalPlugin {
 
         // Check that the signal-cli binary exists
         let binary_name = cli_path.as_deref().unwrap_or("signal-cli");
-        if crate::channel::process_manager::find_binary(binary_name).is_none() {
+        let binary_path = crate::channel::process_manager::find_binary(binary_name);
+        if binary_path.is_none() {
             anyhow::bail!(
                 "signal-cli binary not found: '{}'. Please install signal-cli or provide the full path in credentials.",
                 binary_name
+            );
+        }
+        let capability_snapshot =
+            detect_signal_cli_snapshot(binary_path.as_deref().expect("checked above")).await;
+        if let Some(warning) = capability_snapshot.warning.as_deref() {
+            app_warn!("channel", "signal", "{}", warning);
+        } else if let Some(version) = capability_snapshot.version.as_deref() {
+            app_info!(
+                "channel",
+                "signal",
+                "Detected signal-cli version {}",
+                version
             );
         }
 
@@ -218,6 +305,7 @@ impl ChannelPlugin for SignalPlugin {
                     client: client.clone(),
                     account_phone: phone.clone(),
                     daemon: Some(daemon),
+                    capability_snapshot,
                 },
             );
         }
@@ -352,7 +440,8 @@ impl ChannelPlugin for SignalPlugin {
         let binary_name = cli_path.as_deref().unwrap_or("signal-cli");
 
         // Check if binary exists
-        if crate::channel::process_manager::find_binary(binary_name).is_none() {
+        let binary_path = crate::channel::process_manager::find_binary(binary_name);
+        if binary_path.is_none() {
             return Ok(ChannelHealth {
                 is_running: false,
                 last_probe: Some(chrono::Utc::now().to_rfc3339()),
@@ -360,12 +449,14 @@ impl ChannelPlugin for SignalPlugin {
                 error: Some(format!("signal-cli binary not found: '{}'", binary_name)),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             });
         }
 
         // If the account is running, try to list identities
         let accounts = self.accounts.lock().await;
         if let Some(running) = accounts.get(&account.id) {
+            let snapshot = running.capability_snapshot.clone();
             match running.client.list_identities().await {
                 Ok(_) => Ok(ChannelHealth {
                     is_running: true,
@@ -374,6 +465,7 @@ impl ChannelPlugin for SignalPlugin {
                     error: None,
                     uptime_secs: None,
                     bot_name: Some(phone),
+                    capability_snapshot: Some(snapshot.clone()),
                 }),
                 Err(e) => Ok(ChannelHealth {
                     is_running: true,
@@ -382,9 +474,14 @@ impl ChannelPlugin for SignalPlugin {
                     error: Some(e.to_string()),
                     uptime_secs: None,
                     bot_name: Some(phone),
+                    capability_snapshot: Some(snapshot),
                 }),
             }
         } else {
+            drop(accounts);
+            let snapshot =
+                detect_signal_cli_snapshot(binary_path.as_deref().expect("checked binary path"))
+                    .await;
             Ok(ChannelHealth {
                 is_running: false,
                 last_probe: Some(chrono::Utc::now().to_rfc3339()),
@@ -392,6 +489,7 @@ impl ChannelPlugin for SignalPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Some(phone),
+                capability_snapshot: Some(snapshot),
             })
         }
     }

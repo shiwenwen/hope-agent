@@ -1202,7 +1202,7 @@ describe("ChatInput", () => {
     })
 
     await waitFor(() => {
-      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands")
+      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands", { sessionId: null })
     })
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
 
@@ -1246,7 +1246,7 @@ describe("ChatInput", () => {
     })
 
     await waitFor(() => {
-      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands")
+      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands", { sessionId: null })
     })
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
 
@@ -1292,7 +1292,7 @@ describe("ChatInput", () => {
     })
 
     await waitFor(() => {
-      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands")
+      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands", { sessionId: "s1" })
     })
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
 

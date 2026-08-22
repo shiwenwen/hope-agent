@@ -15,6 +15,24 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Stable identity captured before a numeric ownership handoff.
+///
+/// Callers must pass this snapshot back to
+/// [`set_path_owner_from_snapshot_beneath`] so the ownership mutation is
+/// applied to the same inode through a descriptor-relative, no-follow walk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathOwnershipSnapshot {
+    pub uid: u32,
+    pub gid: u32,
+    pub device: u64,
+    pub inode: u64,
+    pub hard_link_count: u64,
+    /// Unix set-user-ID / set-group-ID bits captured with the inode.
+    /// Windows leaves this at zero because numeric ownership is unsupported.
+    pub special_mode_bits: u32,
+    pub is_directory: bool,
+}
+
 // `pub`（原为 `pub(crate)`）：ha-core 的 `app_init::spawn_keep_awake_listener`
 // 跨 crate 调用 `keep_awake::apply`，搬进 ha-base 后 crate 级可见性不再够用。
 pub mod keep_awake;
@@ -65,6 +83,47 @@ pub fn pid_alive(pid: u32) -> bool {
     let mut sys = sysinfo::System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]), false);
     sys.process(target).is_some()
+}
+
+/// Numeric identity of the current process on Unix. Windows returns `None`;
+/// callers use that to keep platform-specific ownership policy out of business
+/// crates.
+pub fn process_user_group() -> Option<(u32, u32)> {
+    imp::process_user_group()
+}
+
+/// Read an entry's numeric owner without following a final symlink.
+pub fn path_owner_no_follow(path: &Path) -> std::io::Result<(u32, u32)> {
+    imp::path_owner_no_follow(path)
+}
+
+/// Capture the owner, inode identity, type, hard-link count, and
+/// ownership-sensitive mode bits without following a final symlink.
+pub fn path_ownership_snapshot_no_follow(path: &Path) -> std::io::Result<PathOwnershipSnapshot> {
+    imp::path_ownership_snapshot_no_follow(path)
+}
+
+/// Whether the final path component carries Linux file capabilities, without
+/// following a symlink. Non-Linux platforms return `false` because they do not
+/// implement the `security.capability` ownership-clearing contract.
+pub fn path_has_security_capability_no_follow(path: &Path) -> std::io::Result<bool> {
+    imp::path_has_security_capability_no_follow(path)
+}
+
+/// Change an entry's numeric owner through a descriptor-relative walk rooted
+/// at `root`, after proving that the opened inode still matches `expected`.
+/// Regular files must retain the snapshot's hard-link count at the mutation
+/// boundary. Callers that admit a count above one must first prove every link
+/// is beneath the authorized root.
+pub fn set_path_owner_from_snapshot_beneath(
+    root: &Path,
+    expected_root: PathOwnershipSnapshot,
+    relative: &Path,
+    expected: PathOwnershipSnapshot,
+    uid: u32,
+    gid: u32,
+) -> std::io::Result<()> {
+    imp::set_path_owner_from_snapshot_beneath(root, expected_root, relative, expected, uid, gid)
 }
 
 /// Prevent same-UID processes from attaching to or dumping this process on

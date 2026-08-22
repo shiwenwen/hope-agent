@@ -113,6 +113,7 @@ export function useSlashCommands(
   const [expandedCmd, setExpandedCmd] = useState<SlashCommandDef | null>(null)
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(0)
   const actionsRef = useRef(actions)
+  const catalogRequestRef = useRef(0)
   actionsRef.current = actions
 
   // Fill the composer with `value` and park the caret at the end, so the next
@@ -135,11 +136,14 @@ export function useSlashCommands(
 
   // Load commands from backend (refresh when menu opens to pick up skill changes)
   const loadCommands = useCallback(() => {
+    const requestId = ++catalogRequestRef.current
     getTransport()
-      .call<SlashCommandDef[]>("list_slash_commands")
-      .then(setCommands)
+      .call<SlashCommandDef[]>("list_slash_commands", { sessionId: actions.sessionId })
+      .then((nextCommands) => {
+        if (requestId === catalogRequestRef.current) setCommands(nextCommands)
+      })
       .catch(() => {})
-  }, [])
+  }, [actions.sessionId])
 
   useEffect(() => {
     loadCommands()

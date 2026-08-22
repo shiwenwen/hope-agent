@@ -74,11 +74,15 @@ pub fn emit_stream_event(
         AcpStreamEvent::Usage {
             input_tokens,
             output_tokens,
+            context_used,
+            context_size,
         } => (
             "usage",
             serde_json::json!({
                 "inputTokens": input_tokens,
                 "outputTokens": output_tokens,
+                "contextUsed": context_used,
+                "contextSize": context_size,
             }),
         ),
         AcpStreamEvent::Error { message } => ("error", serde_json::json!({ "message": message })),

@@ -3,7 +3,9 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use crate::skills::discovery::{compact_path, load_skills_from_dir};
+    use crate::skills::discovery::{
+        compact_path, load_all_skills_with_budget, load_skills_from_dir, workspace_skill_sources,
+    };
     use crate::skills::frontmatter::{
         parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires, unquote,
         ParsedFrontmatter,
@@ -749,6 +751,94 @@ Body."#;
             "expected depth-3 SKILL.md to be ignored, got {:?}",
             entries
         );
+    }
+
+    #[test]
+    fn workspace_standard_skill_sources_are_root_to_cwd_and_repo_bounded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let temp_root = tmp.path().canonicalize().unwrap();
+        let repo = temp_root.join("repo");
+        let package = repo.join("packages");
+        let cwd = package.join("app");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        for dir in [&repo, &package, &cwd] {
+            std::fs::create_dir_all(dir.join(".agents/skills")).unwrap();
+        }
+        // Must not cross the nearest repository boundary.
+        std::fs::create_dir_all(temp_root.join(".agents/skills")).unwrap();
+
+        let sources = workspace_skill_sources(&cwd);
+        let paths: Vec<PathBuf> = sources.iter().map(|(path, _)| path.clone()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                repo.join(".agents/skills"),
+                package.join(".agents/skills"),
+                cwd.join(".agents/skills"),
+            ]
+        );
+        assert_eq!(sources[0].1, "repo-ancestor");
+        assert_eq!(sources[1].1, "repo-ancestor");
+        assert_eq!(sources[2].1, "workspace-shared");
+    }
+
+    #[test]
+    fn repository_skills_require_the_explicit_session_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let workspace = repo.join("packages/app");
+        let skill_dir = workspace
+            .join(".agents/skills")
+            .join("session-scoped-regression");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: session-scoped-regression\ndescription: scoped\n---\nbody",
+        )
+        .unwrap();
+
+        let unscoped = load_all_skills_with_budget(&[], &SkillPromptBudget::default(), None);
+        assert!(
+            unscoped
+                .iter()
+                .all(|entry| entry.name != "session-scoped-regression"),
+            "a catalog without session context must not inherit repository skills from process cwd"
+        );
+
+        let scoped =
+            load_all_skills_with_budget(&[], &SkillPromptBudget::default(), Some(&workspace));
+        let entry = scoped
+            .iter()
+            .find(|entry| entry.name == "session-scoped-regression")
+            .expect("session workspace skill should be discovered");
+        assert_eq!(entry.source, "workspace-shared");
+        assert!(PathBuf::from(&entry.file_path).starts_with(workspace.canonicalize().unwrap()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn skill_discovery_rejects_symlink_escapes() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join(".agents")).unwrap();
+        std::fs::create_dir_all(outside.join("skill-a")).unwrap();
+        std::fs::write(
+            outside.join("skill-a/SKILL.md"),
+            "---\nname: escaped\ndescription: outside\n---\nbody",
+        )
+        .unwrap();
+        symlink(&outside, repo.join(".agents/skills")).unwrap();
+        assert!(workspace_skill_sources(&repo).is_empty());
+
+        let real_root = repo.join("real-skills");
+        std::fs::create_dir_all(&real_root).unwrap();
+        symlink(outside.join("skill-a"), real_root.join("skill-a")).unwrap();
+        assert!(load_skills_from_dir(&real_root, "test", &SkillPromptBudget::default()).is_empty());
     }
 
     #[test]

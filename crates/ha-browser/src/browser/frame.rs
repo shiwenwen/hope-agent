@@ -77,6 +77,11 @@ pub async fn capture_frame(session_id: Option<&str>) -> Result<Option<BrowserFra
     let Some((backend, frame_session_id)) = capture_backend(session_id).await else {
         return Ok(None);
     };
+    let _cdp_operation = if backend.backend_name() == "cdp" {
+        Some(super::acquire_cdp_operation_guard().await)
+    } else {
+        None
+    };
     if !backend.is_connected().await {
         return Ok(None);
     }

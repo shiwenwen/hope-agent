@@ -31,16 +31,18 @@ pub enum EvalAdapter {
     ContextCompactionContract,
     DomainTraceFixture,
     DreamingGolden,
+    KnowledgeRetrievalEvidence,
     MemoryRetrievalScale,
 }
 
 impl EvalAdapter {
-    pub const DETERMINISTIC_V1: [Self; 6] = [
+    pub const DETERMINISTIC_V1: [Self; 7] = [
         Self::CodingFixturePatch,
         Self::CodingGoldFixturePatch,
         Self::ContextCompactionContract,
         Self::DomainTraceFixture,
         Self::DreamingGolden,
+        Self::KnowledgeRetrievalEvidence,
         Self::MemoryRetrievalScale,
     ];
 }

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "sourceName": "Docker Official Image: Debian",
+  "sourceTag": "debian:bookworm-20260803-slim",
+  "reference": "debian:bookworm-20260803-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241",
+  "indexDigest": "sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241",
+  "publishedAt": "2026-08-04T23:51:56Z",
+  "sourceEvidence": "https://github.com/docker-library/repo-info/blob/master/repos/debian/remote/bookworm-20260803-slim.md",
+  "architectures": [
+    {
+      "platform": "linux/amd64",
+      "digest": "sha256:362e64223cc0da95422b3b13c045186fc0a81250e765d31c025fbddf257f6143"
+    },
+    {
+      "platform": "linux/arm64/v8",
+      "digest": "sha256:817e6cf99d6fc127ff4ffe8580049b60deba0adfbbb2bd65ddc3ef8fbb7aade0"
+    }
+  ]
+}

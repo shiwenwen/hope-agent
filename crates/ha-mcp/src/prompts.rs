@@ -122,29 +122,38 @@ fn project_prompt(p: model::Prompt) -> PromptSummary {
 /// normalization so the two paths behave identically for the LLM.
 fn project_message(m: model::PromptMessage) -> PromptMessage {
     let role = match m.role {
-        model::PromptMessageRole::User => "user",
-        model::PromptMessageRole::Assistant => "assistant",
+        model::Role::User => "user",
+        model::Role::Assistant => "assistant",
     };
     let text = match m.content {
-        model::PromptMessageContent::Text { text } => text,
-        model::PromptMessageContent::Image { image } => {
+        model::ContentBlock::Text(text) => text.text,
+        model::ContentBlock::Image(image) => {
             format!(
                 "[image mime={} size_b64={}]",
                 image.mime_type,
                 image.data.len()
             )
         }
-        model::PromptMessageContent::Resource { resource } => match resource.raw.resource {
+        model::ContentBlock::Resource(resource) => match resource.resource {
             model::ResourceContents::TextResourceContents { text, uri, .. } => {
                 format!("[resource uri={uri}]\n{text}")
             }
             model::ResourceContents::BlobResourceContents { uri, blob, .. } => {
                 format!("[resource uri={uri} blob size={}]", blob.len())
             }
+            _ => "[unsupported MCP resource content]".to_string(),
         },
-        model::PromptMessageContent::ResourceLink { link } => {
-            format!("[resource_link uri={}]", link.raw.uri)
+        model::ContentBlock::ResourceLink(link) => {
+            format!("[resource_link uri={}]", link.uri)
         }
+        model::ContentBlock::Audio(audio) => {
+            format!(
+                "[audio mime={} size_b64={}]",
+                audio.mime_type,
+                audio.data.len()
+            )
+        }
+        _ => "[unsupported MCP content block]".to_string(),
     };
     PromptMessage {
         role: role.to_string(),

@@ -1,4 +1,4 @@
-use axum::Json;
+use axum::{extract::Query, Json};
 use serde::Deserialize;
 
 use ha_core::slash_commands;
@@ -6,9 +6,16 @@ use ha_core::slash_commands;
 use crate::error::AppError;
 
 /// `GET /api/slash-commands`
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSlashCommandsQuery {
+    pub session_id: Option<String>,
+}
+
 pub async fn list_slash_commands(
+    Query(query): Query<ListSlashCommandsQuery>,
 ) -> Result<Json<Vec<slash_commands::types::SlashCommandDef>>, AppError> {
-    slash_commands::list_slash_commands()
+    slash_commands::list_slash_commands(query.session_id.as_deref())
         .await
         .map(Json)
         .map_err(AppError::internal)

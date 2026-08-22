@@ -37,6 +37,7 @@ import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { useDesktopUpdateInstall } from "@/hooks/useDesktopUpdateInstall"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
+import ToolchainDoctorPanel from "@/components/settings/ToolchainDoctorPanel"
 
 interface HighlightItem {
   icon: LucideIcon
@@ -512,6 +513,8 @@ export default function AboutPanel({ onOpenUpdateHistory }: { onOpenUpdateHistor
             </div>
           </section>
         )}
+
+        <ToolchainDoctorPanel />
 
         <section className="grid gap-4 md:grid-cols-2">
           {highlights.map((item) => {

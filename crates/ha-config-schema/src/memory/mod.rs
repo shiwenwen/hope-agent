@@ -19,7 +19,8 @@ pub use dreaming::{
     ProfileSynthesisConfig, PromotionThresholds,
 };
 pub use embedding::{
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingSelection,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingPurpose,
+    EmbeddingSelection,
 };
 pub use recall_summary::RecallSummaryConfig;
 pub use runtime_config::{

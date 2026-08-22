@@ -2,9 +2,119 @@ use std::fs;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use super::PathOwnershipSnapshot;
+
+// POSIX mode bits: set-user-ID (04000) plus set-group-ID (02000). Keeping the
+// mask in MetadataExt::mode's u32 domain avoids libc's target-specific
+// constant types (u16 on macOS, u32 on Linux).
+const OWNERSHIP_SENSITIVE_MODE_BITS: u32 = 0o6000;
+
+pub(super) fn process_user_group() -> Option<(u32, u32)> {
+    // SAFETY: These process identity queries take no pointers and have no
+    // caller-side preconditions.
+    Some(unsafe { (libc::geteuid(), libc::getegid()) })
+}
+
+pub(super) fn path_owner_no_follow(path: &Path) -> io::Result<(u32, u32)> {
+    let metadata = fs::symlink_metadata(path)?;
+    Ok((metadata.uid(), metadata.gid()))
+}
+
+pub(super) fn path_ownership_snapshot_no_follow(path: &Path) -> io::Result<PathOwnershipSnapshot> {
+    let metadata = fs::symlink_metadata(path)?;
+    let file_type = metadata.file_type();
+    if !file_type.is_file() && !file_type.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ownership snapshot requires a regular file or directory",
+        ));
+    }
+    Ok(PathOwnershipSnapshot {
+        uid: metadata.uid(),
+        gid: metadata.gid(),
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        hard_link_count: metadata.nlink(),
+        special_mode_bits: metadata.mode() & OWNERSHIP_SENSITIVE_MODE_BITS,
+        is_directory: file_type.is_dir(),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn capability_xattr_result(result: libc::ssize_t) -> io::Result<bool> {
+    if result >= 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    let code = error.raw_os_error();
+    if code == Some(libc::ENODATA) || code == Some(libc::ENOTSUP) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn path_has_security_capability_no_follow(path: &Path) -> io::Result<bool> {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let name = c"security.capability";
+    // SAFETY: both C strings are live and NUL-terminated; a null value with a
+    // zero size is the documented size/existence probe and lgetxattr does not
+    // follow the final symlink.
+    let result = unsafe { libc::lgetxattr(path.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
+    capability_xattr_result(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn path_has_security_capability_no_follow(_path: &Path) -> io::Result<bool> {
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn file_has_security_capability(file: &fs::File) -> io::Result<bool> {
+    let name = c"security.capability";
+    // SAFETY: file and name remain live for the descriptor-bound existence
+    // probe; fgetxattr cannot be redirected by a pathname replacement.
+    let result =
+        unsafe { libc::fgetxattr(file.as_raw_fd(), name.as_ptr(), std::ptr::null_mut(), 0) };
+    capability_xattr_result(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn file_has_security_capability(_file: &fs::File) -> io::Result<bool> {
+    Ok(false)
+}
+
+fn validate_owner_handle(
+    file: &fs::File,
+    expected: PathOwnershipSnapshot,
+    require_owner: bool,
+) -> io::Result<()> {
+    let metadata = file.metadata()?;
+    let same_type = if expected.is_directory {
+        metadata.is_dir()
+    } else {
+        metadata.is_file()
+    };
+    if metadata.dev() != expected.device
+        || metadata.ino() != expected.inode
+        || !same_type
+        || (require_owner && (metadata.uid(), metadata.gid()) != (expected.uid, expected.gid))
+        || metadata.mode() & OWNERSHIP_SENSITIVE_MODE_BITS != expected.special_mode_bits
+        || (!expected.is_directory && metadata.nlink() != expected.hard_link_count)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "ownership target changed after its snapshot",
+        ));
+    }
+    Ok(())
+}
 
 fn openat_component(
     parent: &fs::File,
@@ -51,6 +161,62 @@ fn open_canonical_directory(root: &Path) -> io::Result<fs::File> {
         }
     }
     Ok(directory)
+}
+
+pub(super) fn set_path_owner_from_snapshot_beneath(
+    root: &Path,
+    expected_root: PathOwnershipSnapshot,
+    relative: &Path,
+    expected: PathOwnershipSnapshot,
+    uid: u32,
+    gid: u32,
+) -> io::Result<()> {
+    if !root.is_absolute()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ownership handoff requires an absolute root and a normal relative path",
+        ));
+    }
+    let mut directory = open_canonical_directory(root)?;
+    // Root owner changes during a multi-entry handoff, so only its stable
+    // namespace identity and type are checked while it anchors descendants.
+    validate_owner_handle(&directory, expected_root, false)?;
+    let components = normal_relative_components(relative)?;
+    let target = if let Some((file_name, parent_components)) = components.split_last() {
+        for component in parent_components {
+            directory = openat_component(&directory, component, true)?;
+        }
+        openat_component(&directory, file_name, expected.is_directory)?
+    } else {
+        directory
+    };
+    validate_owner_handle(&target, expected, true)?;
+    if file_has_security_capability(&target)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "ownership handoff would clear Linux file capabilities",
+        ));
+    }
+    // SAFETY: `target` is a live descriptor for the exact inode just
+    // validated. fchown cannot be redirected by a pathname replacement.
+    if unsafe { libc::fchown(target.as_raw_fd(), uid, gid) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let updated = target.metadata()?;
+    if updated.dev() != expected.device
+        || updated.ino() != expected.inode
+        || (updated.uid(), updated.gid()) != (uid, gid)
+    {
+        return Err(io::Error::other(
+            "ownership target did not retain the requested identity",
+        ));
+    }
+    Ok(())
 }
 
 fn normal_relative_components(relative: &Path) -> io::Result<Vec<std::ffi::OsString>> {

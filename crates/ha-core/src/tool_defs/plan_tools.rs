@@ -12,16 +12,10 @@ pub fn get_ask_user_question_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_ASK_USER_QUESTION.into(),
         description:
-            "Ask the user one or more structured questions with multiple-choice options. \
-Use this whenever you need to clarify requirements, pick between approaches, or confirm a \
-decision before continuing. Each question renders as an interactive UI in the desktop app, \
-as native buttons in IM channels that support them (Telegram, Slack, Feishu, QQ, Discord, \
-LINE, Google Chat), and as a text fallback (reply 1a/1b/2a) in the rest. \n\n\
-Guidelines: 1–4 questions per call, 2–4 options per question. Prefer single-select. Mark your \
-recommended choice as the first option with '(Recommended)' in the label. Use `preview` for \
-mockups, code comparisons or diagram snippets. Set `default_values` + `timeout_secs` only when \
-the answer can safely fall back; they take effect only if ask-user auto-timeout is enabled in \
-settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
+            "Ask structured questions to clarify requirements, choose an approach, or confirm a \
+decision. Ask 1–4 questions with 2–4 options, prefer single-select, and put the recommended choice \
+first with '(Recommended)' in its label. Use `preview` for comparisons. Only set timeouts with safe \
+defaults. In Plan Mode, use `submit_plan` instead of asking whether the plan is ready."
                 .into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Interaction,
@@ -52,8 +46,21 @@ settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `
                             },
                             "input_kind": {
                                 "type": "string",
-                                "description": "Primary input shape (frontend rendering hint; answer channel is unchanged). Omit for the default single/multi behavior. 'text'/'textarea' render a free-text box (answer comes back as the custom input) — use for open-ended discovery questions. 'direction-cards' renders each option as a rich VISUAL STYLE CARD (palette swatches + live 'Aa' type sample + mood + reference names) in the Design Space chat, degrading to a plain option list elsewhere — use it to let the user pick a visual design direction; each option must also carry a 'card' payload.",
-                                "enum": ["single", "multi", "text", "textarea", "direction-cards"]
+                                "description": "Primary input shape. Omit for the default single/multi behavior. 'text'/'textarea' render free text; 'direction-cards' renders a visual style picker; 'file' requests one PDF/TXT/MD attachment up to 10 MiB on an attached IM conversation. A file request must be the only question in the call.",
+                                "enum": ["single", "multi", "text", "textarea", "direction-cards", "file"]
+                            },
+                            "file_constraints": {
+                                "type": "object",
+                                "description": "Only for input_kind 'file'. The runtime intersects types with its PDF/TXT/MD allowlist, clamps max_bytes to 10 MiB, and forces count to 1.",
+                                "properties": {
+                                    "types": {
+                                        "type": "array",
+                                        "items": { "type": "string", "enum": ["application/pdf", "text/plain", "text/markdown", "pdf", "txt", "md"] }
+                                    },
+                                    "max_bytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+                                    "count": { "type": "integer", "enum": [1] }
+                                },
+                                "additionalProperties": false
                             },
                             "options": {
                                 "type": "array",
@@ -108,7 +115,7 @@ settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `
                                 "items": { "type": "string" }
                             }
                         },
-                        "required": ["question_id", "text", "options"]
+                        "required": ["question_id", "text"]
                     }
                 },
                 "context": {

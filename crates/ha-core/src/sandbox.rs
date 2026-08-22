@@ -13,7 +13,89 @@ use std::error::Error as StdError;
 use std::io::ErrorKind;
 use std::path::Path;
 
-const DEFAULT_SANDBOX_IMAGE: &str = "debian:bookworm-slim";
+const SANDBOX_IMAGE_MANIFEST_JSON: &str = include_str!("../resources/sandbox-image-manifest.json");
+const LEGACY_DEFAULT_SANDBOX_IMAGE: &str = "debian:bookworm-slim";
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SandboxImageManifest {
+    schema_version: u32,
+    source_name: String,
+    source_tag: String,
+    reference: String,
+    index_digest: String,
+    published_at: String,
+    source_evidence: String,
+    architectures: Vec<SandboxImageArchitecture>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SandboxImageArchitecture {
+    platform: String,
+    digest: String,
+}
+
+fn valid_sha256_digest(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    })
+}
+
+fn sandbox_image_manifest() -> &'static SandboxImageManifest {
+    static MANIFEST: std::sync::OnceLock<SandboxImageManifest> = std::sync::OnceLock::new();
+    MANIFEST.get_or_init(|| {
+        let manifest: SandboxImageManifest = serde_json::from_str(SANDBOX_IMAGE_MANIFEST_JSON)
+            .expect("embedded sandbox image manifest must be valid JSON");
+        assert_eq!(manifest.schema_version, 1);
+        assert!(validate_sandbox_image_reference(&manifest.reference).is_ok());
+        assert!(manifest.reference.ends_with(&manifest.index_digest));
+        assert!(valid_sha256_digest(&manifest.index_digest));
+        assert!(!manifest.source_name.trim().is_empty());
+        assert!(!manifest.source_tag.trim().is_empty());
+        assert!(!manifest.published_at.trim().is_empty());
+        assert!(!manifest.source_evidence.trim().is_empty());
+        assert!(manifest
+            .architectures
+            .iter()
+            .any(|entry| entry.platform == "linux/amd64" && valid_sha256_digest(&entry.digest)));
+        assert!(manifest
+            .architectures
+            .iter()
+            .any(|entry| entry.platform == "linux/arm64/v8" && valid_sha256_digest(&entry.digest)));
+        manifest
+    })
+}
+
+pub fn default_sandbox_image_reference() -> &'static str {
+    &sandbox_image_manifest().reference
+}
+
+pub fn validate_sandbox_image_reference(image: &str) -> Result<()> {
+    let image = image.trim();
+    let Some((repository, digest)) = image.rsplit_once('@') else {
+        anyhow::bail!("Sandbox image must be pinned by an immutable @sha256 manifest digest");
+    };
+    if repository.is_empty()
+        || repository.contains('@')
+        || repository.chars().any(char::is_whitespace)
+        || !valid_sha256_digest(digest)
+    {
+        anyhow::bail!("Sandbox image must be pinned by an immutable @sha256 manifest digest");
+    }
+    Ok(())
+}
+
+fn normalize_sandbox_image(image: &str) -> String {
+    let image = image.trim();
+    if image == LEGACY_DEFAULT_SANDBOX_IMAGE || image == sandbox_image_manifest().source_tag {
+        default_sandbox_image_reference().to_string()
+    } else {
+        image.to_string()
+    }
+}
 
 fn default_network_none() -> String {
     "none".to_string()
@@ -59,7 +141,7 @@ pub struct SandboxConfig {
 impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
-            image: DEFAULT_SANDBOX_IMAGE.to_string(),
+            image: default_sandbox_image_reference().to_string(),
             memory_limit: Some(512 * 1024 * 1024), // 512MB
             cpu_limit: Some(1.0),
             read_only: true,
@@ -101,7 +183,9 @@ pub fn load_sandbox_config() -> Result<SandboxConfig> {
     let path = sandbox_config_path()?;
     if path.exists() {
         let data = std::fs::read_to_string(&path)?;
-        Ok(serde_json::from_str(&data)?)
+        let mut config: SandboxConfig = serde_json::from_str(&data)?;
+        config.image = normalize_sandbox_image(&config.image);
+        Ok(config)
     } else {
         Ok(SandboxConfig::default())
     }
@@ -109,7 +193,10 @@ pub fn load_sandbox_config() -> Result<SandboxConfig> {
 
 pub fn save_sandbox_config(config: &SandboxConfig) -> Result<()> {
     let path = sandbox_config_path()?;
-    let data = serde_json::to_string_pretty(config)?;
+    let mut normalized = config.clone();
+    normalized.image = normalize_sandbox_image(&normalized.image);
+    validate_sandbox_image_reference(&normalized.image)?;
+    let data = serde_json::to_string_pretty(&normalized)?;
     std::fs::write(path, data)?;
     Ok(())
 }
@@ -443,5 +530,39 @@ mod tests {
         assert_eq!(value["connectionError"], "permission_denied");
         assert_eq!(value["containerized"], true);
         assert_eq!(value["isolatedModeOnly"], true);
+    }
+
+    #[test]
+    fn default_sandbox_image_is_a_multi_arch_manifest_digest() {
+        let config = SandboxConfig::default();
+        assert_eq!(config.image, default_sandbox_image_reference());
+        validate_sandbox_image_reference(&config.image).expect("default image is pinned");
+        let manifest = sandbox_image_manifest();
+        assert!(manifest
+            .architectures
+            .iter()
+            .any(|entry| entry.platform == "linux/amd64"));
+        assert!(manifest
+            .architectures
+            .iter()
+            .any(|entry| entry.platform == "linux/arm64/v8"));
+    }
+
+    #[test]
+    fn sandbox_image_rejects_mutable_tags_and_migrates_only_the_legacy_default() {
+        assert!(validate_sandbox_image_reference("debian:bookworm-slim").is_err());
+        assert!(validate_sandbox_image_reference("registry.example/team/image:latest").is_err());
+        assert!(validate_sandbox_image_reference(
+            "registry.example/team/image:1@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        )
+        .is_ok());
+        assert_eq!(
+            normalize_sandbox_image(LEGACY_DEFAULT_SANDBOX_IMAGE),
+            default_sandbox_image_reference()
+        );
+        assert_eq!(
+            normalize_sandbox_image("example/image:latest"),
+            "example/image:latest"
+        );
     }
 }

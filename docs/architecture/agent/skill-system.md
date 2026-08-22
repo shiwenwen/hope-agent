@@ -105,7 +105,7 @@ graph TB
     subgraph 存储层
         CONFIG[(config.json<br/>AppConfig)]
         SESSDB[("sessions.db<br/>session_skill_activation")]
-        FS[("内置 skills/<br/>~/.hope-agent/skills/<br/>项目级 .hope-agent/skills/<br/>额外目录")]
+        FS[("内置 skills/<br/>~/.agents/skills/<br/>~/.hope-agent/skills/<br/>仓库祖先 .agents/skills/<br/>项目级 .hope-agent/skills/<br/>额外目录")]
     end
 
     UI & CMD & CHAT --> TAURI & HTTP
@@ -124,7 +124,7 @@ graph TB
 
 | 文件 | 职责 |
 |------|------|
-| `crates/ha-skills/src/skills/discovery.rs` | 四层目录扫描、嵌套 `skills/` 检测、内置技能解压定位 |
+| `crates/ha-skills/src/skills/discovery.rs` | 多来源目录扫描、仓库祖先 `.agents/skills`、symlink 边界、嵌套 `skills/` 检测、内置技能解压定位 |
 | `crates/ha-skills/src/skills/frontmatter.rs` | SKILL.md frontmatter 解析、vendor 命名空间提升、别名归一 |
 | `crates/ha-skills/src/skills/fork_helper.rs` | 唯一的 fork 入口 `spawn_skill_fork` + `extract_fork_result` |
 | `crates/ha-skills/src/skills/author.rs` | 技能写盘唯一实现：`create/update/patch/delete` + `security_scan` |
@@ -162,25 +162,31 @@ graph TB
 
 ### 技能来源与优先级
 
-技能可以来自四个位置，高优先级来源的同名技能覆盖低优先级：
+技能可以来自下列位置，高优先级来源的同名技能覆盖低优先级：
 
 | 来源 | 路径 | 优先级 | 说明 |
 |------|------|--------|------|
-| Bundled | 应用内置 `skills/` | 最低 | 随应用发行、编译期嵌入 |
-| Extra dirs | 用户通过 UI 导入的目录 | 低 | 记在 `config.json` 的 `extraSkillsDirs` |
-| Managed | `~/.hope-agent/skills/` | 中 | 全局技能目录，也是自动创建/托管写入的落点 |
-| Project | `.hope-agent/skills/`（相对 cwd） | 最高 | 项目级覆盖 |
+| 内置 | 应用内置 `skills/` | 最低 | 随应用发行、编译期嵌入 |
+| 共享 | `~/.agents/skills/` | 较低 | 跨工具共享约定 |
+| 额外目录 | 用户通过 UI 导入的目录 | 低 | 记在 `config.json` 的 `extraSkillsDirs` |
+| 托管 | `~/.hope-agent/skills/` | 中 | 全局技能目录，也是自动创建/托管写入的落点 |
+| 仓库标准 | 从最近 Git 仓库根到会话有效工作目录的每层 `.agents/skills/` | 中高 | 根目录先载入，越靠近会话工作目录优先级越高；不越过最近 `.git` 边界；无会话工作区时不扫描，绝不回退进程 cwd |
+| 项目 | `.hope-agent/skills/`（相对 canonical cwd） | 最高 | Hope 私有项目级覆盖，保持既有兼容 |
 
 ```mermaid
 block-beta
-    columns 4
-    B["Bundled<br/>应用内置"]
-    E["Extra dirs<br/>用户导入"]
-    M["Managed<br/>~/.hope-agent/skills/"]
-    P["Project<br/>.hope-agent/skills/"]
-    B --> E
+    columns 6
+    B["内置<br/>应用内置"]
+    S["共享<br/>~/.agents/skills/"]
+    E["额外目录<br/>用户导入"]
+    M["托管<br/>~/.hope-agent/skills/"]
+    R["仓库标准<br/>根 → 会话工作目录的 .agents/skills/"]
+    P["项目<br/>.hope-agent/skills/"]
+    B --> S
+    S --> E
     E --> M
-    M --> P
+    M --> R
+    R --> P
 ```
 
 优先级从左到右递增：同名技能，右侧来源覆盖左侧。
@@ -326,12 +332,14 @@ install:
 
 ```mermaid
 flowchart TD
-    START([load_all_skills_with_budget]) --> B["Bundled<br/>应用内置"]
-    START --> E["Extra dirs<br/>用户导入"]
-    START --> M["Managed<br/>~/.hope-agent/skills/"]
-    START --> P["Project<br/>.hope-agent/skills/"]
+    START([load_all_skills_with_budget]) --> B["内置<br/>应用内置"]
+    START --> S["共享<br/>~/.agents/skills/"]
+    START --> E["额外目录<br/>用户导入"]
+    START --> M["托管<br/>~/.hope-agent/skills/"]
+    START --> R["仓库标准<br/>根 → 会话工作目录的 .agents/skills/"]
+    START --> P["项目<br/>.hope-agent/skills/"]
 
-    B & E & M & P --> SCAN
+    B & S & E & M & R & P --> SCAN
 
     subgraph SCAN["对每个目录扫描"]
         direction TB
@@ -347,7 +355,7 @@ flowchart TD
     SORT --> RESULT(["返回 Vec&lt;SkillEntry&gt;"])
 ```
 
-**优先级覆盖**：Project > Managed > Extra dirs > Bundled。
+**优先级覆盖**：项目 > 越靠近会话有效工作目录的仓库标准目录 > 仓库根标准目录 > 托管 > 额外目录 > 共享 > 内置。仓库标准目录的扫描在最近 `.git` 文件/目录处停止；不在 Git 仓库内时只考虑会话工作目录自身。没有会话工作区的全局设置、IM 菜单等入口不扫描仓库技能，也不会回退到 Hope 进程的 cwd。
 
 ### 嵌套目录检测
 
@@ -374,6 +382,8 @@ my-project/
 | `max_file_bytes` | 256 KB | 单个 SKILL.md 最大字节数 |
 | `max_count` | 150 | prompt 中最多包含的技能数 |
 | `max_chars` | 30,000 | prompt 技能段落最大字符数 |
+
+目录项 symlink 不参与发现；每次递归的 canonical 路径必须仍在配置根内，`SKILL.md` 本身也必须是非 symlink 常规文件。这样仓库内的路径别名不能把扫描逃逸到另一个目录树。
 
 ---
 
@@ -942,7 +952,7 @@ flowchart LR
 
 ### 落盘原语：`skills::author`
 
-五闸的产物最终经 `skills/author.rs` 落盘。它是**技能写入的唯一实现**（五闸管线、Curator、编程改进的技能提案、草稿审核命令都调它），**只写 managed scope**（`~/.hope-agent/skills/{id}/SKILL.md`）——bundled / project / extra 三个来源永不被改。
+五闸的产物最终经 `skills/author.rs` 落盘。它是**技能写入的唯一实现**（五闸管线、Curator、编程改进的技能提案、草稿审核命令都调它），**只写 managed scope**（`~/.hope-agent/skills/{id}/SKILL.md`）——bundled / shared / extra / repository standard / project 来源永不被改。
 
 所有原语先过 `validate_skill_id`：非空、仅 `[A-Za-z0-9_-]`、拒路径穿越字符、拒与 bundled 技能同名（防覆盖内置）。会改盘的原语收尾都调 `bump_skill_version()` 让缓存失效。
 
@@ -1273,7 +1283,7 @@ sequenceDiagram
     alt 缓存有效
         CACHE-->>SP: 返回 entries
     else 失效
-        SP->>LOAD: 扫描 4 层目录
+        SP->>LOAD: 扫描全部已配置与仓库边界内来源
         LOAD->>LOAD: 解析 → 去重 → 排序
         LOAD-->>CACHE: 更新缓存
     end

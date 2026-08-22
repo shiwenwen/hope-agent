@@ -24,6 +24,61 @@ pub enum EmbeddingProviderType {
     Google,
 }
 
+/// Semantic role of an embedding request. Asymmetric providers must receive
+/// this explicitly; request cardinality is never a valid role signal.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingPurpose {
+    Query,
+    #[default]
+    Document,
+    Symmetric,
+}
+
+impl EmbeddingPurpose {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Document => "document",
+            Self::Symmetric => "symmetric",
+        }
+    }
+}
+
+/// Normalized endpoint family shared by request shaping and vector signatures.
+/// Only the parsed URL host participates; path/query text can never impersonate
+/// a provider-specific API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbeddingEndpointFamily {
+    OpenAi,
+    Voyage,
+    Jina,
+    Cohere,
+    Other,
+}
+
+pub fn embedding_endpoint_family(raw: &str) -> EmbeddingEndpointFamily {
+    let Ok(url) = url::Url::parse(raw.trim()) else {
+        return EmbeddingEndpointFamily::Other;
+    };
+    let Some(host) = url.host_str() else {
+        return EmbeddingEndpointFamily::Other;
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let matches_domain = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    if matches_domain("openai.com") {
+        EmbeddingEndpointFamily::OpenAi
+    } else if matches_domain("voyageai.com") {
+        EmbeddingEndpointFamily::Voyage
+    } else if matches_domain("jina.ai") {
+        EmbeddingEndpointFamily::Jina
+    } else if matches_domain("cohere.ai") {
+        EmbeddingEndpointFamily::Cohere
+    } else {
+        EmbeddingEndpointFamily::Other
+    }
+}
+
 /// Embedding configuration, stored in AppConfig (config.json).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,8 +185,17 @@ impl EmbeddingModelConfig {
         }
     }
 
+    /// Content signature for stored document vectors. Version 2 intentionally
+    /// invalidates the pre-purpose signature instead of reinterpreting old
+    /// vectors under new provider task semantics.
     pub fn signature(&self) -> String {
+        self.signature_for(EmbeddingPurpose::Document)
+    }
+
+    /// Purpose-specific signature for cache partitioning and diagnostics.
+    pub fn signature_for(&self, purpose: EmbeddingPurpose) -> String {
         let mut hasher = Sha256::new();
+        hasher.update(b"hope-embedding-signature-v2\n");
         hasher.update(format!("{:?}", self.provider_type).to_ascii_lowercase());
         hasher.update(b"\n");
         hasher.update(
@@ -146,8 +210,41 @@ impl EmbeddingModelConfig {
         hasher.update(self.api_model.as_deref().unwrap_or("").trim());
         hasher.update(b"\n");
         hasher.update(self.api_dimensions.unwrap_or_default().to_string());
+        hasher.update(b"\n");
+        hasher.update(self.provider_semantics_id());
+        hasher.update(b"\n");
+        hasher.update(purpose.as_str());
         let digest = hasher.finalize();
         format!("{:x}", digest)
+    }
+
+    /// Stable request-shaping contract identifier. Endpoint families whose
+    /// purpose fields/prefixes differ must never share a cache/signature space.
+    pub fn provider_semantics_id(&self) -> &'static str {
+        let base = self.api_base_url.as_deref().unwrap_or("");
+        let model = self.api_model.as_deref().unwrap_or("");
+        match self.provider_type {
+            EmbeddingProviderType::Google if model.contains("embedding-2") => {
+                "google-prompt-prefix-v2"
+            }
+            EmbeddingProviderType::Google => "google-task-type-v1",
+            EmbeddingProviderType::OpenaiCompatible
+                if embedding_endpoint_family(base) == EmbeddingEndpointFamily::Voyage =>
+            {
+                "voyage-input-type-v1"
+            }
+            EmbeddingProviderType::OpenaiCompatible
+                if embedding_endpoint_family(base) == EmbeddingEndpointFamily::Jina =>
+            {
+                "jina-task-v1"
+            }
+            EmbeddingProviderType::OpenaiCompatible
+                if embedding_endpoint_family(base) == EmbeddingEndpointFamily::Cohere =>
+            {
+                "cohere-input-type-v1"
+            }
+            EmbeddingProviderType::OpenaiCompatible => "openai-compatible-symmetric-v1",
+        }
     }
 }
 
@@ -193,7 +290,7 @@ mod tests {
         };
         assert_eq!(
             model.signature(),
-            "c252f70634355d7039b9488176623bde81cd1c54209adad66462d1a97f084829"
+            "4e7fa6d27ab0c1b5ec8ac9331c38a94fbf1be9830696253fa4b6eecbe991ef13"
         );
     }
 
@@ -219,5 +316,22 @@ mod tests {
         let mut changed = base.clone();
         changed.api_model = Some("m2".into());
         assert_ne!(base.signature(), changed.signature());
+
+        assert_ne!(
+            base.signature_for(EmbeddingPurpose::Query),
+            base.signature_for(EmbeddingPurpose::Document)
+        );
+    }
+
+    #[test]
+    fn provider_semantics_use_only_the_normalized_url_host() {
+        assert_eq!(
+            embedding_endpoint_family("https://API.VOYAGEAI.COM/v1"),
+            EmbeddingEndpointFamily::Voyage
+        );
+        assert_eq!(
+            embedding_endpoint_family("https://proxy.example/voyageai.com/v1"),
+            EmbeddingEndpointFamily::Other
+        );
     }
 }

@@ -503,6 +503,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   test_proxy: { method: "POST", path: "/api/config/proxy/test" },
   has_providers: { method: "GET", path: "/api/providers/has-any" },
   get_system_timezone: { method: "GET", path: "/api/system/timezone" },
+  get_toolchain_doctor_report: { method: "GET", path: "/api/system/toolchain-doctor" },
   check_auth_status: { method: "GET", path: "/api/auth/codex/status" },
   logout_codex: { method: "POST", path: "/api/auth/codex/logout" },
   try_restore_session: { method: "POST", path: "/api/auth/session/restore" },
@@ -580,6 +581,55 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   create_design_share_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/share" },
   get_design_share_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/share" },
   revoke_design_share_cmd: { method: "DELETE", path: "/api/design/artifacts/{artifactId}/share" },
+  run_design_visual_regression_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/visual-regression",
+  },
+  accept_design_visual_baseline_cmd: { method: "POST", path: "/api/design/visual-baseline" },
+  get_design_scenarios_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/scenarios" },
+  save_design_scenarios_cmd: {
+    method: "PUT",
+    path: "/api/design/artifacts/{artifactId}/scenarios",
+  },
+  get_design_components_manifest_cmd: {
+    method: "GET",
+    path: "/api/design/projects/{projectId}/components",
+  },
+  save_design_components_draft_cmd: {
+    method: "PUT",
+    path: "/api/design/projects/{projectId}/components/draft",
+  },
+  publish_design_components_manifest_cmd: {
+    method: "POST",
+    path: "/api/design/components/publish",
+  },
+  scan_design_components_cmd: {
+    method: "POST",
+    path: "/api/design/projects/{projectId}/components/scan",
+  },
+  preview_figma_roundtrip_cmd: { method: "POST", path: "/api/design/figma-roundtrip/preview" },
+  commit_figma_roundtrip_cmd: { method: "POST", path: "/api/design/figma-roundtrip/commit" },
+  list_figma_roundtrip_reconciliations_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/figma-roundtrip/reconciliations",
+  },
+  resolve_figma_roundtrip_reconciliation_cmd: {
+    method: "POST",
+    path: "/api/design/figma-roundtrip/reconcile",
+  },
+  list_figma_roundtrip_links_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/figma-roundtrip",
+  },
+  create_design_review_space_cmd: { method: "POST", path: "/api/design/review-spaces" },
+  list_design_review_spaces_cmd: {
+    method: "GET",
+    path: "/api/design/artifacts/{artifactId}/review-spaces",
+  },
+  revoke_design_review_space_cmd: {
+    method: "DELETE",
+    path: "/api/design/artifacts/{artifactId}/review-spaces/{grantId}",
+  },
   save_cf_deploy_config_cmd: { method: "PUT", path: "/api/design/deploy/config" },
   get_cf_deploy_config_cmd: { method: "GET", path: "/api/design/deploy/config" },
   deploy_design_artifact_cmd: { method: "POST", path: "/api/design/artifacts/{artifactId}/deploy" },
@@ -1339,6 +1389,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   run_external_memory_provider_sync: {
     method: "POST",
     path: "/api/config/external-memory-providers/sync",
+  },
+  test_external_memory_provider_connection: {
+    method: "POST",
+    path: "/api/config/external-memory-providers/{providerId}/test",
   },
   get_external_memory_provider_credential_status: {
     method: "GET",

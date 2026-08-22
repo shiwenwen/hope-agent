@@ -5,8 +5,8 @@
 //! **与 `crate::mcp` 的区别**：那是 MCP **客户端**（连别人的 server）；本模块是我们**当 server**。
 //! MCP 规范里 "host" 指客户端宿主应用，故不叫 `mcp_host`。
 //!
-//! 协议：newline-delimited JSON-RPC 2.0 over stdio（initialize / ping / tools/list /
-//! tools/call），`PROTOCOL_VERSION = 2025-03-26`（对齐 `knowledge::agent_mcp`）。
+//! 协议：newline-delimited JSON-RPC 2.0 over stdio（server/discover / initialize / ping /
+//! tools/list / tools/call），支持 2026-07-28 与既有 2025 版本协商。
 //!
 //! **runtime 红线**：`run_stdio` 建 **multi_thread** runtime——provider 的写工具（如 design
 //! 生成）内部 `tokio::spawn` 后台任务，current_thread runtime 在 `block_on` 返回后不再驱动
@@ -20,7 +20,7 @@ use std::io::{self, BufRead, Write};
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
-const PROTOCOL_VERSION: &str = "2025-03-26";
+use crate::mcp_protocol::{discover_result, McpProtocolSession};
 
 /// 工具调用上下文（写门 + 常驻 runtime）。
 pub struct McpCtx<'rt> {
@@ -76,6 +76,7 @@ pub fn run_stdio(options: McpServerOptions, providers: Vec<Box<dyn ToolProvider>
 
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
+    let mut protocol = McpProtocolSession::default();
     for line in stdin.lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -86,7 +87,7 @@ pub fn run_stdio(options: McpServerOptions, providers: Vec<Box<dyn ToolProvider>
             runtime: &runtime,
         };
         let response = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle_message(message, &ctx, &providers),
+            Ok(message) => handle_message(message, &ctx, &providers, &mut protocol),
             Err(e) => Some(jsonrpc_error(
                 Value::Null,
                 -32700,
@@ -106,6 +107,7 @@ pub fn handle_message(
     message: Value,
     ctx: &McpCtx,
     providers: &[Box<dyn ToolProvider>],
+    protocol: &mut McpProtocolSession,
 ) -> Option<Value> {
     let id = message.get("id").cloned();
     let Some(method) = message.get("method").and_then(Value::as_str) else {
@@ -114,21 +116,37 @@ pub fn handle_message(
     let params = message.get("params").cloned().unwrap_or(Value::Null);
 
     match method {
-        "initialize" => id.map(|id| jsonrpc_result(id, initialize_result(providers))),
-        "ping" => id.map(|id| jsonrpc_result(id, json!({}))),
+        "server/discover" => id.map(|id| jsonrpc_result(id, discovery_result(providers))),
+        "initialize" => {
+            let version = protocol.negotiate_initialize(&params);
+            id.map(|id| jsonrpc_result(id, initialize_result(providers, version)))
+        }
+        "ping" => id.map(|id| jsonrpc_result(id, protocol.complete_result(json!({})))),
         "notifications/initialized" => None,
-        "tools/list" => id.map(|id| jsonrpc_result(id, tools_list_result(ctx, providers))),
-        "tools/call" => id.map(|id| match call_tool(params, ctx, providers) {
-            Ok(result) => jsonrpc_result(id, result),
-            Err(e) => jsonrpc_result(id, tool_text_result(e.to_string(), true)),
+        "tools/list" => id.map(|id| {
+            jsonrpc_result(
+                id,
+                protocol.complete_result(tools_list_result(ctx, providers)),
+            )
         }),
-        "resources/list" => id.map(|id| jsonrpc_result(id, json!({ "resources": [] }))),
-        "prompts/list" => id.map(|id| jsonrpc_result(id, json!({ "prompts": [] }))),
+        "tools/call" => id.map(|id| match call_tool(params, ctx, providers) {
+            Ok(result) => jsonrpc_result(id, protocol.complete_result(result)),
+            Err(e) => jsonrpc_result(
+                id,
+                protocol.complete_result(tool_text_result(e.to_string(), true)),
+            ),
+        }),
+        "resources/list" => {
+            id.map(|id| jsonrpc_result(id, protocol.complete_result(json!({ "resources": [] }))))
+        }
+        "prompts/list" => {
+            id.map(|id| jsonrpc_result(id, protocol.complete_result(json!({ "prompts": [] }))))
+        }
         _ => id.map(|id| jsonrpc_error(id, -32601, format!("method not found: {method}"))),
     }
 }
 
-fn initialize_result(providers: &[Box<dyn ToolProvider>]) -> Value {
+fn server_instructions(providers: &[Box<dyn ToolProvider>]) -> String {
     let mut instructions = String::from(
         "Hope Agent MCP server. Use the available tools to drive Hope Agent subsystems.",
     );
@@ -140,18 +158,35 @@ fn initialize_result(providers: &[Box<dyn ToolProvider>]) -> Value {
             }
         }
     }
+    instructions
+}
+
+fn capabilities() -> Value {
     json!({
-        "protocolVersion": PROTOCOL_VERSION,
-        "capabilities": {
-            "tools": { "listChanged": false },
-            "resources": {},
-            "prompts": {}
-        },
+        "tools": { "listChanged": false },
+        "resources": {},
+        "prompts": {}
+    })
+}
+
+fn discovery_result(providers: &[Box<dyn ToolProvider>]) -> Value {
+    discover_result(
+        capabilities(),
+        "hope-agent",
+        crate::app_version(),
+        &server_instructions(providers),
+    )
+}
+
+fn initialize_result(providers: &[Box<dyn ToolProvider>], protocol_version: &str) -> Value {
+    json!({
+        "protocolVersion": protocol_version,
+        "capabilities": capabilities(),
         "serverInfo": {
             "name": "hope-agent",
             "version": crate::app_version()
         },
-        "instructions": instructions
+        "instructions": server_instructions(providers)
     })
 }
 
@@ -308,7 +343,12 @@ mod tests {
             allow_writes,
             runtime: &runtime,
         };
-        handle_message(msg, &ctx, &providers(enabled))
+        handle_message(
+            msg,
+            &ctx,
+            &providers(enabled),
+            &mut McpProtocolSession::default(),
+        )
     }
 
     #[test]
@@ -320,11 +360,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r["result"]["serverInfo"]["name"], "hope-agent");
+        assert_eq!(r["result"]["protocolVersion"], "2026-07-28");
         assert_eq!(r["result"]["capabilities"]["tools"]["listChanged"], false);
         assert!(r["result"]["instructions"]
             .as_str()
             .unwrap()
             .contains("test instructions"));
+    }
+
+    #[test]
+    fn discovery_lists_latest_and_legacy_versions() {
+        let r = call(
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "server/discover" }),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(r["result"]["resultType"], "complete");
+        assert!(r["result"]["supportedVersions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("2025-03-26")));
     }
 
     #[test]

@@ -4318,7 +4318,7 @@ impl SessionDB {
         // free of the cwd DB lookup below.
         let project_scope_possible = !global_has && {
             let cfg = crate::config::cached_config();
-            cfg.hooks_allow_project_scope && !cfg.disable_all_hooks
+            !cfg.hook_workspace_trusts.is_empty() && !cfg.disable_all_hooks
         };
         if (global_has || project_scope_possible)
             && !crate::session::lookup_session_meta(Some(session_id))

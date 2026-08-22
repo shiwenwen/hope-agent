@@ -116,17 +116,35 @@ async fn pull_memories(
         validated_endpoint(&url)
             .await
             .map_err(|error| failure(outcome.clone(), error))?;
-        let request = apply_auth(
-            client.post(&url).json(&json!({
-                "page": page,
-                "limit": REMOTE_PAGE_SIZE,
-                "containerTags": [credentials.subject_id]
-            })),
-            credentials,
-        )
-        .map_err(|error| failure(outcome.clone(), error))?;
-        let value = send_json(request, outcome).await?;
-        let listed = parse_listed_memories(&value);
+        // New Hope exports use an owned metadata filter. The legacy
+        // containerTags read remains during migration for older exports and
+        // third-party documents in the same explicitly configured scope.
+        let mut listed = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut total_pages = page;
+        for legacy in [false, true] {
+            let request = apply_auth(
+                client.post(&url).json(&supermemory_list_body(
+                    page,
+                    &credentials.subject_id,
+                    legacy,
+                )),
+                credentials,
+            )
+            .map_err(|error| failure(outcome.clone(), error))?;
+            let value = send_json(request, outcome).await?;
+            total_pages = total_pages.max(
+                value
+                    .pointer("/pagination/totalPages")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(page as u64) as usize,
+            );
+            for memory in parse_listed_memories(&value) {
+                if seen.insert(memory.id.clone()) {
+                    listed.push(memory);
+                }
+            }
+        }
         if listed.is_empty() {
             break;
         }
@@ -172,10 +190,6 @@ async fn pull_memories(
                 .map_err(|error| failure(outcome.clone(), error))?;
         }
 
-        let total_pages = value
-            .pointer("/pagination/totalPages")
-            .and_then(Value::as_u64)
-            .unwrap_or(page as u64) as usize;
         if page >= total_pages || scanned >= MAX_REMOTE_LIST_PER_RUN {
             break;
         }
@@ -190,6 +204,28 @@ async fn pull_memories(
         );
     }
     Ok(())
+}
+
+fn supermemory_list_body(page: usize, subject_id: &str, legacy: bool) -> Value {
+    if legacy {
+        json!({
+            "page": page,
+            "limit": REMOTE_PAGE_SIZE,
+            "containerTags": [subject_id]
+        })
+    } else {
+        json!({
+            "page": page,
+            "limit": REMOTE_PAGE_SIZE,
+            "filters": {
+                "AND": [{
+                    "key": "hope_agent_subject_id",
+                    "value": subject_id,
+                    "negate": false
+                }]
+            }
+        })
+    }
 }
 
 async fn get_memory_detail(
@@ -256,6 +292,7 @@ async fn push_memories(
             "containerTags": [credentials.subject_id],
             "metadata": {
                 "hope_agent_provider_id": provider.id,
+                "hope_agent_subject_id": credentials.subject_id,
                 "hope_agent_memory_id": memory.id,
                 "hope_agent_memory_type": memory.memory_type.as_str(),
                 "hope_agent_source": "local_memory"
@@ -481,5 +518,31 @@ mod tests {
             last_error: None,
         };
         assert!(memory_is_own_export(&provider, &listed[0]));
+    }
+
+    #[test]
+    fn list_contract_dual_reads_owned_filter_and_legacy_container_tag() {
+        assert_eq!(
+            supermemory_list_body(2, "tenant-a", false),
+            json!({
+                "page": 2,
+                "limit": REMOTE_PAGE_SIZE,
+                "filters": {
+                    "AND": [{
+                        "key": "hope_agent_subject_id",
+                        "value": "tenant-a",
+                        "negate": false
+                    }]
+                }
+            })
+        );
+        assert_eq!(
+            supermemory_list_body(2, "tenant-a", true),
+            json!({
+                "page": 2,
+                "limit": REMOTE_PAGE_SIZE,
+                "containerTags": ["tenant-a"]
+            })
+        );
     }
 }

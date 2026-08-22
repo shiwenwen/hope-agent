@@ -126,7 +126,7 @@ The image bundles Debian trixie's `chromium` package (adds ~250 MB to the image)
 
 If your deployment doesn't need browser automation (e.g. a pure IM bot), fork the repo and remove `chromium` plus its runtime libs (`fonts-liberation` / `libnss3` / `libgbm1` / `libxss1`) from the [`Dockerfile`](../../Dockerfile)'s runtime stage to slim the image down.
 
-Even without a `chromium` package, the agent can fall back to `profile.op=install_runtime`, which downloads a pinned Chromium snapshot to `~/.hope-agent/browser/runtime/` at first use.
+Even without a `chromium` package, the agent can fall back to `profile.op=install_runtime`, which downloads a versioned, SHA-256-pinned Chrome for Testing artifact to `~/.hope-agent/browser/runtime/` at first use.
 
 ## Ollama for local LLMs
 

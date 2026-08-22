@@ -1,7 +1,7 @@
 //! Project-scope `PreToolUse` end-to-end: a repo's `.hope-agent/hooks.json`
-//! must (a) be ignored entirely while `allowProjectScope` is off — the secure
-//! default and supply-chain guard — and (b) gate tool calls once the user opts
-//! in.
+//! must (a) be ignored without an exact workspace trust record — the secure
+//! default and supply-chain guard — and (b) gate tool calls once the user
+//! approves that canonical path and the current Hook contents.
 //!
 //! Covers the adversarial-review fix where the `PreToolUse` fast-path consulted
 //! only the global registry and silently skipped project-only hooks, and the
@@ -68,23 +68,25 @@ async fn project_scope_pretooluse_gated_by_opt_in() {
     db.update_session_working_dir(&sid, Some(canon.to_string_lossy().into_owned()))
         .expect("set working dir");
 
-    // (a) Default: project scope is OFF → the repo's hook is ignored entirely,
-    // so the call is not blocked.
+    // (a) Default: the workspace is untrusted → the repo's hook is ignored
+    // entirely, so the call is not blocked.
     hooks::registry::reload_from_config();
     let off =
         HookDispatcher::dispatch(HookEvent::PreToolUse, pre_tool_use(&sid, canon.clone())).await;
     assert!(
         matches!(off.decision, HookDecision::Allow),
-        "project scope off → repo hook ignored, got {:?}",
+        "untrusted workspace → repo hook ignored, got {:?}",
         off.decision
     );
 
-    // (b) Opt in → the project `PreToolUse` hook now fires and blocks the call.
+    // (b) Approve this exact canonical workspace + Hook contents → the project
+    // `PreToolUse` hook now fires and blocks the call.
+    let trust = hooks::scopes::build_workspace_trust(&canon).expect("build workspace trust");
     ha_core::config::mutate_config(("hooks", "test"), |c| {
-        c.hooks_allow_project_scope = true;
+        c.hook_workspace_trusts = vec![trust];
         Ok(())
     })
-    .expect("enable project scope");
+    .expect("trust project scope");
     hooks::registry::reload_from_config();
     let on =
         HookDispatcher::dispatch(HookEvent::PreToolUse, pre_tool_use(&sid, canon.clone())).await;
@@ -93,7 +95,7 @@ async fn project_scope_pretooluse_gated_by_opt_in() {
             on.decision,
             HookDecision::Deny { .. } | HookDecision::Block { .. }
         ),
-        "project scope on → repo PreToolUse hook blocks, got {:?}",
+        "trusted workspace → repo PreToolUse hook blocks, got {:?}",
         on.decision
     );
 

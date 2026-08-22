@@ -211,6 +211,7 @@ flowchart TD
 - 镜像来自 `SandboxConfig.image`，缺失时自动 pull。
 - `cmd = ["sh", "-c", command]`，`working_dir = "/workspace"`。
 - Unix 平台以当前用户 `uid:gid` 运行，减少 bind mount 权限问题。
+- Hope 自身若以 root 运行，容器仍固定使用数值非 root 身份 `65534:65534`。root-owned bind 工作区在已通过挂载校验后临时移交所有权；改权前先把每个相对路径的原 UID/GID 与 dev/inode/type 原子、持久化写入 0600 恢复日志，容器清理后恢复并删除日志。进程被杀或断电时，下次交接必须先在同一锁内幂等恢复旧日志，恢复失败则保留日志并 fail closed，禁止把 `65534:65534` 误记成新的原始状态。新交接先拒绝硬链接数大于 1 的普通文件、带 setuid/setgid 位的条目，以及 Linux `security.capability` 扩展属性，避免改权连带授权工作区外 inode，或让 `fchown` 不可逆地清掉既有特殊权限；每次改权再从已验证根目录句柄逐级 `openat(O_NOFOLLOW)`，复核 dev/inode/type/owner、特殊权限位与硬链接计数，并在同一句柄上再次确认没有文件能力后才执行 `fchown`，路径、inode 或能力属性在扫描后变化即 fail closed。符号链接不参与改权；其所有者不控制 Unix 路径遍历或目标访问。恢复也使用相同的句柄绑定：先证明普通文件的全部硬链接名称都位于工作区内，再按 dev/inode 去重恢复一次；容器内部新建的同 inode 名称因此可正常收口，而任何工作区外链接都会保留日志并 fail closed。恢复时，日志中仍可识别的 inode 恢复原所有者，容器新建且仍属 `65534:65534` 的 inode 恢复工作区根所有者。该遍历不套用隔离副本的条目上限。跨进程 OS 锁覆盖恢复、交接、容器执行和再次恢复的整个区间，并故意全局串行化以阻止父目录 / 子目录两个重叠工作区并发改权。正常完成、失败、超时或取消路径都必须在返回调用方前经 `run_blocking` 等待恢复结束，禁止在异步 worker 上同步遍历；`Drop` 仅作 panic 等异常路径的非阻塞恢复线程兜底，并继续持锁到恢复结束。
 - bind mount 前执行 `validate_bind_mount()`（见「Docker 安全边界」）。
 - stdout/stderr 通过 Docker logs 收集。
 - 正常完成、超时、取消、启动失败——都尝试清理容器（否则会残留泄漏 name / 匿名 volume）。
@@ -236,7 +237,7 @@ Windows 原生 Docker daemon 不可达时，如果默认 WSL 发行版内的**�
 - 复制发生在 `spawn_blocking` 中，避免同步 `std::fs` 递归阻塞 tokio runtime。
 - 遍历用 `ignore::WalkBuilder`，`hidden(false)`——dotfile 不会仅因隐藏而被跳过，是否复制由 ignore 规则和硬编码兜底决定。
 - **gitignore 边界随 cwd 是否在 Git repo 内而变**：在 repo 内时读父级 `.gitignore` 并尊重 `.ignore` / `.git/info/exclude` / git global ignore（`parents / git_global / git_exclude / require_git` 全开）；不在 repo 内时只读 cwd 树内的 `.gitignore` / `.ignore`，避免父目录或全局规则意外影响隔离副本。
-- 复制与 tar 归档共享取消 token 和本次准备阶段 deadline；逐条、分块检查，取消 / 超时会 fail-fast。
+- 复制与 tar 归档共享取消 token 和本次准备阶段 deadline；目录遍历逐条检查，单文件复制每 **64 KiB** 在读取前、读取后写入前再次检查，取消 / 超时不会被最长 512 MiB 的整文件复制拖到结束后才生效。遍历认定的普通文件必须再次从已授权的工作区根句柄逐级安全打开：Unix 逐级 `openat(O_NOFOLLOW)`，Windows 持有目录句柄链并拒绝 reparse point；容量统计、类型复核与复制都使用最终打开的同一文件句柄，禁止按遍历所得路径重新打开，条目在遍历后被替换时 fail closed。
 - 上限：最多复制 **512 MiB / 50,000 个文件或目录**（`ISOLATED_COPY_MAX_BYTES` / `ISOLATED_COPY_MAX_ENTRIES`）；超过后返回明确错误，建议改用 `workspace` mode 或收窄 cwd。
 - 跳过 symlink、特殊文件，以及这些常见 VCS / 依赖 / 构建缓存目录（`ISOLATED_COPY_EXCLUDED_DIRS`）：
 
@@ -438,7 +439,7 @@ ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'off';
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
-| `image` | `debian:bookworm-slim` | 执行沙箱镜像 |
+| `image` | 内置 Debian Bookworm slim manifest digest | 执行沙箱镜像；必须使用 `name@sha256:<64 位摘要>`，可变 tag 被拒绝 |
 | `memory_limit` | 512 MB | 容器内存限制，`None` 表示不设 |
 | `cpu_limit` | `1.0` | `nano_cpus` 限制 |
 | `read_only` | `true` | root filesystem 只读 |
@@ -449,6 +450,23 @@ ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'off';
 | `tmpfs` | `/tmp` 64M、`/var/tmp` 32M、`/run` 16M | rootfs 只读时的临时写入区 |
 
 读写：Tauri `get_sandbox_config` / `set_sandbox_config`；HTTP `GET /api/config/sandbox` / `PUT /api/config/sandbox`。
+
+#### 镜像供应链与 hardened image 取舍
+
+默认引用由 [`sandbox-image-manifest.json`](../../../crates/ha-core/resources/sandbox-image-manifest.json) 唯一给出：
+
+```text
+debian:bookworm-20260803-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
+```
+
+这是 Docker Official Image 的多架构 OCI index；manifest 同时钉住 `linux/amd64` 子 manifest `sha256:362e6422…` 与 `linux/arm64/v8` 子 manifest `sha256:817e6cf9…`，并保存上游证据与发布时间。旧默认值 `debian:bookworm-slim` 只在读取既有配置时迁到上述 digest；其它可变 tag 不自动“猜测”摘要，保存和执行都 fail closed。Bollard 拉取时把完整 `name[:tag]@digest` 放进 `fromImage`，拉取结束再按完整引用 inspect，禁止把 `sha256` 误拆成 tag。
+
+| 方案 | 优点 | 与当前命令模型的冲突 | 决策 |
+|---|---|---|---|
+| Debian Bookworm slim + 运行时硬化 | 多架构、保留 `sh`，归档导入和开发命令兼容；官方镜像证据完整 | 基础用户态比极简 hardened image 更大，digest 冻结后必须主动刷新安全补丁 | **当前采用**；内容用 digest 固定，隔离靠非 root、只读 rootfs、network none、cap-drop、no-new-privileges、tmpfs 与资源上限叠加 |
+| 无 shell / 极简 hardened image | 包和解释器更少，默认攻击面更窄 | Hope 当前明确执行 `sh -c`，且开发任务需要动态工具；直接替换会让正常任务系统性失败 | 不直接替换；只有专用、保留所需 shell/工具且许可证、双架构 digest、回滚证据齐全的开发变体通过兼容矩阵后才可另立 manifest |
+
+digest 提供可复现性，不自动获得安全更新。维护时按月检查上游 Debian slim；高危修复走紧急刷新。更新必须把 index 与 amd64/arm64 子 digest、发布时间和上游证据一起改入 manifest，并保留前一 digest 作为显式审计回滚值；禁止恢复裸 tag 自动 fallback。回归用纯构造测试钉住只读根、无网络、drop all capabilities、no-new-privileges、PID/CPU/内存与 tmpfs；Docker 部署仍由预检与执行两层只接受 `isolated`，归档/cancel/cleanup 边界不因镜像更新放宽。
 
 ## API / Transport 契约
 

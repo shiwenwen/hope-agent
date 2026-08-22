@@ -28,6 +28,9 @@ pub async fn run_case(
         EvalAdapter::ContextCompactionContract => run_context_compaction(suite, case)?,
         EvalAdapter::DomainTraceFixture => run_domain(temp.path(), suite, case).await?,
         EvalAdapter::DreamingGolden => run_dreaming(root, temp.path(), suite, case)?,
+        EvalAdapter::KnowledgeRetrievalEvidence => {
+            run_knowledge_retrieval(root, temp.path(), suite, case)?
+        }
         EvalAdapter::MemoryRetrievalScale => run_memory_retrieval(suite, case)?,
     };
     outcome.attempt = attempt;
@@ -385,6 +388,47 @@ fn run_memory_retrieval(suite: &PlannedSuite, case: &PlannedCase) -> Result<Case
         },
         checks,
         (!report.failures.is_empty()).then(|| report.failures.join("; ")),
+    ))
+}
+
+fn run_knowledge_retrieval(
+    root: &Path,
+    temp: &Path,
+    suite: &PlannedSuite,
+    case: &PlannedCase,
+) -> Result<CaseResult> {
+    let path = case_asset(root, suite, case)?;
+    let value: Value = read_json(&path)?;
+    reject_model_configuration(&value, "$")?;
+    let fixture: ha_knowledge::knowledge::eval::KnowledgeRetrievalFixture =
+        serde_json::from_value(value)?;
+    let db = ha_knowledge::knowledge::IndexDb::open(&temp.join("knowledge-index.db"))?;
+    let report = ha_knowledge::knowledge::eval::evaluate(&db, &fixture)?;
+    let checks = report
+        .outcomes
+        .iter()
+        .map(|outcome| EvalCheck {
+            name: outcome.name.clone(),
+            status: if outcome.passed {
+                EvalStatus::Passed
+            } else {
+                EvalStatus::Failed
+            },
+            detail: outcome.detail.clone(),
+            metric: None,
+            advisory: false,
+        })
+        .collect::<Vec<_>>();
+    Ok(base_result(
+        suite,
+        case,
+        if report.passed() {
+            EvalStatus::Passed
+        } else {
+            EvalStatus::Failed
+        },
+        checks,
+        None,
     ))
 }
 

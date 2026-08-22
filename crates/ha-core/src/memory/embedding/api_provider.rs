@@ -2,11 +2,84 @@ use std::mem::ManuallyDrop;
 
 use anyhow::{Context, Result};
 
-use super::config::{EmbeddingConfig, EmbeddingProviderType};
+use super::config::{
+    embedding_endpoint_family, EmbeddingConfig, EmbeddingEndpointFamily, EmbeddingProviderType,
+    EmbeddingPurpose,
+};
 use super::utils::{l2_normalize, truncate_for_model};
 use crate::memory::traits::{EmbeddingProvider, MultimodalInput};
 
 // ── API Embedding Provider ───────────────────────────────────────
+
+fn sanitized_api_endpoint(raw: &str) -> String {
+    if let Ok(mut url) = url::Url::parse(raw) {
+        let _ = url.set_username("");
+        let _ = url.set_password(None);
+        url.set_query(None);
+        url.set_fragment(None);
+        return url.to_string();
+    }
+
+    raw.find(['?', '#'])
+        .map(|index| raw[..index].to_string())
+        .unwrap_or_else(|| raw.to_string())
+}
+
+fn transport_error_class(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "transport"
+    }
+}
+
+fn send_embedding_request(
+    request: reqwest::blocking::RequestBuilder,
+    operation: &'static str,
+) -> Result<(reqwest::StatusCode, String)> {
+    let response = request.send().map_err(|error| {
+        anyhow::anyhow!(
+            "Embedding provider request failed: operation={}, class={}",
+            operation,
+            transport_error_class(&error)
+        )
+    })?;
+    let status = response.status();
+    let response_text = response.text().map_err(|error| {
+        anyhow::anyhow!(
+            "Embedding provider response read failed: operation={}, class={}",
+            operation,
+            transport_error_class(&error)
+        )
+    })?;
+    Ok((status, response_text))
+}
+
+fn http_error(operation: &'static str, status: reqwest::StatusCode) -> anyhow::Error {
+    let class = match status.as_u16() {
+        401 | 403 => "authentication",
+        408 => "timeout",
+        409 => "conflict",
+        429 => "rate_limited",
+        400..=499 => "client",
+        500..=599 => "server",
+        _ => "http",
+    };
+    anyhow::anyhow!(
+        "Embedding provider HTTP error: operation={}, status={}, class={}",
+        operation,
+        status.as_u16(),
+        class
+    )
+}
 
 /// OpenAI-compatible /v1/embeddings API provider.
 pub struct ApiEmbeddingProvider {
@@ -19,6 +92,7 @@ pub struct ApiEmbeddingProvider {
     model: String,
     dimensions: u32,
     provider_type: EmbeddingProviderType,
+    endpoint_family: EmbeddingEndpointFamily,
 }
 
 impl Drop for ApiEmbeddingProvider {
@@ -48,6 +122,7 @@ impl ApiEmbeddingProvider {
     fn record_embedding_usage(
         &self,
         operation: &'static str,
+        purpose: EmbeddingPurpose,
         text_count: usize,
         duration_ms: u64,
         input_tokens: Option<u64>,
@@ -67,7 +142,8 @@ impl ApiEmbeddingProvider {
         event.metadata = Some(serde_json::json!({
             "text_count": text_count,
             "dimensions": self.dimensions,
-            "base_url": &self.base_url,
+            "endpoint": sanitized_api_endpoint(&self.base_url),
+            "purpose": purpose.as_str(),
         }));
         crate::model_usage::record_model_usage_best_effort(event);
     }
@@ -110,6 +186,7 @@ impl ApiEmbeddingProvider {
             .unwrap_or("text-embedding-3-small")
             .to_string();
         let dimensions = config.api_dimensions.unwrap_or(1536);
+        let endpoint_family = embedding_endpoint_family(&base_url);
 
         // reqwest 0.13 `blocking::Client::new` 在 debug build 下经
         // `wait::enter()` 创建+立即 drop 一个临时 current_thread runtime；在
@@ -137,10 +214,66 @@ impl ApiEmbeddingProvider {
             model,
             dimensions,
             provider_type: config.provider_type.clone(),
+            endpoint_family,
         })
     }
 
-    fn call_openai_compatible(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    fn apply_openai_compatible_purpose(
+        &self,
+        body: &mut serde_json::Value,
+        purpose: EmbeddingPurpose,
+    ) {
+        if self.endpoint_family == EmbeddingEndpointFamily::Voyage {
+            match purpose {
+                EmbeddingPurpose::Query => body["input_type"] = serde_json::json!("query"),
+                EmbeddingPurpose::Document => body["input_type"] = serde_json::json!("document"),
+                EmbeddingPurpose::Symmetric => {}
+            }
+        } else if self.endpoint_family == EmbeddingEndpointFamily::Jina {
+            body["task"] = serde_json::json!(match purpose {
+                EmbeddingPurpose::Query => "retrieval.query",
+                EmbeddingPurpose::Document => "retrieval.passage",
+                EmbeddingPurpose::Symmetric => "text-matching",
+            });
+        } else if self.endpoint_family == EmbeddingEndpointFamily::Cohere {
+            body["input_type"] = serde_json::json!(match purpose {
+                EmbeddingPurpose::Query => "search_query",
+                EmbeddingPurpose::Document => "search_document",
+                EmbeddingPurpose::Symmetric => "clustering",
+            });
+        }
+    }
+
+    fn prepare_google_text(&self, text: &str, purpose: EmbeddingPurpose) -> String {
+        if !self.model.contains("embedding-2") {
+            return text.to_string();
+        }
+        match purpose {
+            EmbeddingPurpose::Query => format!("task: search result | query: {text}"),
+            EmbeddingPurpose::Document => format!("title: none | text: {text}"),
+            EmbeddingPurpose::Symmetric => {
+                format!("task: sentence similarity | query: {text}")
+            }
+        }
+    }
+
+    fn apply_google_task_type(&self, request: &mut serde_json::Value, purpose: EmbeddingPurpose) {
+        // Gemini Embedding 2 does not support taskType; it uses the prompt
+        // structures prepared above. Embedding 1 uses the explicit enum.
+        if !self.model.contains("embedding-2") {
+            request["taskType"] = serde_json::json!(match purpose {
+                EmbeddingPurpose::Query => "RETRIEVAL_QUERY",
+                EmbeddingPurpose::Document => "RETRIEVAL_DOCUMENT",
+                EmbeddingPurpose::Symmetric => "SEMANTIC_SIMILARITY",
+            });
+        }
+    }
+
+    fn call_openai_compatible(
+        &self,
+        texts: &[String],
+        purpose: EmbeddingPurpose,
+    ) -> Result<Vec<Vec<f32>>> {
         let texts = truncate_for_model(texts, &self.model);
         let url = format!("{}/v1/embeddings", self.base_url.trim_end_matches('/'));
 
@@ -154,28 +287,13 @@ impl ApiEmbeddingProvider {
             body["dimensions"] = serde_json::json!(self.dimensions);
         }
 
-        // Voyage AI asymmetric embedding: query (single text search) vs document (batch indexing)
-        if self.base_url.contains("voyageai.com") {
-            body["input_type"] = serde_json::json!(if texts.len() == 1 {
-                "query"
-            } else {
-                "document"
-            });
-        }
+        self.apply_openai_compatible_purpose(&mut body, purpose);
 
-        // Log embedding API request
+        // Embedding content and provider payloads are deliberately excluded
+        // from logs. Only bounded operational metadata may be recorded here.
         if let Some(logger) = crate::get_logger() {
-            let body_str = serde_json::to_string(&body).unwrap_or_default();
-            let body_size = body_str.len();
-            let body_preview = if body_size > 4096 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&body_str, 4096),
-                    body_size
-                )
-            } else {
-                body_str
-            };
+            let body_size = serde_json::to_vec(&body).map_or(0, |encoded| encoded.len());
+            let safe_url = sanitized_api_endpoint(&url);
             logger.log(
                 "debug",
                 "memory",
@@ -184,17 +302,17 @@ impl ApiEmbeddingProvider {
                     "Embedding API request: {} texts, model={}, url={}, body {}B",
                     texts.len(),
                     self.model,
-                    url,
+                    safe_url,
                     body_size
                 ),
                 Some(
                     serde_json::json!({
-                        "api_url": &url,
+                        "api_url": safe_url,
                         "model": &self.model,
                         "text_count": texts.len(),
                         "dimensions": self.dimensions,
-                        "body_size_bytes": body_size,
-                        "request_body": body_preview,
+                        "purpose": purpose.as_str(),
+                        "request_size_bytes": body_size,
                     })
                     .to_string(),
                 ),
@@ -208,30 +326,19 @@ impl ApiEmbeddingProvider {
         let api_key_owned = self.api_key.clone();
         let body_owned = body.clone();
         let (status, resp_text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .post(&url_owned)
-                .header("Authorization", format!("Bearer {}", api_key_owned))
-                .header("Content-Type", "application/json")
-                .json(&body_owned)
-                .send()
-                .context("Failed to call embedding API")?;
-            let status = resp.status();
-            let resp_text = resp.text()?;
-            Ok((status, resp_text))
+            send_embedding_request(
+                client
+                    .post(&url_owned)
+                    .header("Authorization", format!("Bearer {}", api_key_owned))
+                    .header("Content-Type", "application/json")
+                    .json(&body_owned),
+                "openai_compatible",
+            )
         })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
 
         // Log embedding API response
         if let Some(logger) = crate::get_logger() {
-            let resp_preview = if resp_text.len() > 2048 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&resp_text, 2048),
-                    resp_text.len()
-                )
-            } else {
-                resp_text.clone()
-            };
             let level = if status.is_success() {
                 "debug"
             } else {
@@ -252,7 +359,6 @@ impl ApiEmbeddingProvider {
                         "status": status.as_u16(),
                         "ttfb_ms": ttfb_ms,
                         "response_size_bytes": resp_text.len(),
-                        "response_body": resp_preview,
                     })
                     .to_string(),
                 ),
@@ -264,13 +370,14 @@ impl ApiEmbeddingProvider {
         if !status.is_success() {
             self.record_embedding_usage(
                 "embedding.openai_compatible",
+                purpose,
                 texts.len(),
                 ttfb_ms,
                 None,
                 false,
                 Some(format!("HTTP {}", status.as_u16())),
             );
-            anyhow::bail!("Embedding API error {}: {}", status, resp_text);
+            return Err(http_error("openai_compatible", status));
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
@@ -299,6 +406,7 @@ impl ApiEmbeddingProvider {
 
         self.record_embedding_usage(
             "embedding.openai_compatible",
+            purpose,
             texts.len(),
             ttfb_ms,
             usage_tokens,
@@ -310,14 +418,17 @@ impl ApiEmbeddingProvider {
 
     /// Batch embed via Google Gemini `batchEmbedContents` API (up to 100 texts per request).
     /// Falls back to single `embedContent` if batch fails.
-    fn call_google(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        let texts = truncate_for_model(texts, &self.model);
+    fn call_google(&self, texts: &[String], purpose: EmbeddingPurpose) -> Result<Vec<Vec<f32>>> {
+        let texts = truncate_for_model(texts, &self.model)
+            .into_iter()
+            .map(|text| self.prepare_google_text(&text, purpose))
+            .collect::<Vec<_>>();
         const BATCH_SIZE: usize = 100; // Gemini batch limit
 
         let mut all_results = Vec::with_capacity(texts.len());
 
         for chunk in texts.chunks(BATCH_SIZE) {
-            match self.call_google_batch(chunk) {
+            match self.call_google_batch(chunk, purpose) {
                 Ok(mut batch_results) => {
                     all_results.append(&mut batch_results);
                 }
@@ -338,7 +449,7 @@ impl ApiEmbeddingProvider {
                         );
                     }
                     for text in chunk {
-                        let result = self.call_google_single(text)?;
+                        let result = self.call_google_single(text, purpose)?;
                         all_results.push(result);
                     }
                 }
@@ -349,7 +460,11 @@ impl ApiEmbeddingProvider {
     }
 
     /// Batch embed via `batchEmbedContents` endpoint.
-    fn call_google_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    fn call_google_batch(
+        &self,
+        texts: &[String],
+        purpose: EmbeddingPurpose,
+    ) -> Result<Vec<Vec<f32>>> {
         let url = format!(
             "{}/v1beta/models/{}:batchEmbedContents?key={}",
             self.base_url.trim_end_matches('/'),
@@ -368,6 +483,7 @@ impl ApiEmbeddingProvider {
                 if self.dimensions > 0 {
                     req["outputDimensionality"] = serde_json::json!(self.dimensions);
                 }
+                self.apply_google_task_type(&mut req, purpose);
                 req
             })
             .collect();
@@ -376,11 +492,8 @@ impl ApiEmbeddingProvider {
 
         // Log batch request
         if let Some(logger) = crate::get_logger() {
-            let safe_url = format!(
-                "{}/v1beta/models/{}:batchEmbedContents?key=[REDACTED]",
-                self.base_url.trim_end_matches('/'),
-                self.model,
-            );
+            let safe_url = sanitized_api_endpoint(&url);
+            let body_size = serde_json::to_vec(&body).map_or(0, |encoded| encoded.len());
             logger.log(
                 "debug",
                 "memory",
@@ -396,6 +509,8 @@ impl ApiEmbeddingProvider {
                         "model": &self.model,
                         "text_count": texts.len(),
                         "dimensions": self.dimensions,
+                        "purpose": purpose.as_str(),
+                        "request_size_bytes": body_size,
                     })
                     .to_string(),
                 ),
@@ -408,29 +523,18 @@ impl ApiEmbeddingProvider {
         let url_owned = url.clone();
         let body_owned = body.clone();
         let (status, resp_text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .post(&url_owned)
-                .header("Content-Type", "application/json")
-                .json(&body_owned)
-                .send()
-                .context("Failed to call Google batch embedding API")?;
-            let status = resp.status();
-            let resp_text = resp.text()?;
-            Ok((status, resp_text))
+            send_embedding_request(
+                client
+                    .post(&url_owned)
+                    .header("Content-Type", "application/json")
+                    .json(&body_owned),
+                "google_batch",
+            )
         })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
 
         // Log batch response
         if let Some(logger) = crate::get_logger() {
-            let resp_preview = if resp_text.len() > 2048 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&resp_text, 2048),
-                    resp_text.len()
-                )
-            } else {
-                resp_text.clone()
-            };
             let level = if status.is_success() {
                 "debug"
             } else {
@@ -452,7 +556,6 @@ impl ApiEmbeddingProvider {
                         "ttfb_ms": ttfb_ms,
                         "text_count": texts.len(),
                         "response_size_bytes": resp_text.len(),
-                        "response_body": resp_preview,
                     })
                     .to_string(),
                 ),
@@ -464,13 +567,14 @@ impl ApiEmbeddingProvider {
         if !status.is_success() {
             self.record_embedding_usage(
                 "embedding.google_batch",
+                purpose,
                 texts.len(),
                 ttfb_ms,
                 None,
                 false,
                 Some(format!("HTTP {}", status.as_u16())),
             );
-            anyhow::bail!("Google Batch Embedding API error {}: {}", status, resp_text);
+            return Err(http_error("google_batch", status));
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
@@ -500,6 +604,7 @@ impl ApiEmbeddingProvider {
 
         self.record_embedding_usage(
             "embedding.google_batch",
+            purpose,
             texts.len(),
             ttfb_ms,
             usage_tokens,
@@ -510,7 +615,7 @@ impl ApiEmbeddingProvider {
     }
 
     /// Single text embed via `embedContent` endpoint (fallback).
-    fn call_google_single(&self, text: &str) -> Result<Vec<f32>> {
+    fn call_google_single(&self, text: &str, purpose: EmbeddingPurpose) -> Result<Vec<f32>> {
         let url = format!(
             "{}/v1beta/models/{}:embedContent?key={}",
             self.base_url.trim_end_matches('/'),
@@ -524,18 +629,11 @@ impl ApiEmbeddingProvider {
         if self.dimensions > 0 {
             body["outputDimensionality"] = serde_json::json!(self.dimensions);
         }
+        self.apply_google_task_type(&mut body, purpose);
 
         if let Some(logger) = crate::get_logger() {
-            let text_preview = if text.len() > 200 {
-                format!("{}...", crate::truncate_utf8(text, 200))
-            } else {
-                text.to_string()
-            };
-            let safe_url = format!(
-                "{}/v1beta/models/{}:embedContent?key=[REDACTED]",
-                self.base_url.trim_end_matches('/'),
-                self.model,
-            );
+            let safe_url = sanitized_api_endpoint(&url);
+            let body_size = serde_json::to_vec(&body).map_or(0, |encoded| encoded.len());
             logger.log(
                 "debug",
                 "memory",
@@ -550,8 +648,9 @@ impl ApiEmbeddingProvider {
                         "api_url": safe_url,
                         "model": &self.model,
                         "text_length": text.len(),
-                        "text_preview": text_preview,
                         "dimensions": self.dimensions,
+                        "purpose": purpose.as_str(),
+                        "request_size_bytes": body_size,
                     })
                     .to_string(),
                 ),
@@ -564,28 +663,17 @@ impl ApiEmbeddingProvider {
         let url_owned = url.clone();
         let body_owned = body.clone();
         let (status, resp_text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .post(&url_owned)
-                .header("Content-Type", "application/json")
-                .json(&body_owned)
-                .send()
-                .context("Failed to call Google embedding API")?;
-            let status = resp.status();
-            let resp_text = resp.text()?;
-            Ok((status, resp_text))
+            send_embedding_request(
+                client
+                    .post(&url_owned)
+                    .header("Content-Type", "application/json")
+                    .json(&body_owned),
+                "google_single",
+            )
         })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
 
         if let Some(logger) = crate::get_logger() {
-            let resp_preview = if resp_text.len() > 2048 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&resp_text, 2048),
-                    resp_text.len()
-                )
-            } else {
-                resp_text.clone()
-            };
             let level = if status.is_success() {
                 "debug"
             } else {
@@ -605,7 +693,6 @@ impl ApiEmbeddingProvider {
                         "status": status.as_u16(),
                         "ttfb_ms": ttfb_ms,
                         "response_size_bytes": resp_text.len(),
-                        "response_body": resp_preview,
                     })
                     .to_string(),
                 ),
@@ -617,13 +704,14 @@ impl ApiEmbeddingProvider {
         if !status.is_success() {
             self.record_embedding_usage(
                 "embedding.google_single",
+                purpose,
                 1,
                 ttfb_ms,
                 None,
                 false,
                 Some(format!("HTTP {}", status.as_u16())),
             );
-            anyhow::bail!("Google Embedding API error {}: {}", status, resp_text);
+            return Err(http_error("google_single", status));
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
@@ -641,6 +729,7 @@ impl ApiEmbeddingProvider {
 
         self.record_embedding_usage(
             "embedding.google_single",
+            purpose,
             1,
             ttfb_ms,
             usage_tokens,
@@ -655,7 +744,11 @@ impl ApiEmbeddingProvider {
 
     /// Multimodal embed via Gemini `embedContent` with inline data (image/audio).
     /// Only works with gemini-embedding-2.
-    fn call_google_multimodal(&self, input: &MultimodalInput) -> Result<Vec<f32>> {
+    fn call_google_multimodal(
+        &self,
+        input: &MultimodalInput,
+        purpose: EmbeddingPurpose,
+    ) -> Result<Vec<f32>> {
         use base64::Engine;
 
         let url = format!(
@@ -667,10 +760,11 @@ impl ApiEmbeddingProvider {
 
         let b64_data = base64::engine::general_purpose::STANDARD.encode(&input.file_data);
 
+        let prepared_label = self.prepare_google_text(&input.label, purpose);
         let mut body = serde_json::json!({
             "content": {
                 "parts": [
-                    { "text": &input.label },
+                    { "text": prepared_label },
                     { "inlineData": {
                         "mimeType": &input.mime_type,
                         "data": &b64_data,
@@ -683,21 +777,17 @@ impl ApiEmbeddingProvider {
         }
 
         if let Some(logger) = crate::get_logger() {
-            let safe_url = format!(
-                "{}/v1beta/models/{}:embedContent?key=[REDACTED]",
-                self.base_url.trim_end_matches('/'),
-                self.model,
-            );
+            let safe_url = sanitized_api_endpoint(&url);
             logger.log(
                 "info",
                 "memory",
                 "embedding::google::multimodal_request",
                 &format!(
-                    "Multimodal embedding: model={}, mime={}, file_size={}B, label={}",
+                    "Multimodal embedding: model={}, mime={}, file_size={}B, label_size={}B",
                     self.model,
                     input.mime_type,
                     input.file_data.len(),
-                    crate::truncate_utf8(&input.label, 100)
+                    input.label.len()
                 ),
                 Some(
                     serde_json::json!({
@@ -706,6 +796,7 @@ impl ApiEmbeddingProvider {
                         "mime_type": &input.mime_type,
                         "file_size_bytes": input.file_data.len(),
                         "base64_size_bytes": b64_data.len(),
+                        "purpose": purpose.as_str(),
                     })
                     .to_string(),
                 ),
@@ -718,15 +809,13 @@ impl ApiEmbeddingProvider {
         let url_owned = url.clone();
         let body_owned = body.clone();
         let (status, resp_text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .post(&url_owned)
-                .header("Content-Type", "application/json")
-                .json(&body_owned)
-                .send()
-                .context("Failed to call Google multimodal embedding API")?;
-            let status = resp.status();
-            let resp_text = resp.text()?;
-            Ok((status, resp_text))
+            send_embedding_request(
+                client
+                    .post(&url_owned)
+                    .header("Content-Type", "application/json")
+                    .json(&body_owned),
+                "google_multimodal",
+            )
         })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
 
@@ -750,17 +839,14 @@ impl ApiEmbeddingProvider {
         if !status.is_success() {
             self.record_embedding_usage(
                 "embedding.google_multimodal",
+                purpose,
                 1,
                 ttfb_ms,
                 None,
                 false,
                 Some(format!("HTTP {}", status.as_u16())),
             );
-            anyhow::bail!(
-                "Google Multimodal Embedding API error {}: {}",
-                status,
-                resp_text
-            );
+            return Err(http_error("google_multimodal", status));
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
@@ -778,6 +864,7 @@ impl ApiEmbeddingProvider {
 
         self.record_embedding_usage(
             "embedding.google_multimodal",
+            purpose,
             1,
             ttfb_ms,
             usage_tokens,
@@ -797,7 +884,10 @@ impl ApiEmbeddingProvider {
         match self.provider_type {
             EmbeddingProviderType::OpenaiCompatible => {
                 // OpenAI and Voyage support Batch API
-                self.base_url.contains("openai.com") || self.base_url.contains("voyageai.com")
+                matches!(
+                    self.endpoint_family,
+                    EmbeddingEndpointFamily::OpenAi | EmbeddingEndpointFamily::Voyage
+                )
             }
             _ => false, // Gemini uses batchEmbedContents (already synchronous batch)
         }
@@ -817,22 +907,20 @@ impl ApiEmbeddingProvider {
         let boundary_owned = boundary.clone();
         let body_owned = body;
         let (status, resp_text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .post(&url_owned)
-                .header("Authorization", format!("Bearer {}", api_key_owned))
-                .header(
-                    "Content-Type",
-                    format!("multipart/form-data; boundary={}", boundary_owned),
-                )
-                .body(body_owned)
-                .send()
-                .context("Failed to upload batch JSONL file")?;
-            let status = resp.status();
-            let resp_text = resp.text()?;
-            Ok((status, resp_text))
+            send_embedding_request(
+                client
+                    .post(&url_owned)
+                    .header("Authorization", format!("Bearer {}", api_key_owned))
+                    .header(
+                        "Content-Type",
+                        format!("multipart/form-data; boundary={}", boundary_owned),
+                    )
+                    .body(body_owned),
+                "batch_upload",
+            )
         })?;
         if !status.is_success() {
-            anyhow::bail!("Batch file upload error {}: {}", status, resp_text);
+            return Err(http_error("batch_upload", status));
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
@@ -843,7 +931,7 @@ impl ApiEmbeddingProvider {
     }
 
     /// Create a batch job.
-    fn batch_create(&self, input_file_id: &str) -> Result<String> {
+    fn batch_create(&self, input_file_id: &str, purpose: EmbeddingPurpose) -> Result<String> {
         let url = format!("{}/v1/batches", self.base_url.trim_end_matches('/'));
 
         let mut body = serde_json::json!({
@@ -853,31 +941,29 @@ impl ApiEmbeddingProvider {
         });
 
         // Voyage needs request_params
-        if self.base_url.contains("voyageai.com") {
+        if self.endpoint_family == EmbeddingEndpointFamily::Voyage {
             body["completion_window"] = serde_json::json!("12h");
             body["request_params"] = serde_json::json!({
                 "model": &self.model,
-                "input_type": "document",
             });
+            self.apply_openai_compatible_purpose(&mut body["request_params"], purpose);
         }
 
         let url_owned = url.clone();
         let api_key_owned = self.api_key.clone();
         let body_owned = body.clone();
         let (status, resp_text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .post(&url_owned)
-                .header("Authorization", format!("Bearer {}", api_key_owned))
-                .header("Content-Type", "application/json")
-                .json(&body_owned)
-                .send()
-                .context("Failed to create batch job")?;
-            let status = resp.status();
-            let resp_text = resp.text()?;
-            Ok((status, resp_text))
+            send_embedding_request(
+                client
+                    .post(&url_owned)
+                    .header("Authorization", format!("Bearer {}", api_key_owned))
+                    .header("Content-Type", "application/json")
+                    .json(&body_owned),
+                "batch_create",
+            )
         })?;
         if !status.is_success() {
-            anyhow::bail!("Batch create error {}: {}", status, resp_text);
+            return Err(http_error("batch_create", status));
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
@@ -899,15 +985,17 @@ impl ApiEmbeddingProvider {
         loop {
             let url_owned = url.clone();
             let api_key_owned = self.api_key.clone();
-            let resp_text = self.run_off_runtime(move |client| {
-                let resp = client
-                    .get(&url_owned)
-                    .header("Authorization", format!("Bearer {}", api_key_owned))
-                    .send()
-                    .context("Failed to poll batch status")?;
-                let resp_text = resp.text()?;
-                Ok(resp_text)
+            let (status, resp_text) = self.run_off_runtime(move |client| {
+                send_embedding_request(
+                    client
+                        .get(&url_owned)
+                        .header("Authorization", format!("Bearer {}", api_key_owned)),
+                    "batch_poll",
+                )
             })?;
+            if !status.is_success() {
+                return Err(http_error("batch_poll", status));
+            }
             let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
             let state = resp_json["status"].as_str().unwrap_or("unknown");
 
@@ -919,12 +1007,7 @@ impl ApiEmbeddingProvider {
                         .ok_or_else(|| anyhow::anyhow!("Batch completed but no output_file_id"));
                 }
                 "failed" | "expired" | "cancelled" | "canceled" => {
-                    anyhow::bail!(
-                        "Batch {} {}: {}",
-                        batch_id,
-                        state,
-                        resp_json["error"].as_str().unwrap_or("unknown error")
-                    );
+                    anyhow::bail!("Batch {} reached terminal state {}", batch_id, state);
                 }
                 _ => {
                     if start.elapsed().as_millis() as u64 > timeout_ms {
@@ -966,17 +1049,15 @@ impl ApiEmbeddingProvider {
         let url_owned = url.clone();
         let api_key_owned = self.api_key.clone();
         let (status, text) = self.run_off_runtime(move |client| {
-            let resp = client
-                .get(&url_owned)
-                .header("Authorization", format!("Bearer {}", api_key_owned))
-                .send()
-                .context("Failed to download batch output")?;
-            let status = resp.status();
-            let text = resp.text()?;
-            Ok((status, text))
+            send_embedding_request(
+                client
+                    .get(&url_owned)
+                    .header("Authorization", format!("Bearer {}", api_key_owned)),
+                "batch_download",
+            )
         })?;
         if !status.is_success() {
-            anyhow::bail!("Batch output download error {}: {}", status, text);
+            return Err(http_error("batch_download", status));
         }
         Ok(text)
     }
@@ -985,6 +1066,7 @@ impl ApiEmbeddingProvider {
     fn run_batch_api(
         &self,
         items: &[(String, String)],
+        purpose: EmbeddingPurpose,
     ) -> Result<std::collections::HashMap<String, Vec<f32>>> {
         use std::collections::HashMap;
         const MAX_BATCH_SIZE: usize = 50_000;
@@ -1021,6 +1103,7 @@ impl ApiEmbeddingProvider {
                     if self.dimensions > 0 {
                         body["dimensions"] = serde_json::json!(self.dimensions);
                     }
+                    self.apply_openai_compatible_purpose(&mut body, purpose);
                     serde_json::json!({
                         "custom_id": id,
                         "method": "POST",
@@ -1050,7 +1133,7 @@ impl ApiEmbeddingProvider {
                 );
             }
 
-            let batch_id = self.batch_create(&file_id)?;
+            let batch_id = self.batch_create(&file_id, purpose)?;
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "info",
@@ -1072,12 +1155,8 @@ impl ApiEmbeddingProvider {
                 if line.is_empty() {
                     continue;
                 }
-                let parsed: serde_json::Value = serde_json::from_str(line).with_context(|| {
-                    format!(
-                        "Invalid batch output line: {}",
-                        crate::truncate_utf8(line, 200)
-                    )
-                })?;
+                let parsed: serde_json::Value =
+                    serde_json::from_str(line).context("Invalid embedding batch output JSONL")?;
 
                 let custom_id = parsed["custom_id"].as_str().unwrap_or("").to_string();
                 if custom_id.is_empty() {
@@ -1086,15 +1165,12 @@ impl ApiEmbeddingProvider {
 
                 let status_code = parsed["response"]["status_code"].as_u64().unwrap_or(0);
                 if status_code >= 400 {
-                    let err_msg = parsed["response"]["body"]["error"]["message"]
-                        .as_str()
-                        .unwrap_or("unknown error");
                     if let Some(logger) = crate::get_logger() {
                         logger.log(
                             "warn",
                             "memory",
                             "embedding::batch_api",
-                            &format!("Batch item {} failed: {}", custom_id, err_msg),
+                            &format!("Batch item {} failed: status={}", custom_id, status_code),
                             None,
                             None,
                             None,
@@ -1139,10 +1215,10 @@ impl ApiEmbeddingProvider {
 }
 
 impl EmbeddingProvider for ApiEmbeddingProvider {
-    fn embed(&self, text: &str) -> Result<Vec<f32>> {
+    fn embed(&self, text: &str, purpose: EmbeddingPurpose) -> Result<Vec<f32>> {
         let results = match self.provider_type {
-            EmbeddingProviderType::Google => self.call_google(&[text.to_string()])?,
-            _ => self.call_openai_compatible(&[text.to_string()])?,
+            EmbeddingProviderType::Google => self.call_google(&[text.to_string()], purpose)?,
+            _ => self.call_openai_compatible(&[text.to_string()], purpose)?,
         };
         let mut vec = results
             .into_iter()
@@ -1152,10 +1228,10 @@ impl EmbeddingProvider for ApiEmbeddingProvider {
         Ok(vec)
     }
 
-    fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    fn embed_batch(&self, texts: &[String], purpose: EmbeddingPurpose) -> Result<Vec<Vec<f32>>> {
         let mut results = match self.provider_type {
-            EmbeddingProviderType::Google => self.call_google(texts)?,
-            _ => self.call_openai_compatible(texts)?,
+            EmbeddingProviderType::Google => self.call_google(texts, purpose)?,
+            _ => self.call_openai_compatible(texts, purpose)?,
         };
         for vec in &mut results {
             l2_normalize(vec);
@@ -1172,11 +1248,15 @@ impl EmbeddingProvider for ApiEmbeddingProvider {
             && self.model.contains("embedding-2")
     }
 
-    fn embed_multimodal(&self, input: &MultimodalInput) -> Result<Vec<f32>> {
+    fn embed_multimodal(
+        &self,
+        input: &MultimodalInput,
+        purpose: EmbeddingPurpose,
+    ) -> Result<Vec<f32>> {
         if !self.supports_multimodal() {
-            return self.embed(&input.label);
+            return self.embed(&input.label, purpose);
         }
-        let mut vec = self.call_google_multimodal(input)?;
+        let mut vec = self.call_google_multimodal(input, purpose)?;
         l2_normalize(&mut vec);
         Ok(vec)
     }
@@ -1188,17 +1268,151 @@ impl EmbeddingProvider for ApiEmbeddingProvider {
     fn embed_batch_async(
         &self,
         texts: &[(String, String)],
+        purpose: EmbeddingPurpose,
     ) -> Result<std::collections::HashMap<String, Vec<f32>>> {
         if !self.batch_api_supported() {
             // Fallback to synchronous
             let text_strs: Vec<String> = texts.iter().map(|(_, t)| t.clone()).collect();
-            let results = self.embed_batch(&text_strs)?;
+            let results = self.embed_batch(&text_strs, purpose)?;
             let mut map = std::collections::HashMap::new();
             for ((id, _), emb) in texts.iter().zip(results) {
                 map.insert(id.clone(), emb);
             }
             return Ok(map);
         }
-        self.run_batch_api(texts)
+        self.run_batch_api(texts, purpose)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider(
+        base_url: &str,
+        model: &str,
+        provider_type: EmbeddingProviderType,
+    ) -> ApiEmbeddingProvider {
+        ApiEmbeddingProvider::new(&EmbeddingConfig {
+            enabled: true,
+            provider_type,
+            api_base_url: Some(base_url.to_string()),
+            api_key: None,
+            api_model: Some(model.to_string()),
+            api_dimensions: Some(768),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn embedding_endpoint_metadata_removes_credentials_and_query() {
+        let endpoint = sanitized_api_endpoint(
+            "https://user:secret@example.com/v1/embeddings?api_key=SYNTHETIC_CANARY#fragment",
+        );
+
+        assert_eq!(endpoint, "https://example.com/v1/embeddings");
+        assert!(!endpoint.contains("secret"));
+        assert!(!endpoint.contains("SYNTHETIC_CANARY"));
+    }
+
+    #[test]
+    fn embedding_log_canary_rejects_payload_fields() {
+        let source = include_str!("api_provider.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source before test module");
+        for forbidden in [
+            "\"request_body\"",
+            "\"response_body\"",
+            "\"text_preview\"",
+            "label={}",
+        ] {
+            assert!(
+                !production.contains(forbidden),
+                "embedding logs must not expose payload field {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_http_errors_are_stable_and_body_free() {
+        let error = http_error("canary", reqwest::StatusCode::TOO_MANY_REQUESTS).to_string();
+        assert_eq!(
+            error,
+            "Embedding provider HTTP error: operation=canary, status=429, class=rate_limited"
+        );
+        assert!(!error.contains("SYNTHETIC_CANARY"));
+    }
+
+    #[test]
+    fn asymmetric_openai_compatible_roles_are_explicit_not_cardinality_based() {
+        let voyage = provider(
+            "https://API.VOYAGEAI.COM",
+            "voyage-4",
+            EmbeddingProviderType::OpenaiCompatible,
+        );
+        let mut one_document = serde_json::json!({"input": ["one"]});
+        voyage.apply_openai_compatible_purpose(&mut one_document, EmbeddingPurpose::Document);
+        assert_eq!(one_document["input_type"], "document");
+        let mut many_queries = serde_json::json!({"input": ["one", "two"]});
+        voyage.apply_openai_compatible_purpose(&mut many_queries, EmbeddingPurpose::Query);
+        assert_eq!(many_queries["input_type"], "query");
+
+        let jina = provider(
+            "https://api.jina.ai",
+            "jina-embeddings-v5-text-small",
+            EmbeddingProviderType::OpenaiCompatible,
+        );
+        let mut symmetric = serde_json::json!({});
+        jina.apply_openai_compatible_purpose(&mut symmetric, EmbeddingPurpose::Symmetric);
+        assert_eq!(symmetric["task"], "text-matching");
+
+        let cohere = provider(
+            "https://api.cohere.ai/compatibility",
+            "embed-v4.0",
+            EmbeddingProviderType::OpenaiCompatible,
+        );
+        let mut document = serde_json::json!({});
+        cohere.apply_openai_compatible_purpose(&mut document, EmbeddingPurpose::Document);
+        assert_eq!(document["input_type"], "search_document");
+
+        let proxy = provider(
+            "https://proxy.example/voyageai.com",
+            "proxy-model",
+            EmbeddingProviderType::OpenaiCompatible,
+        );
+        let mut proxy_body = serde_json::json!({});
+        proxy.apply_openai_compatible_purpose(&mut proxy_body, EmbeddingPurpose::Query);
+        assert!(proxy_body.get("input_type").is_none());
+    }
+
+    #[test]
+    fn google_role_contract_switches_between_v1_task_type_and_v2_prefixes() {
+        let v1 = provider(
+            "https://generativelanguage.googleapis.com",
+            "gemini-embedding-001",
+            EmbeddingProviderType::Google,
+        );
+        let mut v1_request = serde_json::json!({});
+        v1.apply_google_task_type(&mut v1_request, EmbeddingPurpose::Query);
+        assert_eq!(v1_request["taskType"], "RETRIEVAL_QUERY");
+        assert_eq!(
+            v1.prepare_google_text("needle", EmbeddingPurpose::Query),
+            "needle"
+        );
+
+        let v2 = provider(
+            "https://generativelanguage.googleapis.com",
+            "gemini-embedding-2",
+            EmbeddingProviderType::Google,
+        );
+        let mut v2_request = serde_json::json!({});
+        v2.apply_google_task_type(&mut v2_request, EmbeddingPurpose::Document);
+        assert!(v2_request.get("taskType").is_none());
+        assert_eq!(
+            v2.prepare_google_text("needle", EmbeddingPurpose::Document),
+            "title: none | text: needle"
+        );
     }
 }

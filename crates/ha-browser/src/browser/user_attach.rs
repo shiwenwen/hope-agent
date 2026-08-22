@@ -65,11 +65,10 @@ pub struct BrowserDoctorReport {
     /// host has no browser.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_chrome_path: Option<String>,
-    /// Cached Chromium runtime — populated when
-    /// `~/.hope-agent/browser/runtime/chromium-{rev}/` has a usable binary.
+    /// Cached Chrome for Testing runtime with a valid supply-chain receipt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_chromium: Option<RuntimeChromiumReport>,
-    /// Whether Hope can download a pinned managed Chromium snapshot for this
+    /// Whether Hope can download a pinned managed Chrome for Testing artifact for this
     /// OS/architecture. The UI uses this to avoid offering an install action
     /// that can only fail on unsupported hosts.
     pub runtime_install_supported: bool,

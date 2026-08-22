@@ -295,6 +295,30 @@ pub struct ChannelAccountConfig {
 /// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
 pub const SETTINGS_KEY_IM_REPLY_MODE: &str = "imReplyMode";
 
+/// Settings JSON key controlling whether an account may use the channel's
+/// native reply-stream lane (currently Telegram and Slack). Default `true`
+/// preserves the existing behavior; setting it to `false` forces the common
+/// legacy/final-only fallback without changing the plugin-wide capability.
+pub const SETTINGS_KEY_NATIVE_REPLY: &str = "nativeReply";
+
+/// Settings JSON key controlling iMessage `imsg` protocol-v1 negotiation and
+/// resumable watch recovery. Default `true`; explicit `false` is the account-
+/// scoped rollback to the legacy RPC surface.
+pub const SETTINGS_KEY_IMSG_PROTOCOL_V1: &str = "imsgProtocolV1";
+
+/// Settings JSON key controlling Google Chat standard Markdown on message
+/// creation. Explicit `false` rolls an account back to the legacy Chat syntax.
+pub const SETTINGS_KEY_GOOGLE_CHAT_STANDARD_MARKDOWN: &str = "googleChatStandardMarkdown";
+
+/// Temporary Discord Gateway early opt-in for private-channel obfuscation.
+/// Default off until Discord makes the behavior universal.
+pub const SETTINGS_KEY_DISCORD_CHANNEL_OBFUSCATION: &str = "discordChannelObfuscation";
+
+/// Account-scoped rollout switch for Discord's native File Upload modal used
+/// by shared ask-user file requests. Default off; other channels and disabled
+/// Discord accounts retain the exact-route text + next-attachment fallback.
+pub const SETTINGS_KEY_DISCORD_FILE_REQUESTS: &str = "discordFileRequests";
+
 /// Settings JSON key controlling whether the model's thinking/reasoning
 /// content is included in outbound IM messages (toggled via the `/reason`
 /// slash command). Default `false` — reasoning stays out of IM messages.
@@ -320,6 +344,56 @@ pub const SETTINGS_KEY_KB_ACCESS_OPT_IN: &str = "kbAccessOptIn";
 pub const SETTINGS_KEY_KB_ACCESS_CHATS: &str = "kbAccessChats";
 
 impl ChannelAccountConfig {
+    pub fn discord_file_requests_enabled(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_DISCORD_FILE_REQUESTS)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    pub fn discord_channel_obfuscation_enabled(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_DISCORD_CHANNEL_OBFUSCATION)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    pub fn google_chat_standard_markdown_enabled(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_GOOGLE_CHAT_STANDARD_MARKDOWN)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    pub fn imsg_protocol_v1_enabled(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_IMSG_PROTOCOL_V1)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    /// Read `settings.nativeReply`. Missing or malformed values keep the
+    /// existing native lane enabled so old account configurations are stable.
+    pub fn native_reply_enabled(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_NATIVE_REPLY)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    /// Write `settings.nativeReply = enabled` in place.
+    pub fn set_native_reply_enabled(&mut self, enabled: bool) {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        if let Some(obj) = self.settings.as_object_mut() {
+            obj.insert(
+                SETTINGS_KEY_NATIVE_REPLY.to_string(),
+                serde_json::Value::Bool(enabled),
+            );
+        }
+    }
+
     /// Read `settings.imReplyMode`, falling back to `ImReplyMode::default()`
     /// when missing or unparseable.
     pub fn im_reply_mode(&self) -> ImReplyMode {
@@ -563,5 +637,15 @@ mod kb_access_tests {
         let acc = account(serde_json::json!({"kbAccessOptIn": true}));
         // Even fully opted in, a mismatched channel id denies (fail closed).
         assert!(!acc.kb_access_allowed_for("telegram", "dm1", false));
+    }
+
+    #[test]
+    fn native_reply_defaults_on_and_can_be_disabled() {
+        let mut acc = account(serde_json::Value::Null);
+        assert!(acc.native_reply_enabled());
+
+        acc.set_native_reply_enabled(false);
+        assert!(!acc.native_reply_enabled());
+        assert_eq!(acc.settings["nativeReply"], serde_json::Value::Bool(false));
     }
 }

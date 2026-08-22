@@ -226,7 +226,7 @@ impl TranscriptMirror {
         let global_has = !crate::hooks::registry::global().is_empty();
         let project_has = {
             let config = crate::config::cached_config();
-            config.hooks_allow_project_scope
+            !config.hook_workspace_trusts.is_empty()
                 && !config.disable_all_hooks
                 && !crate::hooks::scopes::resolve_for_cwd(Some(std::path::Path::new(cwd)))
                     .is_empty()

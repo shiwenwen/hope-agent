@@ -514,6 +514,7 @@ impl ChannelPlugin for TelegramPlugin {
                     error: Some(error.to_string()),
                     uptime_secs: None,
                     bot_name: None,
+                    capability_snapshot: None,
                 });
             }
         };
@@ -526,6 +527,7 @@ impl ChannelPlugin for TelegramPlugin {
                 error: None,
                 uptime_secs: None,
                 bot_name: Some(format!("@{}", me.username())),
+                capability_snapshot: None,
             }),
             Err(e) => Ok(ChannelHealth {
                 is_running: false,
@@ -534,6 +536,7 @@ impl ChannelPlugin for TelegramPlugin {
                 error: Some(e.to_string()),
                 uptime_secs: None,
                 bot_name: None,
+                capability_snapshot: None,
             }),
         }
     }
