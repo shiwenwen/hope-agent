@@ -1844,18 +1844,28 @@ fn copy_stream_bounded<R: Read, W: Write>(
 }
 
 fn copy_file_bounded(
-    src: &Path,
+    source_root: &Path,
+    relative_path: &Path,
     dst: &Path,
-    expected_size: u64,
     limits: &IsolatedCopyLimits,
-    stats: &IsolatedCopyStats,
+    stats: &mut IsolatedCopyStats,
 ) -> Result<()> {
     let result = (|| -> Result<()> {
-        let mut source = File::open(src)?;
+        // Consume the descriptor returned by the authorized-root traversal.
+        // Reopening `source_root.join(relative_path)` here would let a
+        // post-walk symlink or reparse-point swap redirect the copy outside
+        // the workspace.
+        let mut source = ha_core::platform::open_file_beneath(source_root, relative_path)
+            .with_context(|| {
+                format!(
+                    "open isolated sandbox source '{}' beneath authorized workspace",
+                    relative_path.display()
+                )
+            })?;
         let metadata = source.metadata()?;
-        if !metadata.is_file() || metadata.len() != expected_size {
-            anyhow::bail!("isolated sandbox source file changed before it could be copied");
-        }
+        let expected_size = metadata.len();
+        stats.bytes = stats.bytes.saturating_add(expected_size);
+        limits.check(stats)?;
         let permissions = metadata.permissions();
         let mut destination = File::create(dst)?;
         copy_stream_bounded(&mut source, &mut destination, expected_size, limits, stats)?;
@@ -1880,10 +1890,12 @@ fn copy_dir_gitignore_aware_bounded(
 ) -> Result<()> {
     limits.check(stats)?;
     std::fs::create_dir_all(dst)?;
-    let source_root = src.to_path_buf();
+    let source_root = src
+        .canonicalize()
+        .with_context(|| format!("canonicalize isolated sandbox source '{}'", src.display()))?;
     let filter_root = source_root.clone();
-    let inside_git_repo = find_git_root_for_ignore(src).is_some();
-    let walker = WalkBuilder::new(src)
+    let inside_git_repo = find_git_root_for_ignore(&source_root).is_some();
+    let walker = WalkBuilder::new(&source_root)
         .hidden(false)
         .ignore(true)
         .git_ignore(true)
@@ -1945,13 +1957,11 @@ fn copy_dir_gitignore_aware_bounded(
         } else if file_type.is_file() {
             stats.entries = stats.entries.saturating_add(1);
             stats.files = stats.files.saturating_add(1);
-            let file_size = std::fs::metadata(src_path)?.len();
-            stats.bytes = stats.bytes.saturating_add(file_size);
             limits.check(stats)?;
             if let Some(parent) = dst_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            copy_file_bounded(src_path, &dst_path, file_size, limits, stats)?;
+            copy_file_bounded(&source_root, rel_path, &dst_path, limits, stats)?;
         } else {
             app_debug!(
                 "sandbox",
@@ -2456,6 +2466,51 @@ mod tests {
         .expect_err("copy should fail on size limit");
 
         assert!(err.to_string().contains("too large to copy safely"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolated_copy_rejects_a_file_replaced_by_an_outside_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let source = tempfile::tempdir().expect("source tempdir");
+        let destination = tempfile::tempdir().expect("destination tempdir");
+        let outside = tempfile::tempdir().expect("outside tempdir");
+        std::fs::write(outside.path().join("credentials.json"), "secret")
+            .expect("write outside secret");
+        symlink(
+            outside.path().join("credentials.json"),
+            source.path().join("candidate.txt"),
+        )
+        .expect("replace candidate with symlink");
+
+        let limits = IsolatedCopyLimits {
+            max_bytes: 1024,
+            max_entries: 10,
+            deadline: None,
+            cancellation_token: None,
+        };
+        let mut stats = IsolatedCopyStats {
+            entries: 1,
+            files: 1,
+            ..Default::default()
+        };
+        let destination_file = destination.path().join("candidate.txt");
+        let error = copy_file_bounded(
+            &source.path().canonicalize().expect("canonical source"),
+            Path::new("candidate.txt"),
+            &destination_file,
+            &limits,
+            &mut stats,
+        )
+        .expect_err("a post-walk symlink replacement must fail closed");
+
+        assert!(
+            error.to_string().contains("beneath authorized workspace"),
+            "unexpected error: {error:#}"
+        );
+        assert!(!destination_file.exists());
+        assert_eq!(stats.bytes, 0);
     }
 
     #[test]
