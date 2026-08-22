@@ -280,13 +280,35 @@ struct PendingAskUserState {
 }
 
 impl PendingAskUserState {
-    fn insert(&mut self, route: InteractiveRouteKey, pending: PendingAskUser) {
+    fn insert(
+        &mut self,
+        route: InteractiveRouteKey,
+        pending: PendingAskUser,
+        now: u64,
+    ) -> Result<(), String> {
         let request_id = pending.request_id.clone();
+        self.prune_route(&route, now);
+        if pending_has_file_request(&pending) {
+            let conflicting_request = self.by_route.get(&route).and_then(|request_ids| {
+                request_ids.iter().find_map(|candidate| {
+                    (candidate != &request_id
+                        && self
+                            .by_request
+                            .get(candidate)
+                            .is_some_and(pending_has_file_request))
+                    .then(|| candidate.clone())
+                })
+            });
+            if let Some(conflicting_request) = conflicting_request {
+                return Err(conflicting_request);
+            }
+        }
         self.remove(&request_id);
         self.by_request.insert(request_id.clone(), pending);
         let route_requests = self.by_route.entry(route).or_default();
         route_requests.retain(|candidate| candidate != &request_id);
         route_requests.push(request_id);
+        Ok(())
     }
 
     fn remove(&mut self, request_id: &str) -> Option<PendingAskUser> {
@@ -317,20 +339,34 @@ impl PendingAskUserState {
             .is_some_and(|timeout_at| timeout_at > 0 && now >= timeout_at)
     }
 
-    /// Return the most recently registered live request for one exact route.
-    /// Expired/missing ids are removed from both indices before lookup.
-    fn latest_for_route(&mut self, route: &InteractiveRouteKey, now: u64) -> Option<String> {
-        let request_ids = self.by_route.get(route)?.clone();
+    fn prune_route(&mut self, route: &InteractiveRouteKey, now: u64) {
+        let Some(request_ids) = self.by_route.get(route).cloned() else {
+            return;
+        };
         for request_id in request_ids {
             if !self.by_request.contains_key(&request_id) || self.is_expired(&request_id, now) {
                 self.remove(&request_id);
             }
         }
+    }
+
+    /// Return the most recently registered live request for one exact route.
+    /// Expired/missing ids are removed from both indices before lookup.
+    fn latest_for_route(&mut self, route: &InteractiveRouteKey, now: u64) -> Option<String> {
+        self.prune_route(route, now);
         self.by_route
             .get(route)
             .and_then(|request_ids| request_ids.last())
             .cloned()
     }
+}
+
+fn pending_has_file_request(pending: &PendingAskUser) -> bool {
+    pending
+        .group
+        .questions
+        .iter()
+        .any(|question| pending_file_constraints(question).is_some())
 }
 
 fn validate_pending_attach_for_source(
@@ -486,7 +522,8 @@ fn format_prompt_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Strin
         }
         if let Some(constraints) = &q.file_constraints {
             out.push_str(&format!(
-                "  (PDF/TXT/MD, max {} MiB)",
+                "  ({}, max {} MiB)",
+                allowed_file_types_display(constraints),
                 constraints.max_bytes / (1024 * 1024)
             ));
         }
@@ -517,29 +554,25 @@ fn text_reply_hint(group: &AskUserQuestionGroup) -> String {
 }
 
 fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> String {
-    if group
-        .questions
-        .iter()
-        .any(|q| q.input_kind.as_deref() == Some("file"))
-    {
-        return tr(
+    if let Some(constraints) = group.questions.iter().find_map(pending_file_constraints) {
+        let template = tr(
             locale,
             [
-                "\n请在此聊天中发送下一个 PDF、TXT 或 MD 文件。文件会绑定到本次请求；文字消息不会作为文件回答。",
-                "\n請在此聊天中傳送下一個 PDF、TXT 或 MD 檔案。檔案會綁定到本次請求；文字訊息不會作為檔案回答。",
-                "\nSend the next PDF, TXT, or MD file in this chat. It will be bound to this request; a text message will not answer the file request.",
-                "\nこのチャットで次の PDF、TXT、または MD ファイルを送信してください。ファイルはこのリクエストに紐づき、テキストメッセージはファイル回答として扱われません。",
-                "\n이 채팅에서 다음 PDF, TXT 또는 MD 파일을 보내세요. 파일은 이 요청에 바인딩되며 텍스트 메시지는 파일 응답으로 처리되지 않습니다.",
-                "\nEnvía el siguiente archivo PDF, TXT o MD en este chat. Se vinculará a esta solicitud; un mensaje de texto no responderá a la solicitud de archivo.",
-                "\nEnvie o próximo arquivo PDF, TXT ou MD neste chat. Ele será vinculado a esta solicitação; uma mensagem de texto não responderá à solicitação de arquivo.",
-                "\nОтправьте следующий файл PDF, TXT или MD в этом чате. Он будет привязан к этому запросу; текстовое сообщение не считается ответом с файлом.",
-                "\nأرسل ملف PDF أو TXT أو MD التالي في هذه الدردشة. سيتم ربطه بهذا الطلب؛ ولن تُعد الرسالة النصية إجابة لطلب الملف.",
-                "\nBu sohbette sıradaki PDF, TXT veya MD dosyasını gönderin. Dosya bu isteğe bağlanır; metin mesajı dosya isteğini yanıtlamaz.",
-                "\nGửi tệp PDF, TXT hoặc MD tiếp theo trong cuộc trò chuyện này. Tệp sẽ được liên kết với yêu cầu này; tin nhắn văn bản không được xem là câu trả lời tệp.",
-                "\nHantar fail PDF, TXT atau MD seterusnya dalam sembang ini. Fail akan diikat pada permintaan ini; mesej teks tidak menjawab permintaan fail.",
+                "\n请在此聊天中发送下一个 {types} 文件。文件会绑定到本次请求；文字消息不会作为文件回答。",
+                "\n請在此聊天中傳送下一個 {types} 檔案。檔案會綁定到本次請求；文字訊息不會作為檔案回答。",
+                "\nSend the next {types} file in this chat. It will be bound to this request; a text message will not answer the file request.",
+                "\nこのチャットで次の {types} ファイルを送信してください。ファイルはこのリクエストに紐づき、テキストメッセージはファイル回答として扱われません。",
+                "\n이 채팅에서 다음 {types} 파일을 보내세요. 파일은 이 요청에 바인딩되며 텍스트 메시지는 파일 응답으로 처리되지 않습니다.",
+                "\nEnvía el siguiente archivo {types} en este chat. Se vinculará a esta solicitud; un mensaje de texto no responderá a la solicitud de archivo.",
+                "\nEnvie o próximo arquivo {types} neste chat. Ele será vinculado a esta solicitação; uma mensagem de texto não responderá à solicitação de arquivo.",
+                "\nОтправьте следующий файл {types} в этом чате. Он будет привязан к этому запросу; текстовое сообщение не считается ответом с файлом.",
+                "\nأرسل ملف {types} التالي في هذه الدردشة. سيتم ربطه بهذا الطلب؛ ولن تُعد الرسالة النصية إجابة لطلب الملف.",
+                "\nBu sohbette sıradaki {types} dosyasını gönderin. Dosya bu isteğe bağlanır; metin mesajı dosya isteğini yanıtlamaz.",
+                "\nGửi tệp {types} tiếp theo trong cuộc trò chuyện này. Tệp sẽ được liên kết với yêu cầu này; tin nhắn văn bản không được xem là câu trả lời tệp.",
+                "\nHantar fail {types} seterusnya dalam sembang ini. Fail akan diikat pada permintaan ini; mesej teks tidak menjawab permintaan fail.",
             ],
-        )
-        .to_string();
+        );
+        return template.replace("{types}", &allowed_file_types_display(&constraints));
     }
     let has_multi = group.questions.iter().any(|q| q.multi_select);
     if has_multi {
@@ -580,6 +613,28 @@ fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Str
             ],
         )
         .to_string()
+    }
+}
+
+fn allowed_file_types_display(constraints: &AskUserFileConstraints) -> String {
+    let labels = [
+        ("application/pdf", "PDF"),
+        ("text/plain", "TXT"),
+        ("text/markdown", "MD"),
+    ]
+    .into_iter()
+    .filter_map(|(mime_type, label)| {
+        constraints
+            .types
+            .iter()
+            .any(|candidate| candidate == mime_type)
+            .then_some(label)
+    })
+    .collect::<Vec<_>>();
+    if labels.is_empty() {
+        "no supported types".to_string()
+    } else {
+        labels.join("/")
     }
 }
 
@@ -917,10 +972,30 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 &conversation.chat_id,
                 conversation.thread_id.as_deref(),
             );
-            get_pending_state().lock().await.insert(
-                route,
-                PendingAskUser::new(group.clone(), attach_identity.clone()),
-            );
+            let conflicting_file_request = get_pending_state()
+                .lock()
+                .await
+                .insert(
+                    route,
+                    PendingAskUser::new(group.clone(), attach_identity.clone()),
+                    now_secs(),
+                )
+                .err();
+            if let Some(conflicting_request_id) = conflicting_file_request {
+                ask_user_mod::cancel_pending_ask_user_question_with_source(
+                    &group.request_id,
+                    "channel_file_route_conflict",
+                )
+                .await;
+                app_warn!(
+                    "channel",
+                    "ask_user",
+                    "Rejected concurrent file request {} on a route already owned by {}",
+                    group.request_id,
+                    conflicting_request_id
+                );
+                continue;
+            }
 
             let payload = if use_buttons {
                 ReplyPayload {
@@ -1411,9 +1486,12 @@ pub async fn try_handle_ask_user_file_reply(
     };
 
     if msg.media.is_empty() {
+        let allowed_types = allowed_file_types_display(&constraints);
         send_text_reply_feedback(
             msg,
-            "⚠️ The attachment could not be downloaded or was rejected by the provider. Please send one PDF, TXT, or MD file again.",
+            &format!(
+                "⚠️ The attachment could not be downloaded or was rejected by the provider. Please send one {allowed_types} file again."
+            ),
         )
         .await;
         return true;
@@ -1450,8 +1528,9 @@ pub async fn try_handle_ask_user_file_reply(
     let answer = match answer {
         Ok(answer) => answer,
         Err(error) => {
+            let allowed_types = allowed_file_types_display(&constraints);
             let message = format!(
-                "⚠️ File not accepted: {}. Send one PDF, TXT, or MD file within the requested size limit.",
+                "⚠️ File not accepted: {}. Send one {allowed_types} file within the requested size limit.",
                 ha_core::logging::redact_sensitive(&error.to_string())
             );
             send_text_reply_feedback(msg, &message).await;
@@ -2328,10 +2407,10 @@ pub fn try_dispatch_interactive_callback(
 mod tests {
     use super::{
         apply_callback_selection, apply_text_custom_input, build_buttons_for_locale,
-        buttons_fit_callback_limit, parse_ask_user_callback, parse_file_callback_id, parse_marker,
-        validate_done_question, AskUserCallbackAction, InteractiveAttachIdentity,
-        InteractiveCallbackSource, OptionLookup, PendingAskUser, PendingAskUserState,
-        QuestionLookup, ASK_USER_CALLBACK_MAX_BYTES,
+        buttons_fit_callback_limit, format_prompt_for_locale, parse_ask_user_callback,
+        parse_file_callback_id, parse_marker, text_reply_hint_for_locale, validate_done_question,
+        AskUserCallbackAction, InteractiveAttachIdentity, InteractiveCallbackSource, OptionLookup,
+        PendingAskUser, PendingAskUserState, QuestionLookup, ASK_USER_CALLBACK_MAX_BYTES,
     };
     use ha_core::ask_user::AskUserQuestionGroup;
     use ha_core::channel::db::ChannelConversation;
@@ -2386,6 +2465,27 @@ mod tests {
             ]
         }))
         .expect("sample ask_user group must deserialize")
+    }
+
+    fn sample_file_group(request_id: &str, types: &[&str]) -> AskUserQuestionGroup {
+        serde_json::from_value(serde_json::json!({
+            "requestId": request_id,
+            "sessionId": "session-1",
+            "questions": [{
+                "questionId": "file-question",
+                "text": "Upload a document",
+                "options": [],
+                "allowCustom": false,
+                "multiSelect": false,
+                "inputKind": "file",
+                "fileConstraints": {
+                    "types": types,
+                    "maxBytes": 10 * 1024 * 1024,
+                    "count": 1
+                }
+            }]
+        }))
+        .expect("sample file group must deserialize")
     }
 
     #[test]
@@ -2493,10 +2593,13 @@ mod tests {
             None,
         );
         let mut state = PendingAskUserState::default();
-        state.insert(
-            route.clone(),
-            PendingAskUser::new(group, sample_attach_identity()),
-        );
+        state
+            .insert(
+                route.clone(),
+                PendingAskUser::new(group, sample_attach_identity()),
+                0,
+            )
+            .expect("ordinary prompt should register");
 
         let pending = state.by_request.get_mut(&request_id).unwrap();
         apply_callback_selection(pending, &QuestionLookup::Index(0), &OptionLookup::Index(0))
@@ -2513,6 +2616,58 @@ mod tests {
         assert!(state.remove(&request_id).is_some());
         assert!(state.by_request.is_empty());
         assert!(state.by_route.is_empty());
+    }
+
+    #[test]
+    fn file_prompt_and_hint_render_only_the_allowed_types() {
+        let group = sample_file_group("file-pdf", &["application/pdf"]);
+
+        let prompt = format_prompt_for_locale(&group, "en-US");
+        assert!(prompt.contains("(PDF, max 10 MiB)"));
+        assert!(!prompt.contains("TXT"));
+        assert!(!prompt.contains("MD"));
+
+        let hint = text_reply_hint_for_locale(&group, "en-US");
+        assert!(hint.contains("next PDF file"));
+        assert!(!hint.contains("TXT"));
+        assert!(!hint.contains("MD"));
+    }
+
+    #[test]
+    fn one_route_rejects_a_second_live_file_request() {
+        let route = (
+            "telegram".to_string(),
+            "account".to_string(),
+            "chat".to_string(),
+            None,
+        );
+        let first_request_id = "file-first";
+        let mut state = PendingAskUserState::default();
+        state
+            .insert(
+                route.clone(),
+                PendingAskUser::new(
+                    sample_file_group(first_request_id, &["application/pdf"]),
+                    sample_attach_identity(),
+                ),
+                0,
+            )
+            .expect("first file request should register");
+
+        let conflict = state
+            .insert(
+                route,
+                PendingAskUser::new(
+                    sample_file_group("file-second", &["text/plain"]),
+                    sample_attach_identity(),
+                ),
+                0,
+            )
+            .expect_err("second live file request must be rejected");
+
+        assert_eq!(conflict, first_request_id);
+        assert!(state.by_request.contains_key(first_request_id));
+        assert!(!state.by_request.contains_key("file-second"));
     }
 
     #[test]
