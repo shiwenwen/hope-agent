@@ -317,7 +317,7 @@ export default function AcpControlPanel() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 shrink-0"
-                            aria-label={`${t("common.remove", "Remove")} ${argumentIndex + 1}`}
+                            aria-label={`${t("common.delete", "Delete")} ${argumentIndex + 1}`}
                             onClick={() =>
                               updateBackend(index, {
                                 acpArgs: backend.acpArgs.filter(
