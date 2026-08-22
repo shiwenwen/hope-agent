@@ -158,15 +158,50 @@ fn validate_arguments(value: &Value) -> Result<()> {
     if serde_json::to_vec(value)?.len() > MAX_ARGUMENT_BYTES {
         anyhow::bail!("Figma MCP arguments exceed 64 KiB");
     }
+    fn credential_shaped_key(key: &str) -> bool {
+        let normalized = key
+            .bytes()
+            .filter(u8::is_ascii_alphanumeric)
+            .map(|byte| byte.to_ascii_lowercase() as char)
+            .collect::<String>();
+        matches!(normalized.as_str(), "auth" | "oauth")
+            || [
+                "accesstoken",
+                "apikey",
+                "privatekey",
+                "secretkey",
+                "authorization",
+                "authheader",
+                "password",
+                "passphrase",
+                "credential",
+            ]
+            .iter()
+            .any(|marker| normalized.contains(marker))
+            || [
+                "token",
+                "secret",
+                "password",
+                "passphrase",
+                "apikey",
+                "privatekey",
+                "credential",
+                "credentials",
+                "authorization",
+                "cookie",
+                "cookies",
+                "headers",
+                "bearer",
+            ]
+            .iter()
+            .any(|suffix| normalized.ends_with(suffix))
+    }
+
     fn walk(value: &Value) -> bool {
         match value {
-            Value::Object(map) => map.iter().any(|(key, value)| {
-                let key = key.to_ascii_lowercase();
-                matches!(
-                    key.as_str(),
-                    "token" | "accesstoken" | "authorization" | "cookie" | "headers" | "secret"
-                ) || walk(value)
-            }),
+            Value::Object(map) => map
+                .iter()
+                .any(|(key, value)| credential_shaped_key(key) || walk(value)),
             Value::Array(values) => values.iter().any(walk),
             _ => false,
         }
@@ -689,6 +724,23 @@ mod tests {
     #[test]
     fn credentials_are_rejected_recursively() {
         assert!(validate_arguments(&serde_json::json!({"nested":{"authorization":"x"}})).is_err());
+        for key in [
+            "apiKey",
+            "api_key",
+            "personalAccessToken",
+            "figma-token",
+            "clientSecret",
+            "requestHeaders",
+            "private_key",
+            "authHeader",
+            "secret_key",
+            "passwordValue",
+        ] {
+            assert!(
+                validate_arguments(&serde_json::json!({key: "credential"})).is_err(),
+                "credential-shaped key {key} must be rejected"
+            );
+        }
         assert!(validate_arguments(&serde_json::json!({"fileKey":"abc"})).is_ok());
     }
 

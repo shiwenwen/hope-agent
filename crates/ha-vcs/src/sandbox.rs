@@ -1019,6 +1019,14 @@ async fn finalize_workspace_ownership<T>(
                 "Failed to restore sandbox workspace ownership; durable recovery journal retained: {}",
                 error
             );
+            return match result {
+                Ok(_) => Err(error).context(
+                    "restore sandbox workspace ownership before reporting command success",
+                ),
+                Err(execution_error) => Err(execution_error).context(format!(
+                    "sandbox execution failed and workspace ownership restoration also failed: {error:#}"
+                )),
+            };
         }
     }
     result
@@ -1947,6 +1955,55 @@ mod tests {
                 .is_some(),
             "explicit finalization must finish recovery and release the lock before returning"
         );
+    }
+
+    #[tokio::test]
+    async fn explicit_workspace_ownership_finalize_reports_restore_failure() {
+        let directory = tempfile::tempdir().expect("ownership tempdir");
+        let lock_path = directory.path().join("ownership.lock");
+        let lock = ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+            .expect("acquire ownership lock")
+            .expect("ownership lock available");
+        let journal_path = directory.path().join("invalid-journal.json");
+        std::fs::write(&journal_path, b"not json").expect("write invalid journal");
+        let mut guard = Some(WorkspaceOwnershipGuard {
+            restoration: Some((lock, journal_path.clone())),
+        });
+
+        let error = finalize_workspace_ownership(&mut guard, Ok("command succeeded"))
+            .await
+            .expect_err("ownership restoration must override command success");
+
+        assert!(error
+            .to_string()
+            .contains("restore sandbox workspace ownership before reporting command success"));
+        assert!(
+            journal_path.exists(),
+            "failed recovery must retain its journal"
+        );
+        assert!(guard.is_none());
+        assert!(
+            ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+                .expect("reacquire ownership lock")
+                .is_some(),
+            "failed explicit restoration must still release the OS lock"
+        );
+
+        let second_lock = ha_core::platform::try_acquire_exclusive_lock(&lock_path)
+            .expect("reacquire ownership lock for combined failure")
+            .expect("ownership lock available for combined failure");
+        let mut second_guard = Some(WorkspaceOwnershipGuard {
+            restoration: Some((second_lock, journal_path)),
+        });
+        let combined = finalize_workspace_ownership::<()>(
+            &mut second_guard,
+            Err(anyhow::anyhow!("container failure")),
+        )
+        .await
+        .expect_err("execution and restoration failures must be combined");
+        let combined = format!("{combined:#}");
+        assert!(combined.contains("container failure"));
+        assert!(combined.contains("workspace ownership restoration also failed"));
     }
 
     #[cfg(unix)]

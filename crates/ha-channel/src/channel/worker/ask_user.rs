@@ -288,20 +288,19 @@ impl PendingAskUserState {
     ) -> Result<(), String> {
         let request_id = pending.request_id.clone();
         self.prune_route(&route, now);
-        if pending_has_file_request(&pending) {
-            let conflicting_request = self.by_route.get(&route).and_then(|request_ids| {
-                request_ids.iter().find_map(|candidate| {
-                    (candidate != &request_id
-                        && self
-                            .by_request
-                            .get(candidate)
-                            .is_some_and(pending_has_file_request))
+        let pending_has_file = pending_has_file_request(&pending);
+        let conflicting_request = self.by_route.get(&route).and_then(|request_ids| {
+            request_ids.iter().find_map(|candidate| {
+                let existing_has_file = self
+                    .by_request
+                    .get(candidate)
+                    .is_some_and(pending_has_file_request);
+                (candidate != &request_id && (pending_has_file || existing_has_file))
                     .then(|| candidate.clone())
-                })
-            });
-            if let Some(conflicting_request) = conflicting_request {
-                return Err(conflicting_request);
-            }
+            })
+        });
+        if let Some(conflicting_request) = conflicting_request {
+            return Err(conflicting_request);
         }
         self.remove(&request_id);
         self.by_request.insert(request_id.clone(), pending);
@@ -972,7 +971,7 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 &conversation.chat_id,
                 conversation.thread_id.as_deref(),
             );
-            let conflicting_file_request = get_pending_state()
+            let conflicting_route_request = get_pending_state()
                 .lock()
                 .await
                 .insert(
@@ -981,7 +980,7 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                     now_secs(),
                 )
                 .err();
-            if let Some(conflicting_request_id) = conflicting_file_request {
+            if let Some(conflicting_request_id) = conflicting_route_request {
                 ask_user_mod::cancel_pending_ask_user_question_with_source(
                     &group.request_id,
                     "channel_file_route_conflict",
@@ -990,7 +989,7 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 app_warn!(
                     "channel",
                     "ask_user",
-                    "Rejected concurrent file request {} on a route already owned by {}",
+                    "Rejected ask_user request {} because route request {} has an exclusive file boundary",
                     group.request_id,
                     conflicting_request_id
                 );
@@ -2634,7 +2633,7 @@ mod tests {
     }
 
     #[test]
-    fn one_route_rejects_a_second_live_file_request() {
+    fn one_route_makes_file_requests_exclusive_with_every_live_prompt() {
         let route = (
             "telegram".to_string(),
             "account".to_string(),
@@ -2668,6 +2667,58 @@ mod tests {
         assert_eq!(conflict, first_request_id);
         assert!(state.by_request.contains_key(first_request_id));
         assert!(!state.by_request.contains_key("file-second"));
+
+        let mut text_after_file = sample_group();
+        text_after_file.request_id = "text-after-file".into();
+        assert_eq!(
+            state
+                .insert(
+                    (
+                        "telegram".to_string(),
+                        "account".to_string(),
+                        "chat".to_string(),
+                        None,
+                    ),
+                    PendingAskUser::new(text_after_file, sample_attach_identity()),
+                    0,
+                )
+                .expect_err("a text prompt must not hide a live file request"),
+            first_request_id
+        );
+
+        let mut text_first = sample_group();
+        text_first.request_id = "text-first".into();
+        let mut reverse = PendingAskUserState::default();
+        reverse
+            .insert(
+                (
+                    "telegram".to_string(),
+                    "account".to_string(),
+                    "chat".to_string(),
+                    None,
+                ),
+                PendingAskUser::new(text_first, sample_attach_identity()),
+                0,
+            )
+            .expect("ordinary prompt should register");
+        assert_eq!(
+            reverse
+                .insert(
+                    (
+                        "telegram".to_string(),
+                        "account".to_string(),
+                        "chat".to_string(),
+                        None,
+                    ),
+                    PendingAskUser::new(
+                        sample_file_group("file-after-text", &["application/pdf"]),
+                        sample_attach_identity(),
+                    ),
+                    0,
+                )
+                .expect_err("a file prompt must not hide a live text request"),
+            "text-first"
+        );
     }
 
     #[test]
