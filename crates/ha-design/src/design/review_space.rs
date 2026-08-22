@@ -339,6 +339,18 @@ pub(super) fn active_version_numbers_under_lock(
         .collect())
 }
 
+fn comments_for_grant(store: ReviewStore, grant: &ReviewGrant) -> Vec<ReviewComment> {
+    store
+        .comments
+        .into_iter()
+        .filter(|comment| {
+            comment.grant_id == grant.id
+                && comment.artifact_id == grant.artifact_id
+                && comment.version_number == grant.version_number
+        })
+        .collect()
+}
+
 pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
     let artifact_id =
         review_token_artifact_id(token).ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
@@ -359,11 +371,7 @@ pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
         version_number: grant.version_number,
         role: grant.role,
         html,
-        comments: store
-            .comments
-            .into_iter()
-            .filter(|c| c.version_number == grant.version_number)
-            .collect(),
+        comments: comments_for_grant(store, &grant),
     })
 }
 
@@ -479,5 +487,44 @@ mod tests {
             .push(comment(MAX_COMMENTS_PER_GRANT, "limited-grant"));
         assert!(comment_quota_reached(&store, "limited-grant"));
         assert!(!comment_quota_reached(&store, "other-grant"));
+    }
+
+    #[test]
+    fn snapshot_comments_are_scoped_to_the_authenticated_grant() {
+        let grant = ReviewGrant {
+            id: "grant-a".into(),
+            artifact_id: "artifact".into(),
+            version_number: 1,
+            role: ReviewRole::Commenter,
+            token_hash: "hash".into(),
+            expires_at: "2026-12-01T00:00:00Z".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            revoked_at: None,
+        };
+        let comment = |id: &str, grant_id: &str, version_number: i64| ReviewComment {
+            id: id.into(),
+            grant_id: grant_id.into(),
+            artifact_id: "artifact".into(),
+            version_number,
+            oid: None,
+            rel_x: 0.5,
+            rel_y: 0.5,
+            body: "note".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let store = ReviewStore {
+            version: 1,
+            comments: vec![
+                comment("visible", "grant-a", 1),
+                comment("other-grant", "grant-b", 1),
+                comment("other-version", "grant-a", 2),
+            ],
+            ..Default::default()
+        };
+
+        let comments = comments_for_grant(store, &grant);
+
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].id, "visible");
     }
 }

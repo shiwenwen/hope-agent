@@ -547,6 +547,12 @@ fn load_links(path: &Path) -> Result<Vec<FigmaLink>> {
     }
 }
 
+fn clear_committed_receipt(indeterminate: &Path) -> Result<()> {
+    std::fs::remove_file(indeterminate).context(
+        "remove Figma indeterminate receipt after committed roundtrip; reconcile the durable result before retrying",
+    )
+}
+
 fn persist_roundtrip_result(
     project_id: String,
     artifact_id: String,
@@ -607,7 +613,7 @@ fn persist_roundtrip_result(
     let mut links = load_links(&links_path)?;
     links.push(link.clone());
     write_atomic(&links_path, &serde_json::to_vec_pretty(&links)?)?;
-    let _ = std::fs::remove_file(indeterminate);
+    clear_committed_receipt(&indeterminate)?;
     Ok(FigmaRoundtripResult {
         link,
         external_context,
@@ -818,6 +824,19 @@ mod tests {
         assert!(has_indeterminate_receipt(dir.path()).unwrap());
         std::fs::remove_file(dir.path().join("preview.indeterminate")).unwrap();
         assert!(!has_indeterminate_receipt(dir.path()).unwrap());
+    }
+
+    #[test]
+    fn committed_roundtrip_does_not_hide_receipt_cleanup_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("receipt.indeterminate");
+        std::fs::create_dir(&marker).unwrap();
+
+        let error = clear_committed_receipt(&marker)
+            .expect_err("an uncleared receipt must keep the commit indeterminate");
+
+        assert!(error.to_string().contains("reconcile the durable result"));
+        assert!(marker.exists());
     }
 
     #[test]
