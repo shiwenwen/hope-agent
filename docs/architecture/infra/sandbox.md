@@ -237,7 +237,7 @@ Windows 原生 Docker daemon 不可达时，如果默认 WSL 发行版内的**�
 - 复制发生在 `spawn_blocking` 中，避免同步 `std::fs` 递归阻塞 tokio runtime。
 - 遍历用 `ignore::WalkBuilder`，`hidden(false)`——dotfile 不会仅因隐藏而被跳过，是否复制由 ignore 规则和硬编码兜底决定。
 - **gitignore 边界随 cwd 是否在 Git repo 内而变**：在 repo 内时读父级 `.gitignore` 并尊重 `.ignore` / `.git/info/exclude` / git global ignore（`parents / git_global / git_exclude / require_git` 全开）；不在 repo 内时只读 cwd 树内的 `.gitignore` / `.ignore`，避免父目录或全局规则意外影响隔离副本。
-- 复制与 tar 归档共享取消 token 和本次准备阶段 deadline；逐条、分块检查，取消 / 超时会 fail-fast。
+- 复制与 tar 归档共享取消 token 和本次准备阶段 deadline；目录遍历逐条检查，单文件复制每 **64 KiB** 在读取前、读取后写入前再次检查，取消 / 超时不会被最长 512 MiB 的整文件复制拖到结束后才生效。
 - 上限：最多复制 **512 MiB / 50,000 个文件或目录**（`ISOLATED_COPY_MAX_BYTES` / `ISOLATED_COPY_MAX_ENTRIES`）；超过后返回明确错误，建议改用 `workspace` mode 或收窄 cwd。
 - 跳过 symlink、特殊文件，以及这些常见 VCS / 依赖 / 构建缓存目录（`ISOLATED_COPY_EXCLUDED_DIRS`）：
 

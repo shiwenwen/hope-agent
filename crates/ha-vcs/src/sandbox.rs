@@ -21,7 +21,7 @@ use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -32,6 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 const ISOLATED_COPY_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const ISOLATED_COPY_MAX_ENTRIES: u64 = 50_000;
+const ISOLATED_COPY_CHUNK_BYTES: usize = 64 * 1024;
 const ROOT_SANDBOX_UID: u32 = 65_534;
 const ROOT_SANDBOX_GID: u32 = 65_534;
 const ISOLATED_COPY_EXCLUDED_DIRS: &[&str] = &[
@@ -1809,6 +1810,68 @@ fn find_git_root_for_ignore(path: &Path) -> Option<PathBuf> {
     None
 }
 
+fn copy_stream_bounded<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    expected_size: u64,
+    limits: &IsolatedCopyLimits,
+    stats: &IsolatedCopyStats,
+) -> Result<()> {
+    let mut buffer = [0_u8; ISOLATED_COPY_CHUNK_BYTES];
+    let mut copied = 0_u64;
+    loop {
+        limits.check(stats)?;
+        let read = reader.read(&mut buffer)?;
+        // A blocking read may have consumed the remaining deadline or observed
+        // cancellation. Recheck before publishing even this bounded chunk.
+        limits.check(stats)?;
+        if read == 0 {
+            break;
+        }
+        let next = copied
+            .checked_add(read as u64)
+            .ok_or_else(|| anyhow::anyhow!("isolated sandbox source size overflow"))?;
+        if next > expected_size {
+            anyhow::bail!("isolated sandbox source file grew while it was being copied");
+        }
+        writer.write_all(&buffer[..read])?;
+        copied = next;
+    }
+    if copied != expected_size {
+        anyhow::bail!("isolated sandbox source file changed size while it was being copied");
+    }
+    Ok(())
+}
+
+fn copy_file_bounded(
+    src: &Path,
+    dst: &Path,
+    expected_size: u64,
+    limits: &IsolatedCopyLimits,
+    stats: &IsolatedCopyStats,
+) -> Result<()> {
+    let result = (|| -> Result<()> {
+        let mut source = File::open(src)?;
+        let metadata = source.metadata()?;
+        if !metadata.is_file() || metadata.len() != expected_size {
+            anyhow::bail!("isolated sandbox source file changed before it could be copied");
+        }
+        let permissions = metadata.permissions();
+        let mut destination = File::create(dst)?;
+        copy_stream_bounded(&mut source, &mut destination, expected_size, limits, stats)?;
+        destination.flush()?;
+        drop(destination);
+        std::fs::set_permissions(dst, permissions)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        // The isolated root is temporary, but removing a partial file keeps the
+        // failure state unambiguous for callers and tests inspecting the copy.
+        let _ = std::fs::remove_file(dst);
+    }
+    result
+}
+
 fn copy_dir_gitignore_aware_bounded(
     src: &Path,
     dst: &Path,
@@ -1888,7 +1951,7 @@ fn copy_dir_gitignore_aware_bounded(
             if let Some(parent) = dst_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(src_path, dst_path)?;
+            copy_file_bounded(src_path, &dst_path, file_size, limits, stats)?;
         } else {
             app_debug!(
                 "sandbox",
@@ -2419,6 +2482,59 @@ mod tests {
         .expect_err("copy should fail when cancelled");
 
         assert!(err.to_string().contains("preparation cancelled"));
+    }
+
+    #[test]
+    fn isolated_copy_checks_cancellation_between_file_chunks() {
+        struct CancellingWriter {
+            bytes: Vec<u8>,
+            token: CancellationToken,
+        }
+
+        impl Write for CancellingWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.bytes.extend_from_slice(buf);
+                self.token.cancel();
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let source = vec![7_u8; ISOLATED_COPY_CHUNK_BYTES * 3];
+        let mut reader = std::io::Cursor::new(source.clone());
+        let cancellation_token = CancellationToken::new();
+        let limits = IsolatedCopyLimits {
+            max_bytes: source.len() as u64,
+            max_entries: 1,
+            deadline: None,
+            cancellation_token: Some(cancellation_token.clone()),
+        };
+        let stats = IsolatedCopyStats {
+            bytes: source.len() as u64,
+            entries: 1,
+            files: 1,
+            dirs: 0,
+        };
+        let mut writer = CancellingWriter {
+            bytes: Vec::new(),
+            token: cancellation_token,
+        };
+
+        let error = copy_stream_bounded(
+            &mut reader,
+            &mut writer,
+            source.len() as u64,
+            &limits,
+            &stats,
+        )
+        .expect_err("copy should stop before reading a second chunk");
+
+        assert!(error.to_string().contains("preparation cancelled"));
+        assert_eq!(writer.bytes.len(), ISOLATED_COPY_CHUNK_BYTES);
+        assert!(writer.bytes.len() < source.len());
     }
 }
 
