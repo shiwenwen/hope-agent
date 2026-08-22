@@ -340,12 +340,17 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 /// version_number / message / origin / prompt_summary，溯源不丢）。任一产物拷贝失败即整体
 /// 回滚（删新项目目录 + DB 级联删行），不留半个副本。
 pub fn duplicate_project(id: &str) -> Result<DesignProject> {
+    let _source_project_lifecycle_guard = acquire_project_lifecycle_lock(id)?;
     let db = open_db()?;
     let src = db
         .get_project(id)?
         .with_context(|| format!("project not found: {id}"))?;
     let ts = now();
     let new_pid = new_id();
+    // The target project becomes visible in the registry before its artifact
+    // copies finish. Hold its admission lock so a second process cannot delete
+    // that partially constructed project.
+    let _target_project_lifecycle_guard = acquire_project_lifecycle_lock(&new_pid)?;
     let project = DesignProject {
         id: new_pid.clone(),
         title: format!("{} (副本)", src.title),
@@ -457,13 +462,22 @@ pub fn rename_artifact(id: &str, title: &str) -> Result<DesignArtifact> {
 /// oidmap）+ 版本行（保留溯源）；标题加「(副本)」；位序自增追加末尾。失败整体回滚。
 pub fn duplicate_artifact(id: &str) -> Result<DesignArtifact> {
     let db = open_db()?;
+    let candidate = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    let _project_lifecycle_guard = acquire_project_lifecycle_lock(&candidate.project_id)?;
+    let _artifact_lifecycle_guard =
+        acquire_artifact_lifecycle_lock(&candidate.project_id, &candidate.id)?;
     // 持 artifact_lock 串行化整段拷贝（与 finalize/update/restyle/patch 互斥，防拷到源被并发
-    // 改写中的半新半旧目录 / 版本行 TOCTOU，review 修复）。锁内读 src 保证状态一致。
+    // 改写中的半新半旧目录 / 版本行 TOCTOU，review 修复）。锁内重读 src 保证状态一致。
     let lock = artifact_lock(id);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let src = db
         .get_artifact(id)?
         .with_context(|| format!("artifact not found: {id}"))?;
+    if src.project_id != candidate.project_id {
+        anyhow::bail!("artifact identity changed while waiting for lifecycle lock");
+    }
     // 生成中的产物没有稳定正文/版本行，拷出来是永远转圈的幽灵 → 拒绝（review 修复）。
     if src.status == "generating" {
         anyhow::bail!("cannot duplicate an artifact that is still generating");
@@ -1116,7 +1130,46 @@ pub fn set_project_code_binding(
 
 /// 删除项目：DB 级联删产物/版本 + `rm -rf` 项目目录。
 pub fn delete_project(id: &str) -> Result<()> {
+    // Project creation/deletion and every artifact-creation path share this
+    // stable lock. It closes the admission window before we enumerate the
+    // project's existing artifacts, so no new artifact can appear outside the
+    // per-artifact lifecycle lock set collected below.
+    let _project_lifecycle_guard = acquire_project_lifecycle_lock(id)?;
     let db = open_db()?;
+    let mut artifacts = db.list_artifacts(id)?;
+    artifacts.sort_by(|left, right| left.id.cmp(&right.id));
+    for artifact in &artifacts {
+        cancel_generation(&artifact.id);
+    }
+    // Figma roundtrips, scenario writes, and review-store mutations all use
+    // these stable cross-process locks. Acquire them in artifact-id order and
+    // retain every guard through the DB cascade and directory removal.
+    let _artifact_lifecycle_guards = artifacts
+        .iter()
+        .map(|artifact| acquire_artifact_lifecycle_lock(&artifact.project_id, &artifact.id))
+        .collect::<Result<Vec<_>>>()?;
+    // Mirror delete_artifact's same-process serialization after lifecycle
+    // admission. Building the Arc list first lets the mutex guards borrow it
+    // for the remainder of this function without a self-referential owner.
+    let artifact_locks = artifacts
+        .iter()
+        .map(|artifact| artifact_lock(&artifact.id))
+        .collect::<Vec<_>>();
+    let _artifact_guards = artifact_locks
+        .iter()
+        .map(|lock| lock.lock().unwrap_or_else(|e| e.into_inner()))
+        .collect::<Vec<_>>();
+    let locked_ids = artifacts
+        .iter()
+        .map(|artifact| artifact.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    if db
+        .list_artifacts(id)?
+        .iter()
+        .any(|artifact| !locked_ids.contains(artifact.id.as_str()))
+    {
+        anyhow::bail!("project artifacts changed while waiting for lifecycle locks");
+    }
     // Tear down the (otherwise hidden) `kind='design'` chat sessions anchored to
     // this project BEFORE the project row goes away — collect first, then delete
     // each session (which cascades its `design_chat_threads` row + messages).
@@ -1635,6 +1688,7 @@ fn resolve_self_check(
 }
 
 pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
+    let _project_lifecycle_guard = acquire_project_lifecycle_lock(&input.project_id)?;
     let db = open_db()?;
     let kind = ArtifactKind::from_str(&input.kind)
         .with_context(|| format!("unknown artifact kind: {}", input.kind))?;
@@ -2274,6 +2328,7 @@ pub fn import_image_artifact(
 /// 建 generating 壳：status=generating + 流式占位 index.html（CSS-first head 定稿 + 空 body
 /// 容器 + 常驻接收脚本），立即返回让前端挂稳定 iframe。内容由 `stream_generate_artifact` 回填。
 pub fn create_artifact_shell(input: &CreateArtifactInput) -> Result<DesignArtifact> {
+    let _project_lifecycle_guard = acquire_project_lifecycle_lock(&input.project_id)?;
     let db = open_db()?;
     let kind = ArtifactKind::from_str(&input.kind)
         .with_context(|| format!("unknown artifact kind: {}", input.kind))?;
@@ -3331,6 +3386,31 @@ pub(super) fn artifact_lock(artifact_id: &str) -> std::sync::Arc<std::sync::Mute
 
 const ARTIFACT_LIFECYCLE_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const ARTIFACT_LIFECYCLE_LOCK_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+fn project_lifecycle_lock_path(project_id: &str) -> Result<std::path::PathBuf> {
+    let key = blake3::hash(project_id.as_bytes()).to_hex();
+    Ok(paths::design_dir()?
+        .join("locks")
+        .join("project-lifecycle")
+        .join(format!("{key}.lock")))
+}
+
+fn acquire_project_lifecycle_lock(project_id: &str) -> Result<std::fs::File> {
+    acquire_project_lifecycle_lock_at(project_lifecycle_lock_path(project_id)?)
+}
+
+fn acquire_project_lifecycle_lock_at(lock_path: std::path::PathBuf) -> Result<std::fs::File> {
+    let started = std::time::Instant::now();
+    loop {
+        match ha_core::platform::try_acquire_exclusive_lock(&lock_path)? {
+            Some(file) => return Ok(file),
+            None if started.elapsed() < ARTIFACT_LIFECYCLE_LOCK_TIMEOUT => {
+                std::thread::sleep(ARTIFACT_LIFECYCLE_LOCK_POLL)
+            }
+            None => anyhow::bail!("timed out waiting for project lifecycle lock"),
+        }
+    }
+}
 
 fn artifact_lifecycle_lock_path(project_id: &str, artifact_id: &str) -> Result<std::path::PathBuf> {
     // Hash the storage identity instead of joining caller-controlled IDs into

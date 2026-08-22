@@ -744,7 +744,7 @@ graph LR
 1. `preview` 校验 namespaced 工具白名单、参数大小与凭据字段，计算本地产物哈希，写一份 10 分钟有效的一次性预览；同一产物只保留最新预览，新预览会淘汰尚未提交的旧预览；
 2. `commit` 同时核对预览 id 与预期本地哈希，原子消费回执后才调用 MCP。写向只允许 `generate_figma_design` / `use_figma`，读向只允许 `get_design_context` / `get_screenshot`。
 
-本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并按 BLAKE3 内容寻址存入 `external/imports/`；链接同时记录上下文哈希、产物相对路径，以及 Figma→Hope 对应的新版本号。Figma→Hope 只创建一个固定新版本，把同一份不可信信封挂入该版本既有的 `prompt_summary` 文本溯源，版本历史因此可读取与复制完整上下文，但绝不把外部文本直接解释为 HTML/JS。预览、提交与未决回执裁决共享按产物哈希命名的稳定 OS 排他锁；锁覆盖预览替换、回执复核、`.indeterminate` 标记、MCP 外部调用、链接落盘、标记移除与裁决，桌面和 HTTP 守护进程共享数据目录时也只有一个调用能越过外部副作用边界。它们还与产物删除共享位于产物目录外的稳定生命周期锁：提交从最终产物与回执复核开始，跨 MCP 外部调用一直持锁到本地版本、链接和回执状态全部落盘；预览与裁决的旁路文件写入也在同一锁内并于持锁后复核产物身份。删除因此只能先完整完成、等待，或有界失败，不能在远端副作用进行中移除数据库行和目录。锁等待在 blocking 池中有界执行，不能用进程内 `OnceLock<Mutex>` 代替。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放。产品界面列出未决回执，用户核对 Figma 后必须对精确回执明确选择“已发生”或“未发生”；后端以回执 ID + 本地哈希做 CAS 校验，先把裁决原子写入 `external/reconciled/`，再移除 `.indeterminate` 标记，任一步失败均保持阻断，避免重复外部副作用。
+本地只持久化 `provider/tool/resource/node/direction/localHash/remoteVersion/remoteUrl` 等链接元数据，不保存 token、Cookie 或请求头。Figma 返回正文以 `<untrusted_external_data source="figma-mcp">` 包裹并按 BLAKE3 内容寻址存入 `external/imports/`；链接同时记录上下文哈希、产物相对路径，以及 Figma→Hope 对应的新版本号。Figma→Hope 只创建一个固定新版本，把同一份不可信信封挂入该版本既有的 `prompt_summary` 文本溯源，版本历史因此可读取与复制完整上下文，但绝不把外部文本直接解释为 HTML/JS。预览、提交与未决回执裁决共享按产物哈希命名的稳定 OS 排他锁；锁覆盖预览替换、回执复核、`.indeterminate` 标记、MCP 外部调用、链接落盘、标记移除与裁决，桌面和 HTTP 守护进程共享数据目录时也只有一个调用能越过外部副作用边界。它们还与产物及项目删除共享位于产物目录外的稳定生命周期锁：提交从最终产物与回执复核开始，跨 MCP 外部调用一直持锁到本地版本、链接和回执状态全部落盘；预览与裁决的旁路文件写入也在同一锁内并于持锁后复核产物身份。项目删除先用项目级生命周期锁关闭新产物准入，再按产物 ID 顺序持有全部既有产物锁直至数据库级联和目录移除完成；删除因此只能先完整完成、等待，或有界失败，不能在远端副作用进行中移除数据库行和目录。锁等待在 blocking 池中有界执行，不能用进程内 `OnceLock<Mutex>` 代替。外部调用一旦开始，错误或超时都视为投递结果不确定，回执保持已消费且禁止自动重放。产品界面列出未决回执，用户核对 Figma 后必须对精确回执明确选择“已发生”或“未发生”；后端以回执 ID + 本地哈希做 CAS 校验，先把裁决原子写入 `external/reconciled/`，再移除 `.indeterminate` 标记，任一步失败均保持阻断，避免重复外部副作用。
 
 ### 12.7 确定性视觉回归与预览场景
 
@@ -752,12 +752,12 @@ graph LR
 - 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。
 - 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`。
 - 通过/失败只由像素差异（变化像素比、平均通道差）与静态 DOM/无障碍规则决定；视觉模型只能作为可选建议，不能覆盖确定性结果。
-- `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。读取返回内容哈希，整文保存必须携带 `expectedHash` 并在跨进程锁内复核，陈旧写入失败关闭。保存与产物删除还须共用位于产物目录外的稳定生命周期锁，并在持锁后重新确认 DB 产物仍存在；删除先完成时禁止 `write_atomic` 重建孤儿目录。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
+- `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。读取返回内容哈希，整文保存必须携带 `expectedHash` 并在跨进程锁内复核，陈旧写入失败关闭。保存与产物或项目删除还须共用位于产物目录外的稳定生命周期锁，并在持锁后重新确认 DB 产物仍存在；删除先完成时禁止 `write_atomic` 重建孤儿目录。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
 
 ### 12.8 组件清单与固定版本评审
 
 - `components.manifest.json` 是已发布清单，`components.manifest.draft.json` 是未发布草稿；组件最多 1000 个，import path 必须为无 `..` 的相对路径，mode props 必须为有界 JSON object。绑定仓库扫描只读、不执行源码、拒 symlink，并跳过 `node_modules/.git/dist/target`。发布必须带上次读取的已发布 BLAKE3 哈希，陈旧写 fail closed。
-- 固定版本评审 grant 只有 `viewer/commenter` 两种 scope，最长 90 天，锚定 `artifactId + versionNumber`。Bearer 携带版本化的 `artifactId` 定位段和 256 位随机密钥，只在创建回执返回一次，磁盘仅保存完整 bearer 的 BLAKE3 哈希；公开鉴权先按定位段做一次制品主键查询，再只读该制品的一份评审存储，格式错误或随机未命中不得扫描全部制品。支持过期、撤销和审计事件。
+- 固定版本评审授权只有 `viewer/commenter` 两种范围，最长 90 天，锚定 `artifactId + versionNumber`。Bearer 携带版本化的 `artifactId` 定位段和 256 位随机密钥，只在创建回执返回一次，磁盘仅保存完整 bearer 的 BLAKE3 哈希；公开鉴权先按定位段做一次产物主键查询，再只读该产物的一份评审存储，格式错误或随机未命中不得扫描全部产物。授权创建、撤销、快照读取与评论写入都先持有产物生命周期锁并重新确认数据库身份，直到对应评审存储操作结束，产物或项目删除不能让授权写入重建孤儿目录。支持过期、撤销和审计事件。
 - 组件草稿读回 `hash`，保存与发布均须在共享 OS 锁内复核 `expectedDraftHash`；发布还复核 `expectedPublishedHash`。发布前先把提交正文原子同步为草稿，发布成功后再清草稿；若平台临时拒绝删除，只有确认残留草稿与发布正文逐字节一致才可返回成功，避免旧草稿重新遮住新版本。
 - `review/store.json` 的创建、撤销与新增评论都是完整的读改写事务，事务期间持稳定 `review/store.lock` 上的 OS 级排他锁；桌面与 HTTP 守护进程共享数据目录时不得用进程内 mutex 代替，否则陈旧写会复活已撤销 grant 或丢评论。
 - 评审 bearer 只走 `Authorization` header，禁止进入 URL。公开评审面只能读取固定版本快照或由 commenter 新增锚定评论，不能修改产物正文、创建新版本或取得 owner 权限；owner 仍是唯一可创建/撤销 grant 的主体。

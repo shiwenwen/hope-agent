@@ -196,11 +196,37 @@ pub(super) fn acquire_artifact_review_lock(
     acquire_store_lock(&store_path(project_id, artifact_id)?)
 }
 
+fn acquire_live_artifact_lifecycle(
+    artifact_id: &str,
+    not_found_message: &str,
+) -> Result<(super::DesignArtifact, std::fs::File)> {
+    let candidate = super::service::get_artifact(artifact_id)?
+        .ok_or_else(|| anyhow::anyhow!("{not_found_message}"))?;
+    let guard =
+        super::service::acquire_artifact_lifecycle_lock(&candidate.project_id, &candidate.id)?;
+    let artifact = super::service::get_artifact(artifact_id)?
+        .ok_or_else(|| anyhow::anyhow!("{not_found_message}"))?;
+    if artifact.project_id != candidate.project_id {
+        anyhow::bail!("{not_found_message}");
+    }
+    Ok((artifact, guard))
+}
+
 pub fn create(input: CreateReviewInput) -> Result<CreatedReviewGrant> {
+    let (candidate, _lifecycle_guard) = acquire_live_artifact_lifecycle(
+        &input.artifact_id,
+        &format!("artifact not found: {}", input.artifact_id),
+    )?;
     let artifact_guard = super::service::artifact_lock(&input.artifact_id);
     let _artifact_guard = artifact_guard.lock().unwrap_or_else(|e| e.into_inner());
+    // The process-local mutex may have waited behind a version update. Re-read
+    // while still holding the cross-process lifecycle guard before validating
+    // and persisting a token for the exact snapshot.
     let artifact = super::service::get_artifact(&input.artifact_id)?
         .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
+    if artifact.project_id != candidate.project_id {
+        anyhow::bail!("artifact identity changed while waiting for lifecycle lock");
+    }
     if input.version_number <= 0 || input.version_number > artifact.current_version {
         anyhow::bail!("invalid artifact version");
     }
@@ -248,8 +274,10 @@ pub fn list(artifact_id: &str) -> Result<Vec<ReviewGrant>> {
 }
 
 pub fn revoke(artifact_id: &str, grant_id: &str) -> Result<bool> {
-    let artifact = super::service::get_artifact(artifact_id)?
-        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let (artifact, _lifecycle_guard) = acquire_live_artifact_lifecycle(
+        artifact_id,
+        &format!("artifact not found: {artifact_id}"),
+    )?;
     let path = store_path(&artifact.project_id, artifact_id)?;
     let _guard = acquire_store_lock(&path)?;
     let mut store = load(&path)?;
@@ -314,10 +342,15 @@ pub(super) fn active_version_numbers_under_lock(
 pub fn snapshot(token: &str) -> Result<ReviewSnapshot> {
     let artifact_id =
         review_token_artifact_id(token).ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
+    let (candidate, _lifecycle_guard) =
+        acquire_live_artifact_lifecycle(artifact_id, "review grant not found")?;
     let artifact_guard = super::service::artifact_lock(artifact_id);
     let _artifact_guard = artifact_guard.lock().unwrap_or_else(|e| e.into_inner());
     let artifact = super::service::get_artifact(artifact_id)?
         .ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
+    if artifact.project_id != candidate.project_id {
+        anyhow::bail!("review grant not found");
+    }
     let _review_guard = acquire_artifact_review_lock(&artifact.project_id, &artifact.id)?;
     let (_, store, grant) = authorize(token)?;
     let html = super::service::get_artifact_version_html(&grant.artifact_id, grant.version_number)?;
@@ -345,8 +378,13 @@ fn comment_quota_reached(store: &ReviewStore, grant_id: &str) -> bool {
 }
 
 pub fn add_comment(token: &str, input: AddReviewCommentInput) -> Result<ReviewComment> {
-    let (path, _, grant) = authorize(token)?;
+    let artifact_id =
+        review_token_artifact_id(token).ok_or_else(|| anyhow::anyhow!("review grant not found"))?;
+    let (artifact, _lifecycle_guard) =
+        acquire_live_artifact_lifecycle(artifact_id, "review grant not found")?;
+    let path = store_path(&artifact.project_id, &artifact.id)?;
     let _guard = acquire_store_lock(&path)?;
+    let (_, _, grant) = authorize(token)?;
     let mut store = load(&path)?;
     let hash = token_hash(token);
     let live = store.grants.iter().any(|candidate| {
