@@ -622,7 +622,9 @@ fn previous_verified_binary(
     runtime_root: &Path,
     platform: &str,
     current_version: &str,
+    minimum_compatible_version: &str,
 ) -> Option<PathBuf> {
+    let minimum_compatible_key = version_key(minimum_compatible_version)?;
     let mut candidates = Vec::new();
     let entries = std::fs::read_dir(runtime_root).ok()?;
     for entry in entries.flatten() {
@@ -665,7 +667,7 @@ fn previous_verified_binary(
         let Some(key) = version_key(&marker.version) else {
             continue;
         };
-        if binary.exists() {
+        if key >= minimum_compatible_key && binary.exists() {
             candidates.push((key, binary));
         }
     }
@@ -690,6 +692,7 @@ pub fn cached_binary_path() -> Option<PathBuf> {
             &paths::browser_runtime_dir().ok()?,
             &spec.platform,
             &spec.version,
+            &manifest.minimum_compatible_version,
         )
     }
 }
@@ -762,5 +765,48 @@ mod tests {
         // monkey-patching HOME, but at minimum the function must not
         // panic when nothing's been downloaded.
         let _ = cached_binary_path();
+    }
+
+    #[test]
+    fn previous_runtime_fallback_enforces_the_current_compatibility_floor() {
+        let runtime_root = tempfile::tempdir().expect("runtime tempdir");
+        let (manifest, spec) = required_spec().expect("supported test platform runtime spec");
+
+        let write_candidate = |name: &str, version: &str| {
+            let dir = runtime_root.path().join(name);
+            std::fs::create_dir_all(&dir).expect("candidate directory");
+            let mut marker = expected_ready_marker(&manifest, &spec);
+            marker.version = version.to_string();
+            let binary = dir.join(&marker.binary_relpath);
+            std::fs::create_dir_all(binary.parent().expect("binary parent"))
+                .expect("binary parent directory");
+            std::fs::write(&binary, b"chrome").expect("candidate binary");
+            std::fs::write(
+                dir.join(READY_MARKER),
+                serde_json::to_vec(&marker).expect("candidate marker"),
+            )
+            .expect("write candidate marker");
+            binary
+        };
+
+        let below_floor = write_candidate("below", "150.9.9999.999");
+        let compatible = write_candidate("compatible", &manifest.minimum_compatible_version);
+        let selected = previous_verified_binary(
+            runtime_root.path(),
+            &spec.platform,
+            &spec.version,
+            &manifest.minimum_compatible_version,
+        )
+        .expect("compatible previous runtime");
+
+        assert_eq!(selected, compatible);
+        assert_ne!(selected, below_floor);
+        assert!(previous_verified_binary(
+            runtime_root.path(),
+            &spec.platform,
+            &spec.version,
+            "999.0.0.0",
+        )
+        .is_none());
     }
 }

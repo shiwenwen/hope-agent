@@ -376,7 +376,7 @@ pub async fn accept_design_visual_baseline_cmd(
 #[tauri::command]
 pub async fn get_design_scenarios_cmd(
     artifact_id: String,
-) -> Result<ha_design::design::scenarios::ScenariosManifest, CmdError> {
+) -> Result<ha_design::design::scenarios::ScenariosEnvelope, CmdError> {
     ha_core::blocking::run_blocking(move || ha_design::design::scenarios::get(&artifact_id))
         .await
         .map_err(Into::into)
@@ -385,10 +385,11 @@ pub async fn get_design_scenarios_cmd(
 #[tauri::command]
 pub async fn save_design_scenarios_cmd(
     artifact_id: String,
+    expected_hash: String,
     manifest: ha_design::design::scenarios::ScenariosManifest,
-) -> Result<ha_design::design::scenarios::ScenariosManifest, CmdError> {
+) -> Result<ha_design::design::scenarios::ScenariosEnvelope, CmdError> {
     ha_core::blocking::run_blocking(move || {
-        ha_design::design::scenarios::save(&artifact_id, manifest)
+        ha_design::design::scenarios::save(&artifact_id, &expected_hash, manifest)
     })
     .await
     .map_err(Into::into)

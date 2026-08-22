@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use ha_core::platform::write_atomic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
 const MAX_SCENARIOS: usize = 12;
 const MAX_VIEWPORTS: usize = 4;
@@ -60,6 +61,13 @@ impl Default for ScenariosManifest {
             }],
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScenariosEnvelope {
+    pub manifest: ScenariosManifest,
+    pub hash: String,
 }
 
 fn valid_id(value: &str) -> bool {
@@ -120,7 +128,7 @@ fn validate(manifest: &ScenariosManifest) -> Result<()> {
     Ok(())
 }
 
-fn path(artifact_id: &str) -> Result<std::path::PathBuf> {
+fn path(artifact_id: &str) -> Result<PathBuf> {
     let artifact = super::service::get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     Ok(
@@ -129,25 +137,64 @@ fn path(artifact_id: &str) -> Result<std::path::PathBuf> {
     )
 }
 
-pub fn get(artifact_id: &str) -> Result<ScenariosManifest> {
-    let path = path(artifact_id)?;
-    match std::fs::read(&path) {
-        Ok(bytes) => {
-            let manifest: ScenariosManifest = serde_json::from_slice(&bytes)?;
-            validate(&manifest)?;
-            Ok(manifest)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ScenariosManifest::default()),
-        Err(e) => Err(e).context("read scenarios manifest"),
-    }
+fn hash_bytes(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 
-pub fn save(artifact_id: &str, manifest: ScenariosManifest) -> Result<ScenariosManifest> {
+fn read_one(path: &Path) -> Result<ScenariosEnvelope> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::to_vec_pretty(&ScenariosManifest::default())?
+        }
+        Err(e) => return Err(e).context("read scenarios manifest"),
+    };
+    let manifest: ScenariosManifest = serde_json::from_slice(&bytes)?;
     validate(&manifest)?;
-    let path = path(artifact_id)?;
+    Ok(ScenariosEnvelope {
+        manifest,
+        hash: hash_bytes(&bytes),
+    })
+}
+
+fn manifest_lock_path(path: &Path) -> PathBuf {
+    path.with_extension("update.lock")
+}
+
+fn acquire_manifest_lock(path: &Path) -> Result<std::fs::File> {
+    ha_core::platform::try_acquire_exclusive_lock(&manifest_lock_path(path))?
+        .ok_or_else(|| anyhow::anyhow!("scenarios manifest update already in progress"))
+}
+
+fn save_to_path(
+    path: &Path,
+    expected_hash: &str,
+    manifest: ScenariosManifest,
+) -> Result<ScenariosEnvelope> {
+    validate(&manifest)?;
+    let _manifest_guard = acquire_manifest_lock(path)?;
+    let current = read_one(path)?;
+    if current.hash != expected_hash {
+        anyhow::bail!("stale scenarios manifest: saved version changed");
+    }
     let bytes = serde_json::to_vec_pretty(&manifest)?;
-    write_atomic(&path, &bytes)?;
-    Ok(manifest)
+    write_atomic(path, &bytes)?;
+    Ok(ScenariosEnvelope {
+        manifest,
+        hash: hash_bytes(&bytes),
+    })
+}
+
+pub fn get(artifact_id: &str) -> Result<ScenariosEnvelope> {
+    read_one(&path(artifact_id)?)
+}
+
+pub fn save(
+    artifact_id: &str,
+    expected_hash: &str,
+    manifest: ScenariosManifest,
+) -> Result<ScenariosEnvelope> {
+    save_to_path(&path(artifact_id)?, expected_hash, manifest)
 }
 
 #[cfg(test)]
@@ -169,5 +216,26 @@ mod tests {
             })
             .collect();
         assert!(validate(&manifest).is_err());
+    }
+
+    #[test]
+    fn stale_whole_manifest_save_is_rejected_without_losing_the_winner() {
+        let directory = tempfile::tempdir().expect("scenarios tempdir");
+        let path = directory.path().join("scenarios.json");
+        let original = read_one(&path).expect("default manifest");
+
+        let mut first = original.manifest.clone();
+        first.scenarios[0].title = "first writer".to_string();
+        let first = save_to_path(&path, &original.hash, first).expect("first save");
+
+        let mut stale = original.manifest;
+        stale.scenarios[0].title = "stale writer".to_string();
+        let error =
+            save_to_path(&path, &original.hash, stale).expect_err("stale save must fail closed");
+        assert!(error.to_string().contains("stale scenarios manifest"));
+
+        let current = read_one(&path).expect("current manifest");
+        assert_eq!(current.hash, first.hash);
+        assert_eq!(current.manifest.scenarios[0].title, "first writer");
     }
 }

@@ -1090,7 +1090,10 @@ async fn recovery_loop_with_backoff(
                         .ok_or_else(|| {
                             IMessageRpcError::transport("messages.after result omitted next_rowid")
                         })?;
-                    runtime.lock().await.last_rowid = cursor;
+                    {
+                        let mut state = runtime.lock().await;
+                        state.last_rowid = state.last_rowid.max(cursor);
+                    }
                     if !page
                         .get("has_more")
                         .and_then(Value::as_bool)
@@ -1099,6 +1102,12 @@ async fn recovery_loop_with_backoff(
                         break;
                     }
                 }
+                // Live watch notifications keep flowing while overflow
+                // catch-up RPCs are in flight. Subscribe from the shared
+                // monotonic high-water mark so an older page cursor can never
+                // regress restart recovery or replay already-evicted dedupe
+                // entries after a child exit.
+                cursor = runtime.lock().await.last_rowid.max(cursor);
                 watch_subscribe(&rpc, Some(cursor)).await?;
                 Ok::<(), IMessageRpcError>(())
             }
@@ -1362,7 +1371,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn overflow_recovery_retries_catch_up_and_resubscribe_after_transient_failure() {
+    async fn overflow_recovery_preserves_live_high_water_across_catch_up_and_resubscribe() {
         let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
         let pending = Arc::new(Mutex::new(HashMap::new()));
         let rpc = RpcHandle {
@@ -1403,7 +1412,7 @@ mod tests {
                     }
                     _ => {
                         assert_eq!(request["method"].as_str(), Some("watch.subscribe"));
-                        assert_eq!(request["params"]["since_rowid"].as_i64(), Some(12));
+                        assert_eq!(request["params"]["since_rowid"].as_i64(), Some(20));
                         sender
                             .send(Ok(serde_json::json!({})))
                             .expect("RPC caller remains active");
@@ -1413,6 +1422,9 @@ mod tests {
         });
         let runtime = Arc::new(Mutex::new(RuntimeState {
             degraded_error: Some("overflow pending".to_string()),
+            // A live notification advanced beyond this catch-up page while
+            // the overflow recovery RPC was in flight.
+            last_rowid: 20,
             ..RuntimeState::default()
         }));
         let deduper = Arc::new(Mutex::new(InboundDeduper::default()));
@@ -1435,7 +1447,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let state = runtime.lock().await;
-                if state.degraded_error.is_none() && state.last_rowid == 12 {
+                if state.degraded_error.is_none() && state.last_rowid == 20 {
                     break;
                 }
                 drop(state);

@@ -1005,7 +1005,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | _(公开只读快照，无鉴权)_ | `GET /api/design/share/{token}` | ✅ HTTP-only |
 | `run_design_visual_regression_cmd` | `POST /api/design/artifacts/{artifactId}/visual-regression`（固定三视口截图 + 像素差 + 静态 DOM/a11y） | ✅ |
 | `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（显式 owner 接受，`expectedArtifactHash` 防陈旧写） | ✅ |
-| `get/save_design_scenarios_cmd` | `GET/PUT /api/design/artifacts/{artifactId}/scenarios`（≤12 场景、≤4 视口、本地 route） | ✅ |
+| `get/save_design_scenarios_cmd` | `GET/PUT /api/design/artifacts/{artifactId}/scenarios`（≤12 场景、≤4 视口、本地 route；GET 返回 `manifest + hash`，PUT 必带 `expectedHash` 防陈旧整文覆盖） | ✅ |
 | `get_design_components_manifest_cmd` | `GET /api/design/projects/{projectId}/components?draft=` | ✅ |
 | `save_design_components_draft_cmd` | `PUT /api/design/projects/{projectId}/components/draft` | ✅ |
 | `publish_design_components_manifest_cmd` | `POST /api/design/components/publish`（expected published hash） | ✅ |

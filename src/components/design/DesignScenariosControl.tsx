@@ -43,6 +43,11 @@ interface Manifest {
   scenarios: DesignScenario[]
 }
 
+interface ManifestEnvelope {
+  manifest: Manifest
+  hash: string
+}
+
 interface Props {
   artifactId: string
   onApply: (scenario: DesignScenario, viewport?: DesignScenarioViewport) => void
@@ -51,7 +56,7 @@ interface Props {
 export function DesignScenariosControl({ artifactId, onApply }: Props) {
   const { t } = useTranslation()
   const tx = getTransport()
-  const [manifest, setManifest] = useState<Manifest | null>(null)
+  const [envelope, setEnvelope] = useState<ManifestEnvelope | null>(null)
   const [selectedId, setSelectedId] = useState("default")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [draft, setDraft] = useState("")
@@ -69,13 +74,14 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
 
   useEffect(() => {
     let alive = true
-    tx.call<Manifest>("get_design_scenarios_cmd", { artifactId })
+    setEnvelope(null)
+    tx.call<ManifestEnvelope>("get_design_scenarios_cmd", { artifactId })
       .then((value) => {
         if (!alive) return
-        setManifest(value)
-        const first = value.scenarios[0]
+        setEnvelope(value)
+        const first = value.manifest.scenarios[0]
         setSelectedId(first?.id ?? "default")
-        if (first) applyScenario(value, first)
+        if (first) applyScenario(value.manifest, first)
       })
       .catch((e) => logger.warn("design", "DesignScenariosControl::load", "load failed", e))
     return () => {
@@ -83,6 +89,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
     }
   }, [applyScenario, artifactId, tx])
 
+  const manifest = envelope?.manifest ?? null
   const scenarios = useMemo(() => manifest?.scenarios ?? [], [manifest])
 
   const choose = (id: string) => {
@@ -104,6 +111,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
   }
 
   const save = async () => {
+    if (!envelope) return
     let value: Manifest
     try {
       value = JSON.parse(draft) as Manifest
@@ -113,14 +121,15 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
     }
     setBusy(true)
     try {
-      const saved = await tx.call<Manifest>("save_design_scenarios_cmd", {
+      const saved = await tx.call<ManifestEnvelope>("save_design_scenarios_cmd", {
         artifactId,
+        expectedHash: envelope.hash,
         manifest: value,
       })
-      setManifest(saved)
-      const first = saved.scenarios[0]
+      setEnvelope(saved)
+      const first = saved.manifest.scenarios[0]
       setSelectedId(first?.id ?? "default")
-      if (first) applyScenario(saved, first)
+      if (first) applyScenario(saved.manifest, first)
       setDialogOpen(false)
       toast.success(t("design.scenarios.saved", "场景清单已保存"))
     } catch (e) {
@@ -153,7 +162,13 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Button variant="ghost" size="icon" className="h-5 w-5 rounded-l-none" onClick={openEditor}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 rounded-l-none"
+          disabled={!envelope}
+          onClick={openEditor}
+        >
           <Settings2 className="h-3 w-3" />
         </Button>
       </div>

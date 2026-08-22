@@ -122,7 +122,9 @@ pub struct QualityAcceptBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveScenariosBody {
+    pub expected_hash: String,
     pub manifest: ha_design::design::scenarios::ScenariosManifest,
 }
 
@@ -1047,7 +1049,7 @@ pub async fn accept_visual_baseline_unscoped(
 
 pub async fn get_scenarios(
     Path(id): Path<String>,
-) -> Result<Json<ha_design::design::scenarios::ScenariosManifest>, AppError> {
+) -> Result<Json<ha_design::design::scenarios::ScenariosEnvelope>, AppError> {
     validate_id(&id)?;
     Ok(Json(
         ha_core::blocking::run_blocking(move || ha_design::design::scenarios::get(&id))
@@ -1059,11 +1061,11 @@ pub async fn get_scenarios(
 pub async fn save_scenarios(
     Path(id): Path<String>,
     Json(body): Json<SaveScenariosBody>,
-) -> Result<Json<ha_design::design::scenarios::ScenariosManifest>, AppError> {
+) -> Result<Json<ha_design::design::scenarios::ScenariosEnvelope>, AppError> {
     validate_id(&id)?;
     Ok(Json(
         ha_core::blocking::run_blocking(move || {
-            ha_design::design::scenarios::save(&id, body.manifest)
+            ha_design::design::scenarios::save(&id, &body.expected_hash, body.manifest)
         })
         .await
         .map_err(|e| AppError::internal(e.to_string()))?,
