@@ -23,10 +23,17 @@ const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
 
 fn claim_non_cancelled_terminal(
     completion_claim: Option<&ha_core::chat_engine::TurnCompletionClaim>,
+    cancel: &Arc<std::sync::atomic::AtomicBool>,
 ) -> bool {
-    completion_claim
+    let claimed = completion_claim
         .map(ha_core::chat_engine::TurnCompletionClaim::try_claim)
-        .unwrap_or(true)
+        .unwrap_or(true);
+    if !claimed {
+        // Fail closed even if a future source adapter violates the callback
+        // contract and rejects without first publishing its shared token.
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    claimed
 }
 
 pub async fn execute_admitted_params(
@@ -1798,7 +1805,7 @@ pub async fn execute_admitted_params(
                     // through the normal UserStop finalizer, while
                     // completion-first disarms this prompt generation so the
                     // reader cannot publish a late session pause.
-                    if !claim_non_cancelled_terminal(completion_claim.as_ref()) {
+                    if !claim_non_cancelled_terminal(completion_claim.as_ref(), &cancel) {
                         last_reason = None;
                         last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
                         last_was_no_profile = false;
@@ -2544,6 +2551,11 @@ pub async fn execute_admitted_params(
         final_error
     );
 
+    // Provider exhaustion and every other non-success outcome commit their
+    // own durable terminal below. They must participate in the same ACP
+    // completion/cancel ordering as success: cancel-first becomes UserStop;
+    // terminal-first disarms the prompt generation before its failed commit.
+    let _ = claim_non_cancelled_terminal(completion_claim.as_ref(), &cancel);
     let reason = derive_termination_reason(
         abort_on_cancel,
         &cancel,
@@ -2900,4 +2912,49 @@ pub fn schedule_browser_turn_finalize(source: stream_seq::ChatSource, session_id
     // 特征钩子（未 wire no-op：无 extension tab 可 finalize；wrapper 首次未
     // 命中打一次 warn，避免每轮刷屏）。
     ha_core::browser_hooks::schedule_turn_finalize(session_id);
+}
+
+#[cfg(test)]
+mod terminal_claim_tests {
+    use super::*;
+
+    #[test]
+    fn rejected_completion_claim_converts_failed_terminal_to_user_stop() {
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let claim = ha_core::chat_engine::TurnCompletionClaim::new(|| false);
+
+        assert!(!claim_non_cancelled_terminal(Some(&claim), &cancel));
+        assert!(matches!(
+            derive_termination_reason(
+                false,
+                &cancel,
+                Some(ha_core::failover::FailoverReason::Unknown),
+                Some("provider failed"),
+                false,
+                None,
+                false,
+            ),
+            TerminationReason::UserStop
+        ));
+    }
+
+    #[test]
+    fn accepted_completion_claim_preserves_failed_terminal() {
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let claim = ha_core::chat_engine::TurnCompletionClaim::new(|| true);
+
+        assert!(claim_non_cancelled_terminal(Some(&claim), &cancel));
+        assert!(matches!(
+            derive_termination_reason(
+                false,
+                &cancel,
+                Some(ha_core::failover::FailoverReason::Unknown),
+                Some("provider failed"),
+                false,
+                None,
+                false,
+            ),
+            TerminationReason::ProviderFailed { .. }
+        ));
+    }
 }

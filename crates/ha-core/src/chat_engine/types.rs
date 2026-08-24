@@ -193,9 +193,11 @@ pub trait EventSink: Send + Sync + 'static {
 ///
 /// ACP receives cancellation on a reader thread while its prompt dispatcher
 /// is synchronously awaiting the shared runtime. The runtime invokes this
-/// claim immediately before its atomic success commit: if cancellation won
-/// first, success must not be persisted; if the claim won first, a later ACP
-/// cancel belongs to a future prompt generation and must not publish Stop.
+/// claim before every non-user-stop terminal commit (immediately before the
+/// atomic success transaction, or on entry to failed-terminal convergence):
+/// if cancellation won first, the runtime must switch to UserStop; if the
+/// claim won first, a later ACP cancel belongs to a future prompt generation
+/// and must not publish Stop.
 #[derive(Clone)]
 pub struct TurnCompletionClaim {
     claim: Arc<dyn Fn() -> bool + Send + Sync + 'static>,
@@ -662,7 +664,7 @@ pub struct ChatEngineParams {
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
     /// ACP-only handshake that orders its out-of-band `session/cancel`
-    /// against the runtime's durable completed terminal. Source sealing keeps
+    /// against the runtime's durable non-user-stop terminal. Source sealing keeps
     /// this absent for every other transport.
     pub completion_claim: Option<TurnCompletionClaim>,
     /// Stop generation captured at the transport/queue admission boundary.
