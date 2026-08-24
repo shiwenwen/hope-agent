@@ -26,7 +26,8 @@ use crate::provider::{AuthProfile, ProviderConfig};
 /// adapters must construct this from the decoded HTTP/SSE error envelope so
 /// destructive recovery never has to trust arbitrary display text.
 #[derive(Debug, Clone)]
-pub(crate) struct ProviderApiError {
+#[doc(hidden)]
+pub struct ProviderApiError {
     provider: String,
     status: Option<u16>,
     code: Option<String>,
@@ -52,14 +53,14 @@ impl ProviderApiError {
     /// known Provider outcome. Callers may therefore close that exact request
     /// before preparing a fallback; transport/decode failures without one of
     /// these typed envelopes remain dispatch-unknown.
-    pub(crate) fn is_explicit_rejection(&self) -> bool {
+    pub fn is_explicit_rejection(&self) -> bool {
         matches!(
             self.transport,
             ProviderErrorTransport::HttpResponse | ProviderErrorTransport::StreamEvent
         )
     }
 
-    pub(crate) fn from_http_response(provider: &str, status: u16, raw_body: &str) -> Self {
+    pub fn from_http_response(provider: &str, status: u16, raw_body: &str) -> Self {
         let decoded = serde_json::from_str::<serde_json::Value>(raw_body).ok();
         let code = decoded.as_ref().and_then(|value| {
             json_string_at(value, &["/error/code", "/code", "/error/status", "/status"])
@@ -94,7 +95,7 @@ impl ProviderApiError {
         }
     }
 
-    pub(crate) fn from_stream_event(
+    pub fn from_stream_event(
         provider: &str,
         code: Option<&str>,
         error_type: Option<&str>,
@@ -115,7 +116,7 @@ impl ProviderApiError {
 
     /// Preserve an existing user-facing provider error without discarding the
     /// structured fields used by recovery classification.
-    pub(crate) fn with_display(mut self, display: String) -> Self {
+    pub fn with_display(mut self, display: String) -> Self {
         self.display = display;
         self
     }
@@ -123,14 +124,14 @@ impl ProviderApiError {
     /// Preserve a bounded `Retry-After` delta-seconds hint without retaining
     /// arbitrary response headers. HTTP-date values are deliberately ignored:
     /// wall-clock rollback must not turn a retry hint into an unbounded wait.
-    pub(crate) fn with_retry_after_header(mut self, value: Option<&str>) -> Self {
+    pub fn with_retry_after_header(mut self, value: Option<&str>) -> Self {
         self.retry_after_ms = value
             .and_then(|raw| raw.trim().parse::<u64>().ok())
             .map(|seconds| seconds.saturating_mul(1_000));
         self
     }
 
-    pub(crate) fn retry_after_ms(&self) -> Option<u64> {
+    pub fn retry_after_ms(&self) -> Option<u64> {
         self.retry_after_ms
     }
 }
@@ -421,7 +422,8 @@ fn structured_provider_overflow_evidence(
 
 /// Recover high-confidence typed evidence when available, otherwise retain a
 /// low-confidence text hint for diagnostics only.
-pub(crate) fn context_overflow_evidence(error: &anyhow::Error) -> Option<ContextOverflowEvidence> {
+#[doc(hidden)]
+pub fn context_overflow_evidence(error: &anyhow::Error) -> Option<ContextOverflowEvidence> {
     if let Some(preflight) = error.downcast_ref::<crate::token_accounting::PreflightOverflow>() {
         return Some(ContextOverflowEvidence::LocalPreflight {
             input_tokens: preflight.input_tokens,

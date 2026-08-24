@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
-use crate::session::{CreateStreamRun, JournalBatch, JournalEvent, SessionDB};
+use crate::session::{
+    CreateStreamRun, JournalBatch, JournalEvent, SessionDB, StreamRunRegistration,
+};
 use crate::turn_durability::{
     DispatchClaim, DurableRequestRole, FlushReason, PrepareRequestPlan, RequestTerminalOutcome,
     ResponseStarted, StreamSnapshot, TurnDurabilitySink,
@@ -314,6 +316,34 @@ impl StreamCoordinator {
         let registration = db
             .run(move |db| db.create_stream_run_with_stop_admission(&create, stop_admission))
             .await?;
+        Self::from_admission(
+            db,
+            session_id,
+            source,
+            stream_id,
+            turn_id,
+            event_sink,
+            cancel,
+            registration,
+        )
+        .await
+    }
+
+    /// Attach the runtime coordinator to a stream row already committed by
+    /// TurnKernel's atomic interactive admission.
+    #[allow(clippy::too_many_arguments)]
+    #[doc(hidden)]
+    pub async fn from_admission(
+        db: Arc<SessionDB>,
+        session_id: String,
+        source: ChatSource,
+        stream_id: Option<String>,
+        turn_id: Option<String>,
+        event_sink: Arc<dyn EventSink>,
+        cancel: Arc<AtomicBool>,
+        registration: StreamRunRegistration,
+    ) -> Result<Arc<Self>> {
+        let run_id = registration.run_id.clone();
         let coordinator = Arc::new(Self {
             db,
             session_id: session_id.clone(),
@@ -1094,7 +1124,8 @@ impl StreamCoordinator {
             .clone()
     }
 
-    pub(crate) fn had_thinking(&self) -> bool {
+    #[doc(hidden)]
+    pub fn had_thinking(&self) -> bool {
         self.had_thinking.load(Ordering::SeqCst)
     }
 
@@ -1105,7 +1136,8 @@ impl StreamCoordinator {
     /// Emergency compaction establishes a new stable retry base. Ordinary
     /// round checkpoints deliberately do not call this: model/profile
     /// failover must still discard a failed attempt's provider-native tail.
-    pub(crate) fn adopt_attempt_base_context(&self, history: &[serde_json::Value]) -> Result<()> {
+    #[doc(hidden)]
+    pub fn adopt_attempt_base_context(&self, history: &[serde_json::Value]) -> Result<()> {
         let json = serde_json::to_string(history)?;
         *self
             .attempt_base_context_json

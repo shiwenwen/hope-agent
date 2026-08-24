@@ -1,6 +1,6 @@
 //! In-memory registry of recently-touched sessions.
 //!
-//! Every `AssistantAgent::chat()` call touches its session ID here; the
+//! Every admitted Agent turn touches its session ID here; the
 //! collector uses this to mark a session as `Active` in the snapshot.
 
 use once_cell::sync::Lazy;

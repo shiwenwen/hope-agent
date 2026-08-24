@@ -2,6 +2,11 @@
 members = [
     "src-tauri",
     "crates/ha-base",
+    "crates/ha-agent-loop",
+    "crates/ha-agent-runtime",
+    "crates/ha-memory",
+    "crates/ha-goal",
+    "crates/ha-workflow",
     "crates/ha-browser",
     "crates/ha-config-schema",
     "crates/ha-design",

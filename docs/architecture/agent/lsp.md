@@ -2,13 +2,13 @@
 
 > 返回 [文档索引](../../README.md)
 >
-> 更新时间：2026-07-23
+> 更新时间：2026-08-23
 
 **关联源码**
 
 - 核心控制面：[`crates/ha-core/src/lsp.rs`](../../../crates/ha-core/src/lsp.rs)
 - Agent 工具 schema：`crates/ha-core/src/tools/definitions/core_tools.rs`（`lsp` 工具）
-- 每轮注入点：`crates/ha-core/src/agent/streaming_loop.rs`（`run_streaming_chat` 的 round head）与 `agent/streaming_adapter.rs`（动态后缀顺序）
+- 每轮注入点：`crates/ha-agent-runtime/src/streaming_loop.rs`（Hope round head）与 core `agent/streaming_adapter.rs`（动态后缀契约顺序）
 - owner API：`crates/ha-server/src/routes/lsp.rs`、`src-tauri/src/commands/lsp.rs`
 - GUI：`src/components/chat/workspace/useLspDiagnostics.ts`、`WorkspacePanel.tsx`
 - 下游消费者：`crates/ha-core/src/review.rs`（Review Engine）、`crates/ha-eval-runtime/src/context_retrieval.rs`（上下文检索）

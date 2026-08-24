@@ -350,7 +350,8 @@ fn neutralize_snapshot_fence(body: &str) -> String {
 /// Extract file paths from write/edit/apply_patch tool calls in messages.
 /// Returns deduped touches in last-seen order. Equal-index paths keep the
 /// order in which the same tool call reported them.
-pub(crate) fn extract_file_touches(messages: &[Value]) -> Vec<FileTouch> {
+#[doc(hidden)]
+pub fn extract_file_touches(messages: &[Value]) -> Vec<FileTouch> {
     let mut touches: Vec<FileTouch> = Vec::new();
     let mut positions: HashMap<String, usize> = HashMap::new();
 

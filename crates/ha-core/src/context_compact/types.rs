@@ -58,7 +58,8 @@ pub struct SummarizationSplit {
 /// a message index alone is not enough to identify the result that a compaction
 /// policy inspected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ToolResultLocator {
+#[doc(hidden)]
+pub enum ToolResultLocator {
     OpenAiChatContent,
     OpenAiResponsesOutput,
     AnthropicBlock(usize),
@@ -66,11 +67,12 @@ pub(crate) enum ToolResultLocator {
 
 /// Read-only snapshot of one provider-level tool result.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ToolResultUnit {
-    pub(crate) locator: ToolResultLocator,
-    pub(crate) call_id: Option<String>,
-    pub(crate) direct_tool_name: Option<String>,
-    pub(crate) text: Option<String>,
+#[doc(hidden)]
+pub struct ToolResultUnit {
+    pub locator: ToolResultLocator,
+    pub call_id: Option<String>,
+    pub direct_tool_name: Option<String>,
+    pub text: Option<String>,
 }
 
 /// Information about a tool result unit found in a message.

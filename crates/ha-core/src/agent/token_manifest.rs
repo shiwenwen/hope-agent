@@ -349,7 +349,7 @@ fn clamp_u32(value: u64) -> u32 {
     value.min(u64::from(u32::MAX)) as u32
 }
 
-pub(crate) fn log_round_manifest(
+pub fn log_round_manifest(
     provider: &'static str,
     model: &str,
     request_shape: &'static str,
@@ -394,7 +394,7 @@ pub(crate) fn invalidate_round_context(session_id: &str) {
 /// Complete the request-side manifest with the provider's authoritative
 /// usage counters. Kept as a separate correlated log row because streaming
 /// adapters only know usage/TTFT after the request manifest has been emitted.
-pub(crate) fn log_round_usage(
+pub fn log_round_usage(
     provider: &'static str,
     model: &str,
     round: u32,

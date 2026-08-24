@@ -262,6 +262,7 @@ flowchart LR
     CP --> B["binding_session<br/>ready"]
     B --> CH["chatting"]
     CH --> DONE["completed"]
+    CH -. 准入失败 .-> T
     P -. 失败 / 取消 / 重启 .-> T["failed<br/>cancelled<br/>interrupted"]
     S -.-> T
     C -.-> T
@@ -276,10 +277,10 @@ flowchart LR
 | `creating_worktree` | 创建临时 Session 和 detached Managed Worktree，此时还不发 `session_created`。 |
 | `copying_changes` | 应用 tracked patch、复制 manifest 文件和 `.worktreeinclude`。 |
 | `binding_session` / `ready` | 把 Session cwd 绑到 Worktree，准备进入聊天引擎。 |
-| `chatting` / `completed` | 首轮最多启动一次；真正开始时才对 UI materialize 这个 Session。 |
+| `chatting` / `completed` | `chatting` 只表示首轮请求赢得 claim；可执行消息须等 TurnKernel 原子落 user message + chat turn + stream run 后才写 `completed`。唯一非模型例外是 `UserPromptSubmit` 明确 Block：持久化 notice 并 materialize Session 后结束 bootstrap。 |
 | `failed` / `cancelled` / `interrupted` | 不保存首条消息、不调用模型；走 Git-aware 清理，清理失败则保留诊断状态。 |
 
-幂等规则：同一 `requestId` 正在执行时，重复请求附着到既有 run；终态的重复请求返回既有结果，不重复建 Worktree 或启动首轮；重试必须换新 ID。`ready → chatting` 用条件更新保证模型首轮最多启动一次。
+幂等规则：同一 `requestId` 正在执行时，重复请求附着到既有 run；终态的重复请求返回既有结果，不重复建 Worktree 或启动首轮；重试必须换新 ID。`ready → chatting` 用条件更新保证首轮最多 claim 一次，但它不是模型执行成功事实：模型路由、Provider lease 或交互落库在 TurnKernel 准入中失败时，kernel 释放 active-turn lease 并同步把 run/worktree/空 Session 走 Git-aware rollback；可执行消息只有准入成功才允许 `chatting → completed`。
 
 **取消与重启恢复**是这里的两个可靠性支点：
 

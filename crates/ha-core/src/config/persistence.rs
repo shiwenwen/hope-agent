@@ -845,12 +845,25 @@ fn config_write_lock_path() -> Result<PathBuf> {
 }
 
 fn acquire_config_write_lock() -> Result<std::fs::File> {
+    acquire_config_write_lock_with_wait_observer(|| {})
+}
+
+/// Invoke `on_wait` only after the OS reports real lock contention. The
+/// observer keeps concurrency tests synchronized to the lock attempt instead
+/// of wall-clock sleeps; production passes a no-op closure.
+fn acquire_config_write_lock_with_wait_observer<OnWait>(
+    mut on_wait: OnWait,
+) -> Result<std::fs::File>
+where
+    OnWait: FnMut(),
+{
     let path = config_write_lock_path()?;
     let started = Instant::now();
     loop {
         match crate::platform::try_acquire_exclusive_lock(&path)? {
             Some(file) => return Ok(file),
             None if started.elapsed() < CONFIG_WRITE_LOCK_TIMEOUT => {
+                on_wait();
                 std::thread::sleep(CONFIG_WRITE_LOCK_POLL);
             }
             None => bail!("timed out waiting for the shared config write lock"),
@@ -879,10 +892,22 @@ pub fn mutate_config<F, T>(reason: (&str, &str), f: F) -> Result<T>
 where
     F: FnOnce(&mut AppConfig) -> Result<T>,
 {
+    mutate_config_observing_lock_wait(reason, f, || {})
+}
+
+fn mutate_config_observing_lock_wait<F, T, OnWait>(
+    reason: (&str, &str),
+    f: F,
+    on_lock_wait: OnWait,
+) -> Result<T>
+where
+    F: FnOnce(&mut AppConfig) -> Result<T>,
+    OnWait: FnMut(),
+{
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
-    let _cross_process_guard = acquire_config_write_lock()?;
+    let _cross_process_guard = acquire_config_write_lock_with_wait_observer(on_lock_wait)?;
     let _reason_guard = super::autosave::scope_save_reason(reason.0, reason.1);
     // The ArcSwap cache is process-local. Starting a mutation from it can
     // overwrite a setting committed by a sibling desktop/server/ACP process.
@@ -971,7 +996,8 @@ where
 /// [`mutate_config`] calls. Callers that already hold a subsystem's
 /// process-shared lock can use the returned snapshot as the authoritative
 /// starting point for a cross-process transaction.
-pub(crate) fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
+#[doc(hidden)]
+pub fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
@@ -1002,8 +1028,9 @@ mod write_outcome_tests {
 
     use super::{
         acquire_config_write_lock, cache, clear_config_load_failure, complete_config_write,
-        current_config_load_failure, mutate_config, record_config_load_failure,
-        reload_config_snapshot_from_disk, AppConfig,
+        current_config_load_failure, mutate_config, mutate_config_observing_lock_wait,
+        record_config_load_failure, reload_config_snapshot_from_disk, AppConfig,
+        CONFIG_WRITE_LOCK_TIMEOUT,
     };
 
     #[test]
@@ -1133,21 +1160,34 @@ mod write_outcome_tests {
             )
             .expect("write config");
             let first = acquire_config_write_lock().expect("acquire first config lock");
+            let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
             let (entered_tx, entered_rx) = std::sync::mpsc::channel();
             let waiter = std::thread::spawn(move || {
-                mutate_config(("accessibility", "test"), |config| {
-                    config.enhanced_focus_indicators = true;
-                    Ok(())
-                })
+                let mut reported_wait = false;
+                mutate_config_observing_lock_wait(
+                    ("accessibility", "test"),
+                    |config| {
+                        config.enhanced_focus_indicators = true;
+                        Ok(())
+                    },
+                    || {
+                        if !reported_wait {
+                            waiting_tx.send(()).expect("report lock contention");
+                            reported_wait = true;
+                        }
+                    },
+                )
                 .expect("mutate after shared lock release");
                 entered_tx.send(()).expect("report mutation");
             });
 
-            std::thread::sleep(Duration::from_millis(50));
+            waiting_rx
+                .recv_timeout(CONFIG_WRITE_LOCK_TIMEOUT)
+                .expect("waiting mutation should observe the held shared lock");
             assert!(entered_rx.try_recv().is_err());
             drop(first);
             entered_rx
-                .recv_timeout(Duration::from_secs(1))
+                .recv_timeout(CONFIG_WRITE_LOCK_TIMEOUT + Duration::from_secs(5))
                 .expect("waiting mutation should enter after lock release");
             waiter.join().expect("join config mutation waiter");
         });

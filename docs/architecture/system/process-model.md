@@ -193,7 +193,7 @@ stateDiagram-v2
 | Channel 自动启动已启用账户 + start watchdog | 启动一次 + 失败后台重试 | [`app_init.rs`](../../../crates/ha-core/src/app_init.rs) → [`channel/start_watchdog.rs`](../../../crates/ha-channel/src/channel/start_watchdog.rs) |
 | Async Jobs 残留回放 | 启动一次 | `async_jobs::JobManager::replay_pending` |
 | Async Jobs retention 轮询 | 启动一次 + 每日 | [`async_jobs/retention.rs`](../../../crates/ha-core/src/async_jobs/retention.rs) |
-| Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../../crates/ha-core/src/app_init.rs) → [`memory::dreaming`](../../../crates/ha-core/src/memory/dreaming/) |
+| Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../../crates/ha-core/src/app_init.rs) 调 kernel trigger port → [`ha-memory::dreaming_triggers`](../../../crates/ha-memory/src/dreaming_triggers.rs) |
 | **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../../crates/ha-channel/src/channel/worker/) |
 | Weather 后台刷新（登记为 EveryProcess，内部 desktop-gated） | 启动一次 + 周期 | [`ha_weather::start_background_refresh`](../../../crates/ha-weather/src/lib.rs) |
 | **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../../crates/ha-acp/src/acp_control/health.rs) |
@@ -410,7 +410,7 @@ flowchart TD
     E --> F["ACP 退出 → drop bg_rt → 后台任务取消"]
 ```
 
-每个 ACP `session/prompt` 在内部用 `current_thread` runtime + `block_on` 跑工具循环，与外层旁路 runtime 互不嵌套。
+ACP 主线程同步读取 stdio；每个 `session/prompt` 通过进程级 multi-thread runtime 的 `Handle::block_on` 进入 `TurnKernel`。这条 runtime 与 `start_minimal_background_tasks()` 同寿命，直到 ACP server 退出才销毁，因此 turn 结束时派生的 Memory Extract、idle extraction、标题等后处理不会随函数级 runtime 一起被取消。
 
 ### 退出路径
 
@@ -428,7 +428,7 @@ flowchart TD
 - **Layer B 长驻线程无统一 join**：AppLogger / Cron / Channel dispatcher 在进程退出时被 OS 回收，没有显式 `shutdown()`。正常退出靠 mpsc channel 关闭 → loop 自然退出；`std::process::exit()` 强退不走这条路
 - **ACP / Docker / Channel 子进程无统一终止钩子**：各自实现 `Drop` / `shutdown()`，退出时是否 kill 子进程取决于模块；Guardian 强杀 child 可能留 orphan 子进程——已知代价
 - **Cron / Channel 跨进程重复触发**：靠 Primary/Secondary 选举与部署习惯规避，无代码级跨进程互斥锁（见上文多进程数据共享）
-- **ACP `acp::server::start` 仍是同步签名**：依赖外层 main 包旁路 runtime + 主线程同步 stdin，完全 async 化是后续工作
+- **ACP `acp::server::start` 仍是同步签名**：外层 main 持有进程级 runtime 并把 `Handle` 注入 Agent，主线程同步 stdin；完全 async 化是后续工作
 
 ---
 

@@ -73,7 +73,7 @@ pub fn take_dirty(session_id: &str) -> bool {
     guard.remove(session_id)
 }
 
-/// High-level helper called from `AssistantAgent::chat()`: touches the
+/// High-level helper called from the shared Agent turn runtime: touches the
 /// registry *and* broadcasts dirty bits to peer sessions.
 pub fn on_other_session_activity(source_session_id: &str) {
     super::registry::touch_active_session(source_session_id);

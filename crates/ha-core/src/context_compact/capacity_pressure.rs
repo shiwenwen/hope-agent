@@ -18,7 +18,8 @@ use super::truncation::head_tail_truncate;
 use super::types::ToolResultLocator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CapacityPressureTier {
+#[doc(hidden)]
+pub enum CapacityPressureTier {
     Tier0,
     Tier2,
 }
@@ -26,23 +27,25 @@ pub(crate) enum CapacityPressureTier {
 /// One deterministic mutation that can be replayed from the provider-shaped
 /// accounting history onto the request-only canonical-shaped projection.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CapacityPressureEdit {
-    pub(crate) result_ordinal: usize,
-    pub(crate) call_id: Option<String>,
-    pub(crate) locator: ToolResultLocator,
-    pub(crate) action: ProjectionActionKind,
-    pub(crate) expected_source_hash: [u8; 32],
-    pub(crate) replacement: String,
+#[doc(hidden)]
+pub struct CapacityPressureEdit {
+    pub result_ordinal: usize,
+    pub call_id: Option<String>,
+    pub locator: ToolResultLocator,
+    pub action: ProjectionActionKind,
+    pub expected_source_hash: [u8; 32],
+    pub replacement: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct CapacityPressureResult {
-    pub(crate) edits: Vec<CapacityPressureEdit>,
-    pub(crate) input_upper_before: u64,
-    pub(crate) input_upper_after: u64,
-    pub(crate) reached_target: bool,
-    pub(crate) soft_trimmed: usize,
-    pub(crate) hard_cleared: usize,
+#[doc(hidden)]
+pub struct CapacityPressureResult {
+    pub edits: Vec<CapacityPressureEdit>,
+    pub input_upper_before: u64,
+    pub input_upper_after: u64,
+    pub reached_target: bool,
+    pub soft_trimmed: usize,
+    pub hard_cleared: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -182,7 +185,8 @@ where
 /// safety headroom have already been subtracted by the caller. The counter must
 /// cover the same provider roles, dynamic envelopes, tool schemas and history
 /// shape used by the pending request.
-pub(crate) fn apply_capacity_pressure_tier<F>(
+#[doc(hidden)]
+pub fn apply_capacity_pressure_tier<F>(
     messages: &mut [Value],
     protected_start_index: usize,
     config: &CompactConfig,
@@ -317,7 +321,8 @@ where
 /// provider-shaped accounting copy may contain vision transcriptions while the
 /// request projection still contains typed image markers, so source text is not
 /// compared; ordinal and call identity are the stable correspondence.
-pub(crate) fn replay_capacity_pressure_edits(
+#[doc(hidden)]
+pub fn replay_capacity_pressure_edits(
     messages: &mut [Value],
     edits: &[CapacityPressureEdit],
 ) -> Result<()> {

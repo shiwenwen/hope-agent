@@ -48,7 +48,7 @@ pub use db::{
     ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,
 };
 pub use environment::build_git_snapshot; // pub：ha-vcs git_control 消费
-pub(crate) use environment::load_git_diff_for_root;
+pub use environment::load_git_diff_for_root;
 pub use environment::{
     load_session_environment, load_session_git_diff, WorkspaceEnvironmentSnapshot,
     WorkspaceGitCommit, WorkspaceGitDiff, WorkspaceGitFileAction, WorkspaceGitFileChange,

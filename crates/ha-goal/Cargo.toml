@@ -1,0 +1,24 @@
+[package]
+name = "ha-goal"
+version = "0.35.0"
+description = "Hope Agent Goal execution machine"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-core = { path = "../ha-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
+tempfile = "3"

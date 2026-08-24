@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
 use ha_core::agent_loader::DEFAULT_AGENT_ID;
-use ha_core::chat_engine::{self, ChatEngineParams, ChatSource, NoopEventSink};
+use ha_core::chat_engine::{ChatSource, NoopEventSink};
 // `RecordCodingEvalRunInput` **不在这里导入**：它已随契约层下沉
 // `coding_eval_defs`，由下方 glob 公开再导出。从 `coding_improvement` 的兼容
 // re-export 再私有导入一次会遮蔽那个公开导出（clippy
@@ -1229,33 +1229,19 @@ async fn run_agent_execution_eval(
             let user_message_id = db
                 .append_message(
                     session_id,
-                    &NewMessage::user(&prompt).with_source(ChatSource::Http),
+                    &NewMessage::user(&prompt).with_source(ChatSource::Eval),
                 )
                 .ok();
             let turn_id = uuid::Uuid::new_v4().to_string();
             db.create_chat_turn_with_id(
                 &turn_id,
                 session_id,
-                ChatSource::Http.as_str(),
+                ChatSource::Eval.as_str(),
                 None,
                 user_message_id,
             )?;
 
-            let params = ChatEngineParams {
-                session_id: session_id.to_string(),
-                agent_id: agent_id.clone(),
-                turn_id: Some(turn_id.clone()),
-                message: prompt.clone(),
-                incoming_turn: None,
-                display_text: run.display_text.clone(),
-                attachments: Vec::new(),
-                session_db: db.clone(),
-                model_chain: run.model_chain.clone(),
-                providers: run.providers.clone(),
-                codex_token: None,
-                resolved_temperature: None,
-                compact_config: run.compact_config.clone().unwrap_or_default(),
-                run_context: run
+            let run_context = run
                     .extra_system_context
                     .clone()
                     .map(|content| {
@@ -1265,32 +1251,36 @@ async fn run_agent_execution_eval(
                         )
                         .map(|context| context.with_untrusted_data(content))
                     })
-                    .transpose()?,
-                reasoning_effort: run
-                    .reasoning_effort
+                    .transpose()?;
+            let params = ha_core::turn_kernel::TurnRequest::new(
+                session_id.to_string(),
+                agent_id.clone(),
+                prompt.clone(),
+                db.clone(),
+                run.compact_config.clone().unwrap_or_default(),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(NoopEventSink),
+            )
+            .with_evaluation_model_chain(run.model_chain.clone())
+            .with_turn_id(turn_id.clone())
+            .with_display_text(run.display_text.clone())
+            .with_run_context(run_context)
+            .with_reasoning_effort(
+                run.reasoning_effort
                     .clone()
                     .or_else(|| Some("none".to_string())),
-                cancel: Arc::new(AtomicBool::new(false)),
-                foreground_stop_admission: None,
-                plan_context_override: Some(ha_core::agent::PlanResolvedContext::off()),
-                skill_allowed_tools: Vec::new(),
-                denied_tools: run.denied_tools.clone(),
-                tool_scope: None,
-                subagent_depth: 0,
-                steer_run_id: None,
-                auto_approve_tools: run.auto_approve_tools,
-                follow_global_reasoning_effort: false,
-                post_turn_effects: false,
-                abort_on_cancel: false,
-                persist_final_error_event: true,
-                source: ChatSource::Http,
-                ui_surface: None,
-                origin_source: None,
-                channel_kb_context: None,
-                event_sink: Arc::new(NoopEventSink),
-            };
+            )
+            .with_plan_context_override(Some(ha_core::agent::PlanResolvedContext::off()))
+            .with_denied_tools(run.denied_tools.clone());
 
-            let result = chat_engine::run_chat_engine(params).await;
+            let result = ha_core::turn_kernel::TurnKernel::submit(
+                ha_core::turn_kernel::TurnSubmission::evaluation(
+                    params,
+                    run.auto_approve_tools,
+                    run.providers.clone(),
+                ),
+            )
+            .await;
             let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
             let tool_calls = execution_tool_calls(db, session_id)?;
             match result {

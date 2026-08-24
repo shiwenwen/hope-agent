@@ -19,6 +19,7 @@ use ha_improve::domain_eval::{evaluate_domain_operational_gate, generate_domain_
 use serde_json::json;
 
 fn temp_dbs() -> (tempfile::TempDir, SessionDB, CronDB) {
+    ha_workflow::wire();
     ha_improve::wire();
     let dir = tempfile::tempdir().expect("tempdir");
     let session_db =

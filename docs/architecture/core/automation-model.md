@@ -129,7 +129,7 @@ flowchart TD
     More -->|无| ErrN(["聚合最后一个错误"])
 ```
 
-这镜像了主对话 `chat_engine::run_chat_engine` 的 `for model_ref in model_chain { … continue on failure … }` 循环——一个坏掉或不可用的 primary，会真正落到链上的下一个模型。返回的 `ModelTaskOutput` 有三个字段：
+这镜像了主对话经 `TurnKernel` 准入后由 `ha-agent-runtime` 执行的模型链降级语义——一个坏掉或不可用的 primary，会真正落到链上的下一个模型。返回的 `ModelTaskOutput` 有三个字段：
 
 ```rust
 pub struct ModelTaskOutput {
@@ -278,7 +278,7 @@ flowchart LR
 
 | 消费者 | 配置 | 新字段 | 说明 |
 |---|---|---|---|
-| Memory Extract | `MemoryExtractConfig` | `model_override: Option<ActiveModel>`（单模型，非链） | 解析优先级：per-agent 覆盖 → `model_override` → 旧裸字段对 → 兜底，两处解析点（`memory_extract.rs` + `chat_engine/context.rs`） |
+| Memory Extract | `MemoryExtractConfig` | `model_override: Option<ActiveModel>`（单模型，非链） | 解析优先级：per-agent 覆盖 → `model_override` → 旧裸字段对 → 兜底；kernel 在执行准入时把已解析模型与 Provider 快照封装为 `MemoryExtractModel`，`ha-memory::extract` 只消费该能力，配置变化不能改写在途执行 |
 | Compact 摘要 | `CompactConfig` | `model_override: Option<ActiveModel>` | `effective_summarization_model_ref()`：`model_override` 优先，否则回退 `summarization_model`；**刻意不接入 `function_models.automation`**——Tier-3 摘要是 fail-fast 设计，不希望因全局链配错而拖慢/连锁失败上下文压缩这条关键路径 |
 
 **Awareness 的分裂路径**（既非纯 D 也非纯 A，值得单列）：`LlmExtractionConfig` 原有的 `extraction_agent` / `extraction_model` 是**死配置**（前者读了但从未真正切换 agent，后者全仓库零消费），已直接删除、不保留兼容读取。新的 `model_override` 分两条路径，**两条都打 `awareness.extraction` 标签**：
@@ -374,11 +374,11 @@ interface ModelChainEditorProps {
 | 流式 `side_query_streaming` / `side_query_streaming_with_attachments` | `crates/ha-core/src/agent/side_query_stream.rs` |
 | Recap | 配置 `ha-config-schema/src/config.rs`（`RecapConfig`）；执行 `crates/ha-dash/src/recap/{report,facets,sections}.rs`（`resolve_recap_chain`） |
 | Knowledge Compile | 配置 `ha-config-schema/src/knowledge/types.rs`（`KnowledgeCompileConfig`）；执行 `crates/ha-knowledge/src/knowledge/compile.rs` |
-| Dreaming | 配置 `ha-config-schema/src/memory/dreaming.rs`；执行 `crates/ha-core/src/memory/dreaming/{pipeline,narrative,profile,resolver}.rs`（`resolve_dreaming_chain`） |
+| Dreaming | 配置 `ha-config-schema/src/memory/dreaming.rs`；执行 `crates/ha-memory/src/dreaming_{pipeline,narrative,profile,resolver}.rs`，kernel `memory/dreaming/pipeline.rs` 仅保留模型解析与 typed runtime port |
 | Skills auto_review | 配置 `ha-config-schema/src/skills.rs`；执行 `crates/ha-skills/src/skills/auto_review/pipeline.rs`（`query_review_agent`） |
 | Hooks `prompt` | 配置 `ha-config-schema/src/hooks.rs`（`PromptHookConfig`）；执行 `crates/ha-core/src/hooks/runner/prompt.rs`（`resolve_prompt_hook_chain`） |
 | Session Title | 配置 `ha-config-schema/src/session_title.rs`；执行 `crates/ha-core/src/session_title.rs`（`generate_and_update_title`） |
-| Memory Extract | 配置 `ha-config-schema/src/memory/types.rs`（`MemoryExtractConfig`）；执行 `crates/ha-core/src/memory_extract.rs` + `chat_engine/context.rs`（两处解析点） |
+| Memory Extract | 配置 `ha-config-schema/src/memory/types.rs`（`MemoryExtractConfig`）；执行 `crates/ha-memory/src/extract.rs`，kernel port `crates/ha-core/src/memory/extract_runtime.rs` + turn context `chat_engine/context.rs` |
 | Compact | 配置 + 方法 `ha-config-schema/src/context_compact.rs`（`CompactConfig::effective_summarization_model_ref`） |
 | Awareness | 配置 `ha-config-schema/src/awareness.rs`（`LlmExtractionConfig`）；执行 `crates/ha-core/src/agent/mod.rs`（`run_extraction_inline`） |
 | Sprite | 配置 `ha-config-schema/src/sprite.rs`；执行 `crates/ha-core/src/sprite/{config,mod}.rs`（`observe_and_maybe_speak`） |
@@ -388,7 +388,7 @@ interface ModelChainEditorProps {
 | 笔记三件套 | 配置 `ha-config-schema/src/knowledge/types.rs`（`NoteToolsConfig`）；执行 `crates/ha-knowledge/src/tools/note.rs`（`run_kb_side_query`） |
 | AI 改写 | 执行 `crates/ha-knowledge/src/knowledge/service.rs`（`resolve_rewrite_chain`） |
 | 代码深审 | 执行 `crates/ha-core/src/review.rs`（`run_llm_reviewer`） |
-| Goal 语义评分 | 执行 `crates/ha-core/src/tools/goal.rs` |
+| Goal 语义评分 | 执行 `crates/ha-goal/src/tools/goal.rs`；ledger / Stop fence 仍在 kernel `goal/` |
 | 设计空间生成/提取 | 执行 `crates/ha-design/src/design/{generate,extract}.rs` |
 | Smart Judge | 配置 `ha-config-schema/src/permission.rs`（`JudgeModelConfig`）；执行 `crates/ha-core/src/permission/{mode,judge}.rs`（未改后端结构，见 §5.5） |
 | 前端共享组件 | `src/components/ui/model-chain-editor.tsx` |

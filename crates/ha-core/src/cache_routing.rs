@@ -173,7 +173,8 @@ fn keyed_digest_with<'a>(
     hasher.finalize()
 }
 
-pub(crate) fn keyed_digest<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> blake3::Hash {
+#[doc(hidden)]
+pub fn keyed_digest<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> blake3::Hash {
     keyed_digest_with(&ROUTING_STATE, load_or_create_key, parts)
 }
 
@@ -181,7 +182,8 @@ pub(crate) fn keyed_digest<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> bla
 /// provider failures without persisting provider-controlled response text.
 /// The installation-local key prevents offline matching of short secrets or
 /// user prompt fragments that a provider may echo in an error body.
-pub(crate) fn audit_fingerprint(domain: &str, value: &[u8]) -> String {
+#[doc(hidden)]
+pub fn audit_fingerprint(domain: &str, value: &[u8]) -> String {
     keyed_digest([b"audit-fingerprint:v1".as_slice(), domain.as_bytes(), value])
         .to_hex()
         .to_string()

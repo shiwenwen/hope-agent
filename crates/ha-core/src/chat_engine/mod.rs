@@ -17,6 +17,7 @@ pub mod stop;
 pub mod stream_broadcast;
 pub mod stream_seq;
 pub mod turn_injection;
+pub mod turn_kernel;
 mod types;
 
 use crate::turn_durability::{FlushReason, TurnDurabilitySink};

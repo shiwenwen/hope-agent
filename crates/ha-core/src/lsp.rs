@@ -30,7 +30,8 @@ const MAX_PROMPT_DIAGNOSTICS: usize = 12;
 /// Cap on how many recently-touched files feed the hybrid prioritization set.
 /// Diagnostics are already capped at `MAX_PROMPT_DIAGNOSTICS`; this only bounds
 /// the touched-key set built each round.
-pub(crate) const MAX_TOUCHED_FILES_FOR_DIAGNOSTICS: usize = 16;
+#[doc(hidden)]
+pub const MAX_TOUCHED_FILES_FOR_DIAGNOSTICS: usize = 16;
 
 #[derive(Debug, Clone)]
 struct LspServerConfig {

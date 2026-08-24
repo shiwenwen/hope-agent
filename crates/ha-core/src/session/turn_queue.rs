@@ -1365,7 +1365,8 @@ impl SessionDB {
         Ok(changed)
     }
 
-    pub(crate) fn next_channel_turn_message_for_insertion(
+    #[doc(hidden)]
+    pub fn next_channel_turn_message_for_insertion(
         &self,
         session_id: &str,
     ) -> Result<Option<String>> {

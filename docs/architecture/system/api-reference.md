@@ -127,7 +127,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | `worktree:restored` | `worktree::restore_managed_worktree` | `ManagedWorktree` 快照 |
 | `worktree:handoff` | `worktree::handoff_managed_worktree` | `ManagedWorktree` 快照；session working dir 已切换 |
 | `project:bootstrap_progress` | `project_bootstrap::bootstrap_project_session` / `worktree::create_managed_worktree` | `{ requestId, status, stage, sessionId?, worktreeId?, message?, errorCode? }` |
-| `project:bootstrap_completed` | 首轮 Bootstrap 已交给 Chat Engine | `{ requestId }` |
+| `project:bootstrap_completed` | 可执行首轮已通过 TurnKernel durable admission；或 `UserPromptSubmit` 明确 Block 后已持久化 notice 并 materialize Session | `{ requestId }` |
 | `session:git_progress` | `git_control` 长 Git 操作 | `{ requestId, sessionId, operation, status, stage, message?, errorCode? }` |
 | `session:git_changed` | stage/branch/commit/push/PR/Handoff 成功 | `{ sessionId, operation, requestId? }` |
 | `session:git_completed` | Git operation run 进入终态 | 与 progress 终态同形 |
@@ -562,7 +562,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 
 `update_session_agent_cmd` 接受 `{ agentId: string }`，后端在 SQL 层校验 `messages` 表中该 session 没有 `role IN ('user','assistant')` 的记录，否则返回 400。前端 `ChatTitleBar` 的 `AgentSwitcher` dropdown 在 `messages.length > 0` 时会把触发器降级为只读 `<span>`，作为 UX 防御层。
 
-`set_session_model` 接受 `{ providerId, modelId }`，把模型固定到当前会话（写 `sessions.provider_id` / `provider_name` / `model_id`），不写 `AppConfig.active_model`——v0.2.1 起这是「会话内切模型」的唯一合法入口。`get_active_model` / `POST /api/models/active` 仍然存在，但**只该被 Settings 「模型」面板 / onboarding wizard / 本地 LLM 安装路径**调用，用来修改应用全局默认；任何 chat 内或 IM 内的"切模型"语义都必须落到 session 级。chat_engine 解析优先级 `plan_model > 本轮 model_override > sessions.provider_id > agent.model.primary > AppConfig.active_model`（详见 [`provider-system.md` § 7.2](../core/provider-system.md#72-模型链解析)）。写入后 emit `session:model_updated`，桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker。
+`set_session_model` 接受 `{ providerId, modelId }`，把模型固定到当前会话（写 `sessions.provider_id` / `provider_name` / `model_id`），不写 `AppConfig.active_model`——v0.2.1 起这是「会话内切模型」的唯一合法入口。`get_active_model` / `POST /api/models/active` 仍然存在，但**只该被 Settings 「模型」面板 / onboarding wizard / 本地 LLM 安装路径**调用，用来修改应用全局默认；任何 chat 内或 IM 内的"切模型"语义都必须落到 session 级。TurnKernel admission 解析优先级 `plan_model > 本轮 model_override > sessions.provider_id > agent.model.primary > AppConfig.active_model`（详见 [`provider-system.md` § 7.2](../core/provider-system.md#72-模型链解析)），并在同一份配置快照内冻结 provider lease。写入后 emit `session:model_updated`，桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker。
 
 `get_execution_mode` / `set_execution_mode` 是会话级执行模式入口，对应 `/mode off|guarded|deep|autonomous` 与 Workspace/Workflow 面板中的 Execution Mode 控件，写 `sessions.execution_mode`。该值会在下一轮以 trusted run instruction 提供给模型，控制长任务的观察、计划、验证、修复和停止策略，但不改变稳定 system 前缀；它不是 `/loop`，也不负责定时、重复触发或条件轮询。
 
@@ -687,7 +687,7 @@ Domain Eval owner API 管理非编码 eval / gate：task 列表（内置 15 个 
 | `run_coding_eval_gold_task_pack` | `POST /api/coding-eval/gold-tasks/run` | ✅ |
 | `evaluate_coding_eval_strategy_effect` | `POST /api/coding-eval/strategy-effects/evaluate` | ✅ |
 
-Coding Eval owner API 在临时 git repo + 真实 session / goal / task / workflow seed 上运行完整 fixture JSON：`mode="agent"` 按 fixture 的 `providers` / `modelChain` 经 `run_chat_engine` 让模型产出 candidate diff，`mode="fixture_patch"` 用于无模型回归，随后调用生产 Review / Smart Verification / Context Retrieval 做 task-level 打分并可写 `coding_eval_runs`。Gold Task Pack API（`list_coding_eval_gold_tasks` / `run_coding_eval_gold_task_pack`）批量 materialize 内置 gold task，Strategy Effect API（`evaluate_coding_eval_strategy_effect`）纯函数比较两份 pack 报告的共同 case、不跑模型、不执行命令。外部真实模型基线必须显式标 `baselineKind="external_model"` 且带 agent 执行配置，不能只改标签。完整契约见 [Coding Eval 控制面评测](../agent/coding-eval.md)。
+Coding Eval owner API 在临时 git repo + 真实 session / goal / task / workflow seed 上运行完整 fixture JSON：`mode="agent"` 把 fixture 的隔离 `providers` / `modelChain` 封成 `TurnSubmission::evaluation`，经 `TurnKernel` 与共享 `ha-agent-runtime` 让模型产出 candidate diff；`mode="fixture_patch"` 用于无模型回归。随后调用生产 Review / Smart Verification / Context Retrieval 做 task-level 打分并可写 `coding_eval_runs`。Gold Task Pack API（`list_coding_eval_gold_tasks` / `run_coding_eval_gold_task_pack`）批量 materialize 内置 gold task，Strategy Effect API（`evaluate_coding_eval_strategy_effect`）纯函数比较两份 pack 报告的共同 case、不跑模型、不执行命令。外部真实模型基线必须显式标 `baselineKind="external_model"` 且带 agent 执行配置，不能只改标签。完整契约见 [Coding Eval 控制面评测](../agent/coding-eval.md)。
 
 ### Coding Improvement Loop
 
@@ -1139,7 +1139,7 @@ Artifact owner API 的完整不变量、输入白名单、本地导出与未来 
 | `render_persona_to_soul_md` | `POST /api/agents/{id}/persona/render-soul-md` | ✅ |
 | `get_agent_memory_md` | `GET /api/agents/{id}/memory-md` | ✅ |
 
-Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用方必须在创建会话、写 turn / 注入消息等持久化副作用前取得外层 guard，`run_chat_engine` 入口再取得内层 backstop。删除与两层准入共用同一生命周期锁；禁止退化为“先 `ensure_agent_runnable`、落库后再进引擎”，否则检查与删除之间会留下 TOCTOU 窗口。删除重绑 Subagent allowlist 时，若 replacement 已在 denylist 必须同步移除（deny 优先于 allow）。
+Agent 执行准入采用两层 guard：Desktop / HTTP 的 transport admission 在创建会话、写 user message / visible turn 等副作用前取得 opaque `InteractiveTurnLease`；所有来源再由 `TurnKernel` 取得 kernel backstop、封印来源策略并冻结 provider lease。删除与这两层准入共用同一生命周期锁；禁止退化为“先 `ensure_agent_runnable`、落库后再进 runtime”，否则检查与删除之间会留下 TOCTOU 窗口。删除重绑 Subagent allowlist 时，若 replacement 已在 denylist 必须同步移除（deny 优先于 allow）。
 | `save_agent_memory_md` | `PUT /api/agents/{id}/memory-md` | ✅ |
 | `dreaming_run_now` | `POST /api/dreaming/run` | ✅ |
 | `dreaming_run_resolver` | `POST /api/dreaming/resolver` | ✅ 面向用户本人；Deep resolver（phase=deep）：valid_until 过期确定性 expire + 同主谓多对象组 LLM 判定 duplicates→merge / conflict→needs_review / independent→no_op，绝不自动 supersede 或硬删 |
@@ -1448,7 +1448,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP / Channel / Cron 等调用
 | `save_startup_notification_config` | `PUT /api/config/startup-notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |
 | `save_server_config` | `PUT /api/config/server` | ✅ |
-| `get_server_runtime_status` | `GET /api/server/status` | ✅（Owner 保护面）— 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`。`activeChatStreams` 是 `activeChatCounts.total` 的 back-compat 别名（在跑的 `run_chat_engine` 数量）。`chatWsCount` 当前仍是独立的 `Arc<AtomicU32>` 计数器（`crates/ha-core/src/server_status.rs::chat_ws_counter`），per-session chat WS 端点已下线但 counter 字段未拆——历史遗留，目前没有 handler 在递增，实测恒为 0。`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |
+| `get_server_runtime_status` | `GET /api/server/status` | ✅（Owner 保护面）— 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`。`activeChatStreams` 是 `activeChatCounts.total` 的 back-compat 别名（当前由 TurnKernel 接纳、尚未收敛终态的可计数交互 turn 数量）。`chatWsCount` 当前仍是独立的 `Arc<AtomicU32>` 计数器（`crates/ha-core/src/server_status.rs::chat_ws_counter`），per-session chat WS 端点已下线但 counter 字段未拆——历史遗留，目前没有 handler 在递增，实测恒为 0。`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |
 | `get_proxy_config` | `GET /api/config/proxy` | ✅ |
 | `save_proxy_config` | `PUT /api/config/proxy` | ✅ |
 | `get_shortcut_config` | `GET /api/config/shortcuts` | ✅ |

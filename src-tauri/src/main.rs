@@ -490,7 +490,8 @@ fn run_acp_server(args: &[String]) {
         .expect("init_runtime contract")
         .clone();
 
-    // Side-channel tokio runtime for the minimal background-task set:
+    // Process-lifetime tokio runtime for ACP turns and the minimal
+    // background-task set:
     //   - IM channel approval / ask_user listeners (idempotent if no bus
     //     subscriber)
     //   - one-shot ask_user purge + async_jobs replay
@@ -501,10 +502,10 @@ fn run_acp_server(args: &[String]) {
     // for the rationale.
     //
     // The ACP main loop itself stays on this thread (synchronous stdin
-    // reader; each `session/prompt` builds its own current-thread runtime
-    // internally). Sharing one runtime is awkward because of nested
-    // `block_on`s, so we keep them strictly separate: bg_rt drops when
-    // `run` returns and cancels the listeners cleanly.
+    // reader), while prompt futures block on this runtime's Handle. Any
+    // post-turn work spawned by TurnKernel therefore remains driven after the
+    // synchronous prompt response returns. The runtime drops only when the
+    // stdio server exits and then cancels its listeners cleanly.
     let bg_rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(2)
@@ -531,7 +532,7 @@ fn run_acp_server(args: &[String]) {
     });
 
     // Run the ACP server (blocks on stdin)
-    let result = app_lib::acp::server::start(session_db, agent_id, verbose);
+    let result = app_lib::acp::server::start(session_db, agent_id, verbose, bg_rt.handle().clone());
 
     // Tear bg_rt down before exit so its tasks see cancellation.
     drop(bg_rt);

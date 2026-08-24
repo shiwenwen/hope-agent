@@ -14,9 +14,9 @@ use crate::session::SessionDB;
 /// Token usage and metrics captured from streaming callbacks.
 /// See `ChatUsage` for the `input_tokens` vs `last_input_tokens` split.
 ///
-/// Public so `src-tauri` callsites that run chat outside of `run_chat_engine`
-/// (e.g. the empty-model-chain fallback in `commands/chat.rs`) can reuse the
-/// same capture shape instead of hand-rolling positional tuples.
+/// Public as part of the kernel/runtime turn contract so transports and
+/// evaluation adapters can consume one stable capture shape instead of
+/// hand-rolling positional tuples.
 #[derive(Default, Clone)]
 pub struct CapturedUsage {
     pub input_coverage: crate::token_accounting::UsageCoverage,
@@ -189,6 +189,33 @@ pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &str);
 }
 
+/// Source-owned linearization hook for a non-cancelled durable terminal.
+///
+/// ACP receives cancellation on a reader thread while its prompt dispatcher
+/// is synchronously awaiting the shared runtime. The runtime invokes this
+/// claim before every non-user-stop terminal commit (immediately before the
+/// atomic success transaction, or on entry to failed-terminal convergence):
+/// if cancellation won first, the runtime must switch to UserStop; if the
+/// claim won first, a later ACP cancel belongs to a future prompt generation
+/// and must not publish Stop.
+#[derive(Clone)]
+pub struct TurnCompletionClaim {
+    claim: Arc<dyn Fn() -> bool + Send + Sync + 'static>,
+}
+
+impl TurnCompletionClaim {
+    pub fn new(claim: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            claim: Arc::new(claim),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn try_claim(&self) -> bool {
+        (self.claim)()
+    }
+}
+
 /// EventSink that drops every event. Used by callers that don't have a
 /// real-time UI consumer (HTTP one-shot, cron, subagent fork-and-forget).
 pub struct NoopEventSink;
@@ -200,7 +227,7 @@ impl EventSink for NoopEventSink {
 /// One LLM round's outbound payload as observed by the IM channel sink:
 /// the `text_delta`s the model emitted before its first tool call, plus any
 /// media items its `tool_result`s produced. The dispatcher fans these out
-/// per `ImReplyMode` after `run_chat_engine` returns.
+/// per `ImReplyMode` after the admitted turn returns.
 ///
 /// A "round" here corresponds to a single `process_round` cycle — the model
 /// outputs narration + tool_calls, tools execute, and tool_results stream
@@ -572,8 +599,19 @@ impl EventSink for ChannelStreamSink {
 
 // ── ChatEngineParams ────────────────────────────────────────────────
 
-/// All parameters needed by the chat engine. Callers extract these from
-/// `State<AppState>` (UI chat) or disk (channel worker).
+/// Durable stream identity created together with an interactive user message
+/// and visible chat turn. Non-interactive sources continue to let the engine
+/// create their stream row at execution start.
+#[doc(hidden)]
+pub struct PreAdmittedStream {
+    pub stream_id: String,
+    pub registration: crate::session::StreamRunRegistration,
+}
+
+/// Kernel-private compatibility payload consumed by the chat engine.
+/// External producers construct [`crate::turn_kernel::TurnRequest`] and seal
+/// it with a source-specific [`crate::turn_kernel::TurnSubmission`] instead.
+#[doc(hidden)]
 pub struct ChatEngineParams {
     // Basic
     pub session_id: String,
@@ -585,6 +623,11 @@ pub struct ChatEngineParams {
     /// and IM channel worker turns that own separate cancellation/delivery
     /// lifecycles.
     pub turn_id: Option<String>,
+    pub pre_admitted_stream: Option<PreAdmittedStream>,
+    /// Opaque foreground admission lease. It is acquired before preflight and
+    /// remains owned by the admitted engine future until terminal convergence.
+    pub active_turn_guard: Option<crate::chat_engine::active_turn::ActiveTurnGuard>,
+    pub ui_surface: Option<crate::pet::ChatUiSurface>,
     pub message: String,
     /// Optional typed-composer sidecar bound to the exact canonical message.
     /// Plain text lookalikes never acquire mention semantics when this wire is
@@ -600,10 +643,15 @@ pub struct ChatEngineParams {
     pub attachments: Vec<crate::agent::Attachment>,
     pub session_db: Arc<SessionDB>,
 
-    // Model chain (pre-resolved by caller)
+    // Model chain resolved by TurnKernel admission from an immutable config
+    // snapshot (or supplied by the isolated Eval capability).
     pub model_chain: Vec<ActiveModel>,
     /// Provider configs needed to build agents (snapshot, not reference to State)
     pub providers: Vec<ProviderConfig>,
+    /// Opaque fingerprint of the immutable provider/config snapshot admitted
+    /// with this turn. It is never logged because the snapshot may contain
+    /// credentials; the fingerprint only prevents mixed-snapshot execution.
+    pub config_revision: [u8; 32],
     /// Codex OAuth token, if available
     pub codex_token: Option<(String, String)>,
 
@@ -615,6 +663,10 @@ pub struct ChatEngineParams {
     pub run_context: Option<crate::prompt_context::RunInstructionContext>,
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
+    /// ACP-only handshake that orders its out-of-band `session/cancel`
+    /// against the runtime's durable non-user-stop terminal. Source sealing keeps
+    /// this absent for every other transport.
+    pub completion_claim: Option<TurnCompletionClaim>,
     /// Stop generation captured at the transport/queue admission boundary.
     /// Stream durability revalidates it transactionally before model work.
     pub foreground_stop_admission: Option<crate::session::ForegroundStopAdmission>,
@@ -650,15 +702,12 @@ pub struct ChatEngineParams {
     /// Whether a caller-triggered cancel should discard the partial response and
     /// return an error to the caller instead of persisting a final assistant row.
     pub abort_on_cancel: bool,
-    /// Whether run_chat_engine should persist its own final error event.
+    /// Whether the shared runtime should persist its own final error event.
     pub persist_final_error_event: bool,
 
     /// Which caller opened this stream. Drives the `activeChatCounts`
     /// breakdown surfaced in `/api/server/status`.
     pub source: ChatSource,
-    /// First-party message-list + composer surface that initiated this turn.
-    /// Product routing metadata only: it is never added to model messages.
-    pub ui_surface: Option<crate::pet::ChatUiSurface>,
     /// Origin of the whole call chain for KB access (design D10). `None` =
     /// top-level (origin == `source`). A subagent sets this to its parent
     /// turn's effective origin so an IM-originated chain can't reacquire KB
@@ -676,6 +725,7 @@ pub struct ChatEngineParams {
 }
 
 /// Result returned by the chat engine.
+#[doc(hidden)]
 pub struct ChatEngineResult {
     pub response: String,
     /// The model that produced the successful response.
@@ -683,8 +733,137 @@ pub struct ChatEngineResult {
     /// Token usage captured from this chat turn. Subsystems that fan out chat
     /// turns, such as workflow-owned subagents, use this for durable budgets.
     pub usage: CapturedUsage,
-    /// The agent instance after chat (for UI chat to update State).
-    pub agent: Option<AssistantAgent>,
+    pub terminal: TurnTerminal,
+}
+
+/// Durable terminal observed by a successfully converged turn execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnTerminal {
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+impl TurnTerminal {
+    #[doc(hidden)]
+    pub fn from_chat_status(status: crate::session::ChatTurnStatus) -> Self {
+        match status {
+            crate::session::ChatTurnStatus::Completed => Self::Completed,
+            crate::session::ChatTurnStatus::Interrupted => Self::Cancelled,
+            crate::session::ChatTurnStatus::Failed => Self::Failed,
+            crate::session::ChatTurnStatus::Running
+            | crate::session::ChatTurnStatus::Cancelling => Self::Failed,
+        }
+    }
+}
+
+/// Stable failure class shared by the turn boundary and source-specific outer
+/// machines such as subagent retry policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnFailureKind {
+    ProviderExhausted,
+    Terminal,
+    Cancelled,
+    Infrastructure,
+    Panicked,
+}
+
+/// Typed terminal failure returned after a turn was admitted.
+#[derive(Debug)]
+pub struct TurnFailure {
+    pub kind: TurnFailureKind,
+    message: String,
+    reason: Option<crate::failover::FailoverReason>,
+    route_all_codex: bool,
+    invalid_request: bool,
+}
+
+impl TurnFailure {
+    #[doc(hidden)]
+    pub fn new(kind: TurnFailureKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            reason: None,
+            route_all_codex: false,
+            invalid_request: false,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn invalid_request(message: impl Into<String>) -> Self {
+        let mut failure = Self::new(TurnFailureKind::Infrastructure, message);
+        failure.invalid_request = true;
+        failure
+    }
+
+    #[doc(hidden)]
+    pub fn with_route_all_codex(mut self, route_all_codex: bool) -> Self {
+        self.route_all_codex = route_all_codex;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn classified(
+        kind: TurnFailureKind,
+        reason: Option<crate::failover::FailoverReason>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            reason,
+            route_all_codex: false,
+            invalid_request: false,
+        }
+    }
+
+    pub fn reason(&self) -> Option<crate::failover::FailoverReason> {
+        self.reason
+    }
+
+    /// Whether every admitted model attempt uses the Codex OAuth adapter.
+    /// This lets delivery surfaces select actionable auth copy without
+    /// resolving or inspecting the Provider chain themselves.
+    pub fn route_all_codex(&self) -> bool {
+        self.route_all_codex
+    }
+
+    /// Whether admission rejected caller-controlled input rather than an
+    /// unavailable runtime dependency. Transport adapters use this typed bit
+    /// to preserve their 4xx contract without classifying display text.
+    pub fn is_invalid_request(&self) -> bool {
+        self.invalid_request
+    }
+
+    /// Compatibility spelling used by delivery surfaces selecting actionable
+    /// Codex authentication copy. The kernel only exposes the route-wide fact;
+    /// it never leaks Provider credentials or individual profile state.
+    pub fn is_codex_auth(&self) -> bool {
+        self.route_all_codex
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self::new(TurnFailureKind::Cancelled, message)
+    }
+}
+
+impl From<String> for TurnFailure {
+    fn from(message: String) -> Self {
+        Self::new(TurnFailureKind::Infrastructure, message)
+    }
+}
+
+impl From<anyhow::Error> for TurnFailure {
+    fn from(error: anyhow::Error) -> Self {
+        Self::new(TurnFailureKind::Infrastructure, error.to_string())
+    }
+}
+
+impl std::fmt::Display for TurnFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
 }
 
 /// Parameters for a user-requested compaction outside a chat turn.

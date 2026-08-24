@@ -3,7 +3,7 @@
 //! Each provider (Anthropic / OpenAIChat / OpenAIResponses / Codex) implements
 //! this trait, encapsulating body construction, HTTP send, SSE decoding, and
 //! history persistence in a provider-specific shape. The public tool loop
-//! ([`super::streaming_loop::AssistantAgent::run_streaming_chat`]) orchestrates
+//! (the feature-owned `ha-agent-runtime::streaming_loop`) orchestrates
 //! compaction, cache snapshot, tool dispatch, microcompact, and event emission
 //! in a provider-agnostic way.
 //!
@@ -24,9 +24,7 @@ use crate::tool_defs::ToolProvider;
 
 const MAX_TOKEN_COUNT_RESPONSE_BYTES: usize = 64 * 1024;
 
-pub(crate) async fn read_token_count_json_limited(
-    mut response: reqwest::Response,
-) -> Result<Value> {
+pub async fn read_token_count_json_limited(mut response: reqwest::Response) -> Result<Value> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         if body.len().saturating_add(chunk.len()) > MAX_TOKEN_COUNT_RESPONSE_BYTES {
@@ -44,7 +42,7 @@ pub(crate) async fn read_token_count_json_limited(
 /// reasoning config shape) are constructed inside the adapter from these
 /// inputs. The public orchestrator stays oblivious to body shape differences.
 #[derive(Clone, Copy)]
-pub(crate) struct RoundRequest<'a> {
+pub struct RoundRequest<'a> {
     /// Used only to retain a bounded, content-free latest-request snapshot for
     /// `/context`; adapters never serialize this into the provider payload.
     pub session_id: Option<&'a str>,
@@ -146,7 +144,7 @@ impl<'a> RoundRequest<'a> {
     /// history projection. Tier-1 planning and recovery use this to count the
     /// exact same dynamic/tool lanes for every candidate without rebuilding or
     /// concatenating prompt strings at the call site.
-    pub(crate) fn with_history<'b>(&self, history_for_api: &'b [Value]) -> RoundRequest<'b>
+    pub fn with_history<'b>(&self, history_for_api: &'b [Value]) -> RoundRequest<'b>
     where
         'a: 'b,
     {
@@ -164,7 +162,8 @@ impl<'a> RoundRequest<'a> {
 /// only: Tier-4 capacity certificates are allowed to replace that lane, so a
 /// dynamic/system item must never be hidden inside it. The caller keeps tool
 /// schemas separate for the same reason.
-pub(crate) struct ProviderAccountingInput {
+#[doc(hidden)]
+pub struct ProviderAccountingInput {
     pub stable_prompt: String,
     pub dynamic_prompt: String,
     pub history: Vec<Value>,
@@ -176,7 +175,8 @@ pub(crate) struct ProviderAccountingInput {
 /// custom base URLs may contain user info or query parameters and must not
 /// leak into the durable request-plan metadata that consumes this seam.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderEndpointKind {
+#[doc(hidden)]
+pub enum ProviderEndpointKind {
     AnthropicMessages,
     OpenAIChatCompletions,
     OpenAIResponses,
@@ -184,7 +184,7 @@ pub(crate) enum ProviderEndpointKind {
 }
 
 impl ProviderEndpointKind {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::AnthropicMessages => "anthropic_messages",
             Self::OpenAIChatCompletions => "openai_chat_completions",
@@ -196,7 +196,8 @@ impl ProviderEndpointKind {
 
 /// Provider wire shape of the exact serialized request body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderRequestShape {
+#[doc(hidden)]
+pub enum ProviderRequestShape {
     AnthropicMessages,
     OpenAIChatCompletions,
     OpenAIResponses,
@@ -204,7 +205,7 @@ pub(crate) enum ProviderRequestShape {
 }
 
 impl ProviderRequestShape {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::AnthropicMessages => "anthropic_messages_json",
             Self::OpenAIChatCompletions => "openai_chat_completions_json",
@@ -217,7 +218,8 @@ impl ProviderRequestShape {
 /// Model-safe identity exposed to the future request WAL and dispatch claim.
 /// It contains no URL, header, credential, prompt, tool arguments, or body.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProviderDispatchIdentity {
+#[doc(hidden)]
+pub struct ProviderDispatchIdentity {
     pub endpoint_kind: ProviderEndpointKind,
     pub provider_shape: ProviderRequestShape,
     pub content_type: &'static str,
@@ -228,7 +230,7 @@ pub(crate) struct ProviderDispatchIdentity {
 }
 
 impl ProviderDispatchIdentity {
-    pub(crate) fn same_frozen_body(&self, other: &Self) -> bool {
+    pub fn same_frozen_body(&self, other: &Self) -> bool {
         self.endpoint_kind == other.endpoint_kind
             && self.provider_shape == other.provider_shape
             && self.content_type == other.content_type
@@ -243,7 +245,8 @@ impl ProviderDispatchIdentity {
 /// re-prepare after a capability rejection. None of these fields carry user
 /// content or credentials.
 #[derive(Clone, Copy)]
-pub(crate) enum PreparedRequestVariant {
+#[doc(hidden)]
+pub enum PreparedRequestVariant {
     Anthropic,
     OpenAIResponses,
     Codex,
@@ -261,13 +264,14 @@ pub(crate) enum PreparedRequestVariant {
 /// the body can contain prompts, tool arguments, and inline media. Durable
 /// request planning may persist the content-free identity, while encrypted
 /// body retention is a separate policy decision.
-pub(crate) struct PreparedProviderRequest {
+#[doc(hidden)]
+pub struct PreparedProviderRequest {
     pub identity: ProviderDispatchIdentity,
     body: Arc<[u8]>,
-    pub(crate) session_id: Option<String>,
-    pub(crate) reasoning_effort: Option<String>,
-    pub(crate) vision_bridge_available: bool,
-    pub(crate) variant: PreparedRequestVariant,
+    pub session_id: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub vision_bridge_available: bool,
+    pub variant: PreparedRequestVariant,
 }
 
 #[cfg(test)]
@@ -277,7 +281,7 @@ static_assertions::assert_not_impl_any!(
 
 impl PreparedProviderRequest {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_json<T: serde::Serialize>(
+    pub fn from_json<T: serde::Serialize>(
         endpoint_kind: ProviderEndpointKind,
         provider_shape: ProviderRequestShape,
         model: &str,
@@ -314,27 +318,24 @@ impl PreparedProviderRequest {
 
     /// Exact bytes to pass to `reqwest::RequestBuilder::body`. Callers must
     /// never deserialize and reserialize them between preparation and send.
-    pub(crate) fn body(&self) -> Arc<[u8]> {
+    pub fn body(&self) -> Arc<[u8]> {
         Arc::clone(&self.body)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn body_bytes_for_test(&self) -> &[u8] {
-        &self.body
     }
 }
 
 /// Explicit request-body transition requested by a provider capability
 /// rejection. The already-sent body is never mutated or silently replaced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderReprepareReason {
+#[doc(hidden)]
+pub enum ProviderReprepareReason {
     PromptCacheKey,
     Thinking,
     Vision,
 }
 
 #[derive(Debug)]
-pub(crate) struct ReprepareRequired {
+#[doc(hidden)]
+pub struct ReprepareRequired {
     pub reason: ProviderReprepareReason,
 }
 
@@ -352,7 +353,8 @@ impl std::error::Error for ReprepareRequired {}
 
 /// The claim/observer rejected the dispatch before any network I/O began.
 #[derive(Debug)]
-pub(crate) struct ProviderDefinitelyNotSent(pub String);
+#[doc(hidden)]
+pub struct ProviderDefinitelyNotSent(pub String);
 
 impl std::fmt::Display for ProviderDefinitelyNotSent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -366,7 +368,7 @@ impl std::error::Error for ProviderDefinitelyNotSent {}
 /// must not assume a retry is side-effect free merely because no headers were
 /// received locally.
 #[derive(Debug)]
-pub(crate) struct ProviderDispatchUnknown(pub String);
+pub struct ProviderDispatchUnknown(pub String);
 
 impl std::fmt::Display for ProviderDispatchUnknown {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -381,7 +383,8 @@ impl std::fmt::Display for ProviderDispatchUnknown {
 impl std::error::Error for ProviderDispatchUnknown {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ProviderDispatchEvent {
+#[doc(hidden)]
+pub enum ProviderDispatchEvent {
     /// Fired and awaited before the first byte can be sent. A future WAL
     /// implementation uses this edge to atomically claim `dispatching`.
     BeforeSend { identity: ProviderDispatchIdentity },
@@ -397,11 +400,12 @@ pub(crate) enum ProviderDispatchEvent {
 }
 
 #[async_trait]
-pub(crate) trait ProviderDispatchObserver: Send + Sync {
+pub trait ProviderDispatchObserver: Send + Sync {
     async fn observe(&self, event: ProviderDispatchEvent) -> Result<()>;
 }
 
-pub(crate) struct NoopProviderDispatchObserver;
+#[doc(hidden)]
+pub struct NoopProviderDispatchObserver;
 
 #[async_trait]
 impl ProviderDispatchObserver for NoopProviderDispatchObserver {
@@ -410,7 +414,8 @@ impl ProviderDispatchObserver for NoopProviderDispatchObserver {
     }
 }
 
-pub(crate) async fn observe_before_send(
+#[doc(hidden)]
+pub async fn observe_before_send(
     observer: &dyn ProviderDispatchObserver,
     prepared: &PreparedProviderRequest,
 ) -> Result<()> {
@@ -422,7 +427,8 @@ pub(crate) async fn observe_before_send(
         .map_err(|error| ProviderDefinitelyNotSent(error.to_string()).into())
 }
 
-pub(crate) async fn observe_response_started(
+#[doc(hidden)]
+pub async fn observe_response_started(
     observer: &dyn ProviderDispatchObserver,
     prepared: &PreparedProviderRequest,
     attempt: u32,
@@ -450,7 +456,7 @@ pub(crate) async fn observe_response_started(
 /// streaming orchestrator catches this exact type, applies the configured
 /// vision bridge to its ephemeral API-message copy, and retries the same round.
 #[derive(Debug)]
-pub(crate) struct VisionInputRejected;
+pub struct VisionInputRejected;
 
 impl std::fmt::Display for VisionInputRejected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -462,7 +468,7 @@ impl std::error::Error for VisionInputRejected {}
 
 /// Trusted dynamic instructions. Provider adapters place these after the
 /// stable cache boundary while retaining system/developer authority.
-pub(crate) fn dynamic_instruction_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
+pub fn dynamic_instruction_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<&'a str> {
     [req.run_instruction_suffix, req.coding_profile_suffix]
         .into_iter()
         .flatten()
@@ -472,7 +478,7 @@ pub(crate) fn dynamic_instruction_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec
 
 /// Turn/round data and user-owned guidance. These blocks must be serialized in
 /// a user message/content item, never as system/developer content.
-pub(crate) fn dynamic_data_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<(&'static str, &'a str)> {
+pub fn dynamic_data_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<(&'static str, &'a str)> {
     [
         ("run_context_data", req.run_data_suffix),
         ("awareness", req.awareness_suffix),
@@ -493,7 +499,7 @@ pub(crate) fn dynamic_data_suffixes<'a>(req: &'a RoundRequest<'a>) -> Vec<(&'sta
     .collect()
 }
 
-pub(crate) fn render_dynamic_data_envelope(req: &RoundRequest<'_>) -> Option<String> {
+pub fn render_dynamic_data_envelope(req: &RoundRequest<'_>) -> Option<String> {
     let blocks = dynamic_data_suffixes(req);
     if blocks.is_empty() {
         return None;
@@ -516,7 +522,7 @@ pub(crate) fn render_dynamic_data_envelope(req: &RoundRequest<'_>) -> Option<Str
 }
 
 /// Provider-agnostic outcome of one round (after SSE decoding completes).
-pub(crate) struct RoundOutcome {
+pub struct RoundOutcome {
     pub text: String,
     pub thinking: String,
     pub tool_calls: Vec<FunctionCallItem>,
@@ -609,7 +615,7 @@ mod dynamic_context_contract_tests {
 /// appropriate, and any remaining `__IMAGE_BASE64__` / `__IMAGE_FILE__`
 /// expansion happens only on the outgoing API request so persisted history
 /// never holds provider-specific image blocks.
-pub(crate) struct ExecutedTool {
+pub struct ExecutedTool {
     /// Stable ordinal from the model's original tool-call array. Execution may
     /// partition concurrent-safe and sequential calls, but provider history
     /// and Tier-1 group admission must restore this order before rendering.
@@ -629,7 +635,8 @@ pub(crate) struct ExecutedTool {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // consumed by the Tier-0/2 projection allocator landing next
-pub(crate) struct ExecutedToolResultAdmission {
+#[doc(hidden)]
+pub struct ExecutedToolResultAdmission {
     pub result_id: String,
     pub availability: String,
 }
@@ -639,7 +646,7 @@ pub(crate) struct ExecutedToolResultAdmission {
 /// the streaming loop and the persister so the diff panel sees the same shape
 /// from both the live event channel and the SQLite history.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ToolDispatchSideOutput {
+pub struct ToolDispatchSideOutput {
     pub metadata: Option<serde_json::Value>,
     /// An MCP meta-tool completed a previously pending catalog round. The
     /// orchestrator must rebuild provider schemas before the next model call,
@@ -655,7 +662,7 @@ pub(crate) struct ToolDispatchSideOutput {
 }
 
 #[async_trait]
-pub(crate) trait StreamingChatAdapter: Send + Sync {
+pub trait StreamingChatAdapter: Send + Sync {
     /// Provider format tag — drives `build_full_system_prompt(model, label)`,
     /// log line source identifiers, and error messages. Stable string keys
     /// (used by external prompts), so encoded as enum variants here.

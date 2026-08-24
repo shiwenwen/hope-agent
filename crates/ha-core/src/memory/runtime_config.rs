@@ -127,7 +127,9 @@ pub(crate) fn effective_session_memory_access(
     }
 }
 
-pub(crate) fn automatic_memory_learning_allowed(
+/// Kernel-owned verdict consumed by memory feature runtimes. It deliberately
+/// accepts only a typed `SessionDB` reference, never a raw connection.
+pub fn automatic_memory_learning_allowed(
     session_id: Option<&str>,
     bound_db: Option<&crate::session::SessionDB>,
 ) -> bool {
@@ -167,14 +169,15 @@ pub(crate) fn automatic_memory_learning_allowed(
 /// learning products such as Dreaming consolidation or Profile synthesis.
 /// Missing/deleted sessions fail closed; source-less/manual owner records are
 /// handled by callers and remain eligible.
-pub(crate) fn session_contribution_source_allowed(session_id: &str) -> bool {
+pub fn session_contribution_source_allowed(session_id: &str) -> bool {
     if session_id.trim().is_empty() {
         return false;
     }
     effective_session_memory_access(Some(session_id), None).contribute_to_memories
 }
 
-pub(crate) fn review_first_learning_enabled() -> bool {
+/// Current owner-configured learning mode for feature-side persistence.
+pub fn review_first_learning_enabled() -> bool {
     let app = crate::config::cached_config();
     if app.memory.rollout.enabled {
         matches!(app.memory.learning.mode, MemoryLearningMode::ReviewFirst)

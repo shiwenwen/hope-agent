@@ -236,6 +236,12 @@ flowchart TD
 - **`Completed` 与 `Off` 都会清理 git checkpoint**，但两者语义不同：`Off` 走 `set_plan_state` 的 `map.remove` 把整个 PlanMeta drop 掉，`checkpoint_ref` 自然消失；`Completed` 保留 PlanMeta，因此必须**额外显式**把 `meta.checkpoint_ref` 置 `None`，否则 `get_plan_checkpoint` 会返回一个 git 里已删的 branch，前端 Rollback 按钮可点却指向不存在的 ref。
 - `set_plan_state(Off)` 是唯一必然合法的边，所以「取消子 agent」这一步永远发生在合法转移之后。
 
+### 隔离计划子 agent 的准入边界
+
+开启 `plan_subagent` 后，Planning 状态的桌面消息有两条确定性 shortcut：已有计划子 agent 时把消息 steer 进其 mailbox；没有时启动一个隔离的计划子 agent。两条路径都不是 Chat Engine 的旁路：桌面 shell 必须先构造完整 `TurnSubmission::desktop` 并由 `TurnKernel::admit` 原子落 user message、visible `chat_turn`、stream run 与 Stop generation，之后才允许 steer/spawn。无效模型 override、禁用 Provider 或持久化失败发生在 shortcut 之前，不能转发 mailbox，也不能留下没有 parent turn 的 child run。
+
+"已转发 / 已开始创建计划"由 `TurnKernel::complete_admitted_local_reply` 收口。它是受限于 Desktop + 已准入 capability 的 kernel-local completion：不请求模型、不创建虚假的 Provider attempt，却在同一最终事务中完成 assistant/context/turn/run，提交成功后才发文本和 committed stream end；Stop 或提交失败则沿同一 admission fallback 收敛并取消刚启动的 child。这样 Plan 的上下文隔离只改变执行者，不改变正式 turn 的唯一准入与耐久协议。
+
 ### Run instruction / data 注入
 
 `resolve_plan_context_for_session`（`agent/plan_context.rs`）把后端的 `PlanModeState` 翻译成 chat engine 需要的整套输入：Plan agent 模式、路径允许清单、固定 run instruction 与 plan 文档 data。集中在这里，保证每个聊天入口——Tauri、HTTP、IM channel、cron、subagent——拿到完全一致的 Plan 行为，同时避免 plan 正文污染稳定 system 前缀或继承 developer authority。

@@ -1,10 +1,12 @@
 # Chat Engine 对话引擎架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-10
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23
 
 **关联源码**
 
-- 引擎入口：[`chat_engine/engine.rs`](../../../crates/ha-core/src/chat_engine/engine.rs) 的 `run_chat_engine()`
+- 唯一准入入口：[`chat_engine/turn_kernel.rs`](../../../crates/ha-core/src/chat_engine/turn_kernel.rs) 的 `TurnKernel::submit()` / `submit_classified()`
+- 主回合 runtime：[`ha-agent-runtime/src/engine.rs`](../../../crates/ha-agent-runtime/src/engine.rs) + [`streaming_loop.rs`](../../../crates/ha-agent-runtime/src/streaming_loop.rs)
+- Provider adapters：[`ha-agent-runtime/src/provider_adapters/`](../../../crates/ha-agent-runtime/src/provider_adapters/mod.rs)
 - 类型与 sink：[`chat_engine/types.rs`](../../../crates/ha-core/src/chat_engine/types.rs)
 - 耐久流协调器：[`chat_engine/durability.rs`](../../../crates/ha-core/src/chat_engine/durability.rs) + [`session/stream_persistence.rs`](../../../crates/ha-core/src/session/stream_persistence.rs)
 - 停止与终态收敛：[`chat_engine/stop.rs`](../../../crates/ha-core/src/chat_engine/stop.rs) · [`chat_engine/finalize/`](../../../crates/ha-core/src/chat_engine/finalize/mod.rs) · [`chat_engine/active_turn.rs`](../../../crates/ha-core/src/chat_engine/active_turn.rs)
@@ -37,7 +39,9 @@
 
 一个 AI 助手会从很多地方收到"请回一句话"的请求：桌面用户在窗口里打字、外部 HTTP 客户端调 API、IM 渠道转发一条消息、定时任务到点触发、子 agent 递归调用、IDE 走 ACP 协议直连。这些入口的**输出通道**各不相同（Tauri IPC、WebSocket、Telegram 消息编辑、stdio……），但它们**背后要做的事完全一样**：构建 Agent、恢复上下文、驱动一轮 LLM + 工具循环、把增量流式吐出去、失败了降级重试、成功了原子落库、再排一些后处理。
 
-Chat Engine 就是把这套"后台要做的事"收敛成**唯一编排入口** `run_chat_engine()`。每个调用方只需要做两件事：准备一个 `ChatEngineParams` 参数包，塞进一个实现了 `EventSink` 的输出适配器。引擎不关心事件最终流到哪个屏幕，只负责把"发生了什么"以稳定的 JSON 事件协议推给 sink。
+Chat Engine 把这套"后台要做的事"收敛成**唯一准入边界** `TurnKernel`。所有正式回合先构造字段封闭的 `TurnRequest`，再通过来源专用的 `TurnSubmission::{desktop,http,acp,channel,cron,subagent,…}` 密封来源策略；调用方不能直接填写 `ChatSource`、模型链或生命周期布尔值。`TurnKernel` 在 Provider I/O 前完成模型路由、配置/凭据快照、Stop epoch、Agent 生命周期和 durable stream 的原子准入，然后把不可伪造的 `AdmittedTurn` 交给已注册的 `AgentTurnExecutor`。
+
+`ha-agent-runtime` 实现这个必需端口，拥有模型链 failover、Provider adapter、Hope round/tool loop、视觉桥与 one-shot 网络执行；`ha-core` 保留准入、权限、台账、上下文、durability、Stop/finalize 等内核不变量。Shell 和其它 feature crate 只提交语义化请求，不接触 `ChatEngineParams`、`AssistantAgent` 或 Provider 凭据。
 
 它要解决的三个关键难题，构成了本文的主线：
 
@@ -50,12 +54,15 @@ flowchart TB
     subgraph Sources["调用入口（每个自带一种 EventSink）"]
         D["桌面 GUI<br/>ChannelSink"]
         H["HTTP / WS<br/>NoopEventSink + 广播总线"]
+        A["ACP<br/>stdio sink"]
         C["IM 渠道<br/>ChannelStreamSink"]
         Cr["Cron 定时<br/>NoopEventSink"]
-        S["子 agent / 注入<br/>NoopEventSink"]
+        S["子 agent / 注入 / Session Tool / Eval<br/>NoopEventSink"]
     end
 
-    Engine["run_chat_engine()<br/>模型链遍历 · 重试 · 流式回调 · failover"]
+    Kernel["TurnKernel<br/>来源策略 · 模型路由 · 原子准入"]
+    Port["AgentTurnExecutor<br/>必需 runtime 端口"]
+    Runtime["ha-agent-runtime<br/>failover · Provider · round/tool loop · vision"]
 
     subgraph Durable["耐久层"]
         Coord["StreamCoordinator<br/>分配 seq · 合并 · 背压"]
@@ -69,16 +76,15 @@ flowchart TB
 
     Spool["紧急 spool<br/>SQLite 不可用时"]
 
-    D & H & C & Cr & S --> Engine
-    Engine --> Coord --> Writer
+    D & H & A & C & Cr & S --> Kernel
+    Kernel --> Port --> Runtime
+    Runtime --> Coord --> Writer
     Writer --> Journal
     Writer -.SQLite fatal.-> Spool
     Journal --> Msgs
-    Writer -->|durable 后| Engine
-    Engine -->|投递已耐久 seq| Sinks["EventSink · 广播总线 · IM 镜像"]
-
-    Note["ACP 例外：直接跑 AssistantAgent::chat，<br/>不经 run_chat_engine，但用同一套 journal/spool/finalize"]
-    Engine -.- Note
+    Writer -->|durable 后| Runtime
+    Runtime -->|投递已耐久 seq| Sinks["EventSink · 广播总线 · IM 镜像"]
+    Runtime -->|终态| Kernel
 ```
 
 各入口与其 `EventSink` 实现的对应关系：
@@ -90,15 +96,17 @@ flowchart TB
 | IM 渠道（`Channel`） | `ChannelStreamSink` | 双路：`channel:stream_delta` 事件给 GUI 镜像 + `mpsc` 转发驱动 IM 渐进式消息编辑 |
 | Cron 定时（`Cron`） | `NoopEventSink` | 无实时消费方；最终结果由 Cron delivery 处理 |
 | 子 agent / 注入（`Subagent` / `ParentInjection`） | `NoopEventSink` | 后台执行；`ParentInjection` 的回合仍走广播总线可被前端重连 |
-| ACP 协议（`Acp`） | stdio 协议输出层 | IDE 直连；不经 `run_chat_engine`，但创建同类 durability run |
+| ACP 协议（`Acp`） | stdio 协议输出层 | IDE 直连；与其它正式回合一样经 `TurnKernel` 准入并使用同一 runtime / durability / finalize |
+| Session Tool / Eval（`SessionTool` / `Eval`） | `NoopEventSink` | Session Tool 走生产配置路由；Eval 只能携带显式隔离的评测模型链 |
 
 ## 模块结构
 
 ```
 crates/ha-core/src/chat_engine/
 ├── mod.rs               模块声明、re-export、Stop watchdog 编排
-├── types.rs             EventSink trait · ChatEngineParams/Result · CapturedUsage · ChannelStreamSink
-├── engine.rs            run_chat_engine() 核心引擎（模型链遍历 · 重试循环 · 流式处理 · failover）
+├── turn_kernel.rs        唯一准入 · 来源密封 · 模型路由 · AgentTurnExecutor 必需端口
+├── types.rs             EventSink trait · 内部 ChatEngineParams/Result · CapturedUsage · ChannelStreamSink
+├── engine.rs            kernel 侧收尾/兼容辅助；不拥有 Provider 或 round/tool 执行机
 ├── context.rs           Agent 构建 · 上下文恢复/保存 · 记忆提取门控
 ├── durability.rs        StreamCoordinator：分配 seq · group commit · 背压 · 耐久后广播
 ├── spool.rs             SQLite 不可用时的校验帧紧急日志
@@ -114,6 +122,14 @@ crates/ha-core/src/chat_engine/
 ├── im_system_message.rs IM 渠道系统提示（重试/压缩/思考开关）文案
 ├── persister.rs         legacy placeholder writer（占位行模型），新流不使用、仅兼容期保留
 └── active_persisters.rs 进程级 legacy persister 弱引用注册表（信号/崩溃时兜底 flush）
+
+crates/ha-agent-runtime/src/
+├── engine.rs             主回合 failover / finalization 执行机
+├── streaming_loop.rs     Hope round / tool loop driver
+├── chat_dispatch.rs      四类 Provider adapter 选择
+├── provider_adapters/    Anthropic · OpenAI Chat · Responses · Codex 流式协议
+├── vision_bridge.rs      opt-in 视觉桥
+└── one_shot.rs           受内核端口约束的一次性 Provider 请求
 ```
 
 中性接口 [`turn_durability.rs`](../../../crates/ha-core/src/turn_durability.rs) 定义 `TurnDurabilitySink`，因此 `AssistantAgent` 通过它把 delta 交给协调器，而不反向依赖 `chat_engine`。
@@ -150,20 +166,20 @@ pub trait EventSink: Send + Sync + 'static {
 
 ### ChatEngineParams
 
-完整的请求参数包，调用方（`commands/chat.rs`、`channel/worker.rs` 等）从 `State<AppState>` 或磁盘一次性构建后传入。
+`ChatEngineParams` 是 kernel 与 `ha-agent-runtime` 之间的**内部、未密封执行载荷**，只允许由 `TurnKernel` 从 `TurnRequest + TurnSubmission` 生成。桌面、HTTP、ACP、Channel、Cron、subagent、注入、Session Tool 和 Eval 等调用方不得直接构造它；对外稳定面是带私有字段和命名 builder 的 `TurnRequest`，以及来源专用的 `TurnSubmission`。
 
 | 分组 | 字段 | 类型 | 说明 |
 |---|---|---|---|
 | 基础 | `session_id` | `String` | 会话 ID |
 | | `agent_id` | `String` | Agent ID |
-| | `turn_id` | `Option<String>` | 面向用户的桌面/HTTP 回合持久化 turn id；非交互入口（Cron/subagent/注入/IM）恒 `None`（见下文） |
+| | `turn_id` | `Option<String>` | 与既有 `chat_turns` 行绑定的 exact 持久化身份：Desktop/HTTP 由交互准入创建，SessionTool/Cron/Eval 由各自耐久准入先建行；无该行的 Channel/Subagent/ParentInjection/ACP 恒 `None`（见下文） |
 | | `message` | `String` | 发给模型的用户消息 |
 | | `incoming_turn` | `Option<IncomingTurnWire>` | typed mention/slash sidecar；绑定 canonical text digest、UTF-8 source anchors 与 prompt/mention contract version |
 | | `display_text` | `Option<String>` | 友好呈现文案（例如显示原始 slash 命令）；不参与 typed binding 真实性或模型 authority |
 | | `attachments` | `Vec<Attachment>` | 多模态附件 |
 | | `session_db` | `Arc<SessionDB>` | 会话数据库 |
-| 模型链 | `model_chain` | `Vec<ActiveModel>` | 预解析的模型降级链 |
-| | `providers` | `Vec<ProviderConfig>` | Provider 配置快照 |
+| 模型链 | `model_chain` | `Vec<ActiveModel>` | kernel 准入时解析并冻结的模型降级链；仅 `Eval` 可显式提交隔离链 |
+| | `providers` | `Vec<ProviderConfig>` | kernel 准入时冻结的 Provider 配置/凭据租约 |
 | | `codex_token` | `Option<(String, String)>` | Codex OAuth `(access_token, account_id)`；可传 `None`，引擎在链真命中 Codex 时从磁盘 hydrate + refresh，三入口行为一致 |
 | Agent 配置 | `resolved_temperature` | `Option<f64>` | 三层覆盖后的温度值 |
 | | `compact_config` | `CompactConfig` | 上下文压缩配置 |
@@ -214,7 +230,7 @@ pub struct ChatEngineResult {
     pub response: String,                 // 最终响应文本
     pub model_used: Option<ActiveModel>,  // 实际使用的模型
     pub usage: CapturedUsage,             // 本回合捕获的 token 用量（workflow 子 agent 的 durable 预算据此扣减）
-    pub agent: Option<AssistantAgent>,    // Agent 实例（UI chat 用于更新 State）
+    pub terminal: TurnTerminal,           // Completed / Cancelled / Failed
 }
 ```
 
@@ -244,71 +260,77 @@ pub struct CapturedUsage {
 
 ## 请求流程
 
-`run_chat_engine()` 遍历模型降级链，对每个模型跑一个有界重试循环，直到成功或全链耗尽：
+正式回合先经 `TurnKernel` 准入，再由 `ha-agent-runtime` 遍历冻结的模型降级链，对每个模型跑一个有界重试循环，直到成功或全链耗尽：
 
 ```mermaid
 sequenceDiagram
     participant Caller as 调用方
-    participant Engine as Chat Engine
-    participant Agent as AssistantAgent
+    participant Kernel as TurnKernel
+    participant Runtime as ha-agent-runtime
+    participant Round as Hope round/tool driver
     participant Coord as StreamCoordinator
     participant DB as SessionDB
     participant Sink as EventSink / 总线
 
-    Caller->>Engine: run_chat_engine(params)
+    Caller->>Kernel: submit(TurnSubmission::{source}(TurnRequest))
+    Kernel->>Kernel: 密封来源策略 · 解析模型链 · 冻结 Provider/config revision
+    Kernel->>DB: 原子准入 user message / chat turn / stream run / Stop epochs
+    Kernel->>Runtime: AgentTurnExecutor(AdmittedTurn)
 
     loop 遍历 model_chain
-        Engine->>Engine: build_agent_from_snapshot() + 配置（温度/工具/Plan Mode）
-        Engine->>DB: restore_agent_context()（加载 context_json）
+        Runtime->>Runtime: build_agent_from_snapshot() + 配置（温度/工具/Plan Mode）
+        Runtime->>DB: restore_agent_context()（加载 context_json）
 
         loop 有界重试（已知瞬时错误≤3；Unknown≤2）
             alt 非首个模型
-                Engine->>Sink: emit model_fallback + append event 行
+                Runtime->>Sink: emit model_fallback + append event 行
             end
 
-            Engine->>Agent: agent.chat(message, …, on_delta)
-            Agent->>Coord: 冻结 exact body + request-local projection plan/context fence
+            Runtime->>Round: run_agent_chat(message, …, on_delta)
+            Round->>Coord: 冻结 exact body + request-local projection plan/context fence
             Coord->>DB: context_committed → dispatching（联网前）
-            Note over Engine,Coord: on_delta 只解析并 accept seq；<br/>后台 writer 追加 journal；<br/>durable 后才投递 Sink/总线；<br/>tool 边界等待 durability barrier
+            Note over Runtime,Coord: on_delta 只解析并 accept seq；<br/>后台 writer 追加 journal；<br/>durable 后才投递 Sink/总线；<br/>tool 边界等待 durability barrier
 
             alt 成功
-                Engine->>DB: flush FinalEnd journal
-                Engine->>DB: commit_assistant_turn（assistant + context CAS + turn + usage + run 终态，单事务）
-                Engine->>Sink: emit committed chat:stream_end
-                Engine->>Engine: 调度 Goal 续跑 / 记忆提取 / 技能审核
-                Engine-->>Caller: Ok(ChatEngineResult)
+                Runtime->>DB: flush FinalEnd journal
+                Runtime->>DB: commit_assistant_turn（assistant + context CAS + turn + usage + run 终态，单事务）
+                Runtime->>Sink: emit committed chat:stream_end
+                Runtime->>Runtime: 调度 Goal 续跑 / 记忆提取 / 技能审核
+                Runtime-->>Kernel: Ok(AgentTurnOutput)
             else ContextOverflow（首次且有匹配的本地容量证书）
-                Engine->>Engine: 验证失败请求 identity / history / replay-safe 边界
-                Engine->>DB: emergency context + tier3_required 原子 checkpoint
-                Engine->>Sink: emit 压缩进度 + committed context_compacted
-                Note over Engine: 新 exact plan；同模型最多单次重试；<br/>下一安全主请求强制 Tier 3
+                Runtime->>Runtime: 验证失败请求 identity / history / replay-safe 边界
+                Runtime->>DB: emergency context + tier3_required 原子 checkpoint
+                Runtime->>Sink: emit 压缩进度 + committed context_compacted
+                Note over Runtime: 新 exact plan；同模型最多单次重试；<br/>下一安全主请求强制 Tier 3
             else DispatchUnknown / CurrentToolGroupOverflow
-                Engine->>DB: 保留 typed 终态与请求证据
-                Engine-->>Caller: Err(terminal)
+                Runtime->>DB: 保留 typed 终态与请求证据
+                Runtime-->>Kernel: Err(terminal)
             else Terminal 错误
-                Engine->>DB: commit_interrupted_turn
-                Engine-->>Caller: Err(error)
+                Runtime->>DB: commit_interrupted_turn
+                Runtime-->>Kernel: Err(TurnFailure)
             else Retryable（retry 未达上限）
-                Note over Engine: 指数退避后重试同模型
+                Note over Runtime: 指数退避后重试同模型
             else 重试耗尽 / Non-retryable
-                Note over Engine: break → 尝试下一个模型
+                Note over Runtime: break → 尝试下一个模型
             end
         end
     end
 
-    Engine->>DB: commit_interrupted_turn（最后合法 partial）
-    Engine-->>Caller: Err("All models failed")
+    Runtime->>DB: commit_interrupted_turn（最后合法 partial）
+    Runtime-->>Kernel: Err(ProviderExhausted)
+    Kernel-->>Caller: typed success / failure
 ```
 
 关键步骤：
 
-1. **初始化** —— 从 `model_chain` 构建 Agent，配置温度、工具限制、Plan Mode 等。
-2. **上下文恢复** —— `restore_agent_context()` 从 DB 加载 `context_json`，反序列化后设回 Agent。
-3. **流式执行** —— `agent.chat()` 启动 LLM 请求 + Tool Loop，通过 `on_delta` 回调实时处理增量。
-4. **增量耐久** —— 协调器追加 journal，事务提交后才把对应 `seq` 广播；工具边界使用强制 durability barrier。
-5. **最终提交** —— `commit_assistant_turn()` 在单个事务里原子写 assistant、context CAS、chat turn、usage 与 run 终态。
-6. **可见收尾** —— 最终事务成功后才发 committed `chat:stream_end`，再后台调度 Goal 续跑 / 记忆提取 / 技能审核。
-7. **错误处理** —— 分类错误，决定重试 / 降级 / 终止，非自然完成一律走统一 finalize。
+1. **准入** —— `TurnKernel` 根据来源构造策略，解析生产模型路由或验证 Eval 隔离链，冻结配置/凭据 revision，并原子建立 durable turn；Desktop/HTTP 在这一步失败时也由 kernel 统一释放 queue claim、回滚 lazy bootstrap 并删除尚无消息的临时 Session。
+2. **初始化** —— runtime 从准入后的 `model_chain` 构建 Agent，配置温度、工具限制、Plan Mode 等。
+3. **上下文恢复** —— `restore_agent_context()` 从 DB 加载 `context_json`，反序列化后设回 Agent。
+4. **流式执行** —— feature-owned round driver 启动 Provider 请求 + Tool Loop，通过 `on_delta` 回调实时处理增量。
+5. **增量耐久** —— 协调器追加 journal，事务提交后才把对应 `seq` 广播；工具边界使用强制 durability barrier。
+6. **最终提交** —— `commit_assistant_turn()` 在单个事务里原子写 assistant、context CAS、chat turn、usage 与 run 终态。
+7. **可见收尾** —— 最终事务成功后才发 committed `chat:stream_end`，再后台调度 Goal 续跑 / 记忆提取 / 技能审核。
+8. **错误处理** —— 分类错误，决定重试 / 降级 / 终止，非自然完成一律走统一 finalize。
 
 ## 耐久流协调器
 
@@ -352,7 +374,7 @@ flowchart LR
 
 ### run / attempt / journal 主台账与 typed snapshot ledger
 
-每个跑 `AssistantAgent::chat` + tool loop 的会话 turn 都有独立 `persistence_run_id`。流恢复事实落在三张主表；typed 资源另用一张不可随 run/session cascade 丢失的 ownership ledger（均定义在 [`session/stream_persistence.rs`](../../../crates/ha-core/src/session/stream_persistence.rs)）：
+每个经 `TurnKernel` 准入并进入 feature-owned round/tool loop 的会话 turn 都有独立 `persistence_run_id`。流恢复事实落在三张主表；typed 资源另用一张不可随 run/session cascade 丢失的 ownership ledger（均定义在 [`session/stream_persistence.rs`](../../../crates/ha-core/src/session/stream_persistence.rs)）：
 
 | 表 | 主键 | 记什么 |
 |---|---|---|
@@ -367,7 +389,7 @@ flowchart LR
 
 - **每个 attempt 递增 `attempt_no`**。切换 attempt 时在一个事务内把 session context CAS 恢复到 run 起点、删除该 run 已产生的 checkpoint materialized rows、标记旧 attempt superseded；工具调用审计仍完整留在 journal。新 attempt 的 reset marker 只在该事务完成后才广播。
 - **模型链全部失败**时，选最后一个含合法可见前缀的尝试，生成 partial assistant。
-- **不启动模型流的确定性本地回复**（如 Plan sub-agent 的"已转发/已启动"确认）不创建空 journal run，但仍走同一个 `commit_assistant_turn(run_id=None)` 原子写 assistant、CAS context、完成 chat_turn，且提交后才展示。
+- **不启动模型流的确定性本地回复**（当前仅限已准入 Desktop Plan sub-agent 的"已转发/已启动"确认）也必须先经 `TurnKernel::admit`，再由 kernel-local completion 原子写 assistant、CAS context、完成 chat turn 与 `chat_stream_runs`。它保留 run 作为 Stop/崩溃/终态真相，但不伪造 Provider attempt 或 journal；`attempt_no=0` 是这条无 Provider lane 的显式哨兵，提交后才展示。
 - `messages.persistence_run_id + logical_block_seq` 的部分唯一索引保证恢复重放幂等；终态 journal 默认保留 24 小时，再由每日运行的后台 GC 删除。
 
 ### Flush、group commit 与背压
@@ -389,7 +411,7 @@ flowchart LR
 
 `sessions.context_revision / context_run_id` 是上下文写入的 CAS 边界；run/attempt 的 `checkpoint_seq` 记录 provider-native context 已覆盖到哪个 durable journal seq。round checkpoint 在同一事务中物化 durable journal 前缀、推进 checkpoint 水位并更新 context；compaction 与最终提交都必须携带预期 revision。**冲突时 fail closed**，不允许旧 Agent 快照覆盖新上下文。失败/崩溃收敛只把 checkpoint 后缀按 Anthropic / OpenAI Chat / Responses / Codex 原生结构重建，避免重复已完成 round，同时为未完成 tool call 合成匹配 result。
 
-正常完成只有一个 `commit_assistant_turn` 事务，依次完成 journal 物化、最终 assistant、legacy trailing placeholder 清理、完整 context、交互式 `chat_turns`、usage ledger、run/attempt 终态和 session 时间。任何 SQL 失败整体回滚，turn 不得伪装 completed。成功 `chat:stream_end` 只能在该事务提交后发送。
+正常完成只有一个 `commit_assistant_turn` 事务，依次完成 journal 物化、最终 assistant、legacy trailing placeholder 清理、完整 context、可选 `chat_turns` 终态、usage ledger、run/attempt 终态和 session 时间。任何 SQL 失败整体回滚，turn 不得伪装 completed。成功 `chat:stream_end` 只能在该事务提交后发送。
 
 停止/失败由 `commit_interrupted_turn` 原子收敛：只物化 checksum 正确且 seq 连续的最大前缀，写明确恢复/中断事件，并把 turn/run 标为 interrupted/failed/recovered。
 
@@ -423,7 +445,7 @@ Incognito 使用纯内存 coordinator，不创建 run/journal/spool/usage 行；
 
 ### 流式回调如何工作
 
-`on_delta` 闭包在 `agent.chat()` 流式输出过程中被调用，只做解析、内存追加与通知 writer：
+`on_delta` 闭包在 feature-owned Provider/round driver 流式输出过程中被调用，只做解析、内存追加与通知 writer：
 
 - **累积与 flush**：相邻 text/thinking 在 per-run buffer 合并，journal 只追加增量块、不反复覆盖累计全文；100ms / 16KiB 触发普通 flush，语义边界异步等待 durable 水位；最终响应先 flush 到 `accepted_seq == durable_seq` 再进最终事务。`thinking_start_time` 记录首个 `thinking_delta` 的时间以计算思考总耗时。
 - **工具事件持久化**：`tool_call`/`tool_result` 都先作为 journal event 耐久；checkpoint / final commit 再按 `persistence_run_id + logical_block_seq` 幂等物化 Tool 消息。执行器只有在 tool-call durable barrier 完成后才允许产生副作用。
@@ -449,7 +471,7 @@ seq 由 coordinator 在 accept 时分配，只有 `seq <= durable_seq` 才能进
 
 ## Turn 生命周期与 Stop 恢复
 
-用户可见的桌面 / HTTP chat turn 在进入 Chat Engine **前**就创建持久化 `chat_turns` 记录，并把 `turn_id` 传入 `ChatEngineParams`。turn 生命周期独立于 Plan task、stream seq 与消息持久化：
+用户可见的桌面 / HTTP chat turn 通过 `InteractiveAdmission` 与 `TurnKernel` 在**同一准入事务**创建/绑定持久化 `chat_turns` 记录；调用方不再先写库后手工拼 `ChatEngineParams`。turn 生命周期独立于 Plan task、stream seq 与消息持久化：
 
 ```mermaid
 stateDiagram-v2
@@ -501,6 +523,7 @@ Global Stop generation task 是枚举结果的唯一 owner：它在同一个 det
 
 - **watchdog 必须再校验 `turn_id`**：读 session-keyed live durability 时若 turn 不匹配，只按旧 turn 查找并恢复其 persistence run，绝不能把新 turn 的 journal 提交到旧 turn。进入仅按 session 定位的 legacy fallback 前须重建 Stop gate、确认没有不同 active turn、旧 turn 仍是 DB 最新一代；即使续聊已快速完成、live coordinator 已注销，也不得从最新消息反向重建旧 turn。
 - **停止发生在用户消息落库前**：`UserPromptSubmit` 预检必须与该 turn 的 cancel flag 竞争；此时须先广播终态并释放精确 active-turn guard，前端把未发出内容恢复为草稿。空会话/worktree 的 Git-aware 回滚随后在后台按 durable bootstrap row 收敛，不能让 Git/SQLite 清理阻塞续聊。
+- **可执行的项目首轮 bootstrap 只在准入后完成**：`ready → chatting` 只是首轮 claim；只有 Desktop/HTTP 的 user message、`chat_turn` 与 stream run 已在 TurnKernel 事务中一起落库，shell 才可写 `completed`。模型路由无效、Provider lease 拒绝或交互持久化失败都仍处于准入失败面，必须先释放 exact active-turn lease，再同步走同一 Git-aware rollback，不能留下 `completed` 的空 Session/worktree。`UserPromptSubmit` 明确返回 Block 是独立的用户可见控制面终态：它持久化 notice 并 materialize Session，因而可结束 bootstrap，但绝不能伪造 user/turn 或调用模型。
 - **请求生命周期资源也要能立即 abort**：GUI 的 plan mention 展开、文件系统配置读取、附件 staging 都属 request 生命周期；本地 Stop 必须立即 abort 等待。上传若不可物理取消，迟到返回的 upload lease 必须自动 discard，不得形成孤儿附件，也不得把用户停止显示为上传失败。
 - **项目首轮 bootstrap 已完成时**：回滚必须先把 bootstrap 置为终态并经 Git-aware 路径 discard 托管 worktree，再删空会话；禁止先靠 session FK cascade 丢掉 worktree 注册行。
 - **懒创建会话的定位**：`session_created` 前用不透明 `clientRequestId` 定位 active turn，此时点停止不得退化成"停止所有会话"；已知 session 但 `turn_started` 尚未到达的窗口也用同一 request id latch。
@@ -563,7 +586,7 @@ Workflow 新 runtime 必须等 Stop 前的 QuickJS guard Drop 后再由同一 re
 
 无 target 的全局紧急停止统一进入 `stop_all_sessions`，Desktop / HTTP shell 只负责先翻转各自 transport-local handle；全局路径不复制一套 DB、审批或 runtime 清理逻辑。
 
-ACP 的 `session/cancel` 也调用同一 session-stop 服务；由于 ACP prompt 同步占用业务主循环，stdio reader 必须独立读取并先翻转每轮独立 token，不能等 prompt 返回后才处理 cancel。ACP 的 hook、provider 构造、重试和 Agent loop 均须观察该 token，停止胜出后同样以 `Interrupted/user_stop` 保留 journal 前缀。
+ACP 的 `session/cancel` 也调用同一 session-stop 服务；由于 ACP prompt 同步占用业务主循环，stdio reader 必须独立读取并先翻转每轮独立 token，不能等 prompt 返回后才处理 cancel。ACP 的 hook、provider 构造、重试和 Agent loop 均须观察该 token，停止胜出后同样以 `Interrupted/user_stop` 保留 journal 前缀。所有非取消终态与带外 Stop 的最后定序由 ACP 来源专用 `TurnCompletionClaim` 完成：成功路径必须在 assistant/context/turn/run 原子成功事务之前 claim，Provider 耗尽等失败路径必须在 failed-terminal convergence 提交终态之前 claim；cancel 先赢一律改走 `UserStop` finalizer，claim 先赢则 reader 不得再为该 prompt generation 启动 Stop。在 `TurnKernel::submit` 返回后补任一种终态的 claim 都无法阻止已经落库的 pause，禁止回退到这种后置形状。
 
 **终态 CAS**：`cancelling` 优先于迟到的 success commit——成功事务只能从 `running` 转 `completed`，不得清掉已写入的 `user_stop` 并把会话翻回成功。前端的 loading / optimistic placeholder 归属具体 chat request；旧请求即使在 watchdog 放行后才返回，其 `finally`、status、stream end 及 success commit 都必须按 request/turn ownership 拒绝覆盖新回合。
 
@@ -577,13 +600,13 @@ server-owned UI turn 运行期间注册 session-scoped `ReattachableUiSessionGua
 
 同步 HTTP / incognito 路径仍持有两个 Drop 兜底 guard：一是只移除本次请求注册的 cancel flag，避免客户端断开时把 stale cancel 留在 `chat_cancels`；二是 request future 被丢弃时，外层 guard 只把 turn 标 `cancelling/runtime_cancel`，由 Chat Engine `StreamLifecycle::Drop` 按精确 `persistence_run_id` 从 durable prefix 后台收敛并广播终态。服务进程退出则不透明重放任意副作用，交给启动恢复标记 Interrupted。
 
-`turn_id = None` 是非交互入口的显式设计：Cron、subagent、parent injection、IM channel worker 与 ACP 不参与 GUI/HTTP 的 turn 级 stop 与 active-turn registry；但它们全部拥有 `persistence_run_id` 并使用相同 journal/spool/最终提交协议。两种标识不能混用。
+`turn_id` 的判据是**该来源是否拥有匹配的 `chat_turns` 行**，不是“交互/非交互”：Desktop/HTTP、SessionTool、Cron 与 Eval 的持久 turn 必须携带 exact id；Channel、Subagent、ParentInjection 与 ACP 没有该行，恒为 `None`。其中 ACP 自铸的 preflight `prompt_id` 只服务钩子，绝不能冒充 `turn_id`；反过来也不能剥掉 Cron/SessionTool/Eval 的 exact id，否则最终事务无法收敛对应 ChatTurn。kernel 把身份分成三类并穷举 `ChatSource`：Desktop/HTTP 的 row 在 `admit_interactive` 内原子创建并由该边界自行回滚/取消；SessionTool/Cron/Eval 的 row 由 shell 先建，source/identity allowlist 通过后立即捕获统一失败收敛上下文，后续模型路由、Provider lease 或来源证明失败也必须把它精确收敛为 terminal，不能留下永久 `running`；rowless source 则不得武装该 fallback，否则伪造 id 可终结别人的 turn。失败 fallback 只负责统一落 terminal 事实，是否发 `chat:stream_end` 仍须服从同一 `TurnSourcePolicy::broadcasts_to_user_ui`；Eval 等隐藏来源即使准入失败也不得泄漏到用户 chat bus。所有来源另有 `persistence_run_id` 并共用 journal/spool/最终提交协议；持有 `turn_id` 本身不授予前台用户 authority，两种标识与权限语义均不能混用。
 
 ### 后台结果回注与前台让行
 
 "后台任务仍在运行"和"用户能否继续聊天"是正交的——唯一共享的是 provider / 机器资源与有界并发配额：
 
-- Desktop / HTTP / IM / Cron 的前台回合在 `run_chat_engine` 入口持有 `ChatSessionGuard`。subagent、异步工具和 Workflow 阶段结果调用 `inject_and_run_parent` 时先等该计数归零，因此不会把后台结果插进正在流式输出的用户回合。
+- 需要占用前台 idle guard 的来源由 `TurnSourcePolicy::holds_foreground_idle_guard` 统一决定，并在准入/runtime 边界持有 `ChatSessionGuard`。subagent、异步工具和 Workflow 阶段结果调用 `inject_and_run_parent` 时先等该计数归零，因此不会把后台结果插进正在流式输出的用户回合。
 - 同一 session 只允许一个 parent injection；其他 source 进入 `PENDING_INJECTIONS` 串行队列。等待超时不丢结果，而是继续排队，由前台 guard drop 后唤醒。
 - 用户新发消息会取消当前 injection model turn 并重新排队；若 source 已被模型通过结果查询显式消费，`mark_run_fetched` 按 source run id 取消并抑制重试。Workflow checkpoint 另有 durable delivered/suppressed 事件，重启只补尚未 settled 的阶段结果。
 - 后台工具与 Workflow 脚本有各自 worker/队列，子 Agent 运行在独立 child session；它们等待终态不持有前台 `ChatSessionGuard`。
@@ -705,11 +728,11 @@ fresh dispatcher 与恢复泵共用全局模型并发 semaphore；同一 session
 
 ## Failover 集成
 
-Chat Engine 内置完整的模型降级和重试逻辑。退避基数 / 上限 / 单模型重试次数统一来自 `failover::FailoverPolicy::chat_engine_default()`（详见 [failover.md](../agent/failover.md)）：
+正式 turn 的模型降级和重试执行机位于 `ha-agent-runtime`；分类、policy、sticky/cooldown 与恢复控制契约仍由 kernel 提供。退避基数 / 上限 / 单模型重试次数统一来自 `failover::FailoverPolicy::chat_engine_default()`（详见 [failover.md](../agent/failover.md)）：
 
 ```mermaid
 flowchart TD
-    A["agent.chat() 失败"] --> B{"classify_error_with_evidence"}
+    A["Provider / round driver 失败"] --> B{"classify_error_with_evidence"}
     B -->|"ContextOverflow + 本地完整容量证书"| C{"本模型首次且可安全重放?"}
     C -->|"是"| D["proof-gated emergency_compact<br/>原子 checkpoint + Tier3 marker<br/>新 exact plan 单次重试"]
     C -->|"否"| E["Terminal: 返回错误"]
@@ -731,13 +754,13 @@ GUI 按 `delay_ms` 显示真实倒计时/进度条并可跳过等待；存在下
 
 **Codex 特殊处理**：Auth 错误时若当前 Provider 是 Codex 类型，额外发送 `codex_auth_expired` 通知前端触发重新授权。
 
-**ContextOverflow 特殊处理**：Chat Engine 只接受高置信 typed overflow；真正发布 Tier 4 还要求失败 attempt 携带不可变的本地完整请求容量证书，并重新验证 Provider/model/request shape、tokenizer revision、history fingerprint、当前用户恰好一次、工具活动可安全重放以及压缩后完整请求仍适配。全部成立时，紧急 canonical history 与 `tier3_required` 标记在同一个 SQLite checkpoint 事务提交，再以新的 exact request plan/dispatch claim 单次重试。任一证明缺失都保持旧 history，不把自由文本相似错误升级为有损操作。非 incognito 会话可注入有界 runtime ledger；incognito 使用等价内存状态并跳过持久 marker。Tier 4 成功后，下一安全主请求必须先 durable-first 完成一次 Tier 3；失败进入可见的 `RetryExhausted` 并提供手动重试，不会每轮重复付费。
+**ContextOverflow 特殊处理**：主 runtime 只接受高置信 typed overflow；真正调用 kernel Tier 4 capability 并发布结果，还要求失败 attempt 携带不可变的本地完整请求容量证书，并重新验证 Provider/model/request shape、tokenizer revision、history fingerprint、当前用户恰好一次、工具活动可安全重放以及压缩后完整请求仍适配。全部成立时，紧急 canonical history 与 `tier3_required` 标记在同一个 SQLite checkpoint 事务提交，再以新的 exact request plan/dispatch claim 单次重试。任一证明缺失都保持旧 history，不把自由文本相似错误升级为有损操作。非 incognito 会话可注入有界 runtime ledger；incognito 使用等价内存状态并跳过持久 marker。Tier 4 成功后，下一安全主请求必须先 durable-first 完成一次 Tier 3；失败进入可见的 `RetryExhausted` 并提供手动重试，不会每轮重复付费。
 
 **精确发送与终态提交**：主 Provider 请求先冻结最终 JSON bytes，再发布 request-local projection plan/context fence，联网前 CAS `dispatching`，headers 到达即记 `response_started`。一次 claim 只允许一个 POST；redirect 与客户端透明 retry 均关闭。claim 后 headers 前无法证明是否发送时写 `send_unknown` 并禁止自动 fallback；SSE 缺 Provider 终止证明时写 `response_incomplete`。无工具最终回复由 assistant/context/run 同一事务把 `response_started → terminal(success)`；工具轮只有在 durable ToolResultBoundary 后且明确还会发下一请求时才提前结束该 plan，PostToolBatch stop、最后一轮与 cancel 都留给最终/中断事务收口。
 
 ## Post-turn Effects 与记忆提取门控
 
-成功响应、assistant 落库、可见 stream 收尾并记录 stop lifecycle 后，Chat Engine 会依次做几件事——注意它们的门控互不相同：
+成功响应、assistant 落库、可见 stream 收尾并记录 stop lifecycle 后，共享 runtime 会经 kernel/feature ports 依次触发几件事——注意它们的门控互不相同：
 
 **Goal 续跑**（不受 `post_turn_effects` 控制）：若当前会话有 active Goal 仍需推进，`goal::maybe_schedule_goal_continuation(...)` 通过 wakeup 排一个短延迟 `<goal-continuation>` 注入，让模型下一轮先调 `goal_status` 再决定继续/完成/阻塞。它属于 durable Goal runtime 的续跑语义，不是普通后处理。Subagent source、paused/completed/cancelled/真实 blocked/budget exhausted 的 Goal 不续跑；同一 turn 去重，同一 Goal revision 有上限防自激活失控。
 
@@ -771,8 +794,8 @@ Gate 1、Gate 2 是硬前置；Gate 3（冷却）与 Gate 4（内容）需**同�
 
 GUI / HTTP 入口的 turn，在这个会话被某个 IM chat attach 的那一侧，会额外走一条 live 流式镜像：IM 用户能实时看到 typewriter / per-round 边界 finalize / 媒体投递，与 IM 入站 turn 对称。实现走 [`ha-channel/src/im_mirror.rs`](../../../crates/ha-channel/src/im_mirror.rs)：
 
-- `attach_im_live_mirror(session_id, source, last_user)` —— 仅 `Desktop` / `Http` source 才返非空 state（其余 source 直接 no-op）。它通过 `channel_db.get_conversation_by_session(session_id)` 拿到 1:1 attach 行，读对应账号的 `im_reply_mode()` / `show_thinking()` + plugin `capabilities()`，spawn ha-channel 的流式预览任务，并把一个 `ChannelStreamSink`（`broadcast_to_bus=false`）注册到 [`SinkRegistry`](../../../crates/ha-core/src/chat_engine/sink_registry.rs)。`emit_stream_event` 末尾的 `sink_registry().emit(session_id, &payload)` 把每帧 streaming event fan-out 到 IM 流式预览任务。
-- `finalize_im_live_mirror(state, response)` —— drop SinkHandle（RAII 卸载 sink → 关闭 `event_tx` → stream task drain 后 EOF），`.await` stream task 拿 `StreamPreviewOutcome`，drain `RoundTextAccumulator`，按 `ImReplyMode` 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../../crates/ha-channel/src/channel/worker/dispatcher.rs) 投递。
+- runtime 经 kernel [`channel_hooks::attach_live_mirror`](../../../crates/ha-core/src/channel_hooks.rs) 调用 feature-owned `attach_im_live_mirror(session_id, source, generation, last_user)`。仅 `Desktop` / `Http` source 才返非空 state（其余 source 直接 no-op）；ha-channel 通过 `channel_db.get_conversation_by_session(session_id)` 拿到 1:1 attach 行，读对应账号的 `im_reply_mode()` / `show_thinking()` + plugin `capabilities()`，spawn 流式预览任务，并把一个 `ChannelStreamSink`（`broadcast_to_bus=false`）注册到 [`SinkRegistry`](../../../crates/ha-core/src/chat_engine/sink_registry.rs)。`emit_stream_event` 末尾的 `sink_registry().emit(session_id, &payload)` 把每帧 streaming event fan-out 到 IM 流式预览任务。
+- runtime 在终态消费 `ImLiveMirror` trait object，feature-owned finalize drop SinkHandle（RAII 卸载 sink → 关闭 `event_tx` → stream task drain 后 EOF），拿 `StreamPreviewOutcome`、drain `RoundTextAccumulator`，按 `ImReplyMode` 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../../crates/ha-channel/src/channel/worker/dispatcher.rs) 投递。
 
 **两个通道各走各的发送通路**：GUI 永远走 Tauri IPC stream / HTTP `chat:stream_delta` 广播，不受 `imReplyMode` 影响；`imReplyMode` 仅决定 IM 端的呈现形态。
 
@@ -782,32 +805,37 @@ GUI / HTTP 入口的 turn，在这个会话被某个 IM chat attach 的那一侧
 
 ## 集成关系
 
-Chat Engine 是薄的编排层，重活分派给各子系统：
+Chat Engine 由 kernel 准入层与 feature runtime 两部分组成：kernel 保持全局不变量，runtime 拥有执行机并通过稳定端口消费内核能力。
 
 ```mermaid
 flowchart TB
-    Engine["run_chat_engine()"]
+    Producer["Shell / Feature producer<br/>TurnRequest + source-specific submission"]
+    Kernel["ha-core TurnKernel<br/>routing · admission · policy · ledger"]
+    Runtime["ha-agent-runtime<br/>engine · round/tool loop · Provider adapters"]
 
-    Engine --> Prov["Provider<br/>build_agent_from_snapshot()"]
-    Prov --> Agent["AssistantAgent<br/>agent.chat() · Tool Loop · Side Query"]
-    Agent --> Fail["Failover<br/>classify_error_with_evidence + retry_delay_ms"]
-    Agent --> Coord["StreamCoordinator<br/>TurnDurabilitySink"]
+    Producer --> Kernel -->|AdmittedTurn / AgentTurnExecutor| Runtime
+    Runtime --> Prov["Provider adapters<br/>build from admitted snapshot"]
+    Prov --> Round["runtime-private Agent<br/>Tool Loop · Side Query"]
+    Runtime --> Fail["Failover<br/>classify_error_with_evidence + retry_delay_ms"]
+    Runtime --> Coord["StreamCoordinator<br/>TurnDurabilitySink"]
     Coord --> DB["SessionDB<br/>journal · CAS · 最终原子提交"]
-    Agent -->|"ContextOverflow + 完整容量证书"| Compact["Context Compact<br/>proof-gated Tier 4"]
-    Engine -->|成功后| Post["Memory Extract · Skill Review · Goal 续跑 · 自动标题"]
-    Engine -->|GUI/HTTP turn| Mirror["Channel<br/>attach/finalize_im_live_mirror"]
-    Engine --> Plan["Plan Mode<br/>plan_context_override"]
+    Runtime -->|"ContextOverflow + 完整容量证书"| Compact["Context Compact<br/>proof-gated Tier 4 capability"]
+    Runtime -->|成功后| Post["Memory Extract · Skill Review · Goal 续跑 · 自动标题"]
+    Runtime -->|GUI/HTTP turn| Mirror["Channel<br/>attach/finalize_im_live_mirror"]
+    Runtime --> Plan["Plan Mode<br/>plan_context_override"]
 ```
 
 | 模块 | 交互方式 | 说明 |
 |---|---|---|
+| **TurnKernel** | `TurnRequest` + `TurnSubmission` | 来源密封、模型路由、配置/凭据租约、Stop/Agent lifecycle 与 durable admission |
+| **Agent Runtime** | `AgentTurnExecutor(AdmittedTurn)` | failover、Provider protocol、Hope round/tool loop、视觉桥；不得绕过 kernel 准入 |
 | **SessionDB** | `TurnDurabilitySink` / 最终事务 | journal、上下文 CAS、消息物化、turn 与 usage 原子提交 |
-| **Provider** | `build_agent_from_snapshot()` | 按 Provider 配置构建 Agent |
-| **AssistantAgent** | `agent.chat()` | Tool Loop、流式输出、Side Query |
+| **Provider** | feature-owned adapters | 按 kernel 冻结的 Provider/config snapshot 构建请求并解释流式协议 |
+| **AssistantAgent** | runtime-private state + core capability ports | 保存 history/context/权限状态；不是 shell 可调用的第二入口 |
 | **Failover** | `classify_error_with_evidence()` + `FailoverPolicy::chat_engine_default()` | typed 发送/容量证据优先的错误分类和退避计算，见 [failover.md](../agent/failover.md) |
-| **Context Compact** | proof-gated Tier 4 | 仅在 ContextOverflow 绑定本地完整容量证书且可安全重放时发布紧急 history，见 [context-compact.md](context-compact.md) |
+| **Context Compact** | proof-gated Tier 4 capability | 仅在 ContextOverflow 绑定本地完整容量证书且可安全重放时发布紧急 history，见 [context-compact.md](context-compact.md) |
 | **Memory Extract** | `run_extraction()` | 自动记忆提取，见 [memory.md](memory.md) |
-| **Channel** | `attach_im_live_mirror()` + `finalize_im_live_mirror()` | GUI/HTTP turn → IM live 流式镜像（复用 dispatcher 投递路径） |
+| **Channel** | kernel `channel_hooks` + feature `ImLiveMirror` | GUI/HTTP turn → IM live 流式镜像（复用 dispatcher 投递路径） |
 | **Plan Mode** | `plan_context_override` | 透传到 Agent 限制工具和路径，见 [plan-mode.md](../agent/plan-mode.md) |
 
 ## 文件清单
@@ -815,8 +843,9 @@ flowchart TB
 | 文件 | 职责 |
 |---|---|
 | `crates/ha-core/src/chat_engine/mod.rs` | 模块声明、re-export、Stop watchdog 编排 |
-| `crates/ha-core/src/chat_engine/types.rs` | EventSink trait、ChatEngineParams/Result、CapturedUsage、ChannelStreamSink |
-| `crates/ha-core/src/chat_engine/engine.rs` | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |
+| `crates/ha-core/src/chat_engine/turn_kernel.rs` | 唯一 turn 准入、来源专用 submission、模型路由、配置/凭据租约与 `AgentTurnExecutor` 端口 |
+| `crates/ha-core/src/chat_engine/types.rs` | EventSink trait、kernel/runtime 内部参数与结果、CapturedUsage、ChannelStreamSink |
+| `crates/ha-core/src/chat_engine/engine.rs` | kernel 侧终态/兼容辅助；不拥有 Provider 网络或主 round/tool 执行机 |
 | `crates/ha-core/src/chat_engine/context.rs` | Agent 构建、上下文恢复/保存、记忆提取门控 |
 | `crates/ha-core/src/chat_engine/durability.rs` | seq、buffer、group writer、背压、spool fallback 与耐久后广播 |
 | `crates/ha-core/src/chat_engine/spool.rs` | 安全紧急 spool 帧读写与完整性校验 |
@@ -829,4 +858,9 @@ flowchart TB
 | `crates/ha-core/src/chat_engine/persister.rs` · `active_persisters.rs` | legacy placeholder 兼容；新流不使用 |
 | `crates/ha-core/src/turn_durability.rs` | Agent 可见的中性 durability trait、flush reason 与 snapshot 类型 |
 | `crates/ha-core/src/session/stream_persistence.rs` | additive schema、journal append/checkpoint、成功/中断事务、snapshot 与 GC |
+| `crates/ha-agent-runtime/src/engine.rs` | 主回合 failover、持久化与终态编排 |
+| `crates/ha-agent-runtime/src/streaming_loop.rs` | Hope round/tool loop driver |
+| `crates/ha-agent-runtime/src/provider_adapters/` | Anthropic、OpenAI Chat、Responses、Codex 流式协议实现 |
+| `crates/ha-agent-runtime/src/vision_bridge.rs` | opt-in 视觉桥；只改 API messages 副本 |
+| `crates/ha-agent-runtime/src/one_shot.rs` | 一次性 Provider 网络执行，受 core port 注册约束 |
 | `crates/ha-channel/src/im_mirror.rs` | GUI/HTTP turn → IM live 流式镜像 |

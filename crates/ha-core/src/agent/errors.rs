@@ -1,7 +1,20 @@
 use super::api_types::ApiErrorResponse;
 
+/// Check if an HTTP error is retryable (rate limit or server error)
+pub fn is_retryable_error(status: u16, error_text: &str) -> bool {
+    if matches!(status, 429 | 500 | 502 | 503 | 504) {
+        return true;
+    }
+    let lower = error_text.to_lowercase();
+    lower.contains("rate") && lower.contains("limit")
+        || lower.contains("overloaded")
+        || lower.contains("service unavailable")
+        || lower.contains("upstream connect")
+        || lower.contains("connection refused")
+}
+
 /// Parse error response and return a user-friendly message
-pub(super) fn parse_error_response(status: u16, raw: &str) -> String {
+pub fn parse_error_response(status: u16, raw: &str) -> String {
     if let Ok(parsed) = serde_json::from_str::<ApiErrorResponse>(raw) {
         if let Some(detail) = &parsed.detail {
             if let Some(s) = detail.as_str() {
@@ -54,6 +67,6 @@ pub(super) fn parse_error_response(status: u16, raw: &str) -> String {
 ///
 /// Routed through [`crate::platform::os_version_string`] so error reports
 /// carry the real Windows / Linux version instead of `"unknown"`.
-pub(super) fn os_version() -> String {
+pub fn os_version() -> String {
     crate::platform::os_version_string()
 }

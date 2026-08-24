@@ -841,7 +841,7 @@ async fn handle_inbound_message_inner(
     };
 
     // Hold lifecycle admission before the channel mapping can materialize a
-    // session for this Agent. `run_chat_engine` acquires a second guard as a
+    // session for this Agent. The shared runtime acquires a second guard as a
     // shared backstop once the turn reaches the engine.
     let _agent_admission = ha_core::agent_lifecycle::begin_agent_run(&agent_id)?;
 
@@ -1608,13 +1608,7 @@ async fn handle_inbound_message_inner(
         channel_instruction.push_str(&format!("\n\n## Configured Channel Policy\n{}", prompt));
     }
 
-    // 7. Build ChatEngineParams — load config from disk (no State dependency)
-    let agent_def = ha_core::agent_loader::load_agent(&agent_id).ok();
-    let agent_model_config = agent_def
-        .as_ref()
-        .map(|d| d.config.model.clone())
-        .unwrap_or_default();
-
+    // 7. Build TurnRequest — load config from disk (no State dependency)
     // Session-scoped model pin — IM `/model` writes sessions.provider_id/model_id;
     // we have to read it back here so the next inbound message actually uses the
     // pinned model. Mirrors the same `session_pinned_model` injection in
@@ -1625,28 +1619,6 @@ async fn handle_inbound_message_inner(
         .preferred_model
         .as_ref()
         .map(|model| format!("{}::{}", model.provider_id, model.model_id));
-    let (primary, fallbacks) = ha_core::provider::resolve_model_chain_with_preferred(
-        session_pinned_model.as_deref(),
-        &agent_model_config,
-        &store,
-    );
-    let mut model_chain = Vec::new();
-    if let Some(p) = primary {
-        model_chain.push(p);
-    }
-    for fb in fallbacks {
-        if !model_chain
-            .iter()
-            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-        {
-            model_chain.push(fb);
-        }
-    }
-
-    if model_chain.is_empty() {
-        anyhow::bail!("No model configured for channel chat");
-    }
-
     let resolved_temperature = runtime_defaults.temperature;
 
     // 8a. Auto-transcribe voice / audio attachments when the account opts
@@ -1692,68 +1664,53 @@ async fn handle_inbound_message_inner(
     let event_sink = pipeline.event_sink.clone();
     let reasoning_effort = Some(runtime_defaults.reasoning_effort);
 
-    let engine_params = ha_core::chat_engine::ChatEngineParams {
-        session_id: session_id.clone(),
-        agent_id: agent_id.clone(),
-        turn_id: None,
-        message: engine_message,
-        incoming_turn: None,
-        // IM-inbound turns echo the user's typed text via the IM client
-        // itself (no GUI display_text mechanism); leave the mirror quote on
-        // the raw message.
-        display_text: None,
-        attachments,
-        session_db: session_db.clone(),
-        model_chain,
-        providers: store.providers.clone(),
-        codex_token: None,
-        resolved_temperature,
-        compact_config: store.compact.clone(),
-        run_context: Some(
-            ha_core::prompt_context::RunInstructionContext::new(
-                ha_core::prompt_context::RunInstructionSource::Channel,
-                channel_instruction,
-            )
-            .map(|context| context.with_untrusted_data(channel_data))
-            .map_err(|error| anyhow::anyhow!(error))?,
-        ),
-        reasoning_effort,
-        // Shared with the single-flight guard above (registered once in the
-        // channel cancel registry); removal is handled by `_cancel_handle_guard`.
-        cancel: cancel.clone(),
-        foreground_stop_admission: queued_record
+    // WS8: carry the durable IM origin identity so KB opt-in remains bound to
+    // this account/chat across child execution.
+    let channel_kb_context = ha_core::knowledge::ChannelKbContext {
+        channel_id: channel_id_str.clone(),
+        account_id: account.id.clone(),
+        chat_id: msg.chat_id.clone(),
+        is_group: !matches!(msg.chat_type, ChatType::Dm),
+    };
+    let engine_params = ha_core::turn_kernel::TurnRequest::new(
+        session_id.clone(),
+        agent_id.clone(),
+        engine_message,
+        session_db.clone(),
+        store.compact.clone(),
+        cancel.clone(),
+        event_sink,
+    )
+    .with_model_preference(session_pinned_model, false)
+    // IM-inbound turns echo the user's typed text via the IM client
+    // itself (no GUI display_text mechanism); leave the mirror quote on
+    // the raw message.
+    .with_attachments(attachments)
+    .with_temperature(resolved_temperature)
+    .with_run_context(Some(
+        ha_core::prompt_context::RunInstructionContext::new(
+            ha_core::prompt_context::RunInstructionSource::Channel,
+            channel_instruction,
+        )
+        .map(|context| context.with_untrusted_data(channel_data))
+        .map_err(|error| anyhow::anyhow!(error))?,
+    ))
+    .with_reasoning_effort(reasoning_effort)
+    .with_foreground_stop_admission(
+        queued_record
             .as_ref()
             .and_then(|record| record.foreground_stop_admission()),
-        plan_context_override: None,
-        skill_allowed_tools: explicit_skill_allowed_tools,
-        denied_tools: Vec::new(),
-        tool_scope: None,
-        subagent_depth: 0,
-        steer_run_id: None,
-        auto_approve_tools: account.auto_approve_tools,
-        follow_global_reasoning_effort: false,
-        post_turn_effects: true,
-        abort_on_cancel: false,
-        persist_final_error_event: true,
-        source: ha_core::chat_engine::stream_seq::ChatSource::Channel,
-        ui_surface: None,
-        origin_source: None,
-        // WS8: carry the IM origin identity so `effective_kb_access` can apply the
-        // per-account (+ per-group-chat) KB opt-in. `is_group` = any non-DM chat
-        // (group / forum / broadcast channel), which needs separate per-chat
-        // confirmation on top of the account opt-in.
-        channel_kb_context: Some(ha_core::knowledge::ChannelKbContext {
-            channel_id: channel_id_str.clone(),
-            account_id: account.id.clone(),
-            chat_id: msg.chat_id.clone(),
-            is_group: !matches!(msg.chat_type, ChatType::Dm),
-        }),
-        event_sink,
-    };
+    )
+    // Shared with the single-flight guard above (registered once in the
+    // channel cancel registry); removal is handled by `_cancel_handle_guard`.
+    .with_skill_allowed_tools(explicit_skill_allowed_tools);
 
     emit_stream_lifecycle("channel:stream_start", &session_id);
 
-    let result = ha_core::chat_engine::run_chat_engine_classified(engine_params).await;
+    let result = ha_core::turn_kernel::TurnKernel::submit_classified(
+        ha_core::turn_kernel::TurnSubmission::channel(engine_params, channel_kb_context),
+    )
+    .await;
 
     // (channel cancel handle removal now happens via `_cancel_handle_guard` on
     // every exit path, including early bails above.)
@@ -1834,17 +1791,16 @@ async fn handle_inbound_message_inner(
             );
 
             let raw = e.to_string();
-            // Preserve the engine's typed verdict. Display text is deliberately
-            // not a recovery protocol and may omit the evidence that proved an
-            // application-level terminal such as CurrentToolGroupOverflow.
             let reason = e
                 .reason()
-                .unwrap_or(ha_core::failover::FailoverReason::Unknown);
+                .unwrap_or_else(|| ha_core::failover::classify_error(&raw));
+            let is_codex_auth =
+                matches!(reason, ha_core::failover::FailoverReason::Auth) && e.route_all_codex();
             let body = ha_core::chat_engine::im_error_message::format_im_engine_error(
                 ha_core::chat_engine::im_error_message::ImErrorContext {
                     reason,
                     raw: &raw,
-                    is_codex_auth: e.is_codex_auth(),
+                    is_codex_auth,
                 },
             );
             let err_target = DeliveryTarget {
@@ -3488,6 +3444,22 @@ pub(crate) async fn deliver_media_to_chat_with_guard(
 mod tests {
     use super::*;
     use ha_core::attachments::{MediaItem, MediaKind};
+
+    #[test]
+    fn im_failure_copy_prefers_the_kernel_typed_reason() {
+        let failure = ha_core::turn_kernel::TurnFailure::classified(
+            ha_core::turn_kernel::TurnFailureKind::Terminal,
+            Some(ha_core::failover::FailoverReason::DispatchUnknown),
+            "opaque terminal failure",
+        );
+        let raw = failure.to_string();
+        assert_eq!(
+            failure
+                .reason()
+                .unwrap_or_else(|| ha_core::failover::classify_error(&raw)),
+            ha_core::failover::FailoverReason::DispatchUnknown
+        );
+    }
 
     #[test]
     fn stop_command_is_reserved_from_interactive_reply_parsing() {

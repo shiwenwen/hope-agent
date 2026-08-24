@@ -1,13 +1,14 @@
 # 记忆系统架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23
 >
 > 关联源码：
-> - 长期库与检索：[`crates/ha-core/src/memory/`](../../../crates/ha-core/src/memory/)（`sqlite/` 后端、`embedding/`、`mmr.rs`、`selection.rs`、`recall_summary.rs`、`reembed_job.rs`、`import.rs`）
+> - 内核契约与长期库：[`crates/ha-core/src/memory/`](../../../crates/ha-core/src/memory/)（wire/policy、`sqlite/`、claims、Core repository、typed ledger 与 feature ports）
+> - Memory 执行机：[`crates/ha-memory/src/`](../../../crates/ha-memory/src/lib.rs)（recall、extract、embedding HTTP、external providers、reembed、Dreaming/Deep Resolver）
 > - Core Memory 仓库：[`memory/core_repository.rs`](../../../crates/ha-core/src/memory/core_repository.rs)
 > - 配置 wire 类型：[`crates/ha-config-schema/src/memory/`](../../../crates/ha-config-schema/src/memory/)（`runtime_config.rs`、`embedding.rs`、`types.rs`、`recall_summary.rs`、`dreaming.rs`）
-> - 动态召回执行：[`agent/active_memory.rs`](../../../crates/ha-core/src/agent/active_memory.rs)、[`memory/recall_planner.rs`](../../../crates/ha-core/src/memory/recall_planner.rs)
-> - 自动提取：[`memory_extract.rs`](../../../crates/ha-core/src/memory_extract.rs)
+> - 动态召回执行：core [`agent/active_memory.rs`](../../../crates/ha-core/src/agent/active_memory.rs) + feature [`ha-memory/src/recall_planner.rs`](../../../crates/ha-memory/src/recall_planner.rs)
+> - 自动提取：[`ha-memory/src/extract.rs`](../../../crates/ha-memory/src/extract.rs)
 > - 本地 embedding：[`crates/ha-local-llm/src/local_embedding.rs`](../../../crates/ha-local-llm/src/local_embedding.rs)
 > - 深入子系统：[Dreaming](dreaming.md) / [Prompt System](prompt-system.md) / [Session](session.md)
 
@@ -26,6 +27,12 @@
 |---|---|---|---|
 | **Core Memory** | 短小、稳定、人工维护的"始终记住" | Markdown 文件（`MEMORY.md` + `topics/*.md`） | 会话级**稳定前缀**，跨轮复用 |
 | **长期库（Dynamic Recall）** | 大量长期积累、按需检索 | SQLite（FTS5 + trigram + 向量）+ 结构化 claim / Profile / Procedure / Graph | 当前 turn 的**动态后缀**，用完即散 |
+
+### 分层所有权
+
+Memory 遵循「内核裁决、feature 执行」：`ha-core` 保留配置/wire、scope/incognito/access verdict、Core snapshot、claim review 的用户唯一入口、SQLite/claims 类型化 store、预算与 prompt 注入契约；`ha-memory` 拥有 Fast/Deep Recall 编排、自动提取、embedding 网络实现、外部 provider、reembed job 与 Dreaming/Deep Resolver 执行机。两者通过启动期一次性注册的 retrieval/provider/maintenance ports 协作。
+
+这条边界有三个硬约束：`ha-memory` 不取得 kernel 的裸 `sessions.db` 写连接；召回进入 prompt 前仍由 core 的 live access/incognito 判定兜底；Memory 需要 LLM/embedding 时只调用 core-owned model / embedding ports，不反向调用主 Turn，也不依赖 `ha-agent-runtime`，从 Cargo 与运行时两侧避免形成执行环。Memory Extract 是这里的刻意例外：它消费 kernel 在本次执行准入时封装的单模型 `MemoryExtractModel` 能力（含 Provider 快照），保留专用 single-model + profile-failover 路径，绝不改走 `automation::run` 的模型链。
 
 关键的产品决策是：**长期库默认不再批量常驻 system prompt**。开机默认只注入稳定的 Core Memory；长期库的自动召回是用户显式开启的能力。即使自动召回关闭，模型仍可主动调用 `recall_memory` / `memory_get` 工具按需检索——**关闭自动召回删掉的是"每轮自动灌入"，不是"检索能力"**。
 
@@ -574,7 +581,7 @@ Phase 常量 `PHASE_REEMBED_KEEP="reembed-keep"` / `PHASE_REEMBED_FRESH="reembed
 
 ## 八、动态召回（Dynamic Recall / Deep Recall）
 
-自动动态召回的唯一产品编排入口是 `memory::recall_planner` 模块（自由函数 `plan_fast_recall`）。默认 `recall.enabled=false` 且旧 Agent Active Memory 未启用时：每个 user turn 只用会话固定的 Core 快照，不查 SQLite memory / claim / Profile / Procedure / Graph；模型仍可自主调 `recall_memory` / `memory_get`。
+自动动态召回的唯一产品编排入口是 `ha-memory::recall_planner`（自由函数 `plan_fast_recall`，经 core `MemoryRetrievalRuntime` port 调用）。默认 `recall.enabled=false` 且旧 Agent Active Memory 未启用时：每个 user turn 只用会话固定的 Core 快照，不查 SQLite memory / claim / Profile / Procedure / Graph；模型仍可自主调 `recall_memory` / `memory_get`。
 
 用户显式开启全局自动召回后，每个非空 user turn 走一条确定性流程：
 
@@ -687,7 +694,7 @@ layer 状态统一为四种：
 
 ### Dreaming 离线固化
 
-> 下一代 Dreaming 的完整架构（结构化 claim 层、Deep Resolver、Memory Profile、Context Pack 注入、Lucid Review、确定性评测）见 [`dreaming.md`](dreaming.md)——这里只覆盖与召回直接相关的一代 Light 固化机制。源码在 [`memory/dreaming/`](../../../crates/ha-core/src/memory/dreaming/)。
+> 下一代 Dreaming 的完整架构（结构化 claim 层、Deep Resolver、Memory Profile、Context Pack 注入、Lucid Review、确定性评测）见 [`dreaming.md`](dreaming.md)——这里只覆盖与召回直接相关的一代 Light 固化机制。kernel 类型/store/ports 在 [`ha-core/memory/dreaming/`](../../../crates/ha-core/src/memory/dreaming/)，执行机在 [`ha-memory/src/dreaming_pipeline.rs`](../../../crates/ha-memory/src/dreaming_pipeline.rs) 等 feature 模块。
 
 Dreaming 是**离线 LLM 评估器**：扫候选记忆 → 让小模型打分 → 自动 pin 高分项 → 写"梦境日记"留给用户审阅。
 
@@ -847,7 +854,7 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 
 以下参数以常量/字面量定义，改动需改代码重编译。
 
-**热路径可用性边界**（`agent/mod.rs` / `memory_extract.rs`）：
+**热路径可用性边界**（core `agent/mod.rs` / feature `ha-memory/src/extract.rs`）：
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
@@ -863,7 +870,7 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 
 **Core Memory 索引安全上限**：`CORE_INDEX_MAX_LINES = 200` 行、`CORE_INDEX_MAX_BYTES = 25KB`（`memory/core_repository.rs`）。
 
-**Embedding HTTP 客户端**（`memory/embedding/api_provider.rs`）：Connect Timeout `10s`、Request Timeout `30s`；Google Batch `100`、OpenAI Batch API 最大 `50000`、轮询 `5s`、Batch 超时 `60min`。
+**Embedding HTTP 客户端**（`ha-memory/src/embedding/api_provider.rs`）：Connect Timeout `10s`、Request Timeout `30s`；Google Batch `100`、OpenAI Batch API 最大 `50000`、轮询 `5s`、Batch 超时 `60min`。
 
 **Embedding Token 上限**（`memory/embedding/utils.rs`，文本截断按 `max_tokens × 4` 字节保守估算）：
 
@@ -880,7 +887,7 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 | BGE 系列（BAAI/bge*） | 512 |
 | 其它（默认） | 8192 |
 
-**自动提取参数**（`memory_extract.rs`）：单次提取 LLM 最多返回 `5` 条、取最近 `6` 条消息、每条截断 `500` 字符；Flush 最多 `8` 条、输入总 `8000` 字符、每条截断 `800` 字符。
+**自动提取参数**（`ha-memory/src/extract.rs`）：单次提取 LLM 最多返回 `5` 条、取最近 `6` 条消息、每条截断 `500` 字符；Flush 最多 `8` 条、输入总 `8000` 字符、每条截断 `800` 字符。
 
 ## 附录 C：Legacy 静态 formatter（仅 V1 rollback）
 
@@ -917,18 +924,24 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 | `crates/ha-core/src/memory/sqlite/backend.rs` | SQLite 后端（表创建、连接池、WAL） |
 | `crates/ha-core/src/memory/sqlite/trait_impl.rs` | MemoryBackend trait 的 SQLite 实现 |
 | `crates/ha-core/src/memory/sqlite/prompt.rs` | 系统提示注入格式化 + `sanitize_for_prompt` 注入防护 |
-| `crates/ha-core/src/memory/embedding/` | Embedding 模块（config 预设模板、api_provider、factory、utils） |
+| `crates/ha-core/src/memory/embedding/` | Embedding config/trait/factory port；不包含 Provider HTTP 实现 |
+| `crates/ha-memory/src/embedding/` | OpenAI-compatible / Google embedding HTTP 实现与 bounded 请求工具 |
 | `crates/ha-core/src/memory/mmr.rs` | MMR 多样性重排 |
 | `crates/ha-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
-| `crates/ha-core/src/memory/recall_summary.rs` | 召回结果压成 ≤400 字符洞察段（opt-in） |
-| `crates/ha-core/src/memory/recall_planner.rs` | Fast / Deep Recall 编排（`plan_fast_recall`） |
+| `crates/ha-core/src/memory/recall_summary.rs` | 召回摘要 runtime port 与 fail-closed contract |
+| `crates/ha-core/src/memory/recall_planner.rs` | Recall wire/policy、skip reason 与 `MemoryRetrievalRuntime` port |
+| `crates/ha-memory/src/{recall_planner,recall_summary}.rs` | Fast / Deep Recall 编排与摘要执行机 |
 | `crates/ha-core/src/agent/retrieval_planner.rs` | Retrieval Planner 跨源排序、层状态账本（`rankingVersion=source_fusion_v2`） |
-| `crates/ha-core/src/memory/reembed_job.rs` | 向量重建后台任务（KeepExisting / DeleteAll + 取消） |
-| `crates/ha-core/src/memory/dreaming/` | 离线 LLM 评估器（scanner / scoring / promotion / narrative / triggers / pipeline / cron_loop / resolver / profile / context_pack / eval + `store::record_user_action` 纠错审计） |
+| `crates/ha-core/src/memory/reembed_job.rs` | 向量重建 wire、phase 与 `MemoryReembedRuntime` port |
+| `crates/ha-memory/src/reembed.rs` | KeepExisting / DeleteAll 重建与取消执行机 |
+| `crates/ha-core/src/memory/dreaming/` | Dreaming 类型/store/eval 与各 feature runtime port；`store::record_user_action` 纠错审计仍在 kernel |
+| `crates/ha-memory/src/dreaming_*.rs` | scanner / scoring / promotion / narrative / triggers / pipeline / cron / resolver / profile / context-pack 执行机 |
 | `crates/ha-core/src/memory/claims/` | 结构化 claim 层（store 读 API + 纠错原语 / write 双写 + canonicalize / backfill / review 用户纠错闭环） |
-| `crates/ha-core/src/memory/external_provider/` | 七类外部 provider adapter（mem0 / zep / supermemory / honcho / hindsight / open_viking / custom + http） |
+| `crates/ha-core/src/memory/external_provider.rs` | 外部 Memory owner wire、凭据状态与 `ExternalMemoryRuntime` port |
+| `crates/ha-memory/src/external_provider/` | 七类外部 provider adapter（mem0 / zep / supermemory / honcho / hindsight / open_viking / custom + http） |
 | `crates/ha-core/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
-| `crates/ha-core/src/memory_extract.rs` | 自动记忆提取（含 `COMBINED_EXTRACT_PROMPT` 反省式） |
+| `crates/ha-core/src/memory/extract_runtime.rs` | 自动提取 runtime port 与缺失 runtime 的 fail-closed contract |
+| `crates/ha-memory/src/extract.rs` | 自动记忆提取执行机（含 `COMBINED_EXTRACT_PROMPT` 反省式） |
 | `crates/ha-core/src/agent/active_memory.rs` | V2 Fast/Deep Recall 执行与 legacy Active Memory 兼容链 |
 | `crates/ha-local-llm/src/local_embedding.rs` | 本地 Ollama embedding 一键安装入口（`embedding_model_catalog()`） |
 | `crates/ha-eval` + `evals/suites/memory-dreaming/fixtures/` | 确定性 golden-fixture 专项评测（进程隔离，不进默认 Cargo test） |

@@ -193,7 +193,8 @@ pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> S
 /// renders this in the trusted run-instruction lane only when the current
 /// snapshot contains active tasks. User/model-authored task labels never enter
 /// this block.
-pub(crate) const TASK_REMINDER_INSTRUCTION: &str = "# Active Task Tracker Contract\n\n\
+#[doc(hidden)]
+pub const TASK_REMINDER_INSTRUCTION: &str = "# Active Task Tracker Contract\n\n\
 When an active task snapshot is present, keep it synchronized with actual progress. \
 Call `task_update(id, status=\"completed\")` immediately after finishing a task; do not batch \
 completions or wait until the end of the turn. Before the final reply, sweep the snapshot and \
@@ -203,7 +204,8 @@ the work. Do not mention this internal tracking contract to the user.";
 /// Per-round task snapshot data. Capped at 5 task lines. The labels are
 /// user/model-authored state, so this payload must stay in the user-data lane;
 /// [`TASK_REMINDER_INSTRUCTION`] carries the fixed executable contract.
-pub(crate) fn task_snapshot_data(tasks: &[Task]) -> Option<String> {
+#[doc(hidden)]
+pub fn task_snapshot_data(tasks: &[Task]) -> Option<String> {
     let active: Vec<&Task> = tasks
         .iter()
         .filter(|t| t.status != TaskStatus::Completed.as_str())

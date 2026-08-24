@@ -141,7 +141,7 @@ sequenceDiagram
 
 - **登录成功从流程完成站点发通知**。拿到 token 后，`start_oauth_flow_with_auth_url` 内部 `save_token` 落盘并 `fire_notification("auth_success")`，同时把结果写进共享 slot。shell 侧的 `finalize` 稍后从 slot `take()` 取走 token（Tauri 还会写内存缓存并重建 agent；HTTP 侧再 `save_token` 落一次盘）。
 
-- **`account_id` 由 `extract_account_id` 统一提取，三处 shell 共用**。它是 `pub` 函数，Tauri / HTTP / CLI 三处的 finalize / restore / status 都调它，从 access_token 里取 `chatgpt_account_id`，作为后续请求 `chatgpt-account-id` header 的来源（注入点在 `agent/providers/codex_adapter.rs`，详见 [`provider-system.md`](provider-system.md)）。
+- **`account_id` 由 `extract_account_id` 统一提取，三处 shell 共用**。它是 `pub` 函数，Tauri / HTTP / CLI 三处的 finalize / restore / status 都调它，从 access_token 里取 `chatgpt_account_id`，作为后续请求 `chatgpt-account-id` header 的来源（注入点在 `crates/ha-agent-runtime/src/providers/codex_adapter.rs`，详见 [`provider-system.md`](provider-system.md)）。
 
 ## 过期判定与按需刷新
 

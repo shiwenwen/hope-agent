@@ -124,7 +124,7 @@ flowchart TB
 flowchart TB
     START["runs.execution"] --> MODE{mode}
     MODE -->|agent| A1[创建 user message + chat turn]
-    A1 --> A2["run_chat_engine<br/>用 fixture 传入的 providers / modelChain"]
+    A1 --> A2["TurnSubmission::evaluation → TurnKernel<br/>隔离 providers / modelChain"]
     A2 --> A3[模型经正常工具链读写临时 repo]
     A3 --> OUT[AgentExecutionEvalReport]
     MODE -->|fixture_patch| B1["写入 repo.changes<br/>确定性替身，无外部 LLM"]
@@ -134,7 +134,7 @@ flowchart TB
 
 | mode | 说明 |
 | --- | --- |
-| `agent` | 真实执行模式（默认）。Runner 创建 user message + chat turn，调用 `run_chat_engine`，用 fixture 传入的 `providers` / `modelChain`，以临时 repo 为 session working dir。模型经正常工具链读写文件、触发审批逻辑、产生 transcript。 |
+| `agent` | 真实执行模式（默认）。Runner 创建 user message + chat turn，把 fixture 的 `providers` / `modelChain` 放入只允许 Eval 来源使用的 `TurnSubmission::evaluation`，经 `TurnKernel` 执行，以临时 repo 为 session working dir。模型经正常工具链读写文件、触发审批逻辑、产生 transcript。 |
 | `fixture_patch` | 确定性回归替身。Runner 在执行阶段写入 `repo.changes`，产出同样的 execution report 和 diff，再进入后续 scorer。**只**用于无外部 LLM 的 fixture，不代表真实 agent 成功率。 |
 
 `runs.execution` 输入字段：
@@ -145,8 +145,8 @@ flowchart TB
 | `prompt` | 可选；默认取 `fixture.task.prompt`。 |
 | `agentId` | 可选；默认 `ha-main`。 |
 | `providers` / `modelChain` | `agent` 模式必需。owner API 从 fixture 显式读取，**不隐式读取桌面全局 provider**。 |
-| `reasoningEffort` / `compactConfig` / `extraSystemContext` | 传入 chat engine 的执行参数；默认 reasoning 为 `none`，post-turn 副作用关闭。 |
-| `autoApproveTools` / `deniedTools` | 传入 chat engine 的工具执行约束；危险命令、保护路径、strict approval 等底层红线仍由权限系统兜底。 |
+| `reasoningEffort` / `compactConfig` / `extraSystemContext` | 传入 typed turn request 的执行参数；默认 reasoning 为 `none`，Eval source policy 关闭 post-turn 副作用。 |
+| `autoApproveTools` / `deniedTools` | 传入 Eval submission 的工具执行约束；危险命令、保护路径、strict approval 等底层红线仍由权限系统兜底。 |
 
 输出 `AgentExecutionEvalReport`：
 
@@ -155,14 +155,14 @@ flowchart TB
 | `mode` / `status` | 执行模式与 `completed` / `failed` 状态。 |
 | `prompt` / `agentId` | 本次执行使用的任务提示和 agent。 |
 | `turnId` | `agent` 模式创建的 chat turn；`fixture_patch` 为 `null`。 |
-| `response` / `error` | chat engine response 或失败原因。**执行失败不会让 API 直接 400**，而是作为 eval report 进入判分链路。 |
+| `response` / `error` | TurnKernel 返回的 response 或失败原因。**执行失败不会让 API 直接 400**，而是作为 eval report 进入判分链路。 |
 | `modelUsed` | 成功时使用的模型引用。 |
 | `toolCalls` | 本次执行实际落库的 tool message 名称列表，用来断言模型确实调用了预期工具，而不是只在文字里描述改动。 |
 | `changedFiles` / `diffBytes` | 执行结束后的 git diff 摘要。 |
 
 `checks.execution` 可断言 mode、status、是否必须有 turn、必须/禁止改动的文件、最少 tool call 数、必需 tool call 名称、response / error 片段。`FixtureReport.metrics` 同步暴露 `execution_status`、`execution_mode`、`execution_changed_files`、`execution_tool_calls`。
 
-**稳定的 mock 工具循环基线**（不联网但覆盖真实工具链）用本地 `wiremock` 模拟 OpenAI Responses SSE：第一轮返回 `function_call(write, { path, content })`，真实 tool loop 写入临时 repo；第二轮返回最终文本。它不访问外部模型服务，却覆盖了真实 chat engine、tool dispatch、session working dir、`messages.tool_name` 记录、diff snapshot 和 task-level scorer。为让隔离 DB 与生产 DB 语义一致，`ChatEngineParams.session_db` 会绑定到 `AssistantAgent`，agent 侧 session meta lookup 优先使用本轮 DB；绑定 DB 缺 session 行时仍按 incognito fail-closed 处理，不回退到全局 DB。
+**稳定的 mock 工具循环基线**（不联网但覆盖真实工具链）用本地 `wiremock` 模拟 OpenAI Responses SSE：第一轮返回 `function_call(write, { path, content })`，真实 tool loop 写入临时 repo；第二轮返回最终文本。它不访问外部模型服务，却覆盖了真实 TurnKernel、`ha-agent-runtime` round/tool driver、tool dispatch、session working dir、`messages.tool_name` 记录、diff snapshot 和 task-level scorer。Eval 的 `TurnRequest` 显式绑定隔离 `SessionDB`；session meta lookup 缺行时仍按 incognito fail-closed 处理，不回退到全局 DB。
 
 ---
 

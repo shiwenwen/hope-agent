@@ -1,6 +1,6 @@
 # Goal 控制平面
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23
 
 ## 核心思想
 
@@ -49,15 +49,16 @@ flowchart TB
     aud -->|需要继续| G
 ```
 
-分层上，Goal 的全部业务逻辑（类型、状态机、建表、CRUD、criteria 解析、审计器、closure 决策、Watchdog 诊断）都在 `ha-core` 的 `goal/mod.rs`；Tauri 与 HTTP 只做薄适配。这样三种运行模式（桌面 GUI、HTTP 守护进程、ACP）共用同一套 Goal 语义。
+分层上，Goal 被拆成「内核契约/台账」与「feature 执行机」：`ha-core::goal` 保留 wire 类型、状态转换、`SessionDB` 类型化 ledger、审计/closure 裁决和 Stop/Eval 不变量；`ha-goal` 拥有 continuation runner、推进/预算策略与模型工具 handler，并在装配期注册 `GoalRuntime` 和 external tool entries。Tauri 与 HTTP 仍只做薄适配，三种运行模式共用同一套 Goal 语义；`ha-goal` 不拿裸 `sessions.db` 连接，也不复制 kernel 状态机。
 
 ### 模块地图
 
 | 层 | 位置 | 责任 |
 | --- | --- | --- |
-| 核心模型 | `crates/ha-core/src/goal/mod.rs` | Goal / GoalEvent / GoalLink 类型、状态机、建表、CRUD、criteria parser、Evaluator、closure 决策、Watchdog 只读诊断、语义 grader 编排。 |
-| 模型能调用的工具 | `crates/ha-core/src/tools/goal.rs`、`tool_defs/goal_tools.rs` | 读状态、checkpoint、通用证据、契约预检、审计、完成请求、阻塞请求。 |
-| Chat Engine 集成 | `crates/ha-core/src/chat_engine/engine.rs` | 成功回合后根据 active Goal 状态排自动续跑 wakeup。 |
+| 内核模型与台账 | `crates/ha-core/src/goal/mod.rs` | Goal / GoalEvent / GoalLink wire、状态机、类型化 DB 方法、criteria/Evaluator/closure 裁决、Watchdog 诊断与 `GoalRuntime` port。 |
+| Feature runner / policy | `crates/ha-goal/src/runner.rs`、`policy.rs` | continuation、推进/预算门禁与恢复策略；只经 core 类型化能力访问台账。 |
+| 模型能调用的工具 | `crates/ha-goal/src/tools/goal.rs`、`crates/ha-core/src/tool_defs/goal_tools.rs` | feature 拥有 handler；core 保留 schema/名字/参数等纯契约。 |
+| Chat Engine 集成 | `crates/ha-agent-runtime/src/engine.rs` | 成功回合通过 core `GoalRuntime` port 请求 active Goal 自动续跑。 |
 | Workflow 集成 | `crates/ha-core/src/workflow/db.rs` | `workflow_runs.goal_id` 与 criterion 绑定、自动绑定 active Goal、终态后写 link + 触发审计。 |
 | 斜杠命令 | `crates/ha-core/src/slash_commands/handlers/goal.rs` | `/goal` 文本控制面。 |
 | 面向用户的 API | `src-tauri/src/commands/goal.rs`、`crates/ha-server/src/routes/goal.rs` | 桌面命令与 Server/Web 端点，两套保持对齐。 |

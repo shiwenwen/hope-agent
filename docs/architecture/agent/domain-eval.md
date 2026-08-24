@@ -180,7 +180,7 @@ flowchart LR
 | Mode | 含义 |
 | --- | --- |
 | `trace_fixture` | 确定性控制面回归。Runner 按 fixture 显式写入 evidence / workflow / quality trace，再调同一 scorer。种子固定，结论可复现。 |
-| `agent` | 真实 agent 执行。Runner 创建 user message + chat turn，走 `run_chat_engine`，用 fixture 显式传入的 `execution.providers` / `execution.modelChain`，默认开 `execution.workflowMode="ultracode"`，让模型自主决定是否建 durable workflow。执行完再跑 Domain Quality / Domain Eval scorer。 |
+| `agent` | 真实 agent 执行。Runner 创建 user message + chat turn，把 fixture 显式提供的 `execution.providers` / `execution.modelChain` 封入 `TurnSubmission::evaluation`，经 `TurnKernel` 与共享 runtime 执行；默认开 `execution.workflowMode="ultracode"`，让模型自主决定是否建 durable workflow。执行完再跑 Domain Quality / Domain Eval scorer。 |
 
 所有 fixture 创建的 session 都会被标成 `SessionKind::EvalFixture`，**隐藏于普通会话列表、全局搜索和 Dashboard live 聚合之外**。Runner 同时写 `domain_eval_fixture_runs` 供 Smoke Run Center 回放完整 report。合成来源用固定 `sourceType` 标记，与真实 `live` run 物理区分：
 
@@ -488,7 +488,7 @@ cargo test -p ha-improve domain_eval --features eval-internal-tests --locked
 - Operational Gate 在已完成 workflow 且无失败残留时 passed；failed workflow + cancelled campaign item 时 failed，指出 `workflow_failures` / `campaign_failures` blocker。
 - Soak Report 在证据已 drain 且无事故时 passed；failed workflow + active campaign item 时 failed，并输出 critical/warning incidents 与 Markdown。
 - Loop workflow strategy 的跨控制面回归（Goal → Loop tick → 派生 WorkflowRun → workflow completed → LoopRun succeeded）后，Operational Gate 与 Soak Report 都能读到同一 session/domain 的 workflow + loop evidence。
-- agent fixture runner 会真实创建 user message / chat turn、调 mock Responses provider、经 `run_chat_engine` 产生 response 并默认开 Workflow Mode Ultracode；不自动 materialize trace fixture seed；缺 provider/modelChain 时 fail-fast、不写 eval run。
+- agent fixture runner 会真实创建 user message / chat turn、调 mock Responses provider、经 Eval 专属 submission → TurnKernel → 共享 runtime 产生 response 并默认开 Workflow Mode Ultracode；不自动 materialize trace fixture seed；缺 provider/modelChain 时 fail-fast、不写 eval run。
 - Research 缺来源被标 failed；有完整 Goal/Workflow/Evidence/Domain Quality 的 Research run 可通过 eval 并让 Quality Gate passed。
 
 跨运行模式编译：

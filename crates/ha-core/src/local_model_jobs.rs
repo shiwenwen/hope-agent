@@ -755,7 +755,10 @@ where
 /// `spawn_job` 的扩展版：允许把新任务声明为另一个任务的「续作」，前端 dialog
 /// 据此把 currentJob 自动接力到后继任务（典型场景：embedding pull 完成后的
 /// `MemoryReembed` 任务由 pull 任务派发，前端 dialog 切到 reembed 进度）。
-pub(crate) fn spawn_job_with_successor<F, Fut>(
+/// Typed kernel ledger entry used by feature-owned local-model job runners.
+/// The closure receives only its immutable job id and cancellation token; DB
+/// mutation remains inside this module's typed job methods.
+pub fn spawn_job_with_successor<F, Fut>(
     kind: LocalModelJobKind,
     model_id: String,
     display_name: String,

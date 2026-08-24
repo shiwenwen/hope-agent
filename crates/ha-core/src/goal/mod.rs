@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::needless_return))]
+
 //! Session-scoped Goal control plane.
 //!
 //! A Goal is the durable "what are we trying to finish?" object above
@@ -5,6 +7,9 @@
 //! lifecycle as sessions, workflow runs, and tasks.
 
 use std::collections::HashSet;
+#[cfg(not(test))]
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -18,9 +23,35 @@ const GOAL_EVENT_PAYLOAD_MAX_BYTES: usize = 64 * 1024;
 const GOAL_EVIDENCE_MAX_FILE_LINKS: usize = 50;
 const GOAL_EVIDENCE_MAX_ARTIFACT_LINKS: usize = 25;
 const GOAL_EVIDENCE_MAX_DIAGNOSTIC_LINKS: usize = 50;
-const GOAL_AUTO_CONTINUE_DELAY_SECS: i64 = 10;
-const GOAL_AUTO_CONTINUE_MAX_PER_REVISION: usize = 20;
 const GOAL_SEMANTIC_GRADER_MAX_ATTEMPTS: i64 = 4;
+
+/// Optional Goal execution machine installed by `ha-goal`. Durable Goal
+/// types and all `sessions.db` ledger methods remain kernel-owned.
+#[derive(Clone, Copy)]
+pub struct GoalRuntime {
+    pub maybe_schedule_continuation: fn(
+        &SessionDB,
+        &str,
+        &str,
+        crate::chat_engine::ChatSource,
+        Option<&str>,
+        Option<i64>,
+    ) -> Result<Option<crate::wakeup::ScheduleOutcome>>,
+    pub should_evaluate: fn(&GoalSnapshot) -> bool,
+    pub should_continue: fn(&GoalSnapshot) -> bool,
+}
+
+static GOAL_RUNTIME: OnceLock<GoalRuntime> = OnceLock::new();
+#[cfg(not(test))]
+static WARNED_GOAL_RUNTIME_UNAVAILABLE: AtomicBool = AtomicBool::new(false);
+
+pub fn register_goal_runtime(
+    runtime: GoalRuntime,
+) -> std::result::Result<(), crate::AlreadyRegistered> {
+    GOAL_RUNTIME
+        .set(runtime)
+        .map_err(|_| crate::AlreadyRegistered("goal runtime"))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -601,67 +632,6 @@ pub struct GoalCompletionReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remaining_risk: Option<String>,
     pub generated_at: String,
-}
-
-pub fn build_goal_completion_report(
-    snapshot: &GoalSnapshot,
-    summary_override: Option<&str>,
-) -> GoalCompletionReport {
-    let audit = &snapshot.goal.final_evidence;
-    let status = audit
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| snapshot.goal.state.as_str())
-        .to_string();
-    let summary = summary_override
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .or_else(|| snapshot.goal.final_summary.clone())
-        .or_else(|| {
-            audit
-                .get("summary")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| {
-            if snapshot.goal.state == GoalState::Completed {
-                "Goal completed.".to_string()
-            } else {
-                "Goal is not complete yet.".to_string()
-            }
-        });
-
-    let mut follow_up_items = audit_string_vec(audit.get("followUpItems"));
-    for item in &snapshot.goal.follow_up_items {
-        if !follow_up_items
-            .iter()
-            .any(|existing| existing == &item.text)
-        {
-            follow_up_items.push(item.text.clone());
-        }
-    }
-
-    GoalCompletionReport {
-        goal_id: snapshot.goal.id.clone(),
-        session_id: snapshot.goal.session_id.clone(),
-        state: snapshot.goal.state,
-        status,
-        objective: snapshot.goal.objective.clone(),
-        revision: snapshot.goal.revision,
-        summary,
-        usage: snapshot.budget.clone(),
-        evidence_count: snapshot.evidence.len(),
-        achieved: audit_string_vec(audit.get("achieved")),
-        missing: audit_string_vec(audit.get("missing")),
-        blockers: audit_string_vec(audit.get("blockers")),
-        follow_up_items,
-        remaining_risk: audit
-            .get("remainingRisk")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        generated_at: now_rfc3339(),
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3250,7 +3220,7 @@ fn goal_semantic_evaluation_key(snapshot: &GoalSnapshot) -> Result<String> {
     Ok(blake3::hash(material.as_bytes()).to_hex().to_string())
 }
 
-fn goal_has_current_satisfied_semantic_grade(snapshot: &GoalSnapshot) -> Result<bool> {
+pub fn goal_has_current_satisfied_semantic_grade(snapshot: &GoalSnapshot) -> Result<bool> {
     if !goal_requires_semantic_grade(snapshot) {
         return Ok(true);
     }
@@ -3301,192 +3271,92 @@ pub fn maybe_schedule_goal_continuation(
     turn_id: Option<&str>,
     assistant_message_id: Option<i64>,
 ) -> Result<Option<crate::wakeup::ScheduleOutcome>> {
-    if matches!(source, crate::chat_engine::ChatSource::Subagent) {
-        return Ok(None);
-    }
-    // Stop owns a durable session-level admission fence. Even if a parent turn
-    // is concurrently settling, it must not schedule the next autonomous Goal
-    // turn until explicit Continue clears that receipt.
-    if db.is_session_or_ancestor_autonomy_paused(session_id)? {
-        return Ok(None);
-    }
-    let Some(mut snapshot) = db.active_goal_for_session(session_id)? else {
-        return Ok(None);
-    };
-    let scheduled_this_turn = snapshot.events.iter().any(|event| {
-        event.kind == "goal_auto_continue_scheduled"
-            && event.payload.get("turnId").and_then(Value::as_str) == turn_id
-    });
-    if scheduled_this_turn {
-        return Ok(None);
-    }
-    let evaluated_this_turn = snapshot.events.iter().any(|event| {
-        event.kind == "goal_runner_evaluated"
-            && event.payload.get("turnId").and_then(Value::as_str) == turn_id
-    });
-    if !evaluated_this_turn && goal_runner_should_evaluate(&snapshot) {
-        snapshot = db.record_goal_runner_evaluation(
-            &snapshot.goal.id,
-            source.as_str(),
+    if let Some(runtime) = GOAL_RUNTIME.get() {
+        return (runtime.maybe_schedule_continuation)(
+            db,
+            session_id,
+            agent_id,
+            source,
             turn_id,
             assistant_message_id,
-        )?;
-    }
-    if !goal_runner_should_continue(&snapshot) {
-        return Ok(None);
-    }
-    if goal_runner_should_wait_for_background_jobs(db, session_id, &snapshot.goal.id)? {
-        return Ok(None);
-    }
-    let scheduled_for_revision = snapshot
-        .events
-        .iter()
-        .filter(|event| {
-            event.kind == "goal_auto_continue_scheduled"
-                && event.payload.get("goalRevision").and_then(Value::as_i64)
-                    == Some(snapshot.goal.revision)
-        })
-        .count();
-    if scheduled_for_revision >= GOAL_AUTO_CONTINUE_MAX_PER_REVISION {
-        let _ = db.append_goal_event(
-            &snapshot.goal.id,
-            "goal_auto_continue_halted",
-            json!({
-                "reason": "max_auto_continues_per_revision",
-                "limit": GOAL_AUTO_CONTINUE_MAX_PER_REVISION,
-                "goalRevision": snapshot.goal.revision,
-                "turnId": turn_id,
-            }),
         );
-        return Ok(None);
     }
 
-    let semantic_instruction = if goal_requires_semantic_grade(&snapshot)
-        && !goal_has_current_satisfied_semantic_grade(&snapshot).unwrap_or(false)
+    #[cfg(test)]
     {
-        "- The deterministic audit may have passed, but independent semantic evaluation is still required. Call `goal_evaluate` before requesting closure.\n"
-    } else {
-        ""
-    };
-    let note = format!(
-        "<goal-continuation>\n\
-         Continue the active Goal autonomously.\n\
-         - Goal id: {}\n\
-         - Revision: {}\n\
-         - First call `goal_status` to verify the latest objective, revision, budget, and evidence.\n\
-         {}\
-         - If required criteria are satisfied, call `goal_finish_request` before the final user summary.\n\
-         - If real progress is impossible, call `goal_block_request` with concrete attempts.\n\
-         - Otherwise complete one meaningful step, update tasks/checkpoints/evidence, and continue until the Goal is done.\n\
-         </goal-continuation>",
-        snapshot.goal.id, snapshot.goal.revision, semantic_instruction
-    );
-    let admitted_global_stop_epoch = db.global_stop_epoch()?;
-    let outcome = crate::wakeup::schedule(
-        session_id,
-        agent_id,
-        GOAL_AUTO_CONTINUE_DELAY_SECS,
-        Some(note),
-        false,
-        admitted_global_stop_epoch,
-    )
-    .map_err(|e| anyhow!("failed to schedule goal continuation: {e:?}"))?;
-    let _ = db.append_goal_event(
-        &snapshot.goal.id,
-        "goal_auto_continue_scheduled",
-        json!({
-            "wakeupId": outcome.id,
-            "fireAt": outcome.fire_at,
-            "delaySecs": outcome.delay_secs,
-            "source": source.as_str(),
-            "turnId": turn_id,
-            "assistantMessageId": assistant_message_id,
-            "goalRevision": snapshot.goal.revision,
-            "scheduledForRevision": scheduled_for_revision + 1,
-        }),
-    );
-    Ok(Some(outcome))
+        return maybe_schedule_goal_continuation_test_impl(
+            db,
+            session_id,
+            agent_id,
+            source,
+            turn_id,
+            assistant_message_id,
+        );
+    }
+
+    #[cfg(not(test))]
+    {
+        if !WARNED_GOAL_RUNTIME_UNAVAILABLE.swap(true, Ordering::Relaxed) {
+            app_warn!(
+                "goal",
+                "runtime_unavailable",
+                "Goal runtime is not wired; automatic continuation is disabled"
+            );
+        }
+        Ok(None)
+    }
 }
 
-fn goal_runner_should_wait_for_background_jobs(
+#[cfg(test)]
+#[path = "../../../ha-goal/src/runner.rs"]
+mod test_goal_runner;
+
+#[cfg(test)]
+#[path = "../../../ha-goal/src/policy.rs"]
+#[allow(dead_code)]
+mod test_goal_policy;
+
+#[cfg(test)]
+fn maybe_schedule_goal_continuation_test_impl(
     db: &SessionDB,
     session_id: &str,
-    goal_id: &str,
-) -> Result<bool> {
-    let active_jobs = match crate::async_jobs::JobManager::list_active_work_by_session(session_id) {
-        Ok(jobs) => jobs,
-        Err(e) => {
-            let _ = db.append_goal_event(
-                goal_id,
-                "goal_auto_continue_waiting_background_jobs",
-                json!({
-                    "reason": "background_jobs_read_failed",
-                    "error": e.to_string(),
-                }),
-            );
-            return Ok(true);
-        }
-    };
-    if active_jobs.is_empty() {
-        return Ok(false);
-    }
-    let _ = db.append_goal_event(
-        goal_id,
-        "goal_auto_continue_waiting_background_jobs",
-        json!({
-            "reason": "active_background_jobs",
-            "activeJobs": active_jobs.iter().take(12).map(|job| {
-                json!({
-                    "jobId": job.job_id,
-                    "kind": job.kind.as_str(),
-                    "status": job.status.as_str(),
-                    "toolName": job.tool_name,
-                })
-            }).collect::<Vec<_>>(),
-            "activeCount": active_jobs.len(),
-        }),
-    );
-    Ok(true)
+    agent_id: &str,
+    source: crate::chat_engine::ChatSource,
+    turn_id: Option<&str>,
+    assistant_message_id: Option<i64>,
+) -> Result<Option<crate::wakeup::ScheduleOutcome>> {
+    test_goal_runner::maybe_schedule_goal_continuation(
+        db,
+        session_id,
+        agent_id,
+        source,
+        turn_id,
+        assistant_message_id,
+    )
 }
 
-fn goal_runner_should_evaluate(snapshot: &GoalSnapshot) -> bool {
-    matches!(
-        snapshot.goal.state,
-        GoalState::Active | GoalState::Evaluating | GoalState::Blocked
-    ) && !snapshot.budget.exhausted
-        && snapshot.goal.closure_decision != Some(GoalClosureDecision::AcceptedV1)
+pub fn goal_runner_should_evaluate(snapshot: &GoalSnapshot) -> bool {
+    if let Some(runtime) = GOAL_RUNTIME.get() {
+        return (runtime.should_evaluate)(snapshot);
+    }
+    #[cfg(test)]
+    {
+        return test_goal_policy::runner_should_evaluate(snapshot);
+    }
+    #[cfg(not(test))]
+    false
 }
 
-fn goal_runner_should_continue(snapshot: &GoalSnapshot) -> bool {
-    match snapshot.goal.state {
-        GoalState::Active | GoalState::Evaluating => {}
-        GoalState::Blocked => {
-            let reason = snapshot.goal.blocked_reason.as_deref().unwrap_or_default();
-            if !matches!(
-                reason,
-                "goal_evidence_incomplete" | "goal_blocked_by_evidence" | ""
-            ) {
-                return false;
-            }
-        }
-        GoalState::Paused | GoalState::Completed | GoalState::Failed | GoalState::Cancelled => {
-            return false
-        }
+pub fn goal_runner_should_continue(snapshot: &GoalSnapshot) -> bool {
+    if let Some(runtime) = GOAL_RUNTIME.get() {
+        return (runtime.should_continue)(snapshot);
     }
-    if snapshot.budget.exhausted {
-        return false;
+    #[cfg(test)]
+    {
+        return test_goal_policy::runner_should_continue(snapshot);
     }
-    if snapshot.goal.closure_decision == Some(GoalClosureDecision::AcceptedV1) {
-        return false;
-    }
-    let audit_status = snapshot
-        .goal
-        .final_evidence
-        .get("status")
-        .and_then(Value::as_str);
-    let semantic_pending = goal_requires_semantic_grade(snapshot)
-        && !goal_has_current_satisfied_semantic_grade(snapshot).unwrap_or(false);
-    semantic_pending || audit_status != Some("completed") || snapshot.audit_stale
+    #[cfg(not(test))]
+    false
 }
 
 fn goal_watchdog_workflow_blocks_runner(state: WorkflowRunState) -> bool {
@@ -3536,26 +3406,6 @@ fn normalize_follow_up_text_key(text: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
-}
-
-fn audit_string_vec(value: Option<&Value>) -> Vec<String> {
-    let Some(items) = value.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    items
-        .iter()
-        .filter_map(|item| {
-            if let Some(text) = item.as_str() {
-                return Some(text.to_string());
-            }
-            item.get("text")
-                .or_else(|| item.get("summary"))
-                .or_else(|| item.get("reason"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .filter(|item| !item.trim().is_empty())
-        .collect()
 }
 
 fn split_criteria(raw: &str) -> Vec<String> {

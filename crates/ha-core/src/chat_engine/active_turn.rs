@@ -756,7 +756,8 @@ pub fn with_insertion_target<T>(
 /// Desktop and HTTP prompts. They may only steer an already-Channel turn;
 /// otherwise the durable queue creates a fresh least-privilege Channel turn
 /// after the owner turn finishes.
-pub(crate) fn with_channel_insertion_target<T>(
+#[doc(hidden)]
+pub fn with_channel_insertion_target<T>(
     session_id: &str,
     turn_id: &str,
     operation: impl FnOnce() -> T,

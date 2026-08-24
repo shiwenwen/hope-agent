@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use tokio::sync::oneshot;
 
 use ha_core::agent::Attachment;
-use ha_core::chat_engine::{ChatEngineParams, EventSink, NoopEventSink};
+use ha_core::chat_engine::{EventSink, NoopEventSink};
 use ha_core::permission::{SandboxMode, SessionMode};
-use ha_core::provider::{self, ActiveModel};
+use ha_core::provider;
 use ha_core::session;
 use ha_core::tools;
 use ha_core::tools::dispatch::ToolDefinitionApiExt;
@@ -479,104 +479,6 @@ impl ChatCancelRegistrationGuard {
 impl Drop for ChatCancelRegistrationGuard {
     fn drop(&mut self) {
         self.release();
-    }
-}
-
-struct HttpChatTurnDropFinalizer {
-    db: Arc<session::SessionDB>,
-    session_id: String,
-    turn_id: String,
-    armed: bool,
-}
-
-impl HttpChatTurnDropFinalizer {
-    fn new(db: Arc<session::SessionDB>, session_id: String, turn_id: String) -> Self {
-        Self {
-            db,
-            session_id,
-            turn_id,
-            armed: true,
-        }
-    }
-
-    fn finish_if_open(
-        &mut self,
-        status: session::ChatTurnStatus,
-        interrupt_reason: Option<session::ChatTurnInterruptReason>,
-        error: Option<&str>,
-    ) {
-        if !self.armed {
-            return;
-        }
-        self.armed = false;
-
-        // Once the unified journal run exists, its atomic convergence path is
-        // the only authority allowed to terminalize the turn or emit
-        // `chat:stream_end`. This includes a synchronous public/incognito
-        // request disconnect and a detached worker panic: the engine lifecycle
-        // schedules runtime-cancel recovery from the durable prefix, while this
-        // outer HTTP guard merely records `cancelling`.
-        if self
-            .db
-            .latest_stream_run(&self.session_id)
-            .ok()
-            .flatten()
-            .is_some_and(|run| {
-                run.status == "running" && run.turn_id.as_deref() == Some(self.turn_id.as_str())
-            })
-        {
-            if status == session::ChatTurnStatus::Interrupted
-                && interrupt_reason == Some(session::ChatTurnInterruptReason::RuntimeCancel)
-            {
-                let _ = self.db.mark_chat_turn_cancelling(
-                    &self.turn_id,
-                    session::ChatTurnInterruptReason::RuntimeCancel,
-                );
-            }
-            return;
-        }
-
-        let turn = match self.db.get_chat_turn(&self.turn_id) {
-            Ok(Some(turn)) if !turn.status.is_terminal() => turn,
-            _ => return,
-        };
-        let stream_id = turn.stream_id.clone();
-        match self
-            .db
-            .finish_chat_turn_once(&self.turn_id, status, interrupt_reason, error, None)
-        {
-            Ok(true) => {
-                ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
-                    &self.session_id,
-                    stream_id.as_deref(),
-                    Some(&self.turn_id),
-                    Some(status),
-                    interrupt_reason,
-                    error,
-                );
-                ha_core::chat_engine::active_turn::force_release(&self.session_id, &self.turn_id);
-            }
-            Ok(false) => {}
-            Err(err) => {
-                ha_core::app_warn!(
-                    "chat",
-                    "http_turn_finalizer",
-                    "failed to finalize dropped HTTP chat turn {}: {}",
-                    self.turn_id,
-                    err
-                );
-            }
-        }
-    }
-}
-
-impl Drop for HttpChatTurnDropFinalizer {
-    fn drop(&mut self) {
-        self.finish_if_open(
-            session::ChatTurnStatus::Interrupted,
-            Some(session::ChatTurnInterruptReason::RuntimeCancel),
-            Some("chat execution owner dropped before completion"),
-        );
     }
 }
 
@@ -1275,9 +1177,9 @@ async fn chat_inner(
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
-    // Load app/agent config before resolving per-turn settings.
+    // Load the app snapshot for per-turn settings. Model routing itself is
+    // resolved later by TurnKernel admission.
     let store = ha_core::config::cached_config();
-    let agent_def = ha_core::agent_loader::load_agent(&agent_id).ok();
 
     let requested_effort = body
         .reasoning_effort
@@ -1470,7 +1372,7 @@ async fn chat_inner(
         db.update_session_workflow_mode(&sid, mode)
             .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
-    let mut direct_admission_cleanup = if queued_request_id.is_none() {
+    let direct_admission_cleanup = if queued_request_id.is_none() {
         let sid_for_admission = sid.clone();
         let turn_for_admission = turn_id.clone();
         let admission = db
@@ -1537,10 +1439,9 @@ async fn chat_inner(
         None
     };
     let cancel = Arc::new(AtomicBool::new(false));
-    let _active_turn_guard = match ha_core::chat_engine::active_turn::try_acquire_foreground_request(
+    let interactive_lease = match ha_core::turn_kernel::TurnKernel::begin_http(
         foreground_admission,
         &sid,
-        ha_core::chat_engine::stream_seq::ChatSource::Http,
         turn_id.clone(),
         body.client_request_id.clone(),
         cancel.clone(),
@@ -1826,229 +1727,6 @@ async fn chat_inner(
         queued_request_id.is_some(),
         attachments_meta,
     );
-    let title_attachments_meta = user_msg.attachments_meta.clone();
-    let user_message_result = {
-        let sid = sid.clone();
-        let turn_id = turn_id.clone();
-        let effective_prompt = effective_prompt.clone();
-        let edit_message_id = body.edit_message_id;
-        let ui_surface_for_turn = body.ui_surface;
-        let dispatch_request_id = queued_ui_dispatch_fingerprint
-            .as_ref()
-            .and(queued_request_id.clone())
-            .or_else(|| {
-                detached_ui_dispatch
-                    .as_ref()
-                    .map(|dispatch| dispatch.request_id.clone())
-            });
-        let dispatch_fingerprint = queued_ui_dispatch_fingerprint.or_else(|| {
-            detached_ui_dispatch
-                .as_ref()
-                .map(|dispatch| dispatch.fingerprint.clone())
-        });
-        db.run(move |db| {
-            ha_core::chat_engine::active_turn::with_persistence_target(
-                &sid,
-                &turn_id,
-                || -> anyhow::Result<_> {
-                    if let Some(message_id) = edit_message_id {
-                        let replacement_id = db.replace_last_user_message_for_edit(
-                            &sid,
-                            message_id,
-                            &user_msg,
-                            &turn_id,
-                            ha_core::chat_engine::ChatSource::Http.as_str(),
-                            ui_surface_for_turn,
-                            dispatch_request_id.as_deref(),
-                            dispatch_fingerprint.as_deref(),
-                            foreground_stop_admission,
-                        )?;
-                        let turn = db.get_chat_turn(&turn_id)?.ok_or_else(|| {
-                            anyhow::anyhow!("replacement chat turn was not created")
-                        })?;
-                        return Ok((Some(replacement_id), turn));
-                    }
-                    let (user_message_id, turn) = db
-                        .append_message_and_create_chat_turn_with_id_surface_dispatch(
-                            &turn_id,
-                            &sid,
-                            ha_core::chat_engine::ChatSource::Http.as_str(),
-                            None,
-                            &user_msg,
-                            ui_surface_for_turn,
-                            dispatch_request_id.as_deref(),
-                            dispatch_fingerprint.as_deref(),
-                            foreground_stop_admission,
-                        )?;
-                    // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
-                    let _ = session::ensure_first_message_title(
-                        db,
-                        &sid,
-                        &effective_prompt,
-                        title_attachments_meta.as_deref(),
-                    );
-                    Ok((Some(user_message_id), turn))
-                },
-            )
-        })
-        .await
-    };
-    let (_user_message_id, _turn) = match user_message_result {
-        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::Committed(value)) => value,
-        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
-            _value,
-        )) => {
-            ha_core::hooks::set_user_prompt_context(&sid, None);
-            if new_session_created {
-                let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
-                    db.clone(),
-                    sid.clone(),
-                    bootstrap_request_id.clone(),
-                    true,
-                    None,
-                );
-                ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
-                    &sid,
-                    None,
-                    Some(&turn_id),
-                    Some(session::ChatTurnStatus::Interrupted),
-                    Some(session::ChatTurnInterruptReason::UserStop),
-                    None,
-                );
-                ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
-                if let Some(cleanup) = cleanup {
-                    cleanup.spawn();
-                }
-            } else {
-                let outcome = ha_core::chat_engine::stop::finalize_persisted_user_stop(
-                    db.clone(),
-                    sid.clone(),
-                    turn_id.clone(),
-                    effective_prompt.clone(),
-                    ha_core::chat_engine::ChatSource::Http,
-                )
-                .await;
-                ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
-                    &sid,
-                    None,
-                    Some(&turn_id),
-                    outcome
-                        .turn_status
-                        .or(Some(session::ChatTurnStatus::Interrupted)),
-                    outcome
-                        .interrupt_reason
-                        .or(Some(session::ChatTurnInterruptReason::UserStop)),
-                    None,
-                );
-                ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
-            }
-            ha_core::app_info!(
-                "chat",
-                "persistence_cancelled",
-                "Stopped HTTP prompt after persistence claim: session={} turn={}",
-                sid,
-                turn_id
-            );
-            return Err(AppError::conflict_with_code(
-                ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
-                "chat stopped while prompt persistence completed",
-            ));
-        }
-        Err(error) => {
-            if let Some(request_id) = queued_request_id.as_ref() {
-                let sid_for_reconcile = sid.clone();
-                let request_for_reconcile = request_id.clone();
-                let turn_for_reconcile = turn_id.clone();
-                let _ = db
-                    .run(move |db| {
-                        db.reconcile_failed_turn_message_dispatch(
-                            &sid_for_reconcile,
-                            &request_for_reconcile,
-                            &turn_for_reconcile,
-                        )
-                    })
-                    .await;
-            }
-            return Err(error.into());
-        }
-        Ok(ha_core::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit) => {
-            ha_core::hooks::set_user_prompt_context(&sid, None);
-            let cleanup = ha_core::chat_engine::stop::PreTurnCancelCleanup::begin(
-                db.clone(),
-                sid.clone(),
-                bootstrap_request_id.clone(),
-                new_session_created,
-                queued_request_id
-                    .as_ref()
-                    .map(|request_id| (request_id.clone(), turn_id.clone())),
-            );
-            ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
-                &sid,
-                None,
-                Some(&turn_id),
-                Some(session::ChatTurnStatus::Interrupted),
-                Some(session::ChatTurnInterruptReason::UserStop),
-                None,
-            );
-            ha_core::chat_engine::active_turn::force_release(&sid, &turn_id);
-            if let Some(cleanup) = cleanup {
-                cleanup.spawn();
-            }
-            ha_core::app_info!(
-                "chat",
-                "persistence_cancelled",
-                "Stopped HTTP prompt before persistence claim: session={} turn={}",
-                sid,
-                turn_id
-            );
-            return Err(AppError::conflict_with_code(
-                ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
-                "chat stopped before prompt persistence completed",
-            ));
-        }
-    };
-    if let Some(admission) = direct_admission_cleanup
-        .as_mut()
-        .and_then(|cleanup| cleanup.admission.take())
-    {
-        let _ = db
-            .run(move |db| db.release_direct_turn_admission(admission))
-            .await;
-    }
-    drop(_queued_dispatch_guard.take());
-    let mut turn_drop_finalizer =
-        HttpChatTurnDropFinalizer::new(db.clone(), sid.clone(), turn_id.clone());
-
-    // This is the ownership-transfer boundary for the bundled HTTP UI. The
-    // session, user message, and running chat_turn are durable and the detached
-    // Tokio task owns every guard below. Returning this ACK can no longer drop
-    // the engine. Keep a session-scoped approval surface registered so a turn
-    // that reaches Ask while every browser is temporarily disconnected waits
-    // for a reconnect instead of being misclassified as headless automation.
-    let _reattachable_ui_guard = detached_ui_dispatch.as_ref().map(|dispatch| {
-        let guard = ha_core::permission::register_reattachable_ui_session(&sid);
-        let accepted = publish_ui_chat_dispatch(
-            &dispatch.request_id,
-            UiChatDispatchOutcome::Success(ChatResponse {
-                session_id: sid.clone(),
-                response: String::new(),
-                turn_id: turn_id.clone(),
-                blocked_reason: None,
-                session_deleted: false,
-                accepted: true,
-                queued_request_id: None,
-            }),
-        );
-        debug_assert!(accepted, "detached UI dispatch must publish exactly once");
-        guard
-    });
-
-    // Resolve model chain
-    let agent_model_config = agent_def
-        .as_ref()
-        .map(|def| def.config.model.clone())
-        .unwrap_or_default();
-
     // Session-scoped model pin trumps agent.primary and config.active_model
     // when no explicit per-turn override was provided. Mirrors the desktop
     // commands::chat path so the two transports stay in sync.
@@ -2070,80 +1748,10 @@ async fn chat_inner(
         None
     };
 
-    // Explicit current-turn overrides are strict. Persisted Session pins are
-    // preferences and may fall through, but an invalid override must not
-    // silently switch the request to another Provider.
-    if let Some(override_str) = body.model_override.as_deref() {
-        let override_is_available = provider::parse_model_ref(override_str)
-            .is_some_and(|model| provider::model_ref_is_available(&store.providers, &model));
-        if !override_is_available {
-            let err = format!(
-                "Selected model override is unavailable: {override_str}. Please choose an enabled provider and model."
-            );
-            let partial = ha_core::chat_engine::finalize::PartialMeta {
-                user_message: Some(body.message.clone()),
-                turn_id: Some(turn_id.clone()),
-                ..Default::default()
-            };
-            let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-                &db,
-                &sid,
-                ha_core::chat_engine::finalize::TerminationReason::Other {
-                    message: err.clone(),
-                },
-                partial,
-                ha_core::chat_engine::ChatSource::Http,
-            );
-            ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
-                &sid,
-                None,
-                Some(&turn_id),
-                outcome.turn_status,
-                outcome.interrupt_reason,
-                Some(&err),
-            );
-            return Err(AppError::bad_request(err));
-        }
-    }
-
-    let preferred_model = body
-        .model_override
-        .as_deref()
-        .or(session_pinned_model.as_deref());
-    let (primary, fallbacks) =
-        provider::resolve_model_chain_with_preferred(preferred_model, &agent_model_config, &store);
-
-    let model_chain: Vec<ActiveModel> = primary.into_iter().chain(fallbacks).collect();
-
-    if model_chain.is_empty() {
-        let err = "No model configured. Please add a provider and set an active model.";
-        // No LLM call was attempted → NoProfileAvailable. finalize
-        // writes the marker into context_json, the role=event row, and
-        // closes chat_turn — replacing the old hand-rolled
-        // finish_chat_turn_once + persist_failed_turn_context +
-        // error_event triad.
-        let partial = ha_core::chat_engine::finalize::PartialMeta {
-            user_message: Some(body.message.clone()),
-            turn_id: Some(turn_id.clone()),
-            ..Default::default()
-        };
-        let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
-            &db,
-            &sid,
-            ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
-            partial,
-            ha_core::chat_engine::ChatSource::Http,
-        );
-        ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
-            &sid,
-            None,
-            Some(&turn_id),
-            Some(session::ChatTurnStatus::Failed),
-            None,
-            Some(err),
-        );
-        return Err(AppError::bad_request(err));
-    }
+    let (preferred_model, strict_model_preference) = match body.model_override.as_ref() {
+        Some(model_override) => (Some(model_override.clone()), true),
+        None => (session_pinned_model, false),
+    };
 
     let compact_config = store.compact.clone();
 
@@ -2167,69 +1775,97 @@ async fn chat_inner(
     // EventBus bridge performs the HTTP attachment URL rewrite there.
     let event_sink: Arc<dyn EventSink> = Arc::new(NoopEventSink);
 
-    let engine_params = ChatEngineParams {
-        session_id: sid.clone(),
-        agent_id: agent_id.clone(),
-        turn_id: Some(turn_id.clone()),
-        message: body.message.clone(),
-        incoming_turn: body.incoming_turn,
-        display_text: body.display_text.clone(),
-        attachments: body.attachments,
-        session_db: db.clone(),
-        model_chain,
-        providers: store.providers.clone(),
-        codex_token: None,
-        resolved_temperature,
+    let engine_params = ha_core::turn_kernel::TurnRequest::new(
+        sid.clone(),
+        agent_id.clone(),
+        body.message.clone(),
+        db.clone(),
         compact_config,
-        run_context: None,
-        reasoning_effort: Some(effort),
-        cancel: cancel.clone(),
-        foreground_stop_admission,
-        plan_context_override: None,
-        skill_allowed_tools: Vec::new(),
-        denied_tools: Vec::new(),
-        tool_scope: ha_core::tools::ToolScope::from_str_opt(body.tool_scope.as_deref()),
-        subagent_depth: 0,
-        steer_run_id: None,
-        // Honors `--auto-approve-tools` / `HA_SERVER_AUTO_APPROVE_TOOLS=1`
-        // for headless / Docker deployments where the HTTP client doesn't
-        // implement an approval handler. Engine gates (dangerous-commands,
-        // protected paths, plan-mode ask) still run; this just flips the
-        // same switch IM auto-approve accounts use.
-        auto_approve_tools: crate::auto_approve::is_active(),
-        follow_global_reasoning_effort: false,
-        post_turn_effects: true,
-        abort_on_cancel: false,
-        persist_final_error_event: true,
-        source: ha_core::chat_engine::stream_seq::ChatSource::Http,
-        ui_surface: body.ui_surface,
-        origin_source: None,
-        // HTTP owner turn — KB access via attach, not the IM opt-in gate.
-        channel_kb_context: None,
+        cancel.clone(),
         event_sink,
-    };
+    )
+    .with_model_preference(preferred_model, strict_model_preference)
+    .with_turn_id(turn_id.clone())
+    .with_incoming_turn(body.incoming_turn)
+    .with_display_text(body.display_text.clone())
+    .with_attachments(body.attachments)
+    .with_temperature(resolved_temperature)
+    .with_reasoning_effort(Some(effort))
+    .with_foreground_stop_admission(foreground_stop_admission)
+    .with_tool_scope(ha_core::tools::ToolScope::from_str_opt(
+        body.tool_scope.as_deref(),
+    ))
+    .with_ui_surface(body.ui_surface);
 
+    let dispatch_identity = queued_ui_dispatch_fingerprint
+        .zip(queued_request_id.clone())
+        .map(|(fingerprint, request_id)| (request_id, fingerprint))
+        .or_else(|| {
+            detached_ui_dispatch
+                .as_ref()
+                .map(|dispatch| (dispatch.request_id.clone(), dispatch.fingerprint.clone()))
+        });
+    let admission = ha_core::turn_kernel::InteractiveAdmission::http(
+        interactive_lease,
+        user_msg,
+        body.edit_message_id,
+        dispatch_identity,
+        bootstrap_request_id.clone(),
+        new_session_created,
+    );
+    let admitted = ha_core::turn_kernel::TurnKernel::admit(
+        // Honors `--auto-approve-tools` / `HA_SERVER_AUTO_APPROVE_TOOLS=1`;
+        // source-specific sealing prevents other HTTP policy from drifting.
+        ha_core::turn_kernel::TurnSubmission::http(
+            engine_params,
+            admission,
+            crate::auto_approve::is_active(),
+        ),
+    )
+    .await
+    .map_err(map_chat_admission_error)?;
+
+    // The durable first user message/turn is the bootstrap completion point.
+    // Earlier routing or persistence failures are rolled back by TurnKernel's
+    // interactive-admission cleanup and remain retryable as a new bootstrap.
     if let Some(request_id) = bootstrap_request_id.as_deref() {
         let request_id = request_id.to_string();
-        db.run(move |db| db.mark_project_bootstrap_completed(&request_id))
+        let completed = db
+            .run(move |db| db.mark_project_bootstrap_completed(&request_id))
             .await?;
+        if !completed {
+            return Err(AppError::internal(
+                "project bootstrap could not be completed after chat admission",
+            ));
+        }
     }
-    let result = ha_core::chat_engine::run_chat_engine(engine_params).await;
 
-    if let Err(error) = &result {
-        turn_drop_finalizer.finish_if_open(
-            session::ChatTurnStatus::Failed,
-            Some(session::ChatTurnInterruptReason::Unknown),
-            Some(&format!(
-                "chat engine returned before finalizing turn: {error}"
-            )),
+    // Durable admission is the ownership-transfer boundary for the bundled
+    // HTTP UI. The detached task owns the admitted capability and remains
+    // executable across browser disconnect/reconnect.
+    let _reattachable_ui_guard = detached_ui_dispatch.as_ref().map(|dispatch| {
+        let guard = ha_core::permission::register_reattachable_ui_session(&sid);
+        let accepted = publish_ui_chat_dispatch(
+            &dispatch.request_id,
+            UiChatDispatchOutcome::Success(ChatResponse {
+                session_id: sid.clone(),
+                response: String::new(),
+                turn_id: turn_id.clone(),
+                blocked_reason: None,
+                session_deleted: false,
+                accepted: true,
+                queued_request_id: None,
+            }),
         );
-    } else {
-        turn_drop_finalizer.finish_if_open(session::ChatTurnStatus::Completed, None, None);
-    }
+        debug_assert!(accepted, "detached UI dispatch must publish exactly once");
+        guard
+    });
+
+    let result = ha_core::turn_kernel::TurnKernel::run_admitted(admitted).await;
+
     cancel_registration_guard.release();
 
-    let result = result.map_err(AppError::internal)?;
+    let result = result.map_err(|error| AppError::internal(error.to_string()))?;
 
     Ok(Json(ChatResponse {
         session_id: sid,
@@ -2240,6 +1876,19 @@ async fn chat_inner(
         accepted: false,
         queued_request_id: None,
     }))
+}
+
+fn map_chat_admission_error(error: ha_core::turn_kernel::TurnFailure) -> AppError {
+    if error.kind == ha_core::turn_kernel::TurnFailureKind::Cancelled {
+        AppError::conflict_with_code(
+            ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
+            error.to_string(),
+        )
+    } else if error.is_invalid_request() {
+        AppError::bad_request(error.to_string())
+    } else {
+        AppError::internal(error.to_string())
+    }
 }
 
 /// Exact turn status used by the HTTP UI after a dispatch ACK. Unlike the
@@ -2969,6 +2618,15 @@ pub async fn list_capability_mentions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_model_override_admission_remains_a_client_error() {
+        let error = ha_core::turn_kernel::TurnFailure::invalid_request(
+            "selected model override is unavailable",
+        );
+        let mapped = map_chat_admission_error(error);
+        assert_eq!(mapped.status, axum::http::StatusCode::BAD_REQUEST);
+    }
 
     #[test]
     fn http_direct_and_queue_boundary_rejects_unbound_typed_payload() {

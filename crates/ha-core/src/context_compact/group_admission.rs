@@ -21,7 +21,8 @@ use std::fmt;
 /// concrete error crosses the failover boundary unchanged so it cannot be
 /// mistaken for an opaque Provider/network failure and retried blindly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CurrentToolGroupEnvelopeOverflowError {
+#[doc(hidden)]
+pub struct CurrentToolGroupEnvelopeOverflowError {
     pub capacity: RequestCapacityCount,
     pub context_window: u64,
     pub safety_headroom: u64,

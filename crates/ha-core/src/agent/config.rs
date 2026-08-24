@@ -3,7 +3,7 @@ use serde_json::json;
 use super::types::CodexModel;
 use crate::provider::ThinkingStyle;
 
-pub(super) const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+pub const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 #[allow(dead_code)]
 pub(super) const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 
@@ -85,12 +85,15 @@ pub fn build_api_url(base_url: &str, path: &str) -> String {
 
 #[allow(dead_code)]
 pub(super) const ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
-pub(super) const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+pub const MAX_RETRIES: u32 = 3;
+pub const BASE_DELAY_MS: u64 = 1000;
 pub(super) const DEFAULT_MAX_TOOL_ROUNDS: u32 = 0;
 
 /// Get the configured max tool rounds from the current agent.
 /// Returns 0 for unlimited.
-pub(super) fn get_max_tool_rounds(agent_id: &str) -> u32 {
+#[doc(hidden)]
+pub fn get_max_tool_rounds(agent_id: &str) -> u32 {
     crate::agent_loader::load_agent(agent_id)
         .map(|def| def.config.capabilities.max_tool_rounds)
         .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS)
@@ -247,7 +250,8 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     })
 }
 
-pub(super) fn is_claude_5_model(model: &str) -> bool {
+#[doc(hidden)]
+pub fn is_claude_5_model(model: &str) -> bool {
     let model = model.to_ascii_lowercase();
     [
         "claude-fable-5",
@@ -262,7 +266,7 @@ pub(super) fn is_claude_5_model(model: &str) -> bool {
 /// Map reasoning effort to Anthropic/ZAI thinking parameter.
 /// Anthropic/ZAI uses `thinking: { type: "enabled", budget_tokens: N }` format.
 /// Returns None if thinking should be disabled.
-pub(super) fn map_think_anthropic_style(
+pub fn map_think_anthropic_style(
     effort: Option<&str>,
     max_tokens: u32,
 ) -> Option<serde_json::Value> {
@@ -311,7 +315,7 @@ fn map_think_qwen_style(effort: Option<&str>) -> Option<bool> {
 }
 
 /// Apply thinking parameters to an OpenAI Chat Completions body based on ThinkingStyle.
-pub(super) fn apply_thinking_to_chat_body(
+pub fn apply_thinking_to_chat_body(
     body: &mut serde_json::Value,
     thinking_style: &ThinkingStyle,
     reasoning_effort: Option<&str>,

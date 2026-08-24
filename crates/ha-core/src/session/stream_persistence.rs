@@ -828,6 +828,27 @@ impl SessionDB {
         // later Stop observes the running stream and advances beyond this
         // immutable epoch.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let registration = Self::create_stream_run_with_tx(&tx, input, stop_admission)?;
+        tx.commit()?;
+        Ok(registration)
+    }
+
+    /// Add a stream run to an existing kernel-owned admission transaction.
+    /// The Stop proof is checked in that same transaction as the user message
+    /// and visible turn, closing the admission/Stop race across processes.
+    pub(crate) fn create_stream_run_in_transaction(
+        tx: &Transaction<'_>,
+        input: &CreateStreamRun,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+    ) -> Result<StreamRunRegistration> {
+        Self::create_stream_run_with_tx(tx, input, stop_admission)
+    }
+
+    fn create_stream_run_with_tx(
+        tx: &Transaction<'_>,
+        input: &CreateStreamRun,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+    ) -> Result<StreamRunRegistration> {
         let session = tx
             .query_row(
                 "SELECT incognito, context_revision, context_json
@@ -887,7 +908,6 @@ impl SessionDB {
                 admission.resolved_for(&input.session_id)
             };
         if incognito {
-            tx.commit()?;
             return Ok(StreamRunRegistration {
                 run_id: input.run_id.clone(),
                 context_revision,
@@ -916,7 +936,6 @@ impl SessionDB {
                 now,
             ],
         )?;
-        tx.commit()?;
         Ok(StreamRunRegistration {
             run_id: input.run_id.clone(),
             context_revision,
@@ -1167,6 +1186,29 @@ impl SessionDB {
     /// Atomically materialize the successful assistant and every durable
     /// terminal fact. No success event may be emitted before this returns.
     pub fn commit_assistant_turn(&self, input: &CommitAssistantTurn) -> Result<CommittedTurn> {
+        self.commit_assistant_turn_inner(input, false)
+    }
+
+    /// Kernel-only completion for a deterministic local reply which owns a
+    /// durable run but deliberately issued no Provider attempt.
+    pub(crate) fn commit_kernel_local_assistant_turn(
+        &self,
+        input: &CommitAssistantTurn,
+    ) -> Result<CommittedTurn> {
+        if input.attempt_no != 0 {
+            anyhow::bail!("kernel-local assistant commit requires attempt zero");
+        }
+        self.commit_assistant_turn_inner(input, true)
+    }
+
+    fn commit_assistant_turn_inner(
+        &self,
+        input: &CommitAssistantTurn,
+        allow_attemptless_run: bool,
+    ) -> Result<CommittedTurn> {
+        if input.run_id.is_some() && input.attempt_no == 0 && !allow_attemptless_run {
+            anyhow::bail!("persistent assistant commit requires a Provider attempt");
+        }
         let mut conn = self
             .conn
             .lock()
@@ -1314,16 +1356,20 @@ impl SessionDB {
         )?;
 
         if let Some(run_id) = input.run_id.as_deref() {
-            let changed_attempt = tx.execute(
-                "UPDATE chat_stream_attempts
-                 SET status = 'succeeded', accepted_seq = ?1, durable_seq = ?1,
-                     checkpoint_seq = ?1,
-                     ended_at = ?2, error = NULL
-                 WHERE run_id = ?3 AND attempt_no = ?4 AND status = 'running'",
-                params![input.final_seq as i64, now, run_id, input.attempt_no],
-            )?;
-            if changed_attempt != 1 {
-                anyhow::bail!("successful attempt update affected {changed_attempt} rows");
+            // Kernel-local replies never issue a Provider request and
+            // therefore deliberately own no attempt row.
+            if !allow_attemptless_run {
+                let changed_attempt = tx.execute(
+                    "UPDATE chat_stream_attempts
+                     SET status = 'succeeded', accepted_seq = ?1, durable_seq = ?1,
+                         checkpoint_seq = ?1,
+                         ended_at = ?2, error = NULL
+                     WHERE run_id = ?3 AND attempt_no = ?4 AND status = 'running'",
+                    params![input.final_seq as i64, now, run_id, input.attempt_no],
+                )?;
+                if changed_attempt != 1 {
+                    anyhow::bail!("successful attempt update affected {changed_attempt} rows");
+                }
             }
             let changed_run = tx.execute(
                 "UPDATE chat_stream_runs
@@ -1895,7 +1941,8 @@ impl SessionDB {
     /// filesystem cleanup. It also intentionally has no session foreign key:
     /// session-directory removal is best-effort, so the ledger must survive a
     /// failed delete and retry the exact owner-scoped basename later.
-    pub(crate) fn register_typed_resource_snapshots(
+    #[doc(hidden)]
+    pub fn register_typed_resource_snapshots(
         &self,
         run_id: &str,
         session_id: &str,
@@ -1961,7 +2008,8 @@ impl SessionDB {
     /// registered set to still belong to a live run/session and every row to
     /// remain active. A delete+drain that wins before `BEGIN IMMEDIATE` thus
     /// makes a late publisher fail before invoking `publish`.
-    pub(crate) fn publish_registered_typed_resource_snapshots<T>(
+    #[doc(hidden)]
+    pub fn publish_registered_typed_resource_snapshots<T>(
         &self,
         run_id: &str,
         session_id: &str,
@@ -3281,6 +3329,21 @@ mod tests {
             .expect("turn exists");
         assert_eq!(turn.status, ChatTurnStatus::Completed);
         assert_eq!(turn.assistant_message_id, Some(first.assistant_message_id));
+    }
+
+    #[test]
+    fn public_persistent_commit_rejects_attempt_zero() {
+        let fixture = fixture("attempt-zero-rejected");
+        let mut input = success_commit(&fixture, None);
+        input.attempt_no = 0;
+
+        let error = fixture
+            .db
+            .commit_assistant_turn(&input)
+            .expect_err("only the kernel-local completion may omit a Provider attempt");
+
+        assert!(error.to_string().contains("requires a Provider attempt"));
+        assert_success_rollback(&fixture, 1);
     }
 
     fn snapshot_name_for_run(run_id: &str) -> String {

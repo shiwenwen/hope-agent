@@ -856,7 +856,7 @@ pub(crate) fn render_core_memory_v2_for_context(
 /// conservative 3 chars/token ratio, non-ASCII scalars reserve two tokens,
 /// and a 10% margin absorbs tokenizer and wrapper variance. Actual API usage
 /// remains the truth source in `RoundTokenManifest`.
-pub(crate) fn conservative_core_token_estimate(content: &str) -> usize {
+pub fn conservative_core_token_estimate(content: &str) -> usize {
     if content.is_empty() {
         return 0;
     }

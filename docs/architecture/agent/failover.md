@@ -20,7 +20,7 @@ Failover 系统把这套编排收敛成**一个执行器** [`execute_with_failov
 
 ```mermaid
 flowchart TB
-    CE["chat_engine 主对话<br/>chat_engine_default"]
+    CE["ha-agent-runtime 主 turn<br/>chat_engine_default"]
     SQ["side_query 侧查询<br/>side_query_default"]
     SM["summarize_direct 摘要<br/>summarize_default"]
 
@@ -48,7 +48,7 @@ flowchart TB
 
 | Policy | 已知瞬时错误 `max_retries` | 未知错误 `max_unknown_retries` | `allow_profile_rotation` | 退避基准 / 上限 | 调用方 |
 |---|---:|---:|---|---|---|
-| `chat_engine_default` | 3 | 2 | true | 1000 / 10000 ms | [`chat_engine::engine`](../../../crates/ha-core/src/chat_engine/engine.rs) 主对话 |
+| `chat_engine_default` | 3 | 2 | true | 1000 / 10000 ms | [`ha-agent-runtime::engine`](../../../crates/ha-agent-runtime/src/engine.rs) 主 turn |
 | `side_query_default` | 1 | 1 | true | 1000 / 10000 ms | [`agent::side_query`](../../../crates/ha-core/src/agent/side_query.rs) 一次性侧查询 |
 | `summarize_default` | 2 | 1 | **false** | 1000 / 10000 ms | [`agent::context::summarize_direct`](../../../crates/ha-core/src/agent/context.rs) Tier 3 摘要 |
 
@@ -71,7 +71,7 @@ flowchart TB
 | `RateLimit` | `429` / `rate limit` / `rate_limit` / `too many requests` / `resource_exhausted` / `throttl` | 退避重试 + 可轮换 profile |
 | `Overloaded` | `503` / `overloaded` / `service unavailable` / `temporarily unavailable` / `server_error` / `internal server error` / `502` / `521` / `522` / `524` / 500·504（**需 HTTP 上下文**）/ OpenAI 的 `An error occurred while processing your request…` | 退避重试 + 可轮换 profile |
 | `Timeout` | 在**可证明尚未发送**阶段发生的 timeout / connect / DNS / reset 等错误，或无 WAL 的兼容调用错误 | 仅退避重试，**不**轮换 profile；dispatch claim 之后的相似文本由 typed send state 升级为 `DispatchUnknown`/response incomplete，不能落回这里 |
-| `Auth` | `401` / `unauthorized` / `invalid api key` / `invalid_api_key` / `authentication` / `403` / `forbidden` / `permission denied` | 可轮换 profile；Codex 场景由 chat_engine 在 Exhausted 出口补发 `codex_auth_expired` 引导重授权 |
+| `Auth` | `401` / `unauthorized` / `invalid api key` / `invalid_api_key` / `authentication` / `403` / `forbidden` / `permission denied` | 可轮换 profile；Codex 场景由共享 runtime 在 Exhausted 出口补发 `codex_auth_expired` 引导重授权 |
 | `Billing` | `402` / `payment required` / `billing` / `quota` / `insufficient_quota` / `exceeded your current quota` | 可轮换 profile |
 | `ModelNotFound` | `404` / `model not found` / `model_not_found` / `provider not found` / `does not exist` / `not_found_error` | **不**重试 / **不**轮换，直接上交给上层跳下一个 fallback model |
 | `Unknown` | 上面都不命中 | 谨慎重试（小预算，默认 2 次）；仍失败则上交给上层跳下一个 fallback model |
@@ -126,13 +126,13 @@ flowchart TD
 | 出口 | 何时触发 | Caller 行为 |
 |---|---|---|
 | `Ok(T)` | 操作成功 | 无；执行器已自动 `PROFILE_STICKY.set` + `PROFILE_COOLDOWNS.clear` |
-| `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过 / 命中不可重试错误 / terminal | chat_engine 仅对**非 terminal** reason 进入 fallback chain 下一个 model；`EvaluationBudget` / `CurrentToolGroupOverflow` / `DispatchUnknown` 立即持久收敛并返回。side_query / summarize 直接返回 |
-| `NeedsCompaction { last_profile, evidence }` | attempt 命中高置信 ContextOverflow | chat_engine 只在 evidence 含失败请求的本地完整容量证书时尝试 Tier 4；仅 Provider 结构化 evidence 不足以发布有损 history。side_query / summarize 直接报错（无主对话 canonical 可压） |
-| `SwitchModel { last_reason, last_error }` | 用户在可见退避期点击「立即换模型」 | chat_engine 跳过当前模型剩余重试，进入下一个 fallback model；没有下一个则终止，不重启同一条链 |
-| `Cancelled` | 用户停止本轮对话 | chat_engine 进入统一取消收尾 |
-| `NoProfileAvailable` | 执行器当前不产出此出口，保留供未来在 attempt 前置 cooldown 检查 | chat_engine 侧另有一条 `TerminationReason::NoProfileAvailable`，用于「压根没走到执行器」的快路径 |
+| `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过 / 命中不可重试错误 / terminal | 主 runtime 仅对**非 terminal** reason 进入 fallback chain 下一个 model；`EvaluationBudget` / `CurrentToolGroupOverflow` / `DispatchUnknown` 立即持久收敛并返回。side_query / summarize 直接返回 |
+| `NeedsCompaction { last_profile, evidence }` | attempt 命中高置信 ContextOverflow | 主 runtime 只在 evidence 含失败请求的本地完整容量证书时调用 kernel Tier 4 capability；仅 Provider 结构化 evidence 不足以发布有损 history。side_query / summarize 直接报错（无主对话 canonical 可压） |
+| `SwitchModel { last_reason, last_error }` | 用户在可见退避期点击「立即换模型」 | 主 runtime 跳过当前模型剩余重试，进入下一个 fallback model；没有下一个则终止，不重启同一条链 |
+| `Cancelled` | 用户停止本轮对话 | 主 runtime 进入 kernel 统一取消收尾 |
+| `NoProfileAvailable` | 执行器当前不产出此出口，保留供未来在 attempt 前置 cooldown 检查 | 主 runtime 另有一条 `TerminationReason::NoProfileAvailable`，用于「压根没走到执行器」的快路径 |
 
-### chat_engine 的 compaction-retry 闭环
+### 主 runtime 的 compaction-retry 闭环
 
 主对话的双层循环（`for model_ref in fallback_chain { loop { ... } }`）专门为 `NeedsCompaction` 而设计。执行器之所以**不**自己跑压缩，有三条硬约束：
 
@@ -229,7 +229,7 @@ return   max(delay + jitter, 0)
 
 | 调用点 | Policy | 说明 |
 |---|---|---|
-| [`chat_engine::engine`](../../../crates/ha-core/src/chat_engine/engine.rs) | `chat_engine_default` | 主对话；外层套 `for model in fallback_chain` 实现 model fallback，用 `execute_with_failover_observed` 接入重试进度与恢复动作 |
+| [`ha-agent-runtime::engine`](../../../crates/ha-agent-runtime/src/engine.rs) | `chat_engine_default` | 正式 turn；外层套 `for model in fallback_chain` 实现 model fallback，用 `execute_with_failover_observed` 接入重试进度与恢复动作 |
 | [`agent::side_query`](../../../crates/ha-core/src/agent/side_query.rs) | `side_query_default` | 通过 `AssistantAgent::with_failover_context(&ProviderConfig)`（内部包成 `Arc`）注入；未注入时走 fast path（单次 direct call） |
 | [`agent::context::summarize_direct`](../../../crates/ha-core/src/agent/context.rs) | `summarize_default` | Tier 3 dedicated summarize 路径，`DedicatedModelProvider` 持有自己的 `Arc<ProviderConfig>` |
 
@@ -261,7 +261,8 @@ return   max(delay + jitter, 0)
 | [`crates/ha-core/src/failover/mod.rs`](../../../crates/ha-core/src/failover/mod.rs) | `FailoverReason` 枚举 + `classify_error` + `retry_delay_ms` + `ProfileCooldownTracker` + `ProfileStickyMap` + `select_profile` / `next_profile` |
 | [`crates/ha-core/src/failover/executor.rs`](../../../crates/ha-core/src/failover/executor.rs) | `FailoverPolicy` 三档预设 + `ExecutorError` + `execute_with_failover` / `execute_with_failover_observed` 泛型执行器 |
 | [`crates/ha-core/src/recovery_control.rs`](../../../crates/ha-core/src/recovery_control.rs) | 会话级一次性恢复等待、精确 ID 校验与 UI 动作唤醒 |
-| [`crates/ha-core/src/chat_engine/engine.rs`](../../../crates/ha-core/src/chat_engine/engine.rs) | 主对话 fallback chain + compaction-retry 闭环 + `profile_rotation` / `model_retry` / `codex_auth_expired` 事件 emit |
+| [`crates/ha-agent-runtime/src/engine.rs`](../../../crates/ha-agent-runtime/src/engine.rs) | 主 turn fallback chain + compaction-retry 闭环 + `profile_rotation` / `model_retry` / `codex_auth_expired` 事件 emit |
+| [`crates/ha-core/src/chat_engine/turn_kernel.rs`](../../../crates/ha-core/src/chat_engine/turn_kernel.rs) | 来源准入、模型链冻结、provider lease 与 runtime required port |
 | [`crates/ha-core/src/agent/side_query.rs`](../../../crates/ha-core/src/agent/side_query.rs) | side_query 接入执行器的 fast/slow path 切换 |
 | [`crates/ha-core/src/agent/context.rs`](../../../crates/ha-core/src/agent/context.rs) | `summarize_direct()` 接入执行器的 `summarize_default` policy |
 | [`crates/ha-config-schema/src/provider.rs`](../../../crates/ha-config-schema/src/provider.rs) | `AuthProfile.id / label / api_key / base_url / enabled` + `ProviderConfig.auth_profiles` + `effective_profiles()` |

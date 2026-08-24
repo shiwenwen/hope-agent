@@ -1,41 +1,29 @@
-//! Promotion — flip promoted memories to `pinned=true` in the backend.
+//! Kernel contract for Dreaming promotions.
 
-use anyhow::Result;
+use std::sync::OnceLock;
+
+use anyhow::{anyhow, Result};
 
 use super::types::PromotionRecord;
 
-/// Apply promotions by toggling `pinned=true` on each memory id.
-/// Returns the list of IDs successfully pinned (may be shorter than input
-/// if some IDs no longer exist). Synchronous — caller runs in
-/// `spawn_blocking`.
-pub fn apply_promotions(records: &[PromotionRecord]) -> Result<Vec<i64>> {
-    let Some(backend) = crate::get_memory_backend() else {
-        return Ok(Vec::new());
-    };
+#[derive(Clone, Copy)]
+pub struct DreamingPromotionRuntime {
+    pub apply: fn(&[PromotionRecord]) -> Result<Vec<i64>>,
+}
 
-    let mut pinned = Vec::new();
-    for record in records {
-        // Verify the memory still exists before pinning.
-        match backend.get(record.memory_id) {
-            // Folding the inner `if` into a guard would fall through to the
-            // `Ok(Some(_))` arm on toggle_pin failure and incorrectly push.
-            #[allow(clippy::collapsible_match)]
-            Ok(Some(entry)) if !entry.pinned => {
-                if backend.toggle_pin(record.memory_id, true).is_ok() {
-                    pinned.push(record.memory_id);
-                }
-            }
-            Ok(Some(_)) => {
-                // Already pinned — leave the record for the diary but skip
-                // the toggle. Still counts as "promoted" so the UI reflects
-                // the LLM's nomination.
-                pinned.push(record.memory_id);
-            }
-            _ => {
-                // Missing entry — skip silently; diary will still list
-                // the title/rationale the LLM returned.
-            }
-        }
-    }
-    Ok(pinned)
+static RUNTIME: OnceLock<DreamingPromotionRuntime> = OnceLock::new();
+
+pub fn register_dreaming_promotion_runtime(
+    runtime: DreamingPromotionRuntime,
+) -> std::result::Result<(), crate::AlreadyRegistered> {
+    RUNTIME
+        .set(runtime)
+        .map_err(|_| crate::AlreadyRegistered("dreaming promotion runtime"))
+}
+
+pub fn apply_promotions(records: &[PromotionRecord]) -> Result<Vec<i64>> {
+    let runtime = RUNTIME
+        .get()
+        .ok_or_else(|| anyhow!("Dreaming promotion runtime is not wired"))?;
+    (runtime.apply)(records)
 }

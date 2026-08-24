@@ -58,7 +58,8 @@ impl AssistantAgent {
     /// `cache_control` blocks for Anthropic, leading `system`/input items
     /// for OpenAI-family) — including them here would churn the snapshot
     /// every user turn and defeat the invariant this snapshot upholds.
-    pub(super) fn save_cache_safe_params(
+    #[doc(hidden)]
+    pub fn save_cache_safe_params(
         &self,
         system_prompt: String,
         tool_schemas: Vec<serde_json::Value>,
@@ -540,7 +541,8 @@ impl AssistantAgent {
     /// `KIND_VISION` (with `session_id` so incognito sessions auto-skip the
     /// ledger) instead of `KIND_SIDE_QUERY`, so the Dashboard tracks vision
     /// transcription cost distinctly.
-    pub(crate) async fn transcribe_images_for_vision_bridge(
+    #[doc(hidden)]
+    pub async fn transcribe_images_for_vision_bridge(
         &self,
         system: &str,
         instruction: &str,

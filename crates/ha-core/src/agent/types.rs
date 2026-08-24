@@ -13,7 +13,8 @@ use super::active_memory::AgentConfigFingerprint;
 /// iteration. Cached on `AssistantAgent` so we stop re-reading and re-parsing
 /// agent.json 10+ times per chat turn.
 #[derive(Debug, Clone)]
-pub(super) struct AgentCapsCache {
+#[doc(hidden)]
+pub struct AgentCapsCache {
     /// Fingerprint of the `agent.json` that produced this snapshot. When it
     /// changes, hot-path callers reload the snapshot so tool visibility and
     /// permission defaults follow Settings edits on the next turn.
@@ -171,7 +172,8 @@ impl LlmProvider {
     /// used by this provider attempt. The returned value is safe to include in
     /// another keyed routing digest; raw API keys/account ids never leave this
     /// method or enter logs/request fields.
-    pub(super) fn cache_tenant_partition(&self) -> String {
+    #[doc(hidden)]
+    pub fn cache_tenant_partition(&self) -> String {
         let (kind, backend, identity) = match self {
             Self::Anthropic {
                 api_key, base_url, ..
@@ -535,7 +537,7 @@ pub(crate) struct TurnPromptCache {
 /// Used by `side_query()` to construct cache-friendly API requests that share the
 /// same prompt prefix as the main conversation, enabling prompt cache hits.
 #[derive(Debug)]
-pub(super) struct CacheSafeParams {
+pub struct CacheSafeParams {
     pub system_prompt: String,
     pub tool_schemas: Vec<serde_json::Value>,
     pub conversation_history: Vec<serde_json::Value>,
@@ -544,7 +546,7 @@ pub(super) struct CacheSafeParams {
 
 /// Provider format tag for CacheSafeParams, derived from LlmProvider variant.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum ProviderFormat {
+pub enum ProviderFormat {
     Anthropic,
     OpenAIChat,
     OpenAIResponses,
@@ -566,7 +568,7 @@ impl ProviderFormat {
     /// Human-readable label used in `build_full_system_prompt(model, provider_label)`,
     /// log lines, and error messages. Stable string — providers / models
     /// reference this name in prompts.
-    pub(super) fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
             Self::Anthropic => "Anthropic",
             Self::OpenAIChat => "OpenAIChat",
@@ -575,7 +577,7 @@ impl ProviderFormat {
         }
     }
 
-    pub(super) const fn token_provider_family(self) -> crate::token_accounting::ProviderFamily {
+    pub const fn token_provider_family(self) -> crate::token_accounting::ProviderFamily {
         match self {
             Self::Anthropic => crate::token_accounting::ProviderFamily::Anthropic,
             Self::OpenAIChat => crate::token_accounting::ProviderFamily::OpenAiChat,
@@ -584,7 +586,7 @@ impl ProviderFormat {
         }
     }
 
-    pub(super) const fn token_request_shape(self) -> crate::token_accounting::RequestShape {
+    pub const fn token_request_shape(self) -> crate::token_accounting::RequestShape {
         match self {
             Self::Anthropic => crate::token_accounting::RequestShape::AnthropicMessages,
             Self::OpenAIChat => crate::token_accounting::RequestShape::OpenAiChat,
@@ -603,14 +605,14 @@ pub struct SideQueryResult {
 
 /// Stateful filter that strips `<think>...</think>` tags from streaming content.
 /// Content inside tags is redirected to thinking output; content outside goes to text output.
-pub(super) struct ThinkTagFilter {
+pub struct ThinkTagFilter {
     in_thinking: bool,
     /// Buffer for potential partial tag at the end of a chunk (e.g. "<", "<th", "</thi")
     tag_buffer: String,
 }
 
 impl ThinkTagFilter {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             in_thinking: false,
             tag_buffer: String::new(),
@@ -618,7 +620,7 @@ impl ThinkTagFilter {
     }
 
     /// Process a chunk of content text. Returns (text_outside_tags, thinking_inside_tags).
-    pub(super) fn process(&mut self, input: &str) -> (String, String) {
+    pub fn process(&mut self, input: &str) -> (String, String) {
         let mut text_out = String::new();
         let mut think_out = String::new();
 

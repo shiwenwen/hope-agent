@@ -189,7 +189,9 @@ pub async fn run_external_memory_provider_sync() -> ExternalMemoryProviderSyncRe
     crate::memory::execute_external_memory_provider_sync(cfg, stats, stats_error).await
 }
 
-pub(crate) fn external_memory_provider_stats_for_planning() -> (MemoryStats, Option<String>) {
+/// Typed read aggregation consumed by the feature-owned external provider
+/// runtime. It exposes statistics only, never a SessionDB connection.
+pub fn external_memory_provider_stats_for_planning() -> (MemoryStats, Option<String>) {
     let stats_result = match crate::get_memory_backend() {
         Some(backend) => backend.stats(None).map_err(|err| err.to_string()),
         None => Err("memory backend unavailable".to_string()),

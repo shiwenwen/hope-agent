@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::IMAGE_BASE64_PREFIX;
 
-pub(crate) const IMAGE_FILE_PREFIX: &str = "__IMAGE_FILE__";
+#[doc(hidden)]
+pub const IMAGE_FILE_PREFIX: &str = "__IMAGE_FILE__";
 const MAX_IMAGE_FILE_BYTES: u64 = 20 * 1024 * 1024;
 const MANAGED_IMAGE_SUBDIRS: &[&str] = &["attachments", "tool_results", "mac-control/snapshots"];
 
@@ -17,20 +18,23 @@ enum MarkerKind {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum ImageMarkerPayload {
+#[doc(hidden)]
+pub enum ImageMarkerPayload {
     Base64(String),
     FilePath(String),
 }
 
 #[derive(Debug)]
-pub(crate) struct ImageMarker {
+#[doc(hidden)]
+pub struct ImageMarker {
     pub mime: String,
     pub payload: ImageMarkerPayload,
     pub text: String,
 }
 
 #[derive(Debug)]
-pub(crate) struct ParsedImageMarkers {
+#[doc(hidden)]
+pub struct ParsedImageMarkers {
     pub leading_text: String,
     pub markers: Vec<ImageMarker>,
 }
@@ -50,7 +54,8 @@ struct ImageFileSpec {
 ///
 /// Returns `None` for absent or malformed markers so callers can safely fall
 /// back to plain text instead of sending invalid image payloads to providers.
-pub(crate) fn parse_image_markers(result: &str) -> Option<ParsedImageMarkers> {
+#[doc(hidden)]
+pub fn parse_image_markers(result: &str) -> Option<ParsedImageMarkers> {
     let (mut marker_start, mut kind) = find_next_marker(result, 0)?;
     let leading_text = result[..marker_start].trim().to_string();
     let mut markers = Vec::new();
@@ -128,7 +133,8 @@ pub(crate) fn parse_image_markers(result: &str) -> Option<ParsedImageMarkers> {
     })
 }
 
-pub(crate) fn encode_marker_image(marker: &ImageMarker) -> anyhow::Result<String> {
+#[doc(hidden)]
+pub fn encode_marker_image(marker: &ImageMarker) -> anyhow::Result<String> {
     match &marker.payload {
         ImageMarkerPayload::Base64(b64) => Ok(b64.clone()),
         ImageMarkerPayload::FilePath(path) => encode_managed_image_file(path, &marker.mime),
@@ -221,7 +227,8 @@ pub(crate) fn contains_image_marker(result: &str) -> bool {
     result.contains(IMAGE_BASE64_PREFIX) || result.contains(IMAGE_FILE_PREFIX)
 }
 
-pub(crate) fn has_valid_image_markers(result: &str) -> bool {
+#[doc(hidden)]
+pub fn has_valid_image_markers(result: &str) -> bool {
     parse_image_markers(result).is_some()
 }
 

@@ -5,7 +5,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::acp::types::ClientCapabilities;
-use ha_core::agent::AssistantAgent;
 
 /// A single ACP session tracked by the server
 pub struct AcpSession {
@@ -17,8 +16,6 @@ pub struct AcpSession {
     pub agent_id: String,
     /// Working directory set by the client
     pub cwd: Option<String>,
-    /// The AssistantAgent instance for this session
-    pub agent: AssistantAgent,
     /// Cancel flag for this session's active prompt
     pub cancel: Arc<AtomicBool>,
     /// Whether a prompt is currently running

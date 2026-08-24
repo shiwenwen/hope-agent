@@ -66,7 +66,8 @@ pub(crate) async fn ensure_tool_catalogs(server_name: Option<&str>) {
 /// Await the one-shot startup contract of MCP servers configured with
 /// `eager=true`. A failed startup attempt still completes the feature-side
 /// barrier, so later chat turns never become synchronous reconnect loops.
-pub(crate) async fn ensure_initial_eager_tool_catalogs() {
+#[doc(hidden)]
+pub async fn ensure_initial_eager_tool_catalogs() {
     if let Some(hooks) = crate::mcp_hooks::mcp_hooks() {
         (hooks.ensure_tool_catalogs)(true, None).await;
     }
@@ -74,7 +75,8 @@ pub(crate) async fn ensure_initial_eager_tool_catalogs() {
 
 /// 有效 MCP server 中是否仍有未完成首轮目录发现的实例。未接线时
 /// MCP 整体缺席，因此返回 false。
-pub(crate) fn has_pending_catalogs() -> bool {
+#[doc(hidden)]
+pub fn has_pending_catalogs() -> bool {
     crate::mcp_hooks::mcp_hooks().is_some_and(|hooks| (hooks.has_pending_catalogs)())
 }
 

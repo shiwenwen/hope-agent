@@ -42,7 +42,7 @@ flowchart TB
         Q -->|调度器原子 claim| LR
     end
     subgraph EXEC[隔离子会话执行]
-        LR --> EX[execute_subagent<br/>run_chat_engine]
+        LR --> EX[execute_subagent<br/>TurnSubmission::subagent → TurnKernel]
         EX --> CS[(隔离子会话<br/>独立历史 · working_dir)]
     end
     subgraph BACK[终态与回投]
@@ -278,7 +278,7 @@ flowchart TD
 
     K --> M[再次检查 cancel · 写子会话 user 消息]
     M --> N[timeout 包裹 · catch_unwind]
-    N --> O[execute_subagent → run_chat_engine]
+    N --> O[execute_subagent → TurnSubmission::subagent → TurnKernel]
     O --> P{结果}
     P -->|Ok| Q[Completed / success]
     P -->|Err + cancel flag| R[Killed / user_killed]
@@ -302,12 +302,12 @@ flowchart TD
 
 ### execute_subagent 内部逻辑
 
-1. 加载子 Agent 配置，解析模型链，优先级：`model_override` > `agent.config.subagents.model` > `agent.config.model.primary`（经 `provider::resolve_model_chain` 展开 primary + fallbacks 去重）。
+1. 加载子 Agent 配置，只形成模型路由意图，优先级：`model_override` > `agent.config.subagents.model` > Agent / 全局默认。producer 不解析模型链；`TurnKernel` 在同一份 admitted config/provider snapshot 内展开 primary + fallbacks 并冻结 provider lease。
 2. 构建执行上下文注入子会话：任务描述、当前 / 最大嵌套深度、「你是子 Agent、无父对话历史、这是隔离会话」声明；有 worktree 时叠加隔离路径声明。
 3. 组合工具限制：读子 Agent 配置的 `subagents.denied_tools`；若**父会话**此刻处于 Plan 的 Planning / Review 状态，追加 `PLAN_MODE_DENIED_TOOLS`，防止子 Agent 绕过 Plan 安全边界。
 4. Plan helper（`lock_plan_agent_mode`）把显式 `plan_agent_mode` + `allow_paths` 翻译成 `PlanResolvedContext` override，绕过 child session 的后端 probe（否则新建子会话的 `plan_mode = Off` 会覆盖显式 PlanAgent 模式）。
-5. 委托 `crate::chat_engine::run_chat_engine_classified` 执行。每一轮内部仍由 chat engine 完成同模型重试、profile 轮换和 fallback 链；只有整条链返回 `ProviderExhausted` 时，subagent 才按父 Agent 的 `provider_retry_attempts`（默认 3，0 关闭）与 `provider_retry_backoff_secs`（默认 5 秒）做有界外层恢复。外层 attempt 复用同一 child session 的 durable history、附件只发送一次，并用可取消的指数退避；恢复提示要求先核对已落库 tool result，禁止盲目重复副作用。最终分类映射：`ProviderExhausted → provider_exhausted`、`Cancelled → parent_cancelled`、`Infrastructure → model_error`；建链失败（无可用模型 / 配置错误）归 `model_error`。
-6. cancel flag（`Arc<AtomicBool>`）传入引擎，`abort_on_cancel: true` 让引擎在 tool loop 迭代与 API 调用前检查、支持即时取消。
+5. 构造 `TurnRequest`，用 `TurnSubmission::subagent` 封印 KB 来源血缘，再委托 `TurnKernel::submit_classified`。kernel 负责来源策略、模型路由与 durable ledger；`ha-agent-runtime` 完成同模型重试、profile 轮换、fallback 与 round/tool loop。只有整条链返回 `ProviderExhausted` 时，subagent 才按父 Agent 的 `provider_retry_attempts`（默认 3，0 关闭）与 `provider_retry_backoff_secs`（默认 5 秒）做有界外层恢复。外层 attempt 复用同一 child session 的 durable history、附件只发送一次，并用可取消的指数退避；恢复提示要求先核对已落库 tool result，禁止盲目重复副作用。最终分类映射：`ProviderExhausted → provider_exhausted`、`Cancelled → parent_cancelled`、`Infrastructure → model_error`；建链失败（无可用模型 / 配置错误）归 `model_error`。
+6. cancel flag（`Arc<AtomicBool>`）随 request 进入统一 runtime；Subagent source policy 的 `abort_on_cancel=true` 让 round/tool driver 在迭代与 API 调用前检查、支持即时取消。
 7. 整个执行由 `catch_unwind` 包裹，保证 panic 也能落终态、发终态事件（映射为 `runner_panic`）。
 
 ## 结果注入机制
@@ -348,8 +348,8 @@ sequenceDiagram
 
     Inj->>Inj: 注册 cancel flag 到 INJECTION_CANCELS + RAII
     Inj->>FE: emit ParentAgentStreamEvent(started) 携 push_message
-    Inj->>Inj: load_context → set_conversation_history（父配置模型链）
-    Inj->>Parent: agent.chat(push_message)
+    Inj->>Inj: 构造 parent-injection TurnRequest（父路由意图）
+    Inj->>Parent: TurnSubmission::parent_injection → TurnKernel
     Parent-->>FE: 流式 delta
 
     alt 成功 & 未取消
@@ -368,7 +368,7 @@ sequenceDiagram
 
 ### 注入流程的关键设计
 
-- **独立线程**：注入跑在 `std::thread::spawn` + 独立 `current_thread` tokio runtime 中，规避 `inject_and_run_parent → agent.chat() → spawn_subagent → tokio::spawn` 的 `Send` 循环依赖。分发本身在 `spawn.rs::dispatch_parent_result_delivery` 里起线程。
+- **独立线程**：注入跑在 `std::thread::spawn` + 独立 `current_thread` tokio runtime 中，规避 `inject_and_run_parent → TurnKernel/runtime → spawn_subagent → tokio::spawn` 的 `Send` 循环依赖。分发本身在 `spawn.rs::dispatch_parent_result_delivery` 里起线程。
 - **串行注入与统一 FIFO**：`INJECTING_SESSIONS` 保存 `session_id → active run_id`；同 `(session, run)` 的周期重复 dispatch 直接合并，不同 run 才排队。Ready 与 Channel-readiness gate 共用 FIFO，blocked head 不得被后来者绕过；active retry 回到本 session 队首。`CleanupGuard` 只能释放自己的 identity，旧 guard 不能清掉新 owner。
 - **用户永远优先**：`ChatSessionGuard::new()` 一建立就设置该会话在 `INJECTION_CANCELS` 里的 cancel flag，取消正在进行的注入——用户一发消息，在途注入立即让路。
 - **空闲等待三态**：`wait_for_session_idle(session_id, max_wait, should_abort)` 返回 `Idle`（父空闲，可注入）/ `Aborted`（结果已被 fetch，放弃注入）/ `TimedOut`（父忙到超时）三态，便于单测覆盖。
@@ -406,7 +406,7 @@ sequenceDiagram
 
 ### 为什么是独立队列，而非复用工具 job 的 SlotManager
 
-后台工具 job 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live `ToolExecContext`、`run_job_to_completion` 硬编 `tools::execute_tool_with_context`；泛化它喂 subagent 需要给 `PreparedJob` 套 trait-object / enum + dispatch trait，改动面波及工具热路径。subagent 的限额模型也不同：per-parent-session 的 DB 计数（无全局池），经 `tokio::spawn` 跑 `run_chat_engine`（而非工具 job 的「独立线程 + current-thread runtime」）。按「per-kind 双域拆分、不做投机式泛化」的取舍，一条**焦点 subagent 队列**更干净、隔离。
+后台工具 job 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live `ToolExecContext`、`run_job_to_completion` 硬编 `tools::execute_tool_with_context`；泛化它喂 subagent 需要给 `PreparedJob` 套 trait-object / enum + dispatch trait，改动面波及工具热路径。subagent 的限额模型也不同：per-parent-session 的 DB 计数（无全局池），经 `tokio::spawn` 提交 typed Subagent turn（而非工具 job 的「独立线程 + current-thread runtime」）。按「per-kind 双域拆分、不做投机式泛化」的取舍，一条**焦点 subagent 队列**更干净、隔离。
 
 ### 组件
 
@@ -438,7 +438,7 @@ sequenceDiagram
 | `cancel_all_for_session(parent_session_id, db)` | 查 `list_active_subagent_runs` 取活跃 run_id，批量设 cancel flag |
 | `remove(run_id)` | 运行终止后清理，防内存泄漏 |
 
-子 Agent 的 `agent.chat()` 接收 `cancel: Arc<AtomicBool>`，在每次 tool loop 迭代与 API 调用前检查。统一取消入口 `subagent::request_cancel_run` 串起「队列抢占 / flag 触发 / DB 兜底标 Killed」三条路径，供 `kill` 工具、运行时任务取消、后台任务取消路由共用。
+子 Agent 的 `TurnRequest` 携带 `cancel: Arc<AtomicBool>`；共享 runtime 在每次 tool loop 迭代与 API 调用前检查。统一取消入口 `subagent::request_cancel_run` 串起「队列抢占 / flag 触发 / DB 兜底标 Killed」三条路径，供 `kill` 工具、运行时任务取消、后台任务取消路由共用。
 
 ## Mailbox 系统（Steer）
 
@@ -458,7 +458,7 @@ sequenceDiagram
 
 它标记「会话正有前台用户 / cron 发起的 turn 在跑」，是注入判定「忙时排队、空闲再注入」的依据。
 
-**创建点**：在共享的 `chat_engine::run_chat_engine` 入口，按 `ChatSource::holds_foreground_idle_guard()`（`Desktop` / `Http` / `Channel` / `Cron`）创建，使桌面 / HTTP / IM / cron 自动共享同一 idle 判定；ACP 直跑 `AssistantAgent::chat`（不经引擎），在其 turn 边界自建同一 guard。`ParentInjection`（注入自身——若建 guard 会经 `INJECTION_CANCELS` 自取消）与 `Subagent`（独立子会话）**不创建**。Tauri 壳额外保留一个更早创建的 guard，仅为「用户一发消息即取消在途注入」（早于本 turn preflight），靠引用计数与引擎 guard 安全重叠。
+**创建点**：所有来源都先经过 `TurnKernel`；共享 `ha-agent-runtime` 在执行入口按 kernel 封印的 `ChatSource::holds_foreground_idle_guard()` 创建 guard。`Desktop` / `Http` / `Channel` / `Cron` / `Acp` / `SessionTool` 因而共用同一 idle 判定；`ParentInjection`（注入自身——若建 guard 会经 `INJECTION_CANCELS` 自取消）、`Subagent` 与 `Eval` **不创建**。Tauri 壳额外保留一个更早创建的 guard，仅为「用户一发消息即取消在途注入」（早于本 turn preflight），靠引用计数与 runtime guard 安全重叠。
 
 **构造时 (`new`)**：
 
@@ -532,7 +532,7 @@ sequenceDiagram
 
 ### Send / Resume 续跑语义
 
-- **同 session、新 run**：续跑复用旧 run 的 `child_session_id`，chat engine 恢复该子会话完整 `context_json`，文件操作仍落原 working dir / worktree；旧 run 不从终态回滚，新一轮拥有独立状态、取消 flag、用量与后台任务投影。
+- **同 session、新 run**：续跑复用旧 run 的 `child_session_id`，共享 runtime 恢复该子会话完整 `context_json`，文件操作仍落原 working dir / worktree；旧 run 不从终态回滚，新一轮拥有独立状态、取消 flag、用量与后台任务投影。
 - **单 turn 串行**：`insert_resumed_subagent_run` 在同一 SQLite 事务内校验 source 是 thread 当前终态、owner / lifecycle 一致、该 child session 无 `queued|spawning|running` run，再递增 epoch、插入新行、切换 current attempt，防两个续跑并发写同一对话历史。
 - **权限重判**：工具层要求 source 的 `parent_session_id` 等于当前会话，并按当前父 Agent 的 capability / delegation allowlist 重新校验；core 再校验 child session 的 parent / agent 身份。Agent 已禁用或删除时 fail closed。
 - **实时安全状态**：续跑重新计算当前父会话的 Plan 限制、`denied_tools`、模型链、timeout 与 KB origin，不复活旧 run 的瞬时执行状态；附件作为新 turn 输入。若 source 仍非终态，调用方必须用 `steer`。
@@ -626,7 +626,7 @@ flowchart TD
 |------|------|
 | `crates/ha-core/src/subagent/mod.rs` | 模块入口、常量、进程级全局静态量、`request_cancel_run`、re-exports |
 | `crates/ha-core/src/subagent/types.rs` | `SubagentRun` / `SubagentThread` / `SpawnParams` / `SubagentStatus` / 各枚举 / 前端事件 |
-| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent` / `resume_subagent` 校验 +（排队 \| `launch_subagent_run`）、`execute_subagent` 解析模型链后委托 `run_chat_engine_classified`、父交付分发 |
+| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent` / `resume_subagent` 校验 +（排队 \| `launch_subagent_run`）、`execute_subagent` 组装 routing intent 并提交 `TurnSubmission::subagent`、父交付分发 |
 | `crates/ha-core/src/subagent/queue.rs` | `PendingSubagentSpawn` 等待队列 + per-session 提升调度器（`enqueue` / `remove_for_run` / `purge_for_owner` / `run_subagent_scheduler` / `promote`） |
 | `crates/ha-core/src/subagent/injection.rs` | `inject_and_run_parent` 等空闲 + 恢复历史 + 流式注入、`wait_for_session_idle`、`PendingInjection` 队列、`flush_pending_injections`、push message 构建 |
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |

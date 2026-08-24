@@ -3095,6 +3095,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-agent-loop"
+version = "0.35.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
+name = "ha-agent-runtime"
+version = "0.35.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "ha-agent-loop",
+ "ha-core",
+ "ha-eval-spec",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "ha-base"
 version = "0.35.0"
 dependencies = [
@@ -3251,6 +3279,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "glob",
+ "ha-agent-loop",
  "ha-base",
  "ha-config-schema",
  "ha-eval-spec",
@@ -3468,6 +3497,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-goal"
+version = "0.35.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ha-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ha-improve"
 version = "0.35.0"
 dependencies = [
@@ -3475,6 +3518,7 @@ dependencies = [
  "chrono",
  "ha-core",
  "ha-eval-spec",
+ "ha-workflow",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3620,6 +3664,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-memory"
+version = "0.35.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "cron",
+ "ha-core",
+ "once_cell",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "ha-pet"
 version = "0.35.0"
 dependencies = [
@@ -3654,6 +3722,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "ha-acp",
+ "ha-agent-runtime",
  "ha-browser",
  "ha-channel",
  "ha-core",
@@ -3661,17 +3730,20 @@ dependencies = [
  "ha-dash",
  "ha-design",
  "ha-eval-runtime",
+ "ha-goal",
  "ha-improve",
  "ha-knowledge",
  "ha-local-llm",
  "ha-mac",
  "ha-mcp",
  "ha-media",
+ "ha-memory",
  "ha-pet",
  "ha-skills",
  "ha-updater",
  "ha-vcs",
  "ha-weather",
+ "ha-workflow",
  "libc",
  "local-ip-address",
  "mime_guess",
@@ -3769,6 +3841,22 @@ dependencies = [
  "serde_json",
  "tokio",
  "urlencoding",
+]
+
+[[package]]
+name = "ha-workflow"
+version = "0.35.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "ha-core",
+ "rquickjs",
+ "rquickjs-serde",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

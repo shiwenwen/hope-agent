@@ -225,7 +225,7 @@ flowchart TD
 
 ### 第 4 层：紧急溢出恢复
 
-高置信 `ContextOverflow` 错误后的最后手段，由 `chat_engine` 触发，**每个模型最多重试一次**（`MAX_COMPACTION_RETRIES = 1`）。本地容量预检和模型服务商返回的结构化状态、代码、类型都可以确认溢出分类，但自动第 4 层还必须携带本地预检生成的不可变完整请求容量证书；仅有模型服务商结构化错误时安全拒绝紧急改写，转入正常模型回退而不破坏历史。自由文本相似提示只记诊断，不进入破坏性恢复。逻辑：
+高置信 `ContextOverflow` 错误后的最后手段，由 `ha-agent-runtime` 的主 turn failover 闭环触发并调用 kernel ContextEngine capability，**每个模型最多重试一次**（`MAX_COMPACTION_RETRIES = 1`）。本地容量预检和模型服务商返回的结构化状态、代码、类型都可以确认溢出分类，但自动第 4 层还必须携带本地预检生成的不可变完整请求容量证书；仅有模型服务商结构化错误时安全拒绝紧急改写，转入正常模型回退而不破坏历史。自由文本相似提示只记诊断，不进入破坏性恢复。逻辑：
 
 1. 清空所有工具结果正文（换成 `hardClearPlaceholder`）。
 2. 用 `Emergency` 模式取边界。可以减少近期助手/工具轮次，但切点绝不能越过最新真实用户请求；若保留该请求后仍无法形成合法请求，就安全拒绝，不以“忘掉任务”为代价强行重试。
@@ -491,7 +491,7 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 
 ## 关键源文件
 
-模块 `crates/ha-core/src/context_compact/` 保持纯函数核心；编排、LLM 调用、事件与实时状态收集在 `agent/` 与 `chat_engine/`。
+模块 `crates/ha-core/src/context_compact/` 保持纯函数核心；上下文策略、LLM 调用与 live 状态 capability 留在 kernel `agent/` / `chat_engine/`，主 turn 的触发时序和 failover 回环位于 `ha-agent-runtime`。
 
 | 文件 | 职责 |
 |---|---|
@@ -515,8 +515,8 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 | `ha-config-schema/src/context_compact.rs` | `CompactConfig` 协议类型定义、默认值、`clamp()` 和 `default_tool_policies()` |
 | `agent/context.rs` | 轮次开始阶段/循环中压缩编排、第 3 层 LLM 调用、注入预算分配、钩子和进度事件 |
 | `agent/runtime_ledger.rs` | 从实时作业/子智能体存储收集台账快照，并执行无痕会话门控 |
-| `agent/streaming_adapter.rs` / 模型服务商适配器 | 冻结精确请求正文、单次发送与响应完成证明 |
+| `agent/streaming_adapter.rs` / `ha-agent-runtime/src/provider_adapters/` | 冻结精确请求正文、单次发送与响应完成证明 |
 | `session/context_projection.rs` | 单次请求作用域的投影代次、精确请求计划、发送状态机与手动歧义收敛 |
 | `session/request_payload_store.rs` | 加密精确请求正文生命周期；能力闸关闭时显式标为不可用 |
 | `chat_engine/durability.rs` / `session/stream_persistence.rs` | 请求预写日志、最终事务、启动恢复与垃圾回收 |
-| `chat_engine/engine.rs` | 从 `ContextOverflow` 证据到完整容量证明、第 4 层原子检查点和单次重试 |
+| `ha-agent-runtime/src/engine.rs` | 从 `ContextOverflow` 证据到完整容量证明、调用 kernel Tier 4 capability、第 4 层原子检查点和单次重试 |
