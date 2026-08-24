@@ -219,14 +219,12 @@ pub async fn schedule_memory_extraction_after_turn(
 
     let history = agent.get_conversation_history();
     let store = crate::config::cached_config();
-    if provider::find_provider(&store.providers, &extract_provider_id).is_some() {
+    if let Some(provider) = provider::find_provider(&store.providers, &extract_provider_id) {
         let agent_id = agent_id.to_string();
         let session_id = session_id.to_string();
         let session_db = agent.session_db.clone();
-        let extract_model = ActiveModel {
-            provider_id: extract_provider_id.clone(),
-            model_id: extract_model_id,
-        };
+        let extract_model =
+            crate::memory_extract::MemoryExtractModel::capture(provider, extract_model_id);
         let eval_model_guard = match crate::eval_context::retain_model_automation(&session_id) {
             Ok(guard) => guard,
             Err(error) => {

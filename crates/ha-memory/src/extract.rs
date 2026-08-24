@@ -12,9 +12,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use ha_core::automation::{self, ModelTaskSpec};
+use ha_core::memory::extract_runtime::MemoryExtractModel;
 use ha_core::memory::{AddResult, MemoryScope, MemoryType, NewMemory};
-use ha_core::provider::ActiveModel;
 
 const MEMORY_EXTRACTION_SYSTEM: &str =
     "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences. \
@@ -394,7 +393,7 @@ pub async fn run_extraction(
     messages: &[Value],
     agent_id: &str,
     session_id: &str,
-    model: &ActiveModel,
+    model: &MemoryExtractModel,
     session_db: Option<Arc<ha_core::session::SessionDB>>,
 ) {
     let _permit = acquire_extraction_slot().await;
@@ -441,7 +440,7 @@ async fn do_extraction(
     messages: &[Value],
     agent_id: &str,
     session_id: &str,
-    model: &ActiveModel,
+    model: &MemoryExtractModel,
     session_db: Option<Arc<ha_core::session::SessionDB>>,
 ) -> Result<()> {
     let backend = ha_core::get_memory_backend()
@@ -507,32 +506,29 @@ async fn do_extraction(
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
 
-    // Execute through the kernel-owned one-shot model port. The feature sees
-    // only a non-sensitive model reference; provider credentials and the
-    // concrete AssistantAgent remain inside `ha-core::automation`.
+    // Execute through the kernel-owned dedicated Memory Extract model port.
+    // The port captures the resolved provider before this background task is
+    // admitted and deliberately remains outside the automation model chain.
     let response = tokio::time::timeout(AUTO_EXTRACTION_LLM_TIMEOUT, async {
         let instruction = memory_extraction_instruction(&prompt);
-        let result = automation::run(ModelTaskSpec {
-            purpose: "memory.extract",
-            chain: vec![model.clone()],
-            session_key: session_id,
-            instruction: &instruction,
-            max_tokens: 4096,
-        })
-        .await
-        .with_context(|| {
-            format!(
-                "memory extraction one-shot failed (provider_id={}, model={}, session={})",
-                model.provider_id, model.model_id, session_id
+        let result = model
+            .query(agent_id, session_id, &instruction, 4096)
+            .await
+            .with_context(|| {
+                format!(
+                "memory extraction dedicated query failed (provider_id={}, model={}, session={})",
+                model.provider_id(),
+                model.model_id(),
+                session_id
             )
-        })?;
+            })?;
         if let Some(logger) = ha_core::get_logger() {
             logger.log(
                 "info",
                 "memory",
-                "one_shot::extract",
+                "side_query::extract",
                 &format!(
-                    "Memory extraction via one-shot model port: cache_read={}",
+                    "Memory extraction via dedicated model port: cache_read={}",
                     result.usage.cache_read_input_tokens
                 ),
                 None,
@@ -943,7 +939,7 @@ pub async fn flush_before_compact(
     messages_to_discard: &[Value],
     agent_id: &str,
     session_id: &str,
-    model: &ActiveModel,
+    model: &MemoryExtractModel,
     session_db: Option<Arc<ha_core::session::SessionDB>>,
 ) -> Result<usize> {
     let _permit = acquire_extraction_slot().await;
@@ -1025,21 +1021,18 @@ pub async fn flush_before_compact(
 
     let response = tokio::time::timeout(FLUSH_EXTRACTION_LLM_TIMEOUT, async {
         let instruction = memory_extraction_instruction(&prompt);
-        automation::run(ModelTaskSpec {
-            purpose: "memory.flush_before_compact",
-            chain: vec![model.clone()],
-            session_key: session_id,
-            instruction: &instruction,
-            max_tokens: 4096,
-        })
-        .await
-        .with_context(|| {
-            format!(
-                "flush_before_compact one-shot failed (provider_id={}, model={}, session={})",
-                model.provider_id, model.model_id, session_id
-            )
-        })
-        .map(|result| result.text)
+        model
+            .query(agent_id, session_id, &instruction, 4096)
+            .await
+            .with_context(|| {
+                format!(
+                    "flush_before_compact dedicated query failed (provider_id={}, model={}, session={})",
+                    model.provider_id(),
+                    model.model_id(),
+                    session_id
+                )
+            })
+            .map(|result| result.text)
     })
     .await
     .map_err(|_| {
@@ -1356,13 +1349,10 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
             .or(session_meta.model_id)
             .unwrap_or_default();
         let store = ha_core::config::cached_config();
-        ha_core::provider::find_provider(&store.providers, &extract_provider_id)?;
+        let provider = ha_core::provider::find_provider(&store.providers, &extract_provider_id)?;
         Some((
             history,
-            ActiveModel {
-                provider_id: extract_provider_id,
-                model_id: extract_model_id,
-            },
+            MemoryExtractModel::capture(provider, extract_model_id),
             Arc::clone(db),
         ))
     })
@@ -1384,7 +1374,7 @@ pub fn run_extraction_boxed<'a>(
     messages: &'a [Value],
     agent_id: &'a str,
     session_id: &'a str,
-    model: &'a ActiveModel,
+    model: &'a MemoryExtractModel,
     session_db: Option<Arc<ha_core::session::SessionDB>>,
 ) -> ha_core::memory::extract_runtime::MemoryExtractFuture<'a, ()> {
     Box::pin(run_extraction(
@@ -1396,7 +1386,7 @@ pub fn flush_before_compact_boxed<'a>(
     messages_to_discard: &'a [Value],
     agent_id: &'a str,
     session_id: &'a str,
-    model: &'a ActiveModel,
+    model: &'a MemoryExtractModel,
     session_db: Option<Arc<ha_core::session::SessionDB>>,
 ) -> ha_core::memory::extract_runtime::MemoryExtractFuture<'a, Result<usize>> {
     Box::pin(flush_before_compact(

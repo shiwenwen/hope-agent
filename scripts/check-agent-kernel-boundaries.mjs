@@ -368,6 +368,19 @@ if (existsSync(path.join(repoRoot, "crates/ha-core/src/agent/llm_adapter.rs"))) 
   }
 }
 
+const memoryExtractFeature = path.join(repoRoot, "crates/ha-memory/src/extract.rs")
+if (existsSync(memoryExtractFeature)) {
+  const code = executableSurface(readFileSync(memoryExtractFeature, "utf8"))
+  if (
+    /\bha_core\s*::\s*automation\b/.test(code) ||
+    /\bautomation\s*::\s*/.test(code)
+  ) {
+    violations.push(
+      "crates/ha-memory/src/extract.rs: Memory Extract must use its captured single-model port, not the automation runtime",
+    )
+  }
+}
+
 for (const feature of ["ha-agent-runtime", "ha-memory", "ha-goal", "ha-workflow"]) {
   const root = path.join(repoRoot, "crates", feature)
   for (const file of walkRust(root)) {

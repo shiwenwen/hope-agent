@@ -1112,10 +1112,11 @@ impl AssistantAgent {
                                     let agent_id = self.agent_id.clone();
                                     let session_id = self.session_id.clone().unwrap_or_default();
                                     let msgs = split.summarizable.clone();
-                                    let model_ref = crate::provider::ActiveModel {
-                                        provider_id: prov.id.clone(),
-                                        model_id: model.id.clone(),
-                                    };
+                                    let model_ref =
+                                        crate::memory::extract_runtime::MemoryExtractModel::capture(
+                                            &prov,
+                                            model.id.clone(),
+                                        );
                                     let session_db = self.session_db.clone();
 
                                     // Use a new tokio runtime on a background thread to avoid

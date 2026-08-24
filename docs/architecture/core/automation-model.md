@@ -278,7 +278,7 @@ flowchart LR
 
 | 消费者 | 配置 | 新字段 | 说明 |
 |---|---|---|---|
-| Memory Extract | `MemoryExtractConfig` | `model_override: Option<ActiveModel>`（单模型，非链） | 解析优先级：per-agent 覆盖 → `model_override` → 旧裸字段对 → 兜底；执行在 `ha-memory::extract`，turn context 在 kernel `chat_engine/context.rs` |
+| Memory Extract | `MemoryExtractConfig` | `model_override: Option<ActiveModel>`（单模型，非链） | 解析优先级：per-agent 覆盖 → `model_override` → 旧裸字段对 → 兜底；kernel 在执行准入时把已解析模型与 Provider 快照封装为 `MemoryExtractModel`，`ha-memory::extract` 只消费该能力，配置变化不能改写在途执行 |
 | Compact 摘要 | `CompactConfig` | `model_override: Option<ActiveModel>` | `effective_summarization_model_ref()`：`model_override` 优先，否则回退 `summarization_model`；**刻意不接入 `function_models.automation`**——Tier-3 摘要是 fail-fast 设计，不希望因全局链配错而拖慢/连锁失败上下文压缩这条关键路径 |
 
 **Awareness 的分裂路径**（既非纯 D 也非纯 A，值得单列）：`LlmExtractionConfig` 原有的 `extraction_agent` / `extraction_model` 是**死配置**（前者读了但从未真正切换 agent，后者全仓库零消费），已直接删除、不保留兼容读取。新的 `model_override` 分两条路径，**两条都打 `awareness.extraction` 标签**：

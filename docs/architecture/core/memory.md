@@ -32,7 +32,7 @@
 
 Memory 遵循「内核裁决、feature 执行」：`ha-core` 保留配置/wire、scope/incognito/access verdict、Core snapshot、claim review 的用户唯一入口、SQLite/claims 类型化 store、预算与 prompt 注入契约；`ha-memory` 拥有 Fast/Deep Recall 编排、自动提取、embedding 网络实现、外部 provider、reembed job 与 Dreaming/Deep Resolver 执行机。两者通过启动期一次性注册的 retrieval/provider/maintenance ports 协作。
 
-这条边界有三个硬约束：`ha-memory` 不取得 kernel 的裸 `sessions.db` 写连接；召回进入 prompt 前仍由 core 的 live access/incognito 判定兜底；Memory 需要 LLM/embedding 时只调用 core-owned one-shot / embedding ports，不反向调用主 Turn，也不依赖 `ha-agent-runtime`，从 Cargo 与运行时两侧避免形成执行环。
+这条边界有三个硬约束：`ha-memory` 不取得 kernel 的裸 `sessions.db` 写连接；召回进入 prompt 前仍由 core 的 live access/incognito 判定兜底；Memory 需要 LLM/embedding 时只调用 core-owned model / embedding ports，不反向调用主 Turn，也不依赖 `ha-agent-runtime`，从 Cargo 与运行时两侧避免形成执行环。Memory Extract 是这里的刻意例外：它消费 kernel 在本次执行准入时封装的单模型 `MemoryExtractModel` 能力（含 Provider 快照），保留专用 single-model + profile-failover 路径，绝不改走 `automation::run` 的模型链。
 
 关键的产品决策是：**长期库默认不再批量常驻 system prompt**。开机默认只注入稳定的 Core Memory；长期库的自动召回是用户显式开启的能力。即使自动召回关闭，模型仍可主动调用 `recall_memory` / `memory_get` 工具按需检索——**关闭自动召回删掉的是"每轮自动灌入"，不是"检索能力"**。
 
