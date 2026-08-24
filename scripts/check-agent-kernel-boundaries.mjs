@@ -381,6 +381,23 @@ if (existsSync(memoryExtractFeature)) {
   }
 }
 
+const acpAgentPath = path.join(repoRoot, "crates/ha-acp/src/acp/agent.rs")
+if (existsSync(acpAgentPath)) {
+  const code = executableSurface(readFileSync(acpAgentPath, "utf8"))
+  const runAgentChat = code.match(
+    /\bfn\s+run_agent_chat\s*\([\s\S]*?\n\s*fn\s+build_modes\s*\(/,
+  )
+  if (!runAgentChat) {
+    violations.push(
+      "crates/ha-acp/src/acp/agent.rs: unable to locate run_agent_chat runtime boundary",
+    )
+  } else if (/\bruntime\s*::\s*Builder\b/.test(runAgentChat[0])) {
+    violations.push(
+      "crates/ha-acp/src/acp/agent.rs: ACP turns must use the injected process runtime; function-local runtimes cancel post-turn jobs",
+    )
+  }
+}
+
 for (const feature of ["ha-agent-runtime", "ha-memory", "ha-goal", "ha-workflow"]) {
   const root = path.join(repoRoot, "crates", feature)
   for (const file of walkRust(root)) {

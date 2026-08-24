@@ -410,7 +410,7 @@ flowchart TD
     E --> F["ACP 退出 → drop bg_rt → 后台任务取消"]
 ```
 
-每个 ACP `session/prompt` 在内部用 `current_thread` runtime + `block_on` 跑工具循环，与外层旁路 runtime 互不嵌套。
+ACP 主线程同步读取 stdio；每个 `session/prompt` 通过进程级 multi-thread runtime 的 `Handle::block_on` 进入 `TurnKernel`。这条 runtime 与 `start_minimal_background_tasks()` 同寿命，直到 ACP server 退出才销毁，因此 turn 结束时派生的 Memory Extract、idle extraction、标题等后处理不会随函数级 runtime 一起被取消。
 
 ### 退出路径
 
@@ -428,7 +428,7 @@ flowchart TD
 - **Layer B 长驻线程无统一 join**：AppLogger / Cron / Channel dispatcher 在进程退出时被 OS 回收，没有显式 `shutdown()`。正常退出靠 mpsc channel 关闭 → loop 自然退出；`std::process::exit()` 强退不走这条路
 - **ACP / Docker / Channel 子进程无统一终止钩子**：各自实现 `Drop` / `shutdown()`，退出时是否 kill 子进程取决于模块；Guardian 强杀 child 可能留 orphan 子进程——已知代价
 - **Cron / Channel 跨进程重复触发**：靠 Primary/Secondary 选举与部署习惯规避，无代码级跨进程互斥锁（见上文多进程数据共享）
-- **ACP `acp::server::start` 仍是同步签名**：依赖外层 main 包旁路 runtime + 主线程同步 stdin，完全 async 化是后续工作
+- **ACP `acp::server::start` 仍是同步签名**：外层 main 持有进程级 runtime 并把 `Handle` 注入 Agent，主线程同步 stdin；完全 async 化是后续工作
 
 ---
 

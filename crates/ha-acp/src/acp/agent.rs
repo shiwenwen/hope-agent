@@ -449,6 +449,10 @@ pub struct AcpAgent {
     pub verbose: bool,
     /// Default agent ID (from CLI flag)
     pub default_agent_id: String,
+    /// Process-lifetime runtime owned by the ACP shell. Turns block on this
+    /// handle, so post-turn jobs spawned by the shared engine remain alive
+    /// after the synchronous `session/prompt` response returns.
+    runtime: tokio::runtime::Handle,
     cancel_states: AcpCancelStates,
 }
 
@@ -489,7 +493,12 @@ fn acp_prompt_blocked_by_stop_cleanup(internal_session_id: &str) -> bool {
 }
 
 impl AcpAgent {
-    pub fn new(session_db: Arc<SessionDB>, default_agent_id: String, verbose: bool) -> Self {
+    pub fn new(
+        session_db: Arc<SessionDB>,
+        default_agent_id: String,
+        verbose: bool,
+        runtime: tokio::runtime::Handle,
+    ) -> Self {
         Self {
             transport: NdJsonTransport::new(),
             sessions: AcpSessionStore::new(32),
@@ -498,6 +507,7 @@ impl AcpAgent {
             protocol_version: AcpProtocolVersion::V1(ACP_PROTOCOL_VERSION_V1),
             verbose,
             default_agent_id,
+            runtime,
             cancel_states: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -1078,8 +1088,8 @@ impl AcpAgent {
 
         // Preflight chokepoint: pass-through in Phase 0.1; PR 1.2 runs the
         // `UserPromptSubmit` hook here. `do_prompt` is synchronous, so bridge to
-        // the async helper on a short-lived runtime — the same pattern
-        // `run_agent_chat` uses below.
+        // the async helper on the process-lifetime ACP runtime also used by
+        // `run_agent_chat` below.
         //
         // ACP registers no `active_turn` entry (that would pull in the cancel
         // walks / crash-flush / stream-acceptance semantics the `chat:*` bus
@@ -1088,71 +1098,54 @@ impl AcpAgent {
         // needs ACP to hold a real active turn, tracked as a follow-up in
         // docs/architecture/agent/hooks.md §2.4.
         let turn_id = uuid::Uuid::new_v4().to_string();
-        let effective_prompt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => match rt.block_on(
-                ha_core::agent::preflight::user_prompt_preflight_cancellable(
-                    ha_core::agent::preflight::PreflightArgs {
-                        session_id: &session_id,
-                        agent_id: None,
-                        raw_prompt: &text,
-                        turn_id: &turn_id,
-                    },
-                    turn_cancel.as_ref(),
-                ),
-            ) {
-                Some(ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt }) => {
-                    effective_prompt
+        let effective_prompt = match self.runtime.block_on(
+            ha_core::agent::preflight::user_prompt_preflight_cancellable(
+                ha_core::agent::preflight::PreflightArgs {
+                    session_id: &session_id,
+                    agent_id: None,
+                    raw_prompt: &text,
+                    turn_id: &turn_id,
+                },
+                turn_cancel.as_ref(),
+            ),
+        ) {
+            Some(ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt }) => {
+                effective_prompt
+            }
+            Some(ha_core::agent::preflight::PreflightOutcome::Block { reason }) => {
+                // A UserPromptSubmit hook blocked the prompt: record a
+                // UI-only event marker (excluded from LLM context), surface
+                // the reason as an agent message, and return without
+                // running a turn.
+                let notice = format!("🚫 {reason}");
+                let _ = self
+                    .session_db
+                    .append_message(&session_id, &session::NewMessage::event(&notice));
+                let mut update = session_update_params(
+                    &self.protocol_version,
+                    &session_id,
+                    serde_json::json!({
+                        "sessionUpdate": "agent_message_chunk",
+                        "messageId": format!("msg-agent-{turn_id}"),
+                        "content": { "type": "text", "text": notice }
+                    }),
+                );
+                update["final"] = Value::Bool(true);
+                let _ = self
+                    .transport
+                    .write_notification(&JsonRpcNotification::new("session/update", update));
+                if let Some(s) = self.sessions.get_mut(&session_id) {
+                    s.active_prompt = false;
                 }
-                Some(ha_core::agent::preflight::PreflightOutcome::Block { reason }) => {
-                    // A UserPromptSubmit hook blocked the prompt: record a
-                    // UI-only event marker (excluded from LLM context), surface
-                    // the reason as an agent message, and return without
-                    // running a turn.
-                    let notice = format!("🚫 {reason}");
-                    let _ = self
-                        .session_db
-                        .append_message(&session_id, &session::NewMessage::event(&notice));
-                    let mut update = session_update_params(
-                        &self.protocol_version,
-                        &session_id,
-                        serde_json::json!({
-                            "sessionUpdate": "agent_message_chunk",
-                            "messageId": format!("msg-agent-{turn_id}"),
-                            "content": { "type": "text", "text": notice }
-                        }),
-                    );
-                    update["final"] = Value::Bool(true);
-                    let _ = self
-                        .transport
-                        .write_notification(&JsonRpcNotification::new("session/update", update));
-                    if let Some(s) = self.sessions.get_mut(&session_id) {
-                        s.active_prompt = false;
-                    }
-                    let response = PromptResponse {
-                        stop_reason: "refusal".to_string(),
-                    };
-                    return JsonRpcResponse::success(
-                        id.clone(),
-                        serde_json::to_value(&response).unwrap(),
-                    );
-                }
-                None => {
-                    if let Some(s) = self.sessions.get_mut(&session_id) {
-                        s.active_prompt = false;
-                    }
-                    let response = PromptResponse {
-                        stop_reason: "cancelled".to_string(),
-                    };
-                    return JsonRpcResponse::success(
-                        id.clone(),
-                        serde_json::to_value(&response).unwrap(),
-                    );
-                }
-            },
-            Err(_) if turn_cancel.load(Ordering::Acquire) => {
+                let response = PromptResponse {
+                    stop_reason: "refusal".to_string(),
+                };
+                return JsonRpcResponse::success(
+                    id.clone(),
+                    serde_json::to_value(&response).unwrap(),
+                );
+            }
+            None => {
                 if let Some(s) = self.sessions.get_mut(&session_id) {
                     s.active_prompt = false;
                 }
@@ -1164,7 +1157,6 @@ impl AcpAgent {
                     serde_json::to_value(&response).unwrap(),
                 );
             }
-            Err(_) => text.clone(),
         };
 
         if !cancel_state.claim_non_cancelled_persistence() {
@@ -1388,10 +1380,6 @@ impl AcpAgent {
         text: &str,
         attachments: &[ha_core::agent::Attachment],
     ) -> Result<String> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-
         let (cancel, agent_id) = match self.sessions.get(session_id) {
             Some(session) => (session.cancel.clone(), session.agent_id.clone()),
             None => return Err(anyhow::anyhow!("Session not found")),
@@ -1402,9 +1390,9 @@ impl AcpAgent {
             .map(|definition| definition.config.model)
             .unwrap_or_default();
         let resolved_temperature = agent_model_config.temperature.or(store.temperature);
-        let reasoning_effort = agent_model_config
-            .reasoning_effort
-            .or(rt.block_on(ha_core::agent::live_reasoning_effort(None)));
+        let reasoning_effort = agent_model_config.reasoning_effort.or(self
+            .runtime
+            .block_on(ha_core::agent::live_reasoning_effort(None)));
 
         let params = ha_core::turn_kernel::TurnRequest::new(
             session_id.to_string(),
@@ -1423,9 +1411,11 @@ impl AcpAgent {
         .with_temperature(resolved_temperature)
         .with_reasoning_effort(reasoning_effort);
 
-        let result = rt.block_on(ha_core::turn_kernel::TurnKernel::submit(
-            ha_core::turn_kernel::TurnSubmission::acp(params),
-        ));
+        let result = self
+            .runtime
+            .block_on(ha_core::turn_kernel::TurnKernel::submit(
+                ha_core::turn_kernel::TurnSubmission::acp(params),
+            ));
 
         if result
             .as_ref()
@@ -1774,5 +1764,27 @@ mod tests {
             "cancelled"
         );
         assert!(acp_stop_reason_from_terminal(ha_core::chat_engine::TurnTerminal::Failed).is_err());
+    }
+
+    #[test]
+    fn process_runtime_keeps_post_turn_spawn_alive_after_block_on_returns() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(2)
+            .build()
+            .unwrap();
+        let handle = runtime.handle().clone();
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+
+        handle.block_on(async move {
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                let _ = finished_tx.send(());
+            });
+        });
+
+        finished_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("post-turn work should remain scheduled on the live ACP runtime");
     }
 }

@@ -244,11 +244,11 @@ flowchart TD
     A1{"onboarding 已完成?"} -->|否| Fail["打印错误 → 退出码 2<br/>引导去 server setup / 桌面 app"]
     A1 -->|是| A2["init_runtime('acp')<br/>打开 DB / 单例 / channel 插件"]
     A2 --> A3["起独立两线程 tokio runtime（acp-bg）<br/>跑 start_minimal_background_tasks"]
-    A3 --> A4["app_lib::acp::server::start<br/>阻塞读 stdin；每个 session/prompt<br/>内部建独立 current-thread runtime"]
+    A3 --> A4["app_lib::acp::server::start<br/>阻塞读 stdin；session/prompt<br/>复用进程级 runtime Handle"]
     A4 --> A5["主循环返回前 drop bg_rt<br/>listener 看到 cancel 后干净退出"]
 ```
 
-`start_minimal_background_tasks` 起的是一套贴近完整档、只砍掉守护进程专属项的进程内任务：channel 的审批 / ask_user 监听、hooks 配置加载与热重载（ACP 同样跑 hooks）、embedding 初始化、session 清理、浏览器 broker、后台 job 调度器、subagent 队列调度器、审批状态投影，以及 MCP `init_global`（外加 crash-flush 信号处理）；Primary 进程再补上 async_jobs / workflow / 本地模型 / wakeup 等重放。真正刻意跳过的只有定时器、channel 自启、cron、dreaming、MCP watchdog——ACP 是短交互的协议通道，不需要守护进程那一整套。「ACP 主循环留在主线程、每次 prompt 各建 current-thread runtime」是为了避开嵌套 `block_on`。详见 [ACP 协议](../integration/acp.md)。
+`start_minimal_background_tasks` 起的是一套贴近完整档、只砍掉守护进程专属项的进程内任务：channel 的审批 / ask_user 监听、hooks 配置加载与热重载（ACP 同样跑 hooks）、embedding 初始化、session 清理、浏览器 broker、后台 job 调度器、subagent 队列调度器、审批状态投影，以及 MCP `init_global`（外加 crash-flush 信号处理）；Primary 进程再补上 async_jobs / workflow / 本地模型 / wakeup 等重放。真正刻意跳过的只有定时器、channel 自启、cron、dreaming、MCP watchdog——ACP 是短交互的协议通道，不需要守护进程那一整套。ACP 主循环留在主线程同步读 stdio，但 prompt 经外层进程级 multi-thread runtime 的 `Handle::block_on` 执行；该 runtime 同时承载 turn 派生的后处理，不能退回函数级 current-thread runtime。详见 [ACP 协议](../integration/acp.md)。
 
 ## `hope-agent knowledge-mcp` 子命令
 
