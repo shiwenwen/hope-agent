@@ -1828,16 +1828,7 @@ async fn chat_inner(
         ),
     )
     .await
-    .map_err(|error| {
-        if error.kind == ha_core::turn_kernel::TurnFailureKind::Cancelled {
-            AppError::conflict_with_code(
-                ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
-                error.to_string(),
-            )
-        } else {
-            AppError::internal(error.to_string())
-        }
-    })?;
+    .map_err(map_chat_admission_error)?;
 
     // Durable admission is the ownership-transfer boundary for the bundled
     // HTTP UI. The detached task owns the admitted capability and remains
@@ -1875,6 +1866,19 @@ async fn chat_inner(
         accepted: false,
         queued_request_id: None,
     }))
+}
+
+fn map_chat_admission_error(error: ha_core::turn_kernel::TurnFailure) -> AppError {
+    if error.kind == ha_core::turn_kernel::TurnFailureKind::Cancelled {
+        AppError::conflict_with_code(
+            ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
+            error.to_string(),
+        )
+    } else if error.is_invalid_request() {
+        AppError::bad_request(error.to_string())
+    } else {
+        AppError::internal(error.to_string())
+    }
 }
 
 /// Exact turn status used by the HTTP UI after a dispatch ACK. Unlike the
@@ -2604,6 +2608,15 @@ pub async fn list_capability_mentions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_model_override_admission_remains_a_client_error() {
+        let error = ha_core::turn_kernel::TurnFailure::invalid_request(
+            "selected model override is unavailable",
+        );
+        let mapped = map_chat_admission_error(error);
+        assert_eq!(mapped.status, axum::http::StatusCode::BAD_REQUEST);
+    }
 
     #[test]
     fn http_direct_and_queue_boundary_rejects_unbound_typed_payload() {

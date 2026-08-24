@@ -744,6 +744,7 @@ pub struct TurnFailure {
     message: String,
     reason: Option<crate::failover::FailoverReason>,
     route_all_codex: bool,
+    invalid_request: bool,
 }
 
 impl TurnFailure {
@@ -754,7 +755,15 @@ impl TurnFailure {
             message: message.into(),
             reason: None,
             route_all_codex: false,
+            invalid_request: false,
         }
+    }
+
+    #[doc(hidden)]
+    pub fn invalid_request(message: impl Into<String>) -> Self {
+        let mut failure = Self::new(TurnFailureKind::Infrastructure, message);
+        failure.invalid_request = true;
+        failure
     }
 
     #[doc(hidden)]
@@ -774,6 +783,7 @@ impl TurnFailure {
             message: message.into(),
             reason,
             route_all_codex: false,
+            invalid_request: false,
         }
     }
 
@@ -786,6 +796,13 @@ impl TurnFailure {
     /// resolving or inspecting the Provider chain themselves.
     pub fn route_all_codex(&self) -> bool {
         self.route_all_codex
+    }
+
+    /// Whether admission rejected caller-controlled input rather than an
+    /// unavailable runtime dependency. Transport adapters use this typed bit
+    /// to preserve their 4xx contract without classifying display text.
+    pub fn is_invalid_request(&self) -> bool {
+        self.invalid_request
     }
 
     /// Compatibility spelling used by delivery surfaces selecting actionable

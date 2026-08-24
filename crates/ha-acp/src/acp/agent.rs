@@ -1419,7 +1419,6 @@ impl AcpAgent {
                 message_id: format!("msg-agent-{turn_id}"),
             }),
         )
-        .with_turn_id(turn_id.to_string())
         .with_attachments(attachments.to_vec())
         .with_temperature(resolved_temperature)
         .with_reasoning_effort(reasoning_effort);

@@ -1791,7 +1791,9 @@ async fn handle_inbound_message_inner(
             );
 
             let raw = e.to_string();
-            let reason = ha_core::failover::classify_error(&raw);
+            let reason = e
+                .reason()
+                .unwrap_or_else(|| ha_core::failover::classify_error(&raw));
             let is_codex_auth =
                 matches!(reason, ha_core::failover::FailoverReason::Auth) && e.route_all_codex();
             let body = ha_core::chat_engine::im_error_message::format_im_engine_error(
@@ -3442,6 +3444,22 @@ pub(crate) async fn deliver_media_to_chat_with_guard(
 mod tests {
     use super::*;
     use ha_core::attachments::{MediaItem, MediaKind};
+
+    #[test]
+    fn im_failure_copy_prefers_the_kernel_typed_reason() {
+        let failure = ha_core::turn_kernel::TurnFailure::classified(
+            ha_core::turn_kernel::TurnFailureKind::Terminal,
+            Some(ha_core::failover::FailoverReason::DispatchUnknown),
+            "opaque terminal failure",
+        );
+        let raw = failure.to_string();
+        assert_eq!(
+            failure
+                .reason()
+                .unwrap_or_else(|| ha_core::failover::classify_error(&raw)),
+            ha_core::failover::FailoverReason::DispatchUnknown
+        );
+    }
 
     #[test]
     fn stop_command_is_reserved_from_interactive_reply_parsing() {

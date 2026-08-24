@@ -195,6 +195,9 @@ impl TurnRequest {
         self
     }
 
+    /// Bind the visible `chat_turns` identity owned by Desktop/HTTP
+    /// interactive admission. Sources without a `chat_turns` row are rejected
+    /// if they attach this capability.
     pub fn with_turn_id(mut self, turn_id: String) -> Self {
         self.turn_id = Some(turn_id);
         self
@@ -777,6 +780,10 @@ impl TurnKernel {
     /// Validate source proof and atomically persist the interactive message,
     /// visible turn, durability run, and Stop-generation snapshot.
     pub async fn admit(mut submission: TurnSubmission) -> Result<AdmittedTurn, TurnFailure> {
+        admit_persisted_turn_identity(
+            submission.params.source,
+            submission.params.turn_id.as_deref(),
+        )?;
         admit_model_selection(
             &mut submission.params,
             submission.model_selection.take().ok_or_else(|| {
@@ -850,6 +857,22 @@ impl TurnKernel {
     }
 }
 
+fn admit_persisted_turn_identity(
+    source: ChatSource,
+    turn_id: Option<&str>,
+) -> Result<(), TurnFailure> {
+    if turn_id.is_some() && !matches!(source, ChatSource::Desktop | ChatSource::Http) {
+        return Err(TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            format!(
+                "{} turn cannot attach a Desktop/HTTP chat-turn identity",
+                source.as_str()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn admitted_route_all_codex(params: &ChatEngineParams) -> bool {
     !params.model_chain.is_empty()
         && params.model_chain.iter().all(|model| {
@@ -917,8 +940,7 @@ fn resolve_configured_model_chain(
 ) -> Result<Vec<crate::provider::ActiveModel>, TurnFailure> {
     if strict_preference {
         let Some(preferred) = preferred_model else {
-            return Err(TurnFailure::new(
-                TurnFailureKind::Infrastructure,
+            return Err(TurnFailure::invalid_request(
                 "strict model preference is empty",
             ));
         };
@@ -926,8 +948,7 @@ fn resolve_configured_model_chain(
             crate::provider::model_ref_is_available(&config.providers, &model)
         });
         if !available {
-            return Err(TurnFailure::new(
-                TurnFailureKind::Infrastructure,
+            return Err(TurnFailure::invalid_request(
                 format!(
                     "selected model override is unavailable: {preferred}; choose an enabled provider and model"
                 ),
@@ -1485,6 +1506,9 @@ mod tests {
         assert!(!source_policy(ChatSource::Eval).fires_user_lifecycle_hooks);
         assert!(source_policy(ChatSource::Acp).holds_foreground_idle_guard);
         assert!(source_policy(ChatSource::Acp).fires_user_lifecycle_hooks);
+        assert!(admit_persisted_turn_identity(ChatSource::Http, Some("turn-1")).is_ok());
+        assert!(admit_persisted_turn_identity(ChatSource::Acp, None).is_ok());
+        assert!(admit_persisted_turn_identity(ChatSource::Acp, Some("hook-only")).is_err());
     }
 
     #[test]
@@ -1539,6 +1563,7 @@ mod tests {
         )
         .expect_err("strict unavailable override must not fall through");
         assert!(error.to_string().contains("override is unavailable"));
+        assert!(error.is_invalid_request());
     }
 
     #[test]
