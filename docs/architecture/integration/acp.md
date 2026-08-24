@@ -8,7 +8,7 @@
 - `crates/ha-acp/src/acp_control/` —— Hope Agent 作为 ACP **客户端**（`acp_spawn` 工具驱动外部 agent）
 - `crates/ha-acp/src/lib.rs` —— 特征 crate 装配入口 `wire()`
 - `src-tauri/src/main.rs::run_acp_server` —— `acp` 子命令入口
-- `crates/ha-core/src/failover/` · `crates/ha-core/src/chat_engine/durability.rs` · `crates/ha-core/src/session/ide_context.rs`
+- `crates/ha-core/src/chat_engine/turn_kernel.rs` · `crates/ha-core/src/chat_engine/durability.rs` · `crates/ha-agent-runtime/` · `crates/ha-core/src/session/ide_context.rs`
 
 ---
 
@@ -16,9 +16,9 @@
 
 ACP（Agent Client Protocol）是一套让代码编辑器（Zed、VS Code 等）直接和 AI Agent 对话的标准协议，谱系上和 LSP（Language Server Protocol）一脉相承：编辑器 fork 一个子进程，双方用 stdio 上的 JSON-RPC 消息通信。
 
-Hope Agent 用纯 Rust 实现了原生的 ACP 服务端。核心想法只有一句：**ACP 请求直接驱动本地的 `AssistantAgent`，中间不隔任何桥接层**。这带来几个直接后果：
+Hope Agent 用纯 Rust 实现了原生的 ACP 服务端。核心想法只有一句：**ACP 只做协议适配，请求在同一进程内进入共享 `TurnKernel → ha-agent-runtime`，中间不隔任何进程桥接层，也不复制 Agent loop**。这带来几个直接后果：
 
-- **零桥接**：不经 Node.js 中间进程，一个二进制就是 ACP server，请求进来直接跑 Agent。
+- **零进程桥接**：不经 Node.js 中间进程，一个二进制就是 ACP server，请求直接封成 `TurnSubmission::acp`。
 - **会话互通**：ACP 端与桌面端共享同一份 `sessions.db`（SQLite，WAL 模式）。在 Zed 里创建的会话，桌面 App 能看到并继续；反之亦然。
 - **完整 Failover**：复用桌面端的模型链降级逻辑——同模型限频重试 + 跨模型降级，一套代码两处受益。
 - **完整工具能力**：编辑器端能调用 Hope Agent 的全部内置工具（exec / read / write / browser 等，清单见 [tool-system.md](../core/tool-system.md)）。
@@ -45,21 +45,26 @@ graph TB
         ZED["Zed / VS Code"]
     end
 
-    subgraph SERVER["hope-agent acp 进程"]
+    subgraph SERVER["hope-agent acp 进程：协议适配"]
         READER["stdin 读取线程<br/>解析 + 带外取消"]
         QUEUE["有界入站队列<br/>sync_channel(256)"]
         LOOP["主循环<br/>同步分发"]
         DISPATCH["AcpAgent 分发器<br/>agent.rs"]
         STORE["AcpSessionStore<br/>会话内存表 + 上限 32"]
-        DURA["StreamCoordinator<br/>持久化协调"]
         SINK["AcpDurableEventSink<br/>落库后写 stdout"]
         MAPPER["event_mapper<br/>Agent 事件 → ACP 通知"]
     end
 
-    subgraph CORE["Hope Agent Core（ha-core，零 Tauri 依赖）"]
-        ASSISTANT["AssistantAgent<br/>工具循环 + 流式"]
+    subgraph CORE["ha-core：权威内核"]
+        SUBMIT["TurnSubmission::acp"]
+        KERNEL["TurnKernel<br/>来源策略 · 模型路由 · durable terminal"]
+        DURA["StreamCoordinator<br/>日志 / spool / SQLite"]
+    end
+
+    subgraph RUNTIME["ha-agent-runtime：执行机器"]
+        ENGINE["AgentTurnExecutor<br/>Provider · round/tool loop · 流式"]
         TOOLS["内置工具集"]
-        FAILOVER["failover<br/>错误分类 + 退避"]
+        FAILOVER["共享 failover<br/>错误分类 + 退避"]
     end
 
     subgraph STORAGE["共享持久化"]
@@ -71,10 +76,10 @@ graph TB
     ZED -- "NDJSON 请求" --> READER
     READER --> QUEUE --> LOOP --> DISPATCH
     DISPATCH --> STORE
-    DISPATCH --> ASSISTANT
-    ASSISTANT --> TOOLS
-    ASSISTANT --> FAILOVER
-    ASSISTANT -- "delta 回调" --> DURA
+    DISPATCH --> SUBMIT --> KERNEL --> ENGINE
+    ENGINE --> TOOLS
+    ENGINE --> FAILOVER
+    ENGINE -- "delta" --> DURA
     DURA --> SINK
     SINK --> MAPPER
     MAPPER -- "session/update 流" --> ZED
@@ -208,11 +213,11 @@ graph LR
 | `protocol.rs` | `NdJsonTransport`：逐行读 stdin、写响应/通知到 stdout 并 flush |
 | `event_mapper.rs` | 把 Agent 内部事件（JSON 字符串）映射成 ACP `session/update` 通知 |
 | `session.rs` | `AcpSessionStore`：活跃会话的内存 HashMap，上限 32、淘汰空闲会话 |
-| `agent.rs` | `AcpAgent`：方法分发、会话生命周期、prompt 执行、failover、取消状态机、历史重放 |
+| `agent.rs` | `AcpAgent`：方法分发、会话生命周期、prompt 预检/落库、typed turn 提交、取消状态机、历史重放与 ACP event sink |
 | `server.rs` | `start()` 启动包装 |
 | `mod.rs` | 模块声明与公共导出 |
 
-> `agent.rs` 是绝对主体（协议里最复杂的取消、持久化、failover 都在这里）。其余文件都很薄。
+> `agent.rs` 是协议适配主体；模型路由、failover、tool loop、durable terminal 不在这里实现，统一属于 TurnKernel 与 `ha-agent-runtime`。其余协议文件都很薄。
 >
 > crate 里另有 `lib.rs`（`wire()` 装配）、`tool.rs`（`acp_spawn` 工具）和整个 `acp_control/` 子目录——那些属于[控制面](#acp-控制面反向)方向。
 
@@ -235,7 +240,7 @@ sequenceDiagram
     Note over IDE,ACP: 2. 新建会话
     IDE->>ACP: session/new {cwd, _meta:{agentId, ideContext}}
     ACP->>DB: create_session(agentId)
-    ACP->>ACP: build_agent(agentId) → AssistantAgent
+    ACP->>ACP: validate_configured_model_route(agentId)
     ACP->>ACP: AcpSessionStore.insert()
     ACP-->>IDE: {sessionId, configOptions, modes}
 
@@ -243,7 +248,7 @@ sequenceDiagram
     IDE->>ACP: session/prompt {sessionId, prompt:[...]}
     ACP->>ACP: UserPromptSubmit 预检
     ACP->>DB: append_message(user)（先于模型 turn 落库）
-    ACP->>ACP: run_agent_chat()（见下文流程图）
+    ACP->>ACP: TurnSubmission::acp → TurnKernel
     ACP-->>IDE: session/update ×N（文本 / 思维 / 工具，流式）
     ACP->>DB: commit_assistant_turn(助手消息 + 上下文)
     ACP-->>IDE: {stopReason: "end_turn"}
@@ -271,9 +276,7 @@ sequenceDiagram
 
     IDE->>ACP: session/load {sessionId, cwd}
     ACP->>DB: get_session(sessionId) → agentId
-    ACP->>ACP: build_agent(agentId)
-    ACP->>DB: load_context(sessionId)
-    ACP->>ACP: agent.set_conversation_history()
+    ACP->>ACP: validate_configured_model_route(agentId)
 
     Note over ACP,IDE: replay_session_history()
     ACP->>DB: load_session_messages(sessionId)
@@ -296,7 +299,7 @@ sequenceDiagram
 
 ## Prompt 执行流程
 
-`session/prompt` 是整个协议最重的一条。它把内容块拆成文本 + 图片，过预检钩子，落库用户消息，然后进入 failover 循环执行模型 turn：
+`session/prompt` 是整个协议最重的一条。它把内容块拆成文本 + 图片，过预检钩子，落库用户消息，然后提交 ACP typed turn；从准入开始，模型路由、执行与终态都由共享内核/运行时接管：
 
 ```mermaid
 flowchart TB
@@ -308,33 +311,32 @@ flowchart TB
     SAVE_USER["用户消息落库"]
     TITLE["首条消息自动命名<br/>emit session_info_update"]
 
-    subgraph LOOP["模型链 Failover 循环"]
-        BEGIN["begin_attempt<br/>（持久化记账）"]
-        BUILD["按 provider 构建 AssistantAgent"]
+    subgraph SHARED["共享 TurnKernel + ha-agent-runtime"]
+        SUBMIT["TurnSubmission::acp<br/>封印 ChatSource::Acp"]
+        ADMIT["冻结 config/provider lease<br/>解析模型链 + 来源策略"]
+        BEGIN["durable attempt / Stop fence"]
         RESTORE["恢复对话上下文<br/>+ SessionStart 钩子上下文"]
-        CHAT["agent.chat()<br/>工具循环 + 流式"]
-        DECIDE{"结果？"}
-        CLASSIFY["classify_error()"]
+        CHAT["Provider + round/tool driver<br/>工具循环 + 流式"]
+        DECIDE{"共享 failover / 终态？"}
     end
 
     COMMIT["commit_assistant_turn<br/>返回 end_turn"]
-    NEXT["下一模型 / 重试"]
+    NEXT["同模型重试 / profile 或模型轮换"]
     FAIL["commit_interrupted_turn<br/>返回 error"]
 
     START --> VALIDATE --> EXTRACT --> PREFLIGHT
     PREFLIGHT -- Block --> BLOCK
-    PREFLIGHT -- Proceed --> SAVE_USER --> TITLE --> BEGIN
-    BEGIN --> BUILD --> RESTORE --> CHAT --> DECIDE
+    PREFLIGHT -- Proceed --> SAVE_USER --> TITLE --> SUBMIT --> ADMIT --> BEGIN --> RESTORE --> CHAT --> DECIDE
     DECIDE -- 成功 --> COMMIT
-    DECIDE -- 失败 --> CLASSIFY --> NEXT
-    NEXT -- 有下一步 --> BEGIN
+    DECIDE -- 可恢复 --> NEXT
+    NEXT -- 有下一步 --> CHAT
     NEXT -- 全部耗尽 --> FAIL
 ```
 
 要点：
 
 - **预检钩子**：`do_prompt` 在跑模型前先过 `user_prompt_preflight_cancellable`，即 `UserPromptSubmit` 钩子的阻断点。钩子放行则用它返回的 `effective_prompt` 跑 turn（与其它用户消息入口的预检口径一致）；钩子阻断则回 `refusal` 并写一条仅 UI 可见的事件标记（不进 LLM 上下文）。ACP 不注册真正的 `active_turn`，这个 `turn_id` 只为给钩子一个 `prompt_id`。
-- **SessionStart 钩子**：ACP 直接跑 `AssistantAgent::chat` 而非共享 chat engine，所以引擎自带的 SessionStart 注入不会触发——`run_agent_chat` 自己在 failover 循环前调一次观察钩子，把返回的 additionalContext 冻结为 `RunInstructionContext::data_only(Acp, …)`，每次重建 agent 都复用同一份 user-data；它能跨重试存活，但不会取得 system/developer authority。
+- **SessionStart 钩子**：`TurnSubmission::acp` 的 source policy 开启 user lifecycle hooks；共享 runtime 在恢复上下文时执行一次 SessionStart，并把 additionalContext 按 untrusted data 注入。ACP 不再维护一份独立钩子或 failover 循环。
 - **失败也走持久化协议**：provider/构建失败不会留下一个悬空的 `running` run，而是经 `commit_interrupted_turn` 收敛成 `Failed` 终态，并写一条错误事件，让下次启动能恢复已显示的前缀。
 
 停止原因（返回给编辑器的 `stopReason`）有四种：`end_turn`（正常完成）、`cancelled`（被取消 / Stop）、`refusal`（预检阻断）、`error`（全模型失败）。
@@ -347,9 +349,9 @@ turn 内的每个增量（文本、思维、工具调用、工具结果、usage�
 
 ```mermaid
 graph LR
-    subgraph AGENT["AssistantAgent（tokio runtime 内）"]
-        CHAT["agent.chat()"]
-        CB["on_delta 回调<br/>durability.accept_event(delta)"]
+    subgraph AGENT["ha-agent-runtime（tokio runtime 内）"]
+        CHAT["AgentTurnExecutor<br/>provider + round/tool driver"]
+        CB["stream event<br/>durability.accept_event(delta)"]
     end
     subgraph DURA["StreamCoordinator（持久化）"]
         JOURNAL["写日志 / 应急 spool"]
@@ -396,7 +398,7 @@ turn 结束时：正常完成 `flush(FinalEnd)` + `commit_assistant_turn`；被�
 
 ## Failover 降级策略
 
-ACP 直接跑 `AssistantAgent::chat`，failover 是 `run_agent_chat` 里手写的一层循环，复用 `ha-core::failover` 的错误分类与退避算法。每次模型调用失败，先 `classify_error` 归类，再分三种走向：
+ACP **没有本地 failover 循环**。`agent.rs::run_agent_chat` 只是同步协议壳：组装 `TurnRequest`、封成 `TurnSubmission::acp`、`block_on(TurnKernel::submit)`，然后把 durable `TurnTerminal` 映射为 ACP `stopReason`。模型链解析、错误分类、profile 轮换、同模型退避与跨模型降级与 Desktop / HTTP / Channel 完全共用：
 
 ```mermaid
 flowchart TB
@@ -409,39 +411,34 @@ flowchart TB
     subgraph RETRY["同模型重试"]
         RL["RateLimit / Overloaded<br/>Timeout / Unknown"]
     end
-    subgraph SKIP["跳下一模型"]
-        AU["Auth / Billing<br/>ModelNotFound / ContextOverflow"]
+    subgraph RECOVER["压缩后重试"]
+        CO["ContextOverflow"]
+    end
+    subgraph SKIP["轮换 profile / 模型"]
+        AU["Auth / Billing<br/>ModelNotFound"]
     end
 
-    ERR --> CLASSIFY --> EB & RL & AU
+    ERR --> CLASSIFY --> EB & RL & CO & AU
     EB --> STOP["立即返回 error"]
-    RL --> R1{"retry < 2？"}
-    R1 -- 是 --> BACKOFF["指数退避后重试<br/>同一模型"]
+    RL --> R1{"共享 policy<br/>仍允许重试？"}
+    R1 -- 是 --> BACKOFF["指数退避后重试"]
     R1 -- 否 --> NEXTM
+    CO --> COMPACT["共享 ContextEngine 压缩"] --> R1
     AU --> NEXTM["链上有下一模型？"]
     NEXTM -- 有 --> TRY["构建下一模型重来"]
     NEXTM -- 无 --> FAIL["返回 error"]
 ```
 
-分类语义（单一来源 `failover::FailoverReason`，见 [failover](../agent/failover.md)）：
+分类语义的单一来源仍是 `failover::FailoverReason`（见 [failover](../agent/failover.md)）：
 
-| FailoverReason | 触发 | ACP 走向 |
+| FailoverReason | 触发 | 共享 runtime 走向 |
 |----------------|------|---------|
 | `EvaluationBudget` | 受保护评测触顶 | **终止**，直接返回 |
-| `RateLimit` (429) / `Overloaded` (503) / `Timeout` / `Unknown` | 限频 / 过载 / 超时 / 不明 | **同模型重试**（最多 2 次），耗尽后跳下一模型 |
+| `RateLimit` (429) / `Overloaded` (503) / `Timeout` / `Unknown` | 限频 / 过载 / 超时 / 不明 | 按共享 policy 同模型退避，耗尽后轮换 profile / 模型 |
 | `Auth` (401) / `Billing` (402) / `ModelNotFound` (404) | 认证 / 计费 / 模型不存在 | **跳下一模型** |
-| `ContextOverflow` | 上下文溢出 | **跳下一模型**（换更小模型没意义；上下文压缩是 `agent.chat` 内部的反应式动作，不在此层处理） |
+| `ContextOverflow` | 上下文溢出 | 先走共享上下文压缩策略；仍不可恢复时按统一策略终止或轮换 |
 
-退避参数（`run_agent_chat` 常量 + `failover::retry_delay_ms`）：
-
-| 参数 | 值 |
-|------|-----|
-| 最大重试次数 | 2 |
-| 退避基数 | 1000ms（第 0/1 次 ≈ 1s → 2s） |
-| 退避上限 | 10000ms |
-| 退避算法 | 指数退避 + ±10% jitter |
-
-> Codex（OAuth）不参与 provider profile 轮换；ACP 的手写循环本就只做模型链降级 + 同模型重试，不做 profile 轮换。
+重试次数、退避基数/上限与 profile sticky/cooldown 均读取共享 `FailoverPolicy`，ACP 不声明独立常量。Codex（OAuth）不参与 provider profile 轮换，这同样由共享 executor 按 `api_type` 强制执行，caller 无法覆盖。
 
 ---
 
@@ -451,7 +448,7 @@ flowchart TB
 
 - **每轮换新 token**：`prepare_prompt` 为新一轮武装一枚全新 token。一个迟到的旧 future 即便还在 unwinding，也不会被下一轮复活——因为它们持有的是不同的 token。
 - **带外触发**：`session/cancel` 由 stdin 读取线程直接处理，翻转 token 并启动 Stop 清理线程，不经主循环队列。
-- **协作式宽限**：取消后，`agent.chat` 在 `wait_for_acp_cancel`（25ms 轮询）与自身之间 `select`；命中取消后再给 6 秒宽限让 chat 协作退出，超时才强行报错。
+- **共享协作取消**：ACP token 随 `TurnRequest` 进入共享 runtime；Provider 请求、round/tool checkpoint 与 durable finalize 都观察同一 token。带外线程只负责尽早翻转 token 并触发全局 Stop 收敛，不实现第二套 chat race。
 - **线性化点**：`claim_non_cancelled_completion` / `claim_non_cancelled_persistence` 是「正常完成」与「取消」之间的定序点——取消一旦在完成前落定，后到的完成不得改写终态；反之，晚于持久化提交的取消属于「已被接受持久化的 prompt」。
 - **Stop gate**：Stop 清理进行中时，替换性的新 prompt 会被识别（`stop_cleanup_active`）并回 `cancelled`，不让它冒充并发活跃。
 
@@ -556,7 +553,7 @@ hope-agent acp --help                       # 帮助
 | `session/load` | Request | Client→Server | 加载已有会话 + 历史重放 |
 | `session/prompt` | Request | Client→Server | 执行 prompt（阻塞至完成） |
 | `session/list` | Request | Client→Server | 列出会话（排除 cron / 子会话，取前 100） |
-| `session/setMode` | Request | Client→Server | 切换 Agent（重建 AssistantAgent） |
+| `session/setMode` | Request | Client→Server | 切换 Agent 路由（新 turn 在准入时重新解析） |
 | `session/setConfigOption` | Request | Client→Server | 设置配置项（如 reasoning_effort） |
 | `session/close` | Request | Client→Server | 关闭会话 |
 | `session/cancel` | Notification | Client→Server | 取消进行中的 prompt（带外处理） |
@@ -600,14 +597,14 @@ hope-agent acp --help                       # 帮助
 
 ### 模式与配置项
 
-- **Modes = Agents**：`build_modes` 把全部可用 Agent 列为可选模式，`currentModeId` 是当前会话的 Agent。`session/setMode` 会用目标 agentId 重建 `AssistantAgent`——每个 Agent 有独立的人设、技能与行为配置。
+- **Modes = Agents**：`build_modes` 把全部可用 Agent 列为可选模式，`currentModeId` 是当前会话的 Agent。`session/setMode` 更新内存路由；下一次 prompt 的 TurnKernel admission 按目标 agentId 重新解析人设、技能、模型与行为配置。
 - **配置项**：目前只暴露一个 `reasoning_effort`（low / medium / high，默认 medium）。
 
 ---
 
 ## 设计取舍：原生实现而非桥接
 
-ACP 服务端刻意选择**纯 Rust 原生实现、直接驱动 `AssistantAgent`**，而不是在 Hope Agent 外面再套一层进程去翻译协议。它解决的抽象问题是：桥接层会引入一个独立的运行时（额外的冷启动、内存开销）、一份独立的会话存储（编辑器与桌面端各说各话），以及一条要单独维护的降级/工具管线。原生实现把这三样都消掉：
+ACP 服务端刻意选择**纯 Rust 原生协议适配、进程内提交共享 TurnKernel**，而不是在 Hope Agent 外面再套一层进程去翻译协议，也不是在 `ha-acp` 内复制一套 Agent loop。桥接层会引入额外冷启动/内存和独立会话存储；本地私有 loop 则会制造第二份准入、降级、工具与终态语义。当前实现同时消掉这两类分叉：
 
 1. **会话无缝切换**：ACP 端与桌面端共享 `sessions.db`，同一个会话在 Zed 与桌面 App 之间自由续接。
 2. **零额外部署**：同一个二进制既是桌面 App、又是 `hope-agent acp`、又是 `hope-agent server`，无需另装运行时或配置桥接。
@@ -655,7 +652,7 @@ crates/ha-acp/src/
 │   ├── protocol.rs           #   NdJsonTransport（stdio 读写）
 │   ├── event_mapper.rs       #   Agent 事件 → ACP 通知
 │   ├── session.rs            #   AcpSessionStore（内存表 + 淘汰）
-│   ├── agent.rs              #   AcpAgent 核心（分发 / 执行 / 取消 / failover / 重放）
+│   ├── agent.rs              #   AcpAgent 协议适配（分发 / typed submit / 取消 / 重放）
 │   └── server.rs             #   start() 启动入口
 ├── acp_control/              # ── 客户端控制面方向 ──
 │   ├── mod.rs · config.rs · types.rs

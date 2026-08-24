@@ -1,0 +1,19 @@
+[package]
+name = "ha-agent-loop"
+version = "0.35.0"
+description = "Provider-neutral agent loop state machine for Hope Agent. Zero Hope crate dependencies."
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+# This crate is deliberately below the product kernel. It owns only generic
+# round state and bounded scheduling mechanics; provider IO, tools, policy,
+# persistence, prompts, and all Hope types stay outside.
+[dependencies]
+async-trait = { workspace = true }
+futures-util = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

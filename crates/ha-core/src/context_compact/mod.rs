@@ -20,10 +20,12 @@ pub mod engine;
 mod estimation;
 #[cfg(feature = "eval-runner")]
 pub mod eval;
-pub(crate) mod group_admission;
+#[doc(hidden)]
+pub mod group_admission;
 mod ledger;
 mod manifest;
-pub(crate) mod projection;
+#[doc(hidden)]
+pub mod projection;
 mod pruning;
 pub(crate) mod recovery;
 pub(crate) mod round_grouping;
@@ -105,14 +107,16 @@ pub use boundary::{
     boundary_snapshot, build_message_rounds, recent_boundary, BoundaryMode, BoundarySnapshot,
     MessageRound, RecentBoundary, RoundKind,
 };
-pub(crate) use boundary::{
+#[doc(hidden)]
+pub use boundary::{
     latest_user_request_anchor, user_turn_start_for_message, LatestUserRequestAnchor,
 };
 pub use cache_policy::{
     first_rewritten_item, plan_routine_compaction, projection_economics, CacheCompactionDecision,
     CompactionSummaryReason, ProjectionEconomics, RelativeCacheCosts, RoutineCompactionPlan,
 };
-pub(crate) use capacity_pressure::{
+#[doc(hidden)]
+pub use capacity_pressure::{
     apply_capacity_pressure_tier, replay_capacity_pressure_edits, CapacityPressureResult,
     CapacityPressureTier,
 };
@@ -128,18 +132,21 @@ pub use engine::{
 pub use estimation::{
     estimate_request_tokens, estimate_request_tokens_with_tools, estimate_tokens,
 };
-pub(crate) use estimation::{set_tool_result_unit_text, tool_result_units};
+#[doc(hidden)]
+pub use estimation::{set_tool_result_unit_text, tool_result_units};
 pub use ledger::{
     build_runtime_ledger_message, render_runtime_ledger, JobLedgerItem, RuntimeLedgerSnapshot,
     SubagentLedgerItem,
 };
 pub use manifest::CompactionManifest;
-pub(crate) use recovery::extract_file_touches;
+#[doc(hidden)]
+pub use recovery::extract_file_touches;
 pub use recovery::{
     build_recovery_message, FileOp, FileTouch, RecoveredFile, RecoveryContext, RecoveryResult,
     SkippedFile,
 };
-pub(crate) use types::ToolResultLocator;
+#[doc(hidden)]
+pub use types::ToolResultLocator;
 
 /// Index at which `apply_summary()` places the summary message. Post-compaction
 /// recovery inserts the file-contents message immediately after the summary, so

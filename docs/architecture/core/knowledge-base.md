@@ -234,7 +234,7 @@ flowchart TB
 
 ### source-aware：调用来源怎么透传
 
-前台主对话的 `ChatSource`（在 `chat_engine/stream_seq.rs`，变体 `Desktop` / `Http` / `Channel` / `Subagent` / `ParentInjection` / `Cron` / `Acp`）经 `kb_access_source` 映射成 `KbAccessSource`（`Gui` / `Http` / `Im` / `Subagent` / `Cron` / `Other`），一路透传到 `ToolExecContext`：
+每个 typed turn 的 `ChatSource`（在 `chat_engine/stream_seq.rs`，变体 `Desktop` / `Http` / `Channel` / `Subagent` / `ParentInjection` / `SessionTool` / `Cron` / `Eval` / `Acp`）由 TurnKernel 封印，再经 kernel `kb_access_source` capability 映射成 `KbAccessSource`（`Gui` / `Http` / `Im` / `Subagent` / `Cron` / `Other`），一路透传到 `ToolExecContext`：
 
 | ChatSource | KbAccessSource | 对 KB 访问的影响 |
 |---|---|---|
@@ -243,9 +243,9 @@ flowchart TB
 | Channel（IM） | Im | **默认归零**（即便有 project attach），除非账号 opt-in |
 | Cron | Cron | `is_im()==false`，不触发 IM 归零，走 owner 路径 |
 | Subagent | Subagent | 继承 origin 的 cap（见下） |
-| ParentInjection / Acp | Other | 中性来源 |
+| ParentInjection / SessionTool / Eval / Acp | Other | 中性来源；Eval 仍受其独立 source policy 与隔离 session 门控 |
 
-**血缘 origin 真接线**：`ChatEngineParams.origin_source`（顶层 `None` 时 origin=source）一路传到 `ToolExecContext.origin_chat_source`；`subagent` 工具 spawn 子代理时把父轮的 origin 透传下去。`effective_kb_access` 的 IM cap 查的是 `source.is_im() || origin_source.is_im()`，所以 **IM-origin 的子代理也被归零，无法借中性的 `Subagent` 来源洗回权限**。这里其实有双重防线：即便不接线，子代理子会话本就无 attach、无 project_id（父会话不继承），天然是空集；origin cap 是面向未来（若子代理某天改为继承 project）的纵深防御。
+**血缘 origin 真接线**：producer 只能经来源专用 `TurnSubmission` 提交 origin proof；TurnKernel 把它封进内部 `ChatEngineParams.origin_source`（顶层 `None` 时 origin=source），再一路传到 `ToolExecContext.origin_chat_source`。`subagent` 工具 spawn 子代理时把父轮的 origin 透传下去。`effective_kb_access` 的 IM cap 查的是 `source.is_im() || origin_source.is_im()`，所以 **IM-origin 的子代理也被归零，无法借中性的 `Subagent` 来源洗回权限**。这里其实有双重防线：即便不接线，子代理子会话本就无 attach、无 project_id（父会话不继承），天然是空集；origin cap 是面向未来（若子代理某天改为继承 project）的纵深防御。
 
 ### IM opt-in：默认禁用怎么按账号放开
 

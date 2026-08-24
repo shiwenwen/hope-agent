@@ -1,37 +1,47 @@
 pub(crate) mod active_memory;
-pub(super) mod api_types;
+#[doc(hidden)]
+pub mod api_types;
 mod coding_profile;
-mod config;
-mod content;
-mod context;
-mod errors;
+#[doc(hidden)]
+pub mod config;
+#[doc(hidden)]
+pub mod content;
+#[doc(hidden)]
+pub mod context;
+#[doc(hidden)]
+pub mod errors;
 mod event_rewrite;
-mod events;
+#[doc(hidden)]
+pub mod events;
 
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
 pub use events::{extract_media_items, MEDIA_ITEMS_PREFIX};
-mod llm_adapter;
+#[doc(hidden)]
+pub mod llm_adapter;
 pub mod migration;
 mod plan_context;
 pub mod preflight;
-mod providers;
 mod related_notes;
 pub mod resolver;
 pub(crate) mod retrieval_planner;
 #[cfg(feature = "eval-runner")]
 pub use retrieval_planner::{run_source_fusion_scale_eval, SourceFusionScaleEvalReport};
-pub(crate) mod runtime_ledger;
+#[doc(hidden)]
+pub mod runtime_ledger;
+#[doc(hidden)]
+pub use runtime_ledger::emergency_runtime_ledger;
 mod side_query;
 mod side_query_stream;
-mod streaming_adapter;
-mod streaming_loop;
-pub(crate) use streaming_adapter::ProviderDispatchUnknown;
-pub use streaming_loop::CurrentUserMessageState;
-pub(crate) mod token_manifest;
-mod types;
-mod vision_bridge;
+#[doc(hidden)]
+pub mod streaming_adapter;
+pub use streaming_adapter::ProviderDispatchUnknown;
+#[doc(hidden)]
+pub mod token_manifest;
+#[doc(hidden)]
+pub mod types;
 
 // Re-export public API
+pub use active_memory::{preview_line, scope_label, ActiveMemoryCandidateRef, ActiveMemoryRecall};
 pub use config::{
     build_api_url, get_codex_models, is_complete_endpoint_url, is_valid_codex_model,
     is_valid_reasoning_effort, live_reasoning_effort, DEFAULT_CODEX_MODEL_ID, USER_AGENT,
@@ -40,15 +50,14 @@ pub use config::{
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub use context::build_compaction_provider;
 pub use plan_context::{resolve_plan_context_for_session, PlanResolvedContext};
+pub use retrieval_planner::{classify_intent, RetrievalIntent};
 pub use types::{
     AssistantAgent, Attachment, ChatUsage, CodexModel, LlmProvider, PlanAgentMode, QuoteProjectRoot,
 };
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde_json::json;
 
 use crate::provider::{ApiType, AuthProfile, ProviderConfig, ThinkingStyle};
 use crate::tools;
@@ -96,7 +105,8 @@ fn extract_tool_name(t: &serde_json::Value) -> &str {
 /// Provider-rendered tool inventory for one round. `activated_names` is the
 /// live-gated subset of the requested activation set; persisted activation is
 /// only a discovery hint and never widens current permissions.
-pub(crate) struct ToolInventory {
+#[doc(hidden)]
+pub struct ToolInventory {
     pub schemas: Vec<serde_json::Value>,
     pub deferred_schemas: Vec<serde_json::Value>,
     pub eager_count: usize,
@@ -793,7 +803,8 @@ impl AssistantAgent {
     }
 
     /// Reset per-chat-round flags. Called at the start of each chat() dispatch.
-    pub(crate) fn reset_chat_flags(&self) {
+    #[doc(hidden)]
+    pub fn reset_chat_flags(&self) {
         self.manual_memory_saved
             .store(false, std::sync::atomic::Ordering::SeqCst);
         self.tier3_summary_applied_this_turn
@@ -858,12 +869,14 @@ impl AssistantAgent {
         crate::memory::dreaming::touch_activity();
     }
 
-    pub(crate) fn tier3_summary_applied_this_turn(&self) -> bool {
+    #[doc(hidden)]
+    pub fn tier3_summary_applied_this_turn(&self) -> bool {
         self.tier3_summary_applied_this_turn
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    pub(crate) fn tier3_summary_publication_pending(&self) -> bool {
+    #[doc(hidden)]
+    pub fn tier3_summary_publication_pending(&self) -> bool {
         self.tier3_summary_publication_pending
             .load(std::sync::atomic::Ordering::Acquire)
     }
@@ -875,7 +888,8 @@ impl AssistantAgent {
     /// recovery may already have request-only Tier 0/2 edits which must remain
     /// available for the current request. Callers must restore the exact
     /// pre-attempt values rather than blindly clearing either flag.
-    pub(crate) fn restore_unpublished_tier3_summary_state(
+    #[doc(hidden)]
+    pub fn restore_unpublished_tier3_summary_state(
         &self,
         summary_applied: bool,
         publication_pending: bool,
@@ -924,7 +938,8 @@ impl AssistantAgent {
     /// Check if any tool call in this round was a manual memory write
     /// (save_memory / Core Memory writers). If so, set the mutual exclusion
     /// flag to skip auto-extraction for this round.
-    pub(crate) fn check_manual_memory_save(&self, tool_calls: &[api_types::FunctionCallItem]) {
+    #[doc(hidden)]
+    pub fn check_manual_memory_save(&self, tool_calls: &[api_types::FunctionCallItem]) {
         if tool_calls.iter().any(|tc| {
             tc.name == crate::tool_defs::TOOL_SAVE_MEMORY
                 || tc.name == crate::tool_defs::TOOL_UPDATE_CORE_MEMORY
@@ -937,7 +952,8 @@ impl AssistantAgent {
     }
 
     /// Accumulate token and message counts for extraction threshold tracking.
-    pub(crate) fn accumulate_extraction_stats(&self, tokens: u32, messages: u32) {
+    #[doc(hidden)]
+    pub fn accumulate_extraction_stats(&self, tokens: u32, messages: u32) {
         self.tokens_since_extraction
             .fetch_add(tokens, std::sync::atomic::Ordering::SeqCst);
         self.messages_since_extraction
@@ -953,6 +969,17 @@ impl AssistantAgent {
             .store(0, std::sync::atomic::Ordering::SeqCst);
         self.messages_since_extraction
             .store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Snapshot the counters used by the feature-owned post-turn scheduler.
+    #[doc(hidden)]
+    pub fn extraction_tracking_counts(&self) -> (u32, u32) {
+        (
+            self.tokens_since_extraction
+                .load(std::sync::atomic::Ordering::SeqCst),
+            self.messages_since_extraction
+                .load(std::sync::atomic::Ordering::SeqCst),
+        )
     }
 
     /// Set the agent ID (for memory context and home directory).
@@ -1005,7 +1032,8 @@ impl AssistantAgent {
         self.retrieval_query = Some(query.into());
     }
 
-    pub(crate) async fn flush_turn_durability(
+    #[doc(hidden)]
+    pub async fn flush_turn_durability(
         &self,
         reason: crate::turn_durability::FlushReason,
     ) -> anyhow::Result<u64> {
@@ -1015,13 +1043,15 @@ impl AssistantAgent {
         }
     }
 
-    fn lookup_session_meta(&self) -> Option<crate::session::SessionMeta> {
+    #[doc(hidden)]
+    pub fn lookup_session_meta(&self) -> Option<crate::session::SessionMeta> {
         Self::lookup_session_meta_with(self.session_db.as_ref(), self.session_id.as_deref())
     }
 
     /// Static twin of [`Self::lookup_session_meta`] so the turn-prompt refresh
     /// closure (blocking pool, no `&self`) resolves the meta identically.
-    fn lookup_session_meta_with(
+    #[doc(hidden)]
+    pub fn lookup_session_meta_with(
         session_db: Option<&Arc<crate::session::SessionDB>>,
         session_id: Option<&str>,
     ) -> Option<crate::session::SessionMeta> {
@@ -1049,7 +1079,8 @@ impl AssistantAgent {
     /// `subagent_tool_enabled`). Chat and tool execution refresh the snapshot
     /// asynchronously before use; the synchronous fallback only serves callers
     /// outside those paths.
-    fn agent_caps(&self) -> std::sync::Arc<types::AgentCapsCache> {
+    #[doc(hidden)]
+    pub fn agent_caps(&self) -> std::sync::Arc<types::AgentCapsCache> {
         if let Some(cached) = self
             .agent_caps_cache
             .lock()
@@ -1168,7 +1199,8 @@ impl AssistantAgent {
         *slot = Some(aware);
     }
 
-    fn session_is_incognito(&self) -> bool {
+    #[doc(hidden)]
+    pub fn session_is_incognito(&self) -> bool {
         self.incognito_cached
             .load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -1176,21 +1208,24 @@ impl AssistantAgent {
     /// Return the currently-held Active Memory suffix (if any). Provider
     /// layer calls this when constructing the request to inject the recall
     /// sentence as another independent cache block.
-    pub(crate) fn current_active_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+    #[doc(hidden)]
+    pub fn current_active_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
         self.active_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
-    pub(crate) fn current_legacy_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+    #[doc(hidden)]
+    pub fn current_legacy_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
         self.legacy_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
-    pub(crate) fn current_legacy_memory_refs(&self) -> Vec<active_memory::UsedMemoryRef> {
+    #[doc(hidden)]
+    pub fn current_legacy_memory_refs(&self) -> Vec<active_memory::UsedMemoryRef> {
         self.legacy_memory_refs
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1201,10 +1236,8 @@ impl AssistantAgent {
     /// round. Preserve first-commit order and distinguish `injected` from
     /// `selected`: both are immutable prompt facts when the same row appeared
     /// under different rollback outcomes in separate rounds.
-    pub(crate) fn commit_legacy_memory_refs_for_round(
-        &self,
-        refs: &[active_memory::UsedMemoryRef],
-    ) {
+    #[doc(hidden)]
+    pub fn commit_legacy_memory_refs_for_round(&self, refs: &[active_memory::UsedMemoryRef]) {
         let mut committed = self
             .legacy_memory_committed_refs
             .lock()
@@ -1222,7 +1255,8 @@ impl AssistantAgent {
         }
     }
 
-    pub(crate) fn current_active_memory_trace(
+    #[doc(hidden)]
+    pub fn current_active_memory_trace(
         &self,
     ) -> Option<std::sync::Arc<active_memory::ActiveMemoryRecall>> {
         self.active_memory_trace
@@ -1231,7 +1265,8 @@ impl AssistantAgent {
             .clone()
     }
 
-    pub(crate) fn current_used_memory_refs(&self) -> Vec<active_memory::UsedMemoryRef> {
+    #[doc(hidden)]
+    pub fn current_used_memory_refs(&self) -> Vec<active_memory::UsedMemoryRef> {
         let mut refs = self
             .static_memory_refs
             .lock()
@@ -1288,7 +1323,8 @@ impl AssistantAgent {
         retrieval_planner::select_refs_for_trace_with_context(refs, context)
     }
 
-    pub(crate) fn log_memory_context_manifest(
+    #[doc(hidden)]
+    pub fn log_memory_context_manifest(
         &self,
         provider: &str,
         model: &str,
@@ -1382,7 +1418,8 @@ impl AssistantAgent {
         .log();
     }
 
-    pub(crate) fn current_retrieval_planner_trace(
+    #[doc(hidden)]
+    pub fn current_retrieval_planner_trace(
         &self,
         refs: &[active_memory::UsedMemoryRef],
     ) -> Option<retrieval_planner::RetrievalPlannerTrace> {
@@ -1398,7 +1435,8 @@ impl AssistantAgent {
         retrieval_planner::build_trace_with_context(refs, layers, context)
     }
 
-    pub(crate) fn configure_retrieval_planner_context(&self, query: &str) {
+    #[doc(hidden)]
+    pub fn configure_retrieval_planner_context(&self, query: &str) {
         let config = self
             .active_memory_state
             .current_agent_config()
@@ -1503,7 +1541,8 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner()) = refs;
     }
 
-    pub(crate) fn current_procedure_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+    #[doc(hidden)]
+    pub fn current_procedure_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
         self.procedure_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1587,7 +1626,8 @@ impl AssistantAgent {
         );
     }
 
-    async fn warm_memory_agent_config(&self) {
+    #[doc(hidden)]
+    pub async fn warm_memory_agent_config(&self) {
         let agent_id = self.agent_id.clone();
         let fingerprint = crate::blocking::run_blocking(move || {
             active_memory::agent_config_fingerprint(&agent_id)
@@ -1677,7 +1717,8 @@ impl AssistantAgent {
     /// - LLM returned "NONE" or empty string
     ///
     /// Never blocks the chat loop longer than `active_memory.timeout_ms`.
-    pub(crate) async fn refresh_active_memory_suffix(&self, user_text: &str) {
+    #[doc(hidden)]
+    pub async fn refresh_active_memory_suffix(&self, user_text: &str) {
         use std::time::Duration;
 
         let memory_runtime = crate::config::cached_config().memory.clone();
@@ -1989,7 +2030,8 @@ impl AssistantAgent {
                 let layer = match reason {
                     crate::memory::recall_planner::RecallSkipReason::Incognito
                     | crate::memory::recall_planner::RecallSkipReason::MemoryOff
-                    | crate::memory::recall_planner::RecallSkipReason::RecallOff => {
+                    | crate::memory::recall_planner::RecallSkipReason::RecallOff
+                    | crate::memory::recall_planner::RecallSkipReason::RuntimeUnavailable => {
                         retrieval_planner::disabled_layer("active_memory", reason.as_str())
                     }
                     crate::memory::recall_planner::RecallSkipReason::EmptyQuery
@@ -2404,7 +2446,8 @@ impl AssistantAgent {
     /// Refresh P5 Episode / Procedure context for the current turn. Episodes
     /// remain trace-only; high-confidence user-saved procedures may enter a
     /// bounded dynamic soft-guidance suffix.
-    pub(crate) async fn refresh_experience_memory_trace(&self, user_text: &str) {
+    #[doc(hidden)]
+    pub async fn refresh_experience_memory_trace(&self, user_text: &str) {
         const EXPERIENCE_CANDIDATE_LIMIT: usize = 4;
 
         if self.session_is_incognito() {
@@ -2613,7 +2656,8 @@ impl AssistantAgent {
     /// read-side trace only: it surfaces active neighboring claims around
     /// query-matched claims so users can see graph context in Answer Memory
     /// Chips. It does not inject graph text into the prompt.
-    pub(crate) async fn refresh_graph_memory_trace(&self, user_text: &str) {
+    #[doc(hidden)]
+    pub async fn refresh_graph_memory_trace(&self, user_text: &str) {
         if self.session_is_incognito() {
             self.set_graph_memory_refs(
                 Vec::new(),
@@ -2798,7 +2842,8 @@ impl AssistantAgent {
 
     /// Return the currently-held passive related-notes suffix (if any), for the
     /// provider layer to inject as another independent block (read bridge ③).
-    pub(crate) fn current_related_notes_suffix(&self) -> Option<std::sync::Arc<String>> {
+    #[doc(hidden)]
+    pub fn current_related_notes_suffix(&self) -> Option<std::sync::Arc<String>> {
         self.related_notes_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -2889,7 +2934,8 @@ impl AssistantAgent {
 
     /// Resolve the per-turn KB access snapshot without occupying a Tokio worker
     /// while synchronous session/registry SQLite locks are acquired.
-    async fn warm_kb_access(&self) {
+    #[doc(hidden)]
+    pub async fn warm_kb_access(&self) {
         if self
             .kb_access_cache
             .lock()
@@ -2927,7 +2973,8 @@ impl AssistantAgent {
     /// the user's message and surfaces the top note titles. Degrades silently to
     /// no-injection on: incognito, feature disabled, no accessible KB, no hits.
     /// Never injects anything the agent couldn't reach via `effective_kb_access`.
-    pub(crate) async fn refresh_related_notes_suffix(&self, user_text: &str) {
+    #[doc(hidden)]
+    pub async fn refresh_related_notes_suffix(&self, user_text: &str) {
         use std::time::Duration;
 
         // Incognito → never surface notes (close-on-exit, D10). Clear any stale
@@ -3076,7 +3123,8 @@ impl AssistantAgent {
     /// This is a deterministic classifier, not a side-query. It stays out of
     /// the static system-prompt prefix and is injected as a separate provider
     /// system block so task-kind churn does not invalidate prompt-cache hits.
-    pub(crate) fn refresh_coding_profile_suffix(&self, user_text: &str) {
+    #[doc(hidden)]
+    pub fn refresh_coding_profile_suffix(&self, user_text: &str) {
         let block = coding_profile::CodingSessionProfile::classify(user_text)
             .map(|profile| std::sync::Arc::new(profile.render_prompt_block()));
         *self
@@ -3087,7 +3135,8 @@ impl AssistantAgent {
 
     /// Return the currently-held Coding Mode profile suffix, if this turn's
     /// user message looked like a coding task.
-    pub(crate) fn current_coding_profile_suffix(&self) -> Option<std::sync::Arc<String>> {
+    #[doc(hidden)]
+    pub fn current_coding_profile_suffix(&self) -> Option<std::sync::Arc<String>> {
         self.coding_profile_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -3096,7 +3145,8 @@ impl AssistantAgent {
 
     /// Return the currently-held awareness suffix (if any), for use by
     /// provider-layer code that needs to inject it as a second system block.
-    pub(crate) fn current_awareness_suffix(&self) -> Option<std::sync::Arc<String>> {
+    #[doc(hidden)]
+    pub fn current_awareness_suffix(&self) -> Option<std::sync::Arc<String>> {
         self.awareness_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -3107,7 +3157,8 @@ impl AssistantAgent {
     /// beginning of every provider `chat_*` method before building the system
     /// prompt. Cheap when nothing changed; runs bounded LLM extraction inline
     /// when `mode == LlmDigest` and throttle allows.
-    pub(crate) async fn refresh_awareness_suffix(&self, user_text: &str) {
+    #[doc(hidden)]
+    pub async fn refresh_awareness_suffix(&self, user_text: &str) {
         if self.session_is_incognito() {
             *self
                 .awareness_suffix
@@ -3426,10 +3477,8 @@ impl AssistantAgent {
     /// Commit a model-activated Skill ceiling for subsequent API rounds.
     /// This is intentionally interior-mutable because the streaming loop owns
     /// `&self`; the operation is monotonic and never grants a tool.
-    pub(crate) fn narrow_skill_allowed_tools(
-        &self,
-        ceiling: crate::skills::SkillToolCeiling,
-    ) -> bool {
+    #[doc(hidden)]
+    pub fn narrow_skill_allowed_tools(&self, ceiling: crate::skills::SkillToolCeiling) -> bool {
         let mut tools = self
             .skill_allowed_tools
             .lock()
@@ -3596,10 +3645,8 @@ impl AssistantAgent {
     /// Main-chat agents pull the live value from `AppState`; everyone else
     /// keeps the caller-specified fallback so subagents / side_query / cron
     /// aren't silently overridden by the UI picker.
-    pub(super) async fn effective_reasoning_effort(
-        &self,
-        fallback: Option<&str>,
-    ) -> Option<String> {
+    #[doc(hidden)]
+    pub async fn effective_reasoning_effort(&self, fallback: Option<&str>) -> Option<String> {
         if self.follow_global_reasoning_effort {
             config::live_reasoning_effort(fallback).await
         } else {
@@ -3609,7 +3656,8 @@ impl AssistantAgent {
 
     /// Build a Responses/Codex `ReasoningConfig` for this round, clamping to
     /// the model's supported range. Returns `None` when effort is disabled.
-    pub(super) async fn resolve_reasoning_config(
+    #[doc(hidden)]
+    pub async fn resolve_reasoning_config(
         &self,
         model: &str,
         fallback: Option<&str>,
@@ -3788,7 +3836,8 @@ impl AssistantAgent {
 
     /// Build eager tools plus the requested deferred tools. Deferred tools go
     /// through the same final visibility and scope gates as eager tools.
-    pub(crate) fn build_tool_inventory(
+    #[doc(hidden)]
+    pub fn build_tool_inventory(
         &self,
         provider: crate::tool_defs::ToolProvider,
         requested_activations: &[String],
@@ -3925,7 +3974,8 @@ impl AssistantAgent {
             .is_some_and(|jobs| !jobs.is_empty())
     }
 
-    pub(crate) fn load_activated_tool_names(&self) -> Vec<String> {
+    #[doc(hidden)]
+    pub fn load_activated_tool_names(&self) -> Vec<String> {
         let mut names = self
             .activated_tool_names
             .lock()
@@ -3968,7 +4018,8 @@ impl AssistantAgent {
 
     /// Merge newly activated names into the session ledger. Returns true when
     /// at least one name was new. Incognito sessions intentionally skip DB.
-    pub(crate) fn record_tool_activations(&self, names: &[String]) -> bool {
+    #[doc(hidden)]
+    pub fn record_tool_activations(&self, names: &[String]) -> bool {
         if names.is_empty() {
             return false;
         }
@@ -4000,7 +4051,8 @@ impl AssistantAgent {
         true
     }
 
-    pub(crate) fn clear_tool_activations_after_summary(&self) {
+    #[doc(hidden)]
+    pub fn clear_tool_activations_after_summary(&self) {
         self.activated_tool_names
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -4190,7 +4242,8 @@ impl AssistantAgent {
     /// memory rows, profiles and Context Pack claims are all prepared on the
     /// blocking pool. The returned reference snapshot is guaranteed to match
     /// the prompt built in that same pass.
-    pub(crate) async fn prepare_full_system_prompt(&self, model: &str, provider: &str) -> String {
+    #[doc(hidden)]
+    pub async fn prepare_full_system_prompt(&self, model: &str, provider: &str) -> String {
         self.refresh_turn_prompt_cache(model, provider).await;
         let prompt = self
             .cached_turn_prompt(model, provider, |cache| (*cache.base_prompt).clone())
@@ -4283,7 +4336,8 @@ impl AssistantAgent {
     /// Snapshot trusted run-scoped framing for one provider round. Keeping it
     /// separate from `build_full_system_prompt` means cron/subagent/plan churn
     /// does not invalidate the stable product + agent prefix.
-    pub(crate) fn current_run_instruction_suffix(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub fn current_run_instruction_suffix(&self) -> Option<String> {
         let mut blocks = Vec::new();
         if let Some(context) = &self.run_context {
             if let Some(instruction) = context.instruction() {
@@ -4301,7 +4355,8 @@ impl AssistantAgent {
     /// Snapshot data associated with the current run frame. Keeping this
     /// separate is what prevents Hook/IM/Plan text from inheriting developer
     /// authority merely because a trusted scheduler or shell carried it.
-    pub(crate) fn current_run_data_suffix(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub fn current_run_data_suffix(&self) -> Option<String> {
         let mut blocks = self
             .run_context
             .as_ref()
@@ -4320,7 +4375,8 @@ impl AssistantAgent {
     /// user-authored Goal snapshot is emitted in the user-data lane. Keeping
     /// the pair frozen for the turn also makes provider retries/failover see
     /// the same initial policy revision.
-    async fn prepare_session_policy_context(&self) -> (Option<String>, Option<String>) {
+    #[doc(hidden)]
+    pub async fn prepare_session_policy_context(&self) -> (Option<String>, Option<String>) {
         let session_db = self.session_db.clone();
         let session_id = self.session_id.clone();
         let incognito = self.session_is_incognito();
@@ -4393,7 +4449,8 @@ impl AssistantAgent {
     /// accessible (incognito, none attached, IM origin not opted in) so the
     /// section is omitted entirely. Uses the same `effective_kb_access` set the
     /// note_* tools see, so it never advertises a KB the tools would deny.
-    async fn prepare_attached_knowledge_section(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub async fn prepare_attached_knowledge_section(&self) -> Option<String> {
         let access = (*self.resolve_kb_access()).clone();
         crate::blocking::run_blocking(move || {
             Self::build_attached_knowledge_section_for_access(&access)
@@ -4401,7 +4458,8 @@ impl AssistantAgent {
         .await
     }
 
-    async fn prepare_im_attachment_data(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub async fn prepare_im_attachment_data(&self) -> Option<String> {
         let session_id = self.session_id.clone()?;
         let session_db = self.session_db.clone();
         crate::blocking::run_blocking(move || {
@@ -4414,7 +4472,8 @@ impl AssistantAgent {
         .await
     }
 
-    async fn prepare_user_profile_data(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub async fn prepare_user_profile_data(&self) -> Option<String> {
         crate::blocking::run_blocking(|| {
             let config = crate::user_config::load_user_config().ok()?;
             crate::user_config::build_user_context(&config)
@@ -4426,7 +4485,8 @@ impl AssistantAgent {
     /// out of the stable system prefix because configured server names are
     /// user-owned data. Tool availability and execution authority remain
     /// governed by the live dispatch and permission layers.
-    fn current_capability_catalog_suffix(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub fn current_capability_catalog_suffix(&self) -> Option<String> {
         let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
         let mcp_scope_allows_prompt = self
@@ -4528,7 +4588,8 @@ impl AssistantAgent {
 
     /// Build a ToolExecContext with agent home directory, context window, and
     /// estimated token usage for adaptive tool output sizing.
-    pub(crate) fn tool_context_with_usage(
+    #[doc(hidden)]
+    pub fn tool_context_with_usage(
         &self,
         used_tokens: Option<u32>,
     ) -> crate::tool_defs::ToolExecContext {
@@ -4697,7 +4758,8 @@ impl AssistantAgent {
     }
 
     /// Apply the context engine's optional stable, trusted behavior contract.
-    pub(super) fn apply_engine_prompt_addition(&self, system_prompt: &mut String) {
+    #[doc(hidden)]
+    pub fn apply_engine_prompt_addition(&self, system_prompt: &mut String) {
         if let Some(addition) = self.context_engine.stable_system_prompt_addition() {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&addition);
@@ -4707,7 +4769,8 @@ impl AssistantAgent {
     /// V1 rollback-only memory selector. Selected rows retain their capability
     /// but are published through a dedicated dynamic legacy-memory data slot;
     /// they neither replace Active Memory nor rewrite the stable system prefix.
-    pub(crate) async fn select_memories_if_needed(&self, user_message: &str) {
+    #[doc(hidden)]
+    pub async fn select_memories_if_needed(&self, user_message: &str) {
         if self.session_is_incognito() {
             return;
         }
@@ -4911,151 +4974,98 @@ impl AssistantAgent {
         });
     }
 
-    pub async fn chat(
-        &self,
-        message: &str,
-        attachments: &[Attachment],
-        reasoning_effort: Option<&str>,
-        cancel: Arc<AtomicBool>,
-        on_delta: impl Fn(&str) + Send + Sync + 'static,
-    ) -> Result<(String, Option<String>)> {
-        self.chat_with_user_message_state(
-            message,
-            attachments,
-            CurrentUserMessageState::MissingFromHistory,
-            reasoning_effort,
-            cancel,
-            on_delta,
-        )
-        .await
+    /// Runtime-only provider dispatch view. The main-turn runtime owns the
+    /// concrete dispatch machine; core retains the Agent state/config type
+    /// until the remaining prompt/tool adapters are extracted.
+    #[doc(hidden)]
+    pub fn runtime_provider(&self) -> &LlmProvider {
+        &self.provider
     }
 
-    /// Dispatch using explicit provenance for whether the restored attempt
-    /// base already contains this turn's user item. Shells with their own
-    /// failover loop (notably ACP) must use this instead of guessing from text.
-    pub async fn chat_with_user_message_state(
-        &self,
-        message: &str,
-        attachments: &[Attachment],
-        current_user_message_state: CurrentUserMessageState,
-        reasoning_effort: Option<&str>,
-        cancel: Arc<AtomicBool>,
-        on_delta: impl Fn(&str) + Send + Sync + 'static,
-    ) -> Result<(String, Option<String>)> {
-        // Log agent chat dispatch
-        if let Some(logger) = crate::get_logger() {
-            let (provider_type, model_name) = match &self.provider {
-                LlmProvider::Anthropic { model, .. } => ("Anthropic", model.as_str()),
-                LlmProvider::OpenAIChat { model, .. } => ("OpenAIChat", model.as_str()),
-                LlmProvider::OpenAIResponses { model, .. } => ("OpenAIResponses", model.as_str()),
-                LlmProvider::Codex { model, .. } => ("Codex", model.as_str()),
-            };
-            let history_len = self
-                .conversation_history
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .len();
-            let message_fingerprint =
-                crate::cache_routing::audit_fingerprint("agent-chat-message", message.as_bytes());
-            logger.log(
-                "info",
-                "agent",
-                "agent::chat",
-                &format!(
-                    "Agent chat dispatching: provider={}, model={}",
-                    provider_type, model_name
-                ),
-                Some(
-                    json!({
-                        "provider_type": provider_type,
-                        "model": model_name,
-                        "reasoning_effort": reasoning_effort,
-                        "attachments": attachments.len(),
-                        "history_messages": history_len,
-                        "message_bytes": message.len(),
-                        "message_fingerprint": message_fingerprint,
-                    })
-                    .to_string(),
-                ),
-                None,
-                None,
-            );
-        }
+    #[doc(hidden)]
+    pub fn runtime_history_len(&self) -> usize {
+        self.conversation_history
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len()
+    }
 
-        match &self.provider {
-            LlmProvider::Anthropic {
-                api_key,
-                base_url,
-                model,
-            } => {
-                self.chat_anthropic(
-                    api_key,
-                    base_url,
-                    model,
-                    message,
-                    attachments,
-                    current_user_message_state,
-                    reasoning_effort,
-                    &cancel,
-                    &on_delta,
-                )
-                .await
-            }
-            LlmProvider::OpenAIChat {
-                api_key,
-                base_url,
-                model,
-            } => {
-                self.chat_openai_chat(
-                    api_key,
-                    base_url,
-                    model,
-                    message,
-                    attachments,
-                    current_user_message_state,
-                    reasoning_effort,
-                    &cancel,
-                    &on_delta,
-                )
-                .await
-            }
-            LlmProvider::OpenAIResponses {
-                api_key,
-                base_url,
-                model,
-            } => {
-                self.chat_openai_responses(
-                    api_key,
-                    base_url,
-                    model,
-                    message,
-                    attachments,
-                    current_user_message_state,
-                    reasoning_effort,
-                    &cancel,
-                    &on_delta,
-                )
-                .await
-            }
-            LlmProvider::Codex {
-                access_token,
-                account_id,
-                model,
-            } => {
-                self.chat_openai(
-                    access_token,
-                    account_id,
-                    model,
-                    message,
-                    attachments,
-                    current_user_message_state,
-                    reasoning_effort,
-                    &cancel,
-                    &on_delta,
-                )
-                .await
-            }
-        }
+    #[doc(hidden)]
+    pub fn runtime_history_snapshot(&self) -> Vec<serde_json::Value> {
+        self.conversation_history
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    #[doc(hidden)]
+    pub fn replace_runtime_history(&self, messages: Vec<serde_json::Value>) {
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = messages;
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_retrieval_query(&self) -> Option<&str> {
+        self.retrieval_query.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_user_agent(&self) -> &str {
+        &self.user_agent
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_session_db(&self) -> Option<&std::sync::Arc<crate::session::SessionDB>> {
+        self.session_db.as_ref()
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_turn_durability(
+        &self,
+    ) -> Option<&std::sync::Arc<dyn crate::turn_durability::TurnDurabilitySink>> {
+        self.turn_durability.as_ref()
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_steer_run_id(&self) -> Option<&str> {
+        self.steer_run_id.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_temperature(&self) -> Option<f64> {
+        self.temperature
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_context_resource_refs(&self) -> &[crate::prompt_context::ContextResourceRef] {
+        &self.context_resource_refs
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_thinking_style(&self) -> &ThinkingStyle {
+        &self.thinking_style
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_provider_config(&self) -> Option<&ProviderConfig> {
+        self.provider_config.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn runtime_compact_config(&self) -> &crate::context_compact::CompactConfig {
+        &self.compact_config
     }
 }
 

@@ -247,7 +247,8 @@ pub(super) fn build_tool_id_to_name_map(messages: &[Value]) -> HashMap<String, S
 
 /// Enumerate provider-level tool result units without collapsing an Anthropic
 /// user message that contains several parallel `tool_result` blocks.
-pub(crate) fn tool_result_units(msg: &Value) -> Vec<ToolResultUnit> {
+#[doc(hidden)]
+pub fn tool_result_units(msg: &Value) -> Vec<ToolResultUnit> {
     let role = message_role(msg);
     let msg_type = message_type(msg);
 
@@ -346,7 +347,8 @@ pub(super) fn get_tool_result_unit_text(msg: &Value, locator: ToolResultLocator)
 /// Replace only the textual payload of one result unit. For Anthropic content
 /// arrays this preserves non-text blocks (images/media) and replaces text blocks
 /// in place instead of collapsing the complete `tool_result.content` value.
-pub(crate) fn set_tool_result_unit_text(
+#[doc(hidden)]
+pub fn set_tool_result_unit_text(
     msg: &mut Value,
     locator: ToolResultLocator,
     new_text: &str,

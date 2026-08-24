@@ -30,9 +30,10 @@ pub enum ToolTurnProvenance {
     Unknown,
 }
 
-pub(crate) struct EffectiveArgsUpdate {
-    pub(crate) value: Value,
-    pub(crate) acknowledged: oneshot::Sender<std::result::Result<(), String>>,
+#[doc(hidden)]
+pub struct EffectiveArgsUpdate {
+    pub value: Value,
+    pub acknowledged: oneshot::Sender<std::result::Result<(), String>>,
 }
 
 /// Per-dispatch rendezvous used to stop a tool between `PreToolUse` argument
@@ -67,7 +68,8 @@ impl EffectiveArgsSink {
         }
     }
 
-    pub(crate) async fn next(&self) -> EffectiveArgsUpdate {
+    #[doc(hidden)]
+    pub async fn next(&self) -> EffectiveArgsUpdate {
         loop {
             let changed = self.changed.notified();
             if let Some(update) = self.pending.lock().await.take() {
@@ -143,7 +145,7 @@ impl std::fmt::Debug for SessionDbHandle {
 ///
 /// The tool loop runs concurrent-safe tools in parallel via `join_all`,
 /// `clone()`-ing this struct once per concurrent task (see
-/// `crates/ha-core/src/agent/providers/{anthropic,openai_chat,openai_responses,codex}.rs`,
+/// `crates/ha-agent-runtime/src/provider_adapters/` and its round driver,
 /// look for `let tool_ctx = tool_ctx.clone();`). Most fields are value types or
 /// owned `Vec`s, so the clone is independent and a tool only ever observes its
 /// own snapshot. `ContextResourceRef` deliberately carries a turn-owned ledger

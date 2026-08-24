@@ -156,7 +156,7 @@ pub fn load_session_git_diff(db: &SessionDB, session_id: &str) -> Result<Workspa
 }
 
 /// Build a text diff payload for an already-authorized workspace root.
-pub(crate) fn load_git_diff_for_root(root: &Path) -> Result<WorkspaceGitDiff> {
+pub fn load_git_diff_for_root(root: &Path) -> Result<WorkspaceGitDiff> {
     let scope_root = root
         .canonicalize()
         .map_err(|e| anyhow!("cannot resolve workspace root '{}': {}", root.display(), e))?;

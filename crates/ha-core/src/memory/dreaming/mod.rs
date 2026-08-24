@@ -24,17 +24,17 @@
 
 mod config;
 mod context_pack;
-mod cron_loop;
 pub mod eval;
 mod evidence;
-mod narrative;
+pub mod narrative;
 mod pipeline;
 mod profile;
 mod promotion;
 mod resolver;
-mod scanner;
-mod scoring;
-mod store;
+pub mod scanner;
+pub mod scoring;
+#[doc(hidden)]
+pub mod store;
 mod triggers;
 mod types;
 
@@ -43,16 +43,28 @@ pub use config::{
     ProfileSynthesisConfig, PromotionThresholds,
 };
 pub use context_pack::{
-    build_context_pack, ContextPackOptions, MemoryContextPack, SourceRef, PINNED_MIN_SALIENCE,
+    build_context_pack, register_context_pack_runtime, ContextPackOptions, ContextPackRuntime,
+    MemoryContextPack, SourceRef, PINNED_MIN_SALIENCE,
 };
-pub use cron_loop::spawn_dreaming_cron_loop;
-pub use evidence::evidence_quote;
-pub use pipeline::{last_report_snapshot, run_cycle};
-pub use profile::{run_profile_synthesis_cycle, ProfileReport};
+pub use evidence::{
+    evidence_quote, register_dreaming_evidence_runtime, DreamingEvidenceRuntime, QUOTE_MAX_CHARS,
+};
+pub use pipeline::{
+    last_report_snapshot, register_dreaming_pipeline_runtime, resolve_dreaming_chain, run_cycle,
+    DreamingPipelineFuture, DreamingPipelineRuntime,
+};
+pub use profile::{
+    register_dreaming_profile_runtime, run_profile_synthesis_cycle, DreamingProfileRuntime,
+    ProfileReport, ProfileRuntimeFuture,
+};
+pub use promotion::{
+    apply_promotions, register_dreaming_promotion_runtime, DreamingPromotionRuntime,
+};
 pub(crate) use resolver::resolver_preflight_from_claims;
 pub use resolver::{
-    resolver_preflight, run_resolver_cycle, ResolverPreflightBlockReason, ResolverPreflightReport,
-    ResolverReport,
+    register_dreaming_resolver_runtime, resolver_preflight, run_resolver_cycle,
+    AutoResolverPlanning, DreamingResolverRuntime, ResolverDecision, ResolverDecisionType,
+    ResolverPreflightBlockReason, ResolverPreflightReport, ResolverReport, ResolverRuntimeFuture,
 };
 pub use store::{
     get_run, init_store, insert_profile_snapshot_for_restore, latest_profile_body, list_decisions,
@@ -60,13 +72,15 @@ pub use store::{
     record_user_action, recover_on_startup, spawn_retention_loop,
 };
 pub use triggers::{
-    check_idle_trigger, dreaming_running, last_activity_epoch_secs, manual_run, touch_activity,
-    DreamTrigger,
+    check_idle_trigger, dreaming_running, last_activity_epoch_secs, manual_run,
+    register_dreaming_trigger_runtime, spawn_dreaming_cron_loop, touch_activity, DreamTrigger,
+    DreamingTriggerFuture, DreamingTriggerRuntime,
 };
 pub use types::{
     DreamPhase, DreamReport, DreamRunStatus, DreamingDecisionListFilter, DreamingDecisionListItem,
     DreamingDecisionListResponse, DreamingDecisionRecord, DreamingRunDetail, DreamingRunRecord,
-    EvidenceQuote, EvidenceRef, ProfileSnapshotRecord, PromotionRecord,
+    EvidenceQuote, EvidenceRef, ProfileSnapshotRecord, ProfileSnapshotSourceRecord,
+    PromotionRecord,
 };
 
 use anyhow::{Context, Result};

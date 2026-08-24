@@ -828,6 +828,27 @@ impl SessionDB {
         // later Stop observes the running stream and advances beyond this
         // immutable epoch.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let registration = Self::create_stream_run_with_tx(&tx, input, stop_admission)?;
+        tx.commit()?;
+        Ok(registration)
+    }
+
+    /// Add a stream run to an existing kernel-owned admission transaction.
+    /// The Stop proof is checked in that same transaction as the user message
+    /// and visible turn, closing the admission/Stop race across processes.
+    pub(crate) fn create_stream_run_in_transaction(
+        tx: &Transaction<'_>,
+        input: &CreateStreamRun,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+    ) -> Result<StreamRunRegistration> {
+        Self::create_stream_run_with_tx(tx, input, stop_admission)
+    }
+
+    fn create_stream_run_with_tx(
+        tx: &Transaction<'_>,
+        input: &CreateStreamRun,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+    ) -> Result<StreamRunRegistration> {
         let session = tx
             .query_row(
                 "SELECT incognito, context_revision, context_json
@@ -887,7 +908,6 @@ impl SessionDB {
                 admission.resolved_for(&input.session_id)
             };
         if incognito {
-            tx.commit()?;
             return Ok(StreamRunRegistration {
                 run_id: input.run_id.clone(),
                 context_revision,
@@ -916,7 +936,6 @@ impl SessionDB {
                 now,
             ],
         )?;
-        tx.commit()?;
         Ok(StreamRunRegistration {
             run_id: input.run_id.clone(),
             context_revision,
@@ -1895,7 +1914,8 @@ impl SessionDB {
     /// filesystem cleanup. It also intentionally has no session foreign key:
     /// session-directory removal is best-effort, so the ledger must survive a
     /// failed delete and retry the exact owner-scoped basename later.
-    pub(crate) fn register_typed_resource_snapshots(
+    #[doc(hidden)]
+    pub fn register_typed_resource_snapshots(
         &self,
         run_id: &str,
         session_id: &str,
@@ -1961,7 +1981,8 @@ impl SessionDB {
     /// registered set to still belong to a live run/session and every row to
     /// remain active. A delete+drain that wins before `BEGIN IMMEDIATE` thus
     /// makes a late publisher fail before invoking `publish`.
-    pub(crate) fn publish_registered_typed_resource_snapshots<T>(
+    #[doc(hidden)]
+    pub fn publish_registered_typed_resource_snapshots<T>(
         &self,
         run_id: &str,
         session_id: &str,

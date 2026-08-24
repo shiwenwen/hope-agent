@@ -536,7 +536,7 @@ fn spawn_stream_pipeline_inner(
 /// every clone of its sender (held inside `event_sink`) has been
 /// released, so awaiting while we still hold one would deadlock the
 /// caller indefinitely. The engine path released its own clone when
-/// `run_chat_engine` returned; releasing ours here unblocks the await.
+/// the shared turn runtime returned; releasing ours here unblocks the await.
 pub(crate) async fn await_stream_pipeline(pipeline: StreamPipeline) -> PipelineOutcome {
     let StreamPipeline {
         event_sink,

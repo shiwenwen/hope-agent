@@ -358,7 +358,7 @@ pub enum MemoryScope {
 ```
 
 - **召回 / Core 优先级**：动态候选排序与 Core 共享预算都按 `Project（最高）→ Agent → Global（最低，shared=true 时）`；默认不把 SQLite 项目记忆批量静态注入。
-- **自动提取作用域**（[`memory_extract.rs`](../../../crates/ha-core/src/memory_extract.rs)）：项目事实在项目会话写 `Project`；非项目会话提取出的 project-like 内容进入 `pending_memory_candidates`，不得回退成 Agent scope。用户显式保存仍受 live scope / session policy 裁决。
+- **自动提取作用域**（[`ha-memory/src/extract.rs`](../../../crates/ha-memory/src/extract.rs)）：项目事实在项目会话写 `Project`；非项目会话提取出的 project-like 内容进入 `pending_memory_candidates`，不得回退成 Agent scope。用户显式保存仍受 kernel 的 live scope / session policy 裁决。
 - **概览记忆口径**：项目列表不查记忆库；`build_project_overview` 单次读取自动记忆主题数与当前项目有效结构化记忆数（过期 / 待审核 / 已归档 / 已替代不计入）。
 
 ### Project Core Memory 的渐进式披露

@@ -1,6 +1,6 @@
 # Workflow：Mode、Tool、Run 与 Execution Mode
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23
 
 ## 1. 核心思想
 
@@ -66,19 +66,25 @@ flowchart TD
 
 ## 3. 分层与模块
 
-Workflow 逻辑全部落在 `ha-core`（零 Tauri 依赖），Tauri 与 HTTP 只做薄适配，两者能力面严格对齐。
+Workflow 被拆成「kernel 契约/台账」与「feature 执行机」：`ha-core` 保留 wire 类型、状态转换、`SessionDB` 类型化 ledger、事件/权限/Stop/Eval 契约和 runtime ports；`ha-workflow` 拥有 Script Gate preview、QuickJS/Host API/步骤与恢复机器、typed-result 处理和模型工具 handler。两者都零 Tauri 依赖，Tauri 与 HTTP 只做薄适配且能力面严格对齐。
 
 ```mermaid
 flowchart TB
-    subgraph kernel["ha-core（核心业务）"]
+    subgraph kernel["ha-core（kernel contract / ledger）"]
         direction TB
         TYPES["workflow/types.rs<br/>类型 · 状态枚举"]
         DB["workflow/db.rs<br/>建表 · CRUD · 状态转换 · replay 决策"]
-        PREVIEW["workflow/preview.rs<br/>Script Gate + permission preview"]
-        RUNTIME["workflow/runtime.rs<br/>QuickJS · Host API · replay · budget · 恢复"]
-        TOOL["tools/workflow_tool.rs<br/>模型可调的 workflow 工具"]
+        PORTS["workflow/{preview,runtime}.rs<br/>preview / machine / typed-result ports"]
+        DEFS["tool_defs/names.rs + tools/definitions/special_tools.rs<br/>工具纯契约"]
         WT["worktree.rs<br/>Managed Worktree"]
         SLASH["slash_commands/handlers/workflow.rs<br/>/workflow · /mode"]
+    end
+
+    subgraph feature["ha-workflow（feature execution machine）"]
+        PREVIEW["preview.rs<br/>Script Gate + permission preview"]
+        RUNTIME["runtime_machine.rs<br/>QuickJS · Host API · replay · budget · 恢复"]
+        TYPED["typed_result.rs<br/>结果 schema / validation"]
+        TOOL["tools/workflow.rs<br/>模型可调的 workflow handler"]
     end
 
     subgraph base["ha-base（基础设施）"]
@@ -95,6 +101,10 @@ flowchart TB
 
     WMODE --> TOOL
     EMODE --> RUNTIME
+    PREVIEW --> PORTS
+    RUNTIME --> PORTS
+    TYPED --> PORTS
+    TOOL --> DEFS
     TOOL --> PREVIEW
     PREVIEW --> DB
     RUNTIME --> DB
@@ -110,11 +120,13 @@ flowchart TB
 | --- | --- | --- |
 | 核心类型 | `crates/ha-core/src/workflow/types.rs` | `WorkflowRun` / `WorkflowOp` / `WorkflowEvent` / 状态枚举 / snapshot 结构。 |
 | 持久化 | `crates/ha-core/src/workflow/db.rs` | run/op/event/control/attempt/template 建表、CRUD、状态转换、replay 决策。 |
-| 预检 | `crates/ha-core/src/workflow/preview.rs` | Script Gate + permission preview + create/run 可行性判定。 |
-| runtime | `crates/ha-core/src/workflow/runtime.rs` | QuickJS runtime、Host API、durable replay、budget、repair guard、恢复 runner。 |
+| 预检契约 | `crates/ha-core/src/workflow/preview.rs` | Preview 类型、默认 fail-closed 行为与 feature runtime port。 |
+| runtime 契约 | `crates/ha-core/src/workflow/runtime.rs` | Machine/typed-result ports、Stop/权限/台账桥；不含 QuickJS 依赖。 |
+| Feature 预检 | `crates/ha-workflow/src/preview.rs` | Script Gate + permission preview + create/run 可行性判定。 |
+| Feature runtime | `crates/ha-workflow/src/runtime_machine.rs`、`typed_result.rs` | QuickJS、Host API、durable replay、budget、repair/recovery 与 typed result。 |
 | Workflow Mode | `crates/ha-base/src/workflow_mode.rs` | `off` / `on` / `ultracode` 解析、固定 Run Instruction 合同与 session 开关语义。 |
 | Execution Mode | `crates/ha-base/src/execution_mode.rs` | `off` / `guarded` / `deep` / `autonomous` 解析与固定 Run Instruction 合同。 |
-| 模型工具面 | `crates/ha-core/src/tools/workflow_tool.rs` | `workflow` 控制工具，仅 Workflow Mode 开启时对模型可见。 |
+| 模型工具面 | `crates/ha-workflow/src/tools/workflow.rs`、core `tool_defs/names.rs` + `tools/definitions/special_tools.rs` | feature 拥有 handler；core 保留 schema/名字/参数纯契约，仅 Workflow Mode 开启时可见。 |
 | Managed Worktree | `crates/ha-core/src/worktree.rs` | 可选隔离执行目录，run 绑定 `worktree_id` 后 runtime 自动 restore 并切换 cwd。 |
 | Tauri owner API | `src-tauri/src/commands/workflow.rs`、`execution_mode.rs` | 桌面控制面命令，含 run 管理和 saved template 管理。 |
 | HTTP owner API | `crates/ha-server/src/routes/workflow.rs`、`execution_mode.rs` | Server/Web 控制面端点，与 Tauri 同一能力面。 |
@@ -123,7 +135,8 @@ flowchart TB
 
 红线：
 
-- Workflow 逻辑必须在 `ha-core`；Tauri 和 HTTP 只做薄适配。
+- Workflow 状态、权限与台账裁决必须在 `ha-core`；QuickJS/preview/typed-result/handler 执行机必须在 `ha-workflow`，Tauri 和 HTTP 只做薄适配。
+- `ha-workflow` 只走 kernel 类型化 DB 方法和 runtime ports，禁止裸 `sessions.db` 连接或直接 SQL。
 - 控制面 API 负责管理 run；模型没有绕过 Gate 的内部入口。
 - 模型只能在非 incognito 且 `sessions.workflow_mode != off` 时看到并调用 `workflow`。
 - runtime 只暴露受控 Host API；脚本没有 raw fs/network/process/env 能力。

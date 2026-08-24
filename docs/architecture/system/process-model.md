@@ -193,7 +193,7 @@ stateDiagram-v2
 | Channel 自动启动已启用账户 + start watchdog | 启动一次 + 失败后台重试 | [`app_init.rs`](../../../crates/ha-core/src/app_init.rs) → [`channel/start_watchdog.rs`](../../../crates/ha-channel/src/channel/start_watchdog.rs) |
 | Async Jobs 残留回放 | 启动一次 | `async_jobs::JobManager::replay_pending` |
 | Async Jobs retention 轮询 | 启动一次 + 每日 | [`async_jobs/retention.rs`](../../../crates/ha-core/src/async_jobs/retention.rs) |
-| Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../../crates/ha-core/src/app_init.rs) → [`memory::dreaming`](../../../crates/ha-core/src/memory/dreaming/) |
+| Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../../crates/ha-core/src/app_init.rs) 调 kernel trigger port → [`ha-memory::dreaming_triggers`](../../../crates/ha-memory/src/dreaming_triggers.rs) |
 | **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../../crates/ha-channel/src/channel/worker/) |
 | Weather 后台刷新（登记为 EveryProcess，内部 desktop-gated） | 启动一次 + 周期 | [`ha_weather::start_background_refresh`](../../../crates/ha-weather/src/lib.rs) |
 | **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../../crates/ha-acp/src/acp_control/health.rs) |

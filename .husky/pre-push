@@ -42,8 +42,8 @@ if [ "$HA_RUN_RUST_CI" = "true" ]; then
   echo "[pre-push] cargo fmt --all --check"
   cargo fmt --all --check
 
-  echo "[pre-push] cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings"
-  cargo clippy -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
+  echo "[pre-push] cargo clippy -p ha-base -p ha-agent-loop -p ha-agent-runtime -p ha-memory -p ha-goal -p ha-workflow -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings"
+  cargo clippy -p ha-base -p ha-agent-loop -p ha-agent-runtime -p ha-memory -p ha-goal -p ha-workflow -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --all-targets --locked -- -D warnings
   # eval-internal-tests 是 opt-in feature，横跨 ha-core / ha-eval-runtime /
   # ha-improve 三个 crate（后两者转发 kernel 同名开关）。默认 --all-targets
   # 不开这个 feature，改这三个 crate 的 gated tests 后编译错误会静默 ship
@@ -73,6 +73,9 @@ echo "[pre-push] crate layering red line (test edges)"
   # test graph. Default mode above skips cfg(test) so this is the only guard.
   node scripts/analyze-crate-deps.mjs --tests > /dev/null
 
+echo "[pre-push] agent-kernel migration boundaries"
+node scripts/check-agent-kernel-boundaries.mjs
+
   echo "[pre-push] verify-updater-endpoints (tauri.conf.json ↔ ha-updater ↔ mirror PUBLIC_BASE)"
   node scripts/verify-updater-endpoints.mjs
 
@@ -87,8 +90,8 @@ if [ "$HA_RUN_RUST_CI" != "true" ]; then
 elif [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"
 else
-  echo "[pre-push] cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked"
-  cargo test -p ha-base -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
+  echo "[pre-push] cargo test -p ha-base -p ha-agent-loop -p ha-agent-runtime -p ha-memory -p ha-goal -p ha-workflow -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked"
+  cargo test -p ha-base -p ha-agent-loop -p ha-agent-runtime -p ha-memory -p ha-goal -p ha-workflow -p ha-config-schema -p ha-core -p ha-acp -p ha-browser -p ha-channel -p ha-cron -p ha-dash -p ha-design -p ha-eval-runtime -p ha-improve -p ha-knowledge -p ha-mac -p ha-mcp -p ha-local-llm -p ha-media -p ha-pet -p ha-skills -p ha-updater -p ha-vcs -p ha-weather -p ha-server --locked
 fi
 
 echo "[pre-push] all checks passed"

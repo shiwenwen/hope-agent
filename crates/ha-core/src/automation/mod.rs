@@ -205,7 +205,7 @@ async fn build_candidate_agent(
 /// `session_id`, which the borrowed-agent path never set, so even
 /// profile-level retry never fired. A transient error, or the primary model
 /// being flat-out misconfigured, failed the whole call. `run` mirrors
-/// `chat_engine::engine::run_chat_engine`'s
+/// the admitted main-turn runtime's
 /// `for model_ref in model_chain { ... continue on failure ... }` loop
 /// instead, so a bad/unavailable primary genuinely falls through to the next
 /// model in the chain.

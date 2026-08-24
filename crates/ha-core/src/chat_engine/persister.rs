@@ -143,7 +143,7 @@ impl StreamPersister {
         lock_or_poisoned(&self.owned_partial_message_ids).push(id);
     }
 
-    /// `Fn + Send + 'static` callback for `AssistantAgent::chat`. Does not
+    /// `Fn + Send + 'static` callback for the legacy streaming adapter. Does not
     /// forward events to any external sink — the caller composes it with
     /// their own sink-forwarding wrapper.
     pub(crate) fn build_callback(self: &Arc<Self>) -> impl Fn(&str) + Send + 'static {
@@ -499,7 +499,7 @@ impl StreamPersister {
     }
 
     /// Flush any remaining thinking buffer at turn end. Run AFTER the
-    /// agent.chat() future resolves and BEFORE writing the final assistant
+    /// Provider/round future resolves and BEFORE writing the final assistant
     /// row, so `had_thinking_blocks()` is accurate when the caller decides
     /// whether to duplicate thinking into the assistant row's `thinking`
     /// column.
@@ -743,7 +743,7 @@ impl StreamPersister {
 
 /// Last-resort cleanup for paths that didn't take the success route
 /// (`take_trailing_text` / `flush_remaining_thinking`) or the explicit
-/// crash route (`crash_flush`). Examples: `agent.chat()` returning `Err`,
+/// crash route (`crash_flush`). Examples: the Provider/round driver returning `Err`,
 /// failover swallowing the chat result, `abort_on_cancel` short-circuit.
 /// If a streaming placeholder is still alive when the last `Arc` goes
 /// away, mark it `orphaned` so it's eligible for the resume-turn summary

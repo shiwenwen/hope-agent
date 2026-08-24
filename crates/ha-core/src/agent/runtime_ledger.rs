@@ -70,7 +70,8 @@ pub(crate) fn build_runtime_ledger_snapshot(session_id: &str) -> RuntimeLedgerSn
 /// It contains only control-plane identities and statuses; provider error text
 /// stays out of the system channel and can be inspected through the subagent
 /// status tool if needed.
-pub(crate) fn subagent_recovery_reminder(session_id: &str) -> Option<String> {
+#[doc(hidden)]
+pub fn subagent_recovery_reminder(session_id: &str) -> Option<String> {
     let db = crate::globals::get_session_db()?;
     let runs = db
         .list_current_recoverable_subagent_runs(session_id, 8)
@@ -128,7 +129,8 @@ pub(crate) fn subagent_recovery_reminder(session_id: &str) -> Option<String> {
 /// Stop receipt is still active. Natural-language intent stays with the model:
 /// explicit resume requests call `session_continue`; status/replanning turns do
 /// not silently clear the user's Stop.
-pub(crate) async fn session_pause_reminder(session_id: &str) -> Option<String> {
+#[doc(hidden)]
+pub async fn session_pause_reminder(session_id: &str) -> Option<String> {
     let db = crate::globals::get_session_db()?.clone();
     let lookup_session_id = session_id.to_string();
     let pause = db
@@ -168,7 +170,8 @@ fn render_session_pause_reminder(pause: &crate::session::SessionAutonomyPause) -
 /// `agent/context.rs`. Callers resolve `is_incognito` via
 /// `crate::session::is_session_incognito` (fail-closed) and pass it in, keeping
 /// the gate unit-testable without the process-global session DB.
-pub(crate) fn emergency_runtime_ledger(
+#[doc(hidden)]
+pub fn emergency_runtime_ledger(
     session_id: &str,
     is_incognito: bool,
 ) -> Option<RuntimeLedgerSnapshot> {

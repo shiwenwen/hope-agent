@@ -1,15 +1,28 @@
 use anyhow::Result;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
-use super::api_provider::ApiEmbeddingProvider;
 use super::config::EmbeddingConfig;
 use crate::memory::traits::EmbeddingProvider;
 
-// ── Create provider from config ─────────────────────────────────
+pub type EmbeddingFactory = fn(&EmbeddingConfig) -> Result<Arc<dyn EmbeddingProvider>>;
+
+static FACTORY: OnceLock<EmbeddingFactory> = OnceLock::new();
+
+pub fn register_embedding_factory(
+    factory: EmbeddingFactory,
+) -> std::result::Result<(), crate::AlreadyRegistered> {
+    FACTORY
+        .set(factory)
+        .map_err(|_| crate::AlreadyRegistered("memory embedding factory"))
+}
 
 /// Create an EmbeddingProvider from EmbeddingConfig.
-/// Safe to call from any thread; tokio-context panic regression is guarded
-/// inside [`ApiEmbeddingProvider::new`].
+/// The HTTP implementation lives in `ha-memory`; missing feature wiring fails
+/// explicitly because returning an empty embedder would corrupt retrieval.
 pub fn create_embedding_provider(config: &EmbeddingConfig) -> Result<Arc<dyn EmbeddingProvider>> {
-    Ok(Arc::new(ApiEmbeddingProvider::new(config)?))
+    let factory = FACTORY
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("memory embedding runtime is not wired"))?;
+    factory(config)
 }

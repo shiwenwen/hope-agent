@@ -85,11 +85,11 @@ graph TD
 
 ```mermaid
 flowchart TD
-    A["用户输入"] --> B["ChatEngine.run_chat_engine()"]
-    B --> C["1. 构建 Agent<br/>解析 Provider + 模型链"]
-    C --> D["2. 从 SessionDB<br/>恢复 conversation_history"]
-    D --> E["3. 拼装 System Prompt<br/>(13 段组装)"]
-    E --> F["4. Agent.chat()<br/>流式调用 LLM API"]
+    A["用户输入"] --> B["TurnSubmission<br/>来源封印 + typed intent"]
+    B --> C["TurnKernel<br/>准入 · Stop fence · 模型路由"]
+    C --> D["从 SessionDB<br/>恢复 conversation_history"]
+    D --> E["拼装 System Prompt<br/>(13 段组装)"]
+    E --> F["ha-agent-runtime<br/>Provider 流式调用 + tool loop"]
 
     F --> G["解析 tool_calls"]
     G --> H{"有 tool_calls?"}
@@ -102,7 +102,7 @@ flowchart TD
     M --> G
 
     H -- No --> N["流式事件 → EventSink<br/>→ 前端渲染"]
-    N --> O["5. 持久化<br/>assistant 消息 + tool 调用<br/>写入 SessionDB"]
+    N --> O["kernel 持久化<br/>assistant 消息 + tool 调用<br/>写入 SessionDB"]
     O --> P["6. 保存 context_json<br/>到 SessionDB (会话恢复)"]
     P --> Q["7. 自动记忆提取<br/>(inline, 复用 prompt cache)"]
 

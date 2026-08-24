@@ -7,12 +7,13 @@ pub mod dreaming;
 pub mod embedding;
 pub mod episodes;
 pub mod external_provider;
+pub mod extract_runtime;
 pub mod helpers;
 pub mod import;
 pub mod import_prompt;
 pub mod mmr;
 pub mod pending;
-pub(crate) mod recall_planner;
+pub mod recall_planner;
 pub mod recall_summary;
 pub mod reembed_job;
 #[cfg(feature = "eval-runner")]
@@ -71,7 +72,10 @@ pub use helpers::{
 };
 pub use import::*;
 pub use recall_summary::{maybe_summarize_recall, RecallSummaryConfig};
-pub use reembed_job::{cancel_active_memory_reembed_jobs, start_memory_reembed_job, ReembedMode};
+pub use reembed_job::{
+    cancel_active_memory_reembed_jobs, start_memory_reembed_job, ReembedMode, PHASE_REEMBED_FRESH,
+    PHASE_REEMBED_KEEP,
+};
 pub use runtime_config::*;
 pub use sqlite::SqliteMemoryBackend;
 pub use traits::*;

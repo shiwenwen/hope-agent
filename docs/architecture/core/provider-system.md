@@ -1,6 +1,6 @@
 # 对话与模型服务架构
 
-> 返回 [文档索引](../../README.md)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23
 
 本文讲清 Hope Agent 如何"接上任意一家大模型、把对话跑起来、并在出问题时优雅降级"。覆盖 Provider 配置系统、四种 API 协议的适配、Thinking/Reasoning 回传、Failover 模型链、以及对话数据的双轨落盘。
 
@@ -22,7 +22,7 @@ Hope Agent 要面对一个碎片化的现实：市面上有几十家大模型服
 
 理解了这四点，后面的所有细节都只是它们的展开。
 
-**关联源码**：`crates/ha-core/src/provider/`（Provider 配置与写入契约）、`crates/ha-core/src/agent/`（Agent 与四套适配器）、`crates/ha-core/src/failover/`（错误分类与执行器）、`crates/ha-core/src/chat_engine/`（对话主循环）、`crates/ha-core/src/session/`（持久化）、`crates/ha-config-schema/src/provider.rs`（配置 wire 类型）。
+**关联源码**：`crates/ha-core/src/provider/`（Provider 配置与写入契约）、`crates/ha-core/src/agent/`（Agent 状态与 runtime contract）、`crates/ha-agent-runtime/src/provider_adapters/`（四套协议实现）、`crates/ha-agent-runtime/src/{engine,streaming_loop}.rs`（主执行机）、`crates/ha-core/src/failover/`（错误分类与策略）、`crates/ha-core/src/chat_engine/`（TurnKernel、durability/finalize）、`crates/ha-core/src/session/`（持久化）、`crates/ha-config-schema/src/provider.rs`（配置 wire 类型）。
 
 ---
 
@@ -198,15 +198,16 @@ Codex 变体特殊：它不带 `api_key`，而是 `access_token` + `account_id`�
 
 ### 2.3 Chat 分发
 
-`agent.chat()`（`crates/ha-core/src/agent/mod.rs`）按 `provider` 变体分发到四套适配入口：
+正式回合经 `TurnKernel` 准入后，由 `ha-agent-runtime` 的 `chat_dispatch::run_agent_chat()` 按 `provider` 变体分发到四套 feature-owned 适配入口。`AssistantAgent` 仍是 core-owned 状态容器和能力端口集合，但不再向 shell 暴露第二套 `chat()` 执行入口：
 
 ```mermaid
 flowchart LR
-  chat["agent.chat()"] --> M{"match provider"}
-  M -->|Anthropic| A["chat_anthropic()"]
-  M -->|OpenAIChat| B["chat_openai_chat()"]
-  M -->|OpenAIResponses| C["chat_openai_responses()"]
-  M -->|Codex| D["chat_openai()<br/>Responses 变体 + OAuth + 重试"]
+  kernel["TurnKernel → AgentTurnExecutor"] --> chat["ha-agent-runtime<br/>run_agent_chat()"]
+  chat --> M{"match provider"}
+  M -->|Anthropic| A["Anthropic adapter"]
+  M -->|OpenAIChat| B["OpenAI Chat adapter"]
+  M -->|OpenAIResponses| C["Responses adapter"]
+  M -->|Codex| D["Codex adapter<br/>Responses 变体 + OAuth + 重试"]
 ```
 
 ---
@@ -215,17 +216,17 @@ flowchart LR
 
 ### 3.1 主流程
 
-对话的编排入口是 `chat_engine::run_chat_engine`（`crates/ha-core/src/chat_engine/engine.rs`）。桌面 `src-tauri/src/commands/chat.rs` 与 HTTP `crates/ha-server/src/routes/chat.rs` 都是薄壳，把请求转进同一个引擎，业务逻辑全在 `ha-core`。
+对话的唯一准入入口是 `TurnKernel::submit`（`crates/ha-core/src/chat_engine/turn_kernel.rs`）。桌面、HTTP、ACP、Channel、Cron、subagent、注入、Session Tool 和 Eval 都只构造 `TurnRequest` 与来源专用 `TurnSubmission`；kernel 解析模型链并冻结 Provider/config lease，再经必需的 `AgentTurnExecutor` 端口交给 `ha-agent-runtime`。Provider 网络协议、failover 和 Hope round/tool loop 位于 feature crate，权限、台账、durability、Stop/finalize 仍由 `ha-core` 裁决。
 
 ```mermaid
 flowchart TD
-  FE["前端 invoke('chat')"] --> INIT["1. Session 初始化<br/>新建/恢复 session + 处理附件"]
-  INIT --> CHAIN["2. 模型链解析<br/>见 §7.2 优先级"]
-  CHAIN --> LOOP["3. 遍历模型链"]
+  FE["前端 invoke('chat')"] --> INIT["1. TurnRequest + InteractiveAdmission"]
+  INIT --> KERNEL["2. TurnKernel 原子准入<br/>模型链/Provider lease/Stop epoch"]
+  KERNEL --> LOOP["3. ha-agent-runtime 遍历模型链"]
 
   LOOP --> BUILD["build_agent_from_snapshot()"]
   BUILD --> RESTORE["restore_agent_context()<br/>从 DB 恢复 history"]
-  RESTORE --> CHAT["agent.chat()"]
+  RESTORE --> CHAT["run_agent_chat()<br/>feature-owned round/tool driver"]
 
   CHAT --> NORM["normalize_history_*<br/>跨 Provider 格式转换"]
   NORM --> COMPACT["run_compaction<br/>上下文压缩 Tier 0-4"]
@@ -277,11 +278,11 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件（`crates/ha-core/src/
 
 ## 4. 四种协议的适配实现
 
-每种 `ApiType` 都是「薄壳公开入口 + `*_adapter.rs` 实现」的两层结构：薄壳只暴露 `chat_*` 方法，adapter 负责请求体构建、SSE 解析和历史持久化。
+每种 `ApiType` 对应 `ha-agent-runtime/src/provider_adapters/` 下一个 adapter；`chat_dispatch` 是唯一分发点，adapter 负责请求体构建、SSE 解析和 Provider-native history。core 只提供 `StreamingChatAdapter` 契约与 history/context 能力，不保留第二份协议薄壳。
 
 ### 4.1 Anthropic Messages API
 
-`agent/providers/anthropic.rs`（薄壳）+ `anthropic_adapter.rs`（实现）。
+`crates/ha-agent-runtime/src/provider_adapters/anthropic_adapter.rs`。
 
 请求体：
 
@@ -316,7 +317,7 @@ assistant 历史里 thinking 块与 text、tool_use 并列存进 `content` 数�
 
 ### 4.2 OpenAI Chat Completions API
 
-`agent/providers/openai_chat.rs`（薄壳）+ `openai_chat_adapter.rs`（实现）。这是覆盖面最广的一套——绝大多数 OpenAI 兼容服务商都走它。
+`crates/ha-agent-runtime/src/provider_adapters/openai_chat_adapter.rs`。这是覆盖面最广的一套——绝大多数 OpenAI 兼容服务商都走它。
 
 推理参数按 `ThinkingStyle` 分发（`apply_thinking_to_chat_body`，定义在 `agent/config.rs`）：
 
@@ -346,7 +347,7 @@ assistant 历史格式：
 
 ### 4.3 OpenAI Responses API
 
-`agent/providers/openai_responses.rs`（薄壳）+ `openai_responses_adapter.rs`（实现，SSE 解析入口 `parse_openai_sse`）。
+`crates/ha-agent-runtime/src/provider_adapters/openai_responses_adapter.rs`（SSE 解析入口 `parse_openai_sse`）。
 
 请求体：
 
@@ -400,7 +401,7 @@ SSE 事件处理：
 
 ### 4.4 Codex OAuth API
 
-`agent/providers/codex.rs`（薄壳）+ `codex_adapter.rs`（实现，SSE 解析复用 Responses 的 `parse_openai_sse`）。请求/响应格式与 Responses API 相同，额外特性集中在**认证、模型目录与失败策略**：
+`crates/ha-agent-runtime/src/provider_adapters/codex_adapter.rs`（SSE 解析复用 Responses 的 `parse_openai_sse`）。请求/响应格式与 Responses API 相同，额外特性集中在**认证、模型目录与失败策略**：
 
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` 头
 - **终端登录**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，成功后写 `~/.hope-agent/credentials/auth.json` 并调 `ensure_codex_provider_persisted(...)`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>`
@@ -590,7 +591,7 @@ flowchart TD
 flowchart TD
   START["开始模型链迭代"] --> MODEL["取下一个模型"]
   MODEL --> BUILD["build_agent_from_snapshot()"]
-  BUILD --> CHAT["agent.chat()"]
+  BUILD --> CHAT["ha-agent-runtime round/tool driver"]
 
   CHAT -->|成功| SAVE["commit_assistant_turn<br/>canonical context + run/plan 终态 → return Ok"]
   CHAT -->|失败| CLASSIFY["classify_error_with_evidence()"]
@@ -724,7 +725,7 @@ sequenceDiagram
   U->>FE: 发送消息
   FE->>CMD: invoke("chat")
   CMD->>DB: 1. INSERT user 消息
-  CMD->>Agent: agent.chat()
+  CMD->>Agent: TurnKernel → AgentTurnExecutor
   activate Agent
   loop Tool Loop
     Agent-->>FE: thinking_delta × N（内存累积）
@@ -802,14 +803,17 @@ flowchart TD
     RENDER["MessageBubble / ThinkingBlock / ToolCallBlock"]
   end
 
-  subgraph Backend["后端 (ha-core)"]
-    INVOKE["薄壳 commands/routes"] --> ENGINE["run_chat_engine()"]
-    ENGINE --> RESOLVE["模型链解析（§7.2）"]
-    RESOLVE --> LOOP["for model in chain"]
+  subgraph Kernel["内核 (ha-core)"]
+    INVOKE["薄壳 commands/routes/features"] --> ENGINE["TurnKernel::submit()"]
+    ENGINE --> RESOLVE["模型链解析 + Provider/config lease（§7.2）"]
+  end
+
+  subgraph Runtime["执行特征 (ha-agent-runtime)"]
+    RESOLVE --> LOOP["for model in admitted chain"]
 
     LOOP --> BUILD["build_agent_from_snapshot()"]
     BUILD --> RESTORE["restore_agent_context() ◄── SessionDB"]
-    RESTORE --> AGENT["agent.chat()"]
+    RESTORE --> AGENT["run_agent_chat()<br/>Hope round/tool driver"]
 
     AGENT --> NORMALIZE["normalize_history_*()"]
     NORMALIZE --> COMPACTION["run_compaction() Tier 0-4"]
@@ -840,7 +844,7 @@ flowchart TD
 
 ## 11. 视觉桥（Vision Bridge）
 
-主模型不支持视觉（静态 `input_types` 显式不含 `image`，或 OpenAI 兼容端点运行时拒绝 `image_url`）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型；桥关闭时这张图只能被丢弃、留一个 `[image omitted]` 占位符。核心实现 `agent/vision_bridge.rs`。
+主模型不支持视觉（静态 `input_types` 显式不含 `image`，或 OpenAI 兼容端点运行时拒绝 `image_url`）却收到图片时，视觉桥用一个**单独配置**的视觉模型把图片转成文字描述注入主模型；桥关闭时这张图只能被丢弃、留一个 `[image omitted]` 占位符。执行实现位于 `crates/ha-agent-runtime/src/vision_bridge.rs`，配置、用量、会话与安全裁决仍由 core 能力端口提供。
 
 > `function_models.vision`（视觉桥）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者见 [模型 vs Agent 统一配置](automation-model.md)。
 
@@ -884,21 +888,24 @@ OpenAI Chat 兼容端点还有一条运行时恢复路径：静态 catalog 乐�
 |------|------|------|
 | Provider wire 类型 | `crates/ha-config-schema/src/provider.rs` | ApiType / ThinkingStyle / ProviderConfig / ModelConfig / AuthProfile / ModelChain / ProxyConfig |
 | Provider 写入 & 目录 | `crates/ha-core/src/provider/{crud,local,helpers}.rs` | 写入契约 helper、本地后端目录、模型链解析、脱敏 |
-| Agent 核心 | `crates/ha-core/src/agent/mod.rs` | 构造器、chat 分发、系统提示词组装 |
+| Agent 状态与能力端口 | `crates/ha-core/src/agent/mod.rs` · `agent/llm_adapter.rs` | AssistantAgent 状态、上下文/权限能力与稳定 Provider runtime contract；不拥有 shell 可调用的 chat 入口 |
 | Agent 类型 | `crates/ha-core/src/agent/types.rs` | LlmProvider、AssistantAgent、ThinkTagFilter |
-| Anthropic | `agent/providers/anthropic.rs` + `anthropic_adapter.rs` | Messages API + thinking 块回传 |
-| Chat Completions | `agent/providers/openai_chat.rs` + `openai_chat_adapter.rs` | ThinkingStyle 分发 + reasoning_content / `<think>` 回传 |
-| Responses API | `agent/providers/openai_responses.rs` + `openai_responses_adapter.rs` | Responses 请求 + `parse_openai_sse`；`store:false` 下 reasoning item 就地丢弃 |
-| Codex OAuth | `agent/providers/codex.rs` + `codex_adapter.rs` | Responses 变体 + OAuth + exact prepare/单次 dispatch；retry 只在外层以新 plan/claim 发生 |
+| Anthropic | `crates/ha-agent-runtime/src/provider_adapters/anthropic_adapter.rs` | Messages API + thinking 块回传 |
+| Chat Completions | `crates/ha-agent-runtime/src/provider_adapters/openai_chat_adapter.rs` | ThinkingStyle 分发 + reasoning_content / `<think>` 回传 |
+| Responses API | `crates/ha-agent-runtime/src/provider_adapters/openai_responses_adapter.rs` | Responses 请求 + SSE 解析；`store:false` 下 reasoning item 就地丢弃 |
+| Codex OAuth | `crates/ha-agent-runtime/src/provider_adapters/codex_adapter.rs` | Responses 变体 + OAuth + exact prepare/单次 dispatch；retry 只在外层以新 plan/claim 发生 |
 | 推理参数 | `crates/ha-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制、Codex 模型目录 |
 | 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
 | 事件发射 | `crates/ha-core/src/agent/events.rs` | text_delta / thinking_delta / tool_call 等 |
 | 历史标准化 | `crates/ha-core/src/agent/context.rs` | 三个 normalize 函数、push_user_message、run_compaction |
-| 视觉桥 | `crates/ha-core/src/agent/vision_bridge.rs` | 图片转述注入、memo cache、超时/取消兜底 |
+| Hope round/tool driver | `crates/ha-agent-runtime/src/streaming_loop.rs` | API round、tool batch、steer、动态 prompt 后缀 |
+| 视觉桥 | `crates/ha-agent-runtime/src/vision_bridge.rs` | 图片转述注入、memo cache、超时/取消兜底 |
 | 上下文压缩 | `crates/ha-core/src/context_compact/` | 5 层渐进式压缩 + 摘要 / ledger / recovery 编排 |
 | Failover | `crates/ha-core/src/failover/{mod,executor}.rs` | 错误分类、统一执行器（policy + provider 选择 + 退避 + Codex 不轮换） |
 | Session DB | `crates/ha-core/src/session/` | SQLite 持久化、messages FTS 搜索、context_json |
-| Chat 引擎 | `crates/ha-core/src/chat_engine/` | 主流程编排、模型链迭代、事件与持久化 |
+| Turn Kernel | `crates/ha-core/src/chat_engine/turn_kernel.rs` | 来源密封、模型路由、配置/凭据租约、原子准入与 executor port |
+| Agent runtime | `crates/ha-agent-runtime/src/engine.rs` | 主流程、模型链迭代、failover 与终态编排 |
+| Chat 内核能力 | `crates/ha-core/src/chat_engine/` | durability、Stop/finalize、事件、上下文与持久化不变量 |
 | Chat 薄壳 | `src-tauri/src/commands/chat.rs` · `crates/ha-server/src/routes/chat.rs` | 桌面命令层 / HTTP·WS 入口 |
 | 前端模板 | `src/components/settings/provider-setup/templates/` | 内置 Provider 模板（四类文件） |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |

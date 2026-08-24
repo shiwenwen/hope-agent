@@ -497,7 +497,7 @@ fn escape_xml_text(s: &str) -> String {
 }
 
 /// Build multimodal user content array for Anthropic Messages API.
-pub(super) fn build_user_content_anthropic(
+pub fn build_user_content_anthropic(
     message: &str,
     attachments: &[Attachment],
     context_window: u32,
@@ -565,7 +565,7 @@ pub(super) fn build_user_content_anthropic(
 }
 
 /// Build multimodal user content array for OpenAI Chat Completions API.
-pub(super) fn build_user_content_openai_chat(
+pub fn build_user_content_openai_chat(
     message: &str,
     attachments: &[Attachment],
     context_window: u32,
@@ -624,7 +624,7 @@ pub(super) fn build_user_content_openai_chat(
 }
 
 /// Build multimodal user content array for OpenAI Responses API / Codex.
-pub(super) fn build_user_content_responses(
+pub fn build_user_content_responses(
     message: &str,
     attachments: &[Attachment],
     context_window: u32,
@@ -682,7 +682,8 @@ pub(super) fn build_user_content_responses(
     json!(parts)
 }
 
-pub(super) fn build_user_content_for_provider(
+#[doc(hidden)]
+pub fn build_user_content_for_provider(
     provider_format: ProviderFormat,
     message: &str,
     attachments: &[Attachment],

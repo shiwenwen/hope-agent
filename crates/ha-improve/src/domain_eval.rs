@@ -7,7 +7,7 @@
 
 use anyhow::{anyhow, bail, Result};
 use ha_core::agent_loader::DEFAULT_AGENT_ID;
-use ha_core::chat_engine::{self, ChatEngineParams, ChatSource, NoopEventSink};
+use ha_core::chat_engine::{ChatSource, NoopEventSink};
 use ha_core::domain_quality::RunDomainQualityInput;
 use ha_core::domain_workflow::RecordDomainEvidenceInput;
 use ha_core::provider::{ActiveModel, ProviderConfig};
@@ -1862,66 +1862,56 @@ async fn run_domain_eval_agent_execution(
     let user_message_id = db
         .append_message(
             session_id,
-            &NewMessage::user(&prompt).with_source(ChatSource::Http),
+            &NewMessage::user(&prompt).with_source(ChatSource::Eval),
         )
         .ok();
     let turn_id = uuid::Uuid::new_v4().to_string();
     db.create_chat_turn_with_id(
         &turn_id,
         session_id,
-        ChatSource::Http.as_str(),
+        ChatSource::Eval.as_str(),
         None,
         user_message_id,
     )?;
 
-    let params = ChatEngineParams {
-        session_id: session_id.to_string(),
-        agent_id: agent_id.clone(),
-        turn_id: Some(turn_id.clone()),
-        message: prompt.clone(),
-        incoming_turn: None,
-        display_text: execution.display_text.clone(),
-        attachments: Vec::new(),
-        session_db: db.clone(),
-        model_chain: execution.model_chain.clone(),
-        providers: execution.providers.clone(),
-        codex_token: None,
-        resolved_temperature: None,
-        compact_config: execution.compact_config.clone().unwrap_or_default(),
-        run_context: Some(ha_core::prompt_context::RunInstructionContext::new(
-            ha_core::prompt_context::RunInstructionSource::Evaluation,
-            "# Domain Eval Execution\n\nExecute the current evaluation task and produce auditable evidence through the normal tool and workflow contracts.",
-        )?
-        .with_untrusted_data(domain_eval_fixture_execution_context(
-                fixture,
-                task,
-                execution.extra_system_context.as_deref(),
-            ))),
-        reasoning_effort: execution
+    let run_context = Some(ha_core::prompt_context::RunInstructionContext::new(
+        ha_core::prompt_context::RunInstructionSource::Evaluation,
+        "# Domain Eval Execution\n\nExecute the current evaluation task and produce auditable evidence through the normal tool and workflow contracts.",
+    )?
+    .with_untrusted_data(domain_eval_fixture_execution_context(
+        fixture,
+        task,
+        execution.extra_system_context.as_deref(),
+    )));
+    let params = ha_core::turn_kernel::TurnRequest::new(
+        session_id.to_string(),
+        agent_id.clone(),
+        prompt.clone(),
+        db.clone(),
+        execution.compact_config.clone().unwrap_or_default(),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(NoopEventSink),
+    )
+    .with_evaluation_model_chain(execution.model_chain.clone())
+    .with_turn_id(turn_id.clone())
+    .with_display_text(execution.display_text.clone())
+    .with_run_context(run_context)
+    .with_reasoning_effort(
+        execution
             .reasoning_effort
             .clone()
             .or_else(|| Some("none".to_string())),
-        cancel: Arc::new(AtomicBool::new(false)),
-        foreground_stop_admission: None,
-        plan_context_override: Some(ha_core::agent::PlanResolvedContext::off()),
-        skill_allowed_tools: Vec::new(),
-        denied_tools: execution.denied_tools.clone(),
-        tool_scope: None,
-        subagent_depth: 0,
-        steer_run_id: None,
-        auto_approve_tools: execution.auto_approve_tools,
-        follow_global_reasoning_effort: false,
-        post_turn_effects: false,
-        abort_on_cancel: false,
-        persist_final_error_event: true,
-        source: ChatSource::Http,
-        ui_surface: None,
-        origin_source: None,
-        channel_kb_context: None,
-        event_sink: Arc::new(NoopEventSink),
-    };
+    )
+    .with_plan_context_override(Some(ha_core::agent::PlanResolvedContext::off()))
+    .with_denied_tools(execution.denied_tools.clone());
 
-    let result = chat_engine::run_chat_engine(params).await;
+    let result =
+        ha_core::turn_kernel::TurnKernel::submit(ha_core::turn_kernel::TurnSubmission::evaluation(
+            params,
+            execution.auto_approve_tools,
+            execution.providers.clone(),
+        ))
+        .await;
     let tool_calls = domain_eval_execution_tool_calls(&db, session_id)?;
     match result {
         Ok(result) => Ok(DomainEvalFixtureExecutionReport {

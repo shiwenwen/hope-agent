@@ -88,6 +88,12 @@ jobs:
       - name: Crate layering red line (test edges)
         run: node scripts/analyze-crate-deps.mjs --tests > /dev/null
 
+      # P0→P12 convergence guard: legacy entrypoints/implementations may only
+      # disappear; runtime ownership, production deps and DB boundaries are
+      # fail-closed.
+      - name: Agent kernel migration boundaries
+        run: node scripts/check-agent-kernel-boundaries.mjs
+
       # Informational only for now: the repo carries ~3.3k historical missing
       # keys across the 10 non-baseline locales (en/zh are the source of truth).
       # Once that backlog is paid down, drop `continue-on-error` to make this

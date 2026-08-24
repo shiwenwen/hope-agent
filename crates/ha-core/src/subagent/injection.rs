@@ -1582,7 +1582,7 @@ enum IdleWait {
 ///
 /// Foreground turns are tracked in `ACTIVE_CHAT_SESSIONS` by
 /// [`ChatSessionGuard`](super::ChatSessionGuard), created at the shared
-/// `run_chat_engine` entry (R2) so this gate holds across desktop / HTTP / IM /
+/// Agent runtime entry (R2) so this gate holds across desktop / HTTP / IM /
 /// cron — and at the ACP turn boundary for ACP. The wait is event-driven on
 /// `SESSION_IDLE_NOTIFY` (fired when a guard releases) with a bounded fallback
 /// poll so a missed notification can't park forever. The fallback is clamped to
@@ -1665,8 +1665,6 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
     preclaimed_cleanup: Option<CleanupGuard>,
 ) -> InjectionOutcome {
-    use crate::provider;
-
     let session_preclaimed = preclaimed_cleanup.is_some();
     let mut _cleanup = preclaimed_cleanup;
 
@@ -1792,7 +1790,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
 
     // 1. Wait for parent session to become idle (event-driven with timeout
     // fallback). The idle gate (`ACTIVE_CHAT_SESSIONS`) is now populated by
-    // `ChatSessionGuard` at the shared `run_chat_engine` entry (R2), so this
+    // `ChatSessionGuard` at the shared Agent runtime entry (R2), so this
     // wait correctly parks behind live turns on every entry point, not just
     // desktop.
     let announce_timeout = crate::agent_loader::load_agent(&parent_agent_id)
@@ -1909,25 +1907,10 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         error: None,
     });
 
-    // 4. Build model chain
+    // 4. Preflight the parent route without resolving a caller-owned chain.
+    // Admission repeats this against its immutable Provider/config snapshot.
     let store = crate::config::cached_config();
-    let agent_model_config = crate::agent_loader::load_agent(&parent_agent_id)
-        .map(|def| def.config.model)
-        .unwrap_or_default();
-    let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
-    let mut model_chain = Vec::new();
-    if let Some(p) = primary {
-        model_chain.push(p);
-    }
-    for fb in fallbacks {
-        if !model_chain.iter().any(|m: &crate::provider::ActiveModel| {
-            m.provider_id == fb.provider_id && m.model_id == fb.model_id
-        }) {
-            model_chain.push(fb);
-        }
-    }
-
-    if model_chain.is_empty() {
+    if crate::turn_kernel::validate_configured_model_route(&parent_agent_id).is_err() {
         app_error!(
             "subagent",
             "inject",
@@ -2163,53 +2146,30 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             .as_ref()
             .and_then(|def| def.config.model.reasoning_effort.clone())
             .or(crate::agent::live_reasoning_effort(None).await);
-        let engine_params = crate::chat_engine::ChatEngineParams {
-            session_id: parent_session_id.clone(),
-            agent_id: parent_agent_id.clone(),
-            turn_id: None,
-            message: push_message.clone(),
-            incoming_turn: None,
-            display_text: None,
-            attachments: Vec::new(),
-            session_db: session_db.clone(),
-            model_chain,
-            providers: store.providers.clone(),
-            codex_token: None,
-            resolved_temperature: parent_agent_def
-                .as_ref()
-                .and_then(|def| def.config.model.temperature)
-                .or(store.temperature),
-            compact_config: store.compact.clone(),
-            run_context: None,
-            reasoning_effort: resolved_reasoning_effort,
-            cancel: cancel.clone(),
-            foreground_stop_admission: None,
-            plan_context_override: None,
-            skill_allowed_tools: Vec::new(),
-            denied_tools: Vec::new(),
-            tool_scope: None,
-            subagent_depth: 0,
-            steer_run_id: None,
-            auto_approve_tools: false,
-            follow_global_reasoning_effort: false,
-            post_turn_effects: false,
-            abort_on_cancel: true,
-            persist_final_error_event: false,
-            source: crate::chat_engine::stream_seq::ChatSource::ParentInjection,
-            ui_surface: None,
-            origin_source: None,
-            // Parent-injection turns are owner-internal, never IM. No opt-in gate.
-            channel_kb_context: None,
-            event_sink: Arc::new(ParentInjectionSink {
+        let engine_params = crate::turn_kernel::TurnRequest::new(
+            parent_session_id.clone(),
+            parent_agent_id.clone(),
+            push_message.clone(),
+            session_db.clone(),
+            store.compact.clone(),
+            cancel.clone(),
+            Arc::new(ParentInjectionSink {
                 parent_session_id: parent_session_id.clone(),
                 run_id: run_id.clone(),
             }),
-        };
+        )
+        .with_temperature(
+            parent_agent_def
+                .as_ref()
+                .and_then(|def| def.config.model.temperature)
+                .or(store.temperature),
+        )
+        .with_reasoning_effort(resolved_reasoning_effort);
         let engine_result = arm_source_persist_then(
             injection_has_delivery_surface,
             on_injected.as_ref(),
             || {
-                // Write the push user row BEFORE agent.chat() so intermediate
+                // Write the push user row BEFORE submitting the parent turn so intermediate
                 // rows streamed from the callback land between it and the final
                 // assistant row. Re-queued attempts retain the run_id and reuse
                 // this idempotency guard.
@@ -2248,7 +2208,11 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                     },
                 )
             },
-            |_armed| crate::chat_engine::run_chat_engine(engine_params),
+            |_armed| {
+                crate::turn_kernel::TurnKernel::submit(
+                    crate::turn_kernel::TurnSubmission::parent_injection(engine_params),
+                )
+            },
         );
         let engine = match engine_result {
             Ok(engine) => engine,
@@ -2295,7 +2259,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
 
         match engine.await {
             Ok(result) => {
-                // run_chat_engine returning Ok means the reply was persisted.
+                // TurnKernel returning Ok means the reply reached its durable terminal.
                 // Mark succeeded unconditionally — even if cancel flipped to
                 // true after Ok was produced (user started new chat in the
                 // narrow post-return window), re-queueing would write a
@@ -3672,7 +3636,7 @@ mod tests {
 
     // R2 (§5.4): the idle gate must park completion injection behind a live
     // foreground turn on *every* entry point. These exercise the shared wait
-    // helper against `ChatSessionGuard` (the same guard `run_chat_engine` now
+    // helper against `ChatSessionGuard` (the same guard the shared runtime now
     // creates for HTTP / IM / cron, and ACP creates at its turn boundary).
 
     #[tokio::test]

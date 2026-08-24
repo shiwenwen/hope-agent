@@ -1,6 +1,6 @@
 # Hope Agent 提示词系统技术文档
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-11
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23
 
 ## 目录
 
@@ -222,7 +222,7 @@ Anthropic 只给稳定 system 与最后一个 eager tool schema 标显式 cache 
 
 **代码位置**：
 - Layer 3 顺序契约：`crates/ha-core/src/agent/streaming_adapter.rs`（`RoundRequest` / `dynamic_instruction_suffixes` / `dynamic_data_suffixes`）
-- 每轮组装：`crates/ha-core/src/agent/streaming_loop.rs`
+- 每轮组装：`crates/ha-agent-runtime/src/streaming_loop.rs`（core 提供 prompt/context policy 端口）
 
 ---
 
@@ -785,7 +785,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | `crates/ha-core/src/agent/mod.rs`               | Layer 2 稳定能力补充、Run/Data snapshot、知识与 capability data 构建 |
 | `crates/ha-core/src/agent/streaming_adapter.rs` | Run instruction 与 Round user-data 顺序契约                              |
 | `crates/ha-core/src/agent/content.rs`           | 文件/Plan/附件的模型窗口自适应 full/preview materialization               |
-| `crates/ha-core/src/agent/providers/`           | Anthropic/OpenAI Chat/OpenAI Responses/Codex 的 role 与 cache 序列化      |
+| `crates/ha-agent-runtime/src/provider_adapters/` | Anthropic/OpenAI Chat/OpenAI Responses/Codex 的 role 与 cache 序列化      |
 | `crates/ha-base/src/execution_mode.rs` · `workflow_mode.rs` | 执行 / 工作流模式枚举与 `system_prompt_section()`           |
 | `crates/ha-core/src/agent_config.rs`            | Agent 配置结构（personality/tools/skills/memory/subagents/openclaw_mode）  |
 | `crates/ha-core/src/agent_loader.rs`            | Agent 加载（agent.json + md 文件 + OpenClaw 模板）                        |

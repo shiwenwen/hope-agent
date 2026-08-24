@@ -1,6 +1,6 @@
 //! Cron failure classification (§5).
 //!
-//! A cron run's final error (whatever `run_chat_engine` surfaced after exhausting
+//! A cron run's final error (whatever `TurnKernel` surfaced after exhausting
 //! its own failover, or the executor's own timeout) is classified into a small,
 //! stable set of buckets. The class is used for:
 //! - a more descriptive run-log `status` (a timeout reads as `timeout`, not a

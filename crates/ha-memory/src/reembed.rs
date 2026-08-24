@@ -1,0 +1,211 @@
+//! Memory vector re-embedding background execution machine.
+//!
+//! Spawns a [`ha_core::local_model_jobs`] runner that walks every memory entry,
+//! re-computing its embedding under the currently active model. Designed to:
+//!
+//! - report progress (`bytes_completed`/`bytes_total` carry processed/total
+//!   entry counts so the existing local-model-job UI shows a real progress bar)
+//! - support cancellation via the standard `local_model_job_cancel` plumbing
+//! - guarantee at most one running reembed at a time (a new spawn cancels any
+//!   pre-existing active reembed first)
+//! - persist `last_reembedded_signature` on success so the
+//!   `needsReembed` indicator clears
+//!
+//! `KeepExisting` mode leaves rows in place and overwrites their `embedding`
+//! field as it goes — searches keep working against the old vectors during the
+//! rebuild. `DeleteAll` mode wipes every `memories.embedding` /
+//! `embedding_signature` first, so partial failures cannot leave a mix of old
+//! and new vectors. The `embedding_cache` table is left alone in either mode
+//! (it is keyed by `(hash, model, signature)` and `prune_embedding_cache_to_signature`
+//! has already been called by `set_memory_embedding_default`).
+
+use std::sync::{Arc, Mutex};
+
+use anyhow::{anyhow, Result};
+use serde_json::json;
+
+use ha_core::local_model_jobs::{
+    self, append_log, finish_job, spawn_job_with_successor, update_job_with_bytes,
+    LocalModelJobKind, LocalModelJobSnapshot, LocalModelJobStatus, ProgressThrottle,
+};
+use ha_core::memory::{ReembedMode, PHASE_REEMBED_FRESH, PHASE_REEMBED_KEEP};
+
+/// Cancel any non-terminal `MemoryReembed` jobs. Used both by
+/// [`start_memory_reembed_job`]（保证全局至多一条 reembed 在跑）和
+/// `set_memory_embedding_default` 的「同 signature 短路」分支——否则用户在
+/// 旧 reembed 仍跑期间切换模型再切回，旧任务后续 batch 会把
+/// `last_reembedded_signature` 写成它针对的（已不再活跃的）模型，污染当前
+/// 模型的向量状态。
+pub fn cancel_active_memory_reembed_jobs() {
+    if let Ok(jobs) = local_model_jobs::list_jobs() {
+        for job in jobs {
+            if job.kind == LocalModelJobKind::MemoryReembed && !job.status.is_terminal() {
+                let _ = local_model_jobs::cancel_job(&job.job_id);
+            }
+        }
+    }
+}
+
+fn phase(mode: ReembedMode) -> &'static str {
+    match mode {
+        ReembedMode::KeepExisting => PHASE_REEMBED_KEEP,
+        ReembedMode::DeleteAll => PHASE_REEMBED_FRESH,
+    }
+}
+
+fn step_message(mode: ReembedMode) -> &'static str {
+    match mode {
+        ReembedMode::KeepExisting => "Re-embedding memories (keep existing)",
+        ReembedMode::DeleteAll => "Re-embedding memories (fresh)",
+    }
+}
+
+/// Spawn (or replace) the global memory reembed job.
+///
+/// Invariant: at most one `MemoryReembed` job is ever in a non-terminal state.
+/// Pre-existing active jobs are cancelled before the new one is spawned. The
+/// old runner's per-batch `cancel.is_cancelled()` check exits at the next
+/// boundary; the SQLite write connection mutex serialises any overlap.
+///
+/// `parent_job_id` 当本次 reembed 由另一个本地模型任务派发（典型场景：embedding
+/// pull 任务结束后自动切换默认模型并触发 reembed）时传入发起者的 `job_id`，
+/// 用于让前端 dialog 自动接力到 reembed 进度。
+pub fn start_memory_reembed_job(
+    model_config_id: &str,
+    mode: ReembedMode,
+    parent_job_id: Option<&str>,
+) -> Result<LocalModelJobSnapshot> {
+    let store = ha_core::config::cached_config();
+    let model = store
+        .embedding_models
+        .iter()
+        .find(|item| item.id == model_config_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("Embedding model config not found: {model_config_id}"))?;
+
+    if !store.memory_embedding.enabled
+        || store.memory_embedding.model_config_id.as_deref() != Some(model_config_id)
+    {
+        return Err(anyhow!(
+            "Cannot reembed: '{model_config_id}' is not the active memory embedding model"
+        ));
+    }
+
+    cancel_active_memory_reembed_jobs();
+
+    if mode == ReembedMode::DeleteAll {
+        if let Some(backend) = ha_core::get_memory_backend() {
+            let cleared = backend.clear_all_embeddings()?;
+            app_info!(
+                "memory",
+                "reembed_job",
+                "Cleared embeddings on {} memory rows before fresh reembed",
+                cleared
+            );
+        }
+    }
+
+    let signature = model.signature();
+
+    spawn_job_with_successor(
+        LocalModelJobKind::MemoryReembed,
+        model_config_id.to_string(),
+        model.name.clone(),
+        parent_job_id.map(str::to_owned),
+        move |job_id, token| async move {
+            let final_result = run_reembed(&job_id, mode, &signature, &token).await;
+            finish_job(&job_id, final_result, &token);
+        },
+    )
+}
+
+async fn run_reembed(
+    job_id: &str,
+    mode: ReembedMode,
+    signature: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<serde_json::Value> {
+    let backend =
+        ha_core::get_memory_backend().ok_or_else(|| anyhow!("Memory backend not initialized"))?;
+    let phase = phase(mode);
+
+    update_job_with_bytes(
+        job_id,
+        LocalModelJobStatus::Running,
+        phase,
+        Some(0),
+        Some(0),
+        None,
+        None,
+        None,
+    );
+    append_log(job_id, "step", step_message(mode));
+
+    // Hop the blocking sqlite work to spawn_blocking so the runner future stays
+    // cooperative. Wrap the per-batch progress callback in the same
+    // `ProgressThrottle` the other jobs use so a fast batch API doesn't flood
+    // the EventBus + jobs DB at full chunk-cadence.
+    let job_id_owned = job_id.to_string();
+    let throttle = Arc::new(Mutex::new(ProgressThrottle::default()));
+    let cancel_clone = cancel.clone();
+    let backend_clone = backend.clone();
+
+    let count_result = tokio::task::spawn_blocking(move || {
+        let mut on_progress = |done: usize, total: usize| {
+            let percent = if total == 0 {
+                100u8
+            } else {
+                ((done as u64 * 100) / total as u64).min(100) as u8
+            };
+            let bytes_completed = done as u64;
+            // Always emit the terminal frame; otherwise let the throttle
+            // coalesce mid-flight bursts.
+            let terminal = total > 0 && done >= total;
+            let should_emit = terminal
+                || throttle
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .should_emit(phase, Some(percent), Some(bytes_completed));
+            if !should_emit {
+                return;
+            }
+            update_job_with_bytes(
+                &job_id_owned,
+                LocalModelJobStatus::Running,
+                phase,
+                Some(percent),
+                Some(bytes_completed),
+                Some(total as u64),
+                None,
+                None,
+            );
+        };
+        backend_clone.reembed_all_with_progress(&cancel_clone, &mut on_progress, 16)
+    })
+    .await
+    .map_err(|e| anyhow!("Reembed task join failed: {e}"))?;
+
+    let count = count_result?;
+
+    let signature_for_save = signature.to_string();
+    ha_core::config::mutate_config(
+        ("memory_embedding.reembedded", "memory_reembed_job"),
+        move |store| {
+            store.memory_embedding.last_reembedded_signature = Some(signature_for_save.clone());
+            Ok(())
+        },
+    )?;
+
+    app_info!(
+        "memory",
+        "reembed_job",
+        "Memory reembed completed: count={} mode={:?}",
+        count,
+        mode
+    );
+
+    Ok(json!({
+        "reembedded": count,
+        "mode": mode,
+    }))
+}

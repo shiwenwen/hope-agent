@@ -42,6 +42,13 @@
 # 文件都可能重复发送工具副作用、泄露 prompt/路径或让删除后正文复活。
 /crates/ha-core/src/session/context_projection.rs    @shiwenwen
 /crates/ha-core/src/session/request_payload_store.rs @shiwenwen
+# Provider-neutral loop state controls tool boundary ordering, cancellation,
+# and round exhaustion. A change here affects every main-model provider.
+/crates/ha-agent-loop/            @shiwenwen
+/crates/ha-agent-runtime/         @shiwenwen
+/crates/ha-memory/                @shiwenwen
+/crates/ha-goal/                  @shiwenwen
+/crates/ha-workflow/              @shiwenwen
 # 工具契约层里的审批面（阶段 4「tools 类型归位」自 tools/ 迁入）：
 # context.rs 是 ApprovalOrigin（审批来源审计枚举）与 auto_approve_tools /
 # external_pre_approved / exec_pre_approved 三个旁路 flag 契约的唯一定义处

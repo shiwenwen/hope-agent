@@ -23,7 +23,7 @@ const MAX_QUOTE_CHARS: usize = 240;
 
 /// Snapshot of the user message that triggered a desktop / HTTP turn,
 /// passed to [`build_user_quote_prefix`] so the quote helper doesn't
-/// need to re-query SQL — `run_chat_engine` already has the input text
+/// need to re-query SQL — the admitted turn already carries the input text
 /// + attachment count + source string in hand at turn entry.
 #[derive(Debug, Clone)]
 pub struct LastUserView<'a> {

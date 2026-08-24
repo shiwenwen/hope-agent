@@ -83,7 +83,8 @@ const PENDING_RETENTION_DAYS: i64 = 30;
 /// bound); the buffer covers agent build + scan + promotion + diary. No
 /// heartbeat in Phase 0 (Light is bounded by the timeout); heartbeat renewal
 /// for unbounded Deep runs lands with the Deep phase.
-pub(super) fn lease_ttl_secs(narrative_timeout_secs: u64) -> i64 {
+#[doc(hidden)]
+pub fn lease_ttl_secs(narrative_timeout_secs: u64) -> i64 {
     (narrative_timeout_secs as i64 + LEASE_BUFFER_SECS).max(LEASE_MIN_TTL_SECS)
 }
 
@@ -130,7 +131,8 @@ pub fn init_store(backend: Arc<SqliteMemoryBackend>) {
 }
 
 /// Borrow the global store, if initialised.
-pub(crate) fn store() -> Option<&'static DreamingStore> {
+#[doc(hidden)]
+pub fn store() -> Option<&'static DreamingStore> {
     DREAMING_STORE.get()
 }
 
@@ -285,7 +287,8 @@ fn retention_run_once() {
 /// RAII handle releasing the cross-process lease on drop. An `inert` guard
 /// (no durable store, or a lease-acquire DB error) does nothing on drop — the
 /// in-process `DREAMING_RUNNING` flag still serialises this process.
-pub(super) struct LeaseGuard {
+#[doc(hidden)]
+pub struct LeaseGuard {
     lock_key: String,
     run_id: String,
     active: bool,
@@ -324,7 +327,7 @@ impl LeaseGuard {
     /// Release the durable lease without blocking a Tokio worker. Normal cycle
     /// exits must await this before their in-process `RunningGuard` is dropped;
     /// `Drop` remains a best-effort fallback for panic/cancellation paths.
-    pub(super) async fn release(mut self) {
+    pub async fn release(mut self) {
         if !self.active {
             return;
         }
@@ -354,7 +357,8 @@ impl LeaseGuard {
 /// - `Some(inert guard)` — no durable store configured, or a DB error: the
 ///   cycle proceeds under the in-process flag only.
 /// - `None` — another live run holds the lease; the caller must skip.
-pub(super) fn acquire_lease(lock_key: &str, run_id: &str, ttl_secs: i64) -> Option<LeaseGuard> {
+#[doc(hidden)]
+pub fn acquire_lease(lock_key: &str, run_id: &str, ttl_secs: i64) -> Option<LeaseGuard> {
     let Some(store) = store() else {
         return Some(LeaseGuard {
             lock_key: lock_key.to_string(),
@@ -390,11 +394,13 @@ pub(super) fn acquire_lease(lock_key: &str, run_id: &str, ttl_secs: i64) -> Opti
 
 /// Thin SQL layer over the dreaming tables in `memory.db`. Shares the memory
 /// backend's write/read connections (never opens its own).
-pub(crate) struct DreamingStore {
+#[doc(hidden)]
+pub struct DreamingStore {
     backend: Arc<SqliteMemoryBackend>,
 }
 
-pub(crate) struct ProfileSnapshotInsertResult {
+#[doc(hidden)]
+pub struct ProfileSnapshotInsertResult {
     pub version: i64,
 }
 
@@ -407,7 +413,7 @@ impl DreamingStore {
 
     /// Insert a `running` run row at cycle start. `ttl_secs` sizes the run's
     /// lease window (same value passed to [`Self::acquire_lease`]).
-    pub(crate) fn create_run(
+    pub fn create_run(
         &self,
         id: &str,
         trigger: &str,
@@ -431,12 +437,7 @@ impl DreamingStore {
     /// Finalise a run row, copying the terminal counts from the report.
     /// `decision_count` mirrors `promoted_count` in Phase 0 (only `promote`
     /// decisions are written); they diverge once Deep adds other decisions.
-    pub(crate) fn finish_run(
-        &self,
-        id: &str,
-        status: DreamRunStatus,
-        report: &DreamReport,
-    ) -> Result<()> {
+    pub fn finish_run(&self, id: &str, status: DreamRunStatus, report: &DreamReport) -> Result<()> {
         let conn = self.backend.write_conn()?;
         let now = now_rfc3339();
         let promoted = report.promoted.len() as i64;
@@ -464,11 +465,7 @@ impl DreamingStore {
     }
 
     /// Write one `promote` decision per promotion record.
-    pub(crate) fn insert_decisions(
-        &self,
-        run_id: &str,
-        promotions: &[PromotionRecord],
-    ) -> Result<usize> {
+    pub fn insert_decisions(&self, run_id: &str, promotions: &[PromotionRecord]) -> Result<usize> {
         if promotions.is_empty() {
             return Ok(0);
         }
@@ -510,7 +507,7 @@ impl DreamingStore {
     /// Write one `dreaming_decisions` row for a Deep resolver mutation on a
     /// claim (`expire` / `merge` / `needs_review`). `merge_into` (the survivor)
     /// is stored in `after_json` for the audit trail.
-    pub(crate) fn insert_claim_decision(
+    pub fn insert_claim_decision(
         &self,
         run_id: &str,
         decision_type: &str,
@@ -528,7 +525,7 @@ impl DreamingStore {
         )
     }
 
-    pub(crate) fn insert_claim_decision_with_snapshots(
+    pub fn insert_claim_decision_with_snapshots(
         &self,
         run_id: &str,
         decision_type: &str,
@@ -655,7 +652,7 @@ impl DreamingStore {
     /// Finalise a Deep resolver run with explicit counts (the resolver has no
     /// promotions, so `finish_run`'s `promoted == decision_count` assumption
     /// doesn't hold).
-    pub(crate) fn finish_resolver_run(
+    pub fn finish_resolver_run(
         &self,
         id: &str,
         status: DreamRunStatus,
@@ -712,7 +709,7 @@ impl DreamingStore {
 
     /// Insert a profile snapshot and optional claim provenance rows in one
     /// transaction. Returns the snapshot id plus assigned version.
-    pub(crate) fn insert_profile_snapshot_with_sources(
+    pub fn insert_profile_snapshot_with_sources(
         &self,
         scope_type: &str,
         scope_id: &str,
@@ -897,7 +894,7 @@ impl DreamingStore {
     /// snapshot generation, for the audit trail. `target_id` is the scope key
     /// (`global` / `agent:<id>` / `project:<id>`); the version lands in
     /// `after_json`.
-    pub(crate) fn insert_profile_decision(
+    pub fn insert_profile_decision(
         &self,
         run_id: &str,
         scope_type: &str,
@@ -1198,7 +1195,7 @@ impl DreamingStore {
     // ── Pending sources ──────────────────────────────────────────
 
     /// Enqueue a source whose capture was deferred (e.g. lease contention).
-    pub(crate) fn enqueue_pending(
+    pub fn enqueue_pending(
         &self,
         scope_key: &str,
         source_type: &str,
@@ -1230,7 +1227,7 @@ impl DreamingStore {
     /// Atomically claim up to `limit` pending rows for `scope_key`
     /// (pending → claimed). Returns the claimed ids. `updated_at` doubles as
     /// the claim timestamp for stale-claim recovery.
-    pub(crate) fn claim_pending(&self, scope_key: &str, limit: usize) -> Result<Vec<String>> {
+    pub fn claim_pending(&self, scope_key: &str, limit: usize) -> Result<Vec<String>> {
         let conn = self.backend.write_conn()?;
         let now = now_rfc3339();
         let mut stmt = conn.prepare(
@@ -1257,7 +1254,7 @@ impl DreamingStore {
     /// Mark claimed rows as processed in a single all-or-nothing statement —
     /// a mid-batch error can't leave some rows processed and others stuck
     /// claimed (which would otherwise linger until stale-claim recovery).
-    pub(crate) fn mark_pending_processed(&self, ids: &[String]) -> Result<usize> {
+    pub fn mark_pending_processed(&self, ids: &[String]) -> Result<usize> {
         if ids.is_empty() {
             return Ok(0);
         }
@@ -1285,7 +1282,7 @@ impl DreamingStore {
 
     /// Return abandoned `claimed` rows (claim older than the stale window) to
     /// `pending` so a future run can re-drain them.
-    pub(crate) fn recover_stale_claimed(&self) -> Result<usize> {
+    pub fn recover_stale_claimed(&self) -> Result<usize> {
         let conn = self.backend.write_conn()?;
         let now = now_rfc3339();
         let cutoff = rfc3339_ago(PENDING_CLAIM_STALE_SECS);
@@ -1312,7 +1309,7 @@ impl DreamingStore {
 
     // ── Watermarks ───────────────────────────────────────────────
 
-    pub(crate) fn set_watermark(
+    pub fn set_watermark(
         &self,
         scope_key: &str,
         source_type: &str,

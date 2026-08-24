@@ -37,6 +37,9 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_SEND_NOTIFICATION, aliases: &[], handler: tool_handler!(|args, ctx| super::notification::tool_send_notification(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SUBAGENT, aliases: &[], handler: tool_handler!(|args, ctx| super::subagent::tool_subagent(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_TEAM, aliases: &[], handler: tool_handler!(|args, ctx| super::team::tool_team(args, ctx).await) },
+        // `workflow` handler随 ha-workflow 迁出，由 `ha_workflow::wire()` 注册；
+        // 名字、schema 与权限契约仍留 kernel。
+        #[cfg(test)]
         BuiltinToolEntry { name: super::TOOL_WORKFLOW, aliases: &[], handler: tool_handler!(|args, ctx| super::workflow_tool::tool_workflow(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_MEMORY_GET, aliases: &[], handler: tool_handler!(|args, ctx| super::memory::tool_memory_get(args, ctx).await) },
         // 24 个知识空间 handler（22 个 `note_*` + `knowledge_recall` +
@@ -58,13 +61,6 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         BuiltinToolEntry { name: super::TOOL_TASK_CREATE, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::task::tool_task_create(args, ctx.session_id.as_deref()).await)) },
         BuiltinToolEntry { name: super::TOOL_TASK_UPDATE, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::task::tool_task_update(args, ctx.session_id.as_deref()).await)) },
         BuiltinToolEntry { name: super::TOOL_TASK_LIST, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::task::tool_task_list(args, ctx.session_id.as_deref()).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_status(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_PREPARE_CONTRACT, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_prepare_contract(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_CHECKPOINT, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_checkpoint(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_RECORD_EVIDENCE, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_record_evidence(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_EVALUATE, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_evaluate(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_FINISH_REQUEST, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_finish_request(args, ctx).await)) },
-        BuiltinToolEntry { name: super::TOOL_GOAL_BLOCK_REQUEST, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::goal::tool_goal_block_request(args, ctx).await)) },
         BuiltinToolEntry { name: super::TOOL_LOOP_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::loop_tool::tool_loop_status(args, ctx).await)) },
         BuiltinToolEntry { name: super::TOOL_LOOP_RESCHEDULE, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::loop_tool::tool_loop_reschedule(args, ctx).await)) },
         BuiltinToolEntry { name: super::TOOL_LOOP_STOP, aliases: &[], handler: tool_handler!(|args, ctx| Ok(super::loop_tool::tool_loop_stop(args, ctx).await)) },

@@ -1249,8 +1249,6 @@ async fn run_agent_for_session(
     channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
     causal_subagent_depth: u32,
 ) -> Result<String> {
-    use crate::provider;
-
     let store = crate::config::cached_config();
     let agent_def = crate::agent_loader::load_agent(&session.agent_id)?;
     let runtime_defaults = {
@@ -1270,61 +1268,46 @@ async fn run_agent_for_session(
         .as_ref()
         .map(ToString::to_string);
     let preferred_model = plan_model.or(runtime_preferred_ref.as_deref());
-    let (primary, fallbacks) = provider::resolve_model_chain_with_preferred(
+    if crate::turn_kernel::validate_configured_model_preference(
+        &session.agent_id,
         preferred_model,
-        &agent_def.config.model,
-        &store,
-    );
-    let model_chain = primary.into_iter().chain(fallbacks).collect::<Vec<_>>();
-
-    if model_chain.is_empty() {
+        false,
+    )
+    .is_err()
+    {
         return Err(anyhow::Error::new(ProactiveNoProfileError {
             agent_id: session.agent_id,
         }));
     }
 
-    let result = Box::pin(crate::chat_engine::run_chat_engine(
-        crate::chat_engine::ChatEngineParams {
-            session_id: session.id.clone(),
-            agent_id: session.agent_id.clone(),
-            turn_id: Some(turn_id),
-            message,
-            incoming_turn: None,
-            display_text: None,
-            attachments,
-            session_db: db,
-            model_chain,
-            providers: store.providers.clone(),
-            codex_token: None,
-            resolved_temperature: runtime_defaults.temperature,
-            compact_config: store.compact.clone(),
-            run_context: Some(crate::prompt_context::RunInstructionContext::new(
-                crate::prompt_context::RunInstructionSource::CrossSession,
-                "## Execution Context\n\
-                 You are responding to a cross-session message. Another agent or session sent you this message.\n\
-                 - Respond concisely and directly to the message content."
-                    .to_string(),
-            )?),
-            reasoning_effort: Some(runtime_defaults.reasoning_effort),
-            cancel,
-            foreground_stop_admission: None,
-            plan_context_override: None,
-            skill_allowed_tools: Vec::new(),
-            denied_tools: Vec::new(),
-            tool_scope: None,
-            subagent_depth: causal_subagent_depth,
-            steer_run_id: None,
-            auto_approve_tools: false,
-            follow_global_reasoning_effort: false,
-            post_turn_effects: true,
-            abort_on_cancel: false,
-            persist_final_error_event: true,
-            source: crate::chat_engine::ChatSource::SessionTool,
-            ui_surface: None,
+    let run_context = Some(crate::prompt_context::RunInstructionContext::new(
+        crate::prompt_context::RunInstructionSource::CrossSession,
+        "## Execution Context\n\
+         You are responding to a cross-session message. Another agent or session sent you this message.\n\
+         - Respond concisely and directly to the message content."
+            .to_string(),
+    )?);
+    let result = Box::pin(crate::turn_kernel::TurnKernel::submit(
+        crate::turn_kernel::TurnSubmission::session_tool(
+            crate::turn_kernel::TurnRequest::new(
+                session.id.clone(),
+                session.agent_id.clone(),
+                message,
+                db,
+                store.compact.clone(),
+                cancel,
+                Arc::new(crate::chat_engine::NoopEventSink),
+            )
+            .with_model_preference(preferred_model.map(str::to_string), false)
+            .with_turn_id(turn_id)
+            .with_attachments(attachments)
+            .with_temperature(runtime_defaults.temperature)
+            .with_run_context(run_context)
+            .with_reasoning_effort(Some(runtime_defaults.reasoning_effort))
+            .with_subagent_depth(causal_subagent_depth),
             origin_source,
             channel_kb_context,
-            event_sink: Arc::new(crate::chat_engine::NoopEventSink),
-        },
+        ),
     ))
     .await
     .map_err(anyhow::Error::msg)?;

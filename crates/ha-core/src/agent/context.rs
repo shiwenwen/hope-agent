@@ -90,7 +90,8 @@ impl CompactionRunOptions {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct CompactionRunOutcome {
+#[doc(hidden)]
+pub struct CompactionRunOutcome {
     pub tier_applied: u8,
     pub changed_history: bool,
     pub summary_applied: bool,
@@ -118,7 +119,8 @@ impl CompactionRunOutcome {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct MidLoopCompactionState {
+#[doc(hidden)]
+pub struct MidLoopCompactionState {
     pub summary_attempt_count: u32,
     pub last_summary_attempt_round: Option<u32>,
     pub suppress_tier3_for_turn: bool,
@@ -454,7 +456,8 @@ impl AssistantAgent {
     /// Skipped when:
     /// - `session_id` is empty (e.g. side-query or detached agent)
     /// - the global `SessionDB` is not initialized yet
-    pub(crate) async fn persist_round_context(&self, messages: &[serde_json::Value]) -> Result<()> {
+    #[doc(hidden)]
+    pub async fn persist_round_context(&self, messages: &[serde_json::Value]) -> Result<()> {
         let Some(sid) = self.session_id.as_deref() else {
             // Detached agents have no crash-recovery contract. Installing the
             // validated summary in their in-memory canonical history is the
@@ -532,7 +535,8 @@ impl AssistantAgent {
     /// Run context compaction (Tier 1-3) on messages before API call.
     /// If Tier 3 summarization is needed, performs a non-streaming LLM call to summarize old messages.
     /// If flush_before_compact is enabled, extracts memories from messages before they are summarized.
-    pub(super) async fn run_compaction(
+    #[doc(hidden)]
+    pub async fn run_compaction(
         &self,
         request_projection: &mut Vec<serde_json::Value>,
         canonical_history: &mut Vec<serde_json::Value>,
@@ -1108,7 +1112,10 @@ impl AssistantAgent {
                                     let agent_id = self.agent_id.clone();
                                     let session_id = self.session_id.clone().unwrap_or_default();
                                     let msgs = split.summarizable.clone();
-                                    let model_id = model.id.clone();
+                                    let model_ref = crate::provider::ActiveModel {
+                                        provider_id: prov.id.clone(),
+                                        model_id: model.id.clone(),
+                                    };
                                     let session_db = self.session_db.clone();
 
                                     // Use a new tokio runtime on a background thread to avoid
@@ -1121,12 +1128,11 @@ impl AssistantAgent {
                                             let result = rt.block_on(async {
                                                 tokio::time::timeout(
                                                     std::time::Duration::from_secs(30),
-                                                    crate::memory_extract::flush_before_compact(
+                                                    crate::memory::extract_runtime::flush_before_compact(
                                                         &msgs,
                                                         &agent_id,
                                                         &session_id,
-                                                        &prov,
-                                                        &model_id,
+                                                        &model_ref,
                                                         session_db,
                                                     ),
                                                 )
@@ -1311,7 +1317,7 @@ impl AssistantAgent {
                         tokio::select! {
                             biased;
                             result = summary_future => result,
-                            _ = super::providers::cancel::wait_for_cancel(&cancel) => {
+                            _ = crate::chat_engine::wait_for_chat_cancel(cancel.clone()) => {
                                 let tokens_after = estimate_request(request_projection);
                                 if let Some(manifest) = compact_result.manifest.as_mut() {
                                     manifest.warnings.push("tier3_summary_cancelled".to_string());
@@ -1709,7 +1715,8 @@ impl AssistantAgent {
 
     /// Append hook-injected context to the pending queue, drained into the next
     /// round's reminder suffix. ArcSwap `rcu` so no `&mut self` is needed.
-    pub(super) fn push_pending_hook_context(&self, ctx: String) {
+    #[doc(hidden)]
+    pub fn push_pending_hook_context(&self, ctx: String) {
         if ctx.trim().is_empty() {
             return;
         }
@@ -1722,7 +1729,8 @@ impl AssistantAgent {
     }
 
     /// Take and clear the pending hook context, joined into one block.
-    pub(super) fn drain_pending_hook_context(&self) -> Option<String> {
+    #[doc(hidden)]
+    pub fn drain_pending_hook_context(&self) -> Option<String> {
         let taken = self
             .pending_hook_context
             .swap(std::sync::Arc::new(Vec::new()));
@@ -1762,7 +1770,8 @@ impl AssistantAgent {
         }
     }
 
-    pub(super) async fn maybe_compact_between_tool_rounds(
+    #[doc(hidden)]
+    pub async fn maybe_compact_between_tool_rounds(
         &self,
         request_projection: &mut Vec<serde_json::Value>,
         canonical_history: &mut Vec<serde_json::Value>,
@@ -1883,7 +1892,8 @@ impl AssistantAgent {
     /// then publishes the summary immediately, before any fallible rebuild or
     /// replan step. This keeps a generated summary from becoming an
     /// uncommitted in-memory side effect.
-    pub(super) async fn summarize_old_history_for_current_tool_group(
+    #[doc(hidden)]
+    pub async fn summarize_old_history_for_current_tool_group(
         &self,
         request_projection: &mut Vec<serde_json::Value>,
         canonical_history: &mut Vec<serde_json::Value>,
@@ -1930,7 +1940,8 @@ impl AssistantAgent {
     /// Build common hook-input fields from agent-level state, for hooks that
     /// fire outside a tool context (compaction, etc.). `cwd` is the session
     /// working dir (falling back to home); `permission_mode` defaults.
-    pub(super) fn hook_common_input(&self, event: &str) -> crate::hooks::CommonHookInput {
+    #[doc(hidden)]
+    pub fn hook_common_input(&self, event: &str) -> crate::hooks::CommonHookInput {
         let session_id = self.session_id.clone().unwrap_or_default();
         // Empty session_id (a session-less agent) → no transcript path, rather
         // than a bogus shared `sessions/transcript.jsonl` (mirrors the guard in
@@ -2150,7 +2161,7 @@ impl AssistantAgent {
 
     /// Normalize conversation history for Anthropic Messages API.
     /// Converts foreign format items (Responses API / Chat Completions) to Anthropic format.
-    pub(super) fn normalize_history_for_anthropic(
+    pub fn normalize_history_for_anthropic(
         history: &[serde_json::Value],
     ) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
@@ -2262,9 +2273,7 @@ impl AssistantAgent {
 
     /// Normalize conversation history for OpenAI Chat Completions API.
     /// Converts foreign format items (Responses API / Anthropic) to Chat format.
-    pub(super) fn normalize_history_for_chat(
-        history: &[serde_json::Value],
-    ) -> Vec<serde_json::Value> {
+    pub fn normalize_history_for_chat(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         for item in history {
             let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -2358,7 +2367,7 @@ impl AssistantAgent {
     /// Converts foreign format items (Anthropic / Chat) to Responses input format.
     /// The Responses API is flexible and accepts both `{ "role": "...", "content": "..." }`
     /// and `{ "type": "message", ... }` formats, so we mainly need to strip incompatible items.
-    pub(super) fn normalize_history_for_responses(
+    pub fn normalize_history_for_responses(
         history: &[serde_json::Value],
     ) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
@@ -2467,7 +2476,7 @@ impl AssistantAgent {
 
     /// Push a user message, merging with the last message if it's also a user message.
     /// This avoids consecutive user messages which Anthropic API rejects.
-    pub(super) fn push_user_message(
+    pub fn push_user_message(
         messages: &mut Vec<serde_json::Value>,
         new_content: serde_json::Value,
     ) {

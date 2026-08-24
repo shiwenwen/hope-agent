@@ -1,7 +1,7 @@
 //! Core ACP Agent implementation.
 //!
 //! Implements all ACP Agent interface methods by translating between
-//! ACP protocol and the existing Hope Agent AssistantAgent + SessionDB.
+//! ACP protocol and Hope Agent's shared TurnKernel + SessionDB.
 
 use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
@@ -15,29 +15,13 @@ use crate::acp::event_mapper;
 use crate::acp::protocol::NdJsonTransport;
 use crate::acp::session::{now_epoch_secs, AcpSession, AcpSessionStore};
 use crate::acp::types::*;
-use ha_core::agent::{AssistantAgent, CurrentUserMessageState};
 use ha_core::chat_engine::EventSink;
-use ha_core::failover;
-use ha_core::provider;
 use ha_core::session::{self, SessionDB, SessionIdeContext};
-use ha_core::turn_durability::{FlushReason, TurnDurabilitySink};
 
-const ACP_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
-const ACP_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 const ACP_INBOUND_QUEUE_CAPACITY: usize = 256;
 const ACP_PERMISSION_REQUEST_ID_PREFIX: &str = "acp-permission:";
 
 type AcpCancelStates = Arc<Mutex<HashMap<String, Arc<AcpCancelState>>>>;
-
-fn current_user_message_state_for_retry_base(
-    contains_current_user: bool,
-) -> CurrentUserMessageState {
-    if contains_current_user {
-        CurrentUserMessageState::AlreadyInHistory
-    } else {
-        CurrentUserMessageState::MissingFromHistory
-    }
-}
 
 struct AcpCancelState {
     inner: Mutex<AcpCancelStateInner>,
@@ -138,9 +122,9 @@ impl AcpCancelState {
         // prepare_prompt installs a distinct token for the next turn.
     }
 
-    /// Linearization point between a natural/error completion and a Stop.
-    /// Once completion claims the state, a later notification belongs after
-    /// this prompt and must not rewrite its terminal result.
+    /// Linearization point after the shared kernel has published a durable
+    /// non-cancelled terminal. A later ACP cancel belongs to the next prompt
+    /// generation and must not rewrite the completed one.
     fn claim_non_cancelled_completion(&self) -> bool {
         let mut inner = self.lock();
         if inner.cancel.load(Ordering::Acquire) {
@@ -413,120 +397,16 @@ fn spawn_acp_stop_cleanup(db: Arc<SessionDB>, internal_session_id: String) {
     }
 }
 
-async fn wait_for_acp_cancel(cancel: Arc<AtomicBool>) {
-    while !cancel.load(Ordering::Acquire) {
-        tokio::time::sleep(ACP_CANCEL_POLL_INTERVAL).await;
-    }
-}
-
-fn finalize_acp_user_stop(
-    runtime: &tokio::runtime::Runtime,
-    db: &Arc<SessionDB>,
-    durability: &Arc<ha_core::chat_engine::durability::StreamCoordinator>,
-    session_id: &str,
-) -> Result<()> {
-    let durable_seq = match runtime.block_on(durability.flush(FlushReason::Stop)) {
-        Ok(seq) => seq,
-        Err(error) => {
-            app_warn!(
-                "acp",
-                "stop",
-                "failed to flush stopped ACP turn for session {}: {}",
-                session_id,
-                error
-            );
-            durability.snapshot().durable_seq
+fn acp_stop_reason_from_terminal(
+    terminal: ha_core::chat_engine::TurnTerminal,
+) -> Result<&'static str> {
+    match terminal {
+        ha_core::chat_engine::TurnTerminal::Completed => Ok("end_turn"),
+        ha_core::chat_engine::TurnTerminal::Cancelled => Ok("cancelled"),
+        ha_core::chat_engine::TurnTerminal::Failed => {
+            Err(anyhow::anyhow!("ACP turn converged to a failed terminal"))
         }
-    };
-    if let Err(error) = runtime.block_on(durability.reconcile_spool_to_sqlite()) {
-        app_warn!(
-            "acp",
-            "stop",
-            "failed to reconcile stopped ACP turn for session {}: {}",
-            session_id,
-            error
-        );
     }
-
-    let (attempt_no, final_seq, visible_events, provider_kind) = if durability.is_persistent() {
-        let snapshot = db
-            .stream_run_snapshot(durability.persistence_run_id())?
-            .ok_or_else(|| anyhow::anyhow!("ACP persistence run disappeared during Stop"))?;
-        let (attempt_no, final_seq, events, _) =
-            session::select_recoverable_attempt_prefix(&snapshot);
-        let provider_kind = snapshot
-            .attempts
-            .iter()
-            .find(|attempt| attempt.attempt_no == attempt_no)
-            .and_then(|attempt| attempt.provider_shape.as_deref())
-            .or(snapshot.run.provider_shape.as_deref())
-            .and_then(ha_core::chat_engine::finalize::ProviderApiKind::from_shape);
-        (attempt_no, final_seq, events, provider_kind)
-    } else {
-        let snapshot = durability.snapshot();
-        (
-            durability.current_attempt_no(),
-            durable_seq,
-            snapshot.events,
-            durability
-                .current_provider_shape()
-                .as_deref()
-                .and_then(ha_core::chat_engine::finalize::ProviderApiKind::from_shape),
-        )
-    };
-    let trailing = session::trailing_text_from_journal_events(&visible_events);
-    let (stored_context, context_checkpoint_seq, context_revision) = if durability.is_persistent() {
-        db.recovery_context_for_prefix(durability.persistence_run_id(), attempt_no, final_seq)?
-    } else {
-        let (context, revision) = db
-            .load_context_with_revision(session_id)
-            .unwrap_or((None, durability.context_revision()));
-        (context, 0, revision)
-    };
-    let mut history: Vec<serde_json::Value> = stored_context
-        .as_deref()
-        .and_then(|json| serde_json::from_str(json).ok())
-        .unwrap_or_default();
-    ha_core::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
-        &mut history,
-        &visible_events,
-        context_checkpoint_seq,
-        provider_kind,
-    )?;
-    history.push(serde_json::json!({
-        "role": "assistant",
-        "content": ha_core::chat_engine::finalize::copy::model_marker(
-            &ha_core::chat_engine::finalize::TerminationReason::UserStop,
-        ),
-    }));
-    let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
-        session::NewMessage::assistant(&trailing).with_source(ha_core::chat_engine::ChatSource::Acp)
-    });
-    let commit = session::CommitInterruptedTurn {
-        run_id: durability
-            .is_persistent()
-            .then(|| durability.persistence_run_id().to_string()),
-        attempt_no,
-        session_id: session_id.to_string(),
-        assistant,
-        context_json: serde_json::to_string(&history)?,
-        expected_context_revision: context_revision,
-        turn_id: None,
-        final_seq,
-        status: session::ChatTurnStatus::Interrupted,
-        interrupt_reason: Some("user_stop".to_string()),
-        error: None,
-        recovery_event: None,
-        request_plan: durability.interrupted_request_plan_commit(
-            session::RequestPlanResponseOutcome::CancelledAfterResponse,
-        ),
-    };
-    db.commit_interrupted_turn(&commit)?;
-    runtime.block_on(durability.finalize_interrupted_request_after_turn_commit(
-        session::RequestPlanResponseOutcome::CancelledAfterResponse,
-    ))?;
-    durability.mark_interrupted("interrupted");
-    Ok(())
 }
 
 /// ACP's live transport is fed by the coordinator's post-durability output
@@ -948,15 +828,18 @@ impl AcpAgent {
             .agent_id
             .unwrap_or_else(|| self.default_agent_id.clone());
 
-        // ACP does not use the shared chat engine. Reserve the Agent before
-        // creating the durable session so deletion cannot slip between
-        // validation and session construction.
+        // Reserve the Agent before creating the durable session so deletion
+        // cannot slip between validation and session construction.
         let _agent_admission = match ha_core::agent_lifecycle::begin_agent_run(&agent_id) {
             Ok(guard) => guard,
             Err(e) => {
                 return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
             }
         };
+
+        if let Err(e) = self.validate_agent_runtime(&agent_id) {
+            return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string());
+        }
 
         let session_meta = match self.session_db.create_session(&agent_id) {
             Ok(m) => m,
@@ -966,17 +849,11 @@ impl AcpAgent {
         let acp_session_id = session_meta.id.clone();
         persist_acp_ide_context(&self.session_db, &acp_session_id, &req.meta);
 
-        let agent = match self.build_agent(&agent_id, &acp_session_id) {
-            Ok(a) => a,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string()),
-        };
-
         let acp_session = AcpSession {
             session_id: acp_session_id.clone(),
             internal_session_id: session_meta.id.clone(),
             agent_id: agent_id.clone(),
             cwd: req.cwd.clone(),
-            agent,
             cancel: Arc::new(AtomicBool::new(false)),
             active_prompt: false,
             created_at: now_epoch_secs(),
@@ -1025,20 +902,15 @@ impl AcpAgent {
         let agent_id = session_meta.agent_id.clone();
         persist_acp_ide_context(&self.session_db, &req.session_id, &req.meta);
 
-        let agent = match self.build_agent(&agent_id, &req.session_id) {
-            Ok(a) => a,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string()),
-        };
-
-        // Restore conversation context
-        restore_agent_context(&self.session_db, &req.session_id, &agent);
+        if let Err(e) = self.validate_agent_runtime(&agent_id) {
+            return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string());
+        }
 
         let acp_session = AcpSession {
             session_id: req.session_id.clone(),
             internal_session_id: req.session_id.clone(),
             agent_id: agent_id.clone(),
             cwd: req.cwd.clone(),
-            agent,
             cancel: Arc::new(AtomicBool::new(false)),
             active_prompt: false,
             created_at: now_epoch_secs(),
@@ -1088,19 +960,14 @@ impl AcpAgent {
         };
         let agent_id = session_meta.agent_id.clone();
         persist_acp_ide_context(&self.session_db, &req.session_id, &req.meta);
-        let agent = match self.build_agent(&agent_id, &req.session_id) {
-            Ok(agent) => agent,
-            Err(error) => {
-                return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, error.to_string())
-            }
-        };
-        restore_agent_context(&self.session_db, &req.session_id, &agent);
+        if let Err(error) = self.validate_agent_runtime(&agent_id) {
+            return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, error.to_string());
+        }
         let acp_session = AcpSession {
             session_id: req.session_id.clone(),
             internal_session_id: req.session_id.clone(),
             agent_id: agent_id.clone(),
             cwd: req.cwd,
-            agent,
             cancel: Arc::new(AtomicBool::new(false)),
             active_prompt: false,
             created_at: now_epoch_secs(),
@@ -1351,7 +1218,8 @@ impl AcpAgent {
         // Run the turn with the preflight-resolved prompt (same value the
         // other three entry points feed their engine), not the raw `text`, so
         // a future hook rewrite is honored consistently across all entries.
-        let stop_reason = self.run_agent_chat(&session_id, &effective_prompt, &attachments);
+        let stop_reason =
+            self.run_agent_chat(&session_id, &turn_id, &effective_prompt, &attachments);
 
         // Mark done
         if let Some(session) = self.sessions.get_mut(&session_id) {
@@ -1424,26 +1292,15 @@ impl AcpAgent {
             }
         };
 
-        let session = match self.sessions.get_mut(&req.session_id) {
-            Some(s) => s,
-            None => {
-                return JsonRpcResponse::error(
-                    id.clone(),
-                    ERROR_INVALID_PARAMS,
-                    "Session not found",
-                )
-            }
-        };
+        if self.sessions.get(&req.session_id).is_none() {
+            return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, "Session not found");
+        }
 
         if let Some(mode_id) = &req.mode_id {
-            let session_id = session.session_id.clone();
-            let new_agent = match self.build_agent(mode_id, &session_id) {
-                Ok(a) => a,
-                Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string()),
-            };
-            // Re-borrow after build_agent
+            if let Err(e) = self.validate_agent_runtime(mode_id) {
+                return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string());
+            }
             if let Some(session) = self.sessions.get_mut(&req.session_id) {
-                session.agent = new_agent;
                 session.agent_id = mode_id.clone();
             }
         }
@@ -1514,103 +1371,20 @@ impl AcpAgent {
 
     // ── Internal helpers ────────────────────────────────────────
 
-    /// Build an AssistantAgent from provider config (mirrors cron::build_and_run_agent)
-    fn build_agent(&self, agent_id: &str, session_id: &str) -> Result<AssistantAgent> {
+    /// Validate that the selected agent resolves to at least one configured
+    /// provider/model pair. Actual routing remains authoritative at admission.
+    fn validate_agent_runtime(&self, agent_id: &str) -> Result<()> {
         let _agent_admission = ha_core::agent_lifecycle::begin_agent_run(agent_id)?;
-        let store = ha_core::config::cached_config();
-        let agent_model_config = ha_core::agent_loader::load_agent(agent_id)
-            .map(|def| def.config.model)
-            .unwrap_or_default();
-
-        let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
-
-        let mut model_chain = Vec::new();
-        if let Some(p) = primary {
-            model_chain.push(p);
-        }
-        for fb in fallbacks {
-            if !model_chain
-                .iter()
-                .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-            {
-                model_chain.push(fb);
-            }
-        }
-
-        if model_chain.is_empty() {
-            return Err(anyhow::anyhow!(
-                "No model configured for agent '{}'",
-                agent_id
-            ));
-        }
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-
-        // Iterate the chain and pick the first model that actually constructs.
-        // The session-shell agent built here only needs *some* working model;
-        // run_agent_chat re-builds per-attempt at chat time.
-        let mut agent = None;
-        let mut last_error = String::new();
-        for candidate in &model_chain {
-            let Some(prov) = provider::find_provider(&store.providers, &candidate.provider_id)
-            else {
-                continue;
-            };
-            match rt.block_on(AssistantAgent::try_new_from_provider(
-                prov,
-                &candidate.model_id,
-            )) {
-                Ok(a) => {
-                    agent = Some(a.with_failover_context(prov));
-                    break;
-                }
-                Err(e) => {
-                    last_error = e.to_string();
-                    app_warn!(
-                        "acp",
-                        "build_agent",
-                        "Build agent failed for {}::{}, trying next model: {}",
-                        candidate.provider_id,
-                        candidate.model_id,
-                        last_error
-                    );
-                }
-            }
-        }
-        let mut agent = agent.ok_or_else(|| {
-            anyhow::anyhow!(
-                "All models failed to build for agent '{}': {}",
-                agent_id,
-                last_error
-            )
-        })?;
-        agent.set_agent_id(agent_id);
-        agent.set_session_id(session_id);
-        agent.set_compact_config(store.compact.clone());
-
-        if let Some(model_ref) = store.compact.effective_summarization_model_ref() {
-            if let Some(cp) =
-                ha_core::agent::build_compaction_provider(&model_ref, &store.providers, session_id)
-            {
-                agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
-            }
-        }
-
-        // Resolve temperature: agent > global
-        let agent_temp = ha_core::agent_loader::load_agent(agent_id)
-            .ok()
-            .and_then(|def| def.config.model.temperature);
-        agent.set_temperature(agent_temp.or(store.temperature));
-
-        Ok(agent)
+        ha_core::turn_kernel::validate_configured_model_route(agent_id)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))
     }
 
-    /// Run agent chat synchronously, streaming ACP events to stdout.
+    /// Run an ACP turn through the shared kernel while translating durable
+    /// stream events to ACP notifications.
     fn run_agent_chat(
         &mut self,
         session_id: &str,
+        turn_id: &str,
         text: &str,
         attachments: &[ha_core::agent::Attachment],
     ) -> Result<String> {
@@ -1618,656 +1392,56 @@ impl AcpAgent {
             .enable_all()
             .build()?;
 
-        let cancel = match self.sessions.get(session_id) {
-            Some(s) => s.cancel.clone(),
+        let (cancel, agent_id) = match self.sessions.get(session_id) {
+            Some(session) => (session.cancel.clone(), session.agent_id.clone()),
             None => return Err(anyhow::anyhow!("Session not found")),
         };
-        let cancel_state = self.cancel_state(session_id);
 
-        let session_id_owned = session_id.to_string();
-        let db_clone = self.session_db.clone();
-        let text_owned = text.to_string();
-        let attachments_owned = attachments.to_vec();
-
-        // Idle/busy tracking (R2 — §5.4 fix). ACP runs `AssistantAgent::chat`
-        // directly rather than `run_chat_engine`, so it doesn't inherit the
-        // engine's idle guard — create one here for the turn's duration so
-        // background-job / sub-agent completion injection (which always runs
-        // through `run_chat_engine`) yields to a live ACP turn instead of
-        // splicing into it. Dropped at function exit, after the failover loop's
-        // `rt.block_on` turns complete; the guard's `Drop` (idle notify +
-        // pending-injection flush) uses `std::thread::spawn`, so dropping it
-        // outside the local runtime is safe.
-        let _idle_guard = ha_core::subagent::ChatSessionGuard::new(&session_id_owned);
-
-        // Build model chain for failover
         let store = ha_core::config::cached_config();
-        let agent_id = self
-            .sessions
-            .get(session_id)
-            .map(|s| s.agent_id.clone())
-            .unwrap_or_else(|| self.default_agent_id.clone());
-        let _agent_run_guard = ha_core::agent_lifecycle::begin_agent_run(&agent_id)?;
-
         let agent_model_config = ha_core::agent_loader::load_agent(&agent_id)
-            .map(|def| def.config.model)
+            .map(|definition| definition.config.model)
             .unwrap_or_default();
-        let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
+        let resolved_temperature = agent_model_config.temperature.or(store.temperature);
+        let reasoning_effort = agent_model_config
+            .reasoning_effort
+            .or(rt.block_on(ha_core::agent::live_reasoning_effort(None)));
 
-        let mut model_chain = Vec::new();
-        if let Some(p) = primary {
-            model_chain.push(p);
-        }
-        for fb in fallbacks {
-            if !model_chain
-                .iter()
-                .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-            {
-                model_chain.push(fb);
-            }
-        }
+        let params = ha_core::turn_kernel::TurnRequest::new(
+            session_id.to_string(),
+            agent_id,
+            text.to_string(),
+            self.session_db.clone(),
+            store.compact.clone(),
+            cancel.clone(),
+            Arc::new(AcpDurableEventSink {
+                protocol_version: self.protocol_version.clone(),
+                session_id: session_id.to_string(),
+                message_id: format!("msg-agent-{turn_id}"),
+            }),
+        )
+        .with_turn_id(turn_id.to_string())
+        .with_attachments(attachments.to_vec())
+        .with_temperature(resolved_temperature)
+        .with_reasoning_effort(reasoning_effort);
 
-        if model_chain.is_empty() {
-            return Err(anyhow::anyhow!("No model configured"));
-        }
+        let result = rt.block_on(ha_core::turn_kernel::TurnKernel::submit(
+            ha_core::turn_kernel::TurnSubmission::acp(params),
+        ));
 
-        const MAX_RETRIES: u32 = 2;
-        const RETRY_BASE_MS: u64 = 1000;
-        const RETRY_MAX_MS: u64 = 10_000;
-
-        let mut last_error = String::new();
-        let mut last_reason = failover::FailoverReason::Unknown;
-        let mut stop_all_models = false;
-        let mut cancelled = false;
-
-        // Build CompactionProvider once, reuse across retries
-        let compaction_provider: Option<
-            std::sync::Arc<dyn ha_core::context_compact::CompactionProvider>,
-        > = store
-            .compact
-            .effective_summarization_model_ref()
-            .and_then(|mr| {
-                ha_core::agent::build_compaction_provider(&mr, &store.providers, &session_id_owned)
-                    .map(|cp| std::sync::Arc::new(cp) as _)
-            });
-
-        let durability =
-            rt.block_on(ha_core::chat_engine::durability::StreamCoordinator::create(
-                db_clone.clone(),
-                session_id_owned.clone(),
-                ha_core::chat_engine::ChatSource::Acp,
-                None,
-                None,
-                Arc::new(AcpDurableEventSink {
-                    protocol_version: self.protocol_version.clone(),
-                    session_id: session_id_owned.clone(),
-                    message_id: format!("msg-agent-{}", uuid::Uuid::new_v4()),
-                }),
-                cancel.clone(),
-                None,
-            ))?;
-
-        // SessionStart hook (startup/resume). ACP runs `AssistantAgent::chat`
-        // directly rather than `run_chat_engine`, so the engine's SessionStart
-        // embed never fires here — we invoke the shared observation helper
-        // ourselves. Fired once before the failover loop (`claim_session_start`
-        // only releases once); the resulting additionalContext is re-applied to
-        // each rebuilt agent so it survives retries, mirroring how the engine
-        // carries it in the dynamic user-data lane.
-        let session_start_ctx = rt.block_on(async {
-            tokio::select! {
-                biased;
-                _ = wait_for_acp_cancel(cancel.clone()) => None,
-                context = ha_core::hooks::fire_session_start_observation(
-                    &session_id_owned,
-                    &agent_id,
-                    model_chain
-                        .first()
-                        .map(|m| m.model_id.as_str())
-                        .unwrap_or_default(),
-                ) => Some(context),
-            }
-        });
-        let mut session_start_ctx = match session_start_ctx {
-            Some(context) => context,
-            None => {
-                if let Err(error) =
-                    finalize_acp_user_stop(&rt, &db_clone, &durability, &session_id_owned)
-                {
-                    app_error!(
-                        "acp",
-                        "stop",
-                        "failed to finalize ACP Stop during session-start hook for {}: {}",
-                        session_id_owned,
-                        error
-                    );
-                }
-                return Ok("cancelled".to_string());
-            }
-        };
-        // Fold in any UserPromptSubmit hook context the preflight chokepoint
-        // stashed for this turn, so the ACP entry injects it identically to
-        // `run_chat_engine`. Drained once; re-applied to each rebuilt agent
-        // below alongside the SessionStart context.
-        if let Some(extra) = ha_core::hooks::take_user_prompt_context(&session_id_owned) {
-            session_start_ctx = Some(match session_start_ctx.take() {
-                Some(e) => format!("{e}\n\n{extra}"),
-                None => extra,
-            });
-        }
-
-        for model_ref in &model_chain {
-            if cancel.load(Ordering::Acquire) {
-                cancelled = true;
-                break;
-            }
-            let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
-                Some(p) => p,
-                None => continue,
-            };
-
-            let mut retry_count: u32 = 0;
-            loop {
-                if cancel.load(Ordering::Acquire) {
-                    cancelled = true;
-                    break;
-                }
-                let provider_shape = match &prov.api_type {
-                    ha_core::provider::ApiType::Anthropic => "anthropic",
-                    ha_core::provider::ApiType::OpenaiChat => "openai_chat",
-                    ha_core::provider::ApiType::OpenaiResponses => "openai_responses",
-                    ha_core::provider::ApiType::Codex => "codex",
-                };
-                rt.block_on(durability.begin_attempt(
-                    Some(&model_ref.provider_id),
-                    Some(&model_ref.model_id),
-                    Some(provider_shape),
-                ))?;
-                let build_result = rt.block_on(async {
-                    tokio::select! {
-                        biased;
-                        _ = wait_for_acp_cancel(cancel.clone()) => {
-                            Err(anyhow::anyhow!("ACP prompt cancelled"))
-                        }
-                        result = AssistantAgent::try_new_from_provider(
-                            prov,
-                            &model_ref.model_id,
-                        ) => result,
-                    }
-                });
-                let mut agent = match build_result {
-                    Ok(a) => a.with_failover_context(prov),
-                    Err(e) => {
-                        let (reason, _) = failover::classify_error_with_evidence(&e);
-                        last_reason = reason;
-                        last_error = e.to_string();
-                        if cancel.load(Ordering::Acquire) {
-                            cancelled = true;
-                            break;
-                        }
-                        if reason.is_retryable() && retry_count < MAX_RETRIES {
-                            retry_count += 1;
-                            let delay = failover::retry_delay_ms(
-                                retry_count - 1,
-                                RETRY_BASE_MS,
-                                RETRY_MAX_MS,
-                            );
-                            let completed_delay = rt.block_on(async {
-                                tokio::select! {
-                                    biased;
-                                    _ = wait_for_acp_cancel(cancel.clone()) => false,
-                                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => true,
-                                }
-                            });
-                            if !completed_delay {
-                                cancelled = true;
-                                break;
-                            }
-                            continue;
-                        }
-                        app_warn!(
-                            "acp",
-                            "build_agent",
-                            "Build agent failed for {}::{}, trying next model: {}",
-                            model_ref.provider_id,
-                            model_ref.model_id,
-                            last_error
-                        );
-                        break;
-                    }
-                };
-                agent.set_agent_id(&agent_id);
-                agent.set_session_id(&session_id_owned);
-                agent.set_turn_provenance(ha_core::tool_defs::ToolTurnProvenance::ForegroundUser);
-                let (lineage_epoch, global_stop_epoch, global_stop_receipt_count) =
-                    durability.stop_admission();
-                agent.set_turn_stop_admission(
-                    lineage_epoch,
-                    global_stop_epoch,
-                    global_stop_receipt_count,
-                );
-                agent.set_session_db(db_clone.clone());
-                agent.set_turn_durability(durability.clone());
-                agent.set_compact_config(store.compact.clone());
-                if let Some(ref cp) = compaction_provider {
-                    agent.set_compaction_provider(Some(cp.clone()));
-                }
-
-                // Restore context
-                restore_agent_context(&db_clone, &session_id_owned, &agent);
-
-                // SessionStart/UserPromptSubmit hook output survives failover,
-                // but remains untrusted data rather than being promoted into
-                // the ACP run instruction lane.
-                if let Some(ref ctx) = session_start_ctx {
-                    agent.set_run_context(
-                        ha_core::prompt_context::RunInstructionContext::data_only(
-                            ha_core::prompt_context::RunInstructionSource::Acp,
-                            ctx.clone(),
-                        )
-                        .map_err(|error| anyhow::anyhow!(error))?,
-                    );
-                }
-
-                let cancel_clone = cancel.clone();
-                let durability_for_cb = durability.clone();
-
-                let result = rt.block_on(async {
-                    let current_user_message_state = current_user_message_state_for_retry_base(
-                        durability.attempt_base_contains_current_user(),
-                    );
-                    let chat = agent.chat_with_user_message_state(
-                        &text_owned,
-                        &attachments_owned,
-                        current_user_message_state,
-                        None,
-                        cancel_clone.clone(),
-                        move |delta| {
-                            if let Err(error) = durability_for_cb.accept_event(delta) {
-                                app_error!(
-                                    "acp",
-                                    "stream_durability",
-                                    "failed to accept ACP stream event: {}",
-                                    error
-                                );
-                            }
-                        },
-                    );
-                    tokio::pin!(chat);
-                    tokio::select! {
-                        biased;
-                        _ = wait_for_acp_cancel(cancel_clone) => {
-                            match tokio::time::timeout(
-                                ACP_CANCEL_COOPERATIVE_GRACE,
-                                &mut chat,
-                            ).await {
-                                Ok(result) => result,
-                                Err(_) => Err(anyhow::anyhow!(
-                                    "ACP chat cancellation grace timed out"
-                                )),
-                            }
-                        }
-                        result = &mut chat => result,
-                    }
-                });
-
-                match result {
-                    Ok((response, _thinking)) => {
-                        if cancel.load(Ordering::Acquire) {
-                            if let Err(error) = finalize_acp_user_stop(
-                                &rt,
-                                &db_clone,
-                                &durability,
-                                &session_id_owned,
-                            ) {
-                                app_error!(
-                                    "acp",
-                                    "stop",
-                                    "failed to finalize stopped ACP turn for {}: {}",
-                                    session_id_owned,
-                                    error
-                                );
-                            }
-                            return Ok("cancelled".to_string());
-                        }
-                        let final_seq = rt.block_on(durability.flush(FlushReason::FinalEnd))?;
-                        rt.block_on(durability.reconcile_spool_to_sqlite())?;
-                        let trailing = {
-                            let text = durability.trailing_text();
-                            if text.is_empty() && !durability.had_text_output() {
-                                response.clone()
-                            } else {
-                                text
-                            }
-                        };
-                        let mut assistant_msg = session::NewMessage::assistant(&trailing)
-                            .with_source(ha_core::chat_engine::ChatSource::Acp);
-                        let usage = durability.usage();
-                        assistant_msg.tokens_in = usage.input_tokens;
-                        assistant_msg.tokens_out = usage.output_tokens;
-                        assistant_msg.tokens_in_last =
-                            usage.last_context_input_tokens.or(usage.last_input_tokens);
-                        assistant_msg.model = usage.model.clone();
-                        assistant_msg.ttft_ms = usage.ttft_ms;
-                        assistant_msg.tokens_cache_creation = usage
-                            .last_cache_creation_input_tokens
-                            .or(usage.cache_creation_input_tokens);
-                        assistant_msg.tokens_cache_read = usage
-                            .last_cache_read_input_tokens
-                            .or(usage.cache_read_input_tokens);
-                        let mut usage_event = ha_core::model_usage::ModelUsageEvent::new(
-                            ha_core::model_usage::KIND_CHAT,
-                        );
-                        usage_event.input_tokens =
-                            usage.input_tokens.map(|value| value.max(0) as u64);
-                        usage_event.output_tokens =
-                            usage.output_tokens.map(|value| value.max(0) as u64);
-                        usage_event.cache_creation_input_tokens = usage
-                            .cache_creation_input_tokens
-                            .map(|value| value.max(0) as u64);
-                        usage_event.cache_read_input_tokens = usage
-                            .cache_read_input_tokens
-                            .map(|value| value.max(0) as u64);
-                        usage_event.context_input_tokens = usage
-                            .context_input_tokens
-                            .or(usage.input_tokens)
-                            .map(|value| value.max(0) as u64);
-                        usage_event.fresh_input_tokens = usage
-                            .fresh_input_tokens
-                            .or(usage.input_tokens)
-                            .map(|value| value.max(0) as u64);
-                        usage_event.metadata = Some(serde_json::json!({
-                            "tokenAccounting": {
-                                "inputCoverage": usage.input_coverage,
-                                "outputCoverage": usage.output_coverage,
-                                "observations": usage.token_accounting_observations,
-                            }
-                        }));
-                        usage_event.model_id = Some(
-                            usage
-                                .model
-                                .clone()
-                                .unwrap_or_else(|| model_ref.model_id.clone()),
-                        );
-                        usage_event.ttft_ms = usage.ttft_ms.map(|value| value.max(0) as u64);
-                        usage_event.operation = Some("chat.acp".to_string());
-                        usage_event.source = Some("acp".to_string());
-                        usage_event.provider_id = Some(model_ref.provider_id.clone());
-                        usage_event.provider_name = Some(prov.name.clone());
-                        usage_event.session_id = Some(session_id_owned.clone());
-                        usage_event.agent_id = Some(agent_id.clone());
-                        let context_json =
-                            serde_json::to_string(&agent.get_conversation_history())?;
-                        let completion_claimed = cancel_state
-                            .as_ref()
-                            .map(|state| state.claim_non_cancelled_completion())
-                            .unwrap_or_else(|| !cancel.load(Ordering::Acquire));
-                        if !completion_claimed {
-                            if let Err(error) = finalize_acp_user_stop(
-                                &rt,
-                                &db_clone,
-                                &durability,
-                                &session_id_owned,
-                            ) {
-                                app_error!(
-                                    "acp",
-                                    "stop",
-                                    "failed to finalize late ACP Stop for {}: {}",
-                                    session_id_owned,
-                                    error
-                                );
-                            }
-                            return Ok("cancelled".to_string());
-                        }
-                        let commit = ha_core::session::CommitAssistantTurn {
-                            run_id: durability
-                                .is_persistent()
-                                .then(|| durability.persistence_run_id().to_string()),
-                            attempt_no: durability.current_attempt_no(),
-                            session_id: session_id_owned.clone(),
-                            assistant: assistant_msg,
-                            trailing_placeholder_id: None,
-                            context_json,
-                            expected_context_revision: durability.context_revision(),
-                            turn_id: None,
-                            usage: Some(usage_event),
-                            final_seq,
-                            tier3_recovery: ha_core::session::Tier3RecoveryCommit::Unchanged,
-                            request_plan: durability.successful_request_plan_commit()?,
-                        };
-                        let committed = db_clone.commit_assistant_turn(&commit)?;
-                        rt.block_on(durability.finalize_successful_request_after_turn_commit())?;
-                        durability.mark_committed(committed.committed_seq);
-                        ha_core::session_title::maybe_schedule_after_success(
-                            db_clone.clone(),
-                            session_id_owned.clone(),
-                            agent_id.clone(),
-                            model_ref.clone(),
-                        );
-
-                        return Ok("end_turn".to_string());
-                    }
-                    Err(e) => {
-                        let (reason, _) = failover::classify_error_with_evidence(&e);
-                        last_reason = reason;
-                        last_error = e.to_string();
-                        if cancel.load(Ordering::Acquire) {
-                            cancelled = true;
-                            break;
-                        }
-
-                        if reason.is_terminal() {
-                            stop_all_models = true;
-                            break;
-                        }
-
-                        if reason.is_retryable() && retry_count < MAX_RETRIES {
-                            retry_count += 1;
-                            let delay = failover::retry_delay_ms(
-                                retry_count - 1,
-                                RETRY_BASE_MS,
-                                RETRY_MAX_MS,
-                            );
-                            let completed_delay = rt.block_on(async {
-                                tokio::select! {
-                                    biased;
-                                    _ = wait_for_acp_cancel(cancel.clone()) => false,
-                                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => true,
-                                }
-                            });
-                            if !completed_delay {
-                                cancelled = true;
-                                break;
-                            }
-                            continue;
-                        }
-                        break;
-                    }
-                }
-            }
-            if stop_all_models || cancelled {
-                break;
-            }
-        }
-
-        if cancelled || cancel.load(Ordering::Acquire) {
-            if let Err(error) =
-                finalize_acp_user_stop(&rt, &db_clone, &durability, &session_id_owned)
-            {
-                app_error!(
-                    "acp",
-                    "stop",
-                    "failed to finalize stopped ACP turn for {}: {}",
-                    session_id_owned,
-                    error
-                );
-            }
-            return Ok("cancelled".to_string());
-        }
-
-        // Converge provider/build failures through the same durable protocol;
-        // do not leave a `running` run waiting for the next process restart.
-        let final_error = if last_reason == failover::FailoverReason::DispatchUnknown {
-            format!(
-                "Provider dispatch outcome is unknown. Automatic retry was stopped to avoid a duplicate request. Check Provider activity before retrying manually. Last error: {}",
-                last_error
-            )
-        } else {
-            format!("All models failed. Last error: {}", last_error)
-        };
-        let durable_seq = rt.block_on(durability.flush(FlushReason::Failure))?;
-        // Never terminalize a run while some already-emitted bytes exist only
-        // in the spool. Keeping it `running` lets startup import and recover
-        // that complete displayed prefix.
-        rt.block_on(durability.reconcile_spool_to_sqlite())?;
-        let (attempt_no, final_seq, visible_events, integrity_error, provider_kind) =
-            if durability.is_persistent() {
-                let snapshot = db_clone
-                    .stream_run_snapshot(durability.persistence_run_id())?
-                    .ok_or_else(|| anyhow::anyhow!("ACP persistence run disappeared"))?;
-                let (attempt_no, final_seq, events, integrity_error) =
-                    session::select_recoverable_attempt_prefix(&snapshot);
-                let provider_kind = snapshot
-                    .attempts
-                    .iter()
-                    .find(|attempt| attempt.attempt_no == attempt_no)
-                    .and_then(|attempt| attempt.provider_shape.as_deref())
-                    .or(snapshot.run.provider_shape.as_deref())
-                    .and_then(ha_core::chat_engine::finalize::ProviderApiKind::from_shape);
-                (
-                    attempt_no,
-                    final_seq,
-                    events,
-                    integrity_error,
-                    provider_kind,
-                )
-            } else {
-                let snapshot = durability.snapshot();
-                (
-                    durability.current_attempt_no(),
-                    durable_seq,
-                    snapshot.events,
-                    None,
-                    durability
-                        .current_provider_shape()
-                        .as_deref()
-                        .and_then(ha_core::chat_engine::finalize::ProviderApiKind::from_shape),
-                )
-            };
-        let trailing = session::trailing_text_from_journal_events(&visible_events);
-        let (stored_context, context_checkpoint_seq, context_revision) =
-            if durability.is_persistent() {
-                db_clone.recovery_context_for_prefix(
-                    durability.persistence_run_id(),
-                    attempt_no,
-                    final_seq,
-                )?
-            } else {
-                let (context, revision) = db_clone
-                    .load_context_with_revision(&session_id_owned)
-                    .unwrap_or((None, durability.context_revision()));
-                (context, 0, revision)
-            };
-        let mut history: Vec<serde_json::Value> = stored_context
-            .as_deref()
-            .and_then(|json| serde_json::from_str(json).ok())
-            .unwrap_or_default();
-        ha_core::chat_engine::finalize::rebuild::append_journal_suffix_to_history(
-            &mut history,
-            &visible_events,
-            context_checkpoint_seq,
-            provider_kind,
-        )?;
-        let terminal_reason = ha_core::chat_engine::finalize::TerminationReason::ProviderFailed {
-            last_kind: last_reason,
-            last_message: final_error.clone(),
-            is_codex_auth: false,
-        };
-        history.push(serde_json::json!({
-            "role": "assistant",
-            "content": ha_core::chat_engine::finalize::copy::model_marker(&terminal_reason),
-        }));
-        let context_json = serde_json::to_string(&history)?;
-        let assistant = session::journal_events_have_assistant_output(&visible_events).then(|| {
-            session::NewMessage::assistant(&trailing)
-                .with_source(ha_core::chat_engine::ChatSource::Acp)
-        });
-        let commit = session::CommitInterruptedTurn {
-            run_id: durability
-                .is_persistent()
-                .then(|| durability.persistence_run_id().to_string()),
-            attempt_no,
-            session_id: session_id_owned.clone(),
-            assistant,
-            context_json,
-            expected_context_revision: context_revision,
-            turn_id: None,
-            final_seq,
-            status: session::ChatTurnStatus::Failed,
-            interrupt_reason: Some(
-                terminal_reason
-                    .to_chat_turn_interrupt_reason()
-                    .as_str()
-                    .to_string(),
-            ),
-            error: Some(
-                integrity_error
-                    .map(|integrity| format!("{final_error}; {integrity}"))
-                    .unwrap_or_else(|| final_error.clone()),
-            ),
-            recovery_event: Some(
-                session::NewMessage::error_event(&final_error)
-                    .with_source(ha_core::chat_engine::ChatSource::Acp),
-            ),
-            request_plan: durability.interrupted_request_plan_commit(
-                session::RequestPlanResponseOutcome::ResponseIncomplete,
-            ),
-        };
-        let completion_claimed = cancel_state
+        if result
             .as_ref()
-            .map(|state| state.claim_non_cancelled_completion())
-            .unwrap_or_else(|| !cancel.load(Ordering::Acquire));
-        if !completion_claimed {
-            if let Err(error) =
-                finalize_acp_user_stop(&rt, &db_clone, &durability, &session_id_owned)
-            {
-                app_error!(
-                    "acp",
-                    "stop",
-                    "failed to finalize ACP Stop racing terminal failure for {}: {}",
-                    session_id_owned,
-                    error
-                );
-            }
-            return Ok("cancelled".to_string());
-        }
-        if let Err(error) = db_clone.commit_interrupted_turn(&commit) {
-            app_error!(
-                "acp",
-                "stream_durability",
-                "failed to converge terminal ACP run {}: {}",
-                durability.persistence_run_id(),
-                error
-            );
-            // Keep the DB run recoverable; its journal/spool is still the
-            // durable source for every ACP chunk already emitted.
-        } else if let Err(error) =
-            rt.block_on(durability.finalize_interrupted_request_after_turn_commit(
-                session::RequestPlanResponseOutcome::ResponseIncomplete,
-            ))
+            .is_ok_and(|output| output.terminal != ha_core::chat_engine::TurnTerminal::Cancelled)
         {
-            app_error!(
-                "acp",
-                "stream_durability",
-                "failed to converge incognito request plan {}: {}",
-                durability.persistence_run_id(),
-                error
-            );
+            if let Some(state) = self.cancel_state(session_id) {
+                let _ = state.claim_non_cancelled_completion();
+            }
         }
-        durability.mark_interrupted("failed");
-        Err(anyhow::anyhow!(final_error))
-    }
 
+        match result {
+            Ok(output) => acp_stop_reason_from_terminal(output.terminal).map(str::to_string),
+            Err(error) => Err(anyhow::anyhow!(error)),
+        }
+    }
     /// Build session modes from available agents
     fn build_modes(&self, current_agent_id: &str) -> SessionModeState {
         let agents = ha_core::agent_loader::list_agents().unwrap_or_default();
@@ -2404,34 +1578,9 @@ impl AcpAgent {
     }
 }
 
-// ── Standalone helper functions (no Tauri dependency) ────────────
-
-/// Restore conversation history from DB into the agent
-fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
-    if let Ok(Some(json_str)) = db.load_context(session_id) {
-        if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
-            if !history.is_empty() {
-                agent.set_conversation_history(history);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn summarized_retry_base_does_not_reappend_current_user() {
-        assert_eq!(
-            current_user_message_state_for_retry_base(true),
-            CurrentUserMessageState::AlreadyInHistory
-        );
-        assert_eq!(
-            current_user_message_state_for_retry_base(false),
-            CurrentUserMessageState::MissingFromHistory
-        );
-    }
 
     fn inbound(method: &str, session_id: &str) -> JsonRpcMessage {
         JsonRpcMessage {
@@ -2613,5 +1762,18 @@ mod tests {
             AcpPromptEnqueueGuard::prepare(&inbound("session/prompt", "acp-session"), &states),
             AcpPromptEnqueueDecision::Prepared(_)
         ));
+    }
+
+    #[test]
+    fn acp_protocol_stop_reason_uses_durable_terminal() {
+        assert_eq!(
+            acp_stop_reason_from_terminal(ha_core::chat_engine::TurnTerminal::Completed).unwrap(),
+            "end_turn"
+        );
+        assert_eq!(
+            acp_stop_reason_from_terminal(ha_core::chat_engine::TurnTerminal::Cancelled).unwrap(),
+            "cancelled"
+        );
+        assert!(acp_stop_reason_from_terminal(ha_core::chat_engine::TurnTerminal::Failed).is_err());
     }
 }

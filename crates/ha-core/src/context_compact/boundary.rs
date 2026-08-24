@@ -68,14 +68,15 @@ pub struct BoundarySnapshot {
 /// different requests may have the same text while attachments or provider
 /// metadata differ.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LatestUserRequestAnchor {
+#[doc(hidden)]
+pub struct LatestUserRequestAnchor {
     message: Value,
 }
 
 impl LatestUserRequestAnchor {
     /// Tier 4 may delete older duplicate-looking turns, but the exact latest
     /// user item must remain once and only once in the projected history.
-    pub(crate) fn is_preserved_exactly_once(&self, messages: &[Value]) -> bool {
+    pub fn is_preserved_exactly_once(&self, messages: &[Value]) -> bool {
         messages
             .iter()
             .filter(|message| is_user_message(message) && *message == &self.message)
@@ -84,7 +85,8 @@ impl LatestUserRequestAnchor {
     }
 }
 
-pub(crate) fn latest_user_request_anchor(messages: &[Value]) -> Option<LatestUserRequestAnchor> {
+#[doc(hidden)]
+pub fn latest_user_request_anchor(messages: &[Value]) -> Option<LatestUserRequestAnchor> {
     messages
         .iter()
         .rev()
@@ -99,10 +101,8 @@ pub(crate) fn latest_user_request_anchor(messages: &[Value]) -> Option<LatestUse
 /// recover this boundary with a raw reverse role scan. `build_message_rounds`
 /// already distinguishes genuine user input from result containers and keeps
 /// the owning turn on every protocol-safe round.
-pub(crate) fn user_turn_start_for_message(
-    messages: &[Value],
-    message_index: usize,
-) -> Option<usize> {
+#[doc(hidden)]
+pub fn user_turn_start_for_message(messages: &[Value], message_index: usize) -> Option<usize> {
     build_message_rounds(messages)
         .into_iter()
         .find(|round| round.start <= message_index && message_index < round.end_exclusive)

@@ -1,0 +1,23 @@
+[package]
+name = "ha-workflow"
+version = "0.35.0"
+description = "Hope Agent Workflow parsing and execution machines"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+ha-core = { path = "../ha-core" }
+anyhow = { workspace = true }
+blake3 = "1.8.5"
+chrono = { workspace = true }
+rquickjs = "0.12"
+rquickjs-serde = "0.6"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

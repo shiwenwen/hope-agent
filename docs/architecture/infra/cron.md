@@ -409,7 +409,7 @@ flowchart TD
     PRE --> E{有 per-run 超时?}
     E -->|否| ER[直接 await]
     E -->|是| ET["tokio::time::timeout<br/>job 覆盖 else 全局，正数钳 30-7200"]
-    ER --> F["build_and_run_agent → run_chat_engine<br/>携 exact turn_id"]
+    ER --> F[build_and_run_agent → TurnSubmission::cron → TurnKernel]
     ET --> F
     F --> CT{classify_cron_terminal}
     ET -->|超时| TO["置 cancel_flag + 5s 宽限<br/>宽限内非空 Ok 采纳，除非用户已先取消"] --> CT
@@ -647,7 +647,7 @@ cron 是 Primary-only。run-now 也补上这道门，并与调度机制正交：
 
 ## 运行身份与 KB 访问（ChatSource::Cron）
 
-cron 执行经 `run_chat_engine` 发起普通会话的首个 turn，其 `source` 是专属的 `ChatSource::Cron`。它只表达**「由无人值守排程触发」**的首轮身份，不把整个 Session 变成 Cron 专用会话；用户后续输入按 Desktop / HTTP 等普通来源创建新 turn。
+cron 执行把 routing intent 封成 `TurnSubmission::cron`，经 `TurnKernel` 起一轮对话；kernel 封印的 `source` 是专属 `ChatSource::Cron`。语义定位是**「后台、非交互，但面向用户本人的顶层会话」**：
 
 | 维度 | Cron | 理由 |
 |------|------|------|
@@ -813,7 +813,7 @@ stateDiagram-v2
 
 ## Failover 策略
 
-`build_and_run_agent_with_context` 只负责 `resolve_model_chain(agent_model_config, store)` 构建模型链（primary + fallbacks 去重），然后一次性交给 `run_chat_engine`；模型链遍历、错误分类、重试与模型轮换全在 ChatEngine（`failover/executor.rs`）完成，cron 不内联任何重试循环。分类口径详见 [failover](../agent/failover.md)：
+`build_and_run_agent_with_context` 只负责组装 cron 的 `TurnRequest`（含可选 model preference），然后一次性交给 `TurnKernel`；配置快照、模型链解析、provider lease 都在 kernel admission 内冻结，模型链遍历、错误分类、重试与模型轮换由共享 `ha-agent-runtime` + kernel failover contract 完成。cron 不解析模型链，也不内联任何重试循环。分类口径详见 [failover](../agent/failover.md)：
 
 | 错误分类 | 处理方式 |
 |----------|----------|

@@ -358,7 +358,8 @@ pub struct ResolvedTurnContext {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum UserInstructionSource {
+#[doc(hidden)]
+pub enum UserInstructionSource {
     ExplicitSkillMention,
     ExplicitSlashSkill,
     SelectedAgent,
@@ -367,7 +368,8 @@ pub(crate) enum UserInstructionSource {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum UntrustedDataSource {
+#[doc(hidden)]
+pub enum UntrustedDataSource {
     KnowledgeNote,
     FileAttachment,
     HookContext,
@@ -376,7 +378,8 @@ pub(crate) enum UntrustedDataSource {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum ContextBlock {
+#[doc(hidden)]
+pub enum ContextBlock {
     UserInstruction {
         source: UserInstructionSource,
         content: String,
@@ -388,16 +391,13 @@ pub(crate) enum ContextBlock {
 }
 
 #[derive(Default)]
-pub(crate) struct TurnContextBuilder {
+#[doc(hidden)]
+pub struct TurnContextBuilder {
     blocks: Vec<ContextBlock>,
 }
 
 impl TurnContextBuilder {
-    pub(crate) fn user_instruction(
-        &mut self,
-        source: UserInstructionSource,
-        content: impl Into<String>,
-    ) {
+    pub fn user_instruction(&mut self, source: UserInstructionSource, content: impl Into<String>) {
         let content = content.into();
         if !content.trim().is_empty() {
             self.blocks
@@ -405,11 +405,7 @@ impl TurnContextBuilder {
         }
     }
 
-    pub(crate) fn untrusted_data(
-        &mut self,
-        source: UntrustedDataSource,
-        content: impl Into<String>,
-    ) {
+    pub fn untrusted_data(&mut self, source: UntrustedDataSource, content: impl Into<String>) {
         let content = content.into();
         if !content.trim().is_empty() {
             self.blocks
@@ -695,7 +691,8 @@ fn validate_slash_skill_token(raw: &str, mention: &MentionBindingWire) -> Result
     Ok(())
 }
 
-pub(crate) fn slash_skill_args(message: &str, mention: &MentionBindingWire) -> Option<String> {
+#[doc(hidden)]
+pub fn slash_skill_args(message: &str, mention: &MentionBindingWire) -> Option<String> {
     if mention.origin != StructuredMentionOrigin::SlashCommandAst
         || mention.kind != MentionKind::Skill
     {
@@ -723,7 +720,8 @@ fn file_target_from_token(raw: &str) -> Option<&str> {
 
 /// Resolve a typed sidecar into turn bindings and user-level context. Feature
 /// crates provide note/skill materialization through their existing hooks.
-pub(crate) fn resolve_typed_turn_context(
+#[doc(hidden)]
+pub fn resolve_typed_turn_context(
     message: &str,
     wire: &IncomingTurnWire,
     parent_session_id: &str,
@@ -826,7 +824,8 @@ pub(crate) fn resolve_typed_turn_context(
     Ok((builder, agent_bindings, receipts))
 }
 
-pub(crate) fn bound_note_refs(wire: &IncomingTurnWire) -> Vec<(String, String)> {
+#[doc(hidden)]
+pub fn bound_note_refs(wire: &IncomingTurnWire) -> Vec<(String, String)> {
     wire.mentions
         .iter()
         .filter(|mention| mention.kind == MentionKind::Note)
@@ -955,7 +954,8 @@ pub(crate) fn typed_mention_receipt_projection_matches_message(
     !spans.windows(2).any(|pair| pair[0].1 > pair[1].0)
 }
 
-pub(crate) fn finalize_turn_context(
+#[doc(hidden)]
+pub fn finalize_turn_context(
     message: &str,
     builder: TurnContextBuilder,
     agent_bindings: Vec<AgentBindingRef>,
@@ -986,7 +986,8 @@ pub(crate) fn finalize_turn_context(
 /// data block or from the visible token. Keep this platform-generated block
 /// in the current user turn, bounded to non-sensitive fields, and sort by the
 /// validated source anchor so wire array ordering cannot change the render.
-pub(crate) fn append_unresolved_mention_statuses(
+#[doc(hidden)]
+pub fn append_unresolved_mention_statuses(
     builder: &mut TurnContextBuilder,
     mentions: &[MentionReceipt],
 ) {
@@ -1039,7 +1040,8 @@ fn mention_anchor_sort_key(anchor: &SourceAnchor) -> (u8, u64, u64, &str) {
 /// only after typed-wire validation and resolution; it deliberately refuses
 /// legacy receipts, mismatched canonical text, unavailable/rejected mentions,
 /// and anchors that cannot be represented as an inline history chip.
-pub(crate) fn resolved_typed_mention_receipt_projection(
+#[doc(hidden)]
+pub fn resolved_typed_mention_receipt_projection(
     canonical_message: &str,
     receipt: &PromptContextReceipt,
     source_journal_seq: u64,

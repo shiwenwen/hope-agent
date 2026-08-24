@@ -1,7 +1,7 @@
 //! 统一的"工具被用户拒绝/取消"语义。
 //!
 //! 将 deny / approval-timeout / cancel 三类终止统一为类型化错误，
-//! 在 [`crate::agent::streaming_loop`] 出口处 downcast 后渲染成给 LLM
+//! 在 feature-owned Hope round driver 出口处 downcast 后渲染成给 LLM
 //! 的 `tool_result` 文本——确保：
 //!   1. 文本始终带 `Tool error:` 前缀，触发 `is_error` 通道（UI 标红、warn 日志）；
 //!   2. 文本以 "STOP and wait" 收尾，避免模型把拒绝当成可重试的失败再调一次；
@@ -20,7 +20,7 @@
 use std::fmt;
 
 /// 所有 LLM 可见 tool_result 错误文本的统一前缀。
-/// [`crate::agent::streaming_loop`] 用 `starts_with` 判 `is_error`。
+/// Hope round driver 用 `starts_with` 判 `is_error`。
 pub const TOOL_ERROR_PREFIX: &str = "Tool error: ";
 
 /// 统一的"工具被用户拒绝/取消"原因。

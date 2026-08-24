@@ -760,9 +760,8 @@ pub async fn fire_user_prompt_submit(
 /// Fire the `SessionStart` observation hook (startup/resume) and return any
 /// merged `additionalContext` to freeze into this turn's data envelope. Fires
 /// once per session per process (`claim_session_start`); later turns return
-/// `None`. Shared by the chat engine and the ACP turn loop so both entry points
-/// inject identical context — ACP runs `AssistantAgent::chat` directly rather
-/// than `run_chat_engine`, so without this it would never see `SessionStart`.
+/// `None`. Called by the shared runtime for every source whose TurnKernel policy
+/// enables user lifecycle hooks, including ACP, so transports cannot drift.
 ///
 /// `startup` vs `resume` is decided by the persisted message count (the user
 /// message for this turn is already saved at every call site): `≤1` → first

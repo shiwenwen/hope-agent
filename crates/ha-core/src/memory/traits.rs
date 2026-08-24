@@ -46,7 +46,7 @@ use super::types::*;
 ///    (e.g. `"honcho"`, `"qmd"`). This is used in logs and Dashboard
 ///    labels; don't reuse `"sqlite"`.
 /// 10. **Wire it up**: call `crate::set_memory_backend(Arc::new(YourBackend))`
-///     during app init before the first `AssistantAgent::chat()`. After that
+///     during app init before the first admitted Agent turn. After that
 ///     `crate::get_memory_backend()` returns your backend and every caller
 ///     (system prompt, Active Memory, auto-extract, tools) uses it.
 ///

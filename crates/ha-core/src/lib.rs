@@ -2,6 +2,28 @@
 // All business logic lives here.
 #![recursion_limit = "512"]
 
+#[cfg(test)]
+extern crate self as ha_core;
+
+// Same-source Deep Resolver tests compile the feature implementation inside
+// `ha-core` without wiring background scheduling. The resolver's pure tests
+// still type-check the orchestration paths, so provide a test-only inert
+// trigger guard rather than retaining the production trigger machine here.
+#[cfg(test)]
+#[allow(dead_code)]
+mod dreaming_triggers {
+    pub struct RunningGuard;
+
+    pub fn try_claim() -> Option<RunningGuard> {
+        Some(RunningGuard)
+    }
+}
+
+#[cfg(test)]
+mod test_agent_runtime;
+#[cfg(test)]
+pub(crate) use test_agent_runtime::run_agent_chat;
+
 // ── 基础层再导出（ha-base）────────────────────────────────────────
 // glob 再导出让 ha-base 的模块与 util 助手同时出现在 ha-core 根命名空间：
 //   · ha-core 内部 50 万行的 `crate::paths::…` / `crate::truncate_utf8` 照旧解析
@@ -42,8 +64,8 @@ pub mod agent_loader;
 pub mod ask_user;
 pub mod automation;
 // `activity`（autonomy 活动快照）**刻意留 kernel**：它是 `impl SessionDB` 的
-// 一个扩展方法，唯一 kernel 消费者是 Core 工具 `tools::goal`（无条件注册）——
-// Core 工具在每种运行形态下都必须可用，把数据源放到特征钩子后面会让
+// 一个扩展方法，消费方现为 `ha-goal` 外部工具，但它仍通过 kernel 的类型化
+// `SessionDB::get_session_activity()` 契约读取；把数据源放到可选钩子后面会让
 // minimal / ACP **静默**缺数据（调用点是 `.ok().and_then(..).unwrap_or(Null)`，
 // 只会让 activity 字段变 null，不报错）。
 //
@@ -61,6 +83,8 @@ pub mod awareness;
 pub mod backup;
 pub mod browser_hooks;
 mod cache_routing;
+#[doc(hidden)]
+pub use cache_routing::{audit_fingerprint, keyed_digest};
 pub mod channel;
 pub mod channel_hooks;
 pub mod chat_engine;
@@ -109,7 +133,6 @@ pub mod mcp_protocol;
 pub mod mcp_server;
 pub mod media_gen;
 pub mod memory;
-pub mod memory_extract;
 pub mod mention_hooks;
 pub mod model_usage;
 pub mod oauth;
@@ -160,6 +183,11 @@ pub mod verification;
 pub mod wakeup;
 pub mod workflow;
 pub mod worktree;
+
+// Compatibility paths for the extraction window. The contracts remain in
+// kernel-owned modules while their execution machines move to feature crates.
+pub use chat_engine::turn_kernel;
+pub use memory::extract_runtime as memory_extract;
 
 // ── Re-exports ────────────────────────────────────────────────────
 pub use app_init::{

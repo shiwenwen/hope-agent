@@ -3,7 +3,7 @@
 //!
 //! The same registry also powers `active_counts()` — the single source of
 //! truth for "how many chat engines are running right now" consumed by the
-//! `/api/server/status` endpoint. Because `run_chat_engine` wraps its entire
+//! `/api/server/status` endpoint. Because the shared runtime wraps its entire
 //! lifetime in a `StreamLifecycle` Drop guard that calls [`begin`] / [`end`],
 //! `active_counts` automatically covers desktop / HTTP / IM-channel paths
 //! without a parallel tracker.
@@ -47,15 +47,92 @@ pub enum ChatSource {
     /// cap). Distinct from `Channel` so KB access is granted via the owner bucket
     /// rather than being denied by the WS8 IM gate.
     Cron,
+    /// Evaluation runtime. Durable and concurrency-fenced, but it carries no
+    /// foreground-user authority and emits no user-facing lifecycle/UI events.
+    Eval,
     /// Agent Client Protocol stdio session.
     Acp,
+}
+
+/// Exhaustive source semantics consumed by admission, streaming, lifecycle,
+/// and Stop/Continue guards. This contract lives next to `ChatSource` so the
+/// chat engine does not depend back on the higher-level TurnKernel adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TurnSourcePolicy {
+    pub carries_foreground_user_intent: bool,
+    pub broadcasts_to_user_ui: bool,
+    pub tracks_seq: bool,
+    pub fires_user_lifecycle_hooks: bool,
+    pub holds_foreground_idle_guard: bool,
+}
+
+/// Return the single exhaustive policy row for [`ChatSource`].
+pub const fn source_policy(source: ChatSource) -> TurnSourcePolicy {
+    match source {
+        ChatSource::Desktop | ChatSource::Http => TurnSourcePolicy {
+            carries_foreground_user_intent: true,
+            broadcasts_to_user_ui: true,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: true,
+            holds_foreground_idle_guard: true,
+        },
+        ChatSource::Channel => TurnSourcePolicy {
+            carries_foreground_user_intent: true,
+            broadcasts_to_user_ui: false,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: true,
+            holds_foreground_idle_guard: true,
+        },
+        ChatSource::Subagent => TurnSourcePolicy {
+            carries_foreground_user_intent: false,
+            broadcasts_to_user_ui: false,
+            tracks_seq: false,
+            fires_user_lifecycle_hooks: false,
+            holds_foreground_idle_guard: false,
+        },
+        ChatSource::ParentInjection => TurnSourcePolicy {
+            carries_foreground_user_intent: false,
+            broadcasts_to_user_ui: true,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: false,
+            holds_foreground_idle_guard: false,
+        },
+        ChatSource::SessionTool => TurnSourcePolicy {
+            carries_foreground_user_intent: false,
+            broadcasts_to_user_ui: true,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: true,
+            holds_foreground_idle_guard: true,
+        },
+        ChatSource::Cron => TurnSourcePolicy {
+            carries_foreground_user_intent: false,
+            broadcasts_to_user_ui: true,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: true,
+            holds_foreground_idle_guard: true,
+        },
+        ChatSource::Eval => TurnSourcePolicy {
+            carries_foreground_user_intent: false,
+            broadcasts_to_user_ui: false,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: false,
+            holds_foreground_idle_guard: false,
+        },
+        ChatSource::Acp => TurnSourcePolicy {
+            carries_foreground_user_intent: true,
+            broadcasts_to_user_ui: false,
+            tracks_seq: true,
+            fires_user_lifecycle_hooks: true,
+            holds_foreground_idle_guard: true,
+        },
+    }
 }
 
 impl ChatSource {
     /// Whether this turn was initiated by a live user and may exercise tools
     /// that require fresh user intent (notably `session_continue`).
     pub fn carries_foreground_user_intent(&self) -> bool {
-        matches!(self, Self::Desktop | Self::Http | Self::Channel | Self::Acp)
+        source_policy(*self).carries_foreground_user_intent
     }
 
     /// Sources whose deltas reach a user-facing GUI via the global stream
@@ -76,10 +153,7 @@ impl ChatSource {
     /// be opened while the scheduled turn is running. Subagent stays off the
     /// bus because child sessions have no UI counterpart waiting to reattach.
     pub fn broadcasts_to_user_ui(&self) -> bool {
-        matches!(
-            self,
-            Self::Desktop | Self::Http | Self::ParentInjection | Self::SessionTool | Self::Cron
-        )
+        source_policy(*self).broadcasts_to_user_ui
     }
 
     /// Sources tracked by the stream_seq registry (so reload-recovery can
@@ -92,16 +166,7 @@ impl ChatSource {
     /// the active-stream concurrency guard (a second concurrent stream on the
     /// same session is rejected, not silently overwritten).
     pub fn tracks_seq(&self) -> bool {
-        matches!(
-            self,
-            Self::Desktop
-                | Self::Http
-                | Self::Channel
-                | Self::ParentInjection
-                | Self::SessionTool
-                | Self::Cron
-                | Self::Acp
-        )
+        source_policy(*self).tracks_seq
     }
 
     /// Whether the chat engine should fire user-facing lifecycle hooks (`SessionStart`
@@ -114,33 +179,27 @@ impl ChatSource {
     /// instead, fired by `subagent::spawn` (also gated against hook-spawned
     /// children — see `crates/ha-core/src/subagent/spawn.rs`).
     pub fn fires_user_lifecycle_hooks(&self) -> bool {
-        matches!(
-            self,
-            Self::Desktop | Self::Http | Self::Channel | Self::SessionTool | Self::Cron
-        )
+        source_policy(*self).fires_user_lifecycle_hooks
     }
 
     /// Whether a turn from this source is a **foreground turn that background-job
     /// and sub-agent completion injection must yield to** (the idle gate, R2).
     ///
-    /// `run_chat_engine` creates a [`crate::subagent::ChatSessionGuard`] for
+    /// The shared runtime creates a [`crate::subagent::ChatSessionGuard`] for
     /// these sources at its shared entry, so the busy/idle bookkeeping
-    /// (`ACTIVE_CHAT_SESSIONS` / `SESSION_IDLE_NOTIFY`) holds across **all four
-    /// entry points** — desktop, HTTP, IM channel, and cron (`ChatSource::Cron`).
+    /// (`ACTIVE_CHAT_SESSIONS` / `SESSION_IDLE_NOTIFY`) holds across all
+    /// foreground-policy sources — desktop, HTTP, ACP, IM channel, cron, and
+    /// SessionTool.
     /// Before R2 the guard was created only in the Tauri shell, so
     /// server / IM injection fired against a live turn instead of waiting
-    /// (§5.4). ACP runs `AssistantAgent::chat` directly (not this engine) and
-    /// creates the guard itself at its turn boundary.
+    /// (§5.4). ACP is covered by the same shared engine boundary.
     ///
     /// `ParentInjection` and `Subagent` are excluded: the former **is** the
     /// injection (guarding it would self-cancel via `INJECTION_CANCELS`), and
     /// the latter runs a distinct child session whose injection concerns are
     /// independent of the parent's idle state.
     pub fn holds_foreground_idle_guard(&self) -> bool {
-        matches!(
-            self,
-            Self::Desktop | Self::Http | Self::Channel | Self::SessionTool | Self::Cron
-        )
+        source_policy(*self).holds_foreground_idle_guard
     }
 
     /// Lowercase wire string used as the `messages.source` column value and
@@ -157,6 +216,7 @@ impl ChatSource {
             Self::ParentInjection => "parent_injection",
             Self::SessionTool => "session_tool",
             Self::Cron => "cron",
+            Self::Eval => "eval",
             Self::Acp => "acp",
         }
     }
@@ -174,6 +234,7 @@ impl ChatSource {
             "parent_injection" => Self::ParentInjection,
             "session_tool" => Self::SessionTool,
             "cron" => Self::Cron,
+            "eval" => Self::Eval,
             "acp" => Self::Acp,
             _ => Self::Desktop,
         }
@@ -190,6 +251,7 @@ impl fmt::Display for ChatSource {
             Self::ParentInjection => "parent_injection",
             Self::SessionTool => "session_tool",
             Self::Cron => "cron",
+            Self::Eval => "eval",
             Self::Acp => "acp",
         })
     }
@@ -362,6 +424,7 @@ pub fn active_counts() -> ActiveChatCounts {
             | ChatSource::ParentInjection
             | ChatSource::SessionTool
             | ChatSource::Cron
+            | ChatSource::Eval
             | ChatSource::Acp => {}
         }
     }

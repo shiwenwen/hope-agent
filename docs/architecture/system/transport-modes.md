@@ -102,11 +102,11 @@ Transport 的另一层职责是把 Owner Token 关在浏览器可见 URL 之外�
 
 ### 两条 delta 路径
 
-Chat Engine 产出的每个 stream delta 都被**双写**：一份写进本轮调用专属的 sink，一份写进 `EventBus` 的 `chat:stream_delta`（带 `{ sessionId, seq, streamId, event }`）。哪一份是「主路径」取决于模式。
+共享 turn runtime 产出的每个 stream delta 都经 kernel durability 协调器**双写**：一份写进本轮调用专属的 sink，一份写进 `EventBus` 的 `chat:stream_delta`（带 `{ sessionId, seq, streamId, event }`）。哪一份是「主路径」取决于模式。
 
 ```mermaid
 flowchart LR
-    CE["Chat Engine<br/>产出 stream delta"]
+    CE["TurnKernel + ha-agent-runtime<br/>产出 durable stream delta"]
     CE -->|"per-call sink"| CH["Tauri Channel&lt;string&gt;"]
     CE -->|"双写"| EB["EventBus<br/>chat:stream_delta"]
     CH -->|"Tauri 主路径"| HK["handleStreamEvent<br/>更新 UI"]
@@ -119,7 +119,7 @@ flowchart LR
 
 1. `useChatStream` 调 `transport.startChat(args, onEvent)`。
 2. `TauriTransport.startChat` 创建 `Channel<string>`、把它作为 `onEvent` 传给 Tauri `chat` 命令。
-3. `src-tauri` 跑 Chat Engine，delta 直接写入这个 Channel。
+3. `src-tauri` 提交 Desktop submission，TurnKernel 准入后由共享 runtime 执行，delta 直接写入这个 Channel。
 4. `useChatStream` 的 `onEvent` 解析事件、更新消息、处理 `session_created`、工具块、think 块与错误。
 
 同一批 delta 双写到的 EventBus 路径在 Tauri 里不是主路径，而是 `useChatStreamReattach` 的恢复保险：当前端重载、Channel 断开、或另一个窗口正在看同一会话时，UI 可从 EventBus 接上。
@@ -127,8 +127,8 @@ flowchart LR
 **HTTP 模式**——没有 per-call 的浏览器 Channel，主路径就是 EventBus：
 
 1. `HttpTransport.startChat` 调 `chat` 命令（`POST /api/chat/ui`）。
-2. `ha-server` 的 chat 路由传入 `NoopEventSink`，完全依赖 Chat Engine 的 EventBus 双写。
-3. Chat Engine 发 `chat:stream_delta`，`ha-server` 的 `ws/events` 把它转成 `/ws/events` 文本帧。
+2. `ha-server` 的 chat 路由传入 `NoopEventSink`，完全依赖共享 durability/EventBus 双写。
+3. runtime 经 kernel 协调器发 `chat:stream_delta`，`ha-server` 的 `ws/events` 把它转成 `/ws/events` 文本帧。
 4. `HttpTransport.listen("chat:stream_delta", ...)` 收到 `{ name, payload }` 后分发给 `useChatStreamReattach`。
 5. `useChatStreamReattach` 解析 `payload.event`、按 `seq` 去重，再调用同一套 `handleStreamEvent` 更新 UI。
 
@@ -142,7 +142,7 @@ HTTP 的 `startChat` 不再是「一直等着 HTTP 响应把整段回答带回�
 sequenceDiagram
     participant UI as 浏览器 startChat
     participant SV as ha-server<br/>POST /api/chat/ui
-    participant CE as Chat Engine<br/>（服务端持有）
+    participant CE as TurnKernel / runtime<br/>（服务端持有）
     participant WS as /ws/events
     UI->>SV: POST（带 clientRequestId 保证幂等）
     SV->>CE: 启动 turn（NoopEventSink）
@@ -240,14 +240,14 @@ Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/se
 
 ## 专题一：Server 模式的工具审批
 
-HTTP 入口的 `ChatEngineParams.auto_approve_tools` 在桌面 Web GUI 客户端下默认 `false`（与桌面 GUI 一致），审批通过 EventBus `approval_required` 事件让浏览器侧 UI 响应。但 headless 客户端（curl / pipeline / Docker entrypoint）通常不订阅这个事件，工具调用会一路卡到 5 分钟超时后被 deny——对调用方的表现就是「模型一个 shell 命令都跑不了」。
+HTTP 入口由 `TurnSubmission::http` 封印 `auto_approve_tools`；桌面 Web GUI 客户端默认 `false`（与桌面 GUI 一致），审批通过 EventBus `approval_required` 事件让浏览器侧 UI 响应。但 headless 客户端（curl / pipeline / Docker entrypoint）通常不订阅这个事件，工具调用会一路卡到 5 分钟超时后被 deny——对调用方的表现就是「模型一个 shell 命令都跑不了」。`ChatEngineParams` 是 TurnKernel 与 runtime 之间的内部载荷，HTTP 壳不能直接构造。
 
 为 headless 部署提供两个 opt-in 开关：
 
 - **CLI flag** `hope-agent server start --auto-approve-tools`
 - **Env var** `HA_SERVER_AUTO_APPROVE_TOOLS=1`（Docker 友好；接受 `1` / `true` / `yes` / `on`，大小写不敏感）
 
-任一启用后，[`ha_server::auto_approve::is_active()`](../../../crates/ha-server/src/auto_approve.rs) 返回 `true`，HTTP chat 路由把 `auto_approve_tools=true` 透传给 chat engine——等同于 IM 渠道账号勾上「auto-approve tools」。
+任一启用后，[`ha_server::auto_approve::is_active()`](../../../crates/ha-server/src/auto_approve.rs) 返回 `true`，HTTP chat 路由把这一 trusted deployment intent 交给 `TurnSubmission::http`——等同于 IM 渠道账号勾上「auto-approve tools」，最终仍由 TurnKernel 与权限引擎裁决。
 
 **这是「全自动放行」，不是「只跳工具确认弹窗」。** `auto_approve_tools=true` 是 IM 账户级语义，会跳过**所有**审批闸门：dangerous-commands 列表、protected-paths 列表、edit-command 审计、Plan Mode ask、Smart 模式 judge——全部跳过。LLM 触发的任何 `exec` / `write` / `edit` 都直接执行，没有拦截。**不要把这个 flag 用在不可信租户。**
 
@@ -259,7 +259,7 @@ HTTP 入口的 `ChatEngineParams.auto_approve_tools` 在桌面 Web GUI 客户端
 
 ACP 的 `session/prompt` 业务处理保持单线程串行，但 NDJSON stdin 必须由独立 reader 持续读取；否则主线程在同步等待 provider / tool 时，看不见同一条流上到达的 `session/cancel`。
 
-reader 在把 prompt 排入主循环前，为该轮安装一个独立的 cancel token；收到 cancel 后立即翻转 token，并异步调用共享的 `chat_engine::stop::stop_session` 清理该 session 的审批、`ask_user` 与 runtime。`UserPromptSubmit`、SessionStart hook、provider 构造、重试退避和 Agent chat 都与 token 竞争；Agent chat 最多保留 6 秒（`ACP_CANCEL_COOPERATIVE_GRACE`）的协作退出窗口。
+reader 在把 prompt 排入主循环前，为该轮安装一个独立的 cancel token；收到 cancel 后立即翻转 token，并异步调用共享的 `chat_engine::stop::stop_session` 清理该 session 的审批、`ask_user` 与 runtime。`UserPromptSubmit`、TurnKernel admission、SessionStart hook、provider 请求、重试退避与 round/tool checkpoint 都观察同一 token；ACP 不再包一层独立 Agent chat race 或私有协作宽限。
 
 每轮 token 不复用：旧 provider/tool future 即使在停止响应后迟到，也不能因为下一轮把同一 flag 重置而「复活」。自然完成 / provider failure 与 Stop 在 cancel-state 锁内竞争唯一的线性化终点：
 
@@ -303,7 +303,7 @@ Chrome Extension + Native Messaging Host 是面向用户本人的浏览器控制
 
 ### 为什么 `startChat` 不是通用 `streamCall`
 
-`startChat` 承载的是一次 Chat Engine turn，而不是任意后端长任务：
+`startChat` 承载的是一次 TurnKernel-admitted turn，而不是任意后端长任务：
 
 - 它要处理新会话创建、`__pending__` cache rename、session title、attachments、工具审批、停止生成、`chat:stream_end` 等一整套 chat 专属状态。
 - Tauri 模式需要 per-call `Channel<string>`、HTTP 模式需要全局 EventBus，二者 delta 主路径不同，但 hook 合约必须一致。
@@ -315,7 +315,7 @@ Chrome Extension + Native Messaging Host 是面向用户本人的浏览器控制
 
 一个直觉的做法是给 HTTP 模式配一条和 Tauri Channel 对称的 per-session 流式通道（`/ws/chat/{session_id}`）。它解决的抽象问题是「让浏览器收到自己这一轮的 delta」，但代价是一套独立维护的 stream registry。统一到全局 `/ws/events` 后：
 
-- Chat Engine 已经双写 EventBus，HTTP 不需要第二套 stream registry。
+- kernel durability 已经双写 EventBus，HTTP 不需要第二套 stream registry。
 - 全局事件流天然支持多客户端、后台会话、重载恢复与跨窗口观看同一流。
 - `seq` 去重让 Tauri Channel 与 EventBus 兜底可以共存，也让 HTTP 主路径能从 DB 游标恢复。
 - 所有后端主动事件都走同一个 listener API，前端不必为 chat 单独维护一条 WebSocket 生命周期。

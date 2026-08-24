@@ -1508,27 +1508,28 @@ impl std::fmt::Display for SubagentExecutionFailure {
 }
 
 fn subagent_terminal_reason_for_chat_failure(
-    kind: crate::chat_engine::ChatEngineFailureKind,
+    kind: crate::turn_kernel::TurnFailureKind,
     reason: Option<crate::failover::FailoverReason>,
 ) -> SubagentTerminalReason {
     match (kind, reason) {
         (
-            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            crate::turn_kernel::TurnFailureKind::Terminal,
             Some(crate::failover::FailoverReason::CurrentToolGroupOverflow),
         ) => SubagentTerminalReason::CurrentToolGroupOverflow,
         (
-            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            crate::turn_kernel::TurnFailureKind::Terminal,
             Some(crate::failover::FailoverReason::DispatchUnknown),
         ) => SubagentTerminalReason::DispatchUnknown,
-        (crate::chat_engine::ChatEngineFailureKind::ProviderExhausted, _) => {
+        (crate::turn_kernel::TurnFailureKind::ProviderExhausted, _) => {
             SubagentTerminalReason::ProviderExhausted
         }
-        (crate::chat_engine::ChatEngineFailureKind::Cancelled, _) => {
+        (crate::turn_kernel::TurnFailureKind::Cancelled, _) => {
             SubagentTerminalReason::ParentCancelled
         }
         (
-            crate::chat_engine::ChatEngineFailureKind::Terminal
-            | crate::chat_engine::ChatEngineFailureKind::Infrastructure,
+            crate::turn_kernel::TurnFailureKind::Terminal
+            | crate::turn_kernel::TurnFailureKind::Infrastructure
+            | crate::turn_kernel::TurnFailureKind::Panicked,
             _,
         ) => SubagentTerminalReason::ModelError,
     }
@@ -1569,8 +1570,6 @@ fn execute_subagent(
     >,
 > + Send {
     async move {
-        use crate::provider;
-
         // This must precede config resolution, title scheduling, provider
         // selection, and chat-engine construction. It is the last task-local
         // fence for a pause/dissolve racing tokio scheduling.
@@ -1587,40 +1586,12 @@ fn execute_subagent(
         let agent_def = crate::agent_loader::load_agent(&agent_id)?;
         let effective_reasoning_effort =
             reasoning_effort.or_else(|| agent_def.config.model.reasoning_effort.clone());
-        let agent_model_config = if let Some(ref override_str) = model_override {
-            let mut cfg = agent_def.config.model.clone();
-            cfg.primary = Some(override_str.clone());
-            cfg
-        } else {
-            // Check if the agent's subagent config specifies a model override
-            let subagent_model = agent_def.config.subagents.model.clone();
-            if let Some(ref m) = subagent_model {
-                let mut cfg = agent_def.config.model.clone();
-                cfg.primary = Some(m.clone());
-                cfg
-            } else {
-                agent_def.config.model.clone()
-            }
-        };
-
-        let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
-
-        let mut model_chain = Vec::new();
-        if let Some(p) = primary {
-            model_chain.push(p);
-        }
-        for fb in fallbacks {
-            if !model_chain
-                .iter()
-                .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
-            {
-                model_chain.push(fb);
-            }
-        }
-
-        if model_chain.is_empty() {
-            return Err(anyhow::anyhow!("No model configured for sub-agent execution").into());
-        }
+        // Spawn overrides and Agent subagent preferences are routing intent,
+        // not a pre-resolved chain. Admission applies them softly against the
+        // same immutable config snapshot as Provider credentials.
+        let model_preference = model_override
+            .clone()
+            .or_else(|| agent_def.config.subagents.model.clone());
 
         // Build the trusted, platform-owned sub-agent run frame.
         let effective_max = super::max_depth_for_agent(&agent_id);
@@ -1727,50 +1698,37 @@ fn execute_subagent(
         let mut attempt_attachments = attachments;
 
         let result = loop {
-            let attempt = crate::chat_engine::run_chat_engine_classified(
-                crate::chat_engine::ChatEngineParams {
-                    session_id: child_session_id.clone(),
-                    agent_id: agent_id.clone(),
-                    turn_id: None,
-                    message: attempt_message,
-                    incoming_turn: None,
-                    display_text: None,
-                    attachments: attempt_attachments,
-                    session_db: session_db.clone(),
-                    model_chain: model_chain.clone(),
-                    providers: store.providers.clone(),
-                    codex_token: None,
-                    resolved_temperature: agent_def.config.model.temperature.or(store.temperature),
-                    compact_config: store.compact.clone(),
-                    run_context: run_context.clone(),
-                    reasoning_effort: effective_reasoning_effort.clone(),
-                    cancel: cancel.clone(),
-                    foreground_stop_admission: None,
-                    plan_context_override: plan_context_override.clone(),
-                    skill_allowed_tools: skill_allowed_tools.clone(),
-                    denied_tools: denied.clone(),
-                    tool_scope: None,
-                    subagent_depth: depth,
-                    steer_run_id: Some(run_id.clone()),
-                    auto_approve_tools: false,
-                    follow_global_reasoning_effort: false,
-                    post_turn_effects: false,
-                    abort_on_cancel: true,
-                    persist_final_error_event: false,
-                    source: crate::chat_engine::stream_seq::ChatSource::Subagent,
-                    ui_surface: None,
+            let attempt = crate::turn_kernel::submit_classified(
+                crate::turn_kernel::TurnSubmission::subagent(
+                    crate::turn_kernel::TurnRequest::new(
+                        child_session_id.clone(),
+                        agent_id.clone(),
+                        attempt_message,
+                        session_db.clone(),
+                        store.compact.clone(),
+                        cancel.clone(),
+                        Arc::new(crate::chat_engine::NoopEventSink),
+                    )
+                    .with_model_preference(model_preference.clone(), false)
+                    .with_attachments(attempt_attachments)
+                    .with_temperature(agent_def.config.model.temperature.or(store.temperature))
+                    .with_run_context(run_context.clone())
+                    .with_reasoning_effort(effective_reasoning_effort.clone())
+                    .with_plan_context_override(plan_context_override.clone())
+                    .with_skill_allowed_tools(skill_allowed_tools.clone())
+                    .with_denied_tools(denied.clone())
+                    .with_subagent_depth(depth)
+                    .with_steer_run_id(Some(run_id.clone())),
                     origin_source,
-                    channel_kb_context: origin_channel_kb_context.clone(),
-                    event_sink: Arc::new(crate::chat_engine::NoopEventSink),
-                },
+                    origin_channel_kb_context.clone(),
+                ),
             )
             .await;
 
             match attempt {
                 Ok(result) => break Ok(result),
                 Err(error)
-                    if error.kind()
-                        == crate::chat_engine::ChatEngineFailureKind::ProviderExhausted
+                    if error.kind == crate::turn_kernel::TurnFailureKind::ProviderExhausted
                         && retry_attempt < max_provider_retries
                         && !cancel.load(Ordering::SeqCst) =>
                 {
@@ -1846,7 +1804,7 @@ fn execute_subagent(
                             .await;
                     }
                     if cancel.load(Ordering::SeqCst) {
-                        break Err(crate::chat_engine::ChatEngineFailure::cancelled(
+                        break Err(crate::turn_kernel::TurnFailure::cancelled(
                             "Sub-agent provider recovery cancelled",
                         ));
                     }
@@ -1868,9 +1826,25 @@ fn execute_subagent(
 
         let result = result.map_err(|error| {
             let message = format!("Sub-agent chat execution failed: {error}");
-            let terminal_reason =
-                subagent_terminal_reason_for_chat_failure(error.kind(), error.reason());
-            SubagentExecutionFailure::new(terminal_reason, message)
+            match error.kind {
+                crate::turn_kernel::TurnFailureKind::ProviderExhausted => {
+                    SubagentExecutionFailure::new(
+                        SubagentTerminalReason::ProviderExhausted,
+                        message,
+                    )
+                }
+                crate::turn_kernel::TurnFailureKind::Terminal => SubagentExecutionFailure::new(
+                    subagent_terminal_reason_for_chat_failure(error.kind, error.reason()),
+                    message,
+                ),
+                crate::turn_kernel::TurnFailureKind::Cancelled => {
+                    SubagentExecutionFailure::new(SubagentTerminalReason::ParentCancelled, message)
+                }
+                crate::turn_kernel::TurnFailureKind::Infrastructure
+                | crate::turn_kernel::TurnFailureKind::Panicked => {
+                    SubagentExecutionFailure::new(SubagentTerminalReason::ModelError, message)
+                }
+            }
         })?;
 
         let model_used = result.model_used.as_ref().map(ToString::to_string);
@@ -1906,7 +1880,7 @@ mod hook_label_tests {
     fn execution_failure_keeps_provider_exhaustion_distinct_from_setup_errors() {
         let provider = SubagentExecutionFailure::new(
             subagent_terminal_reason_for_chat_failure(
-                crate::chat_engine::ChatEngineFailureKind::ProviderExhausted,
+                crate::turn_kernel::TurnFailureKind::ProviderExhausted,
                 Some(crate::failover::FailoverReason::Timeout),
             ),
             "providers unavailable",
@@ -1923,7 +1897,7 @@ mod hook_label_tests {
     #[test]
     fn current_tool_group_terminal_never_becomes_provider_recovery() {
         let terminal_reason = subagent_terminal_reason_for_chat_failure(
-            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            crate::turn_kernel::TurnFailureKind::Terminal,
             Some(crate::failover::FailoverReason::CurrentToolGroupOverflow),
         );
         assert_eq!(
@@ -1937,7 +1911,7 @@ mod hook_label_tests {
     #[test]
     fn dispatch_unknown_never_becomes_provider_recovery() {
         let terminal_reason = subagent_terminal_reason_for_chat_failure(
-            crate::chat_engine::ChatEngineFailureKind::Terminal,
+            crate::turn_kernel::TurnFailureKind::Terminal,
             Some(crate::failover::FailoverReason::DispatchUnknown),
         );
         assert_eq!(terminal_reason, SubagentTerminalReason::DispatchUnknown);

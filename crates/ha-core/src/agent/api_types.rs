@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 // ── OpenAI Responses API types ────────────────────────────────────
 
 #[derive(Serialize, Clone)]
-pub(crate) struct ReasoningConfig {
+pub struct ReasoningConfig {
     pub effort: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
 
 #[derive(Serialize)]
-pub(super) struct ResponsesRequest {
+pub struct ResponsesRequest {
     pub model: String,
     pub store: bool,
     pub stream: bool,
@@ -33,7 +33,7 @@ pub(super) struct ResponsesRequest {
 
 /// Tracks a function_call being accumulated from SSE events
 #[derive(Debug, Clone)]
-pub(crate) struct FunctionCallItem {
+pub struct FunctionCallItem {
     pub call_id: String,
     pub name: String,
     pub arguments: String,
@@ -42,7 +42,7 @@ pub(crate) struct FunctionCallItem {
 // ── SSE event types for streaming response ────────────────────────
 
 #[derive(Deserialize, Debug)]
-pub(super) struct SseEvent {
+pub struct SseEvent {
     #[serde(rename = "type", default)]
     pub event_type: Option<String>,
     #[serde(default)]
@@ -61,7 +61,7 @@ pub(super) struct SseEvent {
 }
 
 #[derive(Deserialize, Debug)]
-pub(super) struct SseResponseObj {
+pub struct SseResponseObj {
     #[serde(default)]
     pub output: Option<Vec<SseOutputItem>>,
     #[serde(default)]
@@ -71,7 +71,7 @@ pub(super) struct SseResponseObj {
 }
 
 #[derive(Deserialize, Debug, Default)]
-pub(super) struct SseTokenDetails {
+pub struct SseTokenDetails {
     #[serde(default)]
     pub cached_tokens: Option<u64>,
     #[serde(default)]
@@ -79,7 +79,7 @@ pub(super) struct SseTokenDetails {
 }
 
 #[derive(Deserialize, Debug, Default)]
-pub(super) struct SseUsage {
+pub struct SseUsage {
     #[serde(default, alias = "prompt_tokens")]
     pub input_tokens: Option<u64>,
     #[serde(default, alias = "completion_tokens")]
@@ -98,7 +98,7 @@ pub(super) struct SseUsage {
 }
 
 #[derive(Deserialize, Debug)]
-pub(super) struct SseResponseError {
+pub struct SseResponseError {
     #[serde(default)]
     pub code: Option<String>,
     #[serde(rename = "type", default)]
@@ -108,7 +108,7 @@ pub(super) struct SseResponseError {
 }
 
 #[derive(Deserialize, Debug)]
-pub(super) struct SseOutputItem {
+pub struct SseOutputItem {
     #[serde(rename = "type", default)]
     pub item_type: Option<String>,
     #[serde(default)]
@@ -124,7 +124,7 @@ pub(super) struct SseOutputItem {
 }
 
 #[derive(Deserialize, Debug)]
-pub(super) struct ContentPart {
+pub struct ContentPart {
     #[serde(rename = "type", default)]
     pub part_type: Option<String>,
     #[serde(default)]
@@ -134,7 +134,7 @@ pub(super) struct ContentPart {
 // ── Error parsing types ───────────────────────────────────────────
 
 #[derive(Deserialize, Default)]
-pub(super) struct ApiErrorResponse {
+pub struct ApiErrorResponse {
     #[serde(default)]
     pub error: Option<ApiErrorDetail>,
     #[serde(default)]
@@ -142,7 +142,7 @@ pub(super) struct ApiErrorResponse {
 }
 
 #[derive(Deserialize, Default)]
-pub(super) struct ApiErrorDetail {
+pub struct ApiErrorDetail {
     #[serde(default)]
     pub code: Option<String>,
     #[serde(default)]
@@ -159,7 +159,7 @@ pub(super) struct ApiErrorDetail {
 
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
-pub(super) struct AnthropicSseEvent {
+pub struct AnthropicSseEvent {
     #[serde(rename = "type", default)]
     pub event_type: Option<String>,
     #[serde(default)]
@@ -178,7 +178,7 @@ pub(super) struct AnthropicSseEvent {
 
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
-pub(super) struct AnthropicContentBlock {
+pub struct AnthropicContentBlock {
     #[serde(rename = "type", default)]
     pub block_type: Option<String>,
     #[serde(default)]
@@ -192,7 +192,7 @@ pub(super) struct AnthropicContentBlock {
 }
 
 #[derive(Deserialize, Debug)]
-pub(super) struct AnthropicDelta {
+pub struct AnthropicDelta {
     #[serde(rename = "type", default)]
     pub delta_type: Option<String>,
     #[serde(default)]
@@ -205,7 +205,7 @@ pub(super) struct AnthropicDelta {
 
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
-pub(super) struct AnthropicMessage {
+pub struct AnthropicMessage {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
@@ -218,7 +218,7 @@ pub(super) struct AnthropicMessage {
 
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
-pub(super) struct AnthropicError {
+pub struct AnthropicError {
     #[serde(rename = "type", default)]
     pub error_type: Option<String>,
     #[serde(default)]

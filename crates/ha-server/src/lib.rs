@@ -36,10 +36,16 @@ pub use config::ServerConfig;
 /// 尾部冻结工具注册表，之后再挂 handler 会 panic 或静默丢失。每个 `wire()`
 /// 自带 `Once`，重复调用安全。
 ///
-/// 新增特征 crate 只需改这里一处 + 在每个壳的 `Cargo.toml` 加 path dep；
-/// 不要重新在 shell 里内联 `wire()` 序列（历史上 4 处各抄一份，新增功能时
-/// 漏改任一处就是 `app_update` 式 registry_freeze warn 加静默丢 handler）。
+/// 新增需要全局装配的特征 crate，只在这里加 `wire()` 并给 `ha-server`
+/// 增加 path dependency；其它壳通过本函数复用装配，只有直接调用该 feature
+/// API 时才加自己的 dependency。不要在 shell 里内联 `wire()` 序列（历史上
+/// 4 处各抄一份，新增功能时漏改任一处就是 registry_freeze warn 加静默丢
+/// handler）。
 pub fn wire_features() {
+    ha_agent_runtime::wire();
+    ha_memory::wire();
+    ha_goal::wire();
+    ha_workflow::wire();
     ha_updater::wire();
     ha_weather::wire();
     ha_acp::wire();

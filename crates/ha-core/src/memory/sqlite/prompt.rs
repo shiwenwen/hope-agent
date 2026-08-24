@@ -376,7 +376,7 @@ fn prompt_section_label(heading: &str) -> String {
 
 /// Sanitize memory content before injecting into system prompt.
 /// Detects suspicious patterns and escapes special tokens.
-pub(crate) fn sanitize_for_prompt(content: &str) -> String {
+pub fn sanitize_for_prompt(content: &str) -> String {
     let lower = content.to_lowercase();
     let suspicious_patterns = [
         "ignore previous instructions",

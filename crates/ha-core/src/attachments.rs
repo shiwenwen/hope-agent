@@ -56,7 +56,8 @@ impl std::fmt::Debug for FrozenMentionAttachment {
 /// Read-only acquisition result for one typed local resource. The chat engine
 /// prepares the complete batch before it creates an execution ledger, then
 /// records these refs in that ledger before publishing any durable bytes.
-pub(crate) struct PreparedMentionAttachment {
+#[doc(hidden)]
+pub struct PreparedMentionAttachment {
     target_id: String,
     resource_ref: String,
     snapshot_name: Option<String>,
@@ -78,7 +79,8 @@ impl std::fmt::Debug for PreparedMentionAttachment {
 }
 
 #[derive(Default)]
-pub(crate) struct PreparedTypedResourceMentions {
+#[doc(hidden)]
+pub struct PreparedTypedResourceMentions {
     candidates: Vec<PreparedMentionAttachment>,
 }
 
@@ -95,7 +97,7 @@ impl PreparedTypedResourceMentions {
     /// Bind every planned basename to the backend-generated persistence run.
     /// The run UUID becomes the filesystem ownership boundary used by live and
     /// startup crash reconciliation; no client-controlled path participates.
-    pub(crate) fn bind_persistence_run(&mut self, run_id: &str) -> Result<()> {
+    pub fn bind_persistence_run(&mut self, run_id: &str) -> Result<()> {
         let prefix = typed_resource_run_prefix(run_id)?;
         for candidate in &mut self.candidates {
             // The durable basename is an internal ownership key, not a display
@@ -106,7 +108,7 @@ impl PreparedTypedResourceMentions {
         Ok(())
     }
 
-    pub(crate) fn durable_snapshot_names(&self) -> Result<Vec<String>> {
+    pub fn durable_snapshot_names(&self) -> Result<Vec<String>> {
         self.candidates
             .iter()
             .map(|candidate| {
@@ -630,7 +632,8 @@ pub fn freeze_typed_resource_mentions(
 /// stream is registered so deterministic local validation failures remain
 /// ledger-free, while successful bytes stay memory-only until the ledger is
 /// ready to record their materialization refs.
-pub(crate) fn prepare_typed_resource_mentions(
+#[doc(hidden)]
+pub fn prepare_typed_resource_mentions(
     working_dir: Option<&str>,
     file_target_ids: &[String],
     plan_target_ids: &[String],
@@ -1097,13 +1100,15 @@ fn prepare_resolved_mention_sources_with_budget(
 /// sessions the caller must run this synchronously inside the SessionDB
 /// publication gate; attachment mutation and Base64 encoding happen only
 /// after that gate commits so they do not extend the SQLite writer lock.
-pub(crate) struct PublishedTypedResourceMentions {
+#[doc(hidden)]
+pub struct PublishedTypedResourceMentions {
     candidates: Vec<PreparedMentionAttachment>,
     snapshot_paths: Vec<PathBuf>,
     incognito: bool,
 }
 
-pub(crate) fn publish_typed_resource_snapshot_files(
+#[doc(hidden)]
+pub fn publish_typed_resource_snapshot_files(
     session_id: &str,
     prepared: PreparedTypedResourceMentions,
     incognito: bool,
@@ -1161,7 +1166,8 @@ pub(crate) fn publish_typed_resource_snapshot_files(
 /// committed. This phase is deterministic/infallible for a prepared batch and
 /// may perform the large Base64 allocations without blocking unrelated DB
 /// writers.
-pub(crate) fn finalize_typed_resource_mentions(
+#[doc(hidden)]
+pub fn finalize_typed_resource_mentions(
     published: PublishedTypedResourceMentions,
     attachments: &mut [Attachment],
 ) -> Vec<FrozenMentionAttachment> {
@@ -1233,10 +1239,8 @@ fn freeze_resolved_mention_sources(
 /// Best-effort rollback for a batch whose Initial Context reference never
 /// became durable. Basename validation keeps cleanup scoped to artifacts that
 /// this typed-resource publisher owns.
-pub(crate) fn remove_uncommitted_typed_resource_snapshots(
-    session_id: &str,
-    snapshot_names: &[String],
-) {
+#[doc(hidden)]
+pub fn remove_uncommitted_typed_resource_snapshots(session_id: &str, snapshot_names: &[String]) {
     for snapshot_name in snapshot_names {
         let path = Path::new(snapshot_name);
         let owned =

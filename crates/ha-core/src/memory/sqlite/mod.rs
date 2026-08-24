@@ -9,6 +9,6 @@ pub use prompt::{format_prompt_summary_v2, format_prompt_summary_v2_with_refs, P
 // Context Pack (memory/dreaming/context_pack.rs) renders LLM-derived claim
 // content into the cache-stable prefix and must reuse the same prompt-injection
 // filter as the SQLite memory section (red line: no bypass).
-pub(crate) use prompt::sanitize_for_prompt;
+pub use prompt::sanitize_for_prompt;
 
 // open_default is unused but kept for future convenience

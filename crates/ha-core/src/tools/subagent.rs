@@ -7,11 +7,11 @@ use crate::agent_config::AgentConfig;
 use crate::agent_loader::DEFAULT_AGENT_ID;
 use crate::subagent::{self, SpawnParams, SubagentStatus};
 
-pub(crate) const WORKFLOW_PREALLOCATED_RUN_ID_ARG: &str = "__hope_workflow_preallocated_run_id";
-pub(crate) const WORKFLOW_SKIP_PARENT_INJECTION_ARG: &str = "__hope_workflow_skip_parent_injection";
-pub(crate) const WORKFLOW_ISOLATION_ARG: &str = "__hope_workflow_isolation";
-pub(crate) const WORKFLOW_RUN_ID_ARG: &str = "__hope_workflow_run_id";
-pub(crate) const WORKFLOW_DISPATCH_ID_ARG: &str = "__hope_workflow_dispatch_id";
+pub const WORKFLOW_PREALLOCATED_RUN_ID_ARG: &str = "__hope_workflow_preallocated_run_id";
+pub const WORKFLOW_SKIP_PARENT_INJECTION_ARG: &str = "__hope_workflow_skip_parent_injection";
+pub const WORKFLOW_ISOLATION_ARG: &str = "__hope_workflow_isolation";
+pub const WORKFLOW_RUN_ID_ARG: &str = "__hope_workflow_run_id";
+pub const WORKFLOW_DISPATCH_ID_ARG: &str = "__hope_workflow_dispatch_id";
 
 /// Model providers may materialize omitted optional string fields as `""`.
 /// Normalize those placeholders at the tool boundary so compatibility aliases

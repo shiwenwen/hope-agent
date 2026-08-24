@@ -36,6 +36,7 @@
     "preview": "vite preview",
     "sync:version": "node scripts/sync-version.mjs",
     "analyze:crate-deps": "node scripts/analyze-crate-deps.mjs",
+    "check:agent-kernel-boundaries": "node scripts/check-agent-kernel-boundaries.mjs",
     "prepare:browser-host": "node scripts/prepare-browser-host.mjs",
     "dev:browser-host": "node scripts/prepare-browser-host.mjs --dev",
     "check:eval-internal": "cargo check -p ha-core -p ha-eval-runtime -p ha-improve --tests --features ha-core/eval-internal-tests,ha-eval-runtime/eval-internal-tests,ha-improve/eval-internal-tests --locked",

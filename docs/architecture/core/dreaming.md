@@ -33,7 +33,7 @@
 ```mermaid
 flowchart TD
     CHAT["对话轮次（聊天热路径 · 同步）"]
-    CHAT -->|"turn 结束 / compact 前 / 空闲"| EX["自动提取 memory_extract"]
+    CHAT -->|"turn 结束 / compact 前 / 空闲"| EX["ha-memory 自动提取"]
     EX -->|"MemoryEntry"| MEM[("memories 平铺记忆")]
     EX -->|"ClaimCandidate 双写"| CL[("memory_claims 结构化事实")]
 
@@ -289,7 +289,7 @@ Deep Resolver 是 claim 层的治理引擎。它有一个自动的保守 sweep�
 
 ### 双写 + canonicalize
 
-自动提取（[`memory_extract.rs`](../../../crates/ha-core/src/memory_extract.rs)，受 `extractClaims` 开关控制、**默认开**——claim 与 facts 在同一次提取里抽出，无额外 LLM 调用）在写旧 `MemoryEntry` 的同时，把 `ClaimCandidate` 经 `write_candidate` 双写进 claim 层：
+自动提取（[`ha-memory/src/extract.rs`](../../../crates/ha-memory/src/extract.rs)，受 `extractClaims` 开关控制、**默认开**——claim 与 facts 在同一次提取里抽出，无额外 LLM 调用）在写旧 `MemoryEntry` 的同时，把 `ClaimCandidate` 经 kernel port `write_candidate` 双写进 claim 层：
 
 - **作用域固定为提取上下文的 `default_scope`**（会话 / 提取 API 参数），**不信任 LLM 的 scope hint**，防跨项目路由。
 - **规则式去重**：粗筛 `(scope_type, scope_id, claim_type, subject, predicate)` + Rust 侧 `normalize_object`（折叠空白 + 小写）精确比对；命中 active claim 则合并证据、更新 `updated_at`，否则建新 claim + ≥1 证据。
@@ -375,7 +375,7 @@ flowchart TD
 
 无痕会话的内容禁止进入 claim / evidence / profile / 统计。短路点遍布全链，任一环失败都往「不记录」方向倒：
 
-- **提取**：`memory_extract` 的 `extract_after_turn` / `flush_before_compact` / 空闲提取入口先查 `is_session_incognito`，真则直接返回。
+- **提取**：`ha-memory::extract` 的 `extract_after_turn` / `flush_before_compact` / 空闲提取入口消费 kernel 提供的 session policy；incognito 为真则直接返回。
 - **扫描 / 证据**：`scanner` 的证据构造 fail-closed——session 元数据缺失 / 已删 / `incognito=true` 都视为不可见，只挂 memory ref、不挂 session ref；`evidence.rs` 的 `evidence_quote` 双门（无 `message_id` 拒、session 不可见拒），即便 quote 已脱敏也永不展开。
 - **注入**：incognito 会话整段记忆注入跳过，改注入显式的「Incognito Session」指令；Context Pack / Active Memory 同被短路。
 - **手动写入工具**：`save_memory` / `update_core_memory` 工具入口同样 fail-closed——`ToolExecContext.incognito` 为真直接拒。否则模型可在无痕会话里手动落库 / 改 `MEMORY.md`，绕过「关闭即焚」。
@@ -468,7 +468,7 @@ Deterministic 层已落地：
 
 ## 与现有子系统的关系
 
-- **[`memory_extract`](../../../crates/ha-core/src/memory_extract.rs)**：claim 双写的上游 hook，消费 `add_with_dedup` 的三态结果补 link。
+- **[`ha-memory::extract`](../../../crates/ha-memory/src/extract.rs)**：claim 双写的上游 hook，消费 `add_with_dedup` 的三态结果补 link；kernel 的 [`extract_runtime.rs`](../../../crates/ha-core/src/memory/extract_runtime.rs) 只保留 typed port 与装配契约。
 - **Fast/Deep Recall / Context Pack**（见 [`memory.md`](memory.md)）：claim 注入的承载层；Retrieval Planner 在用户显式允许自动召回后融合结构化 claim，legacy Active Memory 仅作兼容 / 回滚路径。
 - **[Recap](../infra/recap.md) / [Awareness](../agent/behavior-awareness.md)**：与 Dreaming 同为离线 / 动态注入子系统，各自独立 store，互不折叠。
 - **背景 LLM 调用**：Light narrative / Deep 冲突分类 / Profile 手动重写都统一走 `automation::run`（见 [automation-model](automation-model.md)），复用 side-query 的主对话 prefix 命中 prompt cache——它们**不是**直接调 side_query 模块。
@@ -479,15 +479,15 @@ Deterministic 层已落地：
 
 | 路径 | 职责 |
 |---|---|
-| [`memory/dreaming/pipeline.rs`](../../../crates/ha-core/src/memory/dreaming/pipeline.rs) | Light 周期编排 + `resolve_dreaming_chain` |
-| [`memory/dreaming/{scanner,narrative,promotion,scoring}.rs`](../../../crates/ha-core/src/memory/dreaming/) | Light 各阶段 |
-| [`memory/dreaming/{triggers,cron_loop}.rs`](../../../crates/ha-core/src/memory/dreaming/) | idle / cron / manual 触发 + 跨进程协调 |
-| [`memory/dreaming/store.rs`](../../../crates/ha-core/src/memory/dreaming/store.rs) | durable run / 决策日志 / profile 快照 / `record_user_action` |
-| [`memory/dreaming/resolver.rs`](../../../crates/ha-core/src/memory/dreaming/resolver.rs) | Deep 确定性过期 + 冲突分析 + 自动裁决不变量 |
-| [`memory/dreaming/profile.rs`](../../../crates/ha-core/src/memory/dreaming/profile.rs) | Memory Profile 合成 |
-| [`memory/dreaming/context_pack.rs`](../../../crates/ha-core/src/memory/dreaming/context_pack.rs) | legacy / 完整回滚下的 Pinned Claims 静态注入 |
-| [`memory/dreaming/evidence.rs`](../../../crates/ha-core/src/memory/dreaming/evidence.rs) | 证据 quote 授权读取（fail-closed）|
-| [`memory/dreaming/{config,types,eval}.rs`](../../../crates/ha-core/src/memory/dreaming/) | 配置 / 共享类型 / 确定性评测调度 |
+| [`ha-memory/src/dreaming_pipeline.rs`](../../../crates/ha-memory/src/dreaming_pipeline.rs) | Light 周期执行机；模型链解析和 required port 在 kernel `memory/dreaming/pipeline.rs` |
+| [`ha-memory/src/dreaming_{scanner,narrative,promotion,scoring}.rs`](../../../crates/ha-memory/src/) | Light 各执行阶段 |
+| [`ha-memory/src/dreaming_{triggers,cron_loop}.rs`](../../../crates/ha-memory/src/) | idle / cron / manual 执行机；启动时序与跨进程身份裁决仍由 kernel 提供 |
+| [`memory/dreaming/store.rs`](../../../crates/ha-core/src/memory/dreaming/store.rs) | kernel durable run / 决策日志 / profile 快照 / `record_user_action` ledger |
+| [`ha-memory/src/dreaming_resolver.rs`](../../../crates/ha-memory/src/dreaming_resolver.rs) | Deep 确定性过期 + 冲突分析 + 自动裁决执行机；typed port/contract 留 kernel |
+| [`ha-memory/src/dreaming_profile.rs`](../../../crates/ha-memory/src/dreaming_profile.rs) | Memory Profile 合成执行机 |
+| [`ha-memory/src/dreaming_context_pack.rs`](../../../crates/ha-memory/src/dreaming_context_pack.rs) | legacy / 完整回滚下的 Pinned Claims 静态注入执行机 |
+| [`ha-memory/src/dreaming_evidence.rs`](../../../crates/ha-memory/src/dreaming_evidence.rs) | 证据 quote 授权读取执行机（fail-closed）|
+| [`memory/dreaming/{config,types,eval}.rs`](../../../crates/ha-core/src/memory/dreaming/) | kernel 配置 / 共享类型 / 确定性评测与 runtime ports |
 | [`memory/claims/store.rs`](../../../crates/ha-core/src/memory/claims/store.rs) | claim schema + 读 API + 纠错原语 + effective-status |
 | [`memory/claims/write.rs`](../../../crates/ha-core/src/memory/claims/write.rs) | 双写 + canonicalize + confidence baseline + 归一化 |
 | [`memory/claims/backfill.rs`](../../../crates/ha-core/src/memory/claims/backfill.rs) | 旧 memory → claim 回填（dry-run / apply）|

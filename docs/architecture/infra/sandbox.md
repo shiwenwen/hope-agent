@@ -480,7 +480,7 @@ Tauri `chat` 和 HTTP `POST /api/chat` 都接受 `sandboxMode`（Rust body 字�
 { "sandboxMode": "workspace" }
 ```
 
-后端：先解析 / 创建 session → 若带 `sandbox_mode` 则 `update_session_sandbox_mode()` → 进 chat engine。
+后端：先解析 / 创建 session → 若带 `sandbox_mode` 则 `update_session_sandbox_mode()` → 构造来源专用 submission 进入 TurnKernel；runtime 只消费 kernel 已裁决的 sandbox/session context。
 
 ### 更新会话模式
 

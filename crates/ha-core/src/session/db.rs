@@ -2600,6 +2600,69 @@ impl SessionDB {
         request_fingerprint: Option<&str>,
         stop_admission: Option<super::ForegroundStopAdmission>,
     ) -> Result<i64> {
+        self.replace_last_user_message_for_edit_inner(
+            session_id,
+            user_message_id,
+            replacement,
+            new_turn_id,
+            source,
+            ui_surface,
+            client_request_id,
+            request_fingerprint,
+            stop_admission,
+            None,
+        )
+        .map(|(message_id, _)| message_id)
+    }
+
+    /// Edit/resend admission variant that creates the durability stream in the
+    /// same transaction as the replacement message and new visible turn.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn replace_last_user_message_for_edit_and_admit_stream(
+        &self,
+        session_id: &str,
+        user_message_id: i64,
+        replacement: &NewMessage,
+        new_turn_id: &str,
+        source: &str,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+        stream_run: &crate::session::CreateStreamRun,
+    ) -> Result<(i64, crate::session::StreamRunRegistration)> {
+        let (message_id, registration) = self.replace_last_user_message_for_edit_inner(
+            session_id,
+            user_message_id,
+            replacement,
+            new_turn_id,
+            source,
+            ui_surface,
+            client_request_id,
+            request_fingerprint,
+            stop_admission,
+            Some(stream_run),
+        )?;
+        Ok((
+            message_id,
+            registration.expect("interactive edit admission always creates a stream registration"),
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn replace_last_user_message_for_edit_inner(
+        &self,
+        session_id: &str,
+        user_message_id: i64,
+        replacement: &NewMessage,
+        new_turn_id: &str,
+        source: &str,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+        stream_run: Option<&crate::session::CreateStreamRun>,
+    ) -> Result<(i64, Option<crate::session::StreamRunRegistration>)> {
         let result = (|| {
             if client_request_id.is_some() != request_fingerprint.is_some() {
                 anyhow::bail!(
@@ -2875,11 +2938,12 @@ impl SessionDB {
                     id, session_id, source, status, interrupt_reason, stream_id,
                     user_message_id, assistant_message_id, error, started_at, ended_at, updated_at,
                     ui_surface, client_request_id, request_fingerprint
-                 ) VALUES (?1, ?2, ?3, 'running', NULL, NULL, ?4, NULL, NULL, ?5, NULL, ?5, ?6, ?7, ?8)",
+                 ) VALUES (?1, ?2, ?3, 'running', NULL, ?4, ?5, NULL, NULL, ?6, NULL, ?6, ?7, ?8, ?9)",
                 params![
                     new_turn_id,
                     session_id,
                     source,
+                    stream_run.and_then(|run| run.stream_id.as_deref()),
                     replacement_message_id,
                     now,
                     ui_surface.map(crate::pet::ChatUiSurface::as_str),
@@ -2901,11 +2965,19 @@ impl SessionDB {
                 anyhow::bail!("session context rewind affected {context_changed} rows");
             }
 
+            let stream_registration = stream_run
+                .map(|stream_run| {
+                    debug_assert_eq!(stream_run.session_id, session_id);
+                    debug_assert_eq!(stream_run.turn_id.as_deref(), Some(new_turn_id));
+                    Self::create_stream_run_in_transaction(&tx, stream_run, stop_admission)
+                })
+                .transpose()?;
             tx.commit()?;
             Ok((
                 replacement_message_id,
                 removed,
                 previous_had_ui_surface || ui_surface.is_some(),
+                stream_registration,
             ))
         })();
 
@@ -2924,12 +2996,12 @@ impl SessionDB {
                 );
             }
         }
-        if matches!(&result, Ok((_, _, true))) {
+        if matches!(&result, Ok((_, _, true, _))) {
             crate::pet::emit_activity_changed();
         }
 
         match &result {
-            Ok((replacement_message_id, removed, _)) => crate::app_info!(
+            Ok((replacement_message_id, removed, _, _)) => crate::app_info!(
                 "session",
                 "edit_resend",
                 "replaced latest user turn atomically: session_id={} user_message_id={} replacement_message_id={} removed_messages={}",
@@ -2947,7 +3019,9 @@ impl SessionDB {
                 error
             ),
         }
-        result.map(|(replacement_message_id, _, _)| replacement_message_id)
+        result.map(|(replacement_message_id, _, _, registration)| {
+            (replacement_message_id, registration)
+        })
     }
 
     fn fork_session_with_boundary(

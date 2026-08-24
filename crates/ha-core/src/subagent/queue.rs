@@ -7,7 +7,7 @@
 //! running children settle. This mirrors R7.1's tool-job queue
 //! (`async_jobs::slots`), but is a focused, subagent-specific queue rather than
 //! generifying the tool-job path: the sub-agent limit is per-parent-session (no
-//! global pool) and runs launch via `tokio::spawn` running `run_chat_engine`.
+//! global pool) and launches typed subagent turns through `TurnKernel` via `tokio::spawn`.
 //!
 //! **Structural limits (depth, batch size, agent/session/capability) still
 //! hard-reject** — a structural breach can't become legal by waiting; only the

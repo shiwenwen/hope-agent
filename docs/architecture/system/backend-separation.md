@@ -1,18 +1,18 @@
 # 前后端分离与分层架构
 
-> 返回 [文档索引](../../README.md) | 关联源码：`Cargo.toml`, `crates/ha-base/`, `crates/ha-config-schema/`, `crates/ha-core/`, `crates/ha-server/`, `src-tauri/`
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-23 | 关联源码：`Cargo.toml`, `crates/ha-base/`, `crates/ha-config-schema/`, `crates/ha-core/`, `crates/ha-server/`, `src-tauri/`
 
 ## 核心思想
 
-Hope Agent 的业务逻辑——Agent、Chat Engine、工具循环、Memory、审批、Cron——不应该和「桌面窗口」绑死。一个把逻辑写在 Tauri 命令里的单体应用，天然只能是桌面 App：想让它当后台守护进程、当 CLI、被 IDE 直连，都得把逻辑重抄一遍。
+Hope Agent 的内核裁决与特征执行机器——TurnKernel、Agent runtime、工具循环、Memory、审批、Cron——不应该和「桌面窗口」绑死。一个把逻辑写在 Tauri 命令里的单体应用，天然只能是桌面 App：想让它当后台守护进程、当 CLI、被 IDE 直连，都得把逻辑重抄一遍。
 
 解法是一条**单向的 crate 依赖图**，配合一层**前端 Transport 抽象**，同时兑现三件事：
 
-1. **核心逻辑框架无关** —— 业务全部沉进不依赖任何 Tauri 符号的库；任何 Rust 程序都能把它 `use` 进来。
+1. **内核与特征逻辑框架无关** —— kernel 和 feature execution machines 全部沉进不依赖任何 Tauri 符号的库；任何 Rust 程序都能按固定 wiring 复用。
 2. **一套核心，多个入口** —— 桌面 GUI、HTTP/WS 守护进程、ACP stdio 三种运行形态共享同一份核心，各自只是薄薄一层壳。
 3. **一套前端，两种宿主** —— 同一份 React 前端既能跑在 Tauri WebView 里（走 IPC），也能跑在普通浏览器里（走 HTTP + WebSocket），运行时自动选路。
 
-下面先讲这张依赖图长什么样、为什么这么分层，再讲把一个大 crate 拆成 26 个 crate 时贯穿始终的那条设计原则，最后是各层职责、运行模式、事件系统、全局状态等具体契约。
+下面先讲这张依赖图长什么样、为什么这么分层，再讲把一个大 crate 拆成 31 个 workspace crate 时贯穿始终的那条设计原则，最后是各层职责、运行模式、事件系统、全局状态等具体契约。
 
 ---
 
@@ -26,29 +26,36 @@ graph TD
         TAURI["src-tauri<br/>桌面壳 · Tauri IPC"]
         SERVER["ha-server<br/>HTTP/WS · axum"]
     end
-    subgraph features["特征 crate（18 个 · 各子系统的执行机器）"]
-        FEAT["ha-acp · ha-browser · ha-channel · ha-cron · ha-dash<br/>ha-design · ha-eval-runtime · ha-improve · ha-knowledge<br/>ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet<br/>ha-skills · ha-updater · ha-vcs · ha-weather"]
+    subgraph features["特征 crate（22 个 · 各子系统的执行机器）"]
+        RUNTIME["ha-agent-runtime"]
+        FEAT["ha-goal · ha-workflow · ha-memory<br/>ha-acp · ha-browser · ha-channel · ha-cron · ha-dash<br/>ha-design · ha-eval-runtime · ha-improve · ha-knowledge<br/>ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet<br/>ha-skills · ha-updater · ha-vcs · ha-weather"]
     end
     KERNEL["ha-core（kernel）<br/>核心业务 + 各子系统的台账 / 契约 / 裁决点<br/>零 Tauri 依赖"]
+    LOOP["ha-agent-loop<br/>零 Hope 依赖的确定性多轮状态机"]
     SCHEMA["ha-config-schema<br/>AppConfig 及全部 wire 类型 · 纯数据"]
     BASE["ha-base（基础设施底层）<br/>paths · logging · platform · security<br/>permissions · runtime_lock · EventBus trait"]
 
     TAURI --> SERVER
     TAURI --> FEAT
+    TAURI --> RUNTIME
     TAURI --> KERNEL
     SERVER --> FEAT
+    SERVER --> RUNTIME
     SERVER --> KERNEL
     FEAT --> KERNEL
+    RUNTIME --> KERNEL
+    RUNTIME --> LOOP
+    KERNEL --> LOOP
     KERNEL --> SCHEMA
     KERNEL --> BASE
     SCHEMA --> BASE
 ```
 
-除了这 23 个 crate，workspace 里还有三个旁支：`ha-browser-host`（浏览器辅助进程）、`ha-eval-spec`（评测协议，刻意不依赖 ha-core）、`ha-eval`（评测 CLI）。合计 26 个 crate。
+除两层壳、22 个特征 crate、kernel/schema/base 与 `ha-agent-loop` 外，workspace 里还有三个旁支：`ha-browser-host`（浏览器辅助进程）、`ha-eval-spec`（评测协议，刻意不依赖 ha-core）、`ha-eval`（评测 CLI）。合计 31 个 crate。
 
 **三条铁律**（`node scripts/analyze-crate-deps.mjs` 与 CI 门禁强制）：
 
-1. **零 Tauri 依赖上溯到底层**：`ha-core` / `ha-config-schema` / `ha-base` 与全部 18 个特征 crate 的 `Cargo.toml` 都不得出现 `tauri` 或 Tauri 插件依赖。只有两个壳（`src-tauri` / `ha-server`）碰框架。
+1. **零 Tauri 依赖上溯到底层**：`ha-agent-loop` / `ha-core` / `ha-config-schema` / `ha-base` 与全部 22 个特征 crate 的 `Cargo.toml` 都不得出现 `tauri` 或 Tauri 插件依赖。只有两个壳（`src-tauri` / `ha-server`）碰框架。
 2. **`ha-base` 不依赖任何 `ha-*` 业务 crate**：它是依赖图最底层。需要上层数据（如读 `AppConfig` 的某个字段）时，留一个**注册钩子**，由 `ha-core` 在启动早期注入，绝不反向 `use`（见 [ha-base 小节](#ha-base基础设施底层)）。
 3. **`ha-config-schema` 只放数据定义**：类型、`Default`、只碰自身字段的 impl、serde helper。任何需要子系统服务的行为（`cached_config` / `mutate_config` / 脱敏 / 校验 / SSRF）都留在 `ha-core`。
 
@@ -62,7 +69,7 @@ graph TD
 
 ## 贯穿全局的原则：台账留核，机器上浮
 
-把一个几十万行的 kernel 拆成 18 个特征 crate，靠的不是「按目录切」，而是一条能反复套用的分界线：
+把一个几十万行的 kernel 拆成 22 个特征 crate，靠的不是「按目录切」，而是一条能反复套用的分界线：
 
 > **每个子系统的「执行机器」上浮到特征 crate；对 `sessions.db` 的 SQL 台账、跨模块的 wire 类型、以及全局唯一的裁决点，恒留 kernel。**
 
@@ -111,7 +118,7 @@ kernel 不 `use` 任何特征 crate，但它确实需要特征的行为（IM 撤
 
 ### 装配入口与启动任务
 
-- **单一装配入口**：每个调 `init_runtime` 的二进制在 init 前调 [`ha_server::wire_features()`](../../../crates/ha-server/src/lib.rs)，它按固定顺序调用各特征 crate 的 `wire()`。**别在壳里内联这串 `wire()`**——多处各抄一份，新增特征 crate 时漏改任一处就静默丢 handler（最后由 `registry_freeze` 的 warn 兜底）。新增一个特征 crate = 改 `wire_features()` 一处 + 三个壳的 `Cargo.toml` 各加一条 path dep。
+- **单一装配入口**：每个调 `init_runtime` 的二进制在 init 前调 [`ha_server::wire_features()`](../../../crates/ha-server/src/lib.rs)，它按固定顺序调用各特征 crate 的 `wire()`。**别在壳里内联这串 `wire()`**——多处各抄一份，新增特征 crate 时漏改任一处就静默丢 handler（最后由 `registry_freeze` 的 warn 兜底）。新增一个全局装配 feature = 改 `wire_features()` + `ha-server/Cargo.toml`；其它壳经 `ha-server` 复用，只有直接调用该 feature API 时才增加自身 path dependency。
 - **`ha-eval-runtime` 是唯一没有 `wire()` 的特征 crate**：kernel 对它零引用，能力面全部经壳层直接暴露。不要为对齐补一个空 `wire()`，那只会让「漏调 `wire()`」的真问题更难暴露。
 - **装配任务分三档**（[`app_init.rs`](../../../crates/ha-core/src/app_init.rs)）：
   - `register_init_task(fn)`：`init_runtime` 主体内消费，**所有运行形态**都执行，且 tokio runtime 不保证已存在——用于无条件的子系统装配。
@@ -174,7 +181,7 @@ kernel 是这张图的中枢：所有核心业务逻辑，加上各子系统留�
 
 | 职责 | 说明 |
 |------|------|
-| 业务逻辑 | Agent、Chat Engine、工具循环、Plan Mode、Memory、Subagent、Project、Team 等核心能力 |
+| 核心编排与裁决 | TurnKernel 准入/终态、Chat Engine durability/finalize、permission、Stop/Continue、Plan Mode、Subagent/Project/Team 共享裁决；Provider/tool loop、Goal/Workflow/Memory 执行机在特征 crate |
 | 数据台账 | `sessions.db` 是 kernel 独占的真相源（会话 / 消息 / Cron / Channel / Project / 知识库注册表 / 异步任务 / 本地模型任务等表都在其中或共享其连接）；Memory 后端、日志库也由 kernel 持有 |
 | 全局状态 | `AppState` + `OnceLock` 全局单例 + accessor 函数（见[全局状态管理](#全局状态管理)） |
 | 事件系统 | `EventBus` trait —— 取代原本的 Tauri `APP_HANDLE.emit()` |
@@ -200,7 +207,7 @@ kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面全量再�
 - **`cron_defs/` / `coding_eval_defs.rs`**：cron 行类型、评测报告 wire 类型——kernel 的持久化存的就是这些类型的 JSON，故类型不能跟机器走。
 - **`learning_events.rs`**：Learning 埋点的**发布面**留 kernel。生产者遍布 kernel、ha-skills、ha-knowledge、ha-mcp 四处；若发布面留在 dashboard，这些生产者全要反向依赖 ha-dash。发布与消费之间本无代码耦合，只共享表名与 kind 字符串，所以 `emit` 留 kernel，`dashboard::learning` 退化为纯订阅方。
 
-### 特征 crate（18 个）
+### 特征 crate（22 个）
 
 每个特征 crate 遵循同一份共同契约：**依赖方向恒为「特征 → ha-core」**（借用 kernel 的 tools registry / config / EventBus 等服务），**特征之间允许单向依赖**（无环即可），而 ha-core 不认识任何特征 crate。实时依赖以 `node scripts/analyze-crate-deps.mjs` 输出为准。
 
@@ -208,6 +215,10 @@ kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面全量再�
 
 | 特征 crate | 拥有的机器（上浮部分） | kernel 留守 | 边界钩子 |
 |-----------|----------------------|-------------|---------|
+| **ha-agent-runtime** | 主 turn engine、四 Provider adapter、one-shot HTTP/body/SSE、Hope round/tool-batch driver、vision bridge | `TurnKernel`、turn/stream ledger、durability/finalize、permission/tool contract、model/config/credential contract、`AssistantAgent` state 与 context capability | required `AgentTurnExecutor` + required `OneShotRuntime`；重复注册 panic，缺失执行 fail-explicit |
+| **ha-goal** | Goal runner、continuation/resume/预算/terminal policy、Goal tool handlers | Goal wire/status 与 `SessionDB` typed ledger、Stop/Eval/Wakeup 裁决 | required `GoalRuntime` + external tool entries |
+| **ha-workflow** | parser/preview/typed-result、QuickJS step machine、resume/compensation/cancellation、Workflow tool handler | Workflow wire/status 与 typed ledger、permission/Stop/Eval contract | required preview/typed-result/machine runtimes + external tool entries |
+| **ha-memory** | extract/reembed/recall summary、embedding/external provider、Fast/Deep Retrieval Planner、Dreaming/Deep Resolver 全流水线 | config/wire、effective budget、incognito/access verdict、Core snapshot、claims review 与 typed ledger | retrieval/provider/maintenance/Dreaming required-or-optional ports（按动作语义 fail-explicit 或 no-op） |
 | **ha-updater** | manifest 检查 / 签名校验 / 下载续传 / atomic swap / 服务重启 / `app_update` 工具 | —— | 桌面路径经 `UpdaterBridge` 反向注册（详见 [self-update](../infra/self-update.md)） |
 | **ha-weather** | Open-Meteo 取数 / 缓存 / 桌面后台刷新 / `get_weather` 工具 | —— | `register_weather_prompt_source`（天气 prompt 段）+ `register_weather_settings_refresh`（设置热刷新） |
 | **ha-mac** | Accessibility / 截屏 / 焦点 / `mac_control` 工具 | `MacControlFocusAnchor`、`normalize_perform_ax_action`（审批分类代码，permission engine 消费，不外迁） | `register_mac_control_exec_hooks` 四件套原子注册（焦点 capture/restore + args sanitize/preflight） |
@@ -227,7 +238,7 @@ kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面全量再�
 | **ha-local-llm** | Ollama 生命周期（检测 / 安装 / 启动 / 拉取 / 预载）、模型目录与硬件预算推荐、Library 元数据抓取、默认模型 watchdog、本地 embedding 后端与下载执行器 | `local_model_jobs`（通用后台任务台账，memory reembed 与知识库 reembed 共用，故留 kernel 才不让 knowledge 为记账依赖本 crate） | 只注册一个 PrimaryOnly 启动任务（watchdog）；kernel 对它没有任何反向回调钩子——启动任务是特征往 kernel 注册，不是 kernel 回调特征 |
 | **ha-acp** | Hope 自身作 ACP stdio server（`hope-agent acp`）+ 外部 ACP agent 控制面（注册表 / 健康探测 / SessionManager / `acp_spawn` 工具） | `AgentAcpConfig`（下沉 `agent_config.rs`）、`AcpRun` / `AcpRunStatus`（下沉 `session/acp_db.rs`），特征侧原路径再导出 | `system_prompt::register_acp_binary_resolver`（prompt 段 binary 可用性）；`ACP_MANAGER` 全局随迁特征侧，kernel 的 `globals` 不再持有 |
 
-**特征之间的单向边**（无环）：ha-design → ha-browser / ha-media / ha-knowledge、ha-pet → ha-media、ha-local-llm → ha-knowledge、ha-eval-runtime → ha-improve。新增任何特征间边前先跑一次分析器脚本——成环会让后续拆分整个卡住。
+**特征之间的单向边**（无环）：ha-design → ha-browser / ha-media / ha-knowledge、ha-pet → ha-media、ha-local-llm → ha-knowledge、ha-eval-runtime → ha-improve；`ha-agent-runtime → ha-agent-loop` 是到独立机制层的边，不是 feature-to-feature 边。新增任何特征间边前先跑一次分析器脚本——成环会让后续拆分整个卡住。
 
 ### ha-server（HTTP/WS 服务）
 
@@ -697,8 +708,9 @@ sequenceDiagram
     participant FE as 前端
     participant T as Transport 层
     participant S as ha-server
-    participant CE as ChatEngine
-    participant Agent as AssistantAgent
+    participant K as TurnKernel
+    participant R as ha-agent-runtime
+    participant D as StreamCoordinator
     participant LLM as LLM API
     participant WS as WebSocket
 
@@ -706,19 +718,21 @@ sequenceDiagram
     T->>S: POST /api/chat
     FE->>WS: connect /ws/events
 
-    S->>CE: run_chat_engine(params)
-    CE->>Agent: agent.chat(message)
-    Agent->>LLM: HTTP stream request
+    S->>K: submit(TurnSubmission::http(TurnRequest))
+    K->>K: 模型路由 + config/credential lease + 原子 admission
+    K->>R: AgentTurnExecutor(AdmittedTurn)
+    R->>LLM: feature-owned adapter HTTP stream request
 
     loop 流式输出
-        LLM-->>Agent: token delta
-        Agent-->>CE: on_delta callback
-        CE-->>S: EventBus chat:stream_delta
+        LLM-->>R: token delta
+        R->>D: accept + durability barrier
+        D-->>S: durable EventBus chat:stream_delta
         S-->>WS: forward AppEvent
         WS-->>FE: text frame {"name":"chat:stream_delta","payload":...}
     end
 
-    CE-->>S: ChatEngineResult
+    R-->>K: AgentTurnOutput / TurnFailure
+    K-->>S: typed terminal result
     S-->>T: {"session_id":"...","response":"..."}
     T-->>FE: resolve Promise
 ```

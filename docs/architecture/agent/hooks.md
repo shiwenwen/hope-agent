@@ -1,6 +1,6 @@
 # Hooks 系统
 
-> 更新时间：2026-08-11
+> 更新时间：2026-08-23
 
 Hooks 让用户在 Agent 生命周期的关键节点插入自己的逻辑——工具即将执行、会话开始/结束、上下文压缩、权限审批等时刻，触发一段用户自定义的 shell 命令 / HTTP 请求 / MCP 工具调用 / 一次性 LLM 提问 / 子 Agent。它是一套**可拔插的观察与拦截层**：既能旁观（审计、埋点、通知），也能拦截（挡下危险命令、否决压缩、贡献非可信上下文数据、改写入参）。Hook 输出从不因配置 scope 或 handler 类型获得 system/developer authority。
 
@@ -144,7 +144,7 @@ hook 层加在既有权限体系的**外侧**：先跑 hook，没拦住才走 Pl
 | `PreCompact` | `trigger` ∈ {auto, tool_loop} | `agent::context`（turn-start / tool-loop checkpoint）| `block` 跳过本次压缩；用量到紧急比例强制覆盖；连续 block 超过 `MAX_PRECOMPACT_BLOCKS=5` 后强制执行 |
 | `WorktreeCreate` | `name` | `worktree::create_managed_worktree` | 可 block / deny；若匹配 handler 接管创建，必须返回 `hookSpecificOutput.worktreePath` 绝对路径 |
 | `Stop` | 无 | `hooks::fire_stop` | **block-to-continue**（官方语义反转，见下）：`MAX_STOP_CONTINUES=3` 上限 + `stop_hook_active` 再入标记 |
-| `PostToolBatch` | 无 | `agent::streaming_loop`（每 API round settle 后一次）| `block` → 本轮落盘后停止 agent 循环（不再发下一次 model call）|
+| `PostToolBatch` | 无 | `ha-agent-runtime::streaming_loop`（每 API round settle 后一次）| `block` → 本轮落盘后停止 agent 循环（不再发下一次 model call）|
 | `TaskCreated` | 无 | `tools::task::tool_task_create`（DB 写前）| `block` → 否决创建（回滚整批）。workflow 路径仍 fire-and-forget，block 无效 |
 | `TaskCompleted` | 无 | `tools::task::tool_task_update`（update 前）| `block` → 否决标记完成。workflow 路径同上 |
 | `UserPromptExpansion` | 命令名 | `slash_commands::execute_slash_command` | `block` → 否决 slash 展开（命令不执行，返回 Err）|

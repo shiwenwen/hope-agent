@@ -30,7 +30,8 @@ static NEXT_PROCESS_EPOCH_ID: AtomicU64 = AtomicU64::new(1);
 /// the key makes that case fail closed instead of rewriting an unrelated item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ProjectionResultShape {
+#[doc(hidden)]
+pub enum ProjectionResultShape {
     OpenAiChat,
     OpenAiResponses,
     Anthropic,
@@ -41,15 +42,17 @@ pub(crate) enum ProjectionResultShape {
 /// Provider call ids are required.  Legacy results without one are deliberately
 /// not projectable until a durable occurrence sidecar can supply an identity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub(crate) struct ProjectionItemKey {
-    pub(crate) shape: ProjectionResultShape,
-    pub(crate) call_id: String,
+#[doc(hidden)]
+pub struct ProjectionItemKey {
+    pub shape: ProjectionResultShape,
+    pub call_id: String,
 }
 
 /// Declarative fidelity selected for a result occurrence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ProjectionActionKind {
+#[doc(hidden)]
+pub enum ProjectionActionKind {
     Tier0Omit,
     Tier2Soft,
     Tier2Minimal,
@@ -99,16 +102,17 @@ pub(crate) struct ProjectionDraft {
 /// and which exact replacement bytes the live planner selected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectionDraftManifestItem {
-    pub(crate) key: ProjectionItemKey,
-    pub(crate) stable_ordinal: usize,
-    pub(crate) kind: ProjectionActionKind,
-    pub(crate) source_guard: String,
-    pub(crate) replacement_fingerprint: String,
+#[doc(hidden)]
+pub struct ProjectionDraftManifestItem {
+    pub key: ProjectionItemKey,
+    pub stable_ordinal: usize,
+    pub kind: ProjectionActionKind,
+    pub source_guard: String,
+    pub replacement_fingerprint: String,
 }
 
 impl ProjectionDraftManifestItem {
-    pub(crate) fn durable_item_key(&self) -> String {
+    pub fn durable_item_key(&self) -> String {
         let shape = match self.key.shape {
             ProjectionResultShape::OpenAiChat => "openai_chat",
             ProjectionResultShape::OpenAiResponses => "openai_responses",
@@ -117,7 +121,7 @@ impl ProjectionDraftManifestItem {
         format!("{shape}:{}", self.key.call_id)
     }
 
-    pub(crate) const fn action_label(&self) -> &'static str {
+    pub const fn action_label(&self) -> &'static str {
         match self.kind {
             ProjectionActionKind::Tier0Omit => "tier0_omit",
             ProjectionActionKind::Tier2Soft => "tier2_soft",
@@ -204,7 +208,8 @@ pub(crate) struct ProjectionCacheTag {
 /// explicitly create a successor epoch to add new result occurrences or lower
 /// the fidelity of an existing one.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ProjectionEpoch {
+#[doc(hidden)]
+pub struct ProjectionEpoch {
     epoch_id: u64,
     actions: BTreeMap<ProjectionItemKey, ProjectionAction>,
 }
@@ -231,7 +236,7 @@ impl ProjectionEpoch {
         self.actions.len()
     }
 
-    pub(crate) fn manifest_items(&self) -> Vec<ProjectionDraftManifestItem> {
+    pub fn manifest_items(&self) -> Vec<ProjectionDraftManifestItem> {
         ProjectionDraft {
             actions: self.actions.clone(),
             ..ProjectionDraft::default()
@@ -247,7 +252,7 @@ impl ProjectionEpoch {
     /// action stream. Exact placeholders remain distinguishable; any other
     /// bounded preview is represented as the soft-fidelity action. The frozen
     /// exact request payload remains the byte-level truth.
-    pub(crate) fn from_projected_view(
+    pub fn from_projected_view(
         canonical: &[Value],
         projected: &[Value],
         hard_clear_placeholder: &str,

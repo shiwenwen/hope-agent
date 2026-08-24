@@ -106,7 +106,8 @@ pub fn cancel_insertion(
     })
 }
 
-pub(crate) fn drain(session_id: &str, turn_id: &str) -> Vec<QueuedTurnUserMessage> {
+#[doc(hidden)]
+pub fn drain(session_id: &str, turn_id: &str) -> Vec<QueuedTurnUserMessage> {
     crate::get_session_db()
         .and_then(|db| {
             db.claim_turn_messages_for_insertion(session_id, turn_id)

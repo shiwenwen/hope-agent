@@ -971,7 +971,8 @@ where
 /// [`mutate_config`] calls. Callers that already hold a subsystem's
 /// process-shared lock can use the returned snapshot as the authoritative
 /// starting point for a cross-process transaction.
-pub(crate) fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
+#[doc(hidden)]
+pub fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());

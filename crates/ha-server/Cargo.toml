@@ -31,6 +31,10 @@ brotli = "8"
 
 [dependencies]
 ha-core = { path = "../ha-core" }
+ha-agent-runtime = { path = "../ha-agent-runtime" }
+ha-memory = { path = "../ha-memory" }
+ha-goal = { path = "../ha-goal" }
+ha-workflow = { path = "../ha-workflow" }
 ha-improve = { path = "../ha-improve" }
 ha-acp = { path = "../ha-acp" }
 ha-browser = { path = "../ha-browser" }

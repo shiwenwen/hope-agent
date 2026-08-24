@@ -19,7 +19,13 @@ pub use approval::{pending_approvals_per_session, ApprovalReasonPayload, Session
 // 确认）从 crate 外复用同一入口，不 fork。
 pub mod ask_user_question;
 mod builtin_registry;
+// Core execution tests cannot depend on the feature crate without creating a
+// Cargo cycle. Compile the production source back into the test crate so those
+// tests exercise the exact migrated handler.
 mod context_resource;
+#[cfg(test)]
+#[path = "../../../ha-workflow/src/tools/workflow.rs"]
+mod workflow_tool;
 #[cfg(test)]
 pub(crate) use context_resource::tool_read_context_resource;
 mod core_memory;
@@ -34,7 +40,6 @@ mod enter_plan_mode;
 pub(crate) mod exec;
 mod execution;
 mod find;
-mod goal;
 mod grep;
 pub(crate) mod image;
 // pub：ha-mac 的截图结果复用 image marker 构建（工具结果图片标记契约）。
@@ -59,6 +64,12 @@ mod session_continue;
 mod sessions;
 mod settings;
 pub(crate) mod subagent;
+// Workflow runtime needs only these reserved adapter keys; exposing the
+// constants avoids publishing the subagent handler module itself.
+pub use subagent::{
+    WORKFLOW_DISPATCH_ID_ARG, WORKFLOW_ISOLATION_ARG, WORKFLOW_PREALLOCATED_RUN_ID_ARG,
+    WORKFLOW_RUN_ID_ARG, WORKFLOW_SKIP_PARENT_INJECTION_ARG,
+};
 mod submit_plan;
 mod task;
 pub(crate) mod team;
@@ -66,7 +77,6 @@ pub(crate) mod tool_search;
 pub mod web_fetch;
 pub mod web_fetch_common;
 pub mod web_search;
-mod workflow_tool;
 mod write;
 
 // ── 特征 crate 钩子：天气设置热刷新 ──────────────────────────────
@@ -134,7 +144,8 @@ pub(crate) fn mac_control_exec_hooks() -> Option<&'static MacControlExecHooks> {
 // crate 外 `ha_core::tools::…` 与 tools/ 内部 `super::…` 既有路径全部保持。
 pub use crate::tool_defs::*;
 
-pub(crate) use task::{task_snapshot_data, TASK_REMINDER_INSTRUCTION};
+#[doc(hidden)]
+pub use task::{task_snapshot_data, TASK_REMINDER_INSTRUCTION};
 
 pub use approval::{
     approval_timeout_secs, deny_all_pending, deny_pending_for_session, emit_approval_resolved,
@@ -164,7 +175,8 @@ pub use execution::{
 /// Parse a model-facing compact call variant such as `browser__snapshot`.
 /// Only explicitly registered composite tools are accepted, so arbitrary
 /// tool names containing `__` (notably MCP names) are never rewritten.
-pub(crate) fn split_call_variant_name(name: &str) -> Option<(&str, &str)> {
+#[doc(hidden)]
+pub fn split_call_variant_name(name: &str) -> Option<(&str, &str)> {
     let (canonical, action) = name.rsplit_once("__")?;
     let supported = matches!(
         canonical,
@@ -185,7 +197,8 @@ pub(crate) fn canonical_tool_schema_name(name: &str) -> &str {
 /// Convert a compact model-facing variant back into the canonical call before
 /// permission, hooks, audit, persistence, and execution. The fixed action
 /// always wins over a model-supplied conflicting value.
-pub(crate) fn normalize_call_variant(name: &str, args: &Value) -> Option<(String, Value)> {
+#[doc(hidden)]
+pub fn normalize_call_variant(name: &str, args: &Value) -> Option<(String, Value)> {
     let (canonical, action) = split_call_variant_name(name)?;
     let mut normalized = args.clone();
     let object = normalized.as_object_mut()?;

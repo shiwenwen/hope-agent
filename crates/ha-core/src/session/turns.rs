@@ -251,7 +251,8 @@ impl SessionDB {
     /// durable user message owned by this turn. Joining through `chat_turns`
     /// prevents a caller from attaching provenance to an unrelated message;
     /// incognito sessions intentionally receive no history sidecar.
-    pub(crate) fn merge_chat_turn_typed_mention_receipt(
+    #[doc(hidden)]
+    pub fn merge_chat_turn_typed_mention_receipt(
         &self,
         session_id: &str,
         turn_id: &str,
@@ -465,7 +466,46 @@ impl SessionDB {
             request_fingerprint,
             stop_admission,
             None,
+            None,
         )
+        .map(|(message_id, turn, _)| (message_id, turn))
+    }
+
+    /// Atomically persist an interactive user message, its visible chat turn,
+    /// and the durability stream run that owns Stop epochs and recovery.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn admit_interactive_chat_turn(
+        &self,
+        id: &str,
+        session_id: &str,
+        source: &str,
+        stream_id: &str,
+        message: &NewMessage,
+        ui_surface: Option<crate::pet::ChatUiSurface>,
+        client_request_id: Option<&str>,
+        request_fingerprint: Option<&str>,
+        stop_admission: Option<super::ForegroundStopAdmission>,
+        stream_run: &super::CreateStreamRun,
+    ) -> Result<(i64, ChatTurn, super::StreamRunRegistration)> {
+        let (message_id, turn, registration) = self
+            .append_message_and_create_chat_turn_with_id_surface_dispatch_inner(
+                id,
+                session_id,
+                source,
+                Some(stream_id),
+                message,
+                ui_surface,
+                client_request_id,
+                request_fingerprint,
+                stop_admission,
+                Some(stream_run),
+                None,
+            )?;
+        Ok((
+            message_id,
+            turn,
+            registration.expect("interactive admission always creates a stream registration"),
+        ))
     }
 
     /// Session-tool turns carry no fresh user intent, so their persisted Stop
@@ -490,8 +530,10 @@ impl SessionDB {
             None,
             None,
             None,
+            None,
             Some((expected_global_stop_epoch, source_session_id)),
         )
+        .map(|(message_id, turn, _)| (message_id, turn))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -506,8 +548,9 @@ impl SessionDB {
         client_request_id: Option<&str>,
         request_fingerprint: Option<&str>,
         stop_admission: Option<super::ForegroundStopAdmission>,
+        stream_run: Option<&super::CreateStreamRun>,
         session_tool_admission: Option<(u64, Option<&str>)>,
-    ) -> Result<(i64, ChatTurn)> {
+    ) -> Result<(i64, ChatTurn, Option<super::StreamRunRegistration>)> {
         if client_request_id.is_some() != request_fingerprint.is_some() {
             anyhow::bail!(
                 "UI chat dispatch identity requires both client_request_id and request_fingerprint"
@@ -674,6 +717,14 @@ impl SessionDB {
                 anyhow::bail!("queued message dispatch was not owned by this turn");
             }
         }
+        let stream_registration = stream_run
+            .map(|stream_run| {
+                debug_assert_eq!(stream_run.session_id, session_id);
+                debug_assert_eq!(stream_run.turn_id.as_deref(), Some(id));
+                debug_assert_eq!(stream_run.stream_id.as_deref(), stream_id);
+                SessionDB::create_stream_run_in_transaction(&tx, stream_run, stop_admission)
+            })
+            .transpose()?;
         tx.commit()?;
         drop(conn);
 
@@ -701,6 +752,7 @@ impl SessionDB {
                 updated_at: now,
                 ui_surface,
             },
+            stream_registration,
         ))
     }
 

@@ -10,7 +10,7 @@ pub(super) fn emit_event(on_delta: &(impl Fn(&str) + Send + ?Sized), event: &ser
     }
 }
 
-pub(super) fn emit_text_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
+pub fn emit_text_delta(on_delta: &(impl Fn(&str) + Send + ?Sized), text: &str) {
     emit_event(
         on_delta,
         &json!({
@@ -20,7 +20,8 @@ pub(super) fn emit_text_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
     );
 }
 
-pub(super) fn emit_tool_call(
+#[doc(hidden)]
+pub fn emit_tool_call(
     on_delta: &(impl Fn(&str) + Send),
     call_id: &str,
     name: &str,
@@ -44,7 +45,8 @@ pub(super) fn emit_tool_call(
 /// replaces its `arguments` so the UI shows what actually ran, not the
 /// pre-rewrite arguments the `tool_call` event delivered moments earlier.
 /// Skipped entirely when no rewrite happened (the common case).
-pub(super) fn emit_tool_call_args_rewritten(
+#[doc(hidden)]
+pub fn emit_tool_call_args_rewritten(
     on_delta: &(impl Fn(&str) + Send + ?Sized),
     call_id: &str,
     arguments: &str,
@@ -81,7 +83,8 @@ pub fn extract_media_items(result: &str) -> (String, Vec<MediaItem>) {
     (result.to_string(), Vec::new())
 }
 
-pub(super) fn emit_tool_result(
+#[doc(hidden)]
+pub fn emit_tool_result(
     on_delta: &(impl Fn(&str) + Send),
     call_id: &str,
     name: &str,
@@ -402,7 +405,7 @@ fn build_responses_tool_result_for_token_count(result: &str) -> (String, Vec<Val
     (text_parts.join("\n"), image_items)
 }
 
-pub(super) fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<Value> {
+pub fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<Value> {
     history
         .iter()
         .map(|item| {
@@ -423,7 +426,7 @@ pub(super) fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<V
         .collect()
 }
 
-pub(super) fn project_anthropic_image_markers_for_token_count(history: &[Value]) -> Vec<Value> {
+pub fn project_anthropic_image_markers_for_token_count(history: &[Value]) -> Vec<Value> {
     history
         .iter()
         .map(|item| {
@@ -445,7 +448,7 @@ pub(super) fn project_anthropic_image_markers_for_token_count(history: &[Value])
         .collect()
 }
 
-pub(super) fn expand_openai_chat_image_markers_for_api(
+pub fn expand_openai_chat_image_markers_for_api(
     history: &[Value],
     model_supports_vision: bool,
 ) -> Vec<Value> {
@@ -482,7 +485,7 @@ pub(super) fn expand_openai_chat_image_markers_for_api(
         .collect()
 }
 
-pub(super) fn project_openai_chat_image_markers_for_token_count(
+pub fn project_openai_chat_image_markers_for_token_count(
     history: &[Value],
     model_supports_vision: bool,
 ) -> Vec<Value> {
@@ -549,7 +552,7 @@ fn fold_openai_user_content_without_images(parts: &[Value]) -> Value {
 /// True if the OpenAI Chat history carries any image content the model would
 /// need vision for — user-uploaded `image_url` parts or tool image markers.
 /// Drives the one-shot "model can't see images" notice.
-pub(super) fn openai_chat_history_has_images(history: &[Value]) -> bool {
+pub fn openai_chat_history_has_images(history: &[Value]) -> bool {
     history
         .iter()
         .any(|msg| match msg.get("role").and_then(|r| r.as_str()) {
@@ -568,7 +571,7 @@ pub(super) fn openai_chat_history_has_images(history: &[Value]) -> bool {
         })
 }
 
-pub(super) fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<Value> {
+pub fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<Value> {
     let mut expanded = Vec::with_capacity(history.len());
     for item in history {
         if item.get("type").and_then(|t| t.as_str()) == Some("function_call_output") {
@@ -592,7 +595,7 @@ pub(super) fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<V
     expanded
 }
 
-pub(super) fn project_responses_image_markers_for_token_count(history: &[Value]) -> Vec<Value> {
+pub fn project_responses_image_markers_for_token_count(history: &[Value]) -> Vec<Value> {
     let mut projected = Vec::with_capacity(history.len());
     for item in history {
         if item.get("type").and_then(Value::as_str) == Some("function_call_output") {
@@ -611,7 +614,7 @@ pub(super) fn project_responses_image_markers_for_token_count(history: &[Value])
     projected
 }
 
-pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
+pub fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send + ?Sized), text: &str) {
     emit_event(
         on_delta,
         &json!({
@@ -634,13 +637,15 @@ pub(super) fn build_max_rounds_notice(max_rounds: u32) -> String {
 
 /// Emit the max-rounds notice as a text_delta AND return it so the caller can
 /// append it to `collected_text` for persistence.
-pub(super) fn emit_max_rounds_notice(on_delta: &(impl Fn(&str) + Send), max_rounds: u32) -> String {
+#[doc(hidden)]
+pub fn emit_max_rounds_notice(on_delta: &(impl Fn(&str) + Send), max_rounds: u32) -> String {
     let notice = build_max_rounds_notice(max_rounds);
     emit_text_delta(on_delta, &notice);
     notice
 }
 
-pub(super) fn emit_round_limit_event(on_delta: &(impl Fn(&str) + Send), max_rounds: u32) {
+#[doc(hidden)]
+pub fn emit_round_limit_event(on_delta: &(impl Fn(&str) + Send), max_rounds: u32) {
     emit_event(
         on_delta,
         &json!({
@@ -650,7 +655,8 @@ pub(super) fn emit_round_limit_event(on_delta: &(impl Fn(&str) + Send), max_roun
     );
 }
 
-pub(super) fn emit_usage(
+#[doc(hidden)]
+pub fn emit_usage(
     on_delta: &(impl Fn(&str) + Send),
     usage: &ChatUsage,
     model: &str,

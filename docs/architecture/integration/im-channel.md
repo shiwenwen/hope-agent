@@ -45,7 +45,7 @@ Hope Agent 的做法是把所有差异收进**一个 trait**：
 
 - **入站方向**，每个平台把自己的原始 update 归一化成一个统一的 `MsgContext`（谁在哪个 chat 里说了什么、带了什么附件）。
 - **出站方向**，Agent 的回复统一表达成 `ReplyPayload`（文本 + 媒体 + 按钮 + 回复引用），由插件负责翻译成平台原生格式并投递。
-- **中间**，一个共享的分发器把 `MsgContext` 喂给**与桌面聊天完全相同的执行引擎** `run_chat_engine`——同一套工具、同一套 Failover、同一套上下文压缩和记忆提取。IM 用户拿到的不是一个阉割版助手，而是完整的 Agent。
+- **中间**，一个共享分发器把 `MsgContext` 变成 `TurnSubmission::channel`，交给**与桌面聊天完全相同的** `TurnKernel → ha-agent-runtime`——同一套准入、工具、Failover、上下文压缩和记忆提取。IM 用户拿到的不是一个阉割版助手，而是完整的 Agent。
 
 这样一来，「协议差异」被隔离在插件里，「Agent 能力」被复用而非复制，新增渠道退化成「实现一个 trait」。整个子系统围绕这条主线展开，本文其余部分都在讲这条主线上的关键机制。
 
@@ -83,8 +83,8 @@ graph TB
         MIRROR["im_mirror.rs GUI↔IM 镜像"]
     end
 
-    subgraph engine["共享 Agent 执行引擎"]
-        CE["chat_engine::run_chat_engine<br/>工具 · Failover · 压缩 · 记忆"]
+    subgraph engine["共享 Agent 内核与运行时"]
+        CE["TurnKernel → ha-agent-runtime<br/>准入 · 工具 · Failover · 压缩 · 记忆"]
     end
 
     subgraph shell["薄壳"]
@@ -405,7 +405,7 @@ flowchart TD
     PUMP["回合结束 / worker 重启后<br/>per-session FIFO 泵续跑"]
     PRE["send_typing + 附件延迟物化 + preflight"]
     SAVE["append_message 保存真实用户消息"]
-    ENGINE["chat_engine::run_chat_engine<br/>构建 Agent · Tool Loop · 流式 · 压缩 · 记忆"]
+    ENGINE["TurnSubmission::channel → TurnKernel<br/>ha-agent-runtime · Tool Loop · 流式 · 压缩 · 记忆"]
     OUT["markdown_to_native → chunk_message → send_message"]
 
     IM --> PLUG --> MPSC --> WORKER --> S1 --> S2 --> D5
@@ -470,7 +470,7 @@ sequenceDiagram
     participant Plugin as TelegramPlugin
     participant Worker as Dispatcher
     participant DB as ChannelDB
-    participant Agent as chat_engine
+    participant Agent as TurnKernel / runtime
     participant LLM as LLM Provider
 
     Note over Plugin: polling loop 运行中
@@ -490,7 +490,7 @@ sequenceDiagram
             Note over Worker: 转换后的指令交给 LLM
         end
     end
-    Worker->>Agent: run_chat_engine（流式 + tool loop）
+    Worker->>Agent: TurnSubmission::channel → TurnKernel（流式 + tool loop）
     Agent->>LLM: API 请求
     LLM-->>Agent: 流式响应（text_delta → 前端 + IM preview）
     Agent-->>Worker: 完整响应
@@ -684,7 +684,7 @@ flowchart LR
 
 一个绑定了 IM chat 的会话，如果用户从桌面/HTTP 发起回合，回复应该**同时**实时流到 IM 端。这由 [`im_mirror.rs`](../../../crates/ha-channel/src/im_mirror.rs) 实现：
 
-- `run_chat_engine` 起始调 `attach_im_live_mirror(session_id, source)`，用 `get_conversation_by_session` 拿到 session 的 IM attach（1:1 后 0 或 1 个），起一个 IM 流式预览任务并把 sink 注册进引擎。引擎每帧把 streaming event fan-out 到该任务，IM 用户实时看到打字机 / 逐轮边界 / 媒体投递。
+- `ha-agent-runtime` 的共享 engine 在 kernel admission 之后经 `channel_hooks::attach_live_mirror` 调到 `ha-channel::attach_im_live_mirror(session_id, source, generation, last_user)`；后者用 `get_conversation_by_session` 拿到 session 的 IM attach（1:1 后 0 或 1 个），起一个 IM 流式预览任务并把 sink 注册进 runtime。每帧 streaming event fan-out 到该任务，IM 用户实时看到打字机 / 逐轮边界 / 媒体投递。
 - 回合收尾走 `finalize_im_live_mirror`，复用 dispatcher 的 `deliver_split / deliver_final_only / deliver_preview_merged`，按账号的 `ImReplyMode` 渲染——与 IM 入站回合完全对称。
 - **两条通道各走各的发送通路**：GUI 永远走 Tauri IPC / HTTP 广播，不受 `imReplyMode` 影响；`imReplyMode` 只决定 IM 端呈现。
 - 自动 attach 只接 Desktop / HTTP 主回合；Channel / Cron / Subagent 不外溢。`ParentInjection` 是显式例外，由 [`inject_and_run_parent`](../../../crates/ha-core/src/subagent/injection.rs) 自驱动 attach，并在同一 future 内 await terminal——它运行在短命 current-thread runtime，不能把 finalize 随手 `spawn` 出去。
@@ -749,7 +749,7 @@ pub fn spawn_dispatcher(registry, channel_db, mut inbound_rx: mpsc::Receiver<Inb
 
 - **只有 `Message` 触发完整回合**，每条在独立 task 中处理，不阻塞其他；全局并发由 `MAX_CONCURRENT_INBOUND = 20` 的 owned permit 钳住。
 - **斜杠命令在调 LLM 前拦截**：`dispatch_slash_for_channel()` 经 `slash_hooks::dispatch()` 跳板转发给装配层 handler（IM 渠道**不得**直接 `use crate::slash_commands::…`，见 [backend-separation](../system/backend-separation.md)）。`Reply` 类命令（`/help` / `/clear` / `/model` / `/status`）把原始 slash 与结果落成 `messages.role="event"`（带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）把转换后的指令交给 LLM 并按真实 user turn 落库。详见 [slash-commands](slash-commands.md)。
-- **共享同一个 ChatEngine**：`run_chat_engine()` 与 UI 聊天用完全相同的执行引擎——流式、历史恢复、工具事件持久化、Failover、上下文压缩、Token 跟踪、异步记忆提取全都复用。
+- **共享同一 TurnKernel 与 runtime**：Channel 只提交 typed routing intent；来源策略、模型解析、provider lease、durable terminal 与 UI 聊天共用同一个 kernel，流式、历史恢复、工具事件持久化、Failover、上下文压缩、Token 跟踪、异步记忆提取共用 `ha-agent-runtime`。
 - **每账户可绑独立 Agent**（`ChannelAccountConfig.agent_id`），未设时回退全局默认。
 - **注入 Channel 上下文**：固定的 IM 行为契约与 owner 配置的 channel policy 进入 `RunInstructionContext`；channel、chat type、chat id、sender、title 等外部元数据进入独立的 untrusted run-data block。两者都按回合发送，不修改稳定 system 前缀。
 - **技能 ceiling 随队列保存**：IM 的 `/skill` 先解析为显式 Skill activation；`allowed-tools` ceiling 由产生转换后用户消息的同一次解析冻结并一起写入 turn queue，claim / retry 后原样恢复，禁止展开后再读 catalog。它只收窄 schema、`tool_search` 与执行层，不能被后续 Skill 或并发配置变化放宽；真正工具调用仍由模型决定并经过统一权限引擎。
@@ -760,7 +760,7 @@ pub fn spawn_dispatcher(registry, channel_db, mut inbound_rx: mpsc::Receiver<Inb
 
 ## 回复呈现：ImReplyMode 与流式预览
 
-`run_chat_engine` 返回的 `response` 是**所有 round 的 assistant text 累积合并**。对桌面/Web UI 没问题，因为它们实时收 `text_delta` 事件、能识别 round 边界。但对 IM，如果直接拿这个合并串当一条消息发，用户看到的是「我把头像发给你。已发。」这种「round-0 边想边说 + 最终答案」粘成一团的体验，更糟的是工具产出的媒体全堆在末尾——模型实际表达的时序丢失了。
+`TurnKernel` 返回的 `AgentTurnOutput.response` 是**所有 round 的 assistant text 累积合并**。对桌面/Web UI 没问题，因为它们实时收 `text_delta` 事件、能识别 round 边界。但对 IM，如果直接拿这个合并串当一条消息发，用户看到的是「我把头像发给你。已发。」这种「round-0 边想边说 + 最终答案」粘成一团的体验，更糟的是工具产出的媒体全堆在末尾——模型实际表达的时序丢失了。
 
 为此引入 `ImReplyMode`，**所有渠道（流式 + 非流式）共用一套语义**，默认 `Split`：
 

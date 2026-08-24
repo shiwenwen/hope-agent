@@ -7,11 +7,10 @@ mod working_dir_instructions;
 
 pub use breakdown::{compute_breakdown, SystemPromptBreakdown};
 pub(crate) use build::{active_goal_runtime_contract, render_active_goal_data};
-pub use build::{build, build_legacy};
+pub use build::{build, build_legacy, conservative_core_token_estimate};
 pub(crate) use build::{
-    build_with_resolved_session, conservative_core_token_estimate,
-    render_core_memory_v2_for_context, rendered_core_memory_bodies, rendered_pinned_memory_sources,
-    sqlite_memory_budget_after_static_layers,
+    build_with_resolved_session, render_core_memory_v2_for_context, rendered_core_memory_bodies,
+    rendered_pinned_memory_sources, sqlite_memory_budget_after_static_layers,
 };
 pub(crate) use constants::build_permission_mode_guidance;
 pub(crate) use sections::build_sandbox_mode_section;
@@ -90,7 +89,8 @@ pub(crate) fn weather_prompt_text() -> Option<String> {
 /// working-directory listing change independently of Agent/system policy, so
 /// keeping them out of the cache-stable system string avoids invalidating the
 /// whole prefix for a forecast refresh or ordinary file creation.
-pub(crate) fn build_round_environment_data(
+#[doc(hidden)]
+pub fn build_round_environment_data(
     working_dir: Option<&str>,
     linked_dirs: &[String],
 ) -> Option<String> {
