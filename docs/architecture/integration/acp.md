@@ -170,7 +170,7 @@ graph LR
     end
     subgraph MAIN["主线程"]
         RECV["从队列 recv"]
-        RUN["同步执行 prompt<br/>（自建单线程 runtime）"]
+        RUN["同步执行 prompt<br/>（复用进程级 runtime Handle）"]
     end
 
     RL --> CANCEL
@@ -186,7 +186,7 @@ graph LR
 - **入站队列有界**（容量 256）：普通请求进队列，主循环逐条取。队列写满就把连接标记为过载并关闭——客户端无法在一个同步 prompt 后面无限堆积请求。
 - **prompt 先武装再发布**：读取线程在把 prompt 推入队列**之前**就为它准备好本轮的取消 token。因为一个快 prompt 可能在 `try_send` 返回前就已被主循环取走并跑完，武装晚了会「复活」一个已经完成的 turn。若入队失败，回滚只撤销本次尝试武装的那一代 token。
 - **单会话单活跃 prompt**：同一会话若已有 prompt 在跑，新的 `session/prompt` 直接被 `ERROR_INVALID_REQUEST`（"A prompt is already active"）拒掉，在入队前就拦下。
-- **每个 prompt 自建 runtime**：主循环本身是同步的，每个 `session/prompt` 内部临时建一个 current-thread tokio runtime 来 `block_on` 模型调用；另有一个 side-channel 多线程 runtime（`acp-bg`）跑最小后台任务集（IM 审批监听、ask_user 清理、async_jobs 重放、MCP `init_global`），刻意不起 cron / dreaming / 渠道自启 / MCP 看门狗。
+- **进程级 runtime 承载 turn 与后处理**：主循环本身仍同步读取 stdio，但外层 `run_acp_server` 持有一条进程级 multi-thread tokio runtime，并把 `Handle` 注入 `AcpAgent`；每个 `session/prompt` 通过该 Handle 进入 `TurnKernel`。同一 runtime 也跑最小后台任务集（IM 审批监听、ask_user 清理、async_jobs 重放、MCP `init_global`），刻意不起 cron / dreaming / 渠道自启 / MCP 看门狗。它必须活到 ACP server 退出，不能退回函数级 current-thread runtime，否则 turn 返回后新 spawn 的 Memory Extract、idle extraction、标题等任务会被直接取消。
 
 ---
 
