@@ -7,7 +7,6 @@
 //! `knowledge:changed`.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::Value;
@@ -1772,11 +1771,6 @@ fn append_under_heading(content: &str, heading: &str, line: &str) -> String {
             out
         }
     }
-}
-
-#[allow(dead_code)]
-fn _root_of(scope: &WorkspaceScope) -> &Path {
-    scope.root()
 }
 
 /// `folder/Note.md` → `Note` (stem, no extension), `/`-normalized.
