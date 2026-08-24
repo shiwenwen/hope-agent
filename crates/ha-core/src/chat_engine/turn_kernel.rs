@@ -195,9 +195,9 @@ impl TurnRequest {
         self
     }
 
-    /// Bind the visible `chat_turns` identity owned by Desktop/HTTP
-    /// interactive admission. Sources without a `chat_turns` row are rejected
-    /// if they attach this capability.
+    /// Bind the visible `chat_turns` identity owned by a persisted turn.
+    /// Sources without a matching `chat_turns` row are rejected if they attach
+    /// this capability.
     pub fn with_turn_id(mut self, turn_id: String) -> Self {
         self.turn_id = Some(turn_id);
         self
@@ -861,11 +861,22 @@ fn admit_persisted_turn_identity(
     source: ChatSource,
     turn_id: Option<&str>,
 ) -> Result<(), TurnFailure> {
-    if turn_id.is_some() && !matches!(source, ChatSource::Desktop | ChatSource::Http) {
+    let owns_persisted_turn = match source {
+        ChatSource::Desktop
+        | ChatSource::Http
+        | ChatSource::SessionTool
+        | ChatSource::Cron
+        | ChatSource::Eval => true,
+        ChatSource::Channel
+        | ChatSource::Subagent
+        | ChatSource::ParentInjection
+        | ChatSource::Acp => false,
+    };
+    if turn_id.is_some() && !owns_persisted_turn {
         return Err(TurnFailure::new(
             TurnFailureKind::Infrastructure,
             format!(
-                "{} turn cannot attach a Desktop/HTTP chat-turn identity",
+                "{} turn cannot attach a persisted chat-turn identity",
                 source.as_str()
             ),
         ));
@@ -1506,9 +1517,24 @@ mod tests {
         assert!(!source_policy(ChatSource::Eval).fires_user_lifecycle_hooks);
         assert!(source_policy(ChatSource::Acp).holds_foreground_idle_guard);
         assert!(source_policy(ChatSource::Acp).fires_user_lifecycle_hooks);
-        assert!(admit_persisted_turn_identity(ChatSource::Http, Some("turn-1")).is_ok());
+        for source in [
+            ChatSource::Desktop,
+            ChatSource::Http,
+            ChatSource::SessionTool,
+            ChatSource::Cron,
+            ChatSource::Eval,
+        ] {
+            assert!(admit_persisted_turn_identity(source, Some("turn-1")).is_ok());
+        }
+        for source in [
+            ChatSource::Channel,
+            ChatSource::Subagent,
+            ChatSource::ParentInjection,
+            ChatSource::Acp,
+        ] {
+            assert!(admit_persisted_turn_identity(source, Some("hook-only")).is_err());
+        }
         assert!(admit_persisted_turn_identity(ChatSource::Acp, None).is_ok());
-        assert!(admit_persisted_turn_identity(ChatSource::Acp, Some("hook-only")).is_err());
     }
 
     #[test]

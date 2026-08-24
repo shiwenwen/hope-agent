@@ -172,7 +172,7 @@ pub trait EventSink: Send + Sync + 'static {
 |---|---|---|---|
 | 基础 | `session_id` | `String` | 会话 ID |
 | | `agent_id` | `String` | Agent ID |
-| | `turn_id` | `Option<String>` | 面向用户的桌面/HTTP 回合持久化 turn id；非交互入口（Cron/subagent/注入/IM）恒 `None`（见下文） |
+| | `turn_id` | `Option<String>` | 与既有 `chat_turns` 行绑定的 exact 持久化身份：Desktop/HTTP 由交互准入创建，SessionTool/Cron/Eval 由各自耐久准入先建行；无该行的 Channel/Subagent/ParentInjection/ACP 恒 `None`（见下文） |
 | | `message` | `String` | 发给模型的用户消息 |
 | | `incoming_turn` | `Option<IncomingTurnWire>` | typed mention/slash sidecar；绑定 canonical text digest、UTF-8 source anchors 与 prompt/mention contract version |
 | | `display_text` | `Option<String>` | 友好呈现文案（例如显示原始 slash 命令）；不参与 typed binding 真实性或模型 authority |
@@ -411,7 +411,7 @@ flowchart LR
 
 `sessions.context_revision / context_run_id` 是上下文写入的 CAS 边界；run/attempt 的 `checkpoint_seq` 记录 provider-native context 已覆盖到哪个 durable journal seq。round checkpoint 在同一事务中物化 durable journal 前缀、推进 checkpoint 水位并更新 context；compaction 与最终提交都必须携带预期 revision。**冲突时 fail closed**，不允许旧 Agent 快照覆盖新上下文。失败/崩溃收敛只把 checkpoint 后缀按 Anthropic / OpenAI Chat / Responses / Codex 原生结构重建，避免重复已完成 round，同时为未完成 tool call 合成匹配 result。
 
-正常完成只有一个 `commit_assistant_turn` 事务，依次完成 journal 物化、最终 assistant、legacy trailing placeholder 清理、完整 context、交互式 `chat_turns`、usage ledger、run/attempt 终态和 session 时间。任何 SQL 失败整体回滚，turn 不得伪装 completed。成功 `chat:stream_end` 只能在该事务提交后发送。
+正常完成只有一个 `commit_assistant_turn` 事务，依次完成 journal 物化、最终 assistant、legacy trailing placeholder 清理、完整 context、可选 `chat_turns` 终态、usage ledger、run/attempt 终态和 session 时间。任何 SQL 失败整体回滚，turn 不得伪装 completed。成功 `chat:stream_end` 只能在该事务提交后发送。
 
 停止/失败由 `commit_interrupted_turn` 原子收敛：只物化 checksum 正确且 seq 连续的最大前缀，写明确恢复/中断事件，并把 turn/run 标为 interrupted/failed/recovered。
 
@@ -599,7 +599,7 @@ server-owned UI turn 运行期间注册 session-scoped `ReattachableUiSessionGua
 
 同步 HTTP / incognito 路径仍持有两个 Drop 兜底 guard：一是只移除本次请求注册的 cancel flag，避免客户端断开时把 stale cancel 留在 `chat_cancels`；二是 request future 被丢弃时，外层 guard 只把 turn 标 `cancelling/runtime_cancel`，由 Chat Engine `StreamLifecycle::Drop` 按精确 `persistence_run_id` 从 durable prefix 后台收敛并广播终态。服务进程退出则不透明重放任意副作用，交给启动恢复标记 Interrupted。
 
-`turn_id = None` 是非交互入口的显式设计：Cron、subagent、parent injection、IM channel worker 与 ACP 不参与 GUI/HTTP 的 turn 级 stop 与 active-turn registry；但它们全部拥有 `persistence_run_id` 并使用相同 journal/spool/最终提交协议。两种标识不能混用。
+`turn_id` 的判据是**该来源是否拥有匹配的 `chat_turns` 行**，不是“交互/非交互”：Desktop/HTTP、SessionTool、Cron 与 Eval 的持久 turn 必须携带 exact id；Channel、Subagent、ParentInjection 与 ACP 没有该行，恒为 `None`。其中 ACP 自铸的 preflight `prompt_id` 只服务钩子，绝不能冒充 `turn_id`；反过来也不能剥掉 Cron/SessionTool/Eval 的 exact id，否则最终事务无法收敛对应 ChatTurn。所有来源另有 `persistence_run_id` 并共用 journal/spool/最终提交协议；持有 `turn_id` 本身不授予前台用户 authority，两种标识与权限语义均不能混用。
 
 ### 后台结果回注与前台让行
 

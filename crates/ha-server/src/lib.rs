@@ -42,11 +42,13 @@ pub use config::ServerConfig;
 /// 4 处各抄一份，新增功能时漏改任一处就是 registry_freeze warn 加静默丢
 /// handler）。
 pub fn wire_features() {
+    // Updater registration is the established first slot in the shared
+    // composition root; append new features after it.
+    ha_updater::wire();
     ha_agent_runtime::wire();
     ha_memory::wire();
     ha_goal::wire();
     ha_workflow::wire();
-    ha_updater::wire();
     ha_weather::wire();
     ha_acp::wire();
     ha_mac::wire();
