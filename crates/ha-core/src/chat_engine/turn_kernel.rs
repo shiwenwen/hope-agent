@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 pub use crate::chat_engine::stream_seq::{source_policy, TurnSourcePolicy};
-pub use crate::chat_engine::{TurnFailure, TurnFailureKind};
+pub use crate::chat_engine::{TurnCompletionClaim, TurnFailure, TurnFailureKind};
 
 /// Source-neutral output of the required Agent runtime port. Concrete Agent
 /// instances and provider credentials never cross this boundary.
@@ -329,6 +329,7 @@ impl TurnRequest {
                 run_context: self.run_context,
                 reasoning_effort: self.reasoning_effort,
                 cancel: self.cancel,
+                completion_claim: None,
                 foreground_stop_admission: self.foreground_stop_admission,
                 plan_context_override: self.plan_context_override,
                 skill_allowed_tools: self.skill_allowed_tools,
@@ -687,8 +688,8 @@ impl TurnSubmission {
     /// Agent Client Protocol conversation. ACP protocol translation remains
     /// in `ha-acp`; lifecycle, durability, failover and finalization are owned
     /// by the shared turn kernel.
-    pub fn acp(request: TurnRequest) -> Self {
-        Self::seal(
+    pub fn acp(request: TurnRequest, completion_claim: TurnCompletionClaim) -> Self {
+        let mut submission = Self::seal(
             request,
             ChatSource::Acp,
             false,
@@ -698,7 +699,9 @@ impl TurnSubmission {
             None,
             None,
             ProviderCredentialLease::from_current_config(),
-        )
+        );
+        submission.params.completion_claim = Some(completion_claim);
+        submission
     }
 
     /// Kernel-owned background child execution.
@@ -1885,10 +1888,13 @@ mod tests {
         )
         .with_turn_id(turn_id.clone());
 
-        let failure = TurnKernel::admit(TurnSubmission::acp(request))
-            .await
-            .err()
-            .expect("rowless ACP source must reject a persisted turn identity");
+        let failure = TurnKernel::admit(TurnSubmission::acp(
+            request,
+            TurnCompletionClaim::new(|| true),
+        ))
+        .await
+        .err()
+        .expect("rowless ACP source must reject a persisted turn identity");
 
         assert!(failure
             .to_string()

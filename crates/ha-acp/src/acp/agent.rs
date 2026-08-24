@@ -1210,8 +1210,13 @@ impl AcpAgent {
         // Run the turn with the preflight-resolved prompt (same value the
         // other three entry points feed their engine), not the raw `text`, so
         // a future hook rewrite is honored consistently across all entries.
-        let stop_reason =
-            self.run_agent_chat(&session_id, &turn_id, &effective_prompt, &attachments);
+        let stop_reason = self.run_agent_chat(
+            &session_id,
+            &turn_id,
+            cancel_state.clone(),
+            &effective_prompt,
+            &attachments,
+        );
 
         // Mark done
         if let Some(session) = self.sessions.get_mut(&session_id) {
@@ -1377,6 +1382,7 @@ impl AcpAgent {
         &mut self,
         session_id: &str,
         turn_id: &str,
+        completion_state: Arc<AcpCancelState>,
         text: &str,
         attachments: &[ha_core::agent::Attachment],
     ) -> Result<String> {
@@ -1414,17 +1420,13 @@ impl AcpAgent {
         let result = self
             .runtime
             .block_on(ha_core::turn_kernel::TurnKernel::submit(
-                ha_core::turn_kernel::TurnSubmission::acp(params),
+                ha_core::turn_kernel::TurnSubmission::acp(
+                    params,
+                    ha_core::turn_kernel::TurnCompletionClaim::new(move || {
+                        completion_state.claim_non_cancelled_completion()
+                    }),
+                ),
             ));
-
-        if result
-            .as_ref()
-            .is_ok_and(|output| output.terminal != ha_core::chat_engine::TurnTerminal::Cancelled)
-        {
-            if let Some(state) = self.cancel_state(session_id) {
-                let _ = state.claim_non_cancelled_completion();
-            }
-        }
 
         match result {
             Ok(output) => acp_stop_reason_from_terminal(output.terminal).map(str::to_string),
@@ -1656,6 +1658,44 @@ mod tests {
         let second = state.prepare_prompt();
         assert!(!Arc::ptr_eq(&first, &second));
         assert!(!second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn acp_completion_claim_and_stop_cleanup_have_one_winner() {
+        for _ in 0..64 {
+            let state = Arc::new(AcpCancelState::new(
+                Some("internal-session".to_string()),
+                Arc::new(AtomicBool::new(false)),
+            ));
+            let turn_cancel = state.prepare_prompt();
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+
+            let completion_state = state.clone();
+            let completion_barrier = barrier.clone();
+            let completion = std::thread::spawn(move || {
+                completion_barrier.wait();
+                completion_state.claim_non_cancelled_completion()
+            });
+
+            let cancel_state = state.clone();
+            let cancel_barrier = barrier.clone();
+            let cancel = std::thread::spawn(move || {
+                cancel_barrier.wait();
+                cancel_state.request_cancel()
+            });
+
+            barrier.wait();
+            let completion_won = completion.join().unwrap();
+            let stop_cleanup = cancel.join().unwrap();
+            match (completion_won, stop_cleanup) {
+                (true, None) => assert!(!turn_cancel.load(Ordering::Acquire)),
+                (false, Some(session_id)) => {
+                    assert_eq!(session_id, "internal-session");
+                    assert!(turn_cancel.load(Ordering::Acquire));
+                }
+                outcome => panic!("completion and Stop cleanup were not linearized: {outcome:?}"),
+            }
+        }
     }
 
     #[test]

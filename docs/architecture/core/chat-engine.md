@@ -586,7 +586,7 @@ Workflow 新 runtime 必须等 Stop 前的 QuickJS guard Drop 后再由同一 re
 
 无 target 的全局紧急停止统一进入 `stop_all_sessions`，Desktop / HTTP shell 只负责先翻转各自 transport-local handle；全局路径不复制一套 DB、审批或 runtime 清理逻辑。
 
-ACP 的 `session/cancel` 也调用同一 session-stop 服务；由于 ACP prompt 同步占用业务主循环，stdio reader 必须独立读取并先翻转每轮独立 token，不能等 prompt 返回后才处理 cancel。ACP 的 hook、provider 构造、重试和 Agent loop 均须观察该 token，停止胜出后同样以 `Interrupted/user_stop` 保留 journal 前缀。
+ACP 的 `session/cancel` 也调用同一 session-stop 服务；由于 ACP prompt 同步占用业务主循环，stdio reader 必须独立读取并先翻转每轮独立 token，不能等 prompt 返回后才处理 cancel。ACP 的 hook、provider 构造、重试和 Agent loop 均须观察该 token，停止胜出后同样以 `Interrupted/user_stop` 保留 journal 前缀。自然完成与带外 Stop 的最后定序由 ACP 来源专用 `TurnCompletionClaim` 完成：runtime 必须在 assistant/context/turn/run 原子成功事务之前 claim，cancel 先赢就走 `UserStop` finalizer，claim 先赢则 reader 不得再为该 prompt generation 启动 Stop；在 `TurnKernel::submit` 返回后补 claim 无法阻止已经落库的 pause，禁止回退到这种后置形状。
 
 **终态 CAS**：`cancelling` 优先于迟到的 success commit——成功事务只能从 `running` 转 `completed`，不得清掉已写入的 `user_stop` 并把会话翻回成功。前端的 loading / optimistic placeholder 归属具体 chat request；旧请求即使在 watchdog 放行后才返回，其 `finally`、status、stream end 及 success commit 都必须按 request/turn ownership 拒绝覆盖新回合。
 

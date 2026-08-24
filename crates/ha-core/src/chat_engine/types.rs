@@ -189,6 +189,31 @@ pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &str);
 }
 
+/// Source-owned linearization hook for a non-cancelled durable terminal.
+///
+/// ACP receives cancellation on a reader thread while its prompt dispatcher
+/// is synchronously awaiting the shared runtime. The runtime invokes this
+/// claim immediately before its atomic success commit: if cancellation won
+/// first, success must not be persisted; if the claim won first, a later ACP
+/// cancel belongs to a future prompt generation and must not publish Stop.
+#[derive(Clone)]
+pub struct TurnCompletionClaim {
+    claim: Arc<dyn Fn() -> bool + Send + Sync + 'static>,
+}
+
+impl TurnCompletionClaim {
+    pub fn new(claim: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            claim: Arc::new(claim),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn try_claim(&self) -> bool {
+        (self.claim)()
+    }
+}
+
 /// EventSink that drops every event. Used by callers that don't have a
 /// real-time UI consumer (HTTP one-shot, cron, subagent fork-and-forget).
 pub struct NoopEventSink;
@@ -636,6 +661,10 @@ pub struct ChatEngineParams {
     pub run_context: Option<crate::prompt_context::RunInstructionContext>,
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
+    /// ACP-only handshake that orders its out-of-band `session/cancel`
+    /// against the runtime's durable completed terminal. Source sealing keeps
+    /// this absent for every other transport.
+    pub completion_claim: Option<TurnCompletionClaim>,
     /// Stop generation captured at the transport/queue admission boundary.
     /// Stream durability revalidates it transactionally before model work.
     pub foreground_stop_admission: Option<crate::session::ForegroundStopAdmission>,

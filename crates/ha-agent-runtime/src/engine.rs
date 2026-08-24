@@ -21,6 +21,14 @@ use ha_core::chat_engine::{stream_broadcast, stream_seq};
 const CHAT_CANCEL_COOPERATIVE_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
 
+fn claim_non_cancelled_terminal(
+    completion_claim: Option<&ha_core::chat_engine::TurnCompletionClaim>,
+) -> bool {
+    completion_claim
+        .map(ha_core::chat_engine::TurnCompletionClaim::try_claim)
+        .unwrap_or(true)
+}
+
 pub async fn execute_admitted_params(
     params: ChatEngineParams,
 ) -> Result<ChatEngineResult, TurnFailure> {
@@ -45,6 +53,7 @@ pub async fn execute_admitted_params(
         run_context,
         reasoning_effort,
         cancel,
+        completion_claim,
         foreground_stop_admission,
         plan_context_override,
         mut skill_allowed_tools,
@@ -1783,6 +1792,18 @@ pub async fn execute_admitted_params(
                         },
                         request_plan: durability.successful_request_plan_commit()?,
                     };
+                    // ACP cancellation is observed on a separate stdin reader
+                    // thread. Linearize that request against completion before
+                    // the durable terminal transaction: cancel-first falls
+                    // through the normal UserStop finalizer, while
+                    // completion-first disarms this prompt generation so the
+                    // reader cannot publish a late session pause.
+                    if !claim_non_cancelled_terminal(completion_claim.as_ref()) {
+                        last_reason = None;
+                        last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
+                        last_was_no_profile = false;
+                        break;
+                    }
                     let committed = {
                         let db = db.clone();
                         db.run(move |db| db.commit_assistant_turn(&commit)).await

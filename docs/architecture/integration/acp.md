@@ -449,7 +449,7 @@ flowchart TB
 - **每轮换新 token**：`prepare_prompt` 为新一轮武装一枚全新 token。一个迟到的旧 future 即便还在 unwinding，也不会被下一轮复活——因为它们持有的是不同的 token。
 - **带外触发**：`session/cancel` 由 stdin 读取线程直接处理，翻转 token 并启动 Stop 清理线程，不经主循环队列。
 - **共享协作取消**：ACP token 随 `TurnRequest` 进入共享 runtime；Provider 请求、round/tool checkpoint 与 durable finalize 都观察同一 token。带外线程只负责尽早翻转 token 并触发全局 Stop 收敛，不实现第二套 chat race。
-- **线性化点**：`claim_non_cancelled_completion` / `claim_non_cancelled_persistence` 是「正常完成」与「取消」之间的定序点——取消一旦在完成前落定，后到的完成不得改写终态；反之，晚于持久化提交的取消属于「已被接受持久化的 prompt」。
+- **线性化点**：`claim_non_cancelled_completion` / `claim_non_cancelled_persistence` 是「正常完成」与「取消」之间的定序点。完成 claim 作为 ACP 专用的 `TurnCompletionClaim` 随准入能力进入共享 runtime，并在原子 assistant/context/turn/run 成功事务**之前**执行：取消先赢则 runtime 转入统一 `UserStop` finalizer，完成先赢则 reader 看见该 prompt generation 已解除武装、不得再启动 Stop 清理。禁止把 claim 放在 `TurnKernel::submit` 返回以后——那时带外 cleanup 可能已经写入 durable session pause，造成“本轮返回 `end_turn`、下一轮却意外暂停”。
 - **Stop gate**：Stop 清理进行中时，替换性的新 prompt 会被识别（`stop_cleanup_active`）并回 `cancelled`，不让它冒充并发活跃。
 
 被取消的 turn 不是简单丢弃：`finalize_acp_user_stop` 会 flush 已产出的字节、重建历史、以 `UserStop` 标记提交中断 turn，保证已发给编辑器的内容落库可恢复。

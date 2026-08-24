@@ -1695,6 +1695,7 @@ mod stream_lifecycle_tests {
             run_context: None,
             reasoning_effort: Some("none".to_string()),
             cancel: Arc::new(AtomicBool::new(false)),
+            completion_claim: None,
             foreground_stop_admission: None,
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
             skill_allowed_tools: Vec::new(),
