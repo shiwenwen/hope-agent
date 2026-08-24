@@ -599,7 +599,7 @@ server-owned UI turn 运行期间注册 session-scoped `ReattachableUiSessionGua
 
 同步 HTTP / incognito 路径仍持有两个 Drop 兜底 guard：一是只移除本次请求注册的 cancel flag，避免客户端断开时把 stale cancel 留在 `chat_cancels`；二是 request future 被丢弃时，外层 guard 只把 turn 标 `cancelling/runtime_cancel`，由 Chat Engine `StreamLifecycle::Drop` 按精确 `persistence_run_id` 从 durable prefix 后台收敛并广播终态。服务进程退出则不透明重放任意副作用，交给启动恢复标记 Interrupted。
 
-`turn_id` 的判据是**该来源是否拥有匹配的 `chat_turns` 行**，不是“交互/非交互”：Desktop/HTTP、SessionTool、Cron 与 Eval 的持久 turn 必须携带 exact id；Channel、Subagent、ParentInjection 与 ACP 没有该行，恒为 `None`。其中 ACP 自铸的 preflight `prompt_id` 只服务钩子，绝不能冒充 `turn_id`；反过来也不能剥掉 Cron/SessionTool/Eval 的 exact id，否则最终事务无法收敛对应 ChatTurn。所有来源另有 `persistence_run_id` 并共用 journal/spool/最终提交协议；持有 `turn_id` 本身不授予前台用户 authority，两种标识与权限语义均不能混用。
+`turn_id` 的判据是**该来源是否拥有匹配的 `chat_turns` 行**，不是“交互/非交互”：Desktop/HTTP、SessionTool、Cron 与 Eval 的持久 turn 必须携带 exact id；Channel、Subagent、ParentInjection 与 ACP 没有该行，恒为 `None`。其中 ACP 自铸的 preflight `prompt_id` 只服务钩子，绝不能冒充 `turn_id`；反过来也不能剥掉 Cron/SessionTool/Eval 的 exact id，否则最终事务无法收敛对应 ChatTurn。kernel 把身份分成三类并穷举 `ChatSource`：Desktop/HTTP 的 row 在 `admit_interactive` 内原子创建并由该边界自行回滚/取消；SessionTool/Cron/Eval 的 row 由 shell 先建，source/identity allowlist 通过后立即捕获统一失败收敛上下文，后续模型路由、Provider lease 或来源证明失败也必须把它精确收敛为 terminal，不能留下永久 `running`；rowless source 则不得武装该 fallback，否则伪造 id 可终结别人的 turn。所有来源另有 `persistence_run_id` 并共用 journal/spool/最终提交协议；持有 `turn_id` 本身不授予前台用户 authority，两种标识与权限语义均不能混用。
 
 ### 后台结果回注与前台让行
 

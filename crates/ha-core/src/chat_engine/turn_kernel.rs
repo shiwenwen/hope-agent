@@ -780,49 +780,63 @@ impl TurnKernel {
     /// Validate source proof and atomically persist the interactive message,
     /// visible turn, durability run, and Stop-generation snapshot.
     pub async fn admit(mut submission: TurnSubmission) -> Result<AdmittedTurn, TurnFailure> {
-        admit_persisted_turn_identity(
+        let identity_mode = admit_persisted_turn_identity(
             submission.params.source,
             submission.params.turn_id.as_deref(),
         )?;
-        admit_model_selection(
-            &mut submission.params,
-            submission.model_selection.take().ok_or_else(|| {
-                TurnFailure::new(
-                    TurnFailureKind::Infrastructure,
-                    "turn submission has no model-selection capability",
-                )
-            })?,
-            submission.routing_config.as_deref(),
-        )?;
-        admit_provider_lease(&submission.params)?;
-        if let Some(proof) = submission.source_proof.take() {
-            admit_source_proof(&mut submission.params, proof).await?;
+        // Only sources whose shells already created the durable row need an
+        // admission-failure fallback. Desktop/HTTP create their row inside
+        // `admit_interactive`, which owns its own rollback/cancel settlement;
+        // arming this earlier would let a forged interactive ID target an
+        // unrelated existing row before its lease is proven.
+        let fallback = (identity_mode == PersistedTurnIdentityMode::PreAdmitted)
+            .then(|| TurnFailureFallback::capture(&submission.params));
+        let result = async {
+            admit_model_selection(
+                &mut submission.params,
+                submission.model_selection.take().ok_or_else(|| {
+                    TurnFailure::new(
+                        TurnFailureKind::Infrastructure,
+                        "turn submission has no model-selection capability",
+                    )
+                })?,
+                submission.routing_config.as_deref(),
+            )?;
+            admit_provider_lease(&submission.params)?;
+            if let Some(proof) = submission.source_proof.take() {
+                admit_source_proof(&mut submission.params, proof).await?;
+            }
+            if let Some(admission) = submission.interactive.take() {
+                admit_interactive(&mut submission.params, admission).await?;
+            }
+            let drop_recovery = submission
+                .params
+                .pre_admitted_stream
+                .as_ref()
+                .map(|stream| AdmittedDropRecovery {
+                    db: submission.params.session_db.clone(),
+                    session_id: submission.params.session_id.clone(),
+                    turn_id: submission.params.turn_id.clone(),
+                    source: submission.params.source,
+                    run_id: stream.registration.run_id.clone(),
+                    armed: true,
+                });
+            Ok(AdmittedTurn {
+                params: Some(submission.params),
+                drop_recovery,
+            })
         }
-        if let Some(admission) = submission.interactive.take() {
-            admit_interactive(&mut submission.params, admission).await?;
+        .await;
+        if let (Some(fallback), Err(failure)) = (fallback, &result) {
+            fallback.converge(failure).await;
         }
-        let drop_recovery = submission
-            .params
-            .pre_admitted_stream
-            .as_ref()
-            .map(|stream| AdmittedDropRecovery {
-                db: submission.params.session_db.clone(),
-                session_id: submission.params.session_id.clone(),
-                turn_id: submission.params.turn_id.clone(),
-                source: submission.params.source,
-                run_id: stream.registration.run_id.clone(),
-                armed: true,
-            });
-        Ok(AdmittedTurn {
-            params: Some(submission.params),
-            drop_recovery,
-        })
+        result
     }
 
     /// Execute a previously admitted capability. This split lets a detached
     /// HTTP UI acknowledge durable acceptance without creating a second entry.
     pub async fn run_admitted(mut turn: AdmittedTurn) -> Result<AgentTurnOutput, TurnFailure> {
-        let fallback = AdmittedFailureFallback::capture(turn.params());
+        let fallback = TurnFailureFallback::capture(turn.params());
         let route_all_codex = admitted_route_all_codex(turn.params());
         let mut drop_recovery = turn.drop_recovery.take();
         let result = execute(turn)
@@ -857,22 +871,28 @@ impl TurnKernel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PersistedTurnIdentityMode {
+    Interactive,
+    PreAdmitted,
+    Rowless,
+}
+
 fn admit_persisted_turn_identity(
     source: ChatSource,
     turn_id: Option<&str>,
-) -> Result<(), TurnFailure> {
-    let owns_persisted_turn = match source {
-        ChatSource::Desktop
-        | ChatSource::Http
-        | ChatSource::SessionTool
-        | ChatSource::Cron
-        | ChatSource::Eval => true,
+) -> Result<PersistedTurnIdentityMode, TurnFailure> {
+    let mode = match source {
+        ChatSource::Desktop | ChatSource::Http => PersistedTurnIdentityMode::Interactive,
+        ChatSource::SessionTool | ChatSource::Cron | ChatSource::Eval => {
+            PersistedTurnIdentityMode::PreAdmitted
+        }
         ChatSource::Channel
         | ChatSource::Subagent
         | ChatSource::ParentInjection
-        | ChatSource::Acp => false,
+        | ChatSource::Acp => PersistedTurnIdentityMode::Rowless,
     };
-    if turn_id.is_some() && !owns_persisted_turn {
+    if turn_id.is_some() && mode == PersistedTurnIdentityMode::Rowless {
         return Err(TurnFailure::new(
             TurnFailureKind::Infrastructure,
             format!(
@@ -881,7 +901,7 @@ fn admit_persisted_turn_identity(
             ),
         ));
     }
-    Ok(())
+    Ok(mode)
 }
 
 fn admitted_route_all_codex(params: &ChatEngineParams) -> bool {
@@ -1043,7 +1063,7 @@ fn admit_provider_lease(params: &ChatEngineParams) -> Result<(), TurnFailure> {
     Ok(())
 }
 
-struct AdmittedFailureFallback {
+struct TurnFailureFallback {
     db: Arc<crate::session::SessionDB>,
     session_id: String,
     turn_id: Option<String>,
@@ -1051,7 +1071,7 @@ struct AdmittedFailureFallback {
     run: Option<(String, bool)>,
 }
 
-impl AdmittedFailureFallback {
+impl TurnFailureFallback {
     fn capture(params: &ChatEngineParams) -> Self {
         Self {
             db: params.session_db.clone(),
@@ -1517,14 +1537,17 @@ mod tests {
         assert!(!source_policy(ChatSource::Eval).fires_user_lifecycle_hooks);
         assert!(source_policy(ChatSource::Acp).holds_foreground_idle_guard);
         assert!(source_policy(ChatSource::Acp).fires_user_lifecycle_hooks);
-        for source in [
-            ChatSource::Desktop,
-            ChatSource::Http,
-            ChatSource::SessionTool,
-            ChatSource::Cron,
-            ChatSource::Eval,
-        ] {
-            assert!(admit_persisted_turn_identity(source, Some("turn-1")).is_ok());
+        for source in [ChatSource::Desktop, ChatSource::Http] {
+            assert_eq!(
+                admit_persisted_turn_identity(source, Some("turn-1")).unwrap(),
+                PersistedTurnIdentityMode::Interactive
+            );
+        }
+        for source in [ChatSource::SessionTool, ChatSource::Cron, ChatSource::Eval] {
+            assert_eq!(
+                admit_persisted_turn_identity(source, Some("turn-1")).unwrap(),
+                PersistedTurnIdentityMode::PreAdmitted
+            );
         }
         for source in [
             ChatSource::Channel,
@@ -1534,7 +1557,10 @@ mod tests {
         ] {
             assert!(admit_persisted_turn_identity(source, Some("hook-only")).is_err());
         }
-        assert!(admit_persisted_turn_identity(ChatSource::Acp, None).is_ok());
+        assert_eq!(
+            admit_persisted_turn_identity(ChatSource::Acp, None).unwrap(),
+            PersistedTurnIdentityMode::Rowless
+        );
     }
 
     #[test]
@@ -1576,6 +1602,105 @@ mod tests {
         assert!(error
             .to_string()
             .contains("outside the admitted config snapshot"));
+    }
+
+    #[tokio::test]
+    async fn persisted_eval_turn_converges_when_provider_lease_admission_fails() {
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &tempfile::tempdir().unwrap().path().join("sessions.db"),
+            )
+            .unwrap(),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let user_message_id = db
+            .append_message(
+                &session.id,
+                &crate::session::NewMessage::user("hello").with_source(ChatSource::Eval),
+            )
+            .unwrap();
+        let turn_id = "eval-admission-failure".to_string();
+        db.create_chat_turn_with_id(
+            &turn_id,
+            &session.id,
+            ChatSource::Eval.as_str(),
+            None,
+            Some(user_message_id),
+        )
+        .unwrap();
+        let request = TurnRequest::new(
+            session.id.clone(),
+            crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
+            "hello".to_string(),
+            db.clone(),
+            crate::context_compact::CompactConfig::default(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::chat_engine::NoopEventSink),
+        )
+        .with_evaluation_model_chain(vec![crate::provider::ActiveModel {
+            provider_id: "stale-provider".to_string(),
+            model_id: "model".to_string(),
+        }])
+        .with_turn_id(turn_id.clone());
+
+        let failure = TurnKernel::admit(TurnSubmission::evaluation(request, false, Vec::new()))
+            .await
+            .err()
+            .expect("stale provider snapshot must fail admission");
+
+        assert_eq!(failure.kind, TurnFailureKind::Infrastructure);
+        let turn = db.get_chat_turn(&turn_id).unwrap().unwrap();
+        assert_eq!(turn.status, crate::session::ChatTurnStatus::Failed);
+        assert_eq!(
+            turn.interrupt_reason,
+            Some(crate::session::ChatTurnInterruptReason::Unknown)
+        );
+        assert!(turn.ended_at.is_some());
+        assert!(turn
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("outside the admitted config snapshot")));
+    }
+
+    #[tokio::test]
+    async fn rowless_source_rejection_cannot_converge_a_forged_turn_identity() {
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &tempfile::tempdir().unwrap().path().join("sessions.db"),
+            )
+            .unwrap(),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = "foreign-persisted-turn".to_string();
+        db.create_chat_turn_with_id(&turn_id, &session.id, ChatSource::Eval.as_str(), None, None)
+            .unwrap();
+        let request = TurnRequest::new(
+            session.id,
+            crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
+            "hello".to_string(),
+            db.clone(),
+            crate::context_compact::CompactConfig::default(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::chat_engine::NoopEventSink),
+        )
+        .with_turn_id(turn_id.clone());
+
+        let failure = TurnKernel::admit(TurnSubmission::acp(request))
+            .await
+            .err()
+            .expect("rowless ACP source must reject a persisted turn identity");
+
+        assert!(failure
+            .to_string()
+            .contains("cannot attach a persisted chat-turn identity"));
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            crate::session::ChatTurnStatus::Running
+        );
     }
 
     #[test]
