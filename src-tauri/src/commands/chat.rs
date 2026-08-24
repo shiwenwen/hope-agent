@@ -89,47 +89,6 @@ fn broadcast_turn_end(
     );
 }
 
-async fn commit_local_reply(
-    db: Arc<SessionDB>,
-    session_id: &str,
-    turn_id: &str,
-    content: &str,
-    cancel: &AtomicBool,
-) -> Result<bool, CmdError> {
-    if cancel.load(Ordering::Acquire) {
-        return Ok(false);
-    }
-    let session_id = session_id.to_string();
-    let turn_id = turn_id.to_string();
-    let content = content.to_string();
-    let result = db
-        .run(move |db| {
-            let (context_json, context_revision) = db.load_context_with_revision(&session_id)?;
-            let commit = session::CommitAssistantTurn {
-                run_id: None,
-                attempt_no: 0,
-                session_id,
-                assistant: session::NewMessage::assistant(&content)
-                    .with_source(ha_core::chat_engine::ChatSource::Desktop),
-                trailing_placeholder_id: None,
-                context_json: context_json.unwrap_or_else(|| "[]".to_string()),
-                expected_context_revision: context_revision,
-                turn_id: Some(turn_id),
-                usage: None,
-                final_seq: 0,
-                tier3_recovery: session::Tier3RecoveryCommit::Unchanged,
-                request_plan: session::RequestPlanCommit::None,
-            };
-            db.commit_assistant_turn(&commit)
-        })
-        .await;
-    match result {
-        Ok(_) => Ok(true),
-        Err(_) if cancel.load(Ordering::Acquire) => Ok(false),
-        Err(error) => Err(error.into()),
-    }
-}
-
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
 #[tauri::command]
@@ -1244,12 +1203,6 @@ pub async fn chat(
         Some(current_agent_id.clone()),
     );
 
-    if let Some(request_id) = bootstrap_request_id.as_deref() {
-        let request_id = request_id.to_string();
-        db.run(move |db| db.mark_project_bootstrap_completed(&request_id))
-            .await?;
-    }
-
     // Resolve model chain from current agent config. The legacy
     // `notify_on_complete` per-agent override is consumed inside ha-core
     // (`AssistantAgent::agent_caps`), where it folds into
@@ -1296,110 +1249,6 @@ pub async fn chat(
     } else {
         crate::plan::get_plan_state(&sid).await
     };
-
-    // ── Plan Sub-Agent: optionally dispatch Planning to an isolated sub-agent ──
-    // When plan_subagent=true, keeps the main agent's context clean for execution.
-    // When plan_subagent=false (default), planning runs inline in the main agent.
-    if early_plan_state == crate::plan::PlanModeState::Planning && !cancel.load(Ordering::Acquire) {
-        let use_subagent = cfg.plan_subagent;
-
-        if use_subagent {
-            // Check if a plan sub-agent is already active for this session
-            let active_plan_run_id = crate::plan::get_active_plan_run_id(&sid).await;
-            if !cancel.load(Ordering::Acquire) {
-                if let Some(run_id) = active_plan_run_id {
-                    // User sent a message while planning → route as steer to the sub-agent
-                    crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
-                    let reply = "💬 Message forwarded to planning agent.";
-                    if commit_local_reply(db.clone(), &sid, &turn_id, reply, cancel.as_ref())
-                        .await?
-                    {
-                        let _ = on_event.send(
-                            serde_json::json!({
-                                "type": "text",
-                                "text": "💬 Message forwarded to planning agent."
-                            })
-                            .to_string(),
-                        );
-                        broadcast_turn_end(
-                            &sid,
-                            &turn_id,
-                            session::ChatTurnStatus::Completed,
-                            None,
-                            None,
-                        );
-                        return Ok(reply.to_string());
-                    }
-                }
-            }
-
-            // First message in Planning state → spawn plan sub-agent
-            if !cancel.load(Ordering::Acquire) {
-                let recent_summary = build_recent_context_summary(&db, &sid).await;
-                if !cancel.load(Ordering::Acquire) {
-                    let cancel_registry =
-                        crate::get_subagent_cancels().cloned().ok_or_else(|| {
-                            CmdError::msg("Sub-agent cancel registry not initialized")
-                        })?;
-                    match crate::plan::spawn_plan_subagent(
-                        &sid,
-                        &current_agent_id,
-                        &message,
-                        &recent_summary,
-                        db.clone(),
-                        cancel_registry.clone(),
-                    )
-                    .await
-                    {
-                        Ok(run_id) if cancel.load(Ordering::Acquire) => {
-                            cancel_registry.cancel(&run_id);
-                            app_info!(
-                                "plan",
-                                "chat",
-                                "Cancelled plan sub-agent spawned during stop: run_id={}",
-                                run_id
-                            );
-                        }
-                        Ok(run_id) => {
-                            app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
-                            let reply = "🗂️ Plan creation started...";
-                            if commit_local_reply(
-                                db.clone(),
-                                &sid,
-                                &turn_id,
-                                reply,
-                                cancel.as_ref(),
-                            )
-                            .await?
-                            {
-                                let _ = on_event.send(
-                                    serde_json::json!({
-                                        "type": "text",
-                                        "text": "🗂️ Plan creation started..."
-                                    })
-                                    .to_string(),
-                                );
-                                broadcast_turn_end(
-                                    &sid,
-                                    &turn_id,
-                                    session::ChatTurnStatus::Completed,
-                                    None,
-                                    None,
-                                );
-                                return Ok(format!("Plan sub-agent spawned: {}", run_id));
-                            }
-                            cancel_registry.cancel(&run_id);
-                        }
-                        Err(e) => {
-                            app_error!("plan", "chat", "Failed to spawn plan sub-agent: {}", e);
-                            // Fall through to inline planning as fallback
-                        }
-                    }
-                }
-            }
-        }
-        // else: use_subagent=false, fall through to inline PlanAgent mode below
-    }
 
     // Plan Mode's persisted model preference remains the highest-priority
     // candidate during Planning. Unlike a per-turn override, a stale Plan or
@@ -1483,14 +1332,100 @@ pub async fn chat(
         new_session_created.is_some(),
     );
 
-    match ha_core::turn_kernel::TurnKernel::submit(ha_core::turn_kernel::TurnSubmission::desktop(
-        engine_params,
-        admission,
-    ))
+    let admitted = ha_core::turn_kernel::TurnKernel::admit(
+        ha_core::turn_kernel::TurnSubmission::desktop(engine_params, admission),
+    )
     .await
+    .map_err(|error| CmdError::msg(error.to_string()))?;
+
+    // A bootstrap becomes complete only after the kernel has atomically
+    // admitted its first user message, visible turn and durable stream.
+    if let Some(request_id) = bootstrap_request_id.as_deref() {
+        let request_id = request_id.to_string();
+        let completed = db
+            .run(move |db| db.mark_project_bootstrap_completed(&request_id))
+            .await?;
+        if !completed {
+            return Err(CmdError::msg(
+                "project bootstrap could not be completed after chat admission",
+            ));
+        }
+    }
+
+    // ── Plan Sub-Agent: optionally dispatch Planning to an isolated sub-agent ──
+    // These local shortcuts run only after TurnKernel admission. Their
+    // acknowledgement is committed through the kernel so the user message,
+    // visible turn and durable stream have the same lifecycle as model turns.
+    if early_plan_state == crate::plan::PlanModeState::Planning
+        && cfg.plan_subagent
+        && !cancel.load(Ordering::Acquire)
     {
+        if let Some(run_id) = crate::plan::get_active_plan_run_id(&sid).await {
+            if !cancel.load(Ordering::Acquire) {
+                crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
+                let reply = "💬 Message forwarded to planning agent.";
+                let result = ha_core::turn_kernel::TurnKernel::complete_admitted_local_reply(
+                    admitted, reply,
+                )
+                .await
+                .map_err(|error| CmdError::msg(error.to_string()))?;
+                return Ok(result.response);
+            }
+        }
+
+        if !cancel.load(Ordering::Acquire) {
+            let recent_summary = build_recent_context_summary(&db, &sid).await;
+            if !cancel.load(Ordering::Acquire) {
+                let cancel_registry = crate::get_subagent_cancels()
+                    .cloned()
+                    .ok_or_else(|| CmdError::msg("Sub-agent cancel registry not initialized"))?;
+                match crate::plan::spawn_plan_subagent(
+                    &sid,
+                    &current_agent_id,
+                    &message,
+                    &recent_summary,
+                    db.clone(),
+                    cancel_registry.clone(),
+                )
+                .await
+                {
+                    Ok(run_id) if cancel.load(Ordering::Acquire) => {
+                        cancel_registry.cancel(&run_id);
+                        app_info!(
+                            "plan",
+                            "chat",
+                            "Cancelled plan sub-agent spawned during stop: run_id={}",
+                            run_id
+                        );
+                    }
+                    Ok(run_id) => {
+                        app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
+                        let reply = "🗂️ Plan creation started...";
+                        let result =
+                            ha_core::turn_kernel::TurnKernel::complete_admitted_local_reply(
+                                admitted, reply,
+                            )
+                            .await;
+                        match result {
+                            Ok(_) => return Ok(format!("Plan sub-agent spawned: {}", run_id)),
+                            Err(error) => {
+                                cancel_registry.cancel(&run_id);
+                                return Err(CmdError::msg(error.to_string()));
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        app_error!("plan", "chat", "Failed to spawn plan sub-agent: {}", error);
+                        // Fall through to inline planning with the same admitted turn.
+                    }
+                }
+            }
+        }
+    }
+
+    match ha_core::turn_kernel::TurnKernel::run_admitted(admitted).await {
         Ok(result) => Ok(result.response),
-        Err(e) => Err(CmdError::msg(e)),
+        Err(error) => Err(CmdError::msg(error.to_string())),
     }
 }
 

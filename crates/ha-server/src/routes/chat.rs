@@ -1797,11 +1797,6 @@ async fn chat_inner(
     ))
     .with_ui_surface(body.ui_surface);
 
-    if let Some(request_id) = bootstrap_request_id.as_deref() {
-        let request_id = request_id.to_string();
-        db.run(move |db| db.mark_project_bootstrap_completed(&request_id))
-            .await?;
-    }
     let dispatch_identity = queued_ui_dispatch_fingerprint
         .zip(queued_request_id.clone())
         .map(|(fingerprint, request_id)| (request_id, fingerprint))
@@ -1829,6 +1824,21 @@ async fn chat_inner(
     )
     .await
     .map_err(map_chat_admission_error)?;
+
+    // The durable first user message/turn is the bootstrap completion point.
+    // Earlier routing or persistence failures are rolled back by TurnKernel's
+    // interactive-admission cleanup and remain retryable as a new bootstrap.
+    if let Some(request_id) = bootstrap_request_id.as_deref() {
+        let request_id = request_id.to_string();
+        let completed = db
+            .run(move |db| db.mark_project_bootstrap_completed(&request_id))
+            .await?;
+        if !completed {
+            return Err(AppError::internal(
+                "project bootstrap could not be completed after chat admission",
+            ));
+        }
+    }
 
     // Durable admission is the ownership-transfer boundary for the bundled
     // HTTP UI. The detached task owns the admitted capability and remains

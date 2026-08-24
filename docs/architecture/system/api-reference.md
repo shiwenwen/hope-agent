@@ -127,7 +127,7 @@ Tauri ↔ COMMAND_MAP 差集为 22 条合法非通用映射命令：5 条 Deskto
 | `worktree:restored` | `worktree::restore_managed_worktree` | `ManagedWorktree` 快照 |
 | `worktree:handoff` | `worktree::handoff_managed_worktree` | `ManagedWorktree` 快照；session working dir 已切换 |
 | `project:bootstrap_progress` | `project_bootstrap::bootstrap_project_session` / `worktree::create_managed_worktree` | `{ requestId, status, stage, sessionId?, worktreeId?, message?, errorCode? }` |
-| `project:bootstrap_completed` | 首轮 Bootstrap 已交给 Chat Engine | `{ requestId }` |
+| `project:bootstrap_completed` | 可执行首轮已通过 TurnKernel durable admission；或 `UserPromptSubmit` 明确 Block 后已持久化 notice 并 materialize Session | `{ requestId }` |
 | `session:git_progress` | `git_control` 长 Git 操作 | `{ requestId, sessionId, operation, status, stage, message?, errorCode? }` |
 | `session:git_changed` | stage/branch/commit/push/PR/Handoff 成功 | `{ sessionId, operation, requestId? }` |
 | `session:git_completed` | Git operation run 进入终态 | 与 progress 终态同形 |

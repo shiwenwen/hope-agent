@@ -172,9 +172,11 @@ pub fn broadcast_stream_end(
         // assistant/context/turn still commit atomically inside sessions.db.
         // It therefore may finish normally without claiming crash recovery.
         _ if incognito && status == Some(ChatTurnStatus::Completed) => "committed",
-        // Non-model local replies (for example the Plan sub-agent routing
-        // acknowledgement) use the same atomic assistant/context/turn
-        // transaction without creating a stream journal run.
+        // Kernel-local replies (for example the Plan sub-agent routing
+        // acknowledgement) do not construct a live StreamCoordinator, so the
+        // in-memory state cannot name their committed run. Their same atomic
+        // assistant/context/turn transaction remains sufficient completion
+        // proof for this compatibility lookup.
         _ if status == Some(ChatTurnStatus::Completed)
             && turn_id.is_some_and(|id| {
                 crate::get_session_db()

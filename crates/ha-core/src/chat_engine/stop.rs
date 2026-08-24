@@ -1107,7 +1107,7 @@ impl PreTurnCancelCleanup {
         tokio::spawn(self.run());
     }
 
-    async fn run(self) {
+    pub(crate) async fn run(self) {
         let Self {
             db,
             session_id,

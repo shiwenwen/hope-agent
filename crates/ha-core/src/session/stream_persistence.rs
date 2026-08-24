@@ -1186,6 +1186,29 @@ impl SessionDB {
     /// Atomically materialize the successful assistant and every durable
     /// terminal fact. No success event may be emitted before this returns.
     pub fn commit_assistant_turn(&self, input: &CommitAssistantTurn) -> Result<CommittedTurn> {
+        self.commit_assistant_turn_inner(input, false)
+    }
+
+    /// Kernel-only completion for a deterministic local reply which owns a
+    /// durable run but deliberately issued no Provider attempt.
+    pub(crate) fn commit_kernel_local_assistant_turn(
+        &self,
+        input: &CommitAssistantTurn,
+    ) -> Result<CommittedTurn> {
+        if input.attempt_no != 0 {
+            anyhow::bail!("kernel-local assistant commit requires attempt zero");
+        }
+        self.commit_assistant_turn_inner(input, true)
+    }
+
+    fn commit_assistant_turn_inner(
+        &self,
+        input: &CommitAssistantTurn,
+        allow_attemptless_run: bool,
+    ) -> Result<CommittedTurn> {
+        if input.run_id.is_some() && input.attempt_no == 0 && !allow_attemptless_run {
+            anyhow::bail!("persistent assistant commit requires a Provider attempt");
+        }
         let mut conn = self
             .conn
             .lock()
@@ -1333,16 +1356,20 @@ impl SessionDB {
         )?;
 
         if let Some(run_id) = input.run_id.as_deref() {
-            let changed_attempt = tx.execute(
-                "UPDATE chat_stream_attempts
-                 SET status = 'succeeded', accepted_seq = ?1, durable_seq = ?1,
-                     checkpoint_seq = ?1,
-                     ended_at = ?2, error = NULL
-                 WHERE run_id = ?3 AND attempt_no = ?4 AND status = 'running'",
-                params![input.final_seq as i64, now, run_id, input.attempt_no],
-            )?;
-            if changed_attempt != 1 {
-                anyhow::bail!("successful attempt update affected {changed_attempt} rows");
+            // Kernel-local replies never issue a Provider request and
+            // therefore deliberately own no attempt row.
+            if !allow_attemptless_run {
+                let changed_attempt = tx.execute(
+                    "UPDATE chat_stream_attempts
+                     SET status = 'succeeded', accepted_seq = ?1, durable_seq = ?1,
+                         checkpoint_seq = ?1,
+                         ended_at = ?2, error = NULL
+                     WHERE run_id = ?3 AND attempt_no = ?4 AND status = 'running'",
+                    params![input.final_seq as i64, now, run_id, input.attempt_no],
+                )?;
+                if changed_attempt != 1 {
+                    anyhow::bail!("successful attempt update affected {changed_attempt} rows");
+                }
             }
             let changed_run = tx.execute(
                 "UPDATE chat_stream_runs
@@ -3302,6 +3329,21 @@ mod tests {
             .expect("turn exists");
         assert_eq!(turn.status, ChatTurnStatus::Completed);
         assert_eq!(turn.assistant_message_id, Some(first.assistant_message_id));
+    }
+
+    #[test]
+    fn public_persistent_commit_rejects_attempt_zero() {
+        let fixture = fixture("attempt-zero-rejected");
+        let mut input = success_commit(&fixture, None);
+        input.attempt_no = 0;
+
+        let error = fixture
+            .db
+            .commit_assistant_turn(&input)
+            .expect_err("only the kernel-local completion may omit a Provider attempt");
+
+        assert!(error.to_string().contains("requires a Provider attempt"));
+        assert_success_rollback(&fixture, 1);
     }
 
     fn snapshot_name_for_run(run_id: &str) -> String {

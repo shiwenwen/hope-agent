@@ -47,7 +47,7 @@ pub struct InteractiveAdmission {
     edit_message_id: Option<i64>,
     dispatch_identity: Option<(String, String)>,
     bootstrap_request_id: Option<String>,
-    delete_new_session_on_cancel: bool,
+    delete_new_session_on_abort: bool,
     emit_session_created: bool,
 }
 
@@ -59,7 +59,7 @@ impl InteractiveAdmission {
         edit_message_id: Option<i64>,
         dispatch_identity: Option<(String, String)>,
         bootstrap_request_id: Option<String>,
-        delete_new_session_on_cancel: bool,
+        delete_new_session_on_abort: bool,
         emit_session_created: bool,
     ) -> Self {
         Self {
@@ -68,7 +68,7 @@ impl InteractiveAdmission {
             edit_message_id,
             dispatch_identity,
             bootstrap_request_id,
-            delete_new_session_on_cancel,
+            delete_new_session_on_abort,
             emit_session_created,
         }
     }
@@ -80,7 +80,7 @@ impl InteractiveAdmission {
         edit_message_id: Option<i64>,
         dispatch_identity: Option<(String, String)>,
         bootstrap_request_id: Option<String>,
-        delete_new_session_on_cancel: bool,
+        delete_new_session_on_abort: bool,
     ) -> Self {
         Self {
             lease,
@@ -88,7 +88,7 @@ impl InteractiveAdmission {
             edit_message_id,
             dispatch_identity,
             bootstrap_request_id,
-            delete_new_session_on_cancel,
+            delete_new_session_on_abort,
             emit_session_created: false,
         }
     }
@@ -426,6 +426,50 @@ struct AdmittedDropRecovery {
     source: ChatSource,
     run_id: String,
     armed: bool,
+}
+
+struct FailedInteractiveAdmissionCleanup {
+    db: Arc<crate::session::SessionDB>,
+    session_id: String,
+    bootstrap_request_id: Option<String>,
+    delete_empty_session: bool,
+    queued_dispatch: Option<(String, String)>,
+}
+
+impl FailedInteractiveAdmissionCleanup {
+    fn capture(params: &ChatEngineParams, admission: &InteractiveAdmission) -> Option<Self> {
+        let queued_dispatch = admission
+            .user_message
+            .queue_request_id
+            .as_ref()
+            .zip(params.turn_id.as_ref())
+            .map(|(request_id, turn_id)| (request_id.clone(), turn_id.clone()));
+        if admission.bootstrap_request_id.is_none()
+            && !admission.delete_new_session_on_abort
+            && queued_dispatch.is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            db: params.session_db.clone(),
+            session_id: admission.lease.session_id.clone(),
+            bootstrap_request_id: admission.bootstrap_request_id.clone(),
+            delete_empty_session: admission.delete_new_session_on_abort,
+            queued_dispatch,
+        })
+    }
+
+    async fn run(self) {
+        if let Some(cleanup) = crate::chat_engine::stop::PreTurnCancelCleanup::begin(
+            self.db,
+            self.session_id,
+            self.bootstrap_request_id,
+            self.delete_empty_session,
+            self.queued_dispatch,
+        ) {
+            cleanup.run().await;
+        }
+    }
 }
 
 impl AdmittedTurn {
@@ -791,7 +835,10 @@ impl TurnKernel {
         // unrelated existing row before its lease is proven.
         let fallback = (identity_mode == PersistedTurnIdentityMode::PreAdmitted)
             .then(|| TurnFailureFallback::capture(&submission.params));
-        let result = async {
+        let interactive_failure_cleanup = submission.interactive.as_ref().and_then(|admission| {
+            FailedInteractiveAdmissionCleanup::capture(&submission.params, admission)
+        });
+        let result: Result<AdmittedTurn, TurnFailure> = async {
             admit_model_selection(
                 &mut submission.params,
                 submission.model_selection.take().ok_or_else(|| {
@@ -827,6 +874,22 @@ impl TurnKernel {
             })
         }
         .await;
+        // Cancellation inside `admit_interactive` already settles this exact
+        // cleanup. Every earlier/non-cancel admission failure still owns no
+        // user message or visible turn, so synchronously roll back any lazy
+        // bootstrap/session and queued-dispatch claim before returning.
+        if result
+            .as_ref()
+            .is_err_and(|failure| failure.kind != TurnFailureKind::Cancelled)
+        {
+            // Model/source admission can fail before `admit_interactive`
+            // consumes the lease. Release that active-turn guard before the
+            // cleanup tries to delete a newly-created empty Session.
+            drop(submission.interactive.take());
+            if let Some(cleanup) = interactive_failure_cleanup {
+                cleanup.run().await;
+            }
+        }
         if let (Some(fallback), Err(failure)) = (fallback, &result) {
             fallback.converge(failure).await;
         }
@@ -842,6 +905,27 @@ impl TurnKernel {
         let result = execute(turn)
             .await
             .map_err(|failure| failure.with_route_all_codex(route_all_codex));
+        if let Some(recovery) = drop_recovery.as_mut() {
+            recovery.armed = false;
+        }
+        if let Err(failure) = &result {
+            fallback.converge(failure).await;
+        }
+        result
+    }
+
+    /// Complete an already-admitted Desktop turn with a kernel-authored local
+    /// acknowledgement instead of invoking a model. This narrow path exists
+    /// for Plan sub-agent routing: it preserves the same atomic user/turn/run
+    /// admission and terminal durability as every model-backed turn.
+    #[doc(hidden)]
+    pub async fn complete_admitted_local_reply(
+        mut turn: AdmittedTurn,
+        content: &str,
+    ) -> Result<AgentTurnOutput, TurnFailure> {
+        let fallback = TurnFailureFallback::capture(turn.params());
+        let mut drop_recovery = turn.drop_recovery.take();
+        let result = persist_admitted_local_reply(turn.params(), content).await;
         if let Some(recovery) = drop_recovery.as_mut() {
             recovery.armed = false;
         }
@@ -1069,6 +1153,7 @@ struct TurnFailureFallback {
     turn_id: Option<String>,
     stream_id: Option<String>,
     run: Option<(String, bool)>,
+    source: ChatSource,
 }
 
 impl TurnFailureFallback {
@@ -1087,6 +1172,7 @@ impl TurnFailureFallback {
                     stream.registration.persistent,
                 )
             }),
+            source: params.source,
         }
     }
 
@@ -1147,14 +1233,16 @@ impl TurnFailureFallback {
             .unwrap_or(false);
         if converged {
             if let Some(turn_id) = self.turn_id.as_deref() {
-                crate::chat_engine::stream_broadcast::broadcast_stream_end(
-                    &self.session_id,
-                    self.stream_id.as_deref(),
-                    Some(turn_id),
-                    Some(status),
-                    interrupt,
-                    Some(&message),
-                );
+                if failure_terminal_broadcasts_to_user_ui(self.source) {
+                    crate::chat_engine::stream_broadcast::broadcast_stream_end(
+                        &self.session_id,
+                        self.stream_id.as_deref(),
+                        Some(turn_id),
+                        Some(status),
+                        interrupt,
+                        Some(&message),
+                    );
+                }
                 crate::chat_engine::active_turn::force_release(&self.session_id, turn_id);
             }
         }
@@ -1162,6 +1250,112 @@ impl TurnFailureFallback {
             let _ = crate::chat_engine::stream_seq::end_if_stream(&self.session_id, stream_id);
         }
     }
+}
+
+fn failure_terminal_broadcasts_to_user_ui(source: ChatSource) -> bool {
+    source_policy(source).broadcasts_to_user_ui
+}
+
+async fn persist_admitted_local_reply(
+    params: &ChatEngineParams,
+    content: &str,
+) -> Result<AgentTurnOutput, TurnFailure> {
+    if params.source != ChatSource::Desktop {
+        return Err(TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            "kernel-local replies are restricted to admitted Desktop turns",
+        ));
+    }
+    let turn_id = params.turn_id.clone().ok_or_else(|| {
+        TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            "kernel-local reply is missing a visible turn id",
+        )
+    })?;
+    let stream = params.pre_admitted_stream.as_ref().ok_or_else(|| {
+        TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            "kernel-local reply is missing durable stream admission",
+        )
+    })?;
+    if params.cancel.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(TurnFailure::cancelled(
+            "chat stopped before the local reply was committed",
+        ));
+    }
+
+    let session_id = params.session_id.clone();
+    let stream_id = stream.stream_id.clone();
+    let run_id = stream.registration.run_id.clone();
+    let persistent = stream.registration.persistent;
+    let expected_context_revision = stream.registration.context_revision;
+    let context_json = stream
+        .registration
+        .initial_context_json
+        .clone()
+        .unwrap_or_else(|| "[]".to_string());
+    let content = content.to_string();
+    let content_for_commit = content.clone();
+    let turn_for_commit = turn_id.clone();
+    let session_for_commit = session_id.clone();
+    let run_for_commit = run_id.clone();
+    let db = params.session_db.clone();
+    let committed = db
+        .run(move |db| {
+            db.commit_kernel_local_assistant_turn(&crate::session::CommitAssistantTurn {
+                run_id: persistent.then_some(run_for_commit),
+                // Attempt zero is the explicit non-Provider local-reply lane.
+                attempt_no: 0,
+                session_id: session_for_commit,
+                assistant: crate::session::NewMessage::assistant(&content_for_commit)
+                    .with_source(ChatSource::Desktop),
+                trailing_placeholder_id: None,
+                context_json,
+                expected_context_revision,
+                turn_id: Some(turn_for_commit),
+                usage: None,
+                final_seq: 0,
+                tier3_recovery: crate::session::Tier3RecoveryCommit::Unchanged,
+                request_plan: crate::session::RequestPlanCommit::None,
+            })
+        })
+        .await;
+    if let Err(error) = committed {
+        if params.cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(TurnFailure::cancelled(
+                "chat stopped while the local reply was being committed",
+            ));
+        }
+        return Err(TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            format!("kernel-local reply transaction failed: {error}"),
+        ));
+    }
+
+    // Preserve the per-call ordering contract: the durable local text reaches
+    // its sink before the terminal stream event closes the UI request.
+    params
+        .event_sink
+        .send(&serde_json::json!({ "type": "text", "text": &content }).to_string());
+    let _ = crate::chat_engine::stream_seq::end_if_stream(&session_id, &stream_id);
+    if source_policy(params.source).broadcasts_to_user_ui {
+        crate::chat_engine::stream_broadcast::broadcast_stream_end(
+            &session_id,
+            Some(&stream_id),
+            Some(&turn_id),
+            Some(crate::session::ChatTurnStatus::Completed),
+            None,
+            None,
+        );
+    }
+    crate::chat_engine::active_turn::force_release(&session_id, &turn_id);
+
+    Ok(AgentTurnOutput {
+        response: content,
+        model_used: None,
+        usage: crate::chat_engine::CapturedUsage::default(),
+        terminal: crate::chat_engine::TurnTerminal::Completed,
+    })
 }
 
 async fn admit_source_proof(
@@ -1357,7 +1551,7 @@ async fn admit_interactive(
                 message_for_stop,
                 source,
                 admission.bootstrap_request_id,
-                admission.delete_new_session_on_cancel,
+                admission.delete_new_session_on_abort,
                 queue_request_id,
                 true,
             )
@@ -1375,7 +1569,7 @@ async fn admit_interactive(
                 message_for_stop,
                 source,
                 admission.bootstrap_request_id,
-                admission.delete_new_session_on_cancel,
+                admission.delete_new_session_on_abort,
                 queue_request_id,
                 false,
             )
@@ -1533,6 +1727,8 @@ mod tests {
         assert!(source_policy(ChatSource::Cron).holds_foreground_idle_guard);
         assert!(!source_policy(ChatSource::Eval).carries_foreground_user_intent);
         assert!(!source_policy(ChatSource::Eval).broadcasts_to_user_ui);
+        assert!(!failure_terminal_broadcasts_to_user_ui(ChatSource::Eval));
+        assert!(failure_terminal_broadcasts_to_user_ui(ChatSource::Desktop));
         assert!(source_policy(ChatSource::Eval).tracks_seq);
         assert!(!source_policy(ChatSource::Eval).fires_user_lifecycle_hooks);
         assert!(source_policy(ChatSource::Acp).holds_foreground_idle_guard);
@@ -1753,7 +1949,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn desktop_admission_mints_stream_identity_in_the_atomic_ledger_boundary() {
+    async fn desktop_admission_and_local_reply_share_the_atomic_ledger_boundary() {
         let _lock = crate::chat_engine::active_turn::test_lock();
         let dir = tempfile::tempdir().unwrap();
         let db = Arc::new(
@@ -1819,6 +2015,125 @@ mod tests {
         assert_eq!(persisted_run.turn_id.as_deref(), Some(turn_id.as_str()));
         assert_eq!(db.load_session_messages(&session.id).unwrap().len(), 1);
         assert!(!db.release_direct_turn_admission(direct_admission).unwrap());
-        drop(params);
+
+        let drop_recovery =
+            params
+                .pre_admitted_stream
+                .as_ref()
+                .map(|stream| AdmittedDropRecovery {
+                    db: params.session_db.clone(),
+                    session_id: params.session_id.clone(),
+                    turn_id: params.turn_id.clone(),
+                    source: params.source,
+                    run_id: stream.registration.run_id.clone(),
+                    armed: true,
+                });
+        let admitted = AdmittedTurn {
+            params: Some(params),
+            drop_recovery,
+        };
+        let output = TurnKernel::complete_admitted_local_reply(admitted, "forwarded")
+            .await
+            .unwrap();
+
+        assert_eq!(output.response, "forwarded");
+        assert_eq!(output.terminal, crate::chat_engine::TurnTerminal::Completed);
+        assert_eq!(db.load_session_messages(&session.id).unwrap().len(), 2);
+        assert_eq!(
+            db.get_chat_turn(&turn_id).unwrap().unwrap().status,
+            crate::session::ChatTurnStatus::Completed
+        );
+        assert_eq!(
+            db.latest_stream_run(&session.id).unwrap().unwrap().status,
+            "committed"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_interactive_route_rolls_back_lazy_project_bootstrap() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let bootstrap_id = "kernel-route-failure-bootstrap";
+        db.with_conn_for_test(|conn| {
+            // Session lookup/deletion joins the Channel-owned 1:1 table in
+            // production; the focused ephemeral fixture must mirror it.
+            conn.execute_batch(
+                "CREATE TABLE channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )?;
+            conn.execute(
+                "INSERT INTO project_bootstrap_runs (
+                    id, project_id, session_id, launch_mode, include_local_changes,
+                    status, stage, created_at, updated_at
+                 ) VALUES (?1, 'project', ?2, 'local', 0, 'chatting', 'chatting', 1, 1)",
+                rusqlite::params![bootstrap_id, session.id],
+            )?;
+            anyhow::Ok(())
+        })
+        .unwrap();
+
+        let turn_id = "kernel-route-failure-turn".to_string();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let foreground_admission =
+            crate::chat_engine::active_turn::begin_durable_foreground_request(
+                db.as_ref(),
+                Some(&session.id),
+            )
+            .unwrap();
+        let lease = TurnKernel::begin_desktop(
+            foreground_admission,
+            &session.id,
+            turn_id.clone(),
+            Some("client-request".to_string()),
+            cancel.clone(),
+        )
+        .unwrap();
+        let request = interactive_request(db.clone(), session.id.clone(), turn_id, cancel)
+            .with_model_preference(Some("missing-provider::missing-model".to_string()), true);
+        let admission = InteractiveAdmission::desktop(
+            lease,
+            crate::session::NewMessage::user("hello"),
+            None,
+            None,
+            Some(bootstrap_id.to_string()),
+            true,
+            false,
+        );
+
+        let failure = TurnKernel::admit(TurnSubmission::desktop(request, admission))
+            .await
+            .err()
+            .expect("strict missing route must fail admission");
+
+        assert!(failure.to_string().contains("override is unavailable"));
+        assert!(db.get_session(&session.id).unwrap().is_none());
+        assert_eq!(
+            db.get_project_bootstrap_run(bootstrap_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "cancelled"
+        );
     }
 }

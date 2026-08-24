@@ -323,7 +323,7 @@ sequenceDiagram
 
 关键步骤：
 
-1. **准入** —— `TurnKernel` 根据来源构造策略，解析生产模型路由或验证 Eval 隔离链，冻结配置/凭据 revision，并原子建立 durable turn。
+1. **准入** —— `TurnKernel` 根据来源构造策略，解析生产模型路由或验证 Eval 隔离链，冻结配置/凭据 revision，并原子建立 durable turn；Desktop/HTTP 在这一步失败时也由 kernel 统一释放 queue claim、回滚 lazy bootstrap 并删除尚无消息的临时 Session。
 2. **初始化** —— runtime 从准入后的 `model_chain` 构建 Agent，配置温度、工具限制、Plan Mode 等。
 3. **上下文恢复** —— `restore_agent_context()` 从 DB 加载 `context_json`，反序列化后设回 Agent。
 4. **流式执行** —— feature-owned round driver 启动 Provider 请求 + Tool Loop，通过 `on_delta` 回调实时处理增量。
@@ -389,7 +389,7 @@ flowchart LR
 
 - **每个 attempt 递增 `attempt_no`**。切换 attempt 时在一个事务内把 session context CAS 恢复到 run 起点、删除该 run 已产生的 checkpoint materialized rows、标记旧 attempt superseded；工具调用审计仍完整留在 journal。新 attempt 的 reset marker 只在该事务完成后才广播。
 - **模型链全部失败**时，选最后一个含合法可见前缀的尝试，生成 partial assistant。
-- **不启动模型流的确定性本地回复**（如 Plan sub-agent 的"已转发/已启动"确认）不创建空 journal run，但仍走同一个 `commit_assistant_turn(run_id=None)` 原子写 assistant、CAS context、完成 chat_turn，且提交后才展示。
+- **不启动模型流的确定性本地回复**（当前仅限已准入 Desktop Plan sub-agent 的"已转发/已启动"确认）也必须先经 `TurnKernel::admit`，再由 kernel-local completion 原子写 assistant、CAS context、完成 chat turn 与 `chat_stream_runs`。它保留 run 作为 Stop/崩溃/终态真相，但不伪造 Provider attempt 或 journal；`attempt_no=0` 是这条无 Provider lane 的显式哨兵，提交后才展示。
 - `messages.persistence_run_id + logical_block_seq` 的部分唯一索引保证恢复重放幂等；终态 journal 默认保留 24 小时，再由每日运行的后台 GC 删除。
 
 ### Flush、group commit 与背压
@@ -523,6 +523,7 @@ Global Stop generation task 是枚举结果的唯一 owner：它在同一个 det
 
 - **watchdog 必须再校验 `turn_id`**：读 session-keyed live durability 时若 turn 不匹配，只按旧 turn 查找并恢复其 persistence run，绝不能把新 turn 的 journal 提交到旧 turn。进入仅按 session 定位的 legacy fallback 前须重建 Stop gate、确认没有不同 active turn、旧 turn 仍是 DB 最新一代；即使续聊已快速完成、live coordinator 已注销，也不得从最新消息反向重建旧 turn。
 - **停止发生在用户消息落库前**：`UserPromptSubmit` 预检必须与该 turn 的 cancel flag 竞争；此时须先广播终态并释放精确 active-turn guard，前端把未发出内容恢复为草稿。空会话/worktree 的 Git-aware 回滚随后在后台按 durable bootstrap row 收敛，不能让 Git/SQLite 清理阻塞续聊。
+- **可执行的项目首轮 bootstrap 只在准入后完成**：`ready → chatting` 只是首轮 claim；只有 Desktop/HTTP 的 user message、`chat_turn` 与 stream run 已在 TurnKernel 事务中一起落库，shell 才可写 `completed`。模型路由无效、Provider lease 拒绝或交互持久化失败都仍处于准入失败面，必须先释放 exact active-turn lease，再同步走同一 Git-aware rollback，不能留下 `completed` 的空 Session/worktree。`UserPromptSubmit` 明确返回 Block 是独立的用户可见控制面终态：它持久化 notice 并 materialize Session，因而可结束 bootstrap，但绝不能伪造 user/turn 或调用模型。
 - **请求生命周期资源也要能立即 abort**：GUI 的 plan mention 展开、文件系统配置读取、附件 staging 都属 request 生命周期；本地 Stop 必须立即 abort 等待。上传若不可物理取消，迟到返回的 upload lease 必须自动 discard，不得形成孤儿附件，也不得把用户停止显示为上传失败。
 - **项目首轮 bootstrap 已完成时**：回滚必须先把 bootstrap 置为终态并经 Git-aware 路径 discard 托管 worktree，再删空会话；禁止先靠 session FK cascade 丢掉 worktree 注册行。
 - **懒创建会话的定位**：`session_created` 前用不透明 `clientRequestId` 定位 active turn，此时点停止不得退化成"停止所有会话"；已知 session 但 `turn_started` 尚未到达的窗口也用同一 request id latch。
@@ -599,7 +600,7 @@ server-owned UI turn 运行期间注册 session-scoped `ReattachableUiSessionGua
 
 同步 HTTP / incognito 路径仍持有两个 Drop 兜底 guard：一是只移除本次请求注册的 cancel flag，避免客户端断开时把 stale cancel 留在 `chat_cancels`；二是 request future 被丢弃时，外层 guard 只把 turn 标 `cancelling/runtime_cancel`，由 Chat Engine `StreamLifecycle::Drop` 按精确 `persistence_run_id` 从 durable prefix 后台收敛并广播终态。服务进程退出则不透明重放任意副作用，交给启动恢复标记 Interrupted。
 
-`turn_id` 的判据是**该来源是否拥有匹配的 `chat_turns` 行**，不是“交互/非交互”：Desktop/HTTP、SessionTool、Cron 与 Eval 的持久 turn 必须携带 exact id；Channel、Subagent、ParentInjection 与 ACP 没有该行，恒为 `None`。其中 ACP 自铸的 preflight `prompt_id` 只服务钩子，绝不能冒充 `turn_id`；反过来也不能剥掉 Cron/SessionTool/Eval 的 exact id，否则最终事务无法收敛对应 ChatTurn。kernel 把身份分成三类并穷举 `ChatSource`：Desktop/HTTP 的 row 在 `admit_interactive` 内原子创建并由该边界自行回滚/取消；SessionTool/Cron/Eval 的 row 由 shell 先建，source/identity allowlist 通过后立即捕获统一失败收敛上下文，后续模型路由、Provider lease 或来源证明失败也必须把它精确收敛为 terminal，不能留下永久 `running`；rowless source 则不得武装该 fallback，否则伪造 id 可终结别人的 turn。所有来源另有 `persistence_run_id` 并共用 journal/spool/最终提交协议；持有 `turn_id` 本身不授予前台用户 authority，两种标识与权限语义均不能混用。
+`turn_id` 的判据是**该来源是否拥有匹配的 `chat_turns` 行**，不是“交互/非交互”：Desktop/HTTP、SessionTool、Cron 与 Eval 的持久 turn 必须携带 exact id；Channel、Subagent、ParentInjection 与 ACP 没有该行，恒为 `None`。其中 ACP 自铸的 preflight `prompt_id` 只服务钩子，绝不能冒充 `turn_id`；反过来也不能剥掉 Cron/SessionTool/Eval 的 exact id，否则最终事务无法收敛对应 ChatTurn。kernel 把身份分成三类并穷举 `ChatSource`：Desktop/HTTP 的 row 在 `admit_interactive` 内原子创建并由该边界自行回滚/取消；SessionTool/Cron/Eval 的 row 由 shell 先建，source/identity allowlist 通过后立即捕获统一失败收敛上下文，后续模型路由、Provider lease 或来源证明失败也必须把它精确收敛为 terminal，不能留下永久 `running`；rowless source 则不得武装该 fallback，否则伪造 id 可终结别人的 turn。失败 fallback 只负责统一落 terminal 事实，是否发 `chat:stream_end` 仍须服从同一 `TurnSourcePolicy::broadcasts_to_user_ui`；Eval 等隐藏来源即使准入失败也不得泄漏到用户 chat bus。所有来源另有 `persistence_run_id` 并共用 journal/spool/最终提交协议；持有 `turn_id` 本身不授予前台用户 authority，两种标识与权限语义均不能混用。
 
 ### 后台结果回注与前台让行
 
