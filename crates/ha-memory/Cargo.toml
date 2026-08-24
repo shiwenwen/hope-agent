@@ -29,4 +29,6 @@ uuid = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
+tempfile = "3"
 wiremock = "0.6"

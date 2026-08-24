@@ -321,11 +321,6 @@ impl PreparedProviderRequest {
     pub fn body(&self) -> Arc<[u8]> {
         Arc::clone(&self.body)
     }
-
-    #[cfg(test)]
-    pub(crate) fn body_bytes_for_test(&self) -> &[u8] {
-        &self.body
-    }
 }
 
 /// Explicit request-body transition requested by a provider capability

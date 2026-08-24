@@ -367,6 +367,20 @@ impl ExternalMemoryProviderHealth {
     ) -> Self {
         let compatibility =
             super::external_provider::external_memory_provider_compatibility_snapshot(config);
+        Self::from_config_with_capabilities_and_compatibility(
+            config,
+            global_enabled,
+            capabilities,
+            compatibility,
+        )
+    }
+
+    fn from_config_with_capabilities_and_compatibility(
+        config: &ExternalMemoryProviderConfig,
+        global_enabled: bool,
+        capabilities: ExternalMemoryProviderCapabilities,
+        compatibility: ExternalMemoryProviderCompatibilityReport,
+    ) -> Self {
         let active = global_enabled && config.enabled && config.sync_policy.is_active();
         let policy_supported = sync_policy_supported_by(&config.sync_policy, &capabilities);
         let endpoint_ready = !capabilities.requires_endpoint || config.endpoint_configured;
@@ -454,6 +468,31 @@ impl ExternalMemoryProviderHealth {
             last_sync_at: config.last_sync_at.clone(),
             last_error: config.last_error.clone(),
         }
+    }
+
+    #[cfg(test)]
+    fn from_config_with_capabilities_for_test(
+        config: &ExternalMemoryProviderConfig,
+        global_enabled: bool,
+        capabilities: ExternalMemoryProviderCapabilities,
+    ) -> Self {
+        Self::from_config_with_capabilities_and_compatibility(
+            config,
+            global_enabled,
+            capabilities,
+            ExternalMemoryProviderCompatibilityReport {
+                provider_id: config.id.clone(),
+                kind: config.kind,
+                status: ExternalMemoryProviderCompatibilityStatus::NotRequired,
+                checked_at: String::new(),
+                external_io_performed: false,
+                detected_version: None,
+                minimum_version: None,
+                recommended_version: None,
+                capabilities: Vec::new(),
+                error: None,
+            },
+        )
     }
 }
 
@@ -1966,7 +2005,7 @@ mod tests {
             supports_push: true,
             supports_bidirectional: true,
         };
-        let active = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let active = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &active_provider,
             true,
             unavailable_capabilities.clone(),
@@ -2001,7 +2040,7 @@ mod tests {
             endpoint_configured: true,
             ..active_provider.clone()
         };
-        let adapter_pending = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let adapter_pending = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &endpoint_ready_but_no_adapter,
             true,
             unavailable_capabilities,
@@ -2049,7 +2088,7 @@ mod tests {
             last_sync_at: None,
             last_error: None,
         };
-        let ready = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let ready = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &provider,
             true,
             ExternalMemoryProviderCapabilities {
@@ -2080,7 +2119,7 @@ mod tests {
         assert!(ready.automatic_sync);
         assert!(ready.sync_block_reasons.is_empty());
 
-        let push_only = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let push_only = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &ExternalMemoryProviderConfig {
                 sync_policy: ExternalMemorySyncPolicy::PushOnly,
                 ..provider
@@ -2214,7 +2253,7 @@ mod tests {
             last_sync_at: None,
             last_error: None,
         };
-        let health = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let health = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &provider,
             true,
             ExternalMemoryProviderCapabilities {
@@ -2290,7 +2329,7 @@ mod tests {
                 kind: ExternalMemoryProviderKind::Custom,
                 display_name: "Custom".to_string(),
                 enabled: true,
-                sync_policy: ExternalMemorySyncPolicy::PushOnly,
+                sync_policy: ExternalMemorySyncPolicy::PullOnly,
                 endpoint_configured: true,
                 last_sync_at: None,
                 last_error: None,
@@ -2337,7 +2376,7 @@ mod tests {
             last_sync_at: None,
             last_error: None,
         };
-        let health = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let health = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &provider,
             true,
             ExternalMemoryProviderCapabilities {
@@ -2410,7 +2449,7 @@ mod tests {
             last_sync_at: None,
             last_error: None,
         };
-        let health = ExternalMemoryProviderHealth::from_config_with_capabilities(
+        let health = ExternalMemoryProviderHealth::from_config_with_capabilities_for_test(
             &provider,
             true,
             ExternalMemoryProviderCapabilities {

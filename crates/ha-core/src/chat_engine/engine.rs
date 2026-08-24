@@ -992,11 +992,28 @@ pub fn tool_turn_provenance(
 /// → streaming execution → tool persistence → failover → context compaction
 /// → response saving → context persistence → memory extraction.
 #[cfg(test)]
+use crate::test_agent_runtime::streaming_loop;
+
+#[cfg(test)]
 #[path = "../../../ha-agent-runtime/src/engine.rs"]
 mod test_runtime_engine;
 
 #[cfg(test)]
 use test_runtime_engine::*;
+
+#[cfg(test)]
+pub(super) async fn execute_admitted_turn_for_test(
+    turn: crate::turn_kernel::AdmittedTurn,
+) -> Result<crate::turn_kernel::AgentTurnOutput, TurnFailure> {
+    let result = execute_admitted_params(turn.into_runtime_params()).await?;
+    Ok(crate::turn_kernel::AgentTurnOutput {
+        response: result.response,
+        model_used: result.model_used,
+        usage: result.usage,
+        terminal: result.terminal,
+    })
+}
+
 pub fn configure_agent(
     agent: &mut crate::agent::AssistantAgent,
     agent_id: &str,
@@ -1101,6 +1118,9 @@ mod stream_lifecycle_tests {
             file_path: Some("/tmp/forged.txt".into()),
             upload_id: None,
             quote_lines: None,
+            quote_revealable: None,
+            quote_project_root: None,
+            quote_worktree_root: None,
             quote_role: None,
         };
         let error = validate_engine_typed_resource_boundary("plain", None, &[attachment])
@@ -1137,6 +1157,9 @@ mod stream_lifecycle_tests {
                 file_path: Some(dockerfile.to_string_lossy().into_owned()),
                 upload_id: None,
                 quote_lines: None,
+                quote_revealable: None,
+                quote_project_root: None,
+                quote_worktree_root: None,
                 quote_role: None,
             };
             prepare_typed_resource_mentions_for_session(
@@ -1672,6 +1695,7 @@ mod stream_lifecycle_tests {
             run_context: None,
             reasoning_effort: Some("none".to_string()),
             cancel: Arc::new(AtomicBool::new(false)),
+            foreground_stop_admission: None,
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),

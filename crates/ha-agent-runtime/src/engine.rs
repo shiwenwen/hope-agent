@@ -12,7 +12,7 @@ use ha_core::provider::{ApiType, AuthProfile};
 use ha_core::session;
 use ha_core::turn_durability::{FlushReason, TurnDurabilitySink};
 
-use crate::streaming_loop::CurrentUserMessageState;
+use super::streaming_loop::CurrentUserMessageState;
 use ha_core::chat_engine::context::*;
 use ha_core::chat_engine::finalize::{self, PartialMeta, TerminationReason};
 use ha_core::chat_engine::*;

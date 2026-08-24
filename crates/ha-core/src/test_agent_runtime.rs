@@ -38,7 +38,7 @@ mod chat_dispatch;
 #[path = "../../ha-agent-runtime/src/provider_adapters/mod.rs"]
 mod provider_adapters;
 #[path = "../../ha-agent-runtime/src/streaming_loop.rs"]
-mod streaming_loop;
+pub(crate) mod streaming_loop;
 #[path = "../../ha-agent-runtime/src/vision_bridge.rs"]
 mod vision_bridge;
 

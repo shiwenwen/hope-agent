@@ -1435,15 +1435,13 @@ mod tests {
         assert_eq!(accounting.history, history);
         assert_eq!(adapter.token_count_tool_schemas(&req), request_tools);
         let prepared = adapter.prepare_round_request(&req).unwrap();
-        assert_eq!(
-            prepared.body_bytes_for_test(),
-            serde_json::to_vec(&body).unwrap()
-        );
-        assert!(!String::from_utf8_lossy(prepared.body_bytes_for_test())
+        let prepared_body = prepared.body();
+        assert_eq!(prepared_body.as_ref(), serde_json::to_vec(&body).unwrap());
+        assert!(!String::from_utf8_lossy(prepared_body.as_ref())
             .contains("sk-test-must-stay-in-header"));
         assert!(!prepared.identity.body_keyed_fingerprint.contains("sk-test"));
         let prepared_json: serde_json::Value =
-            serde_json::from_slice(prepared.body_bytes_for_test()).unwrap();
+            serde_json::from_slice(prepared_body.as_ref()).unwrap();
         for transport_field in ["authorization", "api_key", "access_token", "account_id"] {
             assert!(prepared_json.get(transport_field).is_none());
         }

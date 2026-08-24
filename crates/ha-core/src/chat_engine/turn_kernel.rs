@@ -481,6 +481,11 @@ pub fn agent_turn_executor_is_registered() -> bool {
 
 async fn execute(turn: AdmittedTurn) -> Result<AgentTurnOutput, TurnFailure> {
     let Some(executor) = EXECUTOR.get() else {
+        #[cfg(test)]
+        {
+            return crate::chat_engine::engine::execute_admitted_turn_for_test(turn).await;
+        }
+        #[cfg(not(test))]
         return Err(TurnFailure::new(
             TurnFailureKind::Infrastructure,
             "agent turn runtime is not registered",
@@ -1584,8 +1589,23 @@ mod tests {
             .unwrap();
         let turn_id = "kernel-desktop-turn".to_string();
         let cancel = Arc::new(AtomicBool::new(false));
+        let foreground_admission =
+            crate::chat_engine::active_turn::begin_durable_foreground_request(
+                db.as_ref(),
+                Some(&session.id),
+            )
+            .unwrap();
+        let direct_admission = db
+            .reserve_direct_turn_admission(
+                &session.id,
+                &turn_id,
+                crate::session::QueuedTurnMessageSource::Desktop,
+                foreground_admission.durable_stop_admission(),
+            )
+            .unwrap()
+            .expect("desktop transport must reserve direct FIFO admission");
         let lease = TurnKernel::begin_desktop(
-            crate::chat_engine::active_turn::begin_foreground_request(),
+            foreground_admission,
             &session.id,
             turn_id.clone(),
             Some("client-request".to_string()),
@@ -1622,6 +1642,7 @@ mod tests {
         assert_eq!(persisted_run.run_id, stream.registration.run_id);
         assert_eq!(persisted_run.turn_id.as_deref(), Some(turn_id.as_str()));
         assert_eq!(db.load_session_messages(&session.id).unwrap().len(), 1);
+        assert!(!db.release_direct_turn_admission(direct_admission).unwrap());
         drop(params);
     }
 }

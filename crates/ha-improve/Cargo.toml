@@ -20,6 +20,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 ha-core = { path = "../ha-core", features = ["test-support"] }
+ha-workflow = { path = "../ha-workflow" }
 # 只在 `#[cfg(test)]` 里用（gated 测试的 fixture 直接建表 / 塞行）。
 rusqlite = { workspace = true }
 tempfile = "3"

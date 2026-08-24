@@ -4649,9 +4649,8 @@ impl RuntimeAgentExt for AssistantAgent {
 mod tests {
     use super::{
         apply_tool_result_candidates, build_tool_result_candidates, can_bootstrap_mcp_catalog,
-        collect_tool_schema_updates, ensure_model_round_after_insertion, extract_started_job_id,
-        has_checkpointed_subagent_dispatch, local_tool_search_survived,
-        locate_latest_tool_result_targets, merge_retry_hook_context,
+        collect_tool_schema_updates, extract_started_job_id, has_checkpointed_subagent_dispatch,
+        local_tool_search_survived, locate_latest_tool_result_targets, merge_retry_hook_context,
         provider_projection_current_group_hard_protected_start, queued_message_for_provider,
         requires_local_mcp_tool_search, resolve_empty_round_outcome, restore_model_call_order,
         run_serialized_round_environment_scan, stamp_checkpointed_subagent_dispatch,
