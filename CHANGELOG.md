@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-08-26
+
+### Changed
+
+- **桌面、Server、ACP、IM、定时任务与子 Agent 的对话执行现在遵循一致生命周期**：不同入口共享轮次准入、取消、持久化与完成状态，减少停止、恢复或故障收敛在不同运行模式下不一致。 (#678)
+
 ## [0.35.0] - 2026-08-23
 
 ### Added
