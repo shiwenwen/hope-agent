@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-08-26
+
+### Fixed
+
+- **修复部分旧版本用户更新后无法启动的问题**：应用现在会先清理旧数据库中残留的异常升级状态，再完成必要迁移，避免启动时反复退出；现有会话与消息保持不变。
+
 ## [0.36.0] - 2026-08-26
 
 ### Changed
