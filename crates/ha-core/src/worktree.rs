@@ -303,6 +303,16 @@ pub(crate) fn ensure_session_has_no_scheduled_worktree_custody_on(
 }
 
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
+    // v0.33.0 introduced the custody trigger and the ownership-v2 columns in
+    // the same migration, but created the trigger before rebuilding a legacy
+    // managed_worktrees table. SQLite accepts that trigger definition even
+    // when owner_session_id/runtime_session_id/handoff_session_id do not exist,
+    // then rejects the later ALTER TABLE with "error in trigger ... no such
+    // column". The invalid trigger remains durable, so every subsequent app
+    // launch fails while opening sessions.db. Drop it before any schema work;
+    // the authoritative definition is recreated only after all referenced
+    // columns and indexes exist below.
+    conn.execute_batch("DROP TRIGGER IF EXISTS scheduled_worktree_session_custody_bd;")?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS managed_worktrees (
             id TEXT PRIMARY KEY,
@@ -355,16 +365,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS scheduled_worktree_pending (
             id TEXT PRIMARY KEY,
             created_at TEXT NOT NULL
-        );
-        CREATE TRIGGER IF NOT EXISTS scheduled_worktree_session_custody_bd
-        BEFORE DELETE ON sessions WHEN EXISTS (
-            SELECT 1 FROM managed_worktrees
-             WHERE purpose IN ('scheduled_run','scheduled_task')
-               AND (owner_session_id=OLD.id OR runtime_session_id=OLD.id
-                    OR handoff_session_id=OLD.id)
-        ) BEGIN
-            SELECT RAISE(ABORT, 'workspace_session_custody');
-        END;",
+        );",
     )?;
     for (column, ddl) in [
         (
@@ -460,7 +461,16 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
              ON managed_worktrees(state);
          CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_worktrees_scheduled_task_owner
              ON managed_worktrees(owner_scheduled_task_id)
-             WHERE purpose='scheduled_task' AND owner_scheduled_task_id IS NOT NULL;",
+             WHERE purpose='scheduled_task' AND owner_scheduled_task_id IS NOT NULL;
+         CREATE TRIGGER IF NOT EXISTS scheduled_worktree_session_custody_bd
+         BEFORE DELETE ON sessions WHEN EXISTS (
+             SELECT 1 FROM managed_worktrees
+              WHERE purpose IN ('scheduled_run','scheduled_task')
+                AND (owner_session_id=OLD.id OR runtime_session_id=OLD.id
+                     OR handoff_session_id=OLD.id)
+         ) BEGIN
+             SELECT RAISE(ABORT, 'workspace_session_custody');
+         END;",
     )?;
     Ok(())
 }
@@ -2256,6 +2266,84 @@ mod tests {
 
     fn git(cwd: &Path, args: &[&str]) {
         git_status(cwd, args).unwrap_or_else(|error| panic!("git {args:?}: {error:#}"));
+    }
+
+    #[test]
+    fn repairs_legacy_worktree_schema_after_invalid_custody_trigger() {
+        let conn = Connection::open_in_memory().expect("open sqlite");
+        conn.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE sessions (id TEXT PRIMARY KEY);
+             INSERT INTO sessions (id) VALUES ('legacy-session');
+             CREATE TABLE managed_worktrees (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                child_session_id TEXT,
+                workflow_run_id TEXT,
+                purpose TEXT NOT NULL,
+                state TEXT NOT NULL,
+                label TEXT,
+                repo_root TEXT NOT NULL,
+                source_working_dir TEXT NOT NULL,
+                path TEXT NOT NULL,
+                base_ref TEXT,
+                base_branch TEXT,
+                base_sha TEXT,
+                git_branch TEXT,
+                dirty_snapshot_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT,
+                restored_at TEXT,
+                handed_off_at TEXT,
+                path_source TEXT NOT NULL DEFAULT 'builtin',
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (child_session_id) REFERENCES sessions(id) ON DELETE SET NULL
+             );
+             INSERT INTO managed_worktrees (
+                id, session_id, purpose, state, repo_root, source_working_dir,
+                path, created_at, updated_at
+             ) VALUES (
+                'legacy-worktree', 'legacy-session', 'scheduled_run', 'active',
+                '/repo', '/repo', '/worktree', '2026-08-01T00:00:00Z',
+                '2026-08-01T00:00:00Z'
+             );
+             CREATE TRIGGER scheduled_worktree_session_custody_bd
+             BEFORE DELETE ON sessions WHEN EXISTS (
+                 SELECT 1 FROM managed_worktrees
+                  WHERE purpose IN ('scheduled_run','scheduled_task')
+                    AND (owner_session_id=OLD.id OR runtime_session_id=OLD.id
+                         OR handoff_session_id=OLD.id)
+             ) BEGIN
+                 SELECT RAISE(ABORT, 'workspace_session_custody');
+             END;",
+        )
+        .expect("create v0.32 schema with the persisted invalid v0.33 trigger");
+
+        ensure_tables(&conn).expect("repair legacy ownership schema");
+
+        let owner: Option<String> = conn
+            .query_row(
+                "SELECT owner_session_id FROM managed_worktrees WHERE id='legacy-worktree'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read migrated owner");
+        assert_eq!(owner.as_deref(), Some("legacy-session"));
+        let trigger_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type='trigger' AND name='scheduled_worktree_session_custody_bd'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read repaired trigger");
+        assert_eq!(trigger_count, 1);
+
+        let error = conn
+            .execute("DELETE FROM sessions WHERE id='legacy-session'", [])
+            .expect_err("scheduled worktree custody must still block session deletion");
+        assert!(error.to_string().contains("workspace_session_custody"));
     }
 
     #[test]
