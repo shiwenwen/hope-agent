@@ -17,12 +17,19 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { codeToHtml, type ShikiTransformer } from "shiki"
+import {
+  createHighlighter,
+  createJavaScriptRegexEngine,
+  type BundledLanguage,
+  type Highlighter,
+  type ShikiTransformer,
+} from "shiki"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 
 import { SelectionActionMenu } from "@/components/common/SelectionActionMenu"
+import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { useSelectionActionMenu } from "./useSelectionActionMenu"
 
@@ -35,6 +42,45 @@ export interface CodeSelection {
 /** Above this size we skip Shiki's synchronous tokenizer and show plain
  *  monospace text, so a huge file can't block the UI thread. */
 const MAX_HIGHLIGHT_BYTES = 400_000
+const SHIKI_THEMES = ["github-light", "github-dark"] as const
+
+/**
+ * Tauri's production CSP deliberately omits `wasm-unsafe-eval`. Shiki's
+ * bundled shortcut uses the Oniguruma WASM engine by default, so it works in
+ * jsdom/dev but fails in the packaged WebView and poisons the shortcut's
+ * singleton promise. Use Shiki's JavaScript regex engine for this surface so
+ * highlighting stays offline and CSP-safe without weakening the app policy.
+ */
+let previewHighlighterPromise: Promise<Highlighter> | null = null
+
+function getPreviewHighlighter(): Promise<Highlighter> {
+  if (!previewHighlighterPromise) {
+    const pending = createHighlighter({
+      engine: createJavaScriptRegexEngine(),
+      langs: [],
+      themes: [...SHIKI_THEMES],
+    })
+    previewHighlighterPromise = pending.catch((error) => {
+      // A transient chunk-load failure must not permanently disable every
+      // later preview in this renderer process.
+      previewHighlighterPromise = null
+      throw error
+    })
+  }
+  return previewHighlighterPromise
+}
+
+async function renderHighlightedCode(content: string, lang: string): Promise<string> {
+  const highlighter = await getPreviewHighlighter()
+  if (lang !== "text" && !highlighter.getLoadedLanguages().includes(lang)) {
+    await highlighter.loadLanguage(lang as BundledLanguage)
+  }
+  return highlighter.codeToHtml(content, {
+    lang: lang as BundledLanguage,
+    themes: { light: SHIKI_THEMES[0], dark: SHIKI_THEMES[1] },
+    transformers: [lineData],
+  })
+}
 
 const lineData: ShikiTransformer = {
   name: "line-data",
@@ -72,21 +118,29 @@ export function ShikiCodeView({
   useEffect(() => {
     if (tooLarge) return
     let cancelled = false
-    const render = (l: string) =>
-      codeToHtml(content, {
-        lang: l,
-        themes: { light: "github-light", dark: "github-dark" },
-        transformers: [lineData],
-      })
-    void render(lang)
-      .catch(() => render("text")) // unknown grammar → plaintext
+    let syntaxError: unknown = null
+    void renderHighlightedCode(content, lang)
+      .catch((error) => {
+        syntaxError = error
+        return renderHighlightedCode(content, "text")
+      }) // unknown grammar → Shiki plaintext (retains line numbers)
       .then((out) => {
         if (cancelled) return
+        if (syntaxError) {
+          logger.warn("ui", "ShikiCodeView::render", "syntax grammar failed; used plaintext", {
+            lang,
+            error: syntaxError instanceof Error ? syntaxError.message : String(syntaxError),
+          })
+        }
         setHtml(out)
         setLoading(false)
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) return
+        logger.error("ui", "ShikiCodeView::render", "code preview highlighting failed", {
+          lang,
+          error: error instanceof Error ? error.message : String(error),
+        })
         setHtml(null)
         setLoading(false)
       })
