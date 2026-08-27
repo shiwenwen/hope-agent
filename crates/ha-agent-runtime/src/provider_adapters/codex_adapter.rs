@@ -392,17 +392,25 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         }
 
         for et in executed {
-            crate::context_compact::push_and_stamp(
-                history,
-                json!({
-                    "type": "function_call",
-                    "id": et.call_id,
-                    "call_id": et.call_id,
-                    "name": et.name,
-                    "arguments": et.arguments,
-                }),
-                round,
-            );
+            let has_provider_function_call = outcome.provider_history_items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("function_call")
+                    && item.get("call_id").and_then(Value::as_str) == Some(et.call_id.as_str())
+            });
+
+            if !has_provider_function_call {
+                crate::context_compact::push_and_stamp(
+                    history,
+                    json!({
+                        "type": "function_call",
+                        "id": et.call_id,
+                        "call_id": et.call_id,
+                        "name": et.name,
+                        "arguments": et.arguments,
+                    }),
+                    round,
+                );
+            }
+
             crate::context_compact::push_and_stamp(
                 history,
                 json!({
