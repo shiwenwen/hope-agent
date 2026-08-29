@@ -39,6 +39,8 @@ import { useChatStream } from "./useChatStream"
 import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { useQuickChatSession } from "./useQuickChatSession"
+import type { SubagentRunsSnapshot } from "./subagent/useSubagentRuns"
+import type { SubagentOpenTarget } from "./subagent/subagentRunModel"
 
 export interface SideChatSeed {
   nonce: number
@@ -60,6 +62,9 @@ interface SideChatPanelProps {
   onPreviewFile: (target: PreviewTarget) => void
   onFileQuoteHandlerChange?: (handler: ((quote: PendingFileQuote) => void) | null) => void
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
+  onOpenSubagentRun?: (target: SubagentOpenTarget) => void
+  onViewChildSession?: (sessionId: string) => void
+  subagentRunsSnapshot?: SubagentRunsSnapshot
 }
 
 export default function SideChatPanel({
@@ -75,6 +80,9 @@ export default function SideChatPanel({
   onPreviewFile,
   onFileQuoteHandlerChange,
   onOpenDiff,
+  onOpenSubagentRun,
+  onViewChildSession,
+  subagentRunsSnapshot,
 }: SideChatPanelProps) {
   const { t } = useTranslation()
   const session = useQuickChatSession(true, {
@@ -305,6 +313,9 @@ export default function SideChatPanel({
             void session.handleModelChange(`${providerId}::${modelId}`)
           }}
           onOpenDiff={onOpenDiff}
+          onOpenSubagentRun={onOpenSubagentRun}
+          onViewChildSession={onViewChildSession}
+          subagentRunsSnapshot={subagentRunsSnapshot}
           onAtBottomChange={setMessageTailVisible}
         />
 

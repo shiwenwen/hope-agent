@@ -5,7 +5,10 @@ import { act, cleanup, render } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import SideChatPanel from "./SideChatPanel"
-import { resolveSideChatSurfaceSessionId } from "./sideChatSurface"
+import {
+  resolveSideChatQuoteOwner,
+  resolveSideChatSurfaceSessionId,
+} from "./sideChatSurface"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -20,6 +23,9 @@ const componentCapture = vi.hoisted(() => ({
   pendingQuestionGroup: undefined as unknown,
   onQuestionSubmitted: undefined as (() => unknown) | undefined,
   onOpenDiff: undefined as ((metadata: unknown) => unknown) | undefined,
+  onOpenSubagentRun: undefined as ((target: unknown) => unknown) | undefined,
+  onViewChildSession: undefined as ((sessionId: string) => unknown) | undefined,
+  subagentRunsSnapshot: undefined as unknown,
   pendingQuotes: undefined as unknown,
   onRemoveQuote: undefined as ((index: number) => unknown) | undefined,
   streamOptions: undefined as Record<string, unknown> | undefined,
@@ -62,11 +68,17 @@ vi.mock("@/components/chat/MessageList", () => ({
     pendingQuestionGroup?: unknown
     onQuestionSubmitted?: () => unknown
     onOpenDiff?: (metadata: unknown) => unknown
+    onOpenSubagentRun?: (target: unknown) => unknown
+    onViewChildSession?: (sessionId: string) => unknown
+    subagentRunsSnapshot?: unknown
   }) => {
     componentCapture.onSwitchModel = props.onSwitchModel
     componentCapture.pendingQuestionGroup = props.pendingQuestionGroup
     componentCapture.onQuestionSubmitted = props.onQuestionSubmitted
     componentCapture.onOpenDiff = props.onOpenDiff
+    componentCapture.onOpenSubagentRun = props.onOpenSubagentRun
+    componentCapture.onViewChildSession = props.onViewChildSession
+    componentCapture.subagentRunsSnapshot = props.subagentRunsSnapshot
     return <div data-testid="message-list" />
   },
 }))
@@ -185,6 +197,9 @@ afterEach(() => {
   componentCapture.pendingQuestionGroup = undefined
   componentCapture.onQuestionSubmitted = undefined
   componentCapture.onOpenDiff = undefined
+  componentCapture.onOpenSubagentRun = undefined
+  componentCapture.onViewChildSession = undefined
+  componentCapture.subagentRunsSnapshot = undefined
   componentCapture.pendingQuotes = undefined
   componentCapture.onRemoveQuote = undefined
   componentCapture.streamOptions = undefined
@@ -374,6 +389,9 @@ describe("SideChatPanel slash actions", () => {
     expect(resolveSideChatSurfaceSessionId("main-1", "side-1", true)).toBe("side-1")
     expect(resolveSideChatSurfaceSessionId("main-1", "side-1", false)).toBe("main-1")
     expect(resolveSideChatSurfaceSessionId("main-1", null, true)).toBe("main-1")
+    expect(resolveSideChatQuoteOwner("main-1", "main-1", "side-1", true)).toBe("main")
+    expect(resolveSideChatQuoteOwner("side-1", "main-1", "side-1", true)).toBe("side")
+    expect(resolveSideChatQuoteOwner("side-1", "main-1", "side-1", false)).toBeNull()
   })
 
   test("exposes side tool diffs through the shared workbench callback", () => {
@@ -400,5 +418,39 @@ describe("SideChatPanel slash actions", () => {
     act(() => componentCapture.onOpenDiff?.(diff))
 
     expect(onOpenDiff).toHaveBeenCalledWith(diff)
+  })
+
+  test("routes side subagent chips into the side-scoped shared panel", () => {
+    const onOpenSubagentRun = vi.fn()
+    const onViewChildSession = vi.fn()
+    const subagentRunsSnapshot = {
+      sessionId: "side-1",
+      runs: [],
+      byId: new Map(),
+      byChildSessionId: new Map(),
+      runningCount: 0,
+      loaded: true,
+      refetch: vi.fn(),
+    }
+    render(
+      <SideChatPanel
+        sessionId="side-1"
+        isViewVisible
+        onClose={vi.fn()}
+        onDeleted={vi.fn()}
+        onPreviewFile={vi.fn()}
+        onOpenSubagentRun={onOpenSubagentRun}
+        onViewChildSession={onViewChildSession}
+        subagentRunsSnapshot={subagentRunsSnapshot}
+      />,
+    )
+    const target = { runId: "run-side-1", childSessionId: "child-side-1" }
+
+    act(() => componentCapture.onOpenSubagentRun?.(target))
+    act(() => componentCapture.onViewChildSession?.("child-side-1"))
+
+    expect(onOpenSubagentRun).toHaveBeenCalledWith(target)
+    expect(onViewChildSession).toHaveBeenCalledWith("child-side-1")
+    expect(componentCapture.subagentRunsSnapshot).toBe(subagentRunsSnapshot)
   })
 })

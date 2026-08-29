@@ -80,7 +80,10 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import SideChatPanel, { type SideChatSeed } from "@/components/chat/SideChatPanel"
-import { resolveSideChatSurfaceSessionId } from "@/components/chat/sideChatSurface"
+import {
+  resolveSideChatQuoteOwner,
+  resolveSideChatSurfaceSessionId,
+} from "@/components/chat/sideChatSurface"
 import { SideChatTray } from "@/components/chat/SideChatTray"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
@@ -967,6 +970,11 @@ export default function ChatScreen({
     visibleActiveSideChatId,
     visibleSideChatPanelOpen,
   )
+  const sideChatSubagentRuns = useSubagentRuns(
+    visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
+  )
+  const activeConversationSubagentRuns =
+    visibleSideChatPanelOpen && visibleActiveSideChatId ? sideChatSubagentRuns : subagentRuns
   const sideChatCreating = sideChatCreatingSourceId === sideChatSourceId
 
   const refreshSideChats = useCallback(async (): Promise<SessionMeta[]> => {
@@ -3644,15 +3652,38 @@ export default function ChatScreen({
   // Stage a "quote to chat" reference as a removable chip above the composer.
   // On send it becomes a quote attachment: the model sees a <file_reference>
   // block, the user only ever sees a friendly quote card.
-  const handleFileQuote = useCallback(
-    (q: QuotePayload) => {
-      if (visibleSideChatPanelOpen && visibleActiveSideChatId) {
-        sideChatFileQuoteHandlerRef.current?.(q)
-        return
+  const handleMainFileQuote = useCallback(
+    (q: QuotePayload) => stream.setPendingQuotes((prev) => [...prev, q]),
+    [stream],
+  )
+  const handleSideChatFileQuote = useCallback((q: QuotePayload) => {
+    sideChatFileQuoteHandlerRef.current?.(q)
+  }, [])
+  const fileQuoteHandlerForSession = useCallback(
+    (ownerSessionId: string | null | undefined) => {
+      switch (
+        resolveSideChatQuoteOwner(
+          ownerSessionId,
+          session.currentSessionId,
+          visibleActiveSideChatId,
+          visibleSideChatPanelOpen,
+        )
+      ) {
+        case "main":
+          return handleMainFileQuote
+        case "side":
+          return handleSideChatFileQuote
+        default:
+          return undefined
       }
-      stream.setPendingQuotes((prev) => [...prev, q])
     },
-    [stream, visibleActiveSideChatId, visibleSideChatPanelOpen],
+    [
+      handleMainFileQuote,
+      handleSideChatFileQuote,
+      session.currentSessionId,
+      visibleActiveSideChatId,
+      visibleSideChatPanelOpen,
+    ],
   )
   const handleMessageQuote = useCallback(
     (quote: PendingMessageQuote) => {
@@ -4355,7 +4386,9 @@ export default function ChatScreen({
     const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter((panel) => {
       if (panel === "files") return !!effectiveWorkingDir
       // Only surface the sub-agent entry once the session has spawned one.
-      if (panel === "subagent") return subagentRuns.runs.length > 0 || showSubagentPanel
+      if (panel === "subagent") {
+        return activeConversationSubagentRuns.runs.length > 0 || showSubagentPanel
+      }
       return true
     })
     const persistentSet = new Set<ExclusiveRightPanel>(persistentPanels)
@@ -4412,11 +4445,11 @@ export default function ChatScreen({
           },
         }
       }
-      if (panel === "subagent" && subagentRuns.runningCount > 0) {
+      if (panel === "subagent" && activeConversationSubagentRuns.runningCount > 0) {
         return {
           ...base,
           badge: {
-            count: subagentRuns.runningCount,
+            count: activeConversationSubagentRuns.runningCount,
             labelKey: "chat.rightPanel.subagentRunningCount",
             tone: "running" as const,
           },
@@ -4429,8 +4462,8 @@ export default function ChatScreen({
     effectiveWorkingDir,
     isPanelFloating,
     rightPanelVisibility,
-    subagentRuns.runningCount,
-    subagentRuns.runs.length,
+    activeConversationSubagentRuns.runningCount,
+    activeConversationSubagentRuns.runs.length,
     showSubagentPanel,
     workflowTitleBarStatus,
   ])
@@ -4924,7 +4957,7 @@ export default function ChatScreen({
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => void handleSwitchSession(sid)}
-        onQuote={handleFileQuote}
+        onQuote={handleMainFileQuote}
         onOpenStructuredMemory={(projectId) => {
           setProjectOverviewOpen(false)
           requestMemoryFocus(
@@ -5532,6 +5565,9 @@ export default function ChatScreen({
                   onDeleted={handleSideChatDeleted}
                   onFileQuoteHandlerChange={handleSideChatFileQuoteHandlerChange}
                   onOpenDiff={handleSideChatOpenDiff}
+                  onOpenSubagentRun={handleOpenSubagentRun}
+                  onViewChildSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                  subagentRunsSnapshot={sideChatSubagentRuns}
                   onPreviewFile={(target) =>
                     openSideChatFileTarget(visibleActiveSideChatId, target)
                   }
@@ -5633,7 +5669,7 @@ export default function ChatScreen({
                     fileTabs.activeId !== tab.id
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  onQuote={handleFileQuote}
+                  onQuote={handleMainFileQuote}
                   onOpenInNewTab={openFileTargetInNewTab}
                   onSelectionChange={(selection) => fileTabs.setTabSelection(tab.id, selection)}
                   revealFile={tab.revealFile}
@@ -5650,7 +5686,7 @@ export default function ChatScreen({
               <CanvasPanel
                 currentSessionId={activeConversationSurfaceSessionId}
                 onOpenChange={setCanvasPanelOpen}
-                onQuote={handleFileQuote}
+                onQuote={fileQuoteHandlerForSession(activeConversationSurfaceSessionId)}
                 collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "canvas"}
                 animateOnMount={animateRightPanelOnMount}
                 visible={rightPanelVisibility.canvas}
@@ -5790,11 +5826,11 @@ export default function ChatScreen({
                 <RightPanelShell
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "subagent"}
                   animateOnMount={animateRightPanelOnMount}
-                  contentKey={`subagent:${session.currentSessionId ?? ""}`}
+                  contentKey={`subagent:${activeConversationSurfaceSessionId ?? ""}`}
                 >
                   <SubagentPanel
-                    sessionId={session.currentSessionId}
-                    runsState={subagentRuns}
+                    sessionId={activeConversationSurfaceSessionId}
+                    runsState={activeConversationSubagentRuns}
                     agents={session.agents}
                     selectRequest={subagentPanelSelectRequest}
                     onClose={closeSubagentPanel}
@@ -5820,7 +5856,9 @@ export default function ChatScreen({
                     target={entry.target}
                     sessionId={entry.authorizationSessionId ?? session.currentSessionId}
                     onReplaceDraft={replaceDraftAttachment}
-                    onQuote={handleFileQuote}
+                    onQuote={fileQuoteHandlerForSession(
+                      entry.authorizationSessionId ?? session.currentSessionId,
+                    )}
                     onClose={() => closeFilePreview(entry.id)}
                     integrated
                     onNavigateDirectory={(dirPath) => revealPreviewDirectory(entry.target, dirPath)}
