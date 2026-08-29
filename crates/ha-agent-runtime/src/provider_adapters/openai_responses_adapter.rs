@@ -72,6 +72,40 @@ fn supports_explicit_prompt_cache(base_url: &str, model: &str) -> bool {
     major > 5 || (major == 5 && minor >= 6)
 }
 
+// OpenAI Responses reserves `browser` as a provider namespace.
+// Keep Hope's internal tool name unchanged and alias it only at the
+// provider boundary.
+const RESPONSES_BROWSER_TOOL_ALIAS: &str = "hope_browser_tool";
+
+fn responses_external_tool_name(name: &str) -> &str {
+    if name == "browser" {
+        RESPONSES_BROWSER_TOOL_ALIAS
+    } else {
+        name
+    }
+}
+
+fn responses_internal_tool_name(name: &str) -> &str {
+    if name == RESPONSES_BROWSER_TOOL_ALIAS {
+        "browser"
+    } else {
+        name
+    }
+}
+
+fn alias_responses_tool_schema(mut tool: Value) -> Value {
+    if tool.get("type").and_then(Value::as_str) == Some("function")
+        && tool.get("name").and_then(Value::as_str) == Some("browser")
+    {
+        tool["name"] = json!(RESPONSES_BROWSER_TOOL_ALIAS);
+    }
+    tool
+}
+
+fn alias_responses_tool_schemas(tools: Vec<Value>) -> Vec<Value> {
+    tools.into_iter().map(alias_responses_tool_schema).collect()
+}
+
 fn native_tool_search_tools_from(
     tool_schemas: &[Value],
     deferred_tool_schemas: &[Value],
@@ -366,13 +400,84 @@ fn push_provider_history_item(items: &mut Vec<Value>, item: Value) {
     let item_type = item.get("type").and_then(Value::as_str);
     if !matches!(
         item_type,
-        Some("message" | "tool_search_call" | "tool_search_output")
+        Some("message" | "function_call" | "tool_search_call" | "tool_search_output")
     ) {
         return;
+    }
+    if item_type == Some("function_call") {
+        let identity = item
+            .get("call_id")
+            .and_then(Value::as_str)
+            .or_else(|| item.get("id").and_then(Value::as_str));
+        if let Some(existing) = identity.and_then(|identity| {
+            items.iter_mut().find(|existing| {
+                existing.get("type").and_then(Value::as_str) == Some("function_call")
+                    && existing
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .or_else(|| existing.get("id").and_then(Value::as_str))
+                        == Some(identity)
+            })
+        }) {
+            // Later item snapshots are more complete (`status`, `namespace`,
+            // future provider fields) while retaining the original model order.
+            *existing = item;
+            return;
+        }
     }
     if !items.iter().any(|existing| existing == &item) {
         items.push(item);
     }
+}
+
+/// Append the provider's replayable output items for the calls that actually
+/// crossed Hope's execution boundary.
+///
+/// The raw `function_call` item owns provider metadata such as `id`,
+/// `namespace`, `caller`, and future fields, so keep that envelope. Hope still
+/// owns two execution facts that must win before the item becomes durable:
+///
+/// - a cancelled batch may leave model calls that were never executed;
+/// - `PreToolUse.updatedInput` may replace the arguments used by the executor.
+///
+/// Returning the replayed call IDs lets each Responses-shaped adapter
+/// synthesize only legacy calls for which no provider item was available.
+pub(super) fn append_replayable_responses_items(
+    history: &mut Vec<Value>,
+    round: u32,
+    provider_items: &[Value],
+    executed: &[ExecutedTool],
+) -> std::collections::HashSet<String> {
+    let mut replayed_call_ids = std::collections::HashSet::new();
+
+    for item in provider_items {
+        if item.get("type").and_then(Value::as_str) != Some("function_call") {
+            crate::context_compact::push_and_stamp(history, item.clone(), round);
+            continue;
+        }
+
+        let provider_call_id = item
+            .get("call_id")
+            .and_then(Value::as_str)
+            // Compatibility fallback for older Responses-compatible payloads
+            // that used the output-item ID as the invocation identity.
+            .or_else(|| item.get("id").and_then(Value::as_str));
+        let Some(executed_tool) = provider_call_id
+            .and_then(|call_id| executed.iter().find(|tool| tool.call_id == call_id))
+        else {
+            // Do not persist a provider call without its matching output. This
+            // occurs when cancellation stops a multi-call batch partway through.
+            continue;
+        };
+
+        let mut replay = item.clone();
+        replay["call_id"] = json!(executed_tool.call_id);
+        replay["arguments"] = json!(executed_tool.arguments);
+        crate::context_compact::push_and_stamp(history, replay, round);
+        replayed_call_ids.insert(executed_tool.call_id.clone());
+    }
+
+    replayed_call_ids
 }
 
 fn output_item_arguments(item: &super::super::api_types::SseOutputItem) -> String {
@@ -392,22 +497,40 @@ fn merge_completed_function_call(
     pending_calls: &mut std::collections::HashMap<String, FunctionCallItem>,
     tool_calls: &mut Vec<FunctionCallItem>,
 ) {
-    let call_id = item
+    // Responses output-item identity (`id`) and function invocation
+    // identity (`call_id`) are distinct.
+    let item_id = item
         .id
         .clone()
         .or_else(|| item.call_id.clone())
         .unwrap_or_default();
+
     let mut completed = pending_calls
-        .remove(&call_id)
+        .remove(&item_id)
+        // Compatibility fallback for older Hope state.
+        .or_else(|| {
+            item.call_id
+                .as_ref()
+                .and_then(|call_id| pending_calls.remove(call_id))
+        })
         .unwrap_or_else(|| FunctionCallItem {
-            call_id: call_id.clone(),
+            call_id: item
+                .call_id
+                .clone()
+                .or_else(|| item.id.clone())
+                .unwrap_or_default(),
             name: String::new(),
             arguments: String::new(),
         });
-    completed.call_id = call_id;
-    if let Some(name) = item.name.as_ref() {
-        completed.name = name.clone();
+
+    if let Some(call_id) = item.call_id.as_ref().filter(|id| !id.is_empty()) {
+        completed.call_id = call_id.clone();
     }
+
+    if let Some(name) = item.name.as_ref() {
+        completed.name = responses_internal_tool_name(name).to_string();
+    }
+
     let arguments = output_item_arguments(item);
     if !arguments.is_empty() {
         completed.arguments = arguments;
@@ -421,6 +544,37 @@ fn merge_completed_function_call(
     } else {
         tool_calls.push(completed);
     }
+}
+
+fn merge_completed_function_call_by_item_id(
+    item_id: &str,
+    arguments: Option<&str>,
+    name: Option<&str>,
+    pending_calls: &mut std::collections::HashMap<String, FunctionCallItem>,
+    tool_calls: &mut Vec<FunctionCallItem>,
+) -> bool {
+    let Some(mut completed) = pending_calls.remove(item_id) else {
+        return false;
+    };
+
+    if let Some(arguments) = arguments {
+        completed.arguments = arguments.to_string();
+    }
+
+    if let Some(name) = name {
+        completed.name = responses_internal_tool_name(name).to_string();
+    }
+
+    if let Some(existing) = tool_calls
+        .iter_mut()
+        .find(|existing| existing.call_id == completed.call_id)
+    {
+        *existing = completed;
+    } else {
+        tool_calls.push(completed);
+    }
+
+    true
 }
 
 fn handle_openai_sse_event_block(
@@ -483,55 +637,127 @@ fn handle_openai_sse_event_block(
                 "response.output_item.added" => {
                     if let Some(item) = &event.item {
                         if item.item_type.as_deref() == Some("function_call") {
-                            let call_id = item
+                            let item_id = item
                                 .id
                                 .clone()
                                 .or_else(|| item.call_id.clone())
                                 .unwrap_or_default();
-                            let name = item.name.clone().unwrap_or_default();
-                            pending_calls.insert(
-                                call_id.clone(),
-                                FunctionCallItem {
-                                    call_id,
-                                    name,
-                                    arguments: output_item_arguments(item),
-                                },
-                            );
+
+                            let call_id = item
+                                .call_id
+                                .clone()
+                                .or_else(|| item.id.clone())
+                                .unwrap_or_default();
+
+                            let name = item
+                                .name
+                                .as_deref()
+                                .map(responses_internal_tool_name)
+                                .unwrap_or("")
+                                .to_string();
+
+                            let pending = FunctionCallItem {
+                                call_id: call_id.clone(),
+                                name,
+                                arguments: output_item_arguments(item),
+                            };
+
+                            // Stream correlation uses output-item identity.
+                            pending_calls.insert(item_id, pending.clone());
+
+                            // Preserve model-call order from output_item.added.
+                            if let Some(existing) = tool_calls
+                                .iter_mut()
+                                .find(|existing| existing.call_id == call_id)
+                            {
+                                *existing = pending;
+                            } else {
+                                tool_calls.push(pending);
+                            }
                         }
                     }
                 }
                 "response.function_call_arguments.delta" => {
                     if let Some(delta) = &event.delta {
-                        if let Some(item) = &event.item {
-                            let call_id = item
-                                .id
-                                .clone()
-                                .or_else(|| item.call_id.clone())
-                                .unwrap_or_default();
-                            if let Some(tc) = pending_calls.get_mut(&call_id) {
+                        let item_id = event.item_id.clone().or_else(|| {
+                            event
+                                .item
+                                .as_ref()
+                                .and_then(|item| item.id.clone().or_else(|| item.call_id.clone()))
+                        });
+
+                        if let Some(item_id) = item_id {
+                            if let Some(tc) = pending_calls.get_mut(&item_id) {
+                                tc.arguments.push_str(delta);
+                            } else if pending_calls.len() > 1 {
+                                anyhow::bail!(
+                                    "function_call_arguments.delta referenced unknown item_id '{}' with {} pending calls",
+                                    item_id,
+                                    pending_calls.len()
+                                );
+                            }
+                        } else if pending_calls.len() == 1 {
+                            // Legacy fallback is safe only when unambiguous.
+                            if let Some(tc) = pending_calls.values_mut().next() {
                                 tc.arguments.push_str(delta);
                             }
-                        } else if let Some(tc) = pending_calls.values_mut().last() {
-                            tc.arguments.push_str(delta);
+                        } else if pending_calls.len() > 1 {
+                            anyhow::bail!(
+                                "ambiguous function_call_arguments.delta without item_id ({} pending calls)",
+                                pending_calls.len()
+                            );
                         }
                     }
                 }
-                "response.function_call_arguments.done" | "response.output_item.done" => {
+                "response.function_call_arguments.done" => {
                     if let Some(item) = &event.item {
+                        // Legacy/full-item event shape.
                         if item.item_type.as_deref() == Some("function_call") {
                             merge_completed_function_call(item, pending_calls, tool_calls);
                         }
+
                         if let Some(raw_item) =
                             raw_event.as_ref().and_then(|raw| raw.get("item")).cloned()
                         {
                             push_provider_history_item(provider_history_items, raw_item);
                         }
-                        // Responses/Codex run with `store: false`, so any
-                        // `rs_*` reasoning item the server emits is throwaway
-                        // — we never replay it back. The streaming `thinking`
-                        // text is captured via `collected_thinking` above and
-                        // surfaces in the UI; the structured item itself is
-                        // deliberately dropped here.
+                    } else {
+                        // Current Responses shape: item_id + arguments + name.
+                        let mut item_id = event.item_id.clone();
+
+                        if item_id.is_none() && pending_calls.len() == 1 {
+                            item_id = pending_calls.keys().next().cloned();
+                        }
+
+                        if item_id.is_none() && pending_calls.len() > 1 {
+                            anyhow::bail!(
+                                "ambiguous function_call_arguments.done without item_id ({} pending calls)",
+                                pending_calls.len()
+                            );
+                        }
+
+                        if let Some(item_id) = item_id {
+                            merge_completed_function_call_by_item_id(
+                                &item_id,
+                                event.arguments.as_deref(),
+                                event.name.as_deref(),
+                                pending_calls,
+                                tool_calls,
+                            );
+                        }
+                    }
+                }
+                "response.output_item.done" => {
+                    if let Some(item) = &event.item {
+                        if item.item_type.as_deref() == Some("function_call") {
+                            merge_completed_function_call(item, pending_calls, tool_calls);
+                        }
+
+                        if let Some(raw_item) =
+                            raw_event.as_ref().and_then(|raw| raw.get("item")).cloned()
+                        {
+                            push_provider_history_item(provider_history_items, raw_item);
+                        }
                     }
                 }
                 "error" => {
@@ -579,10 +805,16 @@ fn handle_openai_sse_event_block(
                         .and_then(|raw| raw.pointer("/response/output"))
                         .and_then(Value::as_array)
                     {
+                        // Streamed output items may finish out of order. The
+                        // completed output is the authoritative replay order and
+                        // the most complete provider-owned item snapshot.
+                        let mut completed_history_items = Vec::new();
                         for item in raw_outputs {
-                            push_provider_history_item(provider_history_items, item.clone());
+                            push_provider_history_item(&mut completed_history_items, item.clone());
                         }
+                        *provider_history_items = completed_history_items;
                     }
+
                     if let Some(u) = &resp_obj.usage {
                         if let Some(it) = u.input_tokens {
                             usage.input_tokens = it;
@@ -702,6 +934,8 @@ fn build_responses_request(
     } else {
         Some(req.tool_schemas.to_vec())
     };
+    let tools = tools.map(alias_responses_tool_schemas);
+
     let request = ResponsesRequest {
         model: model.to_string(),
         store: false,
@@ -774,16 +1008,16 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         _eager_tool_count: usize,
         is_final_round: bool,
     ) -> Vec<Value> {
-        if is_final_round {
-            return Vec::new();
-        }
-        if !deferred_tool_schemas.is_empty()
+        let tools = if is_final_round {
+            Vec::new()
+        } else if !deferred_tool_schemas.is_empty()
             && supports_native_tool_search(self.base_url, self.model)
         {
             native_tool_search_tools_from(tool_schemas, deferred_tool_schemas)
         } else {
             tool_schemas.to_vec()
-        }
+        };
+        alias_responses_tool_schemas(tools)
     }
 
     fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
@@ -1152,23 +1386,33 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             push_responses_assistant_message(history, Some(round), &outcome.text);
         }
 
-        for item in &outcome.provider_history_items {
-            crate::context_compact::push_and_stamp(history, item.clone(), round);
-        }
-
-        // Per executed tool: function_call item + function_call_output item.
+        // Preserve provider-emitted function_call envelopes. Responses may
+        // attach provider-owned fields such as `namespace`; dropping them makes
+        // the next request invalid. Only synthesize the call for interrupted or
+        // legacy streams where the completed provider item was unavailable.
+        // Hope-owned effective arguments are patched into the envelope so a
+        // PreToolUse rewrite remains truthful in durable history.
+        let replayed_call_ids = append_replayable_responses_items(
+            history,
+            round,
+            &outcome.provider_history_items,
+            executed,
+        );
         for et in executed {
-            crate::context_compact::push_and_stamp(
-                history,
-                json!({
-                    "type": "function_call",
-                    "id": et.call_id,
-                    "call_id": et.call_id,
-                    "name": et.name,
-                    "arguments": et.arguments,
-                }),
-                round,
-            );
+            if !replayed_call_ids.contains(&et.call_id) {
+                crate::context_compact::push_and_stamp(
+                    history,
+                    json!({
+                        "type": "function_call",
+                        "id": et.call_id,
+                        "call_id": et.call_id,
+                        "name": responses_external_tool_name(&et.name),
+                        "arguments": et.arguments,
+                    }),
+                    round,
+                );
+            }
+
             crate::context_compact::push_and_stamp(
                 history,
                 json!({
@@ -1347,12 +1591,13 @@ mod tests {
         sse_event_error_type, supports_explicit_prompt_cache, supports_native_tool_search,
         take_next_sse_event_block, validate_completed_response_stream,
         validate_responses_sse_eof_tail, FunctionCallItem, OpenAIResponsesStreamingAdapter,
-        SseEvent,
+        SseEvent, RESPONSES_BROWSER_TOOL_ALIAS,
     };
     use crate::agent::streaming_adapter::{
         ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
     };
     use crate::agent::types::ChatUsage;
+    use serde_json::Value;
     use std::collections::HashMap;
 
     #[test]
@@ -1446,7 +1691,7 @@ mod tests {
         assert!(contents[3].contains("source=\"task_and_hook_context\""));
         let request_tools = body["tools"].as_array().unwrap();
         assert_eq!(request_tools[0]["name"], "read");
-        assert_eq!(request_tools[1]["name"], "browser");
+        assert_eq!(request_tools[1]["name"], RESPONSES_BROWSER_TOOL_ALIAS);
         assert_eq!(request_tools[1]["defer_loading"], true);
         assert_eq!(request_tools[2]["type"], "tool_search");
         let adapter = OpenAIResponsesStreamingAdapter {
@@ -1455,6 +1700,9 @@ mod tests {
             model: "gpt-5.6",
             reasoning: None,
         };
+        let counted_tools =
+            adapter.token_count_tool_schemas_for(&tools, &deferred, tools.len(), false);
+        assert_eq!(counted_tools.as_slice(), request_tools.as_slice());
         let accounting = adapter.token_count_input_for(&req);
         let counted_stable: serde_json::Value =
             serde_json::from_str(&accounting.stable_prompt).unwrap();
@@ -1834,5 +2082,320 @@ mod tests {
         assert_eq!(history[0]["type"], "tool_search_call");
         assert_eq!(history[1]["type"], "tool_search_output");
         assert_eq!(history[2]["type"], "message");
+    }
+
+    #[test]
+    fn responses_function_call_stream_keeps_item_and_call_identity_separate() {
+        let mut text = String::new();
+        let mut thinking = String::new();
+        let mut tool_calls = Vec::new();
+        let mut provider_history_items = Vec::new();
+        let mut pending = HashMap::new();
+        let mut usage = ChatUsage::default();
+        let mut first_token_time = None;
+        let mut saw_response_completed = false;
+        let on_delta = |_s: &str| {};
+
+        let events = [
+            serde_json::json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "knowledge_recall",
+                    "arguments": ""
+                }
+            }),
+            serde_json::json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "knowledge_recall",
+                    "arguments": ""
+                }
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.delta",
+                "item_id": "fc_2",
+                "delta": "{\"query\":\"W2\"}"
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.delta",
+                "item_id": "fc_1",
+                "delta": "{\"query\":\"W1\"}"
+            }),
+        ];
+
+        for payload in events {
+            let event = sse_event_block(payload);
+            handle_openai_sse_event_block(
+                "-",
+                &event,
+                std::time::Instant::now(),
+                &on_delta,
+                &mut text,
+                &mut thinking,
+                &mut tool_calls,
+                &mut provider_history_items,
+                &mut pending,
+                &mut usage,
+                &mut first_token_time,
+                &mut saw_response_completed,
+            )
+            .expect("handle function-call stream event");
+        }
+
+        assert_eq!(pending["fc_1"].call_id, "call_1");
+        assert_eq!(pending["fc_1"].arguments, r#"{"query":"W1"}"#);
+        assert_eq!(pending["fc_2"].call_id, "call_2");
+        assert_eq!(pending["fc_2"].arguments, r#"{"query":"W2"}"#);
+
+        for payload in [
+            serde_json::json!({
+                "type": "response.function_call_arguments.done",
+                "item_id": "fc_1",
+                "name": "knowledge_recall",
+                "arguments": "{\"query\":\"W1\"}"
+            }),
+            serde_json::json!({
+                "type": "response.function_call_arguments.done",
+                "item_id": "fc_2",
+                "name": "knowledge_recall",
+                "arguments": "{\"query\":\"W2\"}"
+            }),
+        ] {
+            let event = sse_event_block(payload);
+            handle_openai_sse_event_block(
+                "-",
+                &event,
+                std::time::Instant::now(),
+                &on_delta,
+                &mut text,
+                &mut thinking,
+                &mut tool_calls,
+                &mut provider_history_items,
+                &mut pending,
+                &mut usage,
+                &mut first_token_time,
+                &mut saw_response_completed,
+            )
+            .expect("handle function-call done event");
+        }
+
+        // Completion events can arrive in a different order from the model's
+        // output array. The final response must restore provider replay order.
+        for payload in [
+            serde_json::json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "namespace": "knowledge",
+                    "name": "knowledge_recall",
+                    "arguments": "{\"query\":\"W2\"}"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "namespace": "knowledge",
+                    "name": "knowledge_recall",
+                    "arguments": "{\"query\":\"W1\"}"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "id": "fc_1",
+                            "call_id": "call_1",
+                            "namespace": "knowledge",
+                            "name": "knowledge_recall",
+                            "arguments": "{\"query\":\"W1\"}"
+                        },
+                        {
+                            "type": "function_call",
+                            "id": "fc_2",
+                            "call_id": "call_2",
+                            "namespace": "knowledge",
+                            "name": "knowledge_recall",
+                            "arguments": "{\"query\":\"W2\"}"
+                        }
+                    ]
+                }
+            }),
+        ] {
+            let event = sse_event_block(payload);
+            handle_openai_sse_event_block(
+                "-",
+                &event,
+                std::time::Instant::now(),
+                &on_delta,
+                &mut text,
+                &mut thinking,
+                &mut tool_calls,
+                &mut provider_history_items,
+                &mut pending,
+                &mut usage,
+                &mut first_token_time,
+                &mut saw_response_completed,
+            )
+            .expect("handle function-call completion event");
+        }
+
+        assert!(pending.is_empty());
+        assert!(saw_response_completed);
+        assert_eq!(tool_calls.len(), 2);
+
+        // Model order comes from output_item.added, not completion order.
+        assert_eq!(tool_calls[0].call_id, "call_1");
+        assert_eq!(tool_calls[0].arguments, r#"{"query":"W1"}"#);
+        assert_eq!(tool_calls[1].call_id, "call_2");
+        assert_eq!(tool_calls[1].arguments, r#"{"query":"W2"}"#);
+        assert_eq!(provider_history_items.len(), 2);
+        assert_eq!(provider_history_items[0]["call_id"], "call_1");
+        assert_eq!(provider_history_items[1]["call_id"], "call_2");
+        assert_eq!(provider_history_items[0]["namespace"], "knowledge");
+    }
+
+    #[test]
+    fn append_round_preserves_provider_envelope_and_effective_arguments() {
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "",
+            model: "gpt-test",
+            reasoning: None,
+        };
+
+        let raw_call = serde_json::json!({
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "namespace": "knowledge",
+            "name": "knowledge_recall",
+            "arguments": "{\"query\":\"model-original\"}",
+            "provider_future_field": "preserve-me"
+        });
+
+        let outcome = RoundOutcome {
+            text: String::new(),
+            thinking: String::new(),
+            tool_calls: vec![FunctionCallItem {
+                call_id: "call_1".to_string(),
+                name: "knowledge_recall".to_string(),
+                arguments: r#"{"query":"W1"}"#.to_string(),
+            }],
+            provider_history_items: vec![raw_call.clone()],
+            usage: ChatUsage::default(),
+            ttft_ms: None,
+            stop_reason: None,
+        };
+
+        let executed = vec![ExecutedTool {
+            model_call_ordinal: 0,
+            call_id: "call_1".to_string(),
+            name: "knowledge_recall".to_string(),
+            arguments: r#"{"query":"W1"}"#.to_string(),
+            clean_result: "result".to_string(),
+            result_admission: None,
+        }];
+
+        let mut history = Vec::new();
+        adapter.append_round_to_history(&mut history, 0, &outcome, &executed);
+
+        let calls: Vec<_> = history
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+            .collect();
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["id"], "fc_1");
+        assert_eq!(calls[0]["call_id"], "call_1");
+        assert_eq!(calls[0]["namespace"], "knowledge");
+        assert_eq!(calls[0]["arguments"], r#"{"query":"W1"}"#);
+        assert_eq!(calls[0]["provider_future_field"], "preserve-me");
+
+        let outputs: Vec<_> = history
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call_output"))
+            .collect();
+
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0]["call_id"], "call_1");
+    }
+
+    #[test]
+    fn append_round_omits_provider_calls_not_executed_after_cancellation() {
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "",
+            model: "gpt-test",
+            reasoning: None,
+        };
+        let outcome = RoundOutcome {
+            text: String::new(),
+            thinking: String::new(),
+            tool_calls: vec![
+                FunctionCallItem {
+                    call_id: "call_1".to_string(),
+                    name: "read".to_string(),
+                    arguments: r#"{"path":"one"}"#.to_string(),
+                },
+                FunctionCallItem {
+                    call_id: "call_2".to_string(),
+                    name: "read".to_string(),
+                    arguments: r#"{"path":"two"}"#.to_string(),
+                },
+            ],
+            provider_history_items: vec![
+                serde_json::json!({
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "read",
+                    "arguments": "{\"path\":\"one\"}"
+                }),
+                serde_json::json!({
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "read",
+                    "arguments": "{\"path\":\"two\"}"
+                }),
+            ],
+            usage: ChatUsage::default(),
+            ttft_ms: None,
+            stop_reason: None,
+        };
+        let executed = vec![ExecutedTool {
+            model_call_ordinal: 0,
+            call_id: "call_1".to_string(),
+            name: "read".to_string(),
+            arguments: r#"{"path":"one"}"#.to_string(),
+            clean_result: "one".to_string(),
+            result_admission: None,
+        }];
+
+        let mut history = Vec::new();
+        adapter.append_round_to_history(&mut history, 0, &outcome, &executed);
+
+        let calls: Vec<_> = history
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+            .collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["call_id"], "call_1");
+        assert!(history
+            .iter()
+            .all(|item| item.get("call_id").and_then(Value::as_str) != Some("call_2")));
     }
 }

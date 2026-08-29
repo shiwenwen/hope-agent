@@ -47,6 +47,16 @@ pub struct SseEvent {
     pub event_type: Option<String>,
     #[serde(default)]
     pub delta: Option<String>,
+    /// Responses output-item identity used to correlate streaming events.
+    /// This is distinct from a function invocation's `call_id`.
+    #[serde(default)]
+    pub item_id: Option<String>,
+    /// Final function arguments carried by function_call_arguments.done.
+    #[serde(default)]
+    pub arguments: Option<String>,
+    /// Function name optionally carried by function-call argument events.
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub response: Option<SseResponseObj>,
     #[serde(default)]
