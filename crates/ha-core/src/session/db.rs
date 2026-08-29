@@ -3111,6 +3111,7 @@ impl SessionDB {
                 execution_mode,
                 workflow_mode,
                 working_dir,
+                source_context_json,
                 kind,
                 incognito,
                 is_cron,
@@ -3131,6 +3132,7 @@ impl SessionDB {
                 String,
                 String,
                 Option<String>,
+                Option<String>,
                 String,
                 i64,
                 i64,
@@ -3140,7 +3142,7 @@ impl SessionDB {
                     "SELECT title, title_source, agent_id, provider_id, provider_name, model_id,
                         temperature, reasoning_effort, runtime_defaults_initialized, project_id,
                         permission_mode, sandbox_mode,
-                        execution_mode, workflow_mode, working_dir, kind, incognito,
+                        execution_mode, workflow_mode, working_dir, context_json, kind, incognito,
                         is_cron, parent_session_id
                  FROM sessions WHERE id = ?1",
                     params![source_session_id],
@@ -3165,6 +3167,7 @@ impl SessionDB {
                             row.get(16)?,
                             row.get(17)?,
                             row.get(18)?,
+                            row.get(19)?,
                         ))
                     },
                 )
@@ -3212,18 +3215,78 @@ impl SessionDB {
                 }
             }
 
-            let (source_message_id, exclude_boundary) = if mode == ForkMode::SideChat {
-                let active_user_message_id = tx.query_row(
-                    "SELECT MIN(user_message_id) FROM chat_turns
-                         WHERE session_id = ?1
-                           AND status IN ('running', 'cancelling')
-                           AND user_message_id IS NOT NULL",
+            let active_turn_boundary: Option<(String, i64)> = if mode == ForkMode::SideChat {
+                tx.query_row(
+                    "SELECT id, user_message_id FROM chat_turns
+                     WHERE session_id = ?1
+                       AND status IN ('running', 'cancelling')
+                       AND user_message_id IS NOT NULL
+                     ORDER BY user_message_id ASC LIMIT 1",
                     params![source_session_id],
-                    |row| row.get::<_, Option<i64>>(0),
-                )?;
-                (active_user_message_id, active_user_message_id.is_some())
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
             } else {
-                (source_message_id, exclude_boundary)
+                None
+            };
+            let (source_message_id, exclude_boundary) = active_turn_boundary
+                .as_ref()
+                .map(|(_, user_message_id)| (Some(*user_message_id), true))
+                .unwrap_or((source_message_id, exclude_boundary));
+
+            let side_context_json = if mode == ForkMode::SideChat {
+                match active_turn_boundary.as_ref() {
+                    None => source_context_json,
+                    Some((turn_id, user_message_id)) => {
+                        let persistence_run: Option<(String, Option<String>)> = tx
+                            .query_row(
+                                "SELECT run_id, base_context_json FROM chat_stream_runs
+                                 WHERE session_id = ?1 AND turn_id = ?2
+                                 ORDER BY started_at DESC LIMIT 1",
+                                params![source_session_id, turn_id],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )
+                            .optional()?;
+                        let (run_id, base_context_json) = persistence_run.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "active source turn has no durable context boundary; retry side chat creation"
+                            )
+                        })?;
+                        match base_context_json {
+                            Some(base_context_json) => {
+                                (base_context_json != "null").then_some(base_context_json)
+                            }
+                            None => {
+                                let user_content: String = tx.query_row(
+                                    "SELECT content FROM messages WHERE session_id = ?1 AND id = ?2",
+                                    params![source_session_id, user_message_id],
+                                    |row| row.get(0),
+                                )?;
+                                let checkpoint: String = tx
+                                    .query_row(
+                                        "SELECT context_json FROM chat_stream_context_checkpoints
+                                         WHERE run_id = ?1 AND through_seq = 0
+                                         ORDER BY attempt_no DESC LIMIT 1",
+                                        params![run_id],
+                                        |row| row.get(0),
+                                    )
+                                    .optional()?
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!(
+                                            "active source turn context boundary is not durable yet; retry side chat creation"
+                                        )
+                                    })?;
+                                Some(rewind_provider_context_before_user(
+                                    &checkpoint,
+                                    &user_content,
+                                    true,
+                                )?)
+                            }
+                        }
+                    }
+                }
+            } else {
+                None
             };
 
             if let Some(message_id) = source_message_id {
@@ -3346,10 +3409,10 @@ impl SessionDB {
             "INSERT INTO sessions (
                 id, title, title_source, agent_id, provider_id, provider_name, model_id,
                 temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at,
-                parent_session_id, project_id, permission_mode, sandbox_mode, execution_mode,
+                context_json, parent_session_id, project_id, permission_mode, sandbox_mode, execution_mode,
                 workflow_mode, working_dir, kind, forked_from_session_id, forked_from_message_id
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 new_session_id,
                 inferred_title,
@@ -3363,6 +3426,7 @@ impl SessionDB {
                 runtime_defaults_initialized,
                 now,
                 now,
+                side_context_json,
                 project_id,
                 permission_mode,
                 sandbox_mode,
@@ -5840,47 +5904,91 @@ impl SessionDB {
     /// session does not exist or is not incognito — both are safe outcomes
     /// for the "user navigated away from this session" caller.
     pub fn purge_session_if_incognito(&self, session_id: &str) -> Result<bool> {
-        // Snapshot before the DELETE for the purge event payload (row is gone
-        // afterwards). Only emitted below when a row was actually removed.
-        let snapshot = self.get_session(session_id)?;
-        // G4: capture descendant subagent sessions before the cascade drops
-        // `subagent_runs`, so the burn denies their inner-tool approvals too.
-        // (im_chat is always None here — incognito ⊥ IM Channel.)
-        let cleanup_ctx = self.capture_session_cleanup_context(session_id);
-        let was_incognito = {
-            let conn = self
+        let (purged, snapshot, owned_side_chats, cleanup_ctx, side_cleanup_contexts) = {
+            let mut conn = self
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-            conn.execute(
-                "DELETE FROM sessions WHERE id = ?1 AND incognito = 1",
-                params![session_id],
-            )? > 0
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let snapshot = Self::get_session_on(&tx, session_id)?;
+            let should_purge = snapshot.as_ref().is_some_and(|meta| meta.incognito);
+            let owned_side_chats = if should_purge
+                && snapshot
+                    .as_ref()
+                    .is_some_and(|meta| meta.kind != SessionKind::Side)
+            {
+                Self::list_owned_side_chats_for_delete_on(&tx, session_id)?
+            } else {
+                Vec::new()
+            };
+            let cleanup_ctx = snapshot
+                .as_ref()
+                .filter(|_| should_purge)
+                .map(|meta| Self::capture_session_cleanup_context_on(&tx, meta))
+                .unwrap_or_default();
+            let side_cleanup_contexts = owned_side_chats
+                .iter()
+                .map(|side| {
+                    (
+                        side.clone(),
+                        Self::capture_session_cleanup_context_on(&tx, side),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let removed = if should_purge {
+                tx.execute(
+                    "DELETE FROM sessions
+                     WHERE id = ?1 OR (kind = ?2 AND forked_from_session_id = ?1)",
+                    params![session_id, SessionKind::Side.as_str()],
+                )?
+            } else {
+                0
+            };
+            tx.commit()?;
+            (
+                removed > 0,
+                snapshot,
+                owned_side_chats,
+                cleanup_ctx,
+                side_cleanup_contexts,
+            )
         };
-        if !was_incognito {
+        if !purged {
             return Ok(false);
         }
         // Mirror the on-disk + orphan-table cleanup that `delete_session`
         // performs. The session row itself is already gone, so we only need
         // the side-effect cleanup (skipping the FTS-rebuild fallback path).
-        if let Ok(plans_dir) = crate::paths::plans_dir() {
-            let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+        for deleted_id in owned_side_chats
+            .iter()
+            .map(|side| side.id.as_str())
+            .chain(std::iter::once(session_id))
+        {
+            if let Ok(plans_dir) = crate::paths::plans_dir() {
+                let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", deleted_id)));
+            }
+            if let Ok(att_dir) = crate::paths::attachments_dir(deleted_id) {
+                let _ = std::fs::remove_dir_all(att_dir);
+            }
+            self.cleanup_session_orphan_tables(deleted_id);
+            // Burn-on-close must not leave per-session edit trust in memory.
+            crate::permission::session_edits::clear(deleted_id);
         }
-        if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
-            let _ = std::fs::remove_dir_all(att_dir);
-        }
-        self.cleanup_session_orphan_tables(session_id);
-        // Mirror delete_session_with_reason: drop the Smart-mode "already edited"
-        // trust set so a burned incognito session leaves no in-memory trace
-        // (burn-on-close must not survive in the per-session edit-trust map).
-        crate::permission::session_edits::clear(session_id);
         app_info!(
             "session",
             "purge_incognito",
-            "purged incognito session {}",
-            session_id
+            "purged incognito session {} with {} owned side chat(s)",
+            session_id,
+            owned_side_chats.len()
         );
         // Emit `session:purged` after lock release for cleanup_watcher fan-out.
+        for (meta, context) in side_cleanup_contexts {
+            crate::session::events::emit_session_deleted(
+                &meta,
+                crate::session::events::SessionDeleteReason::IncognitoPurge,
+                &context,
+            );
+        }
         if let Some(meta) = snapshot {
             crate::session::events::emit_session_deleted(
                 &meta,
@@ -6210,27 +6318,9 @@ impl SessionDB {
         Ok(())
     }
 
-    /// Snapshot the pre-delete cleanup context for a session (G4 / SURFACE-2):
-    /// its transitive subagent descendant sessions + its IM attach coordinates.
-    /// Both reference rows the delete cascade removes, so this MUST run before
-    /// the DELETE. Best-effort: any lookup failure yields an empty/None field.
-    fn capture_session_cleanup_context(
-        &self,
-        session_id: &str,
-    ) -> crate::session::events::SessionCleanupContext {
-        let descendant_session_ids = self.collect_descendant_session_ids(session_id);
-        let im_chat = crate::globals::get_channel_db()
-            .and_then(|cdb| cdb.get_conversation_by_session(session_id).ok().flatten())
-            .map(|c| (c.account_id, c.chat_id));
-        crate::session::events::SessionCleanupContext {
-            descendant_session_ids,
-            im_chat,
-        }
-    }
-
     /// Writer-snapshot form used by permanent deletion. Unlike the general
-    /// best-effort helper above, every value comes from the same transaction
-    /// that owns the delete decision.
+    /// read path, every value comes from the same transaction that owns the
+    /// delete decision.
     fn capture_session_cleanup_context_on(
         conn: &Connection,
         meta: &SessionMeta,
@@ -9582,11 +9672,30 @@ mod tests {
             .expect("append user");
         db.append_message(&source.id, &NewMessage::assistant("stable answer"))
             .expect("append assistant");
+        let source_context = serde_json::json!([
+            {"role": "user", "content": "stable question"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "tool-1", "name": "read_file"},
+                    {"type": "text", "text": "stable answer"}
+                ]
+            }
+        ])
+        .to_string();
+        db.save_context(&source.id, &source_context)
+            .expect("save source provider context");
 
         let side = db.create_side_chat(&source.id).expect("create side chat");
         assert_eq!(side.kind, SessionKind::Side);
         assert_eq!(side.temperature, Some(0.42));
         assert!(side.runtime_defaults_initialized);
+        assert_eq!(
+            db.load_context(&side.id)
+                .expect("load side context")
+                .as_deref(),
+            Some(source_context.as_str())
+        );
         assert_eq!(
             side.forked_from_session_id.as_deref(),
             Some(source.id.as_str())
@@ -9709,6 +9818,19 @@ mod tests {
         let active_user_id = db
             .append_message(&source.id, &NewMessage::user("currently running"))
             .expect("append active user");
+        let settled_context = serde_json::json!([
+            {"role": "user", "content": "settled question"},
+            {"role": "assistant", "content": "settled answer"}
+        ])
+        .to_string();
+        let in_flight_context = serde_json::json!([
+            {"role": "user", "content": "settled question"},
+            {"role": "assistant", "content": "settled answer"},
+            {"role": "user", "content": "currently running"}
+        ])
+        .to_string();
+        db.save_context(&source.id, &in_flight_context)
+            .expect("save in-flight source context");
         {
             let conn = db.conn.lock().expect("lock");
             let now = chrono::Utc::now().to_rfc3339();
@@ -9719,6 +9841,19 @@ mod tests {
                 params!["turn-side-active", source.id, active_user_id, now],
             )
             .expect("insert active turn");
+            conn.execute(
+                "INSERT INTO chat_stream_runs (
+                    run_id, session_id, source, turn_id, status, base_context_json, started_at
+                 ) VALUES (?1, ?2, 'desktop', ?3, 'running', ?4, ?5)",
+                params![
+                    "run-side-active",
+                    source.id,
+                    "turn-side-active",
+                    settled_context,
+                    now
+                ],
+            )
+            .expect("insert active stream boundary");
         }
 
         let side = db
@@ -9731,6 +9866,51 @@ mod tests {
         assert_eq!(copied[0].content, "settled question");
         assert_eq!(copied[1].content, "settled answer");
         assert_eq!(side.forked_from_message_id, Some(settled_assistant_id));
+        assert_eq!(
+            db.load_context(&side.id)
+                .expect("load side context")
+                .as_deref(),
+            Some(settled_context.as_str())
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn incognito_purge_cascades_owned_side_chats() {
+        crate::session::design_hooks::ensure_test_stub();
+        let db_path = temp_db_path("session-incognito-purge-side-chats");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("source prompt"))
+            .expect("append source message");
+        let active_side = db.create_side_chat(&source.id).expect("create active side");
+        let archived_side = db
+            .create_side_chat(&source.id)
+            .expect("create archived side");
+        db.set_session_archived(&archived_side.id, true)
+            .expect("archive side");
+        db.append_message(&active_side.id, &NewMessage::user("private side prompt"))
+            .expect("append side message");
+
+        db.update_session_incognito(&source.id, true)
+            .expect("enable incognito after side chat creation");
+        assert!(db
+            .purge_session_if_incognito(&source.id)
+            .expect("purge incognito owner"));
+
+        for deleted_id in [&source.id, &active_side.id, &archived_side.id] {
+            assert!(db
+                .get_session(deleted_id)
+                .expect("load purged session")
+                .is_none());
+            assert!(db
+                .load_session_messages(deleted_id)
+                .expect("load purged messages")
+                .is_empty());
+        }
 
         let _ = std::fs::remove_file(&db_path);
     }
