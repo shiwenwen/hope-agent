@@ -155,6 +155,7 @@ sequenceDiagram
 |---|---|---|---|
 | `/new` | 无 | 创建新会话 | `NewSession` |
 | `/fork` | 无 | 复制当前已落库的完整 transcript，创建分支并切换到新会话；命令本身不写入两侧 transcript | `ForkSession` |
+| `/side` | `[问题]` 可选 | 从当前稳定历史创建侧聊且不切走主会话；有参数时在侧聊中立即发送首问。GUI 专用，IM 菜单隐藏且执行拒绝 | `OpenSideChat` |
 | `/clear` | 无 | 删除当前会话所有消息 | `SessionCleared` |
 | `/compact` | 无 | 压缩当前会话上下文（触发渐进式压缩） | `Compact` |
 | `/stop` | 无 | 停止当前会话主动回合。IM 与 GUI / HTTP 共用同一 session-stop 编排，仅交互入口不同；在 IM 中优先于审批 / 结构化问答回复解析 | `StopStream` |
@@ -509,6 +510,7 @@ Telegram（`setMyCommands`）和 Discord（Application Commands API）的命令�
 |---|---|---|---|---|
 | `NewSession` | `/new` | 切到新建会话 | ✅ 更新 channel → 新 session 映射 | — |
 | `ForkSession` | `/fork` | 刷新会话列表并切到新分支 | ✅ 创建分支后更新 channel → 新 session 映射；映射失败时保留分支并返回可手动 `/session` 接管的短 ID | — |
+| `OpenSideChat` | `/side [问题]` | 保持主会话不变，在右侧打开父会话范围内的侧聊；可附带首问 | 🚫 IM 禁用 | — |
 | `SessionCleared` | `/clear` | 消息已清空 | ✅ DB 已清理 + 回复确认 | `slash:session_cleared` |
 | `SwitchModel` | `/model <name>` | 切换活跃模型 | ✅ `set_session_model_core` 把模型钉到当前 session（不改全局 active_model） | `session:model_updated` |
 | `ShowModelPicker` | `/model` / `/models`（无参） | 渲染模型选择卡片 | ✅ 支持按钮渠道发 inline keyboard，其余发文本列表 | — |
@@ -549,6 +551,7 @@ Telegram（`setMyCommands`）和 Discord（Application Commands API）的命令�
 |---|---|---|---|---|
 | `/new` | Session | 无 | 否 | 开始新对话 |
 | `/fork` | Session | 无 | 是 | 从当前已完成历史创建分支并切换；不复制 Goal / Loop / Workflow 等运行态 |
+| `/side` | Session | `[问题]` | 是 | 创建侧聊且不中断主对话；可立即发送首问，IM 禁用 |
 | `/clear` | Session | 无 | 是 | 清空当前对话 |
 | `/compact` | Session | 无 | 否 | 压缩上下文 |
 | `/stop` | Session | 无 | 否 | 停止当前回复 |

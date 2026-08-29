@@ -523,6 +523,8 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 | `create_session_cmd` | `POST /api/sessions` | ✅ |
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |
 | `fork_session_cmd` | `POST /api/sessions/{sessionId}/fork` | ✅（body 的 `messageId` 为含边界；`beforeMessageId` 为不含边界，二者互斥且同时传入返回 400；响应保持 `SessionMeta` 扁平字段，并可附带 `draftAttachmentsMeta`） |
+| `create_side_chat_cmd` | `POST /api/sessions/{sessionId}/side-chats` | ✅（从最近稳定历史创建 `kind=side` 会话；主会话在途时排除当前 turn，不中断生成） |
+| `list_side_chats_cmd` | `GET /api/sessions/{sessionId}/side-chats` | ✅（只返回该主会话拥有的侧聊；侧聊不进入普通 session 列表） |
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |
 | `set_session_working_dir` | `PATCH /api/sessions/{sessionId}/working-dir` | ✅ |
 | `update_session_agent_cmd` | `PATCH /api/sessions/{sessionId}/agent` | ✅ |

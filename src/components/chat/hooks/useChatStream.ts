@@ -416,7 +416,13 @@ export interface UseChatStreamOptions {
   toolScope?: "knowledge" | "design"
   /** First-party message-list + composer identity for pet activity routing.
    * Internal callers and side queries omit this metadata. */
-  uiSurface?: "main_chat" | "quick_chat" | "knowledge_chat" | "design_chat" | "pet_chat"
+  uiSurface?:
+    | "main_chat"
+    | "side_chat"
+    | "quick_chat"
+    | "knowledge_chat"
+    | "design_chat"
+    | "pet_chat"
   /**
    * Design-space per-project chat: the design project open when the conversation
    * started. Sent only on the auto-create send (with `toolScope === "design"`)

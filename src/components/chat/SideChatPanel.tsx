@@ -1,0 +1,282 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { MessageSquareText, X } from "lucide-react"
+import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
+
+import ApprovalDialog from "@/components/chat/ApprovalDialog"
+import ChatInput from "@/components/chat/ChatInput"
+import MessageList from "@/components/chat/MessageList"
+import {
+  FileActionsContext,
+  type FileActionsContextValue,
+} from "@/components/chat/files/fileActionsContext"
+import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+import { Button } from "@/components/ui/button"
+import { logger } from "@/lib/logger"
+import { getTransport } from "@/lib/transport-provider"
+import type { PendingMessageQuote } from "@/types/chat"
+
+import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
+import type { CommandResult } from "./slash-commands/types"
+import { useChatStream } from "./useChatStream"
+import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
+import { useQuickChatSession } from "./useQuickChatSession"
+
+export interface SideChatSeed {
+  nonce: number
+  prompt?: string
+  quote?: PendingMessageQuote
+}
+
+interface SideChatPanelProps {
+  sessionId: string
+  title?: string | null
+  seed?: SideChatSeed | null
+  onClose: () => void
+  onActivity?: () => void
+  onDeleted: (sessionId: string) => void
+  onPreviewFile: (target: PreviewTarget) => void
+}
+
+export default function SideChatPanel({
+  sessionId,
+  title,
+  seed,
+  onClose,
+  onActivity,
+  onDeleted,
+  onPreviewFile,
+}: SideChatPanelProps) {
+  const { t } = useTranslation()
+  const session = useQuickChatSession(true, {
+    initialSessionId: sessionId,
+    persistLastSession: false,
+  })
+  const streamSeqRef = useRef<Map<string, number>>(new Map())
+  const endedStreamIdsRef = useRef<Map<string, Set<string>>>(new Map())
+  const consumedSeedRef = useRef(0)
+  const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
+  const [messageTailVisible, setMessageTailVisible] = useState(true)
+
+  useEmbeddedChatReadReceipt(true, messageTailVisible, session.currentSessionId, session.messages)
+
+  const stream = useChatStream({
+    uiSurface: "side_chat",
+    messages: session.messages,
+    setMessages: session.setMessages,
+    currentSessionId: session.currentSessionId,
+    setCurrentSessionId: session.setCurrentSessionId,
+    currentSessionIdRef: session.currentSessionIdRef,
+    currentAgentId: session.currentAgentId,
+    agentName: session.agentName,
+    loading: session.loading,
+    setLoading: session.setLoading,
+    loadingSessionsRef: session.loadingSessionsRef,
+    setLoadingSessionIds: session.setLoadingSessionIds,
+    sessionCacheRef: session.sessionCacheRef,
+    sessions: session.sessions,
+    agents: session.agents,
+    manualModelOverrideRef: session.manualModelOverrideRef,
+    reasoningEffort: session.reasoningEffort,
+    temperatureOverride: session.sessionTemperature,
+    reloadSessions: session.reloadSessions,
+    updateSessionMessages: session.updateSessionMessages,
+    lastSeqRef: streamSeqRef,
+    endedStreamIdsRef,
+    incognitoEnabled: false,
+  })
+
+  const inputHistory = useMemo(() => recentUserInputHistory(session.messages), [session.messages])
+
+  const replaceDraftAttachment = useCallback(
+    (draftId: string, file: File) => {
+      stream.setAttachedFiles((current) =>
+        current.map((item) =>
+          item.id === draftId ? { ...item, file, status: "ready", error: undefined } : item,
+        ),
+      )
+    },
+    [stream],
+  )
+  const fileActionsValue = useMemo<FileActionsContextValue>(
+    () => ({
+      sessionId: session.currentSessionId ?? sessionId,
+      onPreviewFile,
+      onReplaceDraft: replaceDraftAttachment,
+    }),
+    [onPreviewFile, replaceDraftAttachment, session.currentSessionId, sessionId],
+  )
+
+  const handleMessageQuote = useCallback(
+    (quote: PendingMessageQuote) => {
+      stream.setPendingMessageQuotes((current) => [...current, quote])
+      setComposerFocusSignal((value) => (value ?? 0) + 1)
+    },
+    [stream],
+  )
+
+  const handleSend = useCallback(
+    async (prompt?: string) => {
+      await stream.handleSend(prompt)
+      onActivity?.()
+    },
+    [onActivity, stream],
+  )
+
+  useEffect(() => {
+    if (!seed || seed.nonce <= consumedSeedRef.current || session.currentSessionId !== sessionId) {
+      return
+    }
+    consumedSeedRef.current = seed.nonce
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      if (seed.quote) handleMessageQuote(seed.quote)
+      if (seed.prompt?.trim()) {
+        void handleSend(seed.prompt.trim())
+      } else {
+        setComposerFocusSignal((value) => (value ?? 0) + 1)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [handleMessageQuote, handleSend, seed, session.currentSessionId, sessionId])
+
+  const handleCommandAction = useCallback(
+    async (result: CommandResult) => {
+      const action = result.action
+      if (!action) return
+      if (action.type === "switchModel") {
+        await session.handleModelChange(`${action.providerId}::${action.modelId}`)
+      } else if (action.type === "setEffort") {
+        await session.handleEffortChange(action.effort)
+      } else if (action.type === "stopStream") {
+        await stream.handleStop()
+        onActivity?.()
+        return
+      } else if (action.type === "compact") {
+        try {
+          await getTransport().call("compact_context_now", { sessionId })
+        } catch (error) {
+          logger.error("ui", "SideChatPanel::compact", "Failed to compact side chat", error)
+          toast.error(t("chat.compactFailed"))
+        }
+      } else if (action.type === "sessionCleared") {
+        onDeleted(sessionId)
+        return
+      }
+      await session.reloadMessages(sessionId)
+      onActivity?.()
+    },
+    [onActivity, onDeleted, session, sessionId, stream, t],
+  )
+
+  return (
+    <aside className="absolute inset-y-0 right-0 z-30 flex w-[min(480px,calc(100%-2rem))] flex-col border-l border-border bg-background shadow-2xl">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        <MessageSquareText className="h-4 w-4 text-primary" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">
+            {title?.trim() || t("chat.sideChat.label", "侧聊")}
+          </div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {t("chat.sideChat.nonBlocking", "独立提问，不会中断主对话")}
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onClose}
+          aria-label={t("chat.sideChat.close", "关闭侧聊面板")}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <FileActionsContext.Provider value={fileActionsValue}>
+        <MessageList
+          messages={session.messages}
+          loading={session.loading}
+          agents={session.agents}
+          hasMore={session.hasMore}
+          loadingMore={session.loadingMore}
+          onLoadMore={session.handleLoadMore}
+          sessionId={session.currentSessionId}
+          onAddMessageQuote={handleMessageQuote}
+          onAtBottomChange={setMessageTailVisible}
+        />
+
+        <ApprovalDialog
+          requests={stream.approvalRequests}
+          onRespond={stream.handleApprovalResponse}
+        />
+
+        <div className="shrink-0 border-t border-border px-2 py-2">
+          <ChatInput
+            input={stream.input}
+            structuredMentions={stream.typedMentions}
+            onInputChange={stream.setInput}
+            onInputChangeWithMention={stream.setInputWithMention}
+            inputHistory={inputHistory}
+            onSend={() => void handleSend()}
+            sendDisabled={session.currentSessionId !== sessionId}
+            loading={session.loading}
+            availableModels={session.availableModels}
+            activeModel={session.activeModel}
+            unavailableModelPreference={session.unavailableModelPreference}
+            reasoningEffort={session.reasoningEffort}
+            onModelChange={session.handleModelChange}
+            onEffortChange={session.handleEffortChange}
+            onEffortReset={session.resetEffort}
+            sessionTemperature={session.sessionTemperature}
+            onSessionTemperatureChange={session.handleTemperatureChange}
+            attachedFiles={stream.attachedFiles}
+            maxAttachmentBytes={stream.maxChatAttachmentBytes}
+            onAttachFiles={(files) => stream.setAttachedFiles((current) => [...current, ...files])}
+            onRemoveFile={(index) =>
+              stream.setAttachedFiles((current) =>
+                current.filter((_, itemIndex) => itemIndex !== index),
+              )
+            }
+            onUpdateFile={(index, file) =>
+              stream.setAttachedFiles((current) =>
+                current.map((item, itemIndex) =>
+                  itemIndex === index ? { ...item, file, status: "ready", error: undefined } : item,
+                ),
+              )
+            }
+            pendingMessageQuotes={stream.pendingMessageQuotes}
+            onRemoveMessageQuote={(index) =>
+              stream.setPendingMessageQuotes((current) =>
+                current.filter((_, itemIndex) => itemIndex !== index),
+              )
+            }
+            focusSignal={composerFocusSignal}
+            pendingMessage={stream.pendingMessage}
+            pendingSends={stream.pendingSends}
+            onCancelPending={() => stream.setPendingMessage(null)}
+            onDiscardPending={() => stream.setPendingMessage(null)}
+            onEditPending={stream.editPendingSend}
+            onDiscardPendingItem={stream.discardPendingSend}
+            onSendPending={stream.sendPendingSend}
+            onForceInsertPending={stream.forceInsertPendingSend}
+            onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
+            onStop={stream.handleStop}
+            currentSessionId={session.currentSessionId}
+            currentAgentId={session.currentAgentId}
+            enableAgentMention
+            agents={session.agents}
+            onCommandAction={handleCommandAction}
+            permissionMode={stream.permissionMode}
+            onPermissionModeChange={stream.setPermissionModeByUser}
+            sandboxMode={stream.sandboxMode}
+            onSandboxModeChange={stream.setSandboxModeByUser}
+          />
+        </div>
+      </FileActionsContext.Provider>
+    </aside>
+  )
+}

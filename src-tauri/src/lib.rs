@@ -720,6 +720,8 @@ pub fn run() {
             // Session management
             commands::session::create_session_cmd,
             commands::session::fork_session_cmd,
+            commands::session::create_side_chat_cmd,
+            commands::session::list_side_chats_cmd,
             commands::session::list_sessions_cmd,
             commands::session::list_archived_sessions_cmd,
             commands::session::load_session_messages_latest_cmd,

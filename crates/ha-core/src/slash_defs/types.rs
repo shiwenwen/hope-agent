@@ -65,6 +65,13 @@ pub enum CommandAction {
     /// The current session was copied into a new first-class session.
     /// Consumers should switch or remap their active surface to `session_id`.
     ForkSession { session_id: String },
+    /// A parent-scoped side conversation was created without replacing the
+    /// surface's active main session.
+    OpenSideChat {
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        initial_prompt: Option<String>,
+    },
     /// Model was switched.
     SwitchModel {
         provider_id: String,
@@ -289,6 +296,7 @@ impl SlashCommandDef {
         match self.name.as_str() {
             "new" => "Start a new chat",
             "fork" => "Continue in a new session",
+            "side" => "Start a side chat without interrupting the main chat",
             "clear" => "Clear conversation",
             "compact" => "Compress context",
             "stop" => "Stop current reply",

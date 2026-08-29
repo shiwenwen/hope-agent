@@ -383,6 +383,15 @@
       "failed": "Không thể tiếp tục trong phiên mới",
       "sourceFallback": "phiên gốc"
     },
+    "sideChat": {
+      "label": "Trò chuyện bên",
+      "untitled": "Trò chuyện bên {{index}}",
+      "new": "Trò chuyện bên mới",
+      "close": "Đóng bảng trò chuyện bên",
+      "nonBlocking": "Hỏi riêng mà không làm gián đoạn cuộc trò chuyện chính",
+      "askSelection": "Hỏi trong trò chuyện bên",
+      "createFailed": "Không thể tạo trò chuyện bên"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
       "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "Bắt đầu cuộc trò chuyện mới"
+    },
+    "side": {
+      "description": "Bắt đầu trò chuyện bên mà không làm gián đoạn trò chuyện chính"
     },
     "noResults": "Không có lệnh khớp",
     "permission": {

@@ -216,6 +216,7 @@ Type `/` in the chat input box or in any IM channel to trigger a slash command. 
 | --- | --- |
 | `/new` | Create a new session |
 | `/fork` | Copy the current settled conversation history and continue in a new session; active goals, loops, and workflows are not copied |
+| `/side [question]` | Open a side chat without interrupting the main conversation; omit the question to type it later, or select message text and choose “Ask in side chat” |
 | `/clear` | Delete all messages in the current session |
 | `/compact` | Compact the current session's context |
 | `/stop` | Stop the current reply |

@@ -383,6 +383,15 @@
       "failed": "Couldn't continue in a new session",
       "sourceFallback": "source session"
     },
+    "sideChat": {
+      "label": "Side chat",
+      "untitled": "Side chat {{index}}",
+      "new": "New side chat",
+      "close": "Close side chat panel",
+      "nonBlocking": "Ask independently without interrupting the main chat",
+      "askSelection": "Ask in side chat",
+      "createFailed": "Couldn't create side chat"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Browser backend: {{backend}}",
       "captureFailed": "Frame capture failed, waiting for next one",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "Start a new chat"
+    },
+    "side": {
+      "description": "Start a side chat without interrupting the main chat"
     },
     "noResults": "No matching commands",
     "permission": {

@@ -323,6 +323,10 @@ fn build_router_with_cors(
             get(routes::sessions::list_archived_sessions),
         )
         .route("/sessions/{id}/fork", post(routes::sessions::fork_session))
+        .route(
+            "/sessions/{id}/side-chats",
+            get(routes::sessions::list_side_chats).post(routes::sessions::create_side_chat),
+        )
         .route("/sessions/{id}", get(routes::sessions::get_session))
         .route("/sessions/{id}", delete(routes::sessions::delete_session))
         .route("/sessions/{id}", patch(routes::sessions::rename_session))

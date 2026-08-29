@@ -57,6 +57,7 @@ pub async fn dispatch(
         // ── Session ──
         "new" => session::handle_new(session_db()?, agent_id),
         "fork" => session::handle_fork(session_db()?, session_id, args).await,
+        "side" => session::handle_side(session_db()?, session_id, args).await,
         "clear" => session::handle_clear(session_db()?, session_id),
         "stop" => Ok(session::handle_stop()),
         "rename" => session::handle_rename(session_db()?, session_id, args),

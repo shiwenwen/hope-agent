@@ -31,6 +31,18 @@ describe("useFilePreview", () => {
     }
   })
 
+  it("keeps the authorizing session bound to each preview", () => {
+    const { result } = renderHook(() => useFilePreview())
+    act(() => result.current.openPreview(workspaceTarget("main.ts"), "side-1"))
+    act(() => result.current.openPreview(workspaceTarget("main.ts"), "side-2"))
+
+    expect(result.current.entries).toHaveLength(2)
+    expect(result.current.entries.map((entry) => entry.authorizationSessionId)).toEqual([
+      "side-1",
+      "side-2",
+    ])
+  })
+
   it("keeps multiple files, reorders them, and selects a neighbour on close", () => {
     const { result } = renderHook(() => useFilePreview())
     act(() => {

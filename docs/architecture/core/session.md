@@ -1,6 +1,6 @@
 # Session 会话系统架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-29
 
 ## 目录
 
@@ -16,6 +16,7 @@
 - [会话生命周期](#会话生命周期)
 - [未读追踪](#未读追踪)
 - [会话 Fork](#会话-fork)
+- [侧聊](#侧聊)
 - [无痕会话（Incognito）](#无痕会话incognito)
 - [生命周期协调清理（cleanup_watcher）](#生命周期协调清理cleanup_watcher)
 - [会话级工作目录](#会话级工作目录)
@@ -122,7 +123,7 @@ flowchart TD
 | `channel_info` | `Option<ChannelSessionInfo>` | IM Channel 关联信息（LEFT JOIN `channel_conversations`） |
 | `incognito` | `bool` | 无痕开关：不注入被动记忆 / awareness、不做自动记忆提取，且关闭即焚 |
 | `working_dir` | `Option<String>` | 会话级工作目录绝对路径（稳定工作目录合同进入 system，易变目录清单进入 user-data，并作为 `exec` / `read` 默认 cwd）；server 模式指 server 机器路径 |
-| `kind` | `SessionKind` | 会话分类：`regular` / `knowledge` / `design` / `eval_fixture`；专属空间会话从主 sidebar / picker 隐藏 |
+| `kind` | `SessionKind` | 会话分类：`regular` / `side` / `knowledge` / `design` / `eval_fixture`；非普通会话从主侧边栏 / 选择器隐藏 |
 
 `SessionMeta::is_regular_chat()` 收敛了"这是否一段普通用户对话"的判定（供托盘下拉等跨界面复用）：非 cron、非子会话、非 IM、非无痕、非归档、`kind == Regular`。项目成员资格**允许**——项目对话仍是用户对话，只是装进了项目容器。
 
@@ -228,7 +229,7 @@ CREATE TABLE sessions (
     working_dir                   TEXT,                            -- 会话级工作目录
     pinned_at                     TEXT,
     archived_at                   TEXT,                            -- NULL = 活跃
-    kind                          TEXT NOT NULL DEFAULT 'regular'  -- regular / knowledge / design / eval_fixture
+    kind                          TEXT NOT NULL DEFAULT 'regular'  -- regular / side / knowledge / design / eval_fixture
 );
 
 CREATE TABLE messages (
@@ -371,6 +372,8 @@ CREATE TABLE acp_runs (
 | `create_session_with_parent(agent_id, parent_id)` | 创建子 Agent 会话 |
 | `create_session_with_project(agent_id, project_id)` | 创建项目作用域会话；`project_id` 非空时强制 `incognito=false`（互斥防御） |
 | `fork_session(source_id, source_message_id)` | 把普通顶层会话派生为新的普通会话（见 [会话 Fork](#会话-fork)） |
+| `create_side_chat(source_id)` | 从普通顶层会话的最近稳定历史创建 `kind=side` 的侧聊 |
+| `list_side_chats(source_id)` | 只按 `forked_from_session_id` 列出某个主会话拥有的侧聊 |
 | `get_session(session_id)` | 获取单个会话元信息（含 Channel LEFT JOIN） |
 | `list_sessions(agent_id)` | 列出全部会话（按 `updated_at DESC`） |
 | `list_sessions_paged(agent_id, project_filter, limit, offset, active_session_id)` | 分页列表，返回 `(Vec<SessionMeta>, total_count)` |
@@ -395,13 +398,14 @@ CREATE TABLE acp_runs (
 
 ```mermaid
 flowchart LR
-    D["delete_session(id)"] --> C1["CASCADE 删 messages<br/>（FK ON DELETE CASCADE）"]
+    D["delete_session(id)"] --> C0["若 id 是主会话<br/>同事务删除其全部侧聊"]
+    C0 --> C1["CASCADE 删 messages<br/>（FK ON DELETE CASCADE）"]
     D --> C2["删 plans/{id}.md<br/>+ attachments/{id}/"]
     D --> C3["cleanup_session_orphan_tables<br/>单独事务清无 FK 的关联表"]
     C3 --> W["失败仅 app_warn!，不阻塞主删"]
 ```
 
-第 ③ 步在一个单独事务里按序清掉不随 `sessions` FK 级联的关联表：`session_skill_activation`、`session_tool_activation`、`learning_events`、`subagent_result_deliveries`、`subagent_dispatches`、`subagent_threads`、`subagent_runs`（`parent_session_id` 或 `child_session_id` 命中）、`acp_runs`。失败只 `app_warn!` 不向上抛——保证主删 `sessions` 行成功后即使关联清理失败也不阻塞用户。该 contract 在 [AGENTS.md](../../../AGENTS.md) 列为强制。删除后残留在内存里的引用由 `cleanup_watcher` 负责（见后文）。
+删除普通主会话时，会在同一 `Immediate` 事务中删除它拥有的活跃与已归档侧聊；普通 Fork 不受影响。每个被删侧聊仍单独执行文件、孤儿表、权限信任集清理并发出生命周期事件，保证其在途 turn、审批与后台状态都能被 `cleanup_watcher` 收敛。第 ③ 步在一个单独事务里按序清掉不随 `sessions` FK 级联的关联表：`session_skill_activation`、`session_tool_activation`、`learning_events`、`subagent_result_deliveries`、`subagent_dispatches`、`subagent_threads`、`subagent_runs`（`parent_session_id` 或 `child_session_id` 命中）、`acp_runs`。失败只 `app_warn!` 不向上抛——保证主删 `sessions` 行成功后即使关联清理失败也不阻塞用户。该 contract 在 [AGENTS.md](../../../AGENTS.md) 列为强制。删除后残留在内存里的引用由 `cleanup_watcher` 负责（见后文）。
 
 ### 消息 CRUD
 
@@ -594,6 +598,28 @@ Fork 把当前会话派生为一个新的、可独立继续的普通会话——
 ### 不复制的内容
 
 Fork **不**复制 active Goal、Loop schedule、Workflow run、Task progress、pending approval、background job、subagent / acp run 等运行态——它们是当前执行路线的 live state，复制会让两条会话共享或竞争同一批异步任务。新会话只带历史上下文与稳定配置，后续 goal / loop / workflow 由它重新创建。
+
+## 侧聊
+
+侧聊用于在不切换、不停止主对话的情况下追问一条独立问题。产品入口与 Codex 的侧边对话保持同一组语义：`/side [问题]` 可直接创建并发送首问；输入框上方保留当前主会话的多个侧聊入口；选中 transcript 文本可把该摘录作为消息引用带入新侧聊。关闭面板只收起视图，重新点击入口即可恢复。
+
+### 持久化与可见性
+
+- 侧聊是 `SessionKind::Side`，使用自己的 `session_id`、消息账本、审批、流式恢复与 TurnKernel 准入；前端只增加一个 `ui_surface=side_chat` 的产品路由标记，不另造模型调用或流式协议。
+- `forked_from_session_id` 是主会话归属关系，`parent_session_id` 仍只留给 Subagent。侧聊只能从非无痕、非 Cron、非 IM、非子会话的 `kind=regular` 顶层会话创建。
+- 侧聊不进入主侧边栏、普通未读、全局搜索或 `/sessions` 选择器；唯一发现入口是 `list_side_chats(source_id)`。这保证它不会污染普通会话空间，也避免为未读系统增加第三个域。
+- 侧聊继承创建瞬间的 Agent、模型、项目、工作目录、权限、沙箱、执行与工作流配置；之后独立演进，不共享 Goal、Workflow、审批或后台作业等运行态。
+- 主会话是侧聊的生命周期所有者：永久删除主会话会原子删除其全部活跃与已归档侧聊；普通 Fork 仍是独立的一等会话，不随来源删除。
+
+### 主对话运行中的快照
+
+创建动作与 transcript 复制在同一数据库事务中完成。若主会话存在 `running` / `cancelling` 的 `chat_turns`，以该 turn 的 `user_message_id` 为不含边界，只复制更早的稳定历史；因此不会复制半条 assistant / tool API round，也不需要停止或等待主 turn。主会话空白时允许创建空侧聊。没有在途 turn 时复制全部已落库历史，并复用 Fork 的附件复制与路径改写合同。
+
+### 传输与界面
+
+Tauri 的 `create_side_chat_cmd` / `list_side_chats_cmd` 与 HTTP 的 `POST|GET /api/sessions/{id}/side-chats` 完全同形。桌面 / Bundled Web 在主 composer 上方渲染父会话范围内的入口条，侧聊在右侧浮层中复用 `MessageList`、`ChatInput`、`ApprovalDialog`、`useChatStream` 与耐久 turn 语义。主对话与侧聊各自拥有独立的流状态，可以同时生成。
+
+侧聊输入框只列出当前嵌入面板能完整承载的控制命令（清空、压缩、停止、改名、模型、推理强度、帮助、状态与用量）；会导航到其它会话、项目或独立工作台的命令不进入菜单，执行入口也按同一 allowlist 拒绝，避免隐藏会话已被后端修改而侧聊面板无法表达结果。
 
 ## 无痕会话（Incognito）
 

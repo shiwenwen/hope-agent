@@ -8,6 +8,8 @@ export interface FilePreviewEntry {
   id: string
   title: string
   target: PreviewTarget
+  /** Session whose transcript authorizes HTTP reads for this preview. */
+  authorizationSessionId?: string | null
 }
 
 let stagedPreviewId = 0
@@ -75,11 +77,15 @@ export function previewTargetMime(target: PreviewTarget): string | null {
   }
 }
 
-function toEntry(target: PreviewTarget): FilePreviewEntry {
+function toEntry(target: PreviewTarget, authorizationSessionId?: string | null): FilePreviewEntry {
+  const authorizationIdentity = authorizationSessionId
+    ? `:${encodeURIComponent(authorizationSessionId)}`
+    : ""
   return {
-    id: `preview:${encodeURIComponent(previewIdentity(target))}`,
+    id: `preview:${encodeURIComponent(previewIdentity(target))}${authorizationIdentity}`,
     title: previewTitle(target),
     target,
+    authorizationSessionId,
   }
 }
 
@@ -90,7 +96,7 @@ export interface UseFilePreview {
   target: PreviewTarget | null
   /** Bumps on every open, including focusing an already-open file. */
   openNonce: number
-  openPreview: (target: PreviewTarget) => void
+  openPreview: (target: PreviewTarget, authorizationSessionId?: string | null) => void
   selectPreview: (id: string) => void
   closePreview: (id?: string) => void
   closeAllPreviews: () => void
@@ -122,8 +128,8 @@ export function useFilePreview(): UseFilePreview {
   const [openNonce, setOpenNonce] = useState(0)
 
   const openPreview = useCallback(
-    (next: PreviewTarget) => {
-      const entry = toEntry(next)
+    (next: PreviewTarget, authorizationSessionId?: string | null) => {
+      const entry = toEntry(next, authorizationSessionId)
       setState((current) => {
         const index = current.entries.findIndex((item) => item.id === entry.id)
         if (index < 0) return { entries: [...current.entries, entry], activeId: entry.id }

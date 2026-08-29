@@ -383,6 +383,15 @@
       "failed": "Tidak dapat meneruskan dalam sesi baharu",
       "sourceFallback": "sesi asal"
     },
+    "sideChat": {
+      "label": "Sembang sisi",
+      "untitled": "Sembang sisi {{index}}",
+      "new": "Sembang sisi baharu",
+      "close": "Tutup panel sembang sisi",
+      "nonBlocking": "Tanya secara berasingan tanpa mengganggu sembang utama",
+      "askSelection": "Tanya dalam sembang sisi",
+      "createFailed": "Tidak dapat mencipta sembang sisi"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend pelayar: {{backend}}",
       "captureFailed": "Gagal menangkap bingkai, menunggu yang seterusnya",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "Mulakan sembang baharu"
+    },
+    "side": {
+      "description": "Mulakan sembang sisi tanpa mengganggu sembang utama"
     },
     "noResults": "Tiada arahan yang sepadan",
     "permission": {

@@ -77,6 +77,8 @@ import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
+import SideChatPanel, { type SideChatSeed } from "@/components/chat/SideChatPanel"
+import { SideChatTray } from "@/components/chat/SideChatTray"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { FileBrowserDirectoryReveal } from "@/components/chat/project/file-browser/FileBrowserView"
@@ -913,6 +915,147 @@ export default function ChatScreen({
         : null,
     [session.sessions, session.currentSessionId],
   )
+  const [sideChats, setSideChats] = useState<SessionMeta[]>([])
+  const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
+  const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
+  const [sideChatPanelOpen, setSideChatPanelOpen] = useState(false)
+  const [sideChatCreatingSourceId, setSideChatCreatingSourceId] = useState<string | null>(null)
+  const [sideChatSeed, setSideChatSeed] = useState<SideChatSeed | null>(null)
+  const sideChatSeedNonceRef = useRef(0)
+  const canUseSideChat =
+    !!currentSessionMeta &&
+    (currentSessionMeta.kind ?? "regular") === "regular" &&
+    !currentSessionMeta.incognito &&
+    !currentSessionMeta.channelInfo &&
+    !currentSessionMeta.parentSessionId &&
+    !currentSessionMeta.isCron
+  const sideChatSourceId = canUseSideChat ? session.currentSessionId : null
+  const sideChatSourceIdRef = useRef<string | null>(sideChatSourceId)
+  sideChatSourceIdRef.current = sideChatSourceId
+  const sideChatStateIsCurrent = sideChatStateSourceId === sideChatSourceId
+  const visibleSideChats = sideChatStateIsCurrent ? sideChats : []
+  const visibleActiveSideChatId = sideChatStateIsCurrent ? activeSideChatId : null
+  const visibleSideChatPanelOpen = sideChatStateIsCurrent && sideChatPanelOpen
+  const sideChatCreating = sideChatCreatingSourceId === sideChatSourceId
+
+  const refreshSideChats = useCallback(async (): Promise<SessionMeta[]> => {
+    const sourceSessionId = sideChatSourceIdRef.current
+    if (!sourceSessionId) return []
+    try {
+      const chats = await getTransport().call<SessionMeta[]>("list_side_chats_cmd", {
+        sessionId: sourceSessionId,
+      })
+      if (sideChatSourceIdRef.current !== sourceSessionId) return []
+      setSideChatStateSourceId(sourceSessionId)
+      setSideChats(chats)
+      return chats
+    } catch (error) {
+      logger.error("ui", "ChatScreen::listSideChats", "Failed to list side chats", error)
+      return []
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const sourceSessionId = sideChatSourceId
+    setSideChatStateSourceId(sourceSessionId)
+    setSideChats([])
+    setActiveSideChatId(null)
+    setSideChatPanelOpen(false)
+    setSideChatSeed(null)
+    if (!sourceSessionId) {
+      return
+    }
+    getTransport()
+      .call<SessionMeta[]>("list_side_chats_cmd", { sessionId: sourceSessionId })
+      .then((chats) => {
+        if (cancelled || sideChatSourceIdRef.current !== sourceSessionId) return
+        setSideChats(chats)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          logger.error("ui", "ChatScreen::loadSideChats", "Failed to load side chats", error)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sideChatSourceId])
+
+  const revealSideChat = useCallback(
+    async (
+      sessionId: string,
+      seed?: Omit<SideChatSeed, "nonce">,
+      expectedSourceSessionId = sideChatSourceIdRef.current,
+    ) => {
+      if (!expectedSourceSessionId || sideChatSourceIdRef.current !== expectedSourceSessionId)
+        return
+      let chat =
+        sideChatStateSourceId === expectedSourceSessionId
+          ? sideChats.find((item) => item.id === sessionId)
+          : undefined
+      if (!chat) {
+        try {
+          chat =
+            (await getTransport().call<SessionMeta | null>("get_session_cmd", {
+              sessionId,
+            })) ?? undefined
+        } catch (error) {
+          logger.error("ui", "ChatScreen::revealSideChat", "Failed to load side chat", error)
+          return
+        }
+      }
+      if (!chat) return
+      if (
+        sideChatSourceIdRef.current !== expectedSourceSessionId ||
+        chat.kind !== "side" ||
+        chat.forkedFromSessionId !== expectedSourceSessionId
+      ) {
+        return
+      }
+      setSideChatStateSourceId(expectedSourceSessionId)
+      setSideChats((current) =>
+        current.some((item) => item.id === chat.id) ? current : [...current, chat],
+      )
+      setActiveSideChatId(sessionId)
+      setSideChatPanelOpen(true)
+      if (seed) {
+        sideChatSeedNonceRef.current += 1
+        setSideChatSeed({ ...seed, nonce: sideChatSeedNonceRef.current })
+      } else {
+        setSideChatSeed(null)
+      }
+    },
+    [sideChatStateSourceId, sideChats],
+  )
+
+  const createSideChat = useCallback(
+    async (seed?: Omit<SideChatSeed, "nonce">) => {
+      const sourceSessionId = sideChatSourceIdRef.current
+      if (!sourceSessionId || sideChatCreatingSourceId === sourceSessionId) return
+      setSideChatCreatingSourceId(sourceSessionId)
+      try {
+        const chat = await getTransport().call<SessionMeta>("create_side_chat_cmd", {
+          sessionId: sourceSessionId,
+        })
+        if (sideChatSourceIdRef.current === sourceSessionId) {
+          await revealSideChat(chat.id, seed, sourceSessionId)
+        }
+      } catch (error) {
+        logger.error("ui", "ChatScreen::createSideChat", "Failed to create side chat", error)
+        toast.error(t("chat.sideChat.createFailed", "无法创建侧聊"))
+      } finally {
+        setSideChatCreatingSourceId((current) => (current === sourceSessionId ? null : current))
+      }
+    },
+    [revealSideChat, sideChatCreatingSourceId, t],
+  )
+  const handleSideChatDeleted = useCallback((sessionId: string) => {
+    setSideChats((current) => current.filter((chat) => chat.id !== sessionId))
+    setActiveSideChatId(null)
+    setSideChatPanelOpen(false)
+    setSideChatSeed(null)
+  }, [])
   const canScheduleCurrentSession =
     !!currentSessionMeta &&
     (currentSessionMeta.kind ?? "regular") === "regular" &&
@@ -2476,6 +2619,7 @@ export default function ChatScreen({
       const shouldShowSlashHistory =
         action?.type !== "newSession" &&
         action?.type !== "forkSession" &&
+        action?.type !== "openSideChat" &&
         action?.type !== "switchAgent" &&
         action?.type !== "passThrough" &&
         !result._isSkillPassThrough
@@ -2573,6 +2717,13 @@ export default function ChatScreen({
                 : t("chat.fork.failed", { defaultValue: "无法在新会话中继续" }),
             )
           }
+          break
+        case "openSideChat":
+          await revealSideChat(
+            action.sessionId,
+            action.initialPrompt ? { prompt: action.initialPrompt } : undefined,
+          )
+          void refreshSideChats()
           break
         case "switchModel":
           handleManualModelChange(`${action.providerId}::${action.modelId}`)
@@ -2864,6 +3015,8 @@ export default function ChatScreen({
       rawHandleSwitchSession,
       reloadSessions,
       refreshUnreadState,
+      refreshSideChats,
+      revealSideChat,
       onOpenDashboardTab,
       runCompactContextForCurrentSession,
       t,
@@ -3381,6 +3534,12 @@ export default function ChatScreen({
     },
     [stream],
   )
+  const handleAskInSideChat = useCallback(
+    (quote: PendingMessageQuote) => {
+      void createSideChat({ quote })
+    },
+    [createSideChat],
+  )
   // Help window "Ask AI" — manual excerpts arrive through a module-level
   // queue (App switches to the chat view first; the subscription drains
   // anything that arrived before this screen mounted).
@@ -3476,6 +3635,14 @@ export default function ChatScreen({
       openFilePreview(target)
     },
     [openFilePreview, resolveBrowsableTarget, revealFileInActiveTab, showRightPanelByUser],
+  )
+
+  /** Side-chat file reads must carry the side session that authorized the path. */
+  const openSideChatFileTarget = useCallback(
+    (sideSessionId: string, target: PreviewTarget) => {
+      openFilePreview(target, sideSessionId)
+    },
+    [openFilePreview],
   )
 
   /** Explicit "open in a new tab": same addressing rules, same preview fallback,
@@ -4915,6 +5082,7 @@ export default function ChatScreen({
                   onOpenKnowledge={onOpenKnowledge}
                   onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                   onAddMessageQuote={handleMessageQuote}
+                  onAskInSideChat={canUseSideChat ? handleAskInSideChat : undefined}
                   displayMode={displayMode}
                   autoCollapseCompletedTurns={autoCollapseCompletedTurns}
                   onAtBottomChange={setMessageTailVisible}
@@ -5012,7 +5180,17 @@ export default function ChatScreen({
                       )}
                       <ChatInput
                         topAccessory={
-                          !session.currentSessionId && !incognitoEnabled ? (
+                          canUseSideChat ? (
+                            <SideChatTray
+                              chats={visibleSideChats}
+                              activeId={visibleActiveSideChatId}
+                              panelOpen={visibleSideChatPanelOpen}
+                              creating={sideChatCreating}
+                              onCreate={() => void createSideChat()}
+                              onSelect={(sessionId) => void revealSideChat(sessionId)}
+                              onClosePanel={() => setSideChatPanelOpen(false)}
+                            />
+                          ) : !session.currentSessionId && !incognitoEnabled ? (
                             <ProjectSessionDraftBar
                               project={currentProject}
                               projects={projects}
@@ -5188,6 +5366,23 @@ export default function ChatScreen({
                   </div>
                 )}
               </FileActionsContext.Provider>
+
+              {visibleSideChatPanelOpen && visibleActiveSideChatId ? (
+                <SideChatPanel
+                  key={visibleActiveSideChatId}
+                  sessionId={visibleActiveSideChatId}
+                  title={
+                    visibleSideChats.find((chat) => chat.id === visibleActiveSideChatId)?.title
+                  }
+                  seed={sideChatSeed}
+                  onClose={() => setSideChatPanelOpen(false)}
+                  onActivity={() => void refreshSideChats()}
+                  onDeleted={handleSideChatDeleted}
+                  onPreviewFile={(target) =>
+                    openSideChatFileTarget(visibleActiveSideChatId, target)
+                  }
+                />
+              ) : null}
             </div>
 
             {/* Always mounted, `empty` when nothing is open: the Canvas panel
@@ -5466,7 +5661,7 @@ export default function ChatScreen({
                 >
                   <FilePreviewPanel
                     target={entry.target}
-                    sessionId={session.currentSessionId}
+                    sessionId={entry.authorizationSessionId ?? session.currentSessionId}
                     onReplaceDraft={replaceDraftAttachment}
                     onQuote={handleFileQuote}
                     onClose={() => closeFilePreview(entry.id)}

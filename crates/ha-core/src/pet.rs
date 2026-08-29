@@ -18,6 +18,7 @@ use ha_config_schema::pet::{PetConfig, PetRef};
 #[serde(rename_all = "snake_case")]
 pub enum ChatUiSurface {
     MainChat,
+    SideChat,
     QuickChat,
     KnowledgeChat,
     DesignChat,
@@ -28,6 +29,7 @@ impl ChatUiSurface {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::MainChat => "main_chat",
+            Self::SideChat => "side_chat",
             Self::QuickChat => "quick_chat",
             Self::KnowledgeChat => "knowledge_chat",
             Self::DesignChat => "design_chat",
@@ -38,6 +40,7 @@ impl ChatUiSurface {
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "main_chat" => Some(Self::MainChat),
+            "side_chat" => Some(Self::SideChat),
             "quick_chat" => Some(Self::QuickChat),
             "knowledge_chat" => Some(Self::KnowledgeChat),
             "design_chat" => Some(Self::DesignChat),

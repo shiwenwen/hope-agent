@@ -91,6 +91,52 @@ pub async fn handle_fork(
     }
 }
 
+/// /side [question] — Snapshot the settled transcript into a parent-scoped
+/// side conversation. The desktop keeps the main session active and opens the
+/// returned session in its side panel.
+pub async fn handle_side(
+    session_db: &Arc<SessionDB>,
+    session_id: Option<&str>,
+    args: &str,
+) -> Result<CommandResult, String> {
+    let source_session_id = session_id
+        .ok_or("No active session for side chat")?
+        .to_string();
+    let source_for_log = source_session_id.clone();
+    let initial_prompt = (!args.trim().is_empty()).then(|| args.trim().to_string());
+    match session_db
+        .run(move |db| db.create_side_chat(&source_session_id))
+        .await
+    {
+        Ok(side_chat) => {
+            crate::app_info!(
+                "session",
+                "slash_side",
+                "Side chat created: source_session_id={} side_session_id={}",
+                source_for_log,
+                side_chat.id
+            );
+            Ok(CommandResult {
+                content: String::new(),
+                action: Some(CommandAction::OpenSideChat {
+                    session_id: side_chat.id,
+                    initial_prompt,
+                }),
+            })
+        }
+        Err(error) => {
+            crate::app_warn!(
+                "session",
+                "slash_side",
+                "Side chat creation failed: source_session_id={} error={}",
+                source_for_log,
+                error
+            );
+            Err(error.to_string())
+        }
+    }
+}
+
 /// /clear — Delete current session messages.
 pub fn handle_clear(
     session_db: &Arc<SessionDB>,
@@ -547,6 +593,35 @@ mod tests {
                 .await
                 .unwrap_err(),
             "Usage: /fork"
+        );
+    }
+
+    #[tokio::test]
+    async fn side_command_creates_hidden_session_and_carries_optional_prompt() {
+        let (_dir, db) = test_db();
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("settled context"))
+            .expect("append source message");
+
+        let result = handle_side(&db, Some(&source.id), "  explain this  ")
+            .await
+            .expect("side command");
+        let (side_id, prompt) = match result.action {
+            Some(CommandAction::OpenSideChat {
+                session_id,
+                initial_prompt,
+            }) => (session_id, initial_prompt),
+            other => panic!("unexpected action: {other:?}"),
+        };
+        assert_eq!(prompt.as_deref(), Some("explain this"));
+        let side = db
+            .get_session(&side_id)
+            .expect("get side chat")
+            .expect("side chat exists");
+        assert_eq!(side.kind, crate::session::SessionKind::Side);
+        assert_eq!(
+            side.forked_from_session_id.as_deref(),
+            Some(source.id.as_str())
         );
     }
 }

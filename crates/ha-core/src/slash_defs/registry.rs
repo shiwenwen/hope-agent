@@ -7,14 +7,28 @@ use super::types::{CommandCategory, SlashCommandDef};
 /// `/agent` stays disabled in IM (creating a new session under a different
 /// agent loses the channel-conversation context). `/handover` is GUI-only —
 /// pushing the current session out to a different chat from inside that chat
-/// has no useful semantics. `/project` is now allowed: it re-points the
+/// has no useful semantics. `/side` is also GUI-only because IM has no parent
+/// composer or side-panel surface to reopen the hidden conversation. `/project` is now allowed: it re-points the
 /// current chat's session to a project (replacing the legacy reverse-claim
 /// model that Phase A1 removed).
-pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover", "pet"];
+pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover", "pet", "side"];
+
+/// Commands whose actions the embedded side-chat surface can represent without
+/// navigating or mutating the owning main conversation.
+pub const SIDE_CHAT_COMMANDS: &[&str] = &[
+    "clear", "compact", "stop", "rename", "model", "thinking", "help", "status", "usage",
+];
 
 /// Whether a command is suppressed from the IM channel slash-command menu.
 pub fn is_im_disabled(name: &str) -> bool {
     IM_DISABLED_COMMANDS.contains(&name)
+}
+
+/// Whether a command is available inside a side conversation. Aliases are
+/// accepted here as defense in depth for direct execution requests; the menu
+/// itself only exposes canonical command names.
+pub fn is_side_chat_enabled(name: &str) -> bool {
+    SIDE_CHAT_COMMANDS.contains(&name) || name == "think"
 }
 
 /// Returns all available slash command definitions.
@@ -38,6 +52,16 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             args_optional: false,
             arg_placeholder: None,
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "side".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.side.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[question]".into()),
             arg_options: None,
             description_raw: None,
         },
@@ -530,4 +554,19 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
 #[allow(dead_code)]
 pub fn is_valid_command(name: &str) -> bool {
     all_commands().iter().any(|c| c.name == name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn side_chat_command_allowlist_excludes_navigation_and_skills() {
+        assert!(is_side_chat_enabled("clear"));
+        assert!(is_side_chat_enabled("think"));
+        assert!(!is_side_chat_enabled("reasoning"));
+        assert!(!is_side_chat_enabled("new"));
+        assert!(!is_side_chat_enabled("side"));
+        assert!(!is_side_chat_enabled("project"));
+    }
 }

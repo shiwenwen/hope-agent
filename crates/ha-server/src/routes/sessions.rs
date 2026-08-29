@@ -688,6 +688,32 @@ pub async fn fork_session(
     Ok(Json(result))
 }
 
+/// `POST /api/sessions/:id/side-chats` — snapshot settled context into a
+/// parent-scoped side conversation without changing the main session.
+pub async fn create_side_chat(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::session::SessionMeta>, AppError> {
+    let session = ctx
+        .session_db
+        .run(move |db| db.create_side_chat(&id))
+        .await?;
+    Ok(Json(session))
+}
+
+/// `GET /api/sessions/:id/side-chats` — list only side conversations owned by
+/// this source session.
+pub async fn list_side_chats(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_core::session::SessionMeta>>, AppError> {
+    let sessions = ctx
+        .session_db
+        .run(move |db| db.list_side_chats(&id))
+        .await?;
+    Ok(Json(sessions))
+}
+
 /// `GET /api/sessions` — list sessions with optional filtering and pagination.
 pub async fn list_sessions(
     State(ctx): State<Arc<AppContext>>,

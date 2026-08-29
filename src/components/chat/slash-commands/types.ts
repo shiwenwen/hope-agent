@@ -18,6 +18,7 @@ export interface SlashCommandDef {
 export type CommandAction =
   | { type: "newSession"; sessionId: string }
   | { type: "forkSession"; sessionId: string }
+  | { type: "openSideChat"; sessionId: string; initialPrompt?: string }
   | { type: "switchModel"; providerId: string; modelId: string }
   | { type: "setEffort"; effort: string }
   | { type: "switchAgent"; agentId: string; sessionId: string }
