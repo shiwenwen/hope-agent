@@ -935,6 +935,9 @@ export default function ChatScreen({
   const sideChatStateIsCurrent = sideChatStateSourceId === sideChatSourceId
   const visibleSideChats = sideChatStateIsCurrent ? sideChats : []
   const visibleActiveSideChatId = sideChatStateIsCurrent ? activeSideChatId : null
+  const visibleActiveSideChat = visibleActiveSideChatId
+    ? (visibleSideChats.find((chat) => chat.id === visibleActiveSideChatId) ?? null)
+    : null
   const visibleSideChatPanelOpen = sideChatStateIsCurrent && sideChatPanelOpen
   const sideChatCreating = sideChatCreatingSourceId === sideChatSourceId
 
@@ -5371,12 +5374,12 @@ export default function ChatScreen({
                 <SideChatPanel
                   key={visibleActiveSideChatId}
                   sessionId={visibleActiveSideChatId}
-                  title={
-                    visibleSideChats.find((chat) => chat.id === visibleActiveSideChatId)?.title
-                  }
+                  title={visibleActiveSideChat?.title}
+                  workingDir={visibleActiveSideChat?.workingDir}
                   seed={sideChatSeed}
                   onClose={() => setSideChatPanelOpen(false)}
                   onActivity={() => void refreshSideChats()}
+                  onCodexReauth={onCodexReauth}
                   onDeleted={handleSideChatDeleted}
                   onPreviewFile={(target) =>
                     openSideChatFileTarget(visibleActiveSideChatId, target)

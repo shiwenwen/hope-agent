@@ -11,6 +11,16 @@ import {
   type FileActionsContextValue,
 } from "@/components/chat/files/fileActionsContext"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
@@ -32,9 +42,11 @@ export interface SideChatSeed {
 interface SideChatPanelProps {
   sessionId: string
   title?: string | null
+  workingDir?: string | null
   seed?: SideChatSeed | null
   onClose: () => void
   onActivity?: () => void
+  onCodexReauth?: () => void
   onDeleted: (sessionId: string) => void
   onPreviewFile: (target: PreviewTarget) => void
 }
@@ -42,9 +54,11 @@ interface SideChatPanelProps {
 export default function SideChatPanel({
   sessionId,
   title,
+  workingDir,
   seed,
   onClose,
   onActivity,
+  onCodexReauth,
   onDeleted,
   onPreviewFile,
 }: SideChatPanelProps) {
@@ -232,6 +246,31 @@ export default function SideChatPanel({
           onRespond={stream.handleApprovalResponse}
         />
 
+        <AlertDialog
+          open={stream.showCodexAuthExpired}
+          onOpenChange={stream.setShowCodexAuthExpired}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("codexAuth.expiredTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>{t("codexAuth.expiredDescription")}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              {onCodexReauth && (
+                <AlertDialogAction
+                  onClick={() => {
+                    stream.setShowCodexAuthExpired(false)
+                    onCodexReauth()
+                  }}
+                >
+                  {t("codexAuth.reauth")}
+                </AlertDialogAction>
+              )}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <div className="shrink-0 border-t border-border px-2 py-2">
           <ChatInput
             input={stream.input}
@@ -288,6 +327,7 @@ export default function SideChatPanel({
             enableAgentMention
             agents={session.agents}
             onCommandAction={handleCommandAction}
+            workingDir={workingDir ?? null}
             permissionMode={stream.permissionMode}
             onPermissionModeChange={stream.setPermissionModeByUser}
             sandboxMode={stream.sandboxMode}
