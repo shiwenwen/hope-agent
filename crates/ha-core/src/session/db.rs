@@ -5714,6 +5714,26 @@ impl SessionDB {
         Ok((user, assistant))
     }
 
+    /// Return cumulative assistant token usage and turn count for activity
+    /// produced by this session. Side-chat history snapshots are context copied
+    /// from the parent, not model calls owned by the side chat, so they must not
+    /// contribute to `/usage`.
+    pub fn get_session_token_usage(&self, session_id: &str) -> Result<(i64, i64, i64)> {
+        let conn = self.read_conn()?;
+        conn.query_row(
+            "SELECT COALESCE(SUM(tokens_in), 0),
+                    COALESCE(SUM(tokens_out), 0),
+                    COUNT(*)
+             FROM messages
+             WHERE session_id = ?1
+               AND role = 'assistant'
+               AND is_side_snapshot = 0",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(Into::into)
+    }
+
     /// Token snapshot for the latest persisted assistant message.
     ///
     /// Used by `/status` to render Context usage + Cache info in lockstep with

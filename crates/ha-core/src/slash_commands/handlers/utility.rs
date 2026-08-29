@@ -1,6 +1,6 @@
 use crate::config::AppConfig;
 use crate::provider;
-use crate::session::{MessageRole, SessionDB};
+use crate::session::SessionDB;
 use crate::slash_commands::registry;
 use crate::slash_commands::truncate_description;
 use crate::slash_commands::types::{
@@ -524,21 +524,9 @@ pub fn handle_usage(
     session_id: Option<&str>,
 ) -> Result<CommandResult, String> {
     let sid = session_id.ok_or("No active session")?;
-    let messages = session_db
-        .load_session_messages(sid)
+    let (total_in, total_out, turns) = session_db
+        .get_session_token_usage(sid)
         .map_err(|e| e.to_string())?;
-
-    let mut total_in: i64 = 0;
-    let mut total_out: i64 = 0;
-    let mut turns = 0;
-
-    for msg in &messages {
-        if msg.role == MessageRole::Assistant {
-            turns += 1;
-            total_in += msg.tokens_in.unwrap_or(0);
-            total_out += msg.tokens_out.unwrap_or(0);
-        }
-    }
 
     let content = format!(
         "**Token Usage**\n\n- **Input tokens**: {}\n- **Output tokens**: {}\n- **Total**: {}\n- **Turns**: {}",
@@ -957,6 +945,39 @@ mod tests {
         assert_eq!(s, "- **Context**: 1k");
         let s = format_context_usage_line(50_000, 200_000);
         assert_eq!(s, "- **Context**: 50k / 200k (25%)");
+    }
+
+    #[test]
+    fn handle_usage_excludes_copied_side_chat_snapshots() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create source");
+        db.append_message(&source.id, &crate::session::NewMessage::user("main prompt"))
+            .expect("append source user");
+        let mut source_assistant = crate::session::NewMessage::assistant("main answer");
+        source_assistant.tokens_in = Some(100);
+        source_assistant.tokens_out = Some(20);
+        db.append_message(&source.id, &source_assistant)
+            .expect("append source assistant");
+
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        db.append_message(&side.id, &crate::session::NewMessage::user("side prompt"))
+            .expect("append side user");
+        let mut side_assistant = crate::session::NewMessage::assistant("side answer");
+        side_assistant.tokens_in = Some(7);
+        side_assistant.tokens_out = Some(3);
+        db.append_message(&side.id, &side_assistant)
+            .expect("append side assistant");
+
+        let result = handle_usage(&db, Some(&side.id)).expect("usage");
+        assert!(result.content.contains("**Input tokens**: 7"));
+        assert!(result.content.contains("**Output tokens**: 3"));
+        assert!(result.content.contains("**Total**: 10"));
+        assert!(result.content.contains("**Turns**: 1"));
     }
 
     #[test]
