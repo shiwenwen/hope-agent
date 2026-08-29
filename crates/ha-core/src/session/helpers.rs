@@ -406,7 +406,9 @@ pub fn ensure_first_message_title(
         let Some((title, incognito, message_count)) = conn
             .query_row(
                 "SELECT s.title, s.incognito,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
+                        (SELECT COUNT(*) FROM messages m
+                          WHERE m.session_id = s.id
+                            AND m.is_side_snapshot = 0) AS message_count
                    FROM sessions s
                   WHERE s.id = ?1",
                 rusqlite::params![session_id],

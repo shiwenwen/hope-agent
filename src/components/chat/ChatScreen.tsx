@@ -1822,6 +1822,20 @@ export default function ChatScreen({
     effectiveProjectId,
     currentProject?.workingDir ?? null,
   )
+  const activeSideChatProject = useMemo(
+    () =>
+      visibleActiveSideChat?.projectId
+        ? (projects.find((project) => project.id === visibleActiveSideChat.projectId) ?? null)
+        : null,
+    [projects, visibleActiveSideChat?.projectId],
+  )
+  const activeSideChatProjectWorkingDir = useProjectWorkingDir(
+    transport,
+    visibleActiveSideChat?.projectId ?? null,
+    activeSideChatProject?.workingDir ?? null,
+  )
+  const activeSideChatWorkingDir =
+    visibleActiveSideChat?.workingDir ?? activeSideChatProjectWorkingDir
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const projectFileBrowserRoots = useMemo(
     () =>
@@ -5461,7 +5475,7 @@ export default function ChatScreen({
                   key={visibleActiveSideChatId}
                   sessionId={visibleActiveSideChatId}
                   title={visibleActiveSideChat?.title}
-                  workingDir={visibleActiveSideChat?.workingDir ?? effectiveWorkingDir}
+                  workingDir={activeSideChatWorkingDir}
                   seed={sideChatSeed}
                   onClose={() => setSideChatPanelOpen(false)}
                   onActivity={() => void refreshSideChats()}

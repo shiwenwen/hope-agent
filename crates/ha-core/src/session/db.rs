@@ -9577,6 +9577,18 @@ mod tests {
         assert_eq!(copied.len(), 2);
         db.append_message(&side.id, &NewMessage::user("side-only question"))
             .expect("append side-only message");
+        let side_title =
+            crate::session::ensure_first_message_title(&db, &side.id, "side-only question", None)
+                .expect("set title from first side-only message");
+        assert_eq!(side_title.as_deref(), Some("side-only question"));
+        let titled_side = db
+            .get_session(&side.id)
+            .expect("get titled side chat")
+            .expect("side chat exists");
+        assert_eq!(
+            titled_side.title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
         let analytics_flags = {
             let conn = db.conn.lock().expect("lock");
             let mut stmt = conn
