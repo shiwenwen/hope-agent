@@ -602,6 +602,7 @@ impl SessionDB {
                 tokens_cache_read INTEGER,
                 tool_metadata TEXT,
                 source TEXT,
+                is_side_snapshot INTEGER NOT NULL DEFAULT 0,
                 queue_request_id TEXT,
                 persistence_run_id TEXT,
                 logical_block_seq INTEGER,
@@ -1076,6 +1077,19 @@ impl SessionDB {
         let has_source = conn.prepare("SELECT source FROM messages LIMIT 1").is_ok();
         if !has_source {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
+        }
+
+        // Migration: side chats copy the settled transcript as model context,
+        // but those rows are not new user/model activity. Keep the provenance
+        // on the message so every Dashboard message query can exclude only the
+        // copied prefix while still counting turns created inside the side chat.
+        let has_is_side_snapshot = conn
+            .prepare("SELECT is_side_snapshot FROM messages LIMIT 1")
+            .is_ok();
+        if !has_is_side_snapshot {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN is_side_snapshot INTEGER NOT NULL DEFAULT 0;",
+            )?;
         }
 
         // Migration: user-facing session forks. Deliberately separate from
@@ -3367,7 +3381,7 @@ impl SessionDB {
                 tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
                 tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
                 ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
-                tool_metadata, stream_status, source
+                tool_metadata, stream_status, source, is_side_snapshot
              )
              SELECT ?1, role, content, timestamp, attachments_meta, model,
                 tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
@@ -3375,7 +3389,8 @@ impl SessionDB {
                 ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
                 tool_metadata,
                 CASE WHEN stream_status = 'orphaned' THEN 'recovered' ELSE stream_status END,
-                source
+                source,
+                CASE WHEN ?5 = 1 THEN 1 ELSE is_side_snapshot END
              FROM messages
              WHERE session_id = ?2
                AND (?3 IS NULL OR (?4 = 0 AND id <= ?3) OR (?4 = 1 AND id < ?3))
@@ -3384,7 +3399,8 @@ impl SessionDB {
                     new_session_id,
                     source_session_id,
                     source_message_id,
-                    exclude_boundary
+                    exclude_boundary,
+                    mode == ForkMode::SideChat
                 ],
             )?;
 
@@ -9559,6 +9575,22 @@ mod tests {
             .load_session_messages(&side.id)
             .expect("load side messages");
         assert_eq!(copied.len(), 2);
+        db.append_message(&side.id, &NewMessage::user("side-only question"))
+            .expect("append side-only message");
+        let analytics_flags = {
+            let conn = db.conn.lock().expect("lock");
+            let mut stmt = conn
+                .prepare(
+                    "SELECT is_side_snapshot FROM messages
+                     WHERE session_id = ?1 ORDER BY id ASC",
+                )
+                .expect("prepare analytics flags");
+            stmt.query_map(params![side.id], |row| row.get::<_, i64>(0))
+                .expect("query analytics flags")
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .expect("collect analytics flags")
+        };
+        assert_eq!(analytics_flags, vec![1, 1, 0]);
 
         let scoped = db.list_side_chats(&source.id).expect("list side chats");
         assert_eq!(scoped.len(), 1);

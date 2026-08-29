@@ -257,6 +257,7 @@ CREATE TABLE messages (
     tool_metadata            TEXT,                            -- 工具结构化副输出 JSON
     stream_status            TEXT,                            -- streaming / completed / orphaned / recovered，NULL 视为 completed
     source                   TEXT,                            -- ChatSource 入口标签，NULL 视作 desktop
+    is_side_snapshot         INTEGER NOT NULL DEFAULT 0,      -- 侧聊复制上下文；Dashboard 不计为新活动
     queue_request_id         TEXT,                            -- 持久队列 exactly-once 幂等键
     persistence_run_id       TEXT,                            -- durable stream 物化来源
     logical_block_seq        INTEGER,                         -- run 内逻辑块序号（重放幂等）
