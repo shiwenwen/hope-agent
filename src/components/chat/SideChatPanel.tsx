@@ -27,6 +27,7 @@ import { getTransport } from "@/lib/transport-provider"
 import type { PendingMessageQuote } from "@/types/chat"
 
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
+import { generateClientId } from "./chatScrollKeys"
 import type { CommandResult } from "./slash-commands/types"
 import { useChatStream } from "./useChatStream"
 import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
@@ -183,6 +184,23 @@ export default function SideChatPanel({
         await session.handleModelChange(`${action.providerId}::${action.modelId}`)
       } else if (action.type === "setEffort") {
         await session.handleEffortChange(action.effort)
+      } else if (action.type === "showModelPicker") {
+        session.setMessages((current) => [
+          ...current,
+          {
+            role: "event",
+            content: "",
+            timestamp: new Date().toISOString(),
+            _clientId: generateClientId(),
+            modelPickerData: {
+              models: action.models,
+              activeProviderId: action.activeProviderId,
+              activeModelId: action.activeModelId,
+            },
+          },
+        ])
+        onActivity?.()
+        return
       } else if (action.type === "stopStream") {
         await stream.handleStop()
         onActivity?.()
@@ -238,6 +256,9 @@ export default function SideChatPanel({
           onLoadMore={session.handleLoadMore}
           sessionId={session.currentSessionId}
           onAddMessageQuote={handleMessageQuote}
+          onSwitchModel={(providerId, modelId) => {
+            void session.handleModelChange(`${providerId}::${modelId}`)
+          }}
           onAtBottomChange={setMessageTailVisible}
         />
 
