@@ -15,7 +15,19 @@ const componentCapture = vi.hoisted(() => ({
   onContinue: undefined as (() => unknown) | undefined,
   autonomyPaused: undefined as boolean | undefined,
   workingDir: undefined as string | null | undefined,
+  pendingQuestionGroup: undefined as unknown,
+  onQuestionSubmitted: undefined as (() => unknown) | undefined,
   streamOptions: undefined as Record<string, unknown> | undefined,
+}))
+
+const askUserCapture = vi.hoisted(() => ({
+  currentSessionId: undefined as string | null | undefined,
+  pendingQuestionGroup: {
+    requestId: "request-side-1",
+    sessionId: "side-1",
+    questions: [],
+  },
+  setPendingQuestionGroup: vi.fn(),
 }))
 
 vi.mock("@/components/chat/ChatInput", () => ({
@@ -34,8 +46,14 @@ vi.mock("@/components/chat/ChatInput", () => ({
 }))
 
 vi.mock("@/components/chat/MessageList", () => ({
-  default: (props: { onSwitchModel?: (providerId: string, modelId: string) => unknown }) => {
+  default: (props: {
+    onSwitchModel?: (providerId: string, modelId: string) => unknown
+    pendingQuestionGroup?: unknown
+    onQuestionSubmitted?: () => unknown
+  }) => {
     componentCapture.onSwitchModel = props.onSwitchModel
+    componentCapture.pendingQuestionGroup = props.pendingQuestionGroup
+    componentCapture.onQuestionSubmitted = props.onQuestionSubmitted
     return <div data-testid="message-list" />
   },
 }))
@@ -50,6 +68,16 @@ vi.mock("./hooks/useEmbeddedChatReadReceipt", () => ({
 
 vi.mock("./hooks/useChatStreamReattach", () => ({
   useChatStreamReattach: vi.fn(),
+}))
+
+vi.mock("./ask-user/useAskUserPending", () => ({
+  useAskUserPending: (currentSessionId: string | null) => {
+    askUserCapture.currentSessionId = currentSessionId
+    return {
+      pendingQuestionGroup: askUserCapture.pendingQuestionGroup,
+      setPendingQuestionGroup: askUserCapture.setPendingQuestionGroup,
+    }
+  },
 }))
 
 const sessionShape = {
@@ -139,7 +167,10 @@ afterEach(() => {
   componentCapture.onContinue = undefined
   componentCapture.autonomyPaused = undefined
   componentCapture.workingDir = undefined
+  componentCapture.pendingQuestionGroup = undefined
+  componentCapture.onQuestionSubmitted = undefined
   componentCapture.streamOptions = undefined
+  askUserCapture.currentSessionId = undefined
   sessionShape.sessions = [{ id: "side-1", autonomyPaused: false }]
 })
 
@@ -221,5 +252,22 @@ describe("SideChatPanel slash actions", () => {
       await componentCapture.onContinue?.()
     })
     expect(streamShape.handleContinue).toHaveBeenCalledTimes(1)
+  })
+
+  test("renders and clears structured questions for the side session", () => {
+    render(
+      <SideChatPanel
+        sessionId="side-1"
+        onClose={vi.fn()}
+        onDeleted={vi.fn()}
+        onPreviewFile={vi.fn()}
+      />,
+    )
+
+    expect(askUserCapture.currentSessionId).toBe("side-1")
+    expect(componentCapture.pendingQuestionGroup).toBe(askUserCapture.pendingQuestionGroup)
+
+    componentCapture.onQuestionSubmitted?.()
+    expect(askUserCapture.setPendingQuestionGroup).toHaveBeenCalledWith(null)
   })
 })

@@ -28,6 +28,7 @@ import type { PendingMessageQuote } from "@/types/chat"
 
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import { generateClientId } from "./chatScrollKeys"
+import { useAskUserPending } from "./ask-user/useAskUserPending"
 import type { CommandResult } from "./slash-commands/types"
 import { useChatStream } from "./useChatStream"
 import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
@@ -79,6 +80,9 @@ export default function SideChatPanel({
         ? (session.sessions.find((item) => item.id === session.currentSessionId) ?? null)
         : null,
     [session.currentSessionId, session.sessions],
+  )
+  const { pendingQuestionGroup, setPendingQuestionGroup } = useAskUserPending(
+    session.currentSessionId,
   )
 
   useEmbeddedChatReadReceipt(true, messageTailVisible, session.currentSessionId, session.messages)
@@ -265,6 +269,8 @@ export default function SideChatPanel({
           onLoadMore={session.handleLoadMore}
           sessionId={session.currentSessionId}
           onAddMessageQuote={handleMessageQuote}
+          pendingQuestionGroup={pendingQuestionGroup}
+          onQuestionSubmitted={() => setPendingQuestionGroup(null)}
           onSwitchModel={(providerId, modelId) => {
             void session.handleModelChange(`${providerId}::${modelId}`)
           }}
