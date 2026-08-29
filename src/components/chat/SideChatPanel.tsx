@@ -24,7 +24,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
-import type { PendingFileQuote, PendingMessageQuote } from "@/types/chat"
+import type {
+  FileChangeMetadata,
+  FileChangesMetadata,
+  PendingFileQuote,
+  PendingMessageQuote,
+} from "@/types/chat"
 
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import { generateClientId } from "./chatScrollKeys"
@@ -54,6 +59,7 @@ interface SideChatPanelProps {
   onDeleted: (sessionId: string) => void
   onPreviewFile: (target: PreviewTarget) => void
   onFileQuoteHandlerChange?: (handler: ((quote: PendingFileQuote) => void) | null) => void
+  onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
 }
 
 export default function SideChatPanel({
@@ -68,6 +74,7 @@ export default function SideChatPanel({
   onDeleted,
   onPreviewFile,
   onFileQuoteHandlerChange,
+  onOpenDiff,
 }: SideChatPanelProps) {
   const { t } = useTranslation()
   const session = useQuickChatSession(true, {
@@ -297,6 +304,7 @@ export default function SideChatPanel({
           onSwitchModel={(providerId, modelId) => {
             void session.handleModelChange(`${providerId}::${modelId}`)
           }}
+          onOpenDiff={onOpenDiff}
           onAtBottomChange={setMessageTailVisible}
         />
 

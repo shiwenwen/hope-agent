@@ -44,6 +44,8 @@ import type {
   ActiveModel,
   AvailableModel,
   ChatRuntimeDefaults,
+  FileChangeMetadata,
+  FileChangesMetadata,
   ForkSessionResult,
   Message,
   PendingFileQuote,
@@ -731,6 +733,7 @@ export default function ChatScreen({
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
+  const diffPreviewSessionIdRef = useRef<string | null>(null)
 
   // Tabs are created only on explicit request, never by picking a file.
   const fileTabs = useFileTabs()
@@ -3769,6 +3772,34 @@ export default function ChatScreen({
     [openFilePreview],
   )
 
+  const openStructuredDiff = diffPanel.openDiff
+  const handleMainOpenDiff = useCallback(
+    (metadata: FileChangeMetadata | FileChangesMetadata) => {
+      diffPreviewSessionIdRef.current = null
+      openStructuredDiff(metadata)
+    },
+    [openStructuredDiff],
+  )
+  const handleSideChatOpenDiff = useCallback(
+    (metadata: FileChangeMetadata | FileChangesMetadata) => {
+      if (!visibleSideChatPanelOpen || !visibleActiveSideChatId) return
+      diffPreviewSessionIdRef.current = visibleActiveSideChatId
+      openStructuredDiff(metadata)
+    },
+    [openStructuredDiff, visibleActiveSideChatId, visibleSideChatPanelOpen],
+  )
+  const handleDiffPreviewFile = useCallback(
+    (target: PreviewTarget) => {
+      const sideSessionId = diffPreviewSessionIdRef.current
+      if (sideSessionId) {
+        openSideChatFileTarget(sideSessionId, target)
+        return
+      }
+      openFileTarget(target)
+    },
+    [openFileTarget, openSideChatFileTarget],
+  )
+
   /** Explicit "open in a new tab": same addressing rules, same preview fallback,
    *  so a file under a linked folder or worktree root is never a dead click. */
   const openFileTargetInNewTab = useCallback(
@@ -5184,7 +5215,7 @@ export default function ChatScreen({
                   onOpenSubagentRun={handleOpenSubagentRun}
                   subagentRunsSnapshot={subagentRuns}
                   bottomInset={isCronSession || isSubagentSession}
-                  onOpenDiff={diffPanel.openDiff}
+                  onOpenDiff={handleMainOpenDiff}
                   onResume={(message) => {
                     void stream.handleSend(message)
                   }}
@@ -5500,6 +5531,7 @@ export default function ChatScreen({
                   onCodexReauth={onCodexReauth}
                   onDeleted={handleSideChatDeleted}
                   onFileQuoteHandlerChange={handleSideChatFileQuoteHandlerChange}
+                  onOpenDiff={handleSideChatOpenDiff}
                   onPreviewFile={(target) =>
                     openSideChatFileTarget(visibleActiveSideChatId, target)
                   }
@@ -5532,7 +5564,7 @@ export default function ChatScreen({
                     openNonce={diffPanel.openNonce}
                     onActiveIndexChange={diffPanel.setActiveIndex}
                     onClose={diffPanel.closeDiff}
-                    onPreviewFile={openFileTarget}
+                    onPreviewFile={handleDiffPreviewFile}
                     gitContext={diffPanel.gitContext}
                     onGitSnapshotChange={diffPanel.replaceGitDiff}
                     embedded
@@ -5678,8 +5710,11 @@ export default function ChatScreen({
                     taskExecutionState={workspaceTaskExecutionState}
                     messages={session.messages}
                     contextUsageOverride={contextUsage}
-                    onOpenDiff={diffPanel.openDiff}
-                    onOpenGitDiff={diffPanel.openGitDiff}
+                    onOpenDiff={handleMainOpenDiff}
+                    onOpenGitDiff={(snapshot, sessionId, reviewComments) => {
+                      diffPreviewSessionIdRef.current = null
+                      diffPanel.openGitDiff(snapshot, sessionId, reviewComments)
+                    }}
                     onFillInput={stream.setInput}
                     onOpenPullRequest={openPullRequestPanel}
                     onPreviewFile={openFileTarget}

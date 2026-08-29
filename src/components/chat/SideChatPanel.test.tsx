@@ -19,6 +19,7 @@ const componentCapture = vi.hoisted(() => ({
   workingDir: undefined as string | null | undefined,
   pendingQuestionGroup: undefined as unknown,
   onQuestionSubmitted: undefined as (() => unknown) | undefined,
+  onOpenDiff: undefined as ((metadata: unknown) => unknown) | undefined,
   pendingQuotes: undefined as unknown,
   onRemoveQuote: undefined as ((index: number) => unknown) | undefined,
   streamOptions: undefined as Record<string, unknown> | undefined,
@@ -60,10 +61,12 @@ vi.mock("@/components/chat/MessageList", () => ({
     onSwitchModel?: (providerId: string, modelId: string) => unknown
     pendingQuestionGroup?: unknown
     onQuestionSubmitted?: () => unknown
+    onOpenDiff?: (metadata: unknown) => unknown
   }) => {
     componentCapture.onSwitchModel = props.onSwitchModel
     componentCapture.pendingQuestionGroup = props.pendingQuestionGroup
     componentCapture.onQuestionSubmitted = props.onQuestionSubmitted
+    componentCapture.onOpenDiff = props.onOpenDiff
     return <div data-testid="message-list" />
   },
 }))
@@ -181,6 +184,7 @@ afterEach(() => {
   componentCapture.workingDir = undefined
   componentCapture.pendingQuestionGroup = undefined
   componentCapture.onQuestionSubmitted = undefined
+  componentCapture.onOpenDiff = undefined
   componentCapture.pendingQuotes = undefined
   componentCapture.onRemoveQuote = undefined
   componentCapture.streamOptions = undefined
@@ -370,5 +374,31 @@ describe("SideChatPanel slash actions", () => {
     expect(resolveSideChatSurfaceSessionId("main-1", "side-1", true)).toBe("side-1")
     expect(resolveSideChatSurfaceSessionId("main-1", "side-1", false)).toBe("main-1")
     expect(resolveSideChatSurfaceSessionId("main-1", null, true)).toBe("main-1")
+  })
+
+  test("exposes side tool diffs through the shared workbench callback", () => {
+    const onOpenDiff = vi.fn()
+    render(
+      <SideChatPanel
+        sessionId="side-1"
+        isViewVisible
+        onClose={vi.fn()}
+        onDeleted={vi.fn()}
+        onPreviewFile={vi.fn()}
+        onOpenDiff={onOpenDiff}
+      />,
+    )
+    const diff = {
+      kind: "file_change",
+      path: "src/side.ts",
+      action: "modify",
+      additions: 2,
+      deletions: 1,
+      diff: "@@ -1 +1 @@",
+    }
+
+    act(() => componentCapture.onOpenDiff?.(diff))
+
+    expect(onOpenDiff).toHaveBeenCalledWith(diff)
   })
 })
