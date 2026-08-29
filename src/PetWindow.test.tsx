@@ -26,6 +26,13 @@ const mocks = vi.hoisted(() => ({
       if (mocks.windowMoved === handler) mocks.windowMoved = null
     })
   }),
+  windowFocusChanged: null as null | ((event: { payload: boolean }) => void),
+  onFocusChanged: vi.fn((handler: (event: { payload: boolean }) => void) => {
+    mocks.windowFocusChanged = handler
+    return Promise.resolve(() => {
+      if (mocks.windowFocusChanged === handler) mocks.windowFocusChanged = null
+    })
+  }),
   completeAction: null as null | ((action: string) => void),
   petSpriteVersion: 2 as 1 | 2,
   petDisplayName: "Nori",
@@ -50,7 +57,11 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ startDragging: mocks.startDragging, onMoved: mocks.onMoved }),
+  getCurrentWindow: () => ({
+    startDragging: mocks.startDragging,
+    onMoved: mocks.onMoved,
+    onFocusChanged: mocks.onFocusChanged,
+  }),
 }))
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -167,7 +178,9 @@ beforeEach(() => {
   mocks.startChat.mockClear()
   mocks.startDragging.mockClear()
   mocks.onMoved.mockClear()
+  mocks.onFocusChanged.mockClear()
   mocks.windowMoved = null
+  mocks.windowFocusChanged = null
   mocks.listeners.clear()
   mocks.completeAction = null
   mocks.petSpriteVersion = 2
@@ -918,5 +931,17 @@ describe("PetWindow pointer interactions", () => {
         source: "pet-window",
       })
     })
+  })
+
+  test("dismisses the context menu when the pet window loses focus", async () => {
+    render(<PetWindow />)
+    fireEvent.contextMenu(petButton())
+
+    expect(screen.getByRole("menu")).toBeInTheDocument()
+    act(() => mocks.windowFocusChanged?.({ payload: true }))
+    expect(screen.getByRole("menu")).toBeInTheDocument()
+
+    act(() => mocks.windowFocusChanged?.({ payload: false }))
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
   })
 })
