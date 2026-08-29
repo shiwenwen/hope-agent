@@ -404,9 +404,80 @@ fn push_provider_history_item(items: &mut Vec<Value>, item: Value) {
     ) {
         return;
     }
+    if item_type == Some("function_call") {
+        let identity = item
+            .get("call_id")
+            .and_then(Value::as_str)
+            .or_else(|| item.get("id").and_then(Value::as_str));
+        if let Some(existing) = identity.and_then(|identity| {
+            items.iter_mut().find(|existing| {
+                existing.get("type").and_then(Value::as_str) == Some("function_call")
+                    && existing
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .or_else(|| existing.get("id").and_then(Value::as_str))
+                        == Some(identity)
+            })
+        }) {
+            // Later item snapshots are more complete (`status`, `namespace`,
+            // future provider fields) while retaining the original model order.
+            *existing = item;
+            return;
+        }
+    }
     if !items.iter().any(|existing| existing == &item) {
         items.push(item);
     }
+}
+
+/// Append the provider's replayable output items for the calls that actually
+/// crossed Hope's execution boundary.
+///
+/// The raw `function_call` item owns provider metadata such as `id`,
+/// `namespace`, `caller`, and future fields, so keep that envelope. Hope still
+/// owns two execution facts that must win before the item becomes durable:
+///
+/// - a cancelled batch may leave model calls that were never executed;
+/// - `PreToolUse.updatedInput` may replace the arguments used by the executor.
+///
+/// Returning the replayed call IDs lets each Responses-shaped adapter
+/// synthesize only legacy calls for which no provider item was available.
+pub(super) fn append_replayable_responses_items(
+    history: &mut Vec<Value>,
+    round: u32,
+    provider_items: &[Value],
+    executed: &[ExecutedTool],
+) -> std::collections::HashSet<String> {
+    let mut replayed_call_ids = std::collections::HashSet::new();
+
+    for item in provider_items {
+        if item.get("type").and_then(Value::as_str) != Some("function_call") {
+            crate::context_compact::push_and_stamp(history, item.clone(), round);
+            continue;
+        }
+
+        let provider_call_id = item
+            .get("call_id")
+            .and_then(Value::as_str)
+            // Compatibility fallback for older Responses-compatible payloads
+            // that used the output-item ID as the invocation identity.
+            .or_else(|| item.get("id").and_then(Value::as_str));
+        let Some(executed_tool) = provider_call_id
+            .and_then(|call_id| executed.iter().find(|tool| tool.call_id == call_id))
+        else {
+            // Do not persist a provider call without its matching output. This
+            // occurs when cancellation stops a multi-call batch partway through.
+            continue;
+        };
+
+        let mut replay = item.clone();
+        replay["call_id"] = json!(executed_tool.call_id);
+        replay["arguments"] = json!(executed_tool.arguments);
+        crate::context_compact::push_and_stamp(history, replay, round);
+        replayed_call_ids.insert(executed_tool.call_id.clone());
+    }
+
+    replayed_call_ids
 }
 
 fn output_item_arguments(item: &super::super::api_types::SseOutputItem) -> String {
@@ -734,21 +805,16 @@ fn handle_openai_sse_event_block(
                         .and_then(|raw| raw.pointer("/response/output"))
                         .and_then(Value::as_array)
                     {
+                        // Streamed output items may finish out of order. The
+                        // completed output is the authoritative replay order and
+                        // the most complete provider-owned item snapshot.
+                        let mut completed_history_items = Vec::new();
                         for item in raw_outputs {
-                            push_provider_history_item(provider_history_items, item.clone());
+                            push_provider_history_item(&mut completed_history_items, item.clone());
                         }
+                        *provider_history_items = completed_history_items;
                     }
 
-                    // Completed response is the authoritative typed snapshot
-                    // for Hope's execution representation. Raw provider items
-                    // above remain untouched for replay.
-                    if let Some(outputs) = &resp_obj.output {
-                        for item in outputs {
-                            if item.item_type.as_deref() == Some("function_call") {
-                                merge_completed_function_call(item, pending_calls, tool_calls);
-                            }
-                        }
-                    }
                     if let Some(u) = &resp_obj.usage {
                         if let Some(it) = u.input_tokens {
                             usage.input_tokens = it;
@@ -942,16 +1008,16 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         _eager_tool_count: usize,
         is_final_round: bool,
     ) -> Vec<Value> {
-        if is_final_round {
-            return Vec::new();
-        }
-        if !deferred_tool_schemas.is_empty()
+        let tools = if is_final_round {
+            Vec::new()
+        } else if !deferred_tool_schemas.is_empty()
             && supports_native_tool_search(self.base_url, self.model)
         {
             native_tool_search_tools_from(tool_schemas, deferred_tool_schemas)
         } else {
             tool_schemas.to_vec()
-        }
+        };
+        alias_responses_tool_schemas(tools)
     }
 
     fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
@@ -1320,21 +1386,20 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             push_responses_assistant_message(history, Some(round), &outcome.text);
         }
 
-        for item in &outcome.provider_history_items {
-            crate::context_compact::push_and_stamp(history, item.clone(), round);
-        }
-
-        // Replay provider-emitted function_call items verbatim. Responses may
+        // Preserve provider-emitted function_call envelopes. Responses may
         // attach provider-owned fields such as `namespace`; dropping them makes
         // the next request invalid. Only synthesize the call for interrupted or
         // legacy streams where the completed provider item was unavailable.
+        // Hope-owned effective arguments are patched into the envelope so a
+        // PreToolUse rewrite remains truthful in durable history.
+        let replayed_call_ids = append_replayable_responses_items(
+            history,
+            round,
+            &outcome.provider_history_items,
+            executed,
+        );
         for et in executed {
-            let has_provider_function_call = outcome.provider_history_items.iter().any(|item| {
-                item.get("type").and_then(Value::as_str) == Some("function_call")
-                    && item.get("call_id").and_then(Value::as_str) == Some(et.call_id.as_str())
-            });
-
-            if !has_provider_function_call {
+            if !replayed_call_ids.contains(&et.call_id) {
                 crate::context_compact::push_and_stamp(
                     history,
                     json!({
@@ -1526,7 +1591,7 @@ mod tests {
         sse_event_error_type, supports_explicit_prompt_cache, supports_native_tool_search,
         take_next_sse_event_block, validate_completed_response_stream,
         validate_responses_sse_eof_tail, FunctionCallItem, OpenAIResponsesStreamingAdapter,
-        SseEvent,
+        SseEvent, RESPONSES_BROWSER_TOOL_ALIAS,
     };
     use crate::agent::streaming_adapter::{
         ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
@@ -1626,7 +1691,7 @@ mod tests {
         assert!(contents[3].contains("source=\"task_and_hook_context\""));
         let request_tools = body["tools"].as_array().unwrap();
         assert_eq!(request_tools[0]["name"], "read");
-        assert_eq!(request_tools[1]["name"], "browser");
+        assert_eq!(request_tools[1]["name"], RESPONSES_BROWSER_TOOL_ALIAS);
         assert_eq!(request_tools[1]["defer_loading"], true);
         assert_eq!(request_tools[2]["type"], "tool_search");
         let adapter = OpenAIResponsesStreamingAdapter {
@@ -1635,6 +1700,9 @@ mod tests {
             model: "gpt-5.6",
             reasoning: None,
         };
+        let counted_tools =
+            adapter.token_count_tool_schemas_for(&tools, &deferred, tools.len(), false);
+        assert_eq!(counted_tools.as_slice(), request_tools.as_slice());
         let accounting = adapter.token_count_input_for(&req);
         let counted_stable: serde_json::Value =
             serde_json::from_str(&accounting.stable_prompt).unwrap();
@@ -2117,7 +2185,75 @@ mod tests {
             .expect("handle function-call done event");
         }
 
+        // Completion events can arrive in a different order from the model's
+        // output array. The final response must restore provider replay order.
+        for payload in [
+            serde_json::json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "namespace": "knowledge",
+                    "name": "knowledge_recall",
+                    "arguments": "{\"query\":\"W2\"}"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "namespace": "knowledge",
+                    "name": "knowledge_recall",
+                    "arguments": "{\"query\":\"W1\"}"
+                }
+            }),
+            serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "id": "fc_1",
+                            "call_id": "call_1",
+                            "namespace": "knowledge",
+                            "name": "knowledge_recall",
+                            "arguments": "{\"query\":\"W1\"}"
+                        },
+                        {
+                            "type": "function_call",
+                            "id": "fc_2",
+                            "call_id": "call_2",
+                            "namespace": "knowledge",
+                            "name": "knowledge_recall",
+                            "arguments": "{\"query\":\"W2\"}"
+                        }
+                    ]
+                }
+            }),
+        ] {
+            let event = sse_event_block(payload);
+            handle_openai_sse_event_block(
+                "-",
+                &event,
+                std::time::Instant::now(),
+                &on_delta,
+                &mut text,
+                &mut thinking,
+                &mut tool_calls,
+                &mut provider_history_items,
+                &mut pending,
+                &mut usage,
+                &mut first_token_time,
+                &mut saw_response_completed,
+            )
+            .expect("handle function-call completion event");
+        }
+
         assert!(pending.is_empty());
+        assert!(saw_response_completed);
         assert_eq!(tool_calls.len(), 2);
 
         // Model order comes from output_item.added, not completion order.
@@ -2125,10 +2261,14 @@ mod tests {
         assert_eq!(tool_calls[0].arguments, r#"{"query":"W1"}"#);
         assert_eq!(tool_calls[1].call_id, "call_2");
         assert_eq!(tool_calls[1].arguments, r#"{"query":"W2"}"#);
+        assert_eq!(provider_history_items.len(), 2);
+        assert_eq!(provider_history_items[0]["call_id"], "call_1");
+        assert_eq!(provider_history_items[1]["call_id"], "call_2");
+        assert_eq!(provider_history_items[0]["namespace"], "knowledge");
     }
 
     #[test]
-    fn append_round_preserves_namespaced_provider_call_without_duplicate() {
+    fn append_round_preserves_provider_envelope_and_effective_arguments() {
         let adapter = OpenAIResponsesStreamingAdapter {
             api_key: "",
             base_url: "",
@@ -2142,7 +2282,7 @@ mod tests {
             "call_id": "call_1",
             "namespace": "knowledge",
             "name": "knowledge_recall",
-            "arguments": "{\"query\":\"W1\"}",
+            "arguments": "{\"query\":\"model-original\"}",
             "provider_future_field": "preserve-me"
         });
 
@@ -2181,6 +2321,7 @@ mod tests {
         assert_eq!(calls[0]["id"], "fc_1");
         assert_eq!(calls[0]["call_id"], "call_1");
         assert_eq!(calls[0]["namespace"], "knowledge");
+        assert_eq!(calls[0]["arguments"], r#"{"query":"W1"}"#);
         assert_eq!(calls[0]["provider_future_field"], "preserve-me");
 
         let outputs: Vec<_> = history
@@ -2190,5 +2331,71 @@ mod tests {
 
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0]["call_id"], "call_1");
+    }
+
+    #[test]
+    fn append_round_omits_provider_calls_not_executed_after_cancellation() {
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "",
+            model: "gpt-test",
+            reasoning: None,
+        };
+        let outcome = RoundOutcome {
+            text: String::new(),
+            thinking: String::new(),
+            tool_calls: vec![
+                FunctionCallItem {
+                    call_id: "call_1".to_string(),
+                    name: "read".to_string(),
+                    arguments: r#"{"path":"one"}"#.to_string(),
+                },
+                FunctionCallItem {
+                    call_id: "call_2".to_string(),
+                    name: "read".to_string(),
+                    arguments: r#"{"path":"two"}"#.to_string(),
+                },
+            ],
+            provider_history_items: vec![
+                serde_json::json!({
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "read",
+                    "arguments": "{\"path\":\"one\"}"
+                }),
+                serde_json::json!({
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "read",
+                    "arguments": "{\"path\":\"two\"}"
+                }),
+            ],
+            usage: ChatUsage::default(),
+            ttft_ms: None,
+            stop_reason: None,
+        };
+        let executed = vec![ExecutedTool {
+            model_call_ordinal: 0,
+            call_id: "call_1".to_string(),
+            name: "read".to_string(),
+            arguments: r#"{"path":"one"}"#.to_string(),
+            clean_result: "one".to_string(),
+            result_admission: None,
+        }];
+
+        let mut history = Vec::new();
+        adapter.append_round_to_history(&mut history, 0, &outcome, &executed);
+
+        let calls: Vec<_> = history
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+            .collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["call_id"], "call_1");
+        assert!(history
+            .iter()
+            .all(|item| item.get("call_id").and_then(Value::as_str) != Some("call_2")));
     }
 }

@@ -27,7 +27,9 @@ use super::super::streaming_adapter::{
     RoundRequest, StreamingChatAdapter,
 };
 use super::super::types::{AssistantAgent, ProviderFormat};
-use super::openai_responses_adapter::{parse_openai_sse, push_responses_assistant_message};
+use super::openai_responses_adapter::{
+    append_replayable_responses_items, parse_openai_sse, push_responses_assistant_message,
+};
 use crate::tool_defs::ToolProvider;
 
 /// Process-stable User-Agent for Codex requests.
@@ -387,17 +389,14 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
             push_responses_assistant_message(history, Some(round), &outcome.text);
         }
 
-        for item in &outcome.provider_history_items {
-            crate::context_compact::push_and_stamp(history, item.clone(), round);
-        }
-
+        let replayed_call_ids = append_replayable_responses_items(
+            history,
+            round,
+            &outcome.provider_history_items,
+            executed,
+        );
         for et in executed {
-            let has_provider_function_call = outcome.provider_history_items.iter().any(|item| {
-                item.get("type").and_then(Value::as_str) == Some("function_call")
-                    && item.get("call_id").and_then(Value::as_str) == Some(et.call_id.as_str())
-            });
-
-            if !has_provider_function_call {
+            if !replayed_call_ids.contains(&et.call_id) {
                 crate::context_compact::push_and_stamp(
                     history,
                     json!({
