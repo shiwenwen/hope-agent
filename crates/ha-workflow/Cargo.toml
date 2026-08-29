@@ -1,6 +1,6 @@
 [package]
 name = "ha-workflow"
-version = "0.36.0"
+version = "0.37.0"
 description = "Hope Agent Workflow parsing and execution machines"
 license.workspace = true
 authors.workspace = true

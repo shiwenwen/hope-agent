@@ -1,6 +1,6 @@
 [package]
 name = "ha-base"
-version = "0.36.0"
+version = "0.37.0"
 description = "Hope Agent foundation layer — paths, logging, platform primitives, security guards. Zero business logic, zero Tauri dependency."
 license.workspace = true
 authors.workspace = true
