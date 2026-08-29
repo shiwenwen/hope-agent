@@ -158,6 +158,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [chat-engine](docs/architecture/core/chat-engine.md)；未读口径见 [session](docs/architecture/core/session.md)。
 
+- **侧聊是父会话拥有的一等隐藏会话**：恒用 `SessionKind::Side` + 独立 `TurnKernel` / 消息账本 / 审批与流状态，`forked_from_session_id` 记录归属，禁止伪装成普通 sidebar session 或复用主会话执行态；创建时只复制稳定历史并标 `messages.is_side_snapshot=1`，Dashboard 消息统计必须排除快照而保留之后的新活动。永久删除主会话须级联其全部侧聊，项目与工作目录始终按侧会话自己的持久化元数据解析。
 - **未读单一来源**：普通未读计**会话数**，资格只走 `regular_session_scope_sql` / `regular_unread_exists_sql`，禁止分页求和；Scheduled 是同一 regular watermark 的过滤投影（读普通会话即清 Scheduled 角标），IM Channel 仍是独立域、与普通未读互不清除，新专属对话空间须用独立 `SessionKind`
 - **Bundled HTTP UI 只作观察者**：非 incognito 主对话由服务端持有执行；页面、WebSocket 或反向代理断开不得取消 turn，前端须以 durable `turnId` 重连终态；会话删除导致 turn 404 时须终止本地等待并释放轮询 / 订阅
 - **Stop 须自证「还会不会有终态事件」**：`StopChatResult`（Tauri 与 `POST /api/chat/stop` 同一形状，禁各造）里 `terminal_event_pending` / `completion_sealed` / `latched` 三者全 false = 本次 Stop 一个事件都不会发（陈旧终态 turn、无活跃 turn 的 session-only Stop），调用方必须自行收敛、禁空等。Stop **只报本次做了什么**，权威状态恒由 `get_session_stream_state` 唯一提供，别在 Stop 里再算一份。前端收敛须双读 + 1.5s 确认 + 无 request owner；轮询兜底两次权威读都 `admissionActive=false` 时**必须无视 turn id 不匹配**（本地那个才是陈旧的，否则 15s 轮询永久 bail、只能重启），但不得越过 request-owner 守卫；Stop 按钮全窗口去重（targeted pause 每调一次新建一条回执并把上一条谎标 `resumed_at`）
