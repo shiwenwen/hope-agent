@@ -622,6 +622,8 @@ Tauri 的 `create_side_chat_cmd` / `list_side_chats_cmd` 与 HTTP 的 `POST|GET 
 
 侧聊输入框只列出当前嵌入面板能完整承载的控制命令（清空、压缩、停止、改名、模型、推理强度、帮助、状态与用量）；会导航到其它会话、项目或独立工作台的命令不进入菜单，执行入口也按同一 allowlist 拒绝，避免隐藏会话已被后端修改而侧聊面板无法表达结果。
 
+侧聊暂不承载计划审批：`enter_plan_mode` 与 `submit_plan` 在模型工具定义和执行层同时禁用，普通文本讨论计划不受影响。入口条独立显示运行、完成与失败状态；HTTP 重连或事件缺失通知后重新读取权威流状态，恢复断线期间的终态，用户打开侧聊后确认该轮结果。
+
 ## 无痕会话（Incognito）
 
 `sessions.incognito` 是无痕态的**单一真相源**。无痕会话除关闭被动 AI 行为外，关闭即焚——不进侧边栏、不进全局 FTS、不进 Dashboard 统计。它与 Project、IM Channel、durable Goal / Workflow 控制面**互斥**。

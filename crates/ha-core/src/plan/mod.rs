@@ -62,3 +62,30 @@ pub use subagent::{
 
 // Transition (centralized side-effect helper)
 pub use transition::{maybe_complete_plan, transition_state, TransitionOutcome};
+
+/// Embedded side chats have no plan review/approval surface. Keep their tool
+/// schemas and execution gate aligned, honoring an isolated turn DB first.
+pub(crate) fn session_supports_plan_tools(
+    session_id: Option<&str>,
+    session_db: Option<&crate::session::SessionDB>,
+) -> bool {
+    let Some(session_id) = session_id else {
+        return true;
+    };
+    let Some(db) = session_db.or_else(|| crate::get_session_db().map(AsRef::as_ref)) else {
+        return true;
+    };
+    match db.get_session(session_id) {
+        Ok(session) => session.is_none_or(|meta| meta.kind != crate::session::SessionKind::Side),
+        Err(error) => {
+            app_warn!(
+                "plan",
+                "tool_scope",
+                "Cannot resolve session {}: {}",
+                session_id,
+                error
+            );
+            false
+        }
+    }
+}

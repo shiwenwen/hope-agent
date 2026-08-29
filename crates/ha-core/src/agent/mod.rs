@@ -3702,6 +3702,18 @@ impl AssistantAgent {
         tool_schemas: &mut Vec<serde_json::Value>,
         provider: crate::tool_defs::ToolProvider,
     ) {
+        if !crate::plan::session_supports_plan_tools(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        ) {
+            tool_schemas.retain(|schema| {
+                !matches!(
+                    extract_tool_name(schema),
+                    crate::tool_defs::TOOL_ENTER_PLAN_MODE | crate::tool_defs::TOOL_SUBMIT_PLAN
+                )
+            });
+            return;
+        }
         let plan_mode = self.plan_agent_mode.load();
         match &**plan_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => {

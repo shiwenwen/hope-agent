@@ -181,7 +181,15 @@ impl ToolExecContext {
                 subclass: super::CoreSubclass::PlanMode
             }
         ) {
-            return None;
+            return (!crate::plan::session_supports_plan_tools(
+                self.session_id.as_deref(),
+                self.session_db.as_ref().map(|handle| handle.0.as_ref()),
+            ))
+            .then(|| {
+                "Plan Mode is unavailable in this session. Side chats do not support plan \
+                 review or approval; discuss the plan here or use the main conversation."
+                    .to_string()
+            });
         }
 
         let app_config = crate::config::cached_config();
@@ -1907,6 +1915,47 @@ mod tests {
         };
 
         assert_eq!(ctx.default_path(), "/tmp/projects/demo");
+    }
+
+    #[tokio::test]
+    async fn side_chat_plan_tools_are_hidden_and_cannot_execute() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("initialize session metadata joins");
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("source session");
+        let side = db.create_side_chat(&source.id).expect("side session");
+        let mut agent = crate::agent::AssistantAgent::new_anthropic("");
+        agent.set_session_db(db.clone());
+        let provider = crate::tool_defs::ToolProvider::Anthropic;
+
+        for (session_id, supported) in [(&source.id, true), (&side.id, false)] {
+            agent.set_session_id(session_id);
+            let mut schemas = Vec::new();
+            agent.apply_plan_tools(&mut schemas, provider);
+            assert_eq!(schemas.is_empty(), !supported);
+            let ctx = ToolExecContext {
+                session_id: Some(session_id.clone()),
+                session_db: Some(SessionDbHandle(db.clone())),
+                ..ToolExecContext::default()
+            };
+            for tool in [
+                crate::tool_defs::TOOL_ENTER_PLAN_MODE,
+                crate::tool_defs::TOOL_SUBMIT_PLAN,
+            ] {
+                assert_eq!(ctx.tool_visibility_error(tool).await.is_none(), supported);
+            }
+        }
+        assert_eq!(
+            crate::plan::get_plan_state(&side.id).await,
+            crate::plan::PlanModeState::Off
+        );
     }
 
     #[test]

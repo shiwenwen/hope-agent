@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type { ChatTurnStatus, SessionMeta } from "@/types/chat"
@@ -14,6 +15,8 @@ type SideChatTrayStatus = "running" | "ready" | "failed"
 interface SideChatTurnEvent {
   sessionId?: string
   status?: ChatTurnStatus | null
+  turnId?: string | null
+  streamId?: string | null
 }
 
 function trayStatusForTurn(status: ChatTurnStatus | null | undefined): SideChatTrayStatus | null {
@@ -49,6 +52,8 @@ export function SideChatTray({
   const sideChatIdsRef = useRef<Set<string>>(new Set())
   const visibleSideChatIdRef = useRef<string | null>(null)
   const statusVersionRef = useRef<Map<string, number>>(new Map())
+  const terminalIdentityRef = useRef<Map<string, string>>(new Map())
+  const acknowledgedTerminalRef = useRef<Map<string, string>>(new Map())
   const sideChatIds = useMemo(() => new Set(chats.map((chat) => chat.id)), [chats])
 
   useLayoutEffect(() => {
@@ -58,33 +63,59 @@ export function SideChatTray({
 
   useEffect(() => {
     for (const sessionId of statusVersionRef.current.keys()) {
-      if (!sideChatIds.has(sessionId)) statusVersionRef.current.delete(sessionId)
+      if (!sideChatIds.has(sessionId)) {
+        statusVersionRef.current.delete(sessionId)
+        terminalIdentityRef.current.delete(sessionId)
+        acknowledgedTerminalRef.current.delete(sessionId)
+      }
     }
 
     let cancelled = false
+    let refreshVersion = 0
     const transport = getTransport()
-    for (const chat of chats) {
-      const version = statusVersionRef.current.get(chat.id) ?? 0
-      void transport
-        .call<SessionStreamState>("get_session_stream_state", { sessionId: chat.id })
-        .then((state) => {
-          if (
-            cancelled ||
-            !state.active ||
-            !sideChatIdsRef.current.has(chat.id) ||
-            (statusVersionRef.current.get(chat.id) ?? 0) !== version
-          ) {
-            return
-          }
-          setStatusBySession((current) => {
-            if (current.get(chat.id) === "running") return current
-            return new Map(current).set(chat.id, "running")
+    const refreshStatuses = () => {
+      const refresh = ++refreshVersion
+      for (const chat of chats) {
+        const version = statusVersionRef.current.get(chat.id) ?? 0
+        void transport
+          .call<SessionStreamState>("get_session_stream_state", { sessionId: chat.id })
+          .then((state) => {
+            if (
+              cancelled ||
+              refresh !== refreshVersion ||
+              !sideChatIdsRef.current.has(chat.id) ||
+              (statusVersionRef.current.get(chat.id) ?? 0) !== version
+            ) {
+              return
+            }
+            let status: SideChatTrayStatus | null =
+              state.active || state.admissionActive
+                ? "running"
+                : trayStatusForTurn(state.lastTerminalStatus ?? state.status)
+            if (status && status !== "running") {
+              const identity = state.turnId ?? state.streamId ?? status
+              terminalIdentityRef.current.set(chat.id, identity)
+              if (visibleSideChatIdRef.current === chat.id) {
+                acknowledgedTerminalRef.current.set(chat.id, identity)
+              }
+              if (acknowledgedTerminalRef.current.get(chat.id) === identity) status = null
+            }
+            setStatusBySession((current) => {
+              if ((current.get(chat.id) ?? null) === status) return current
+              const next = new Map(current)
+              if (status) next.set(chat.id, status)
+              else next.delete(chat.id)
+              return next
+            })
           })
-        })
-        .catch(() => undefined)
+          .catch(() => undefined)
+      }
     }
+    const unlistenResync = transport.listen(TRANSPORT_EVENT_RESYNC_REQUIRED, refreshStatuses)
+    refreshStatuses()
     return () => {
       cancelled = true
+      unlistenResync()
     }
   }, [chats, sideChatIds])
 
@@ -93,6 +124,8 @@ export function SideChatTray({
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
+      const identity = terminalIdentityRef.current.get(activeId)
+      if (identity) acknowledgedTerminalRef.current.set(activeId, identity)
       setStatusBySession((current) => {
         if (!current.has(activeId) || current.get(activeId) === "running") return current
         const next = new Map(current)
@@ -107,11 +140,28 @@ export function SideChatTray({
 
   useEffect(() => {
     const transport = getTransport()
-    const updateStatus = (sessionId: string | undefined, status: SideChatTrayStatus | null) => {
+    const updateStatus = (
+      sessionId: string | undefined,
+      status: SideChatTrayStatus | null,
+      turnIdentity?: string | null,
+    ) => {
       if (!sessionId || !status || !sideChatIdsRef.current.has(sessionId)) return
       statusVersionRef.current.set(sessionId, (statusVersionRef.current.get(sessionId) ?? 0) + 1)
+      if (status === "running") {
+        terminalIdentityRef.current.delete(sessionId)
+        acknowledgedTerminalRef.current.delete(sessionId)
+      } else {
+        const identity = turnIdentity ?? status
+        terminalIdentityRef.current.set(sessionId, identity)
+        if (visibleSideChatIdRef.current === sessionId) {
+          acknowledgedTerminalRef.current.set(sessionId, identity)
+        }
+      }
       const nextStatus =
-        status !== "running" && visibleSideChatIdRef.current === sessionId ? null : status
+        status !== "running" &&
+        acknowledgedTerminalRef.current.get(sessionId) === terminalIdentityRef.current.get(sessionId)
+          ? null
+          : status
       setStatusBySession((current) => {
         if (nextStatus && current.get(sessionId) === nextStatus) return current
         if (!nextStatus && !current.has(sessionId)) return current
@@ -127,7 +177,11 @@ export function SideChatTray({
     })
     const updateFromTurnStatus = (raw: unknown) => {
       const payload = raw as SideChatTurnEvent | null
-      updateStatus(payload?.sessionId, trayStatusForTurn(payload?.status))
+      updateStatus(
+        payload?.sessionId,
+        trayStatusForTurn(payload?.status),
+        payload?.turnId ?? payload?.streamId,
+      )
     }
     const unlistenStatus = transport.listen("chat:turn_status", updateFromTurnStatus)
     const unlistenEnd = transport.listen("chat:stream_end", updateFromTurnStatus)
@@ -170,6 +224,8 @@ export function SideChatTray({
               aria-pressed={selected}
               aria-label={statusLabel ? `${title} · ${statusLabel}` : title}
               onClick={() => {
+                const identity = terminalIdentityRef.current.get(chat.id)
+                if (identity) acknowledgedTerminalRef.current.set(chat.id, identity)
                 setStatusBySession((current) => {
                   if (!current.has(chat.id) || current.get(chat.id) === "running") return current
                   const next = new Map(current)
