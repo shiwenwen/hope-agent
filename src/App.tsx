@@ -41,7 +41,11 @@ import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/Con
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
 import type { PendingFileQuote } from "@/types/chat"
-import { subscribeChatFocus, type ChatFocusTarget } from "@/components/chat/chatFocus"
+import {
+  chatFocusTargetForPetNavigation,
+  subscribeChatFocus,
+  type ChatFocusTarget,
+} from "@/components/chat/chatFocus"
 import { subscribeCronTaskDraft, subscribeCronTaskFocus } from "@/components/cron/cronNavigation"
 import type { CronJob } from "@/components/cron/CronJobForm.types"
 import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus"
@@ -691,8 +695,9 @@ export default function App() {
     const unlisten = getTransport().listen("pet:navigate", (raw) => {
       const target = parsePayload<PetNavigationTarget>(raw)
       if (!target || keepConfigRecoveryView()) return
-      if (target.kind === "regular") {
-        handleChatFocus({ sessionId: target.sessionId })
+      if (target.kind === "regular" || target.kind === "side") {
+        const chatTarget = chatFocusTargetForPetNavigation(target)
+        if (chatTarget) handleChatFocus(chatTarget)
         return
       }
       const nonce = ++petFocusNonceRef.current

@@ -328,6 +328,10 @@ pub enum PetNavigationTarget {
         session_id: String,
         project_id: Option<String>,
     },
+    Side {
+        session_id: String,
+        source_session_id: String,
+    },
     Knowledge {
         session_id: String,
         kb_id: String,
@@ -429,6 +433,11 @@ mod tests {
                 "kind": "regular",
                 "sessionId": "session-1",
                 "projectId": "project-1"
+            }),
+            json!({
+                "kind": "side",
+                "sessionId": "session-side",
+                "sourceSessionId": "session-1"
             }),
             json!({
                 "kind": "knowledge",

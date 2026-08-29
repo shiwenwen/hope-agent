@@ -98,6 +98,7 @@ flowchart TB
 | 一等 UI 表面 | `ChatUiSurface` | SessionKind |
 | --- | --- | --- |
 | 主 ChatScreen | `main_chat` | Regular |
+| SideChatPanel | `side_chat` | Side |
 | QuickChatDialog / QuickChatWindow | `quick_chat` | Regular |
 | KnowledgeChatPanel | `knowledge_chat` | Knowledge |
 | DesignChatPanel | `design_chat` | Design |
@@ -109,7 +110,7 @@ flowchart TB
 
 **排除项是天然的，不是逐项黑名单。** side query、automation、compact、Memory、Dreaming、知识空间主动精灵、vision bridge、judge、eval、embedding、STT、媒体生成、Cron、IM、ACP、subagent、ParentInjection、后台 job——它们全都不产生带 `ui_surface` 的 turn，因此全部落在 allowlist 之外。SQL 台账再叠三道显式排除：cron 会话（`is_cron = 0`）、子会话 / subagent（`parent_session_id IS NULL`）、以及被 IM 接管的会话（不在 `channel_conversations` 里）。Knowledge / Design 表面还要求对应的 `kb_id` / design project 存在——但知识空间的 `anchor_note_path` 可空：没有打开具体文档的知识主对话仍会接入，靠 KB + session 精确恢复面板。
 
-Pet 回复本身不创建专属会话：对运行中 turn 走既有插话队列，对终态对话以 `pet_chat` 在**原 Session** 上开一个新的主 turn。未来新增一等对话表面必须显式扩展枚举、固定 UI 调用点、扩 Core SQL allowlist，并补纳入/排除测试——历史 NULL turn 依旧不按 `source` 猜测。
+Pet 回复本身不创建专属会话：对运行中 turn 走既有插话队列，对终态对话以 `pet_chat` 在**原 Session** 上开一个新的主 turn。侧聊活动的导航目标同时携带侧聊 Session 与来源 Session，点击后先打开来源主对话，再恢复对应侧聊面板；不会把隐藏侧聊直接塞进主侧边栏。未来新增一等对话表面必须显式扩展枚举、固定 UI 调用点、扩 Core SQL allowlist，并补纳入/排除测试——历史 NULL turn 依旧不按 `source` 猜测。
 
 ### 已读水位只由真实渲染推进
 
@@ -261,7 +262,7 @@ hover 单条气泡才显示左上角关闭与右侧快捷动作：Running 同时
 
 单击 Pet 播放 Jump 动作并以 `pet_focus_target_cmd(target:null)` 唤起 Hope 主窗口，不擅自切会话；拖拽超过 4px 时抑制同一手势合成的 click，不误唤起主窗口。右键 Pet 收起气泡栈，并在宠物本体中心覆盖一个紧凑的"设置 / 关闭"胶囊：设置先唤主窗口，再发 `open-settings(section:pets)`——菜单不扩张原生窗口，也不在宠物外另开卡片。
 
-typed navigation 由主 App 壳消费：Regular 回主聊天 session，Knowledge 恢复知识空间 thread，Design 恢复 design project + thread。PetWindow 不拼 URL，也不把专属对话伪装成 Regular。
+typed navigation 由主 App 壳消费：Regular 回主聊天 session，Side 先回来源 session 再恢复侧聊面板，Knowledge 恢复知识空间 thread，Design 恢复 design project + thread。PetWindow 不拼 URL，也不把专属对话伪装成 Regular。
 
 精灵动画分三层仲裁：**业务状态循环**（Idle / Running / Waiting / Failed / Review）、**指针一次性动作**（hover Wave、click Jump）与 **v2 Idle 注视**；拖拽左右 Run 优先级最高。固定顺序是 `Drag > Click > Hover > 业务状态 > v2 Look > Idle`，一次性动作完整播放后恢复业务状态，宠物自身移动不重复触发。
 

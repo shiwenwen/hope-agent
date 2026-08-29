@@ -36,6 +36,7 @@ pub struct PetActivityRow {
     pub kb_id: Option<String>,
     pub anchor_note_path: Option<String>,
     pub design_project_id: Option<String>,
+    pub side_source_session_id: Option<String>,
 }
 
 fn table_exists(conn: &rusqlite::Connection, name: &str) -> Result<bool> {
@@ -106,7 +107,8 @@ impl SessionDB {
                     ) END,
                     kt.kb_id,
                     kt.anchor_note_path,
-                    dt.project_id
+                    dt.project_id,
+                    s.forked_from_session_id
                FROM sessions s
                {knowledge_join}
                LEFT JOIN design_chat_threads dt ON dt.session_id = s.id
@@ -126,6 +128,8 @@ impl SessionDB {
                         AND kt.kb_id IS NOT NULL)
                     OR (s.kind = 'design' AND t.ui_surface IN ('design_chat', 'pet_chat')
                         AND dt.project_id IS NOT NULL)
+                    OR (s.kind = 'side' AND t.ui_surface IN ('side_chat', 'pet_chat')
+                        AND s.forked_from_session_id IS NOT NULL)
                 )",
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -146,6 +150,7 @@ impl SessionDB {
                 kb_id: row.get(11)?,
                 anchor_note_path: row.get(12)?,
                 design_project_id: row.get(13)?,
+                side_source_session_id: row.get(14)?,
             })
         })?;
         let mut result = Vec::new();
@@ -166,6 +171,29 @@ impl SessionDB {
 #[cfg(test)]
 mod tests {
     use crate::session::SessionDB;
+
+    fn ensure_channel_conversations_table(db: &SessionDB) {
+        let conn = db.conn.lock().expect("lock database");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS channel_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                thread_id TEXT,
+                session_id TEXT NOT NULL,
+                sender_id TEXT,
+                sender_name TEXT,
+                chat_type TEXT NOT NULL DEFAULT 'dm',
+                source TEXT NOT NULL DEFAULT 'inbound',
+                attached_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
+        )
+        .expect("create channel conversations table");
+    }
 
     #[test]
     fn a_new_non_ui_turn_displaces_the_previous_ui_turn() {
@@ -215,5 +243,31 @@ mod tests {
             .expect("query displaced turn")
             .0
             .is_empty());
+    }
+
+    #[test]
+    fn side_chat_ui_turn_is_projected_with_its_source_session() {
+        let temp = tempfile::tempdir().expect("create temporary directory");
+        let db = SessionDB::open(&temp.path().join("sessions.db")).expect("open session database");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").expect("create source session");
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        db.create_chat_turn_with_id_surface(
+            "side-turn",
+            &side.id,
+            "http",
+            None,
+            None,
+            Some(crate::pet::ChatUiSurface::SideChat),
+        )
+        .expect("create side UI turn");
+
+        let rows = db.pet_activity_rows().expect("query side turn").0;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].session_id, side.id);
+        assert_eq!(
+            rows[0].side_source_session_id.as_deref(),
+            Some(source.id.as_str())
+        );
     }
 }

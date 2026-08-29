@@ -233,9 +233,16 @@ export interface ChatInsert {
 }
 
 type SwitchSessionOptions = { targetMessageId?: number; highlightTerms?: string[] }
+type SwitchSessionResult = "switched" | "confirmation_pending" | "cancelled"
+type SideChatFocusContinuation = { sideSessionId: string; nonce: number }
 
 type IncognitoLeaveIntent =
-  | { type: "switchSession"; sessionId: string; opts?: SwitchSessionOptions }
+  | {
+      type: "switchSession"
+      sessionId: string
+      opts?: SwitchSessionOptions
+      sideChatFocus?: SideChatFocusContinuation
+    }
   | { type: "newChat"; agentId: string; opts?: { incognito?: boolean } }
   | { type: "newProjectChat"; projectId: string; defaultAgentId?: string | null }
 
@@ -921,6 +928,11 @@ export default function ChatScreen({
   const [sideChatPanelOpen, setSideChatPanelOpen] = useState(false)
   const [sideChatCreatingSourceId, setSideChatCreatingSourceId] = useState<string | null>(null)
   const [sideChatSeed, setSideChatSeed] = useState<SideChatSeed | null>(null)
+  const [pendingSideChatFocus, setPendingSideChatFocus] = useState<{
+    sourceSessionId: string
+    sideSessionId: string
+    nonce: number
+  } | null>(null)
   const sideChatSeedNonceRef = useRef(0)
   const canUseSideChat =
     !!currentSessionMeta &&
@@ -992,7 +1004,7 @@ export default function ChatScreen({
       expectedSourceSessionId = sideChatSourceIdRef.current,
     ) => {
       if (!expectedSourceSessionId || sideChatSourceIdRef.current !== expectedSourceSessionId)
-        return
+        return false
       let chat =
         sideChatStateSourceId === expectedSourceSessionId
           ? sideChats.find((item) => item.id === sessionId)
@@ -1005,16 +1017,16 @@ export default function ChatScreen({
             })) ?? undefined
         } catch (error) {
           logger.error("ui", "ChatScreen::revealSideChat", "Failed to load side chat", error)
-          return
+          return false
         }
       }
-      if (!chat) return
+      if (!chat) return false
       if (
         sideChatSourceIdRef.current !== expectedSourceSessionId ||
         chat.kind !== "side" ||
         chat.forkedFromSessionId !== expectedSourceSessionId
       ) {
-        return
+        return false
       }
       setSideChatStateSourceId(expectedSourceSessionId)
       setSideChats((current) =>
@@ -1028,9 +1040,34 @@ export default function ChatScreen({
       } else {
         setSideChatSeed(null)
       }
+      return true
     },
     [sideChatStateSourceId, sideChats],
   )
+
+  useEffect(() => {
+    if (!pendingSideChatFocus) return
+    if (sideChatSourceId !== pendingSideChatFocus.sourceSessionId) return
+    let cancelled = false
+    const request = pendingSideChatFocus
+    void revealSideChat(request.sideSessionId, undefined, request.sourceSessionId).then(
+      (opened) => {
+        if (cancelled) return
+        setPendingSideChatFocus((current) => (current?.nonce === request.nonce ? null : current))
+        if (!opened) {
+          const failureToast = chatFocusMissingSessionToast(t)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+        }
+        onExternalChatFocusHandled?.(request.nonce)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [onExternalChatFocusHandled, pendingSideChatFocus, revealSideChat, sideChatSourceId, t])
 
   const createSideChat = useCallback(
     async (seed?: Omit<SideChatSeed, "nonce">) => {
@@ -1318,7 +1355,17 @@ export default function ChatScreen({
     async (intent: IncognitoLeaveIntent) => {
       switch (intent.type) {
         case "switchSession":
-          await rawHandleSwitchSession(intent.sessionId, intent.opts)
+          if (await rawHandleSwitchSession(intent.sessionId, intent.opts)) {
+            if (intent.sideChatFocus) {
+              setPendingSideChatFocus({
+                sourceSessionId: intent.sessionId,
+                sideSessionId: intent.sideChatFocus.sideSessionId,
+                nonce: intent.sideChatFocus.nonce,
+              })
+            }
+          } else if (intent.sideChatFocus) {
+            onExternalChatFocusHandled?.(intent.sideChatFocus.nonce)
+          }
           break
         case "newChat":
           await startNewChatNow(intent.agentId, intent.opts)
@@ -1328,7 +1375,7 @@ export default function ChatScreen({
           break
       }
     },
-    [rawHandleSwitchSession, startNewChatInProjectNow, startNewChatNow],
+    [onExternalChatFocusHandled, rawHandleSwitchSession, startNewChatInProjectNow, startNewChatNow],
   )
 
   const handleConfirmIncognitoLeave = useCallback(() => {
@@ -1341,15 +1388,40 @@ export default function ChatScreen({
     void runIncognitoLeaveIntent(intent)
   }, [incognitoLeaveIntent, runIncognitoLeaveIntent, session.currentSessionId])
 
+  const handleIncognitoLeaveOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) return
+      const focusNonce =
+        incognitoLeaveIntent?.type === "switchSession"
+          ? incognitoLeaveIntent.sideChatFocus?.nonce
+          : undefined
+      setIncognitoLeaveIntent(null)
+      if (focusNonce !== undefined) onExternalChatFocusHandled?.(focusNonce)
+    },
+    [incognitoLeaveIntent, onExternalChatFocusHandled],
+  )
+
   const handleSwitchSession = useCallback(
-    async (sessionId: string, opts?: SwitchSessionOptions) => {
-      if (!sessionId) return
+    async (
+      sessionId: string,
+      opts?: SwitchSessionOptions,
+      sideChatFocus?: SideChatFocusContinuation,
+    ): Promise<SwitchSessionResult> => {
+      if (!sessionId) return "cancelled"
       if (sessionId === session.currentSessionId) {
-        await rawHandleSwitchSession(sessionId, opts)
-        return
+        return (await rawHandleSwitchSession(sessionId, opts)) ? "switched" : "cancelled"
       }
-      if (requestIncognitoLeaveConfirmation({ type: "switchSession", sessionId, opts })) return
-      await rawHandleSwitchSession(sessionId, opts)
+      if (
+        requestIncognitoLeaveConfirmation({
+          type: "switchSession",
+          sessionId,
+          opts,
+          sideChatFocus,
+        })
+      ) {
+        return "confirmation_pending"
+      }
+      return (await rawHandleSwitchSession(sessionId, opts)) ? "switched" : "cancelled"
     },
     [rawHandleSwitchSession, requestIncognitoLeaveConfirmation, session.currentSessionId],
   )
@@ -1358,6 +1430,7 @@ export default function ChatScreen({
     if (!externalChatFocus) return
     if (lastExternalChatFocusNonceRef.current === externalChatFocus.nonce) return
     lastExternalChatFocusNonceRef.current = externalChatFocus.nonce
+    setPendingSideChatFocus(null)
     ;(async () => {
       try {
         await reloadSessions()
@@ -1393,9 +1466,26 @@ export default function ChatScreen({
             return
           }
         }
-        await handleSwitchSession(externalChatFocus.sessionId, {
-          targetMessageId: externalChatFocus.targetMessageId,
-        })
+        const sideChatFocus = externalChatFocus.sideSessionId
+          ? { sideSessionId: externalChatFocus.sideSessionId, nonce: externalChatFocus.nonce }
+          : undefined
+        const switchResult = await handleSwitchSession(
+          externalChatFocus.sessionId,
+          { targetMessageId: externalChatFocus.targetMessageId },
+          sideChatFocus,
+        )
+        if (switchResult === "confirmation_pending") return
+        if (switchResult !== "switched") {
+          onExternalChatFocusHandled?.(externalChatFocus.nonce)
+          return
+        }
+        if (sideChatFocus) {
+          setPendingSideChatFocus({
+            sourceSessionId: externalChatFocus.sessionId,
+            ...sideChatFocus,
+          })
+          return
+        }
         if (externalChatFocus.controlTarget) {
           setPendingControlFocus({
             sessionId: externalChatFocus.sessionId,
@@ -4812,12 +4902,7 @@ export default function ChatScreen({
       </AlertDialog>
 
       {/* Incognito leave confirmation */}
-      <AlertDialog
-        open={!!incognitoLeaveIntent}
-        onOpenChange={(open) => {
-          if (!open) setIncognitoLeaveIntent(null)
-        }}
-      >
+      <AlertDialog open={!!incognitoLeaveIntent} onOpenChange={handleIncognitoLeaveOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>

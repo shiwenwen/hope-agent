@@ -33,6 +33,10 @@ fn project_row(row: PetActivityRow, pending_count: i64) -> Option<PetActivity> {
             session_id: row.session_id.clone(),
             project_id: row.project_id,
         },
+        "side" => PetNavigationTarget::Side {
+            session_id: row.session_id.clone(),
+            source_session_id: row.side_source_session_id?,
+        },
         "knowledge" => PetNavigationTarget::Knowledge {
             session_id: row.session_id.clone(),
             kb_id: row.kb_id?,
@@ -169,6 +173,7 @@ mod tests {
             kb_id: None,
             anchor_note_path: None,
             design_project_id: None,
+            side_source_session_id: None,
         }
     }
 
@@ -239,6 +244,22 @@ mod tests {
                 anchor_note_path: None,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn side_activity_reopens_the_source_session_panel() {
+        let mut row = row(ChatTurnStatus::Running, 10, 0);
+        row.kind = "side".to_string();
+        row.side_source_session_id = Some("source-1".to_string());
+        assert!(matches!(
+            project_row(row, 0)
+                .expect("project side activity")
+                .target,
+            PetNavigationTarget::Side {
+                session_id,
+                source_session_id
+            } if session_id == "s" && source_session_id == "source-1"
         ));
     }
 
