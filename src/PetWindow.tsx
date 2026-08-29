@@ -517,6 +517,26 @@ export default function PetWindow() {
     }
   }, [])
 
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) setMenuOpen(false)
+      })
+      .then((dispose) => {
+        if (disposed) dispose()
+        else unlisten = dispose
+      })
+      .catch((error) => {
+        logger.warn("pet", "context_menu_focus", "Failed to observe Pet window focus", error)
+      })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
   const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const gesture = pointerGesture.current
     if (!gesture || gesture.dragged) return
