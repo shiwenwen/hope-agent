@@ -3439,6 +3439,17 @@ impl SessionDB {
             ],
         )?;
 
+            if mode == ForkMode::SideChat {
+                tx.execute(
+                    "INSERT INTO session_memory_policy (
+                        session_id, use_memories, contribute_to_memories, updated_at
+                     )
+                     SELECT ?1, use_memories, contribute_to_memories, ?2
+                     FROM session_memory_policy WHERE session_id = ?3",
+                    params![new_session_id, now, source_session_id],
+                )?;
+            }
+
             tx.execute(
                 "INSERT INTO messages (
                 session_id, role, content, timestamp, attachments_meta, model,
@@ -9685,6 +9696,12 @@ mod tests {
         .to_string();
         db.save_context(&source.id, &source_context)
             .expect("save source provider context");
+        let source_memory_policy = crate::session::SessionMemoryPolicy {
+            use_memories: crate::session::SessionMemoryPolicyValue::Deny,
+            contribute_to_memories: crate::session::SessionMemoryPolicyValue::Deny,
+        };
+        db.set_memory_policy(&source.id, source_memory_policy)
+            .expect("restrict source memory policy");
 
         let side = db.create_side_chat(&source.id).expect("create side chat");
         assert_eq!(side.kind, SessionKind::Side);
@@ -9695,6 +9712,11 @@ mod tests {
                 .expect("load side context")
                 .as_deref(),
             Some(source_context.as_str())
+        );
+        assert_eq!(
+            db.get_memory_policy(&side.id)
+                .expect("load side memory policy"),
+            source_memory_policy
         );
         assert_eq!(
             side.forked_from_session_id.as_deref(),
