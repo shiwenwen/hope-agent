@@ -215,6 +215,7 @@ describe("SideChatPanel slash actions", () => {
     expect(componentCapture.autonomyPaused).toBe(true)
     expect(componentCapture.workingDir).toBe("/project/inherited-root")
     expect(componentCapture.streamOptions?.mentionWorkingDir).toBe("/project/inherited-root")
+    expect(componentCapture.streamOptions?.parentInjectionDeltasViaChatStream).toBe(true)
 
     await act(async () => {
       await componentCapture.onContinue?.()

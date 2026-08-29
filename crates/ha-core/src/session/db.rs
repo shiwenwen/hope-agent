@@ -3088,7 +3088,9 @@ impl SessionDB {
                 provider_id,
                 provider_name,
                 model_id,
+                temperature,
                 reasoning_effort,
+                runtime_defaults_initialized,
                 project_id,
                 permission_mode,
                 sandbox_mode,
@@ -3106,7 +3108,9 @@ impl SessionDB {
                 Option<String>,
                 Option<String>,
                 Option<String>,
+                Option<f64>,
                 Option<String>,
+                i64,
                 Option<String>,
                 String,
                 String,
@@ -3120,7 +3124,8 @@ impl SessionDB {
             ) = tx
                 .query_row(
                     "SELECT title, title_source, agent_id, provider_id, provider_name, model_id,
-                        reasoning_effort, project_id, permission_mode, sandbox_mode,
+                        temperature, reasoning_effort, runtime_defaults_initialized, project_id,
+                        permission_mode, sandbox_mode,
                         execution_mode, workflow_mode, working_dir, kind, incognito,
                         is_cron, parent_session_id
                  FROM sessions WHERE id = ?1",
@@ -3144,6 +3149,8 @@ impl SessionDB {
                             row.get(14)?,
                             row.get(15)?,
                             row.get(16)?,
+                            row.get(17)?,
+                            row.get(18)?,
                         ))
                     },
                 )
@@ -3324,11 +3331,11 @@ impl SessionDB {
             tx.execute(
             "INSERT INTO sessions (
                 id, title, title_source, agent_id, provider_id, provider_name, model_id,
-                reasoning_effort, created_at, updated_at, parent_session_id, project_id,
-                permission_mode, sandbox_mode, execution_mode, workflow_mode, working_dir,
-                kind, forked_from_session_id, forked_from_message_id
+                temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at,
+                parent_session_id, project_id, permission_mode, sandbox_mode, execution_mode,
+                workflow_mode, working_dir, kind, forked_from_session_id, forked_from_message_id
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 new_session_id,
                 inferred_title,
@@ -3337,7 +3344,9 @@ impl SessionDB {
                 provider_id,
                 provider_name,
                 model_id,
+                temperature,
                 reasoning_effort,
+                runtime_defaults_initialized,
                 now,
                 now,
                 project_id,
@@ -9531,6 +9540,8 @@ mod tests {
         ensure_channel_conversations_table(&db);
 
         let source = db.create_session("ha-main").expect("source session");
+        db.update_session_temperature(&source.id, Some(0.42))
+            .expect("set source temperature");
         db.append_message(&source.id, &NewMessage::user("stable question"))
             .expect("append user");
         db.append_message(&source.id, &NewMessage::assistant("stable answer"))
@@ -9538,6 +9549,8 @@ mod tests {
 
         let side = db.create_side_chat(&source.id).expect("create side chat");
         assert_eq!(side.kind, SessionKind::Side);
+        assert_eq!(side.temperature, Some(0.42));
+        assert!(side.runtime_defaults_initialized);
         assert_eq!(
             side.forked_from_session_id.as_deref(),
             Some(source.id.as_str())

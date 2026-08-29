@@ -108,6 +108,7 @@ export default function SideChatPanel({
     lastSeqRef: streamSeqRef,
     endedStreamIdsRef,
     incognitoEnabled: false,
+    parentInjectionDeltasViaChatStream: true,
   })
 
   useChatStreamReattach({
