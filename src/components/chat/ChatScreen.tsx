@@ -5308,6 +5308,7 @@ export default function ChatScreen({
                         currentAgentId={session.currentAgentId}
                         onEnsureSession={ensureWorkflowSession}
                         onCommandAction={handleCommandAction}
+                        enableSideChatCommand={canUseSideChat}
                         permissionMode={stream.permissionMode}
                         onPermissionModeChange={stream.setPermissionModeByUser}
                         sandboxMode={stream.sandboxMode}

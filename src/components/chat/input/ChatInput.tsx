@@ -314,6 +314,8 @@ interface ChatInputProps {
   /** Materializes a draft conversation before applying session-scoped modes. */
   onEnsureSession?: () => Promise<string | null>
   onCommandAction?: (result: CommandResult) => void
+  /** Expose `/side` only on surfaces that can reveal the created side conversation. */
+  enableSideChatCommand?: boolean
   // Tool permission mode
   permissionMode: SessionMode
   onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
@@ -547,6 +549,7 @@ export default function ChatInput({
   currentAgentId = DEFAULT_AGENT_ID,
   onEnsureSession,
   onCommandAction,
+  enableSideChatCommand = false,
   permissionMode,
   onPermissionModeChange,
   sandboxMode,
@@ -726,6 +729,7 @@ export default function ChatInput({
     agentId: currentAgentId,
     ensureSession: onEnsureSession,
     bypassLoopCreateOnEnter: !!onLoopModeSubmit,
+    supportsSideChat: enableSideChatCommand,
   }
   const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
   const voice = useVoiceInput(currentSessionId)

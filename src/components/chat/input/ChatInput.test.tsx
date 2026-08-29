@@ -988,6 +988,38 @@ describe("ChatInput", () => {
     expect(onPermissionModeChange).not.toHaveBeenCalled()
   })
 
+  test.each([
+    [false, false],
+    [true, true],
+  ])("shows /side only when the chat surface supports it", async (enabled, expectedVisible) => {
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "list_slash_commands") {
+        return Promise.resolve([
+          {
+            name: "help",
+            category: "utility",
+            descriptionKey: "slashCommands.help.description",
+            hasArgs: false,
+          },
+          {
+            name: "side",
+            category: "session",
+            descriptionKey: "slashCommands.side.description",
+            hasArgs: true,
+            argsOptional: true,
+          },
+        ])
+      }
+      return Promise.resolve([])
+    })
+
+    renderChatInput({ input: "/", enableSideChatCommand: enabled })
+
+    await waitFor(() => expect(screen.getByText("/help")).toBeTruthy())
+    expect(screen.queryByText("/side") !== null).toBe(expectedVisible)
+  })
+
   test("syncs workflow mode status from slash command events", async () => {
     transportMock.call.mockImplementation((command: string) => {
       if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
