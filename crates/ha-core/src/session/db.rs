@@ -3651,11 +3651,10 @@ impl SessionDB {
 
     /// Include archived side conversations for owner-lifecycle cleanup. Product
     /// discovery deliberately uses [`Self::list_side_chats`] instead.
-    fn list_owned_side_chats_for_delete(
-        &self,
+    fn list_owned_side_chats_for_delete_on(
+        conn: &Connection,
         source_session_id: &str,
     ) -> Result<Vec<SessionMeta>> {
-        let conn = self.read_conn()?;
         let sql = format!(
             "{} WHERE s.kind = ?1 AND s.forked_from_session_id = ?2
              ORDER BY s.created_at ASC, s.id ASC",
@@ -6029,27 +6028,7 @@ impl SessionDB {
         session_id: &str,
         reason: crate::session::events::SessionDeleteReason,
     ) -> Result<()> {
-        // Snapshot before deletion — needed for the emit payload, and lets us
-        // skip the event entirely when nothing was there to delete.
-        let snapshot = self.get_session(session_id)?;
-        let owned_side_chats = if snapshot
-            .as_ref()
-            .is_some_and(|meta| meta.kind != SessionKind::Side)
-        {
-            self.list_owned_side_chats_for_delete(session_id)?
-        } else {
-            Vec::new()
-        };
-        // G4 / SURFACE-2: capture cleanup context BEFORE the cascade, while the
-        // `subagent_runs` and `channel_conversations` rows still exist (both are
-        // gone by emit time). Done before taking the conn lock — both helpers
-        // lock it themselves.
-        let cleanup_ctx = self.capture_session_cleanup_context(session_id);
-        let side_cleanup_contexts = owned_side_chats
-            .iter()
-            .map(|side| (side.clone(), self.capture_session_cleanup_context(&side.id)))
-            .collect::<Vec<_>>();
-        let deleted = {
+        let (deleted, snapshot, owned_side_chats, cleanup_ctx, side_cleanup_contexts) = {
             let mut conn = self
                 .conn
                 .lock()
@@ -6060,37 +6039,68 @@ impl SessionDB {
             // competing stage/commit either lands first and blocks deletion,
             // or observes the deleted Session through its FK and fails closed.
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(&tx, session_id)?;
-            for side in &owned_side_chats {
+            // Snapshot the owner, every owned side conversation, and their
+            // cleanup coordinates only after reserving the writer. This keeps
+            // the emitted lifecycle set identical to the rows deleted below:
+            // a concurrent side-chat create either commits before this point
+            // and is included, or cannot commit against the reserved writer
+            // snapshot after the owner is deleted.
+            let snapshot = Self::get_session_on(&tx, session_id)?;
+            let owned_side_chats = if snapshot
+                .as_ref()
+                .is_some_and(|meta| meta.kind != SessionKind::Side)
+            {
+                Self::list_owned_side_chats_for_delete_on(&tx, session_id)?
+            } else {
+                Vec::new()
+            };
+            let cleanup_ctx = snapshot
+                .as_ref()
+                .map(|meta| Self::capture_session_cleanup_context_on(&tx, meta))
+                .unwrap_or_default();
+            let side_cleanup_contexts = owned_side_chats
+                .iter()
+                .map(|side| {
+                    (
+                        side.clone(),
+                        Self::capture_session_cleanup_context_on(&tx, side),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            let removed = if snapshot.is_some() {
                 crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(
-                    &tx, &side.id,
+                    &tx, session_id,
                 )?;
-            }
-            let scheduled_custody: bool = tx.query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM queued_turn_user_messages
-                     WHERE (session_id=?1 OR session_id IN (
-                         SELECT id FROM sessions
-                          WHERE kind=?2 AND forked_from_session_id=?1
-                     )) AND source='scheduled'
-                 ) OR EXISTS(
-                    SELECT 1 FROM chat_turns
-                     WHERE (session_id=?1 OR session_id IN (
-                         SELECT id FROM sessions
-                          WHERE kind=?2 AND forked_from_session_id=?1
-                     )) AND source='cron'
-                       AND status IN ('running','cancelling')
-                 )",
-                params![session_id, SessionKind::Side.as_str()],
-                |row| row.get(0),
-            )?;
-            if scheduled_custody {
-                anyhow::bail!("scheduled_session_turn_active");
-            }
-            // Try direct delete (CASCADE handles messages + fires FTS trigger).
-            let delete_sql = "DELETE FROM sessions
-                 WHERE id = ?1 OR (kind = ?2 AND forked_from_session_id = ?1)";
-            let removed =
+                for side in &owned_side_chats {
+                    crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(
+                        &tx, &side.id,
+                    )?;
+                }
+                let scheduled_custody: bool = tx.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM queued_turn_user_messages
+                         WHERE (session_id=?1 OR session_id IN (
+                             SELECT id FROM sessions
+                              WHERE kind=?2 AND forked_from_session_id=?1
+                         )) AND source='scheduled'
+                     ) OR EXISTS(
+                        SELECT 1 FROM chat_turns
+                         WHERE (session_id=?1 OR session_id IN (
+                             SELECT id FROM sessions
+                              WHERE kind=?2 AND forked_from_session_id=?1
+                         )) AND source='cron'
+                           AND status IN ('running','cancelling')
+                     )",
+                    params![session_id, SessionKind::Side.as_str()],
+                    |row| row.get(0),
+                )?;
+                if scheduled_custody {
+                    anyhow::bail!("scheduled_session_turn_active");
+                }
+                // Try direct delete (CASCADE handles messages + fires FTS trigger).
+                let delete_sql = "DELETE FROM sessions
+                     WHERE id = ?1 OR (kind = ?2 AND forked_from_session_id = ?1)";
                 match tx.execute(delete_sql, params![session_id, SessionKind::Side.as_str()]) {
                     Ok(removed) => removed,
                     Err(e) => {
@@ -6103,13 +6113,22 @@ impl SessionDB {
                         );
                         let _ = tx.execute_batch(
                             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-                         INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
+                             INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
                         );
                         tx.execute(delete_sql, params![session_id, SessionKind::Side.as_str()])?
                     }
-                };
+                }
+            } else {
+                0
+            };
             tx.commit()?;
-            snapshot.is_some() && removed > 0
+            (
+                removed > 0,
+                snapshot,
+                owned_side_chats,
+                cleanup_ctx,
+                side_cleanup_contexts,
+            )
         };
 
         if deleted {
@@ -6161,6 +6180,22 @@ impl SessionDB {
         crate::session::events::SessionCleanupContext {
             descendant_session_ids,
             im_chat,
+        }
+    }
+
+    /// Writer-snapshot form used by permanent deletion. Unlike the general
+    /// best-effort helper above, every value comes from the same transaction
+    /// that owns the delete decision.
+    fn capture_session_cleanup_context_on(
+        conn: &Connection,
+        meta: &SessionMeta,
+    ) -> crate::session::events::SessionCleanupContext {
+        crate::session::events::SessionCleanupContext {
+            descendant_session_ids: Self::collect_descendant_session_ids_on(conn, &meta.id),
+            im_chat: meta
+                .channel_info
+                .as_ref()
+                .map(|channel| (channel.account_id.clone(), channel.chat_id.clone())),
         }
     }
 
@@ -6444,6 +6479,10 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        Self::get_session_on(&conn, session_id)
+    }
+
+    fn get_session_on(conn: &Connection, session_id: &str) -> Result<Option<SessionMeta>> {
         let sql = format!("{} WHERE s.id = ?1", session_meta_select());
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params![session_id], Self::row_to_session_meta)?;

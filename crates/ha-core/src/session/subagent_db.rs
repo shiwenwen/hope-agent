@@ -1573,11 +1573,20 @@ impl SessionDB {
     /// visited set (no cycles in practice — a child can't be its own ancestor)
     /// plus a hard cap as a defensive backstop.
     pub fn collect_descendant_session_ids(&self, root_session_id: &str) -> Vec<String> {
-        use std::collections::HashSet;
-        const MAX_DESCENDANTS: usize = 4096;
         let Ok(conn) = self.conn.lock() else {
             return Vec::new();
         };
+        Self::collect_descendant_session_ids_on(&conn, root_session_id)
+    }
+
+    /// Transaction-scoped form used by session lifecycle deletion so the
+    /// descendant snapshot and deleted rows share one writer snapshot.
+    pub(crate) fn collect_descendant_session_ids_on(
+        conn: &rusqlite::Connection,
+        root_session_id: &str,
+    ) -> Vec<String> {
+        use std::collections::HashSet;
+        const MAX_DESCENDANTS: usize = 4096;
         let Ok(mut stmt) =
             conn.prepare("SELECT child_session_id FROM subagent_runs WHERE parent_session_id = ?1")
         else {

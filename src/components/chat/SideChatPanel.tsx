@@ -20,6 +20,7 @@ import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import type { CommandResult } from "./slash-commands/types"
 import { useChatStream } from "./useChatStream"
 import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
+import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { useQuickChatSession } from "./useQuickChatSession"
 
 export interface SideChatSeed {
@@ -84,6 +85,23 @@ export default function SideChatPanel({
     lastSeqRef: streamSeqRef,
     endedStreamIdsRef,
     incognitoEnabled: false,
+  })
+
+  useChatStreamReattach({
+    currentSessionId: session.currentSessionId,
+    currentSessionIdRef: session.currentSessionIdRef,
+    lastSeqRef: streamSeqRef,
+    endedStreamIdsRef,
+    updateSessionMessages: session.updateSessionMessages,
+    setShowCodexAuthExpired: stream.setShowCodexAuthExpired,
+    setMessages: session.setMessages,
+    setLoading: session.setLoading,
+    loadingSessionsRef: session.loadingSessionsRef,
+    setLoadingSessionIds: session.setLoadingSessionIds,
+    sessionCacheRef: session.sessionCacheRef,
+    reloadSessions: session.reloadSessions,
+    onTurnStarted: stream.handleTurnStarted,
+    onTurnEnded: stream.handleTurnEnded,
   })
 
   const inputHistory = useMemo(() => recentUserInputHistory(session.messages), [session.messages])
