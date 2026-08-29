@@ -5474,6 +5474,7 @@ export default function ChatScreen({
                 <SideChatPanel
                   key={visibleActiveSideChatId}
                   sessionId={visibleActiveSideChatId}
+                  isViewVisible={isViewVisible}
                   title={visibleActiveSideChat?.title}
                   workingDir={activeSideChatWorkingDir}
                   seed={sideChatSeed}

@@ -31,6 +31,8 @@ const askUserCapture = vi.hoisted(() => ({
   setPendingQuestionGroup: vi.fn(),
 }))
 
+const readReceiptMock = vi.hoisted(() => vi.fn())
+
 vi.mock("@/components/chat/ChatInput", () => ({
   default: (props: {
     onCommandAction?: (result: unknown) => unknown
@@ -64,7 +66,7 @@ vi.mock("@/components/chat/ApprovalDialog", () => ({
 }))
 
 vi.mock("./hooks/useEmbeddedChatReadReceipt", () => ({
-  useEmbeddedChatReadReceipt: vi.fn(),
+  useEmbeddedChatReadReceipt: readReceiptMock,
 }))
 
 vi.mock("./hooks/useChatStreamReattach", () => ({
@@ -187,6 +189,7 @@ describe("SideChatPanel slash actions", () => {
       <StrictMode>
         <SideChatPanel
           sessionId="side-1"
+          isViewVisible
           seed={{ nonce: 1, prompt: "follow up", quote }}
           onClose={vi.fn()}
           onDeleted={vi.fn()}
@@ -210,6 +213,7 @@ describe("SideChatPanel slash actions", () => {
     render(
       <SideChatPanel
         sessionId="side-1"
+        isViewVisible
         onClose={vi.fn()}
         onDeleted={vi.fn()}
         onPreviewFile={vi.fn()}
@@ -267,6 +271,7 @@ describe("SideChatPanel slash actions", () => {
     render(
       <SideChatPanel
         sessionId="side-1"
+        isViewVisible
         workingDir="/project/inherited-root"
         onClose={vi.fn()}
         onDeleted={vi.fn()}
@@ -289,6 +294,7 @@ describe("SideChatPanel slash actions", () => {
     render(
       <SideChatPanel
         sessionId="side-1"
+        isViewVisible
         onClose={vi.fn()}
         onDeleted={vi.fn()}
         onPreviewFile={vi.fn()}
@@ -300,5 +306,20 @@ describe("SideChatPanel slash actions", () => {
 
     componentCapture.onQuestionSubmitted?.()
     expect(askUserCapture.setPendingQuestionGroup).toHaveBeenCalledWith(null)
+  })
+
+  test("gates read receipts on the parent Conversations view", () => {
+    const props = {
+      sessionId: "side-1",
+      onClose: vi.fn(),
+      onDeleted: vi.fn(),
+      onPreviewFile: vi.fn(),
+    }
+    const { rerender } = render(<SideChatPanel {...props} isViewVisible={false} />)
+
+    expect(readReceiptMock).toHaveBeenLastCalledWith(false, true, "side-1", sessionShape.messages)
+
+    rerender(<SideChatPanel {...props} isViewVisible />)
+    expect(readReceiptMock).toHaveBeenLastCalledWith(true, true, "side-1", sessionShape.messages)
   })
 })

@@ -43,6 +43,8 @@ export interface SideChatSeed {
 
 interface SideChatPanelProps {
   sessionId: string
+  /** Parent Conversations view visibility; the panel stays mounted across App views. */
+  isViewVisible: boolean
   title?: string | null
   workingDir?: string | null
   seed?: SideChatSeed | null
@@ -55,6 +57,7 @@ interface SideChatPanelProps {
 
 export default function SideChatPanel({
   sessionId,
+  isViewVisible,
   title,
   workingDir,
   seed,
@@ -85,7 +88,12 @@ export default function SideChatPanel({
     session.currentSessionId,
   )
 
-  useEmbeddedChatReadReceipt(true, messageTailVisible, session.currentSessionId, session.messages)
+  useEmbeddedChatReadReceipt(
+    isViewVisible,
+    messageTailVisible,
+    session.currentSessionId,
+    session.messages,
+  )
 
   const stream = useChatStream({
     uiSurface: "side_chat",
