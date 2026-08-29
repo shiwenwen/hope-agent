@@ -78,6 +78,7 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import SideChatPanel, { type SideChatSeed } from "@/components/chat/SideChatPanel"
+import { resolveSideChatSurfaceSessionId } from "@/components/chat/sideChatSurface"
 import { SideChatTray } from "@/components/chat/SideChatTray"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
@@ -928,6 +929,13 @@ export default function ChatScreen({
   const [sideChatPanelOpen, setSideChatPanelOpen] = useState(false)
   const [sideChatCreatingSourceId, setSideChatCreatingSourceId] = useState<string | null>(null)
   const [sideChatSeed, setSideChatSeed] = useState<SideChatSeed | null>(null)
+  const sideChatFileQuoteHandlerRef = useRef<((quote: PendingFileQuote) => void) | null>(null)
+  const handleSideChatFileQuoteHandlerChange = useCallback(
+    (handler: ((quote: PendingFileQuote) => void) | null) => {
+      sideChatFileQuoteHandlerRef.current = handler
+    },
+    [],
+  )
   const [pendingSideChatFocus, setPendingSideChatFocus] = useState<{
     sourceSessionId: string
     sideSessionId: string
@@ -951,6 +959,11 @@ export default function ChatScreen({
     ? (visibleSideChats.find((chat) => chat.id === visibleActiveSideChatId) ?? null)
     : null
   const visibleSideChatPanelOpen = sideChatStateIsCurrent && sideChatPanelOpen
+  const activeConversationSurfaceSessionId = resolveSideChatSurfaceSessionId(
+    session.currentSessionId,
+    visibleActiveSideChatId,
+    visibleSideChatPanelOpen,
+  )
   const sideChatCreating = sideChatCreatingSourceId === sideChatSourceId
 
   const refreshSideChats = useCallback(async (): Promise<SessionMeta[]> => {
@@ -3630,9 +3643,13 @@ export default function ChatScreen({
   // block, the user only ever sees a friendly quote card.
   const handleFileQuote = useCallback(
     (q: QuotePayload) => {
+      if (visibleSideChatPanelOpen && visibleActiveSideChatId) {
+        sideChatFileQuoteHandlerRef.current?.(q)
+        return
+      }
       stream.setPendingQuotes((prev) => [...prev, q])
     },
-    [stream],
+    [stream, visibleActiveSideChatId, visibleSideChatPanelOpen],
   )
   const handleMessageQuote = useCallback(
     (quote: PendingMessageQuote) => {
@@ -5482,6 +5499,7 @@ export default function ChatScreen({
                   onActivity={() => void refreshSideChats()}
                   onCodexReauth={onCodexReauth}
                   onDeleted={handleSideChatDeleted}
+                  onFileQuoteHandlerChange={handleSideChatFileQuoteHandlerChange}
                   onPreviewFile={(target) =>
                     openSideChatFileTarget(visibleActiveSideChatId, target)
                   }
@@ -5598,7 +5616,7 @@ export default function ChatScreen({
 
               {/* Canvas Preview Panel */}
               <CanvasPanel
-                currentSessionId={currentSessionId}
+                currentSessionId={activeConversationSurfaceSessionId}
                 onOpenChange={setCanvasPanelOpen}
                 onQuote={handleFileQuote}
                 collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "canvas"}

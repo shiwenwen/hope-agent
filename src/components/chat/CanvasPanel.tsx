@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
@@ -91,7 +91,7 @@ export default function CanvasPanel({
   // (e.g. cron/channel/subagent tool calls that emit canvas_show globally).
   // ref so the listener is not re-subscribed on every session switch.
   const currentSessionIdRef = useRef<string | null>(currentSessionId)
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentSessionIdRef.current = currentSessionId
   }, [currentSessionId])
 

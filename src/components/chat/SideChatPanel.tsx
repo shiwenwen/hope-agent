@@ -24,7 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
-import type { PendingMessageQuote } from "@/types/chat"
+import type { PendingFileQuote, PendingMessageQuote } from "@/types/chat"
 
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import { generateClientId } from "./chatScrollKeys"
@@ -53,6 +53,7 @@ interface SideChatPanelProps {
   onCodexReauth?: () => void
   onDeleted: (sessionId: string) => void
   onPreviewFile: (target: PreviewTarget) => void
+  onFileQuoteHandlerChange?: (handler: ((quote: PendingFileQuote) => void) | null) => void
 }
 
 export default function SideChatPanel({
@@ -66,6 +67,7 @@ export default function SideChatPanel({
   onCodexReauth,
   onDeleted,
   onPreviewFile,
+  onFileQuoteHandlerChange,
 }: SideChatPanelProps) {
   const { t } = useTranslation()
   const session = useQuickChatSession(true, {
@@ -168,6 +170,19 @@ export default function SideChatPanel({
     },
     [stream],
   )
+
+  const setPendingQuotes = stream.setPendingQuotes
+  const handleFileQuote = useCallback(
+    (quote: PendingFileQuote) => {
+      setPendingQuotes((current) => [...current, quote])
+      setComposerFocusSignal((value) => (value ?? 0) + 1)
+    },
+    [setPendingQuotes],
+  )
+  useEffect(() => {
+    onFileQuoteHandlerChange?.(handleFileQuote)
+    return () => onFileQuoteHandlerChange?.(null)
+  }, [handleFileQuote, onFileQuoteHandlerChange])
 
   const handleSend = useCallback(
     async (prompt?: string) => {
@@ -347,6 +362,12 @@ export default function SideChatPanel({
                 current.map((item, itemIndex) =>
                   itemIndex === index ? { ...item, file, status: "ready", error: undefined } : item,
                 ),
+              )
+            }
+            pendingQuotes={stream.pendingQuotes}
+            onRemoveQuote={(index) =>
+              stream.setPendingQuotes((current) =>
+                current.filter((_, itemIndex) => itemIndex !== index),
               )
             }
             pendingMessageQuotes={stream.pendingMessageQuotes}

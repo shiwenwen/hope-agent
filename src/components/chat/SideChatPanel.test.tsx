@@ -5,6 +5,7 @@ import { act, cleanup, render } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import SideChatPanel from "./SideChatPanel"
+import { resolveSideChatSurfaceSessionId } from "./sideChatSurface"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -18,6 +19,8 @@ const componentCapture = vi.hoisted(() => ({
   workingDir: undefined as string | null | undefined,
   pendingQuestionGroup: undefined as unknown,
   onQuestionSubmitted: undefined as (() => unknown) | undefined,
+  pendingQuotes: undefined as unknown,
+  onRemoveQuote: undefined as ((index: number) => unknown) | undefined,
   streamOptions: undefined as Record<string, unknown> | undefined,
 }))
 
@@ -39,11 +42,15 @@ vi.mock("@/components/chat/ChatInput", () => ({
     onContinue?: () => unknown
     autonomyPaused?: boolean
     workingDir?: string | null
+    pendingQuotes?: unknown
+    onRemoveQuote?: (index: number) => unknown
   }) => {
     componentCapture.onCommandAction = props.onCommandAction
     componentCapture.onContinue = props.onContinue
     componentCapture.autonomyPaused = props.autonomyPaused
     componentCapture.workingDir = props.workingDir
+    componentCapture.pendingQuotes = props.pendingQuotes
+    componentCapture.onRemoveQuote = props.onRemoveQuote
     return <div data-testid="chat-input" />
   },
 }))
@@ -130,6 +137,8 @@ const streamShape = {
   attachedFiles: [],
   setAttachedFiles: vi.fn(),
   maxChatAttachmentBytes: 1024,
+  pendingQuotes: [],
+  setPendingQuotes: vi.fn(),
   pendingMessageQuotes: [],
   setPendingMessageQuotes: vi.fn(),
   pendingMessage: null,
@@ -172,6 +181,8 @@ afterEach(() => {
   componentCapture.workingDir = undefined
   componentCapture.pendingQuestionGroup = undefined
   componentCapture.onQuestionSubmitted = undefined
+  componentCapture.pendingQuotes = undefined
+  componentCapture.onRemoveQuote = undefined
   componentCapture.streamOptions = undefined
   askUserCapture.currentSessionId = undefined
   sessionShape.sessions = [{ id: "side-1", autonomyPaused: false }]
@@ -321,5 +332,43 @@ describe("SideChatPanel slash actions", () => {
 
     rerender(<SideChatPanel {...props} isViewVisible />)
     expect(readReceiptMock).toHaveBeenLastCalledWith(true, true, "side-1", sessionShape.messages)
+  })
+
+  test("routes shared file quotes into the side composer", () => {
+    const onFileQuoteHandlerChange = vi.fn()
+    render(
+      <SideChatPanel
+        sessionId="side-1"
+        isViewVisible
+        onClose={vi.fn()}
+        onDeleted={vi.fn()}
+        onPreviewFile={vi.fn()}
+        onFileQuoteHandlerChange={onFileQuoteHandlerChange}
+      />,
+    )
+    const handler = onFileQuoteHandlerChange.mock.calls.find(([value]) => value)?.[0]
+    const quote = {
+      path: "artifact:canvas-side",
+      name: "Side canvas",
+      startLine: 0,
+      endLine: 0,
+      content: "selected side content",
+      revealable: false,
+    }
+
+    act(() => handler(quote))
+
+    const appendQuote = streamShape.setPendingQuotes.mock.calls.at(-1)?.[0]
+    expect(appendQuote([])).toEqual([quote])
+    expect(componentCapture.pendingQuotes).toBe(streamShape.pendingQuotes)
+    act(() => componentCapture.onRemoveQuote?.(0))
+    const removeQuote = streamShape.setPendingQuotes.mock.calls.at(-1)?.[0]
+    expect(removeQuote([quote])).toEqual([])
+  })
+
+  test("routes shared surfaces to the open side session only", () => {
+    expect(resolveSideChatSurfaceSessionId("main-1", "side-1", true)).toBe("side-1")
+    expect(resolveSideChatSurfaceSessionId("main-1", "side-1", false)).toBe("main-1")
+    expect(resolveSideChatSurfaceSessionId("main-1", null, true)).toBe("main-1")
   })
 })
