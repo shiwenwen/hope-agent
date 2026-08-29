@@ -73,6 +73,13 @@ export default function SideChatPanel({
   const consumedSeedRef = useRef(0)
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
   const [messageTailVisible, setMessageTailVisible] = useState(true)
+  const currentSessionMeta = useMemo(
+    () =>
+      session.currentSessionId
+        ? (session.sessions.find((item) => item.id === session.currentSessionId) ?? null)
+        : null,
+    [session.currentSessionId, session.sessions],
+  )
 
   useEmbeddedChatReadReceipt(true, messageTailVisible, session.currentSessionId, session.messages)
 
@@ -95,6 +102,7 @@ export default function SideChatPanel({
     manualModelOverrideRef: session.manualModelOverrideRef,
     reasoningEffort: session.reasoningEffort,
     temperatureOverride: session.sessionTemperature,
+    mentionWorkingDir: workingDir ?? null,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: streamSeqRef,
@@ -343,6 +351,9 @@ export default function SideChatPanel({
             onForceInsertPending={stream.forceInsertPendingSend}
             onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
             onStop={stream.handleStop}
+            stopPending={stream.stopPendingSessions.has(session.currentSessionId ?? "__pending__")}
+            autonomyPaused={currentSessionMeta?.autonomyPaused ?? false}
+            onContinue={stream.handleContinue}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
             enableAgentMention

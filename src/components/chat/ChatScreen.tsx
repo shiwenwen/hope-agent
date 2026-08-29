@@ -5376,7 +5376,7 @@ export default function ChatScreen({
                   key={visibleActiveSideChatId}
                   sessionId={visibleActiveSideChatId}
                   title={visibleActiveSideChat?.title}
-                  workingDir={visibleActiveSideChat?.workingDir}
+                  workingDir={visibleActiveSideChat?.workingDir ?? effectiveWorkingDir}
                   seed={sideChatSeed}
                   onClose={() => setSideChatPanelOpen(false)}
                   onActivity={() => void refreshSideChats()}

@@ -12,11 +12,23 @@ vi.mock("react-i18next", () => ({
 const componentCapture = vi.hoisted(() => ({
   onCommandAction: undefined as ((result: unknown) => unknown) | undefined,
   onSwitchModel: undefined as ((providerId: string, modelId: string) => unknown) | undefined,
+  onContinue: undefined as (() => unknown) | undefined,
+  autonomyPaused: undefined as boolean | undefined,
+  workingDir: undefined as string | null | undefined,
+  streamOptions: undefined as Record<string, unknown> | undefined,
 }))
 
 vi.mock("@/components/chat/ChatInput", () => ({
-  default: (props: { onCommandAction?: (result: unknown) => unknown }) => {
+  default: (props: {
+    onCommandAction?: (result: unknown) => unknown
+    onContinue?: () => unknown
+    autonomyPaused?: boolean
+    workingDir?: string | null
+  }) => {
     componentCapture.onCommandAction = props.onCommandAction
+    componentCapture.onContinue = props.onContinue
+    componentCapture.autonomyPaused = props.autonomyPaused
+    componentCapture.workingDir = props.workingDir
     return <div data-testid="chat-input" />
   },
 }))
@@ -55,7 +67,6 @@ const sessionShape = {
   setLoadingSessionIds: vi.fn(),
   loadingSessionsRef: { current: new Set<string>() },
   sessionCacheRef: { current: new Map() },
-  sessions: [],
   hasMore: false,
   loadingMore: false,
   handleLoadMore: vi.fn(),
@@ -71,6 +82,7 @@ const sessionShape = {
   reloadSessions: vi.fn(),
   reloadMessages: vi.fn(),
   updateSessionMessages: vi.fn(),
+  sessions: [{ id: "side-1", autonomyPaused: false }],
 }
 
 vi.mock("./useQuickChatSession", () => ({
@@ -98,6 +110,8 @@ const streamShape = {
   forceInsertPendingSend: vi.fn(),
   cancelForceInsertPendingSend: vi.fn(),
   handleStop: vi.fn(),
+  stopPendingSessions: new Set<string>(),
+  handleContinue: vi.fn(),
   approvalRequests: [],
   handleApprovalResponse: vi.fn(),
   permissionMode: "default",
@@ -111,8 +125,10 @@ const streamShape = {
 }
 
 vi.mock("./useChatStream", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  useChatStream: () => streamShape as any,
+  useChatStream: (options: Record<string, unknown>) => {
+    componentCapture.streamOptions = options
+    return streamShape
+  },
 }))
 
 afterEach(() => {
@@ -120,6 +136,11 @@ afterEach(() => {
   vi.clearAllMocks()
   componentCapture.onCommandAction = undefined
   componentCapture.onSwitchModel = undefined
+  componentCapture.onContinue = undefined
+  componentCapture.autonomyPaused = undefined
+  componentCapture.workingDir = undefined
+  componentCapture.streamOptions = undefined
+  sessionShape.sessions = [{ id: "side-1", autonomyPaused: false }]
 })
 
 describe("SideChatPanel slash actions", () => {
@@ -176,5 +197,28 @@ describe("SideChatPanel slash actions", () => {
       await componentCapture.onSwitchModel?.("provider-1", "model-1")
     })
     expect(sessionShape.handleModelChange).toHaveBeenCalledWith("provider-1::model-1")
+  })
+
+  test("wires durable Continue and the effective workspace into the side composer", async () => {
+    sessionShape.sessions = [{ id: "side-1", autonomyPaused: true }]
+
+    render(
+      <SideChatPanel
+        sessionId="side-1"
+        workingDir="/project/inherited-root"
+        onClose={vi.fn()}
+        onDeleted={vi.fn()}
+        onPreviewFile={vi.fn()}
+      />,
+    )
+
+    expect(componentCapture.autonomyPaused).toBe(true)
+    expect(componentCapture.workingDir).toBe("/project/inherited-root")
+    expect(componentCapture.streamOptions?.mentionWorkingDir).toBe("/project/inherited-root")
+
+    await act(async () => {
+      await componentCapture.onContinue?.()
+    })
+    expect(streamShape.handleContinue).toHaveBeenCalledTimes(1)
   })
 })
