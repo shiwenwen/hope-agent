@@ -414,6 +414,7 @@ export default function SideChatPanel({
             enableAgentMention
             agents={session.agents}
             onCommandAction={handleCommandAction}
+            enableGoalAndPlanModes={false}
             workingDir={workingDir ?? null}
             permissionMode={stream.permissionMode}
             onPermissionModeChange={stream.setPermissionModeByUser}

@@ -848,6 +848,25 @@ describe("ChatInput", () => {
     expect(screen.getByText("chat.loopMode.restricted")).toBeTruthy()
   })
 
+  test("suppresses unsupported Goal and Plan modes without swallowing slash input", () => {
+    const onSend = vi.fn()
+    const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
+    renderChatInput({
+      input: "/goal verify the side chat",
+      onSend,
+      onGoalModeSubmit,
+      onEnterPlanMode: vi.fn(),
+      enableGoalAndPlanModes: false,
+    })
+
+    expect(screen.queryByRole("button", { name: "chat.goalMode.enter" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "planMode.enter" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
+
+    expect(onSend).toHaveBeenCalledOnce()
+    expect(onGoalModeSubmit).not.toHaveBeenCalled()
+  })
+
   test("places model submenus below when neither horizontal side fits and space below is larger", async () => {
     const originalInnerWidth = window.innerWidth
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect

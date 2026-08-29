@@ -4266,7 +4266,7 @@ export default function ChatScreen({
   useEffect(() => {
     const unlisten = getTransport().listen("browser:frame", (raw) => {
       const payload = parsePayload<{ sessionId?: string | null }>(raw)
-      if (payload?.sessionId && payload.sessionId !== session.currentSessionId) return
+      if (payload?.sessionId && payload.sessionId !== activeConversationSurfaceSessionId) return
       if (browserPanelDismissedRef.current) return
       setShowBrowserPanel((prev) => (prev ? prev : true))
     })
@@ -4277,13 +4277,13 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [session.currentSessionId])
+  }, [activeConversationSurfaceSessionId])
 
   useEffect(() => {
     const unlisten = getTransport().listen("browser:extension_required", (raw) => {
       const payload = parsePayload<BrowserExtensionRequiredPayload>(raw)
       if (!payload) return
-      if (payload.sessionId && payload.sessionId !== session.currentSessionId) return
+      if (payload.sessionId && payload.sessionId !== activeConversationSurfaceSessionId) return
       const reason = payload.reason || payload.statusMessage
       const next = payload.nextAction
         ? t("chat.browserExtensionRequired.nextAction", {
@@ -4308,7 +4308,7 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [session.currentSessionId, t])
+  }, [activeConversationSurfaceSessionId, t])
 
   useEffect(() => {
     const unlisten = getTransport().listen("mac_control:frame", (raw) => {
@@ -5149,7 +5149,7 @@ export default function ChatScreen({
           )}
 
           <BrowserExtensionNudge
-            sessionId={session.currentSessionId}
+            sessionId={activeConversationSurfaceSessionId}
             onOpenSettings={onOpenSettings}
           />
 
@@ -5696,7 +5696,7 @@ export default function ChatScreen({
               close-only by user, then switchable from the title bar. */}
               {rightPanelVisibility.browser && (
                 <BrowserPanel
-                  sessionId={session.currentSessionId}
+                  sessionId={activeConversationSurfaceSessionId}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "browser"}
                   animateOnMount={animateRightPanelOnMount}
                   onClose={() => {
@@ -5712,7 +5712,7 @@ export default function ChatScreen({
               open panel and must not re-open after a session switch. */}
               {rightPanelVisibility["mac-control"] && (
                 <MacControlPanel
-                  sessionId={session.currentSessionId}
+                  sessionId={activeConversationSurfaceSessionId}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "mac-control"}
                   animateOnMount={animateRightPanelOnMount}
                   onClose={() => {
@@ -5889,7 +5889,7 @@ export default function ChatScreen({
                 }
               }}
               onFocus={focusFloatingPanel}
-              sessionId={session.currentSessionId}
+              sessionId={activeConversationSurfaceSessionId}
             />
           </div>
         </div>
