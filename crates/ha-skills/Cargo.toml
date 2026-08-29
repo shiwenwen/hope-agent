@@ -1,6 +1,6 @@
 [package]
 name = "ha-skills"
-version = "0.36.1"
+version = "0.37.0"
 description = "Hope Agent skill machinery — bundled-skill extraction, SKILL.md discovery/parsing, authoring, auto-review pipeline, @skill mentions, fork dispatch, the `skill` tool"
 license.workspace = true
 authors.workspace = true
