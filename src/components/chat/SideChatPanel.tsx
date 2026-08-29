@@ -173,10 +173,10 @@ export default function SideChatPanel({
     if (!seed || seed.nonce <= consumedSeedRef.current || session.currentSessionId !== sessionId) {
       return
     }
-    consumedSeedRef.current = seed.nonce
     let cancelled = false
     queueMicrotask(() => {
-      if (cancelled) return
+      if (cancelled || seed.nonce <= consumedSeedRef.current) return
+      consumedSeedRef.current = seed.nonce
       if (seed.quote) handleMessageQuote(seed.quote)
       if (seed.prompt?.trim()) {
         void handleSend(seed.prompt.trim())

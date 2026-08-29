@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { StrictMode } from "react"
 import { act, cleanup, render } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
@@ -175,6 +176,36 @@ afterEach(() => {
 })
 
 describe("SideChatPanel slash actions", () => {
+  test("consumes a seeded prompt exactly once after StrictMode effect replay", async () => {
+    const quote = {
+      messageId: 42,
+      role: "assistant" as const,
+      content: "quoted answer",
+    }
+
+    render(
+      <StrictMode>
+        <SideChatPanel
+          sessionId="side-1"
+          seed={{ nonce: 1, prompt: "follow up", quote }}
+          onClose={vi.fn()}
+          onDeleted={vi.fn()}
+          onPreviewFile={vi.fn()}
+        />
+      </StrictMode>,
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(streamShape.handleSend).toHaveBeenCalledOnce()
+    expect(streamShape.handleSend).toHaveBeenCalledWith("follow up")
+    expect(streamShape.setPendingMessageQuotes).toHaveBeenCalledOnce()
+    const appendQuote = streamShape.setPendingMessageQuotes.mock.calls[0]?.[0]
+    expect(appendQuote([])).toEqual([quote])
+  })
+
   test("renders the no-argument /model picker and lets it switch models", async () => {
     render(
       <SideChatPanel
