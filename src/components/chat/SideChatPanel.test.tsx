@@ -18,6 +18,7 @@ const componentCapture = vi.hoisted(() => ({
   onCommandAction: undefined as ((result: unknown) => unknown) | undefined,
   onSwitchModel: undefined as ((providerId: string, modelId: string) => unknown) | undefined,
   onContinue: undefined as (() => unknown) | undefined,
+  onResume: undefined as ((message: string) => unknown) | undefined,
   autonomyPaused: undefined as boolean | undefined,
   workingDir: undefined as string | null | undefined,
   enableGoalAndPlanModes: undefined as boolean | undefined,
@@ -67,6 +68,7 @@ vi.mock("@/components/chat/ChatInput", () => ({
 
 vi.mock("@/components/chat/MessageList", () => ({
   default: (props: {
+    onResume?: (message: string) => unknown
     onSwitchModel?: (providerId: string, modelId: string) => unknown
     pendingQuestionGroup?: unknown
     onQuestionSubmitted?: () => unknown
@@ -75,6 +77,7 @@ vi.mock("@/components/chat/MessageList", () => ({
     onViewChildSession?: (sessionId: string) => unknown
     subagentRunsSnapshot?: unknown
   }) => {
+    componentCapture.onResume = props.onResume
     componentCapture.onSwitchModel = props.onSwitchModel
     componentCapture.pendingQuestionGroup = props.pendingQuestionGroup
     componentCapture.onQuestionSubmitted = props.onQuestionSubmitted
@@ -195,6 +198,7 @@ afterEach(() => {
   componentCapture.onCommandAction = undefined
   componentCapture.onSwitchModel = undefined
   componentCapture.onContinue = undefined
+  componentCapture.onResume = undefined
   componentCapture.autonomyPaused = undefined
   componentCapture.workingDir = undefined
   componentCapture.enableGoalAndPlanModes = undefined
@@ -212,6 +216,26 @@ afterEach(() => {
 })
 
 describe("SideChatPanel slash actions", () => {
+  test("continues a round-limited side turn through its own send handler", async () => {
+    const onActivity = vi.fn()
+    render(
+      <SideChatPanel
+        sessionId="side-1"
+        isViewVisible
+        onClose={vi.fn()}
+        onDeleted={vi.fn()}
+        onPreviewFile={vi.fn()}
+        onActivity={onActivity}
+      />,
+    )
+    expect(componentCapture.onResume).toBeTypeOf("function")
+    await act(async () => {
+      componentCapture.onResume?.("Continue the remaining work")
+    })
+    expect(streamShape.handleSend).toHaveBeenCalledWith("Continue the remaining work")
+    expect(onActivity).toHaveBeenCalledOnce()
+  })
+
   test("consumes a seeded prompt exactly once after StrictMode effect replay", async () => {
     const quote = {
       messageId: 42,

@@ -609,7 +609,7 @@ Fork **不**复制 active Goal、Loop schedule、Workflow run、Task progress、
 - 侧聊是 `SessionKind::Side`，使用自己的 `session_id`、消息账本、审批、流式恢复与 TurnKernel 准入；前端只增加一个 `ui_surface=side_chat` 的产品路由标记，不另造模型调用或流式协议。
 - `forked_from_session_id` 是主会话归属关系，`parent_session_id` 仍只留给 Subagent。侧聊只能从非无痕、非 Cron、非 IM、非子会话的 `kind=regular` 顶层会话创建。
 - 侧聊不进入主侧边栏、普通未读、全局搜索或 `/sessions` 选择器；唯一发现入口是 `list_side_chats(source_id)`。这保证它不会污染普通会话空间，也避免为未读系统增加第三个域。
-- 侧聊继承创建瞬间的 Agent、模型、项目、工作目录、权限、沙箱、执行与工作流配置；之后独立演进，不共享 Goal、Workflow、审批或后台作业等运行态。
+- 侧聊继承创建瞬间的 Agent、模型、项目、工作目录、权限、沙箱、执行与工作流配置，以及会话级记忆策略、感知覆盖配置和知识空间绑定（保留原读写权限）；之后独立演进，不共享 Goal、Workflow、审批或后台作业等运行态。
 - 主会话是侧聊的生命周期所有者：永久删除主会话会原子删除其全部活跃与已归档侧聊；普通 Fork 仍是独立的一等会话，不随来源删除。
 
 ### 主对话运行中的快照

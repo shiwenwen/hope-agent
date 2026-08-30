@@ -317,6 +317,9 @@ export default function SideChatPanel({
           onViewChildSession={onViewChildSession}
           subagentRunsSnapshot={subagentRunsSnapshot}
           onAtBottomChange={setMessageTailVisible}
+          onResume={(message) => {
+            void handleSend(message)
+          }}
         />
 
         <ApprovalDialog

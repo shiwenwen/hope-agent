@@ -3441,6 +3441,12 @@ impl SessionDB {
 
             if mode == ForkMode::SideChat {
                 tx.execute(
+                    "UPDATE sessions SET awareness_config_json = (
+                        SELECT awareness_config_json FROM sessions WHERE id = ?1
+                     ) WHERE id = ?2",
+                    params![source_session_id, new_session_id],
+                )?;
+                tx.execute(
                     "INSERT INTO session_memory_policy (
                         session_id, use_memories, contribute_to_memories, updated_at
                      )
@@ -3448,6 +3454,25 @@ impl SessionDB {
                      FROM session_memory_policy WHERE session_id = ?3",
                     params![new_session_id, now, source_session_id],
                 )?;
+                // A bare kernel/test database need not have the optional KB
+                // registry yet. If present, preserve only this source's explicit
+                // bindings; project bindings still follow the copied project_id.
+                let has_knowledge_bindings: bool = tx.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM sqlite_master
+                         WHERE type = 'table' AND name = 'session_knowledge_bases'
+                     )",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if has_knowledge_bindings {
+                    tx.execute(
+                        "INSERT INTO session_knowledge_bases (session_id, kb_id, access, created_at)
+                         SELECT ?1, kb_id, access, ?2 FROM session_knowledge_bases
+                          WHERE session_id = ?3",
+                        params![new_session_id, chrono::Utc::now().timestamp_millis(), source_session_id],
+                    )?;
+                }
             }
 
             tx.execute(
@@ -9702,6 +9727,9 @@ mod tests {
         };
         db.set_memory_policy(&source.id, source_memory_policy)
             .expect("restrict source memory policy");
+        let source_awareness = r#"{"enabled":false,"mode":"structured","maxSessions":2}"#;
+        db.set_session_awareness_config_json(&source.id, Some(source_awareness))
+            .expect("set source awareness override");
 
         let side = db.create_side_chat(&source.id).expect("create side chat");
         assert_eq!(side.kind, SessionKind::Side);
@@ -9717,6 +9745,12 @@ mod tests {
             db.get_memory_policy(&side.id)
                 .expect("load side memory policy"),
             source_memory_policy
+        );
+        assert_eq!(
+            db.get_session_awareness_config_json(&side.id)
+                .expect("load side awareness override")
+                .as_deref(),
+            Some(source_awareness)
         );
         assert_eq!(
             side.forked_from_session_id.as_deref(),
@@ -9778,6 +9812,62 @@ mod tests {
         assert_eq!(empty_side.kind, SessionKind::Side);
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_chat_copies_only_source_knowledge_bindings_with_exact_access() {
+        use crate::knowledge::{CreateKnowledgeBaseInput, KbAccess, KnowledgeRegistry};
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = std::sync::Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        ensure_channel_conversations_table(&db);
+        let registry = KnowledgeRegistry::new(db.clone());
+        registry.migrate().expect("initialize knowledge registry");
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("source session");
+        let other = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("unrelated session");
+        for (name, owner, access) in [
+            ("Read reference", &source.id, KbAccess::Read),
+            ("Writable notes", &source.id, KbAccess::Write),
+            ("Unrelated notes", &other.id, KbAccess::Write),
+        ] {
+            let kb = registry
+                .create(CreateKnowledgeBaseInput {
+                    name: name.to_string(),
+                    emoji: None,
+                    root_dir: None,
+                })
+                .expect("create knowledge space");
+            registry
+                .attach_session(owner, &kb.id, access)
+                .expect("attach knowledge space");
+        }
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        let mut expected = registry
+            .list_session_attachments(&source.id)
+            .expect("source bindings");
+        expected.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut actual = registry
+            .list_session_attachments(&side.id)
+            .expect("side bindings");
+        actual.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 2);
+        registry
+            .detach_session(&source.id, &expected[0].0)
+            .expect("change source binding");
+        assert_eq!(
+            registry
+                .list_session_attachments(&side.id)
+                .expect("independent bindings")
+                .len(),
+            2
+        );
     }
 
     #[test]
