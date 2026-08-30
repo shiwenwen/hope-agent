@@ -259,6 +259,8 @@ Files / Canvas 独立窗口的 handle 保持在原组件内。关闭顶部 Files
 
 普通会话切换时，renderer 缓存以下会话级视图状态：安全标签集合、标签顺序、活动标签、工作台收起状态、文件预览集合以及 Browser / Mac / Workspace / Jobs 的 dismissed 状态。返回原会话时恢复这些状态。
 
+浏览器与 Mac 镜像的显示、关闭状态独立由 `useMirrorPanelSessionScope` 按当前主对话或侧聊的真实会话标识保存；父会话工作台缓存不重复保存这两项。切换对话面会关闭旧悬浮镜像，草稿转正保留自身状态，无痕状态不缓存。
+
 草稿会话用 `__draft__` 作 scope key。**首条消息把草稿变成真会话时是重命名、不是切换**：`session_created` 经 `onSessionPromoted` 把工作台缓存、标签顺序与两个文件 scope 一起改址（[`useScopedTabState`](../../../src/components/chat/files/useScopedTabState.ts) 的 `renameScope`）。当成普通切换处理会有两个后果——回合一开始所有已开文件标签凭空消失，而遗留的 `__draft__` 桶会在下一次「新建对话」里被恢复出来，预览还指着上一个会话的工作目录。
 
 Browser / Mac 浮窗在会话切换时仍关闭。PR 是 HEAD / branch 相关网络状态，切换时关闭并由目标会话重新打开。文件 target 保存原 provenance，不能重绑定到目标会话。

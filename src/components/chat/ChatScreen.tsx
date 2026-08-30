@@ -122,7 +122,7 @@ import {
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
-import { useBrowserPanelSessionScope } from "./hooks/useBrowserPanelSessionScope"
+import { useMirrorPanelSessionScope } from "./hooks/useMirrorPanelSessionScope"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import {
@@ -404,13 +404,11 @@ interface MacControlFrameOpenHint {
 
 interface RestorableWorkbenchSessionState {
   workspace: boolean
-  macControl: boolean
   subagent: boolean
   activePanel: ExclusiveRightPanel | null
   collapsed: boolean
   dismissed: {
     workspace: boolean
-    macControl: boolean
   }
 }
 
@@ -3558,12 +3556,22 @@ export default function ChatScreen({
     closeFloating: closeFloatingPanel,
     focusFloating: focusFloatingPanel,
   } = useFloatingPanels()
-  const promoteBrowserPanelSession = useBrowserPanelSessionScope({
+  const promoteBrowserPanelSession = useMirrorPanelSessionScope({
+    panel: "browser",
     sessionId: activeConversationSurfaceSessionId,
     incognito: incognitoEnabled,
     visible: showBrowserPanel,
     setVisible: setShowBrowserPanel,
     dismissedRef: browserPanelDismissedRef,
+    closeFloating: closeFloatingPanel,
+  })
+  const promoteMacControlPanelSession = useMirrorPanelSessionScope({
+    panel: "mac-control",
+    sessionId: activeConversationSurfaceSessionId,
+    incognito: incognitoEnabled,
+    visible: showMacControlPanel,
+    setVisible: setShowMacControlPanel,
+    dismissedRef: macControlPanelDismissedRef,
     closeFloating: closeFloatingPanel,
   })
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
@@ -4225,6 +4233,7 @@ export default function ChatScreen({
   // chat — pointing at the previous chat's working dir.
   sessionPromotedRef.current = (sessionId: string) => {
     promoteBrowserPanelSession(sessionId)
+    promoteMacControlPanelSession(sessionId)
     promoteBackgroundJobsPanelSession(sessionId)
     const previousKey = activeWorkbenchSessionRef.current
     if (previousKey === sessionId) return
@@ -4253,13 +4262,11 @@ export default function ChatScreen({
     if (!leavingIncognito) {
       workbenchSessionCacheRef.current.set(previousKey, {
         workspace: showWorkspacePanel,
-        macControl: showMacControlPanel,
         subagent: showSubagentPanel,
         activePanel: activeExclusiveRightPanel,
         collapsed: rightPanelCollapsed,
         dismissed: {
           workspace: workspacePanelDismissedRef.current,
-          macControl: macControlPanelDismissedRef.current,
         },
       })
     }
@@ -4268,10 +4275,6 @@ export default function ChatScreen({
     activeWorkbenchSessionRef.current = nextKey
     activeWorkbenchIncognitoRef.current = incognitoEnabled
     workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
-    macControlPanelDismissedRef.current = restore?.dismissed.macControl ?? false
-    // Frames are session-scoped — close floating mirrors on session switch.
-    closeFloatingPanel("mac-control")
-    setShowMacControlPanel(restore?.macControl ?? false)
     setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
     setPullRequestExpectedUrl(null)
@@ -4292,11 +4295,9 @@ export default function ChatScreen({
     }
   }, [
     activeExclusiveRightPanel,
-    closeFloatingPanel,
     incognitoEnabled,
     rightPanelCollapsed,
     session.currentSessionId,
-    showMacControlPanel,
     showSubagentPanel,
     showWorkspacePanel,
     switchFilePreviewScope,

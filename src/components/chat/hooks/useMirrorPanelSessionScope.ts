@@ -2,24 +2,26 @@ import { useCallback, useLayoutEffect, useRef, type Dispatch, type RefObject, ty
 
 const DRAFT_SCOPE = "__draft__"
 
-interface BrowserPanelScopeOptions {
+interface MirrorPanelScopeOptions {
+  panel: "browser" | "mac-control"
   sessionId: string | null
   incognito: boolean
   visible: boolean
   setVisible: Dispatch<SetStateAction<boolean>>
   dismissedRef: RefObject<boolean>
-  closeFloating: (panel: "browser") => void
+  closeFloating: (panel: "browser" | "mac-control") => void
 }
 
-/** Browser frames belong to the active conversation, including embedded side chats. */
-export function useBrowserPanelSessionScope({
+/** Each mirror belongs to the active conversation, including embedded side chats. */
+export function useMirrorPanelSessionScope({
+  panel,
   sessionId,
   incognito,
   visible,
   setVisible,
   dismissedRef,
   closeFloating,
-}: BrowserPanelScopeOptions) {
+}: MirrorPanelScopeOptions) {
   const cacheRef = useRef(new Map<string, { visible: boolean; dismissed: boolean }>())
   const activeScopeRef = useRef({ key: DRAFT_SCOPE, incognito: false })
 
@@ -34,8 +36,8 @@ export function useBrowserPanelSessionScope({
     activeScopeRef.current = { key, incognito }
     dismissedRef.current = restore?.dismissed ?? false
     setVisible(restore?.visible ?? false)
-    closeFloating("browser")
-  }, [closeFloating, dismissedRef, incognito, sessionId, setVisible, visible])
+    closeFloating(panel)
+  }, [closeFloating, dismissedRef, incognito, panel, sessionId, setVisible, visible])
 
   return useCallback((sessionId: string) => {
     if (activeScopeRef.current.key !== DRAFT_SCOPE) return
