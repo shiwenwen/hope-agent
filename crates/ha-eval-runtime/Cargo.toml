@@ -1,6 +1,6 @@
 [package]
 name = "ha-eval-runtime"
-version = "0.37.0"
+version = "0.38.0"
 description = "Hope Agent evaluation runtime — coding eval fixture runner, evaluation orchestration store, context retrieval ranking"
 license.workspace = true
 authors.workspace = true
