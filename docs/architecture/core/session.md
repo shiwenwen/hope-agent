@@ -624,6 +624,8 @@ Tauri 的 `create_side_chat_cmd` / `list_side_chats_cmd` 与 HTTP 的 `POST|GET 
 
 侧聊暂不承载计划审批：`enter_plan_mode` 与 `submit_plan` 在模型工具定义和执行层同时禁用，普通文本讨论计划不受影响。入口条独立显示运行、完成与失败状态；HTTP 重连或事件缺失通知后重新读取权威流状态，恢复断线期间的终态，用户打开侧聊后确认该轮结果。
 
+浏览器镜像的显示与关闭状态按当前对话面对应的真实会话标识分别保存，切换主对话和侧聊时独立恢复并关闭旧悬浮镜像；无痕状态不进入缓存，草稿落库时迁移原有面板归属。
+
 ## 无痕会话（Incognito）
 
 `sessions.incognito` 是无痕态的**单一真相源**。无痕会话除关闭被动 AI 行为外，关闭即焚——不进侧边栏、不进全局 FTS、不进 Dashboard 统计。它与 Project、IM Channel、durable Goal / Workflow 控制面**互斥**。

@@ -120,6 +120,7 @@ import {
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
+import { useBrowserPanelSessionScope } from "./hooks/useBrowserPanelSessionScope"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import {
@@ -398,7 +399,6 @@ interface MacControlFrameOpenHint {
 
 interface RestorableWorkbenchSessionState {
   workspace: boolean
-  browser: boolean
   macControl: boolean
   backgroundJobs: boolean
   subagent: boolean
@@ -406,7 +406,6 @@ interface RestorableWorkbenchSessionState {
   collapsed: boolean
   dismissed: {
     workspace: boolean
-    browser: boolean
     macControl: boolean
     backgroundJobs: boolean
   }
@@ -782,7 +781,7 @@ export default function ChatScreen({
   // Browser live-mirror panel. Auto-opens on the **first** `browser:frame`
   // push of a session. After the user manually closes it, further frames in
   // the same session never re-pop the panel — `browserPanelDismissedRef`
-  // tracks the dismissal until a session switch resets it.
+  // is saved independently for each main/side conversation surface.
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
@@ -3541,6 +3540,14 @@ export default function ChatScreen({
     closeFloating: closeFloatingPanel,
     focusFloating: focusFloatingPanel,
   } = useFloatingPanels()
+  const promoteBrowserPanelSession = useBrowserPanelSessionScope({
+    sessionId: activeConversationSurfaceSessionId,
+    incognito: incognitoEnabled,
+    visible: showBrowserPanel,
+    setVisible: setShowBrowserPanel,
+    dismissedRef: browserPanelDismissedRef,
+    closeFloating: closeFloatingPanel,
+  })
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
@@ -4171,6 +4178,7 @@ export default function ChatScreen({
   // orphaned `__draft__` bucket would otherwise be restored into the next new
   // chat — pointing at the previous chat's working dir.
   sessionPromotedRef.current = (sessionId: string) => {
+    promoteBrowserPanelSession(sessionId)
     const previousKey = activeWorkbenchSessionRef.current
     if (previousKey === sessionId) return
     activeWorkbenchSessionRef.current = sessionId
@@ -4198,7 +4206,6 @@ export default function ChatScreen({
     if (!leavingIncognito) {
       workbenchSessionCacheRef.current.set(previousKey, {
         workspace: showWorkspacePanel,
-        browser: showBrowserPanel,
         macControl: showMacControlPanel,
         backgroundJobs: showBackgroundJobsPanel,
         subagent: showSubagentPanel,
@@ -4206,7 +4213,6 @@ export default function ChatScreen({
         collapsed: rightPanelCollapsed,
         dismissed: {
           workspace: workspacePanelDismissedRef.current,
-          browser: browserPanelDismissedRef.current,
           macControl: macControlPanelDismissedRef.current,
           backgroundJobs: backgroundJobsPanelDismissedRef.current,
         },
@@ -4217,15 +4223,12 @@ export default function ChatScreen({
     activeWorkbenchSessionRef.current = nextKey
     activeWorkbenchIncognitoRef.current = incognitoEnabled
     workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
-    browserPanelDismissedRef.current = restore?.dismissed.browser ?? false
     macControlPanelDismissedRef.current = restore?.dismissed.macControl ?? false
     backgroundJobsPanelDismissedRef.current = restore?.dismissed.backgroundJobs ?? false
     suppressNextBackgroundJobsActivationRef.current = false
     previousBackgroundRunningCountRef.current = 0
     // Frames are session-scoped — close floating mirrors on session switch.
-    closeFloatingPanel("browser")
     closeFloatingPanel("mac-control")
-    setShowBrowserPanel(restore?.browser ?? false)
     setShowMacControlPanel(restore?.macControl ?? false)
     setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
@@ -4253,7 +4256,6 @@ export default function ChatScreen({
     rightPanelCollapsed,
     session.currentSessionId,
     showBackgroundJobsPanel,
-    showBrowserPanel,
     showMacControlPanel,
     showSubagentPanel,
     showWorkspacePanel,
