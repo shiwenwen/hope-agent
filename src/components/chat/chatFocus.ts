@@ -1,7 +1,10 @@
+import type { PetNavigationTarget } from "@/types/pet"
+
 export const CHAT_FOCUS_EVENT = "hope:chat-focus"
 
 export interface ChatFocusTarget {
   sessionId: string
+  sideSessionId?: string
   targetMessageId?: number
   controlTarget?: {
     kind: string
@@ -34,6 +37,9 @@ function normalizeTarget(value: unknown): ChatFocusTarget | null {
       : undefined
   return {
     sessionId: raw.sessionId,
+    ...(typeof raw.sideSessionId === "string" && raw.sideSessionId.length > 0
+      ? { sideSessionId: raw.sideSessionId }
+      : {}),
     ...(typeof messageId === "number" && Number.isSafeInteger(messageId) && messageId > 0
       ? { targetMessageId: messageId }
       : {}),
@@ -54,4 +60,17 @@ export function subscribeChatFocus(handler: (target: ChatFocusTarget) => void): 
   }
   window.addEventListener(CHAT_FOCUS_EVENT, listener)
   return () => window.removeEventListener(CHAT_FOCUS_EVENT, listener)
+}
+
+export function chatFocusTargetForPetNavigation(
+  target: PetNavigationTarget,
+): ChatFocusTarget | null {
+  if (target.kind === "regular") return { sessionId: target.sessionId }
+  if (target.kind === "side") {
+    return {
+      sessionId: target.sourceSessionId,
+      sideSessionId: target.sessionId,
+    }
+  }
+  return null
 }

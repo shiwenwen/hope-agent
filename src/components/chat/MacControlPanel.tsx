@@ -22,7 +22,7 @@ export default function MacControlPanel({
     <RightPanelShell
       collapsed={collapsed}
       animateOnMount={animateOnMount}
-      contentKey="mac-control"
+      contentKey={`mac-control:${sessionId ?? ""}`}
     >
       <MacControlPanelContent
         variant="docked"

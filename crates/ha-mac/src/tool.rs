@@ -30,10 +30,11 @@ pub(crate) async fn tool_mac_control(
             )?)
         }
         "snapshot" => {
-            let request =
+            let mut request =
                 serde_json::from_value::<crate::MacControlSnapshotRequest>(
                     args.clone(),
                 )?;
+            request.session_id = ctx.session_id.clone();
             Ok(serde_json::to_string_pretty(
                 &crate::snapshot(request).await,
             )?)
@@ -123,9 +124,10 @@ pub(crate) async fn tool_mac_control(
             )?)
         }
         "visual" => {
-            let request = serde_json::from_value::<crate::MacControlVisualRequest>(
+            let mut request = serde_json::from_value::<crate::MacControlVisualRequest>(
                 args.clone(),
             )?;
+            request.session_id = ctx.session_id.clone();
             let response = crate::visual(request).await;
             Ok(format_visual_response(&response)?)
         }

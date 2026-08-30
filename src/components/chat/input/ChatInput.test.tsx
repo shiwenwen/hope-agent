@@ -848,6 +848,25 @@ describe("ChatInput", () => {
     expect(screen.getByText("chat.loopMode.restricted")).toBeTruthy()
   })
 
+  test("suppresses unsupported Goal and Plan modes without swallowing slash input", () => {
+    const onSend = vi.fn()
+    const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
+    renderChatInput({
+      input: "/goal verify the side chat",
+      onSend,
+      onGoalModeSubmit,
+      onEnterPlanMode: vi.fn(),
+      enableGoalAndPlanModes: false,
+    })
+
+    expect(screen.queryByRole("button", { name: "chat.goalMode.enter" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "planMode.enter" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
+
+    expect(onSend).toHaveBeenCalledOnce()
+    expect(onGoalModeSubmit).not.toHaveBeenCalled()
+  })
+
   test("places model submenus below when neither horizontal side fits and space below is larger", async () => {
     const originalInnerWidth = window.innerWidth
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
@@ -988,6 +1007,38 @@ describe("ChatInput", () => {
     expect(onPermissionModeChange).not.toHaveBeenCalled()
   })
 
+  test.each([
+    [false, false],
+    [true, true],
+  ])("shows /side only when the chat surface supports it", async (enabled, expectedVisible) => {
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "list_slash_commands") {
+        return Promise.resolve([
+          {
+            name: "help",
+            category: "utility",
+            descriptionKey: "slashCommands.help.description",
+            hasArgs: false,
+          },
+          {
+            name: "side",
+            category: "session",
+            descriptionKey: "slashCommands.side.description",
+            hasArgs: true,
+            argsOptional: true,
+          },
+        ])
+      }
+      return Promise.resolve([])
+    })
+
+    renderChatInput({ input: "/", enableSideChatCommand: enabled })
+
+    await waitFor(() => expect(screen.getByText("/help")).toBeTruthy())
+    expect(screen.queryByText("/side") !== null).toBe(expectedVisible)
+  })
+
   test("syncs workflow mode status from slash command events", async () => {
     transportMock.call.mockImplementation((command: string) => {
       if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
@@ -1021,6 +1072,19 @@ describe("ChatInput", () => {
 
     expect(await screen.findByText("自动")).toBeTruthy()
     expect(screen.getByText("chat.workflowMode.activeOnDetail")).toBeTruthy()
+  })
+
+  test("disables workflow controls and ignores mode events on embedded surfaces", () => {
+    renderChatInput({ currentSessionId: "side", enableWorkflowMode: false, draftWorkflowMode: "on" })
+    expect(transportMock.call).not.toHaveBeenCalledWith("get_workflow_mode", { sessionId: "side" })
+    expect(screen.queryByRole("button", { name: "工作流模式" })).toBeNull()
+    act(() => {
+      window.dispatchEvent(new CustomEvent("hope-agent:workflow-mode-changed", {
+        detail: { sessionId: "side", mode: "on" },
+      }))
+    })
+    expect(screen.queryByText("chat.workflowMode.active")).toBeNull()
+    expect(transportMock.call).not.toHaveBeenCalledWith("set_workflow_mode", expect.anything())
   })
 
   test("submits the current draft through goal mode instead of normal send", async () => {

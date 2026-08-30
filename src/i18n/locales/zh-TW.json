@@ -383,6 +383,15 @@
       "failed": "無法在新會話中繼續",
       "sourceFallback": "原會話"
     },
+    "sideChat": {
+      "label": "側聊",
+      "untitled": "側聊 {{index}}",
+      "new": "新增側聊",
+      "close": "關閉側聊面板",
+      "nonBlocking": "獨立提問，不會中斷主對話",
+      "askSelection": "在側聊中提問",
+      "createFailed": "無法建立側聊"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
       "captureFailed": "截圖失敗，等待下一幀",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "開始新對話"
+    },
+    "side": {
+      "description": "發起側聊且不中斷主對話"
     },
     "noResults": "沒有匹配的命令",
     "permission": {

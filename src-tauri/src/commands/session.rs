@@ -65,6 +65,30 @@ pub async fn fork_session_cmd(
 }
 
 #[tauri::command]
+pub async fn create_side_chat_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMeta, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.create_side_chat(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_side_chats_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionMeta>, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.list_side_chats(&session_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn list_sessions_cmd(
     agent_id: Option<String>,
     project_id: Option<String>,

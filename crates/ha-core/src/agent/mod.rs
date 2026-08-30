@@ -3702,6 +3702,18 @@ impl AssistantAgent {
         tool_schemas: &mut Vec<serde_json::Value>,
         provider: crate::tool_defs::ToolProvider,
     ) {
+        if !crate::plan::session_supports_plan_tools(
+            self.session_id.as_deref(),
+            self.session_db.as_deref(),
+        ) {
+            tool_schemas.retain(|schema| {
+                !matches!(
+                    extract_tool_name(schema),
+                    crate::tool_defs::TOOL_ENTER_PLAN_MODE | crate::tool_defs::TOOL_SUBMIT_PLAN
+                )
+            });
+            return;
+        }
         let plan_mode = self.plan_agent_mode.load();
         match &**plan_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => {
@@ -3825,7 +3837,10 @@ impl AssistantAgent {
         // inject it only when this session explicitly enables Workflow Mode.
         // The execution layer re-checks the persisted mode as defense-in-depth.
         if let Some(meta) = self.lookup_session_meta() {
-            if meta.workflow_mode.enabled() && !meta.incognito {
+            if meta.workflow_mode.enabled()
+                && !meta.incognito
+                && meta.kind != crate::session::SessionKind::Side
+            {
                 schemas.push(tools::get_workflow_tool().to_provider_schema(provider));
             }
         }
@@ -4411,6 +4426,7 @@ impl AssistantAgent {
             }
             if let Some(section) = meta
                 .as_ref()
+                .filter(|m| m.kind != crate::session::SessionKind::Side)
                 .map(|m| m.workflow_mode)
                 .unwrap_or_default()
                 .system_prompt_section()
@@ -5444,6 +5460,18 @@ mod tests {
             on_meta.workflow_mode, on_meta.incognito, on_names
         );
         assert!(!has_workflow(&incognito_session.id).0);
+        let side = db
+            .create_side_chat(&on_session.id)
+            .expect("create side chat");
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET workflow_mode = 'on' WHERE id = ?1",
+                rusqlite::params![side.id],
+            )?;
+            Ok(())
+        })
+        .expect("simulate legacy side workflow mode");
+        assert!(!has_workflow(&side.id).0);
     }
 
     #[test]

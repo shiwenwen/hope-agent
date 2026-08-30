@@ -1,6 +1,6 @@
 use crate::config::AppConfig;
 use crate::provider;
-use crate::session::{MessageRole, SessionDB};
+use crate::session::SessionDB;
 use crate::slash_commands::registry;
 use crate::slash_commands::truncate_description;
 use crate::slash_commands::types::{
@@ -15,27 +15,41 @@ use std::sync::Arc;
 /// `IM_DISABLED_COMMANDS` are filtered out and a footer call-out explains the
 /// desktop-only ones.
 pub fn handle_help(session_id: Option<&str>) -> CommandResult {
-    let in_im_channel = is_session_in_im_channel(session_id);
+    let context = session_help_context(session_id);
 
-    let mut commands: Vec<SlashCommandDef> = registry::all_commands();
-    if in_im_channel {
-        commands.retain(|c| !registry::is_im_disabled(&c.name));
-    }
+    let commands = built_in_help_commands(context);
 
-    let cfg = crate::config::cached_config();
-    let working_dir = crate::session::effective_session_working_dir(session_id);
-    let skills = crate::skills_hooks::invocable_skills(
-        &cfg.extra_skills_dirs,
-        &cfg.disabled_skills,
-        working_dir.as_deref().map(std::path::Path::new),
-    );
-    let skills =
-        crate::skills::filter_catalog_eligible_skills(skills, cfg.skill_env_check, &cfg.skill_env);
-    let resolved_skills = crate::slash_commands::resolve_skill_command_names(
-        &skills,
-        crate::slash_commands::builtin_command_names(),
-    );
-    drop(cfg);
+    let (skill_count, skill_rows) = if context.is_side_chat {
+        (0, Vec::new())
+    } else {
+        let cfg = crate::config::cached_config();
+        let working_dir = crate::session::effective_session_working_dir(session_id);
+        let skills = crate::skills_hooks::invocable_skills(
+            &cfg.extra_skills_dirs,
+            &cfg.disabled_skills,
+            working_dir.as_deref().map(std::path::Path::new),
+        );
+        let skills = crate::skills::filter_catalog_eligible_skills(
+            skills,
+            cfg.skill_env_check,
+            &cfg.skill_env,
+        );
+        let resolved_skills = crate::slash_commands::resolve_skill_command_names(
+            &skills,
+            crate::slash_commands::builtin_command_names(),
+        );
+        drop(cfg);
+        let count = resolved_skills.len();
+        let rows = resolved_skills
+            .iter()
+            .take(MAX_SKILLS_INLINE)
+            .map(|entry| {
+                let desc = truncate_description(&entry.skill.description, 80);
+                format!("- `/{}` — {}", entry.typed_name, desc)
+            })
+            .collect();
+        (count, rows)
+    };
 
     let mut lines: Vec<String> = Vec::new();
     lines.push("**Available Commands**".to_string());
@@ -63,23 +77,19 @@ pub fn handle_help(session_id: Option<&str>) -> CommandResult {
         lines.push(String::new());
     }
 
-    if !resolved_skills.is_empty() {
-        lines.push(format!("**Skills** ({})", resolved_skills.len()));
-        const MAX_SKILLS_INLINE: usize = 20;
-        for entry in resolved_skills.iter().take(MAX_SKILLS_INLINE) {
-            let desc = truncate_description(&entry.skill.description, 80);
-            lines.push(format!("- `/{}` — {}", entry.typed_name, desc));
-        }
-        if resolved_skills.len() > MAX_SKILLS_INLINE {
+    if skill_count > 0 {
+        lines.push(format!("**Skills** ({skill_count})"));
+        lines.extend(skill_rows);
+        if skill_count > MAX_SKILLS_INLINE {
             lines.push(format!(
                 "- _… and {} more — open the slash menu to browse all_",
-                resolved_skills.len() - MAX_SKILLS_INLINE
+                skill_count - MAX_SKILLS_INLINE
             ));
         }
         lines.push(String::new());
     }
 
-    if in_im_channel {
+    if context.in_im_channel {
         let disabled: Vec<String> = registry::IM_DISABLED_COMMANDS
             .iter()
             .map(|n| format!("`/{}`", n))
@@ -98,20 +108,40 @@ pub fn handle_help(session_id: Option<&str>) -> CommandResult {
     }
 }
 
-/// Resolve whether `session_id` belongs to an IM-channel session. Returns
-/// `false` (with a `app_warn!`) on transient SessionDB errors so `/help`
-/// always renders something — but a real DB failure is still logged for
-/// post-hoc debugging rather than hidden behind an Option-chain.
-fn is_session_in_im_channel(session_id: Option<&str>) -> bool {
+const MAX_SKILLS_INLINE: usize = 20;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SessionHelpContext {
+    in_im_channel: bool,
+    is_side_chat: bool,
+}
+
+fn built_in_help_commands(context: SessionHelpContext) -> Vec<SlashCommandDef> {
+    let mut commands = registry::all_commands();
+    if context.is_side_chat {
+        commands.retain(|command| registry::is_side_chat_enabled(&command.name));
+    } else if context.in_im_channel {
+        commands.retain(|command| !registry::is_im_disabled(&command.name));
+    }
+    commands
+}
+
+/// Resolve the surface restrictions applied to `/help`. Returns the default
+/// desktop context (with an `app_warn!`) on transient SessionDB errors so help
+/// still renders, while preserving diagnostics for the failed lookup.
+fn session_help_context(session_id: Option<&str>) -> SessionHelpContext {
     let Some(sid) = session_id else {
-        return false;
+        return SessionHelpContext::default();
     };
     let Ok(db) = crate::require_session_db() else {
-        return false;
+        return SessionHelpContext::default();
     };
     match db.get_session(sid) {
-        Ok(Some(meta)) => meta.channel_info.is_some(),
-        Ok(None) => false,
+        Ok(Some(meta)) => SessionHelpContext {
+            in_im_channel: meta.channel_info.is_some(),
+            is_side_chat: meta.kind == crate::session::SessionKind::Side,
+        },
+        Ok(None) => SessionHelpContext::default(),
         Err(e) => {
             crate::app_warn!(
                 "slash_cmd",
@@ -120,7 +150,7 @@ fn is_session_in_im_channel(session_id: Option<&str>) -> bool {
                 sid,
                 e
             );
-            false
+            SessionHelpContext::default()
         }
     }
 }
@@ -494,21 +524,9 @@ pub fn handle_usage(
     session_id: Option<&str>,
 ) -> Result<CommandResult, String> {
     let sid = session_id.ok_or("No active session")?;
-    let messages = session_db
-        .load_session_messages(sid)
+    let (total_in, total_out, turns) = session_db
+        .get_session_token_usage(sid)
         .map_err(|e| e.to_string())?;
-
-    let mut total_in: i64 = 0;
-    let mut total_out: i64 = 0;
-    let mut turns = 0;
-
-    for msg in &messages {
-        if msg.role == MessageRole::Assistant {
-            turns += 1;
-            total_in += msg.tokens_in.unwrap_or(0);
-            total_out += msg.tokens_out.unwrap_or(0);
-        }
-    }
 
     let content = format!(
         "**Token Usage**\n\n- **Input tokens**: {}\n- **Output tokens**: {}\n- **Total**: {}\n- **Turns**: {}",
@@ -877,6 +895,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn side_chat_help_lists_only_executable_commands() {
+        let commands = built_in_help_commands(SessionHelpContext {
+            in_im_channel: false,
+            is_side_chat: true,
+        });
+        assert!(commands.iter().any(|command| command.name == "help"));
+        assert!(commands
+            .iter()
+            .all(|command| registry::is_side_chat_enabled(&command.name)));
+        assert!(!commands.iter().any(|command| command.name == "side"));
+        assert!(!commands.iter().any(|command| command.name == "project"));
+    }
+
+    #[test]
     fn valid_modes_emit_set_action() {
         for (input, expected) in [
             ("default", "default"),
@@ -913,6 +945,39 @@ mod tests {
         assert_eq!(s, "- **Context**: 1k");
         let s = format_context_usage_line(50_000, 200_000);
         assert_eq!(s, "- **Context**: 50k / 200k (25%)");
+    }
+
+    #[test]
+    fn handle_usage_excludes_copied_side_chat_snapshots() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create source");
+        db.append_message(&source.id, &crate::session::NewMessage::user("main prompt"))
+            .expect("append source user");
+        let mut source_assistant = crate::session::NewMessage::assistant("main answer");
+        source_assistant.tokens_in = Some(100);
+        source_assistant.tokens_out = Some(20);
+        db.append_message(&source.id, &source_assistant)
+            .expect("append source assistant");
+
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        db.append_message(&side.id, &crate::session::NewMessage::user("side prompt"))
+            .expect("append side user");
+        let mut side_assistant = crate::session::NewMessage::assistant("side answer");
+        side_assistant.tokens_in = Some(7);
+        side_assistant.tokens_out = Some(3);
+        db.append_message(&side.id, &side_assistant)
+            .expect("append side assistant");
+
+        let result = handle_usage(&db, Some(&side.id)).expect("usage");
+        assert!(result.content.contains("**Input tokens**: 7"));
+        assert!(result.content.contains("**Output tokens**: 3"));
+        assert!(result.content.contains("**Total**: 10"));
+        assert!(result.content.contains("**Turns**: 1"));
     }
 
     #[test]

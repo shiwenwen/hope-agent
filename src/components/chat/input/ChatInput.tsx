@@ -314,6 +314,13 @@ interface ChatInputProps {
   /** Materializes a draft conversation before applying session-scoped modes. */
   onEnsureSession?: () => Promise<string | null>
   onCommandAction?: (result: CommandResult) => void
+  /** Expose `/side` only on surfaces that can reveal the created side conversation. */
+  enableSideChatCommand?: boolean
+  /** Expose the durable Goal and Plan composer modes. Disable on embedded
+   *  surfaces that do not own the corresponding session-scoped controllers. */
+  enableGoalAndPlanModes?: boolean
+  /** Disable on embedded surfaces without workflow status/approval controls. */
+  enableWorkflowMode?: boolean
   // Tool permission mode
   permissionMode: SessionMode
   onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
@@ -547,6 +554,9 @@ export default function ChatInput({
   currentAgentId = DEFAULT_AGENT_ID,
   onEnsureSession,
   onCommandAction,
+  enableSideChatCommand = false,
+  enableGoalAndPlanModes = true,
+  enableWorkflowMode = true,
   permissionMode,
   onPermissionModeChange,
   sandboxMode,
@@ -726,6 +736,7 @@ export default function ChatInput({
     agentId: currentAgentId,
     ensureSession: onEnsureSession,
     bypassLoopCreateOnEnter: !!onLoopModeSubmit,
+    supportsSideChat: enableSideChatCommand,
   }
   const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
   const voice = useVoiceInput(currentSessionId)
@@ -747,8 +758,10 @@ export default function ChatInput({
   }, [activeGoal?.id, activeGoal?.objective, activeGoal?.completionCriteria])
 
   useEffect(() => {
-    if (!currentSessionId || incognitoEnabled) {
-      setWorkflowMode(incognitoEnabled ? "off" : normalizeWorkflowMode(draftWorkflowMode))
+    if (!currentSessionId || incognitoEnabled || !enableWorkflowMode) {
+      setWorkflowMode(
+        incognitoEnabled || !enableWorkflowMode ? "off" : normalizeWorkflowMode(draftWorkflowMode),
+      )
       setWorkflowModeLoading(false)
       setWorkflowModeSaving(null)
       return
@@ -771,9 +784,10 @@ export default function ChatInput({
     return () => {
       cancelled = true
     }
-  }, [currentSessionId, draftWorkflowMode, incognitoEnabled])
+  }, [currentSessionId, draftWorkflowMode, enableWorkflowMode, incognitoEnabled])
 
   useEffect(() => {
+    if (!enableWorkflowMode) return
     const onWorkflowModeChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: string | null; mode?: unknown }>).detail
       if (!detail || detail.sessionId !== currentSessionId) return
@@ -783,7 +797,7 @@ export default function ChatInput({
     }
     window.addEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
     return () => window.removeEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
-  }, [currentSessionId])
+  }, [currentSessionId, enableWorkflowMode])
 
   /**
    * Caret anchor captured at `voice.start()` time. While recording, the
@@ -1280,7 +1294,9 @@ export default function ChatInput({
     // Normalize slash-form Goal drafts even when the Goal composer is already
     // active. Pasting a reusable `/goal ...` prompt after clicking the Goal
     // button must not persist the command prefix as part of the objective.
-    const directGoalObjective = parseGoalUpsertSlashCommand(input)
+    const directGoalObjective = enableGoalAndPlanModes
+      ? parseGoalUpsertSlashCommand(input)
+      : null
     const directLoopPrompt =
       goalComposerMode || !onLoopModeSubmit ? null : parseLoopCreateSlashCommand(input)
     if (goalComposerMode || directGoalObjective) {
@@ -1331,6 +1347,7 @@ export default function ChatInput({
     incognitoEnabled,
     input,
     activeGoal,
+    enableGoalAndPlanModes,
     onGoalModeSubmit,
     onLoopModeSubmit,
     onSend,
@@ -1530,6 +1547,7 @@ export default function ChatInput({
 
   // Shared by the inline Plan toggle and its "+" overflow-menu counterpart.
   const handlePlanToggle = () => {
+    if (!enableGoalAndPlanModes) return
     if (planState === "off" || planState === "completed") {
       setGoalComposerMode(false)
       setLoopComposerMode(false)
@@ -1544,6 +1562,7 @@ export default function ChatInput({
   }
 
   const handleGoalModeToggle = () => {
+    if (!enableGoalAndPlanModes) return
     if (incognitoEnabled) {
       toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
       return
@@ -1577,6 +1596,7 @@ export default function ChatInput({
 
   const updateWorkflowMode = useCallback(
     async (nextMode: WorkflowMode) => {
+      if (!enableWorkflowMode) return
       if (incognitoEnabled) {
         toast.error(t("chat.workflowMode.incognito", "无痕会话不启用工作流模式"))
         return
@@ -1623,6 +1643,7 @@ export default function ChatInput({
     },
     [
       currentSessionId,
+      enableWorkflowMode,
       incognitoEnabled,
       onDraftWorkflowModeChange,
       t,
@@ -1771,7 +1792,7 @@ export default function ChatInput({
     !!autonomyActivity &&
     autonomyActivity.state !== "idle" &&
     autonomyActivity.state !== "terminal"
-  const workflowModeStatusOpen = workflowModeActive && !incognitoEnabled
+  const workflowModeStatusOpen = enableWorkflowMode && workflowModeActive && !incognitoEnabled
   const workflowProgressLineIsFirstContent = activeGoalStripIsFirstContent && !activeGoalStatusOpen
   const standaloneActivityStripIsFirstContent =
     workflowProgressLineIsFirstContent && !effectiveShowWorkflowProgressLine
@@ -1916,19 +1937,21 @@ export default function ChatInput({
             draftAttachments={draftKbAttachments}
             onDraftAttachChange={onDraftKbAttachChange}
           />
-          <button
-            type="button"
-            aria-label={goalToggleTip}
-            className={cn(overflowMenuItemClass, goalComposerMode && "text-emerald-600")}
-            disabled={incognitoEnabled}
-            onClick={() => {
-              setShowOverflowMenu(false)
-              handleGoalModeToggle()
-            }}
-          >
-            <Target className="h-4 w-4 shrink-0" />
-            <span className="truncate">{goalToggleLabel}</span>
-          </button>
+          {enableGoalAndPlanModes && (
+            <button
+              type="button"
+              aria-label={goalToggleTip}
+              className={cn(overflowMenuItemClass, goalComposerMode && "text-emerald-600")}
+              disabled={incognitoEnabled}
+              onClick={() => {
+                setShowOverflowMenu(false)
+                handleGoalModeToggle()
+              }}
+            >
+              <Target className="h-4 w-4 shrink-0" />
+              <span className="truncate">{goalToggleLabel}</span>
+            </button>
+          )}
           {loopModeAvailable && (
             <button
               type="button"
@@ -1943,35 +1966,39 @@ export default function ChatInput({
               <span className="truncate">{loopToggleLabel}</span>
             </button>
           )}
-          <div className="rounded-md border border-border/50 bg-background/35 p-1">
-            <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-              {workflowModeSaving ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-              ) : (
-                <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span className="truncate">{workflowToggleLabel}</span>
-              <span className="ml-auto truncate">{workflowModeLabel(t, workflowMode)}</span>
+          {enableWorkflowMode && (
+            <div className="rounded-md border border-border/50 bg-background/35 p-1">
+              <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                {workflowModeSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">{workflowToggleLabel}</span>
+                <span className="ml-auto truncate">{workflowModeLabel(t, workflowMode)}</span>
+              </div>
+              {renderWorkflowModeMenuItems(() => setShowOverflowMenu(false))}
             </div>
-            {renderWorkflowModeMenuItems(() => setShowOverflowMenu(false))}
-          </div>
-          <button
-            type="button"
-            aria-label={planToggleTip}
-            className={cn(
-              overflowMenuItemClass,
-              planState === "planning" && "text-blue-600",
-              planState === "review" && "text-purple-600",
-              planState === "executing" && "text-green-600",
-            )}
-            onClick={() => {
-              setShowOverflowMenu(false)
-              handlePlanToggle()
-            }}
-          >
-            <ClipboardList className="h-4 w-4 shrink-0" />
-            <span className="truncate">{planToggleLabel}</span>
-          </button>
+          )}
+          {enableGoalAndPlanModes && (
+            <button
+              type="button"
+              aria-label={planToggleTip}
+              className={cn(
+                overflowMenuItemClass,
+                planState === "planning" && "text-blue-600",
+                planState === "review" && "text-purple-600",
+                planState === "executing" && "text-green-600",
+              )}
+              onClick={() => {
+                setShowOverflowMenu(false)
+                handlePlanToggle()
+              }}
+            >
+              <ClipboardList className="h-4 w-4 shrink-0" />
+              <span className="truncate">{planToggleLabel}</span>
+            </button>
+          )}
         </>
       )}
       {permissionCollapsed && (
@@ -3167,24 +3194,26 @@ export default function ChatInput({
                       onDraftAttachChange={onDraftKbAttachChange}
                     />
 
-                    <IconTip label={goalToggleTip}>
-                      <button
-                        aria-label={goalToggleTip}
-                        onClick={handleGoalModeToggle}
-                        disabled={incognitoEnabled}
-                        className={cn(
-                          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
-                          goalComposerMode
-                            ? "text-emerald-600 bg-emerald-500/10"
-                            : activeGoal
-                              ? "text-emerald-600/90 hover:text-emerald-700"
-                              : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        <Target className="h-4 w-4 shrink-0" />
-                        <span>{goalToggleLabel}</span>
-                      </button>
-                    </IconTip>
+                    {enableGoalAndPlanModes && (
+                      <IconTip label={goalToggleTip}>
+                        <button
+                          aria-label={goalToggleTip}
+                          onClick={handleGoalModeToggle}
+                          disabled={incognitoEnabled}
+                          className={cn(
+                            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+                            goalComposerMode
+                              ? "text-emerald-600 bg-emerald-500/10"
+                              : activeGoal
+                                ? "text-emerald-600/90 hover:text-emerald-700"
+                                : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <Target className="h-4 w-4 shrink-0" />
+                          <span>{goalToggleLabel}</span>
+                        </button>
+                      </IconTip>
+                    )}
 
                     {loopModeAvailable && (
                       <IconTip label={loopToggleTip}>
@@ -3206,58 +3235,62 @@ export default function ChatInput({
                       </IconTip>
                     )}
 
-                    <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
-                      <IconTip label={workflowMenuLabel}>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={workflowMenuLabel}
-                            disabled={workflowMenuDisabled}
-                            className={cn(
-                              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
-                              workflowButtonTone,
-                            )}
-                          >
-                            {workflowModeSaving ? (
-                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                            ) : (
-                              <WorkflowModeIcon className="h-4 w-4 shrink-0" />
-                            )}
-                            <span>{workflowButtonLabel}</span>
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                          </button>
-                        </DropdownMenuTrigger>
-                      </IconTip>
-                      <DropdownMenuContent
-                        variant="floating"
-                        className="min-w-[280px]"
-                        side="top"
-                        align="start"
-                        sideOffset={8}
-                      >
-                        {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {enableWorkflowMode && (
+                      <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                        <IconTip label={workflowMenuLabel}>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={workflowMenuLabel}
+                              disabled={workflowMenuDisabled}
+                              className={cn(
+                                "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
+                                workflowButtonTone,
+                              )}
+                            >
+                              {workflowModeSaving ? (
+                                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                              ) : (
+                                <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                              )}
+                              <span>{workflowButtonLabel}</span>
+                              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                            </button>
+                          </DropdownMenuTrigger>
+                        </IconTip>
+                        <DropdownMenuContent
+                          variant="floating"
+                          className="min-w-[280px]"
+                          side="top"
+                          align="start"
+                          sideOffset={8}
+                        >
+                          {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
 
-                    <IconTip label={planToggleTip}>
-                      <button
-                        aria-label={planToggleTip}
-                        onClick={handlePlanToggle}
-                        className={cn(
-                          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                          planState === "planning"
-                            ? "text-blue-600 bg-blue-500/10"
-                            : planState === "review"
-                              ? "text-purple-600 bg-purple-500/10"
-                              : planState === "executing"
-                                ? "text-green-600 bg-green-500/10"
-                                : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        <ClipboardList className="h-4 w-4 shrink-0" />
-                        <span>{planToggleLabel}</span>
-                      </button>
-                    </IconTip>
+                    {enableGoalAndPlanModes && (
+                      <IconTip label={planToggleTip}>
+                        <button
+                          aria-label={planToggleTip}
+                          onClick={handlePlanToggle}
+                          className={cn(
+                            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                            planState === "planning"
+                              ? "text-blue-600 bg-blue-500/10"
+                              : planState === "review"
+                                ? "text-purple-600 bg-purple-500/10"
+                                : planState === "executing"
+                                  ? "text-green-600 bg-green-500/10"
+                                  : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <ClipboardList className="h-4 w-4 shrink-0" />
+                          <span>{planToggleLabel}</span>
+                        </button>
+                      </IconTip>
+                    )}
                   </div>
                 )}
 

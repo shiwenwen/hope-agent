@@ -1382,6 +1382,72 @@ fn insert_result_occurrence(
     Ok(())
 }
 
+/// Copy only references proven to belong to the inherited stable history.
+/// Result objects/occurrences remain immutable; the side gets its own refs.
+pub(super) fn copy_side_chat_result_refs(
+    tx: &rusqlite::Transaction<'_>,
+    source_session_id: &str,
+    target_session_id: &str,
+    message_ids: &std::collections::BTreeMap<i64, i64>,
+    inherited_context: Option<&str>,
+    created_at: &str,
+) -> Result<()> {
+    let mut stmt = tx.prepare(&format!(
+        "{SESSION_RESULT_REF_SELECT} WHERE session_id = ?1
+         AND NOT EXISTS (
+             SELECT 1 FROM tool_result_occurrences occurrence
+             JOIN result_objects object ON object.object_id = occurrence.object_id
+             WHERE occurrence.result_id = session_result_refs.result_id
+               AND object.lifecycle <> 'ready'
+         )"
+    ))?;
+    let references = stmt
+        .query_map(params![source_session_id], row_to_session_result_ref)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for reference in references {
+        if reference
+            .message_id
+            .is_some_and(|id| !message_ids.contains_key(&id))
+            || reference
+                .source_message_id
+                .is_some_and(|id| !message_ids.contains_key(&id))
+        {
+            continue;
+        }
+        if reference.message_id.is_none()
+            && reference.source_message_id.is_none()
+            && !inherited_context.is_some_and(|context| {
+                context
+                    .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '-')
+                    .any(|token| token == reference.result_id)
+            })
+        {
+            continue;
+        }
+        insert_session_result_ref(
+            tx,
+            target_session_id,
+            &NewSessionResultRef {
+                ref_id: format!("rr_{}", uuid::Uuid::new_v4().simple()),
+                result_id: reference.result_id,
+                message_id: reference
+                    .message_id
+                    .and_then(|id| message_ids.get(&id).copied()),
+                provider_block_key: reference.provider_block_key,
+                source_message_id: reference
+                    .source_message_id
+                    .and_then(|id| message_ids.get(&id).copied()),
+                // A parent request plan is not owned by the side session.
+                source_plan_id: None,
+                projection_item_key: None,
+                created_from: ResultRefCreatedFrom::Fork,
+            },
+            created_at,
+        )?;
+    }
+    Ok(())
+}
+
 fn insert_session_result_ref(
     tx: &rusqlite::Transaction<'_>,
     session_id: &str,
@@ -2183,6 +2249,129 @@ mod tests {
             projection_item_key: None,
             created_from: ResultRefCreatedFrom::Direct,
         }
+    }
+
+    #[test]
+    fn side_chat_result_refs_follow_only_the_stable_snapshot() {
+        let (_dir, db) = test_db("side-result-refs.db");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").unwrap();
+        let user = db
+            .append_message(&source.id, &crate::session::NewMessage::user("question"))
+            .unwrap();
+        let tool = db
+            .append_message(
+                &source.id,
+                &crate::session::NewMessage::assistant("result-stable"),
+            )
+            .unwrap();
+        let mut stable_ref = result_ref("stable");
+        stable_ref.message_id = Some(tool);
+        stable_ref.source_message_id = Some(user);
+        stable_ref.provider_block_key = Some("block-1".into());
+        db.record_result_foundation(
+            &source.id,
+            Some(&ready_object("stable")),
+            &occurrence("stable"),
+            &stable_ref,
+        )
+        .unwrap();
+        db.record_result_foundation(
+            &source.id,
+            Some(&ready_object("context")),
+            &occurrence("context"),
+            &result_ref("context"),
+        )
+        .unwrap();
+        let stable_context =
+            serde_json::json!([{"role":"assistant", "content":"result-stable result-context"}])
+                .to_string();
+        db.save_context(&source.id, &stable_context).unwrap();
+        let active_user = db
+            .append_message(&source.id, &crate::session::NewMessage::user("in flight"))
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&source.id, "desktop", None, Some(active_user))
+            .unwrap();
+        let live_message = db
+            .append_message(
+                &source.id,
+                &crate::session::NewMessage::assistant("result-live"),
+            )
+            .unwrap();
+        let mut live_ref = result_ref("live");
+        live_ref.message_id = Some(live_message);
+        db.record_result_foundation(
+            &source.id,
+            Some(&ready_object("live")),
+            &occurrence("live"),
+            &live_ref,
+        )
+        .unwrap();
+        db.record_result_foundation(
+            &source.id,
+            Some(&ready_object("unrelated")),
+            &occurrence("unrelated"),
+            &result_ref("unrelated"),
+        )
+        .unwrap();
+        db.record_result_foundation(
+            &source.id,
+            Some(&ready_object("con")),
+            &occurrence("con"),
+            &result_ref("con"),
+        )
+        .unwrap();
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "INSERT INTO chat_stream_runs (run_id, session_id, source, turn_id, status, base_context_json, started_at)
+                 VALUES ('side-ref-run', ?1, 'desktop', ?2, 'running', ?3, '2026-01-01T00:00:00Z')",
+                params![source.id, turn.id, stable_context],
+            )?;
+            Ok(())
+        }).unwrap();
+        let side = db.create_side_chat(&source.id).unwrap();
+        let copied = db.load_session_messages(&side.id).unwrap();
+        assert_eq!(copied.len(), 2);
+        let refs = db
+            .list_session_result_refs(&side.id, "result-stable")
+            .unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].message_id, Some(copied[1].id));
+        assert_eq!(refs[0].source_message_id, Some(copied[0].id));
+        assert_eq!(refs[0].provider_block_key.as_deref(), Some("block-1"));
+        assert_eq!(refs[0].created_from, ResultRefCreatedFrom::Fork);
+        assert_ne!(refs[0].ref_id, stable_ref.ref_id);
+        assert_eq!(
+            db.list_session_result_refs(&side.id, "result-context")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            db.authorize_model_result_read(&side.id, "result-stable")
+                .unwrap(),
+            db.authorize_model_result_read(&source.id, "result-stable")
+                .unwrap()
+        );
+        for excluded in ["result-live", "result-unrelated", "result-con"] {
+            assert_eq!(
+                db.authorize_model_result_read(&side.id, excluded).unwrap(),
+                ModelResultReadAuthorization::Denied(ModelResultReadDenial::MissingReference)
+            );
+        }
+        // Deleting a source message must not cascade the side's remapped refs.
+        db.with_conn_for_test(|conn| {
+            conn.execute("DELETE FROM messages WHERE id = ?1", [tool])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            db.list_session_result_refs(&side.id, "result-stable")
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

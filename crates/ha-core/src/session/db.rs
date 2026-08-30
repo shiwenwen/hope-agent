@@ -39,6 +39,12 @@ enum SessionDbOpenMode {
     EphemeralTest,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ForkMode {
+    FirstClass,
+    SideChat,
+}
+
 impl SessionDbOpenMode {
     fn configure_writer(self, conn: &Connection) -> Result<()> {
         match self {
@@ -542,6 +548,7 @@ impl SessionDB {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 context_json TEXT,
+                side_snapshot_context_version INTEGER NOT NULL DEFAULT 0,
                 context_revision INTEGER NOT NULL DEFAULT 0,
                 context_run_id TEXT,
                 last_read_message_id INTEGER DEFAULT 0,
@@ -596,6 +603,7 @@ impl SessionDB {
                 tokens_cache_read INTEGER,
                 tool_metadata TEXT,
                 source TEXT,
+                is_side_snapshot INTEGER NOT NULL DEFAULT 0,
                 queue_request_id TEXT,
                 persistence_run_id TEXT,
                 logical_block_seq INTEGER,
@@ -1070,6 +1078,25 @@ impl SessionDB {
         let has_source = conn.prepare("SELECT source FROM messages LIMIT 1").is_ok();
         if !has_source {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
+        }
+
+        // Migration: side chats copy the settled transcript as model context,
+        // but those rows are not new user/model activity. Keep the provenance
+        // on the message so every Dashboard message query can exclude only the
+        // copied prefix while still counting turns created inside the side chat.
+        let has_is_side_snapshot = conn
+            .prepare("SELECT is_side_snapshot FROM messages LIMIT 1")
+            .is_ok();
+        if !has_is_side_snapshot {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN is_side_snapshot INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        if conn
+            .prepare("SELECT side_snapshot_context_version FROM sessions LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN side_snapshot_context_version INTEGER NOT NULL DEFAULT 0;")?;
         }
 
         // Migration: user-facing session forks. Deliberately separate from
@@ -2532,8 +2559,40 @@ impl SessionDB {
         source_session_id: &str,
         source_message_id: Option<i64>,
     ) -> Result<SessionMeta> {
-        self.fork_session_with_boundary(source_session_id, source_message_id, false)
-            .map(|result| result.session)
+        self.fork_session_with_boundary(
+            source_session_id,
+            source_message_id,
+            false,
+            ForkMode::FirstClass,
+        )
+        .map(|result| result.session)
+    }
+
+    /// Create a parent-scoped side conversation from the latest settled source
+    /// transcript. If the source currently has an admitted turn, its user-message
+    /// boundary and all later rows are excluded so the side chat never copies an
+    /// in-flight API round or interrupts the main conversation.
+    pub fn create_side_chat(&self, source_session_id: &str) -> Result<SessionMeta> {
+        let result = self
+            .fork_session_with_boundary(source_session_id, None, false, ForkMode::SideChat)
+            .map(|result| result.session);
+        match &result {
+            Ok(side_chat) => crate::app_info!(
+                "session",
+                "side_chat",
+                "side chat created: source_session_id={} side_session_id={}",
+                source_session_id,
+                side_chat.id
+            ),
+            Err(error) => crate::app_warn!(
+                "session",
+                "side_chat",
+                "side chat creation failed: source_session_id={} error={}",
+                source_session_id,
+                error
+            ),
+        }
+        result
     }
 
     /// Fork a session with a transcript boundary immediately before a source
@@ -2557,8 +2616,12 @@ impl SessionDB {
         source_session_id: &str,
         before_message_id: i64,
     ) -> Result<crate::session::ForkSessionResult> {
-        let result =
-            self.fork_session_with_boundary(source_session_id, Some(before_message_id), true);
+        let result = self.fork_session_with_boundary(
+            source_session_id,
+            Some(before_message_id),
+            true,
+            ForkMode::FirstClass,
+        );
         match &result {
             Ok(forked) => crate::app_info!(
                 "session",
@@ -3029,6 +3092,7 @@ impl SessionDB {
         source_session_id: &str,
         source_message_id: Option<i64>,
         exclude_boundary: bool,
+        mode: ForkMode,
     ) -> Result<crate::session::ForkSessionResult> {
         let new_session_id = uuid::Uuid::new_v4().to_string();
         let fork_result = (|| -> Result<Option<String>> {
@@ -3045,13 +3109,16 @@ impl SessionDB {
                 provider_id,
                 provider_name,
                 model_id,
+                temperature,
                 reasoning_effort,
+                runtime_defaults_initialized,
                 project_id,
                 permission_mode,
                 sandbox_mode,
                 execution_mode,
                 workflow_mode,
                 working_dir,
+                source_context_json,
                 kind,
                 incognito,
                 is_cron,
@@ -3063,12 +3130,15 @@ impl SessionDB {
                 Option<String>,
                 Option<String>,
                 Option<String>,
+                Option<f64>,
                 Option<String>,
+                i64,
                 Option<String>,
                 String,
                 String,
                 String,
                 String,
+                Option<String>,
                 Option<String>,
                 String,
                 i64,
@@ -3077,8 +3147,9 @@ impl SessionDB {
             ) = tx
                 .query_row(
                     "SELECT title, title_source, agent_id, provider_id, provider_name, model_id,
-                        reasoning_effort, project_id, permission_mode, sandbox_mode,
-                        execution_mode, workflow_mode, working_dir, kind, incognito,
+                        temperature, reasoning_effort, runtime_defaults_initialized, project_id,
+                        permission_mode, sandbox_mode,
+                        execution_mode, workflow_mode, working_dir, context_json, kind, incognito,
                         is_cron, parent_session_id
                  FROM sessions WHERE id = ?1",
                     params![source_session_id],
@@ -3101,6 +3172,9 @@ impl SessionDB {
                             row.get(14)?,
                             row.get(15)?,
                             row.get(16)?,
+                            row.get(17)?,
+                            row.get(18)?,
+                            row.get(19)?,
                         ))
                     },
                 )
@@ -3114,12 +3188,123 @@ impl SessionDB {
             }
             // Regular top-level chats and design-space threads are forkable; the
             // latter产物仍是设计线程（补建 design_chat_threads 锚点见下）。cron / 子会话 /
-            // 其它隐藏 kind（knowledge / eval_fixture）与 incognito 仍拒。
-            let is_forkable_kind =
-                kind == SessionKind::Regular.as_str() || kind == SessionKind::Design.as_str();
+            // 其它隐藏 kind（side / knowledge / eval_fixture）与 incognito 仍拒。侧聊只允许
+            // 从普通顶层会话创建，避免专属空间的工具裁剪和归属语义漂移。
+            let is_forkable_kind = match mode {
+                ForkMode::FirstClass => {
+                    kind == SessionKind::Regular.as_str() || kind == SessionKind::Design.as_str()
+                }
+                ForkMode::SideChat => kind == SessionKind::Regular.as_str(),
+            };
             if is_cron != 0 || parent_session_id.is_some() || !is_forkable_kind {
                 anyhow::bail!("only regular top-level sessions can be forked");
             }
+            if mode == ForkMode::SideChat {
+                let has_channel_table: bool = tx.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM sqlite_master
+                         WHERE type = 'table' AND name = 'channel_conversations'
+                     )",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if has_channel_table {
+                    let is_channel: bool = tx.query_row(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM channel_conversations WHERE session_id = ?1
+                         )",
+                        params![source_session_id],
+                        |row| row.get(0),
+                    )?;
+                    if is_channel {
+                        anyhow::bail!("IM channel sessions cannot create side chats");
+                    }
+                }
+            }
+
+            let active_turn_boundary: Option<(String, i64)> = if mode == ForkMode::SideChat {
+                tx.query_row(
+                    "SELECT id, user_message_id FROM chat_turns
+                     WHERE session_id = ?1
+                       AND status IN ('running', 'cancelling')
+                       AND user_message_id IS NOT NULL
+                     ORDER BY user_message_id ASC LIMIT 1",
+                    params![source_session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
+            } else {
+                None
+            };
+            let (source_message_id, exclude_boundary) = active_turn_boundary
+                .as_ref()
+                .map(|(_, user_message_id)| (Some(*user_message_id), true))
+                .unwrap_or((source_message_id, exclude_boundary));
+
+            let side_context_json = if mode == ForkMode::SideChat {
+                match active_turn_boundary.as_ref() {
+                    None => source_context_json,
+                    Some((turn_id, user_message_id)) => {
+                        let persistence_run: Option<(String, Option<String>)> = tx
+                            .query_row(
+                                "SELECT run_id, base_context_json FROM chat_stream_runs
+                                 WHERE session_id = ?1 AND turn_id = ?2
+                                 ORDER BY started_at DESC LIMIT 1",
+                                params![source_session_id, turn_id],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )
+                            .optional()?;
+                        let (run_id, base_context_json) = persistence_run.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "active source turn has no durable context boundary; retry side chat creation"
+                            )
+                        })?;
+                        match base_context_json {
+                            Some(base_context_json) => {
+                                (base_context_json != "null").then_some(base_context_json)
+                            }
+                            None => {
+                                let user_content: String = tx.query_row(
+                                    "SELECT content FROM messages WHERE session_id = ?1 AND id = ?2",
+                                    params![source_session_id, user_message_id],
+                                    |row| row.get(0),
+                                )?;
+                                let checkpoint: String = tx
+                                    .query_row(
+                                        "SELECT context_json FROM chat_stream_context_checkpoints
+                                         WHERE run_id = ?1 AND through_seq = 0
+                                         ORDER BY attempt_no DESC LIMIT 1",
+                                        params![run_id],
+                                        |row| row.get(0),
+                                    )
+                                    .optional()?
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!(
+                                            "active source turn context boundary is not durable yet; retry side chat creation"
+                                        )
+                                    })?;
+                                Some(rewind_provider_context_before_user(
+                                    &checkpoint,
+                                    &user_content,
+                                    true,
+                                )?)
+                            }
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+
+            let side_context_json = side_context_json
+                .map(|json| -> Result<String> {
+                    let mut history: Vec<serde_json::Value> = serde_json::from_str(&json)?;
+                    for message in &mut history {
+                        crate::context_compact::mark_side_snapshot(message);
+                    }
+                    Ok(serde_json::to_string(&history)?)
+                })
+                .transpose()?;
 
             if let Some(message_id) = source_message_id {
                 let exists: i64 = tx.query_row(
@@ -3132,7 +3317,7 @@ impl SessionDB {
                 }
             }
 
-            let boundary_attachments_meta = if exclude_boundary {
+            let boundary_attachments_meta = if mode == ForkMode::FirstClass && exclude_boundary {
                 let (role, attachments_meta): (String, Option<String>) = tx.query_row(
                     "SELECT role, attachments_meta FROM messages
                      WHERE session_id = ?1 AND id = ?2",
@@ -3168,52 +3353,56 @@ impl SessionDB {
                 params![source_session_id, source_message_id, exclude_boundary],
                 |row| row.get(0),
             )?;
-            if copied_count == 0 && !exclude_boundary {
+            if copied_count == 0 && !exclude_boundary && mode == ForkMode::FirstClass {
                 anyhow::bail!("cannot fork an empty session");
             }
 
-            let has_source_title = source_title
-                .as_deref()
-                .is_some_and(|title| !title.trim().is_empty());
-            let inferred_title: Option<String> = if has_source_title {
-                source_title.clone()
+            let (inferred_title, title_source) = if mode == ForkMode::SideChat {
+                (None, crate::session_title::TITLE_SOURCE_MANUAL.to_string())
             } else {
-                tx.query_row(
-                    "SELECT content FROM messages
-                 WHERE session_id = ?1
-                   AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
-                   AND role = 'user'
-                   AND length(trim(content)) > 0
-                 ORDER BY id ASC LIMIT 1",
-                    params![source_session_id, source_message_id, exclude_boundary],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .map(|content| crate::truncate_utf8(content.trim(), 80).to_string())
-                .filter(|title| !title.is_empty())
-            };
-            let title_source = if has_source_title {
-                source_title_source
-            } else if inferred_title.is_some() {
-                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE.to_string()
-            } else {
-                crate::session_title::TITLE_SOURCE_MANUAL.to_string()
-            };
-            // Fork 出的会话标题默认与源一模一样——追加 `(1)`/`(2)`/… 序号去重。设计线程按
-            // 同项目分组去重，普通会话在 regular 族内去重。无标题分支不动。
-            let dedup_project_filter: Option<&str> = if kind == SessionKind::Design.as_str() {
-                project_id.as_deref()
-            } else {
-                None
-            };
-            let inferred_title = match inferred_title {
-                Some(title) => Some(Self::dedup_fork_title(
-                    &tx,
-                    &kind,
-                    dedup_project_filter,
-                    &title,
-                )?),
-                None => None,
+                let has_source_title = source_title
+                    .as_deref()
+                    .is_some_and(|title| !title.trim().is_empty());
+                let inferred_title: Option<String> = if has_source_title {
+                    source_title.clone()
+                } else {
+                    tx.query_row(
+                        "SELECT content FROM messages
+                         WHERE session_id = ?1
+                           AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
+                           AND role = 'user'
+                           AND length(trim(content)) > 0
+                         ORDER BY id ASC LIMIT 1",
+                        params![source_session_id, source_message_id, exclude_boundary],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .map(|content| crate::truncate_utf8(content.trim(), 80).to_string())
+                    .filter(|title| !title.is_empty())
+                };
+                let title_source = if has_source_title {
+                    source_title_source
+                } else if inferred_title.is_some() {
+                    crate::session_title::TITLE_SOURCE_FIRST_MESSAGE.to_string()
+                } else {
+                    crate::session_title::TITLE_SOURCE_MANUAL.to_string()
+                };
+                // Fork 出的会话标题默认与源一模一样——追加 `(1)`/`(2)`/… 序号去重。
+                let dedup_project_filter: Option<&str> = if kind == SessionKind::Design.as_str() {
+                    project_id.as_deref()
+                } else {
+                    None
+                };
+                let inferred_title = match inferred_title {
+                    Some(title) => Some(Self::dedup_fork_title(
+                        &tx,
+                        &kind,
+                        dedup_project_filter,
+                        &title,
+                    )?),
+                    None => None,
+                };
+                (inferred_title, title_source)
             };
 
             let copied_through_message_id = if source_message_id.is_some() {
@@ -3228,15 +3417,19 @@ impl SessionDB {
                 None
             };
 
+            let target_kind = match mode {
+                ForkMode::FirstClass => kind.as_str(),
+                ForkMode::SideChat => SessionKind::Side.as_str(),
+            };
             let now = chrono::Utc::now().to_rfc3339();
             tx.execute(
             "INSERT INTO sessions (
                 id, title, title_source, agent_id, provider_id, provider_name, model_id,
-                reasoning_effort, created_at, updated_at, parent_session_id, project_id,
-                permission_mode, sandbox_mode, execution_mode, workflow_mode, working_dir,
-                kind, forked_from_session_id, forked_from_message_id
+                temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at,
+                context_json, parent_session_id, project_id, permission_mode, sandbox_mode, execution_mode,
+                workflow_mode, working_dir, kind, forked_from_session_id, forked_from_message_id
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 new_session_id,
                 inferred_title,
@@ -3245,20 +3438,78 @@ impl SessionDB {
                 provider_id,
                 provider_name,
                 model_id,
+                temperature,
                 reasoning_effort,
+                runtime_defaults_initialized,
                 now,
                 now,
+                side_context_json,
                 project_id,
                 permission_mode,
                 sandbox_mode,
                 execution_mode,
-                workflow_mode,
+                if mode == ForkMode::SideChat { "off" } else { workflow_mode.as_str() },
                 working_dir,
-                kind,
+                target_kind,
                 source_session_id,
                 copied_through_message_id,
             ],
         )?;
+
+            if mode == ForkMode::SideChat {
+                // Discovery state belongs to the copied context. Preserve its
+                // activation order, but not runtime ownership or approvals:
+                // schemas/execution still pass through the side's live gates.
+                tx.execute(
+                    "UPDATE sessions SET side_snapshot_context_version = 1 WHERE id = ?1",
+                    params![new_session_id],
+                )?;
+                tx.execute(
+                    "INSERT INTO session_skill_activation (session_id, skill_name, activated_at)
+                     SELECT ?1, skill_name, activated_at FROM session_skill_activation
+                      WHERE session_id = ?2",
+                    params![new_session_id, source_session_id],
+                )?;
+                tx.execute(
+                    "INSERT INTO session_tool_activation (session_id, tool_name, activated_at)
+                     SELECT ?1, tool_name, activated_at FROM session_tool_activation
+                      WHERE session_id = ?2",
+                    params![new_session_id, source_session_id],
+                )?;
+                tx.execute(
+                    "UPDATE sessions SET awareness_config_json = (
+                        SELECT awareness_config_json FROM sessions WHERE id = ?1
+                     ) WHERE id = ?2",
+                    params![source_session_id, new_session_id],
+                )?;
+                tx.execute(
+                    "INSERT INTO session_memory_policy (
+                        session_id, use_memories, contribute_to_memories, updated_at
+                     )
+                     SELECT ?1, use_memories, contribute_to_memories, ?2
+                     FROM session_memory_policy WHERE session_id = ?3",
+                    params![new_session_id, now, source_session_id],
+                )?;
+                // A bare kernel/test database need not have the optional KB
+                // registry yet. If present, preserve only this source's explicit
+                // bindings; project bindings still follow the copied project_id.
+                let has_knowledge_bindings: bool = tx.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM sqlite_master
+                         WHERE type = 'table' AND name = 'session_knowledge_bases'
+                     )",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if has_knowledge_bindings {
+                    tx.execute(
+                        "INSERT INTO session_knowledge_bases (session_id, kb_id, access, created_at)
+                         SELECT ?1, kb_id, access, ?2 FROM session_knowledge_bases
+                          WHERE session_id = ?3",
+                        params![new_session_id, chrono::Utc::now().timestamp_millis(), source_session_id],
+                    )?;
+                }
+            }
 
             tx.execute(
                 "INSERT INTO messages (
@@ -3266,7 +3517,7 @@ impl SessionDB {
                 tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
                 tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
                 ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
-                tool_metadata, stream_status, source
+                tool_metadata, stream_status, source, is_side_snapshot
              )
              SELECT ?1, role, content, timestamp, attachments_meta, model,
                 tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
@@ -3274,7 +3525,8 @@ impl SessionDB {
                 ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
                 tool_metadata,
                 CASE WHEN stream_status = 'orphaned' THEN 'recovered' ELSE stream_status END,
-                source
+                source,
+                CASE WHEN ?5 = 1 THEN 1 ELSE is_side_snapshot END
              FROM messages
              WHERE session_id = ?2
                AND (?3 IS NULL OR (?4 = 0 AND id <= ?3) OR (?4 = 1 AND id < ?3))
@@ -3283,9 +3535,48 @@ impl SessionDB {
                     new_session_id,
                     source_session_id,
                     source_message_id,
-                    exclude_boundary
+                    exclude_boundary,
+                    mode == ForkMode::SideChat
                 ],
             )?;
+
+            if mode == ForkMode::SideChat {
+                let source_ids = {
+                    let mut stmt = tx.prepare(
+                        "SELECT id FROM messages WHERE session_id = ?1
+                         AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
+                         ORDER BY id",
+                    )?;
+                    let ids = stmt
+                        .query_map(
+                            params![source_session_id, source_message_id, exclude_boundary],
+                            |row| row.get::<_, i64>(0),
+                        )?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    ids
+                };
+                let target_ids = {
+                    let mut stmt =
+                        tx.prepare("SELECT id FROM messages WHERE session_id = ?1 ORDER BY id")?;
+                    let ids = stmt
+                        .query_map(params![new_session_id], |row| row.get::<_, i64>(0))?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    ids
+                };
+                anyhow::ensure!(
+                    source_ids.len() == target_ids.len(),
+                    "side snapshot message map mismatch"
+                );
+                let message_ids = source_ids.into_iter().zip(target_ids).collect();
+                super::result_store::copy_side_chat_result_refs(
+                    &tx,
+                    source_session_id,
+                    &new_session_id,
+                    &message_ids,
+                    side_context_json.as_deref(),
+                    &now,
+                )?;
+            }
 
             let attachment_meta_rewrites = {
                 let mut stmt = tx.prepare(
@@ -3337,7 +3628,7 @@ impl SessionDB {
             // 设计线程 fork：补建 `design_chat_threads` 锚点，让设计工具经
             // `project_for_session` 解析回源设计项目（否则会落到新草稿项目）。以锚表为
             // 权威来源读源 project_id，不依赖被复制的 `sessions.project_id`。
-            if kind == SessionKind::Design.as_str() {
+            if mode == ForkMode::FirstClass && kind == SessionKind::Design.as_str() {
                 let src_project: Option<String> = tx
                     .query_row(
                         "SELECT project_id FROM design_chat_threads WHERE session_id = ?1",
@@ -3535,6 +3826,51 @@ impl SessionDB {
         Ok(sessions)
     }
 
+    /// List the durable side conversations owned by one regular source session.
+    /// They are intentionally absent from all global/sidebar/search listings and
+    /// are discoverable only through this parent-scoped relation.
+    pub fn list_side_chats(&self, source_session_id: &str) -> Result<Vec<SessionMeta>> {
+        let conn = self.read_conn()?;
+        let sql = format!(
+            "{} WHERE s.kind = ?1 AND s.forked_from_session_id = ?2
+             AND s.archived_at IS NULL ORDER BY s.created_at ASC, s.id ASC",
+            session_meta_select()
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params![SessionKind::Side.as_str(), source_session_id],
+            Self::row_to_session_meta,
+        )?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+        Ok(sessions)
+    }
+
+    /// Include archived side conversations for owner-lifecycle cleanup. Product
+    /// discovery deliberately uses [`Self::list_side_chats`] instead.
+    fn list_owned_side_chats_for_delete_on(
+        conn: &Connection,
+        source_session_id: &str,
+    ) -> Result<Vec<SessionMeta>> {
+        let sql = format!(
+            "{} WHERE s.kind = ?1 AND s.forked_from_session_id = ?2
+             ORDER BY s.created_at ASC, s.id ASC",
+            session_meta_select()
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params![SessionKind::Side.as_str(), source_session_id],
+            Self::row_to_session_meta,
+        )?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+        Ok(sessions)
+    }
+
     /// Paginated session list. Returns `(sessions, total_count)`.
     /// When `limit` is `None`, all sessions are returned (backwards-compatible).
     ///
@@ -3714,7 +4050,8 @@ impl SessionDB {
         // Knowledge-space sidebar conversations live in the KB panel, never the
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
-        where_clauses.push("s.kind NOT IN ('knowledge','design','eval_fixture')".to_string());
+        where_clauses
+            .push("s.kind NOT IN ('side','knowledge','design','eval_fixture')".to_string());
         where_clauses.push("s.archived_at IS NULL".to_string());
 
         // Cron run sessions live in the cron panel's "conversations" timeline,
@@ -3771,17 +4108,17 @@ impl SessionDB {
     }
 
     /// Paginated archive-manager list. Unlike the main sidebar this includes
-    /// every conversation kind a user may have explicitly archived (regular,
-    /// project, IM, sub-agent, cron, Knowledge, and Design), while retaining
-    /// the incognito / eval-fixture invisibility guarantees.
+    /// every first-class conversation kind a user may have explicitly archived
+    /// (regular, project, IM, sub-agent, cron, Knowledge, and Design). Side chats
+    /// remain parent-scoped; incognito and eval fixtures retain invisibility.
     pub fn list_archived_sessions_paged(
         &self,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.read_conn()?;
-        let where_sql =
-            " WHERE s.archived_at IS NOT NULL AND s.incognito = 0 AND s.kind != 'eval_fixture'";
+        let where_sql = " WHERE s.archived_at IS NOT NULL AND s.incognito = 0
+              AND s.kind NOT IN ('side', 'eval_fixture')";
         let total: u32 = conn.query_row(
             &format!("SELECT COUNT(*) FROM sessions s{where_sql}"),
             [],
@@ -5334,20 +5671,25 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let incognito = conn
+        let session_scope = conn
             .query_row(
-                "SELECT incognito FROM sessions WHERE id = ?1",
+                "SELECT incognito, kind FROM sessions WHERE id = ?1",
                 params![session_id],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        let Some(incognito) = incognito else {
+        let Some((incognito, kind)) = session_scope else {
             return Err(anyhow::anyhow!("Session not found: {}", session_id));
         };
         if mode.enabled() && incognito != 0 {
             return Err(anyhow::anyhow!(
                 "Cannot enable workflow mode on an incognito session"
             ));
+        }
+        if mode.enabled() && kind == SessionKind::Side.as_str() {
+            anyhow::bail!(
+                "Cannot enable workflow mode on a side chat without a workflow control surface"
+            );
         }
         let affected = conn.execute(
             "UPDATE sessions SET workflow_mode = ?1, updated_at = ?2 WHERE id = ?3",
@@ -5359,7 +5701,8 @@ impl SessionDB {
         Ok(())
     }
 
-    /// Narrow read of just `sessions.workflow_mode`.
+    /// Narrow read of the effective mode. Side chats cannot host workflow
+    /// controls, including legacy rows that persisted an enabled mode.
     pub fn get_session_workflow_mode(
         &self,
         session_id: &str,
@@ -5368,7 +5711,10 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare("SELECT workflow_mode FROM sessions WHERE id = ?1")?;
+        let mut stmt = conn.prepare(
+            "SELECT CASE WHEN kind = 'side' THEN 'off' ELSE workflow_mode END
+             FROM sessions WHERE id = ?1",
+        )?;
         let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
             Ok(s) => Some(s),
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
@@ -5551,6 +5897,26 @@ impl SessionDB {
         Ok((user, assistant))
     }
 
+    /// Return cumulative assistant token usage and turn count for activity
+    /// produced by this session. Side-chat history snapshots are context copied
+    /// from the parent, not model calls owned by the side chat, so they must not
+    /// contribute to `/usage`.
+    pub fn get_session_token_usage(&self, session_id: &str) -> Result<(i64, i64, i64)> {
+        let conn = self.read_conn()?;
+        conn.query_row(
+            "SELECT COALESCE(SUM(tokens_in), 0),
+                    COALESCE(SUM(tokens_out), 0),
+                    COUNT(*)
+             FROM messages
+             WHERE session_id = ?1
+               AND role = 'assistant'
+               AND is_side_snapshot = 0",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(Into::into)
+    }
+
     /// Token snapshot for the latest persisted assistant message.
     ///
     /// Used by `/status` to render Context usage + Cache info in lockstep with
@@ -5657,47 +6023,91 @@ impl SessionDB {
     /// session does not exist or is not incognito — both are safe outcomes
     /// for the "user navigated away from this session" caller.
     pub fn purge_session_if_incognito(&self, session_id: &str) -> Result<bool> {
-        // Snapshot before the DELETE for the purge event payload (row is gone
-        // afterwards). Only emitted below when a row was actually removed.
-        let snapshot = self.get_session(session_id)?;
-        // G4: capture descendant subagent sessions before the cascade drops
-        // `subagent_runs`, so the burn denies their inner-tool approvals too.
-        // (im_chat is always None here — incognito ⊥ IM Channel.)
-        let cleanup_ctx = self.capture_session_cleanup_context(session_id);
-        let was_incognito = {
-            let conn = self
+        let (purged, snapshot, owned_side_chats, cleanup_ctx, side_cleanup_contexts) = {
+            let mut conn = self
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-            conn.execute(
-                "DELETE FROM sessions WHERE id = ?1 AND incognito = 1",
-                params![session_id],
-            )? > 0
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let snapshot = Self::get_session_on(&tx, session_id)?;
+            let should_purge = snapshot.as_ref().is_some_and(|meta| meta.incognito);
+            let owned_side_chats = if should_purge
+                && snapshot
+                    .as_ref()
+                    .is_some_and(|meta| meta.kind != SessionKind::Side)
+            {
+                Self::list_owned_side_chats_for_delete_on(&tx, session_id)?
+            } else {
+                Vec::new()
+            };
+            let cleanup_ctx = snapshot
+                .as_ref()
+                .filter(|_| should_purge)
+                .map(|meta| Self::capture_session_cleanup_context_on(&tx, meta))
+                .unwrap_or_default();
+            let side_cleanup_contexts = owned_side_chats
+                .iter()
+                .map(|side| {
+                    (
+                        side.clone(),
+                        Self::capture_session_cleanup_context_on(&tx, side),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let removed = if should_purge {
+                tx.execute(
+                    "DELETE FROM sessions
+                     WHERE id = ?1 OR (kind = ?2 AND forked_from_session_id = ?1)",
+                    params![session_id, SessionKind::Side.as_str()],
+                )?
+            } else {
+                0
+            };
+            tx.commit()?;
+            (
+                removed > 0,
+                snapshot,
+                owned_side_chats,
+                cleanup_ctx,
+                side_cleanup_contexts,
+            )
         };
-        if !was_incognito {
+        if !purged {
             return Ok(false);
         }
         // Mirror the on-disk + orphan-table cleanup that `delete_session`
         // performs. The session row itself is already gone, so we only need
         // the side-effect cleanup (skipping the FTS-rebuild fallback path).
-        if let Ok(plans_dir) = crate::paths::plans_dir() {
-            let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+        for deleted_id in owned_side_chats
+            .iter()
+            .map(|side| side.id.as_str())
+            .chain(std::iter::once(session_id))
+        {
+            if let Ok(plans_dir) = crate::paths::plans_dir() {
+                let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", deleted_id)));
+            }
+            if let Ok(att_dir) = crate::paths::attachments_dir(deleted_id) {
+                let _ = std::fs::remove_dir_all(att_dir);
+            }
+            self.cleanup_session_orphan_tables(deleted_id);
+            // Burn-on-close must not leave per-session edit trust in memory.
+            crate::permission::session_edits::clear(deleted_id);
         }
-        if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
-            let _ = std::fs::remove_dir_all(att_dir);
-        }
-        self.cleanup_session_orphan_tables(session_id);
-        // Mirror delete_session_with_reason: drop the Smart-mode "already edited"
-        // trust set so a burned incognito session leaves no in-memory trace
-        // (burn-on-close must not survive in the per-session edit-trust map).
-        crate::permission::session_edits::clear(session_id);
         app_info!(
             "session",
             "purge_incognito",
-            "purged incognito session {}",
-            session_id
+            "purged incognito session {} with {} owned side chat(s)",
+            session_id,
+            owned_side_chats.len()
         );
         // Emit `session:purged` after lock release for cleanup_watcher fan-out.
+        for (meta, context) in side_cleanup_contexts {
+            crate::session::events::emit_session_deleted(
+                &meta,
+                crate::session::events::SessionDeleteReason::IncognitoPurge,
+                &context,
+            );
+        }
         if let Some(meta) = snapshot {
             crate::session::events::emit_session_deleted(
                 &meta,
@@ -5856,6 +6266,7 @@ impl SessionDB {
         };
         if changed > 0 {
             emit_unread_changed(Some(session_id), None);
+            crate::pet::emit_activity_changed();
             if let Some(bus) = crate::get_event_bus() {
                 bus.emit(
                     "session:archive_changed",
@@ -5890,15 +6301,7 @@ impl SessionDB {
         session_id: &str,
         reason: crate::session::events::SessionDeleteReason,
     ) -> Result<()> {
-        // Snapshot before deletion — needed for the emit payload, and lets us
-        // skip the event entirely when nothing was there to delete.
-        let snapshot = self.get_session(session_id)?;
-        // G4 / SURFACE-2: capture cleanup context BEFORE the cascade, while the
-        // `subagent_runs` and `channel_conversations` rows still exist (both are
-        // gone by emit time). Done before taking the conn lock — both helpers
-        // lock it themselves.
-        let cleanup_ctx = self.capture_session_cleanup_context(session_id);
-        let deleted = {
+        let (deleted, snapshot, owned_side_chats, cleanup_ctx, side_cleanup_contexts) = {
             let mut conn = self
                 .conn
                 .lock()
@@ -5909,25 +6312,69 @@ impl SessionDB {
             // competing stage/commit either lands first and blocks deletion,
             // or observes the deleted Session through its FK and fails closed.
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(&tx, session_id)?;
-            let scheduled_custody: bool = tx.query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM queued_turn_user_messages
-                     WHERE session_id=?1 AND source='scheduled'
-                 ) OR EXISTS(
-                    SELECT 1 FROM chat_turns
-                     WHERE session_id=?1 AND source='cron'
-                       AND status IN ('running','cancelling')
-                 )",
-                params![session_id],
-                |row| row.get(0),
-            )?;
-            if scheduled_custody {
-                anyhow::bail!("scheduled_session_turn_active");
-            }
-            // Try direct delete (CASCADE handles messages + fires FTS trigger).
-            let removed =
-                match tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
+            // Snapshot the owner, every owned side conversation, and their
+            // cleanup coordinates only after reserving the writer. This keeps
+            // the emitted lifecycle set identical to the rows deleted below:
+            // a concurrent side-chat create either commits before this point
+            // and is included, or cannot commit against the reserved writer
+            // snapshot after the owner is deleted.
+            let snapshot = Self::get_session_on(&tx, session_id)?;
+            let owned_side_chats = if snapshot
+                .as_ref()
+                .is_some_and(|meta| meta.kind != SessionKind::Side)
+            {
+                Self::list_owned_side_chats_for_delete_on(&tx, session_id)?
+            } else {
+                Vec::new()
+            };
+            let cleanup_ctx = snapshot
+                .as_ref()
+                .map(|meta| Self::capture_session_cleanup_context_on(&tx, meta))
+                .unwrap_or_default();
+            let side_cleanup_contexts = owned_side_chats
+                .iter()
+                .map(|side| {
+                    (
+                        side.clone(),
+                        Self::capture_session_cleanup_context_on(&tx, side),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            let removed = if snapshot.is_some() {
+                crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(
+                    &tx, session_id,
+                )?;
+                for side in &owned_side_chats {
+                    crate::worktree::ensure_session_has_no_scheduled_worktree_custody_on(
+                        &tx, &side.id,
+                    )?;
+                }
+                let scheduled_custody: bool = tx.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM queued_turn_user_messages
+                         WHERE (session_id=?1 OR session_id IN (
+                             SELECT id FROM sessions
+                              WHERE kind=?2 AND forked_from_session_id=?1
+                         )) AND source='scheduled'
+                     ) OR EXISTS(
+                        SELECT 1 FROM chat_turns
+                         WHERE (session_id=?1 OR session_id IN (
+                             SELECT id FROM sessions
+                              WHERE kind=?2 AND forked_from_session_id=?1
+                         )) AND source='cron'
+                           AND status IN ('running','cancelling')
+                     )",
+                    params![session_id, SessionKind::Side.as_str()],
+                    |row| row.get(0),
+                )?;
+                if scheduled_custody {
+                    anyhow::bail!("scheduled_session_turn_active");
+                }
+                // Try direct delete (CASCADE handles messages + fires FTS trigger).
+                let delete_sql = "DELETE FROM sessions
+                     WHERE id = ?1 OR (kind = ?2 AND forked_from_session_id = ?1)";
+                match tx.execute(delete_sql, params![session_id, SessionKind::Side.as_str()]) {
                     Ok(removed) => removed,
                     Err(e) => {
                         // FTS index corrupted — rebuild and retry.
@@ -5939,32 +6386,50 @@ impl SessionDB {
                         );
                         let _ = tx.execute_batch(
                             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-                         INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
+                             INSERT INTO messages_trigram_fts(messages_trigram_fts) VALUES('rebuild');",
                         );
-                        tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?
+                        tx.execute(delete_sql, params![session_id, SessionKind::Side.as_str()])?
                     }
-                };
+                }
+            } else {
+                0
+            };
             tx.commit()?;
-            removed > 0
+            (
+                removed > 0,
+                snapshot,
+                owned_side_chats,
+                cleanup_ctx,
+                side_cleanup_contexts,
+            )
         };
 
         if deleted {
-            if let Ok(plans_dir) = crate::paths::plans_dir() {
-                let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+            for deleted_id in owned_side_chats
+                .iter()
+                .map(|side| side.id.as_str())
+                .chain(std::iter::once(session_id))
+            {
+                if let Ok(plans_dir) = crate::paths::plans_dir() {
+                    let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", deleted_id)));
+                }
+                if let Ok(att_dir) = crate::paths::attachments_dir(deleted_id) {
+                    let _ = std::fs::remove_dir_all(att_dir);
+                }
+                self.cleanup_session_orphan_tables(deleted_id);
+                // Drop the Smart-mode "already edited" trust set for this session so it
+                // can't outlive the session (and doesn't accumulate in long-running
+                // server processes).
+                crate::permission::session_edits::clear(deleted_id);
             }
-            if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
-                let _ = std::fs::remove_dir_all(att_dir);
-            }
-            self.cleanup_session_orphan_tables(session_id);
-            // Drop the Smart-mode "already edited" trust set for this session so it
-            // can't outlive the session (and doesn't accumulate in long-running
-            // server processes).
-            crate::permission::session_edits::clear(session_id);
         }
 
         // Emit after the conn lock is released — subscribers (cleanup_watcher
         // fan-out) may re-lock the DB.
         if deleted {
+            for (meta, context) in side_cleanup_contexts {
+                crate::session::events::emit_session_deleted(&meta, reason, &context);
+            }
             if let Some(meta) = snapshot {
                 crate::session::events::emit_session_deleted(&meta, reason, &cleanup_ctx);
             }
@@ -5973,21 +6438,19 @@ impl SessionDB {
         Ok(())
     }
 
-    /// Snapshot the pre-delete cleanup context for a session (G4 / SURFACE-2):
-    /// its transitive subagent descendant sessions + its IM attach coordinates.
-    /// Both reference rows the delete cascade removes, so this MUST run before
-    /// the DELETE. Best-effort: any lookup failure yields an empty/None field.
-    fn capture_session_cleanup_context(
-        &self,
-        session_id: &str,
+    /// Writer-snapshot form used by permanent deletion. Unlike the general
+    /// read path, every value comes from the same transaction that owns the
+    /// delete decision.
+    fn capture_session_cleanup_context_on(
+        conn: &Connection,
+        meta: &SessionMeta,
     ) -> crate::session::events::SessionCleanupContext {
-        let descendant_session_ids = self.collect_descendant_session_ids(session_id);
-        let im_chat = crate::globals::get_channel_db()
-            .and_then(|cdb| cdb.get_conversation_by_session(session_id).ok().flatten())
-            .map(|c| (c.account_id, c.chat_id));
         crate::session::events::SessionCleanupContext {
-            descendant_session_ids,
-            im_chat,
+            descendant_session_ids: Self::collect_descendant_session_ids_on(conn, &meta.id),
+            im_chat: meta
+                .channel_info
+                .as_ref()
+                .map(|channel| (channel.account_id.clone(), channel.chat_id.clone())),
         }
     }
 
@@ -6231,6 +6694,57 @@ impl SessionDB {
         Ok(changed > 0)
     }
 
+    /// Pre-provenance side contexts cannot safely distinguish inherited items
+    /// during compaction. Fail closed there; idle learning still uses own rows.
+    pub fn context_supports_memory_flush(&self, session_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        conn.query_row(
+            "SELECT kind <> 'side' OR side_snapshot_context_version = 1 FROM sessions WHERE id = ?1",
+            params![session_id], |row| row.get(0),
+        ).map_err(Into::into)
+    }
+
+    /// Side-chat learning uses its own transcript, never inherited provider
+    /// history (including summaries that may mix parent and side content).
+    /// `None` leaves ordinary sessions on their existing provider-history path.
+    pub fn load_side_chat_memory_history(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<serde_json::Value>>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let kind: String = conn.query_row(
+            "SELECT kind FROM sessions WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if kind != SessionKind::Side.as_str() {
+            return Ok(None);
+        }
+        let mut stmt = conn.prepare(
+            "SELECT role, content FROM messages
+              WHERE session_id = ?1 AND is_side_snapshot = 0
+                AND role IN ('user', 'assistant') AND TRIM(content) <> ''
+              ORDER BY id DESC LIMIT ?2",
+        )?;
+        let mut messages = stmt
+            .query_map(params![session_id, limit.clamp(1, 64) as i64], |row| {
+                Ok(serde_json::json!({
+                    "role": row.get::<_, String>(0)?,
+                    "content": row.get::<_, String>(1)?,
+                }))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        messages.reverse();
+        Ok(Some(messages))
+    }
+
     /// Load the agent's conversation_history JSON for a session.
     /// Returns None if the session has no saved context.
     pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
@@ -6271,6 +6785,10 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        Self::get_session_on(&conn, session_id)
+    }
+
+    fn get_session_on(conn: &Connection, session_id: &str) -> Result<Option<SessionMeta>> {
         let sql = format!("{} WHERE s.id = ?1", session_meta_select());
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params![session_id], Self::row_to_session_meta)?;
@@ -6316,7 +6834,7 @@ impl SessionDB {
                    FROM sessions s
                   WHERE s.is_cron = 0
                     AND s.archived_at IS NULL
-                    AND s.kind NOT IN ('knowledge', 'eval_fixture')
+                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture')
                     AND (
                         (s.project_id IS NULL
                          AND s.parent_session_id IS NULL
@@ -6683,7 +7201,8 @@ impl SessionDB {
             // The in-session search path (Some(sid)) already scopes to one
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
-            where_clauses.push("s.kind NOT IN ('knowledge','design','eval_fixture')".to_string());
+            where_clauses
+                .push("s.kind NOT IN ('side','knowledge','design','eval_fixture')".to_string());
             where_clauses.push("s.archived_at IS NULL".to_string());
         }
 
@@ -6694,7 +7213,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('knowledge','design','eval_fixture'))".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -7013,7 +7532,7 @@ impl SessionDB {
                  FROM sessions s
                  WHERE s.incognito = 0
                    AND s.archived_at IS NULL
-                   AND s.kind NOT IN ('knowledge','design','eval_fixture')
+                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
                  LIMIT {}",
@@ -7052,7 +7571,7 @@ impl SessionDB {
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('knowledge','design','eval_fixture')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -7089,7 +7608,7 @@ impl SessionDB {
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('knowledge','design','eval_fixture')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -7351,7 +7870,7 @@ mod tests {
         ChatTurnStatus, CommitAssistantTurn, CreateStreamRun, NewMessage, SessionKind,
         SessionOrigin,
     };
-    use rusqlite::{Connection, OptionalExtension};
+    use rusqlite::{params, Connection, OptionalExtension};
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
         // Mirror the production schema in `ChannelDB::migrate` (1:1 attach).
@@ -9312,6 +9831,493 @@ mod tests {
     }
 
     #[test]
+    fn side_chat_memory_history_excludes_snapshots_after_compaction_and_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").unwrap();
+        db.append_message(&source.id, &NewMessage::user("parent-only fact"))
+            .unwrap();
+        let side = db.create_side_chat(&source.id).unwrap();
+        assert!(db.context_supports_memory_flush(&source.id).unwrap());
+        assert!(db.context_supports_memory_flush(&side.id).unwrap());
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET side_snapshot_context_version = 0 WHERE id = ?1",
+                [&side.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!db.context_supports_memory_flush(&side.id).unwrap());
+        assert_eq!(
+            db.load_side_chat_memory_history(&source.id, 6).unwrap(),
+            None
+        );
+        assert_eq!(
+            db.load_side_chat_memory_history(&side.id, 64).unwrap(),
+            Some(vec![])
+        );
+        for i in 0..8 {
+            db.append_message(&side.id, &NewMessage::user(&format!("own question {i}")))
+                .unwrap();
+            db.append_message(&side.id, &NewMessage::assistant(&format!("own answer {i}")))
+                .unwrap();
+        }
+        db.append_message(&side.id, &NewMessage::event("/status"))
+            .unwrap();
+        db.save_context(
+            &side.id,
+            r#"[{"role":"user","content":"[Previous conversation summary] parent-only fact"}]"#,
+        )
+        .unwrap();
+        drop(db);
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        let idle = db
+            .load_side_chat_memory_history(&side.id, 6)
+            .unwrap()
+            .unwrap();
+        assert_eq!(idle.len(), 6);
+        assert_eq!(idle[0]["content"], "own question 5");
+        assert_eq!(idle[5]["content"], "own answer 7");
+        let compact = db
+            .load_side_chat_memory_history(&side.id, 64)
+            .unwrap()
+            .unwrap();
+        assert_eq!(compact.len(), 16);
+        assert!(!serde_json::to_string(&compact)
+            .unwrap()
+            .contains("parent-only"));
+        assert!(db.load_side_chat_memory_history("deleted", 6).is_err());
+    }
+
+    #[test]
+    fn side_chat_is_parent_scoped_and_hidden_from_regular_lists() {
+        let db_path = temp_db_path("session-side-chat-scope");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.update_session_temperature(&source.id, Some(0.42))
+            .expect("set source temperature");
+        db.append_message(&source.id, &NewMessage::user("stable question"))
+            .expect("append user");
+        db.append_message(&source.id, &NewMessage::assistant("stable answer"))
+            .expect("append assistant");
+        let source_context = serde_json::json!([
+            {"role": "user", "content": "stable question"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "tool-1", "name": "read_file"},
+                    {"type": "text", "text": "stable answer"}
+                ]
+            }
+        ])
+        .to_string();
+        db.save_context(&source.id, &source_context)
+            .expect("save source provider context");
+        let source_memory_policy = crate::session::SessionMemoryPolicy {
+            use_memories: crate::session::SessionMemoryPolicyValue::Deny,
+            contribute_to_memories: crate::session::SessionMemoryPolicyValue::Deny,
+        };
+        db.set_memory_policy(&source.id, source_memory_policy)
+            .expect("restrict source memory policy");
+        let source_awareness = r#"{"enabled":false,"mode":"structured","maxSessions":2}"#;
+        db.set_session_awareness_config_json(&source.id, Some(source_awareness))
+            .expect("set source awareness override");
+
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        assert_eq!(side.kind, SessionKind::Side);
+        assert_eq!(side.temperature, Some(0.42));
+        assert!(side.runtime_defaults_initialized);
+        let side_history: Vec<serde_json::Value> =
+            serde_json::from_str(&db.load_context(&side.id).unwrap().unwrap()).unwrap();
+        assert!(side_history
+            .iter()
+            .all(crate::context_compact::is_side_snapshot));
+        assert_eq!(
+            crate::context_compact::prepare_messages_for_api(&side_history),
+            serde_json::from_str::<Vec<serde_json::Value>>(&source_context).unwrap()
+        );
+        assert_eq!(
+            db.get_memory_policy(&side.id)
+                .expect("load side memory policy"),
+            source_memory_policy
+        );
+        assert_eq!(
+            db.get_session_awareness_config_json(&side.id)
+                .expect("load side awareness override")
+                .as_deref(),
+            Some(source_awareness)
+        );
+        assert_eq!(
+            side.forked_from_session_id.as_deref(),
+            Some(source.id.as_str())
+        );
+        let copied = db
+            .load_session_messages(&side.id)
+            .expect("load side messages");
+        assert_eq!(copied.len(), 2);
+        db.append_message(&side.id, &NewMessage::user("side-only question"))
+            .expect("append side-only message");
+        let side_title =
+            crate::session::ensure_first_message_title(&db, &side.id, "side-only question", None)
+                .expect("set title from first side-only message");
+        assert_eq!(side_title.as_deref(), Some("side-only question"));
+        let titled_side = db
+            .get_session(&side.id)
+            .expect("get titled side chat")
+            .expect("side chat exists");
+        assert_eq!(
+            titled_side.title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
+        let analytics_flags = {
+            let conn = db.conn.lock().expect("lock");
+            let mut stmt = conn
+                .prepare(
+                    "SELECT is_side_snapshot FROM messages
+                     WHERE session_id = ?1 ORDER BY id ASC",
+                )
+                .expect("prepare analytics flags");
+            stmt.query_map(params![side.id], |row| row.get::<_, i64>(0))
+                .expect("query analytics flags")
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .expect("collect analytics flags")
+        };
+        assert_eq!(analytics_flags, vec![1, 1, 0]);
+
+        let scoped = db.list_side_chats(&source.id).expect("list side chats");
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].id, side.id);
+        let regular = db.list_sessions(None).expect("list regular sessions");
+        assert!(regular.iter().all(|session| session.id != side.id));
+
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "INSERT INTO channel_conversations (
+                    channel_id, account_id, chat_id, session_id, chat_type, created_at, updated_at
+                 ) VALUES ('telegram', 'owner', 'chat-1', ?1, 'dm', 'now', 'now')",
+                params![source.id],
+            )
+            .expect("bind source to channel");
+        }
+        assert!(db.create_side_chat(&source.id).is_err());
+
+        let empty = db.create_session("ha-main").expect("empty source");
+        let empty_side = db.create_side_chat(&empty.id).expect("empty side chat");
+        assert_eq!(empty_side.kind, SessionKind::Side);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_chat_workflow_mode_stays_off_including_legacy_rows() {
+        use crate::workflow_mode::WorkflowMode;
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").expect("source session");
+        db.update_session_workflow_mode(&source.id, WorkflowMode::Ultracode)
+            .expect("enable source workflow mode");
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        assert_eq!(side.workflow_mode, WorkflowMode::Off);
+        assert!(db
+            .update_session_workflow_mode(&side.id, WorkflowMode::On)
+            .expect_err("side workflow mode must stay off")
+            .to_string()
+            .contains("side chat"));
+        db.conn
+            .lock()
+            .expect("lock")
+            .execute(
+                "UPDATE sessions SET workflow_mode = 'on' WHERE id = ?1",
+                params![side.id],
+            )
+            .expect("simulate legacy enabled side chat");
+        assert_eq!(
+            db.get_session_workflow_mode(&side.id).unwrap(),
+            Some(WorkflowMode::Off)
+        );
+        assert_eq!(
+            db.get_session_workflow_mode(&source.id).unwrap(),
+            Some(WorkflowMode::Ultracode)
+        );
+        db.update_session_workflow_mode(&side.id, WorkflowMode::Off)
+            .expect("allow clearing legacy mode");
+    }
+
+    #[test]
+    fn side_chat_snapshots_source_capability_activations_independently() {
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").expect("source session");
+        let other = db.create_session("ha-main").expect("unrelated session");
+        db.insert_skill_activations(&source.id, &["source-skill".into()])
+            .expect("activate source skill");
+        db.insert_tool_activations(&source.id, &["source-tool".into()])
+            .expect("activate source tool");
+        db.insert_skill_activations(&other.id, &["unrelated-skill".into()])
+            .expect("activate unrelated skill");
+        db.insert_tool_activations(&other.id, &["unrelated-tool".into()])
+            .expect("activate unrelated tool");
+
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        assert_eq!(
+            db.load_skill_activations(&side.id).expect("side skills"),
+            vec!["source-skill"]
+        );
+        assert_eq!(
+            db.load_tool_activations(&side.id).expect("side tools"),
+            vec!["source-tool"]
+        );
+
+        // Neither later discoveries in the owner nor local changes in the side
+        // session mutate the other conversation's capability ledger.
+        db.insert_skill_activations(&source.id, &["later-source-skill".into()])
+            .expect("activate later source skill");
+        db.clear_tool_activations(&source.id)
+            .expect("clear source tools");
+        db.insert_tool_activations(&side.id, &["side-only-tool".into()])
+            .expect("activate side tool");
+        assert_eq!(
+            db.load_skill_activations(&side.id)
+                .expect("snapshot skills"),
+            vec!["source-skill"]
+        );
+        let tools = db.load_tool_activations(&side.id).expect("snapshot tools");
+        assert_eq!(tools.len(), 2);
+        assert!(tools.iter().any(|name| name == "source-tool"));
+        assert!(tools.iter().any(|name| name == "side-only-tool"));
+        assert!(db
+            .load_tool_activations(&source.id)
+            .expect("independent owner tools")
+            .is_empty());
+    }
+
+    #[test]
+    fn side_chat_copies_only_source_knowledge_bindings_with_exact_access() {
+        use crate::knowledge::{CreateKnowledgeBaseInput, KbAccess, KnowledgeRegistry};
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = std::sync::Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        ensure_channel_conversations_table(&db);
+        let registry = KnowledgeRegistry::new(db.clone());
+        registry.migrate().expect("initialize knowledge registry");
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("source session");
+        let other = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("unrelated session");
+        for (name, owner, access) in [
+            ("Read reference", &source.id, KbAccess::Read),
+            ("Writable notes", &source.id, KbAccess::Write),
+            ("Unrelated notes", &other.id, KbAccess::Write),
+        ] {
+            let kb = registry
+                .create(CreateKnowledgeBaseInput {
+                    name: name.to_string(),
+                    emoji: None,
+                    root_dir: None,
+                })
+                .expect("create knowledge space");
+            registry
+                .attach_session(owner, &kb.id, access)
+                .expect("attach knowledge space");
+        }
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        let mut expected = registry
+            .list_session_attachments(&source.id)
+            .expect("source bindings");
+        expected.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut actual = registry
+            .list_session_attachments(&side.id)
+            .expect("side bindings");
+        actual.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 2);
+        registry
+            .detach_session(&source.id, &expected[0].0)
+            .expect("change source binding");
+        assert_eq!(
+            registry
+                .list_session_attachments(&side.id)
+                .expect("independent bindings")
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn deleting_source_cascades_active_and_archived_side_chats_only() {
+        let db_path = temp_db_path("session-side-chat-owner-delete");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("source prompt"))
+            .expect("append source message");
+        let ordinary_fork = db
+            .fork_session(&source.id, None)
+            .expect("create ordinary fork");
+        let active_side = db.create_side_chat(&source.id).expect("create active side");
+        let archived_side = db
+            .create_side_chat(&source.id)
+            .expect("create archived side");
+        db.set_session_archived(&archived_side.id, true)
+            .expect("archive side");
+        db.append_message(&active_side.id, &NewMessage::user("side-only prompt"))
+            .expect("append side message");
+
+        db.delete_session(&source.id)
+            .expect("delete source session");
+
+        assert!(db.get_session(&source.id).expect("load source").is_none());
+        assert!(db
+            .get_session(&active_side.id)
+            .expect("load active side")
+            .is_none());
+        assert!(db
+            .get_session(&archived_side.id)
+            .expect("load archived side")
+            .is_none());
+        assert!(db
+            .get_session(&ordinary_fork.id)
+            .expect("load ordinary fork")
+            .is_some());
+        assert!(db
+            .load_session_messages(&active_side.id)
+            .expect("load deleted side messages")
+            .is_empty());
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_chat_excludes_the_active_turn_boundary() {
+        let db_path = temp_db_path("session-side-chat-active-boundary");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("settled question"))
+            .expect("append settled user");
+        let settled_assistant_id = db
+            .append_message(&source.id, &NewMessage::assistant("settled answer"))
+            .expect("append settled assistant");
+        let active_user_id = db
+            .append_message(&source.id, &NewMessage::user("currently running"))
+            .expect("append active user");
+        let settled_context = serde_json::json!([
+            {"role": "user", "content": "settled question"},
+            {"role": "assistant", "content": "settled answer"}
+        ])
+        .to_string();
+        let in_flight_context = serde_json::json!([
+            {"role": "user", "content": "settled question"},
+            {"role": "assistant", "content": "settled answer"},
+            {"role": "user", "content": "currently running"}
+        ])
+        .to_string();
+        db.save_context(&source.id, &in_flight_context)
+            .expect("save in-flight source context");
+        {
+            let conn = db.conn.lock().expect("lock");
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO chat_turns (
+                    id, session_id, source, status, user_message_id, started_at, updated_at
+                 ) VALUES (?1, ?2, 'desktop', 'running', ?3, ?4, ?4)",
+                params!["turn-side-active", source.id, active_user_id, now],
+            )
+            .expect("insert active turn");
+            conn.execute(
+                "INSERT INTO chat_stream_runs (
+                    run_id, session_id, source, turn_id, status, base_context_json, started_at
+                 ) VALUES (?1, ?2, 'desktop', ?3, 'running', ?4, ?5)",
+                params![
+                    "run-side-active",
+                    source.id,
+                    "turn-side-active",
+                    settled_context,
+                    now
+                ],
+            )
+            .expect("insert active stream boundary");
+        }
+
+        let side = db
+            .create_side_chat(&source.id)
+            .expect("create while main runs");
+        let copied = db
+            .load_session_messages(&side.id)
+            .expect("load copied messages");
+        assert_eq!(copied.len(), 2);
+        assert_eq!(copied[0].content, "settled question");
+        assert_eq!(copied[1].content, "settled answer");
+        assert_eq!(side.forked_from_message_id, Some(settled_assistant_id));
+        let side_history: Vec<serde_json::Value> =
+            serde_json::from_str(&db.load_context(&side.id).unwrap().unwrap()).unwrap();
+        assert!(side_history
+            .iter()
+            .all(crate::context_compact::is_side_snapshot));
+        assert_eq!(
+            crate::context_compact::prepare_messages_for_api(&side_history),
+            serde_json::from_str::<Vec<serde_json::Value>>(&settled_context).unwrap()
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn incognito_purge_cascades_owned_side_chats() {
+        crate::session::design_hooks::ensure_test_stub();
+        let db_path = temp_db_path("session-incognito-purge-side-chats");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.append_message(&source.id, &NewMessage::user("source prompt"))
+            .expect("append source message");
+        let active_side = db.create_side_chat(&source.id).expect("create active side");
+        let archived_side = db
+            .create_side_chat(&source.id)
+            .expect("create archived side");
+        db.set_session_archived(&archived_side.id, true)
+            .expect("archive side");
+        db.append_message(&active_side.id, &NewMessage::user("private side prompt"))
+            .expect("append side message");
+
+        db.update_session_incognito(&source.id, true)
+            .expect("enable incognito after side chat creation");
+        assert!(db
+            .purge_session_if_incognito(&source.id)
+            .expect("purge incognito owner"));
+
+        for deleted_id in [&source.id, &active_side.id, &archived_side.id] {
+            assert!(db
+                .get_session(deleted_id)
+                .expect("load purged session")
+                .is_none());
+            assert!(db
+                .load_session_messages(deleted_id)
+                .expect("load purged messages")
+                .is_empty());
+        }
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn fork_session_copies_owned_attachments_and_survives_source_deletion() {
         let db_path = temp_db_path("session-fork-attachments");
         let db = SessionDB::open(&db_path).expect("open session db");
@@ -9810,6 +10816,66 @@ mod tests {
         assert!(attachments_meta.contains("report.pdf"));
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_title_ignores_control_events_before_the_first_question() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
+        ensure_channel_conversations_table(&db);
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create source");
+        db.append_message(&source.id, &NewMessage::user("parent question"))
+            .expect("append source question");
+        let side = db.create_side_chat(&source.id).expect("create side");
+        for command in ["/help", "/status", "/usage"] {
+            crate::slash_defs::append_slash_history_events(
+                &db,
+                &side.id,
+                command,
+                Some("command result"),
+                crate::chat_engine::ChatSource::Desktop,
+            )
+            .expect("append side command");
+            assert!(db.get_session(&side.id).unwrap().unwrap().title.is_none());
+        }
+        db.append_message(&side.id, &NewMessage::user("side question"))
+            .expect("append real question");
+        // Even a command racing the turn's fallback helper must use the
+        // stored conversational message rather than its own display text.
+        crate::slash_defs::append_slash_history_events(
+            &db,
+            &side.id,
+            "/status",
+            Some("status"),
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append later command");
+        assert_eq!(
+            db.get_session(&side.id).unwrap().unwrap().title.as_deref(),
+            Some("side question")
+        );
+        let regular = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create regular");
+        crate::slash_defs::append_slash_history_events(
+            &db,
+            &regular.id,
+            "/goal ship feature",
+            None,
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append regular command");
+        assert_eq!(
+            db.get_session(&regular.id)
+                .unwrap()
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("ship feature")
+        );
     }
 
     #[test]

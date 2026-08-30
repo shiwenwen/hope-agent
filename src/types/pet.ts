@@ -37,6 +37,7 @@ export type PetActivityStatus = "needs_input" | "blocked" | "ready" | "running"
 
 export type PetNavigationTarget =
   | { kind: "regular"; sessionId: string; projectId?: string | null }
+  | { kind: "side"; sessionId: string; sourceSessionId: string }
   | {
       kind: "knowledge"
       sessionId: string

@@ -153,7 +153,8 @@ pub use types::ToolResultLocator;
 /// callers use `POST_SUMMARY_INSERT_INDEX` (= 1) rather than a bare literal.
 pub const POST_SUMMARY_INSERT_INDEX: usize = 1;
 pub use round_grouping::{
-    is_recovered_round, prepare_messages_for_api, push_and_stamp, recovered_round_id, stamp_round,
+    inherit_side_snapshot, is_recovered_round, is_side_snapshot, mark_side_snapshot,
+    prepare_messages_for_api, push_and_stamp, recovered_round_id, stamp_round,
     RECOVERED_ROUND_PREFIX, SUBAGENT_DISPATCH_IDS_KEY,
 };
 pub(crate) use summarization::validate_summarization_output;

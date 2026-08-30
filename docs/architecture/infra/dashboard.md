@@ -122,11 +122,13 @@ graph TB
 
 | 构建器 | 用于 | 维度 | 备注 |
 |---|---|---|---|
-| `build_session_filter(filter, session_alias, message_alias)` | session / message 关联查询 | 强制注入三条排除条件 + 时间 / agent / provider / model | 有 `message_alias` 时时间落在 `{m}.timestamp`，否则落 `{s}.created_at` |
+| `build_session_filter(filter, session_alias, message_alias)` | session / message 关联查询 | 强制注入三条会话排除条件 + 时间 / agent / provider / model | 有 `message_alias` 时还排除 `messages.is_side_snapshot = 1`，时间落在 `{m}.timestamp`；否则时间落 `{s}.created_at` |
 | `build_model_usage_filter(filter, usage_alias)` | `model_usage_events` 总账 | 时间 / agent / provider / model / kind / operation | 不注入 cron / subagent 排除 |
 | `build_log_filter(filter)` | LogDB `logs` 表 | 仅时间 + agent（日志表无 provider / model 字段） | |
 
 `params_ref` 把 `Vec<Box<dyn ToSql>>` 转成 rusqlite 需要的 `Vec<&dyn ToSql>`。
+
+侧聊创建时复制的历史消息只承担上下文作用，写入 `is_side_snapshot = 1`，不代表新的用户操作或模型调用；所有消息型聚合、明细、热力图和本地模型统计统一排除这些行。侧聊创建后新写入的消息保持默认值 `0`，照常进入 Dashboard；模型 Token 总账不复制，仍以 `model_usage_events` 为准。
 
 ## 通用聚合查询（queries.rs，7 个）
 

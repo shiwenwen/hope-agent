@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use ha_core::logging::LogDB;
 
-use super::filters::{build_log_filter, build_session_filter, params_ref};
+use super::filters::{build_log_filter, build_session_filter, dashboard_message_scope, params_ref};
 use super::types::*;
 
 /// List sessions with message count and token totals.
@@ -13,16 +13,17 @@ pub fn query_session_list(filter: &DashboardFilter) -> Result<Vec<DashboardSessi
     let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", None);
+    let message_scope = dashboard_message_scope("m");
     let sql = format!(
         "SELECT s.id, s.title, s.agent_id, s.model_id,
-                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-                (SELECT COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) FROM messages m WHERE m.session_id = s.id) as total_tokens,
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND {0}) as msg_count,
+                (SELECT COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) FROM messages m WHERE m.session_id = s.id AND {0}) as total_tokens,
                 s.created_at, s.updated_at
          FROM sessions s
-         {}
+         {1}
          ORDER BY s.updated_at DESC
          LIMIT 100",
-        f.where_sql
+        message_scope, f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
@@ -159,6 +160,7 @@ pub fn query_agent_list(filter: &DashboardFilter) -> Result<Vec<DashboardAgentIt
     let conn = crate::db::read_conn()?;
 
     let f = build_session_filter(filter, "s", None);
+    let message_scope = dashboard_message_scope("m");
     let sql = format!(
         "SELECT s.agent_id,
                 COUNT(DISTINCT s.id) as sess_count,
@@ -166,11 +168,11 @@ pub fn query_agent_list(filter: &DashboardFilter) -> Result<Vec<DashboardAgentIt
                 COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) as total_tokens,
                 MAX(s.updated_at) as last_active
          FROM sessions s
-         LEFT JOIN messages m ON m.session_id = s.id
+         LEFT JOIN messages m ON m.session_id = s.id AND {}
          {}
          GROUP BY s.agent_id
          ORDER BY sess_count DESC",
-        f.where_sql
+        message_scope, f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {

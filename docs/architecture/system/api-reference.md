@@ -523,6 +523,8 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 | `create_session_cmd` | `POST /api/sessions` | ✅ |
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |
 | `fork_session_cmd` | `POST /api/sessions/{sessionId}/fork` | ✅（body 的 `messageId` 为含边界；`beforeMessageId` 为不含边界，二者互斥且同时传入返回 400；响应保持 `SessionMeta` 扁平字段，并可附带 `draftAttachmentsMeta`） |
+| `create_side_chat_cmd` | `POST /api/sessions/{sessionId}/side-chats` | ✅（从最近稳定历史创建 `kind=side` 会话；主会话在途时排除当前 turn，不中断生成） |
+| `list_side_chats_cmd` | `GET /api/sessions/{sessionId}/side-chats` | ✅（只返回该主会话拥有的侧聊；侧聊不进入普通 session 列表） |
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |
 | `set_session_working_dir` | `PATCH /api/sessions/{sessionId}/working-dir` | ✅ |
 | `update_session_agent_cmd` | `PATCH /api/sessions/{sessionId}/agent` | ✅ |
@@ -539,7 +541,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 | `load_session_artifacts_cmd` | `GET /api/sessions/{sessionId}/artifacts` | ✅ |
 | `list_background_jobs` | `GET /api/sessions/{sessionId}/background-jobs` | ✅ |
 | `get_background_job` | `GET /api/background-jobs/{jobId}` | ✅ |
-| `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅（返回流状态与 `admissionActive`；后者表示 exact Turn admission 尚未释放） |
+| `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅（返回流状态与 `admissionActive`；后者表示 exact Turn admission 尚未释放。`lastTerminalRead` 表示最新终态轮次的结果是否已越过持久已读水位，无法判定时为 `null`） |
 | `set_session_archived_cmd` | `PATCH /api/sessions/{sessionId}/archived` | ✅（body `{ archived: boolean }`；归档 / 恢复，不删除消息） |
 | `delete_session_cmd` | `DELETE /api/sessions/{sessionId}` | ✅（永久删除；同时清理独立 `cron.db` 中引用该会话的 run log） |
 | `rename_session_cmd` | `PATCH /api/sessions/{sessionId}` | ✅ |

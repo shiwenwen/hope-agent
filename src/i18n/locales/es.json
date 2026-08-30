@@ -383,6 +383,15 @@
       "failed": "No se pudo continuar en una nueva sesión",
       "sourceFallback": "sesión original"
     },
+    "sideChat": {
+      "label": "Chat lateral",
+      "untitled": "Chat lateral {{index}}",
+      "new": "Nuevo chat lateral",
+      "close": "Cerrar panel de chat lateral",
+      "nonBlocking": "Pregunta aparte sin interrumpir el chat principal",
+      "askSelection": "Preguntar en un chat lateral",
+      "createFailed": "No se pudo crear el chat lateral"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend del navegador: {{backend}}",
       "captureFailed": "Fallo al capturar el fotograma, esperando el siguiente",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "Iniciar un chat nuevo"
+    },
+    "side": {
+      "description": "Iniciar un chat lateral sin interrumpir el chat principal"
     },
     "noResults": "No hay comandos coincidentes",
     "permission": {

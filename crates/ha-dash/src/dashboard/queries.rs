@@ -8,7 +8,8 @@ use ha_core::logging::LogDB;
 
 use super::cost::resolve_cost;
 use super::filters::{
-    build_log_filter, build_model_usage_filter, build_session_filter, params_ref,
+    build_log_filter, build_model_usage_filter, build_session_filter, dashboard_message_scope,
+    params_ref,
 };
 use super::types::*;
 
@@ -535,16 +536,17 @@ pub fn query_sessions(filter: &DashboardFilter) -> Result<DashboardSessionData> 
 
     // Daily trend (join-based for performance)
     let f = build_session_filter(filter, "s", None);
+    let message_scope = dashboard_message_scope("m");
     let sql = format!(
         "SELECT DATE(s.created_at) as d,
                 COUNT(DISTINCT s.id) as sess_count,
                 COUNT(m.id) as msg_count
          FROM sessions s
-         LEFT JOIN messages m ON m.session_id = s.id
+         LEFT JOIN messages m ON m.session_id = s.id AND {}
          {}
          GROUP BY d
          ORDER BY d ASC",
-        f.where_sql
+        message_scope, f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
@@ -558,17 +560,18 @@ pub fn query_sessions(filter: &DashboardFilter) -> Result<DashboardSessionData> 
 
     // By agent
     let f = build_session_filter(filter, "s", None);
+    let message_scope = dashboard_message_scope("m");
     let sql = format!(
         "SELECT s.agent_id,
                 COUNT(DISTINCT s.id) as sess_count,
                 COUNT(m.id) as msg_count,
                 COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) as total_tokens
          FROM sessions s
-         LEFT JOIN messages m ON m.session_id = s.id
+         LEFT JOIN messages m ON m.session_id = s.id AND {}
          {}
          GROUP BY s.agent_id
          ORDER BY sess_count DESC",
-        f.where_sql
+        message_scope, f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
@@ -952,6 +955,135 @@ mod purpose_breakdown_tests {
             .expect("unspecified operation present");
         assert_eq!(unspecified.domain, "unspecified");
         assert_eq!(unspecified.call_count, 1);
+
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod side_snapshot_tests {
+    use super::*;
+    use ha_core::session::SessionDB;
+    use rusqlite::params;
+
+    fn temp_db_path(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "{}-{}-{}.sqlite3",
+            name,
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn side_snapshot_rows_are_excluded_across_dashboard_message_views() {
+        let path = temp_db_path("dashboard-side-snapshot");
+        let _db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        let now = chrono::Utc::now().to_rfc3339();
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open fixture db");
+            conn.execute(
+                "INSERT INTO sessions (
+                    id, title, agent_id, provider_name, model_id, created_at, updated_at, kind
+                 ) VALUES ('side-1', 'Side', 'ha-main', 'Ollama (local)', 'qwen3:8b', ?1, ?1, 'side')",
+                params![now],
+            )
+            .expect("insert side session");
+
+            for (role, tokens_in, tokens_out, tool_name, is_error, is_side_snapshot) in [
+                ("user", 0, 0, None, 0, 1),
+                ("assistant", 100, 200, None, 0, 1),
+                ("tool", 10, 20, Some("copied_tool"), 1, 1),
+                ("user", 0, 0, None, 0, 0),
+                ("assistant", 3, 4, None, 0, 0),
+                ("tool", 5, 6, Some("fresh_tool"), 1, 0),
+            ] {
+                conn.execute(
+                    "INSERT INTO messages (
+                        session_id, role, content, timestamp, tokens_in, tokens_out,
+                        tool_name, tool_duration_ms, is_error, is_side_snapshot
+                     ) VALUES ('side-1', ?1, '', ?2, ?3, ?4, ?5, 10, ?6, ?7)",
+                    params![
+                        role,
+                        now,
+                        tokens_in,
+                        tokens_out,
+                        tool_name,
+                        is_error,
+                        is_side_snapshot
+                    ],
+                )
+                .expect("insert message");
+            }
+
+            conn.execute(
+                "INSERT INTO model_usage_events (
+                    timestamp, kind, provider_name, model_id, session_id, agent_id,
+                    input_tokens, output_tokens
+                 ) VALUES (?1, 'chat', 'Ollama (local)', 'qwen3:8b', 'side-1', 'ha-main', 11, 7)",
+                params![now],
+            )
+            .expect("insert usage event");
+        }
+
+        let _dash_guard = crate::db::lock_dash_db();
+        crate::db::point_at_test_db(&path);
+        let filter = DashboardFilter::default();
+
+        let sessions = query_sessions(&filter).expect("query sessions");
+        assert_eq!(sessions.trend.len(), 1);
+        assert_eq!(sessions.trend[0].message_count, 3);
+        assert_eq!(sessions.by_agent[0].message_count, 3);
+        assert_eq!(sessions.by_agent[0].total_tokens, 18);
+
+        let tools = query_tool_usage(&filter).expect("query tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].tool_name, "fresh_tool");
+        assert_eq!(tools[0].call_count, 1);
+        assert_eq!(tools[0].error_count, 1);
+
+        let session_list = crate::dashboard::detail_queries::query_session_list(&filter)
+            .expect("query session list");
+        assert_eq!(session_list[0].message_count, 3);
+        assert_eq!(session_list[0].total_tokens, 18);
+        let message_list = crate::dashboard::detail_queries::query_message_list(&filter)
+            .expect("query message list");
+        assert_eq!(message_list.len(), 3);
+        let tool_list = crate::dashboard::detail_queries::query_tool_call_list(&filter)
+            .expect("query tool list");
+        assert_eq!(tool_list.len(), 1);
+        assert_eq!(tool_list[0].tool_name, "fresh_tool");
+        let agent_list =
+            crate::dashboard::detail_queries::query_agent_list(&filter).expect("query agent list");
+        assert_eq!(agent_list[0].message_count, 3);
+        assert_eq!(agent_list[0].total_tokens, 18);
+
+        let heatmap =
+            crate::dashboard::insights::query_activity_heatmap(&filter).expect("query heatmap");
+        assert_eq!(heatmap.total, 3);
+        let hourly =
+            crate::dashboard::insights::query_hourly_distribution(&filter).expect("query hourly");
+        assert_eq!(
+            hourly
+                .buckets
+                .iter()
+                .map(|bucket| bucket.message_count)
+                .sum::<u64>(),
+            3
+        );
+        let top = crate::dashboard::insights::query_top_sessions(&filter, 10)
+            .expect("query top sessions");
+        assert_eq!(top[0].message_count, 3);
+
+        let local = crate::dashboard::local_models::query_local_model_usage(
+            &filter,
+            &["Ollama (local)".to_string()],
+        )
+        .expect("query local model usage");
+        assert_eq!(local.total_calls, 1);
+        assert_eq!(local.total_input_tokens, 8);
+        assert_eq!(local.total_output_tokens, 10);
 
         let _ = std::fs::remove_file(&path);
     }

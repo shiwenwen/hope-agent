@@ -383,6 +383,15 @@
       "failed": "새 세션에서 계속할 수 없습니다",
       "sourceFallback": "원본 세션"
     },
+    "sideChat": {
+      "label": "사이드 채팅",
+      "untitled": "사이드 채팅 {{index}}",
+      "new": "새 사이드 채팅",
+      "close": "사이드 채팅 패널 닫기",
+      "nonBlocking": "메인 채팅을 중단하지 않고 별도로 질문하세요",
+      "askSelection": "사이드 채팅에서 질문",
+      "createFailed": "사이드 채팅을 만들 수 없습니다"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
       "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "새 채팅 시작"
+    },
+    "side": {
+      "description": "메인 채팅을 중단하지 않고 사이드 채팅 시작"
     },
     "noResults": "일치하는 명령이 없습니다",
     "permission": {

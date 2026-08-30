@@ -138,6 +138,7 @@ interface MessageListProps {
   onOpenKnowledge?: (target?: KnowledgeFocusTarget) => void
   onAddQuickPrompt?: (content: string) => void
   onAddMessageQuote?: (quote: PendingMessageQuote) => void
+  onAskInSideChat?: (quote: PendingMessageQuote) => void
   renderMessageActions?: (msg: Message, index: number) => ReactNode
   displayMode?: ChatDisplayMode
   autoCollapseCompletedTurns?: boolean
@@ -820,6 +821,7 @@ export default function MessageList({
   onOpenKnowledge,
   onAddQuickPrompt,
   onAddMessageQuote,
+  onAskInSideChat,
   renderMessageActions,
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
@@ -2301,6 +2303,7 @@ export default function MessageList({
             if (content) handleCopyMessage(content, index)
           }}
           onAddToChat={onAddMessageQuote}
+          onAskInSideChat={onAskInSideChat}
           onClose={() => setContextMenu(null)}
         />
       </div>

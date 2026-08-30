@@ -383,6 +383,15 @@
       "failed": "Yeni oturumda devam edilemedi",
       "sourceFallback": "kaynak oturum"
     },
+    "sideChat": {
+      "label": "Yan sohbet",
+      "untitled": "Yan sohbet {{index}}",
+      "new": "Yeni yan sohbet",
+      "close": "Yan sohbet panelini kapat",
+      "nonBlocking": "Ana sohbeti kesmeden ayrı sorular sorun",
+      "askSelection": "Yan sohbette sor",
+      "createFailed": "Yan sohbet oluşturulamadı"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Tarayıcı arka ucu: {{backend}}",
       "captureFailed": "Kare yakalanamadı, sonraki kare bekleniyor",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "Yeni bir sohbet başlat"
+    },
+    "side": {
+      "description": "Ana sohbeti kesmeden bir yan sohbet başlat"
     },
     "noResults": "Eşleşen komut yok",
     "permission": {

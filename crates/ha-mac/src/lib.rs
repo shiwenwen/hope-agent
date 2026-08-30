@@ -291,6 +291,9 @@ pub struct MacControlCachedSnapshotSummary {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlSnapshotRequest {
+    /// Trusted tool context only; callers cannot impersonate another session.
+    #[serde(skip)]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub include_screenshot: bool,
     #[serde(default)]
@@ -308,6 +311,7 @@ pub struct MacControlSnapshotRequest {
 impl Default for MacControlSnapshotRequest {
     fn default() -> Self {
         Self {
+            session_id: None,
             include_screenshot: false,
             screenshot_target: MacControlScreenshotTarget::Display,
             display_id: None,
@@ -439,6 +443,8 @@ pub enum MacControlElementsOp {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlVisualRequest {
+    #[serde(skip)]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub op: MacControlVisualOp,
     #[serde(default)]
@@ -1127,6 +1133,8 @@ pub struct MacControlScreenshotSummary {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlFramePayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     pub snapshot_id: String,
     pub media_id: Option<String>,
     pub path: Option<String>,
@@ -3201,6 +3209,7 @@ async fn visual_observe(request: MacControlVisualRequest) -> MacControlVisualRes
     let annotate = request.annotate;
     let ui_map_limit = request.ui_map_limit;
     let response = snapshot(MacControlSnapshotRequest {
+        session_id: request.session_id,
         include_screenshot: true,
         screenshot_target: request.screenshot_target,
         display_id: request.display_id,
@@ -3590,6 +3599,7 @@ pub fn capture_frame_for_action(action_id: String, session_id: Option<String>) {
         };
         match bridge.capture_frame(panel_capture_display()).await {
             Ok(mut frame) => {
+                frame.session_id = session_id.clone();
                 frame.action_id = Some(action_id.clone());
                 emit_frame(&frame);
                 // CPU-bound JPEG decode + re-encode off the async workers.
@@ -4647,6 +4657,7 @@ async fn visual_snapshot_for_ocr(
 
     let snapshot = bridge
         .snapshot(MacControlSnapshotRequest {
+            session_id: request.session_id.clone(),
             include_screenshot: true,
             screenshot_target: request.screenshot_target,
             display_id: request.display_id,
@@ -6054,6 +6065,29 @@ mod tests {
         assert!(!status.supported);
         assert!(!status.core_ready);
         assert!(status.missing_required.is_empty());
+    }
+
+    #[test]
+    fn frame_session_owner_cannot_be_supplied_by_tool_arguments() {
+        let args = serde_json::json!({"sessionId": "forged-owner"});
+        let mut snapshot: MacControlSnapshotRequest = serde_json::from_value(args.clone()).unwrap();
+        let mut visual: MacControlVisualRequest = serde_json::from_value(args).unwrap();
+        assert!(snapshot.session_id.is_none());
+        assert!(visual.session_id.is_none());
+        snapshot.session_id = Some("side-session".to_string());
+        visual.session_id = Some("side-session".to_string());
+        assert_eq!(
+            snapshot.clamped().session_id.as_deref(),
+            Some("side-session")
+        );
+        assert_eq!(
+            visual.clone().clamped().session_id.as_deref(),
+            Some("side-session")
+        );
+        assert!(serde_json::to_value(visual)
+            .unwrap()
+            .get("sessionId")
+            .is_none());
     }
 
     #[test]

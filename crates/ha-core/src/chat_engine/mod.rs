@@ -198,6 +198,8 @@ pub struct SessionStreamState {
     pub turn_id: Option<String>,
     pub status: Option<crate::session::ChatTurnStatus>,
     pub last_terminal_status: Option<crate::session::ChatTurnStatus>,
+    /// Durable message read boundary for the exact latest terminal turn.
+    pub last_terminal_read: Option<bool>,
     pub interrupt_reason: Option<crate::session::ChatTurnInterruptReason>,
 }
 
@@ -259,6 +261,15 @@ pub fn session_stream_state(session_id: &str) -> SessionStreamState {
             .as_ref()
             .map(|turn| turn.status)
             .filter(|status| status.is_terminal()),
+        last_terminal_read: latest_turn
+            .as_ref()
+            .filter(|turn| turn.status.is_terminal())
+            .and_then(|turn| {
+                crate::get_session_db()?
+                    .chat_turn_terminal_read(session_id, &turn.id)
+                    .ok()
+                    .flatten()
+            }),
         interrupt_reason: latest_turn.and_then(|turn| turn.interrupt_reason),
     }
 }

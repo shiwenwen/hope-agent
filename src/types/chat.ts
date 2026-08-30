@@ -745,7 +745,7 @@ export interface SessionMeta {
     senderName?: string | null
   } | null
   /** Dedicated spaces use non-regular kinds and never enter regular unread. */
-  kind?: "regular" | "knowledge" | "design" | "eval_fixture" | string
+  kind?: "regular" | "side" | "knowledge" | "design" | "eval_fixture" | string
 }
 
 /** Fork responses remain SessionMeta-compatible and optionally carry the

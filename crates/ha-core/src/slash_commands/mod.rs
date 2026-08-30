@@ -60,6 +60,13 @@ pub fn resolve_skill_command_names<'a>(
 /// Includes both built-in commands and user-invocable skill commands.
 pub async fn list_slash_commands(session_id: Option<&str>) -> Result<Vec<SlashCommandDef>, String> {
     let mut commands = registry::all_commands();
+    let is_side_chat = session_id
+        .and_then(|sid| crate::get_session_db().and_then(|db| db.get_session(sid).ok().flatten()))
+        .is_some_and(|session| session.kind == crate::session::SessionKind::Side);
+    if is_side_chat {
+        commands.retain(|command| registry::is_side_chat_enabled(&command.name));
+        return Ok(commands);
+    }
 
     let store = crate::config::cached_config();
     let working_dir = crate::session::effective_session_working_dir(session_id);
@@ -115,6 +122,14 @@ pub async fn execute_slash_command(
     command_text: String,
 ) -> Result<CommandResult, String> {
     let (name, args) = parser::parse(&command_text)?;
+
+    let is_side_chat = session_id
+        .as_deref()
+        .and_then(|sid| crate::get_session_db().and_then(|db| db.get_session(sid).ok().flatten()))
+        .is_some_and(|session| session.kind == crate::session::SessionKind::Side);
+    if is_side_chat && !registry::is_side_chat_enabled(&name) {
+        return Err(format!("/{name} is not available in side chats"));
+    }
 
     // Allow both built-in commands and dynamic skill commands
     // (skill commands are handled in handlers::dispatch fallback)
@@ -367,13 +382,14 @@ fn append_truncated_note(lines: &mut Vec<String>, total: usize) {
 
 /// PassThrough slash commands become real user turns, so they must keep the
 /// normal message/context path. Session-spawning controls (`/new`, `/fork`,
-/// `/agent`) should not seed the old or fresh transcript with control events.
+/// `/side`, `/agent`) should not seed the old or fresh transcript with control events.
 pub fn should_persist_slash_history(action: Option<&CommandAction>) -> bool {
     !matches!(
         action,
         Some(CommandAction::PassThrough { .. })
             | Some(CommandAction::NewSession { .. })
             | Some(CommandAction::ForkSession { .. })
+            | Some(CommandAction::OpenSideChat { .. })
             | Some(CommandAction::SwitchAgent { .. })
     )
 }
@@ -629,6 +645,20 @@ mod tests {
             })
         );
 
+        let side = serde_json::to_value(CommandAction::OpenSideChat {
+            session_id: "side-1".into(),
+            initial_prompt: Some("explain this".into()),
+        })
+        .expect("serialize side chat action");
+        assert_eq!(
+            side,
+            serde_json::json!({
+                "type": "openSideChat",
+                "sessionId": "side-1",
+                "initialPrompt": "explain this",
+            })
+        );
+
         let recap = serde_json::to_value(CommandAction::RecapCard {
             report_id: "report-1".into(),
         })
@@ -667,6 +697,12 @@ mod tests {
         assert!(!should_persist_slash_history(Some(
             &CommandAction::ForkSession {
                 session_id: "session-2".into(),
+            },
+        )));
+        assert!(!should_persist_slash_history(Some(
+            &CommandAction::OpenSideChat {
+                session_id: "side-1".into(),
+                initial_prompt: None,
             },
         )));
         assert!(should_persist_slash_history(Some(

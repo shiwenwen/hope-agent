@@ -383,6 +383,15 @@
       "failed": "无法在新会话中继续",
       "sourceFallback": "原会话"
     },
+    "sideChat": {
+      "label": "侧聊",
+      "untitled": "侧聊 {{index}}",
+      "new": "新建侧聊",
+      "close": "关闭侧聊面板",
+      "nonBlocking": "独立提问，不会中断主对话",
+      "askSelection": "在侧聊中提问",
+      "createFailed": "无法创建侧聊"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "浏览器后端：{{backend}}",
       "captureFailed": "截图失败，等待下一帧",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "开始新对话"
+    },
+    "side": {
+      "description": "发起侧聊且不中断主对话"
     },
     "noResults": "没有匹配的命令",
     "permission": {

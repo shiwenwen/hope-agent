@@ -393,6 +393,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_archived_sessions_cmd: { method: "GET", path: "/api/sessions/archived" },
   create_session_cmd: { method: "POST", path: "/api/sessions" },
   fork_session_cmd: { method: "POST", path: "/api/sessions/{sessionId}/fork" },
+  create_side_chat_cmd: { method: "POST", path: "/api/sessions/{sessionId}/side-chats" },
+  list_side_chats_cmd: { method: "GET", path: "/api/sessions/{sessionId}/side-chats" },
   get_session_cmd: { method: "GET", path: "/api/sessions/{sessionId}" },
   set_session_pinned_cmd: { method: "PATCH", path: "/api/sessions/{sessionId}/pinned" },
   set_session_incognito: { method: "PATCH", path: "/api/sessions/{sessionId}/incognito" },

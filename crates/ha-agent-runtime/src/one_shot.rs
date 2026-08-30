@@ -230,7 +230,8 @@ fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
             last_tool["cache_control"] = json!({ "type": "ephemeral" });
         }
 
-        let mut messages = params.conversation_history.clone();
+        let mut messages =
+            crate::context_compact::prepare_messages_for_api(&params.conversation_history);
         AssistantAgent::push_user_message(&mut messages, one_shot_user_content(req));
 
         return json!({
@@ -325,7 +326,9 @@ fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
 
     if let Some(params) = req.mode.cached_for(ProviderFormat::OpenAIChat) {
         let mut api_messages = vec![json!({ "role": "system", "content": &params.system_prompt })];
-        api_messages.extend(params.conversation_history.iter().cloned());
+        api_messages.extend(crate::context_compact::prepare_messages_for_api(
+            &params.conversation_history,
+        ));
         api_messages.push(json!({ "role": "user", "content": one_shot_user_content(req) }));
 
         let tools_array: Vec<Value> = params
@@ -623,6 +626,7 @@ fn build_responses_body(
             if let Some(params) = req.mode.cached_for(expected_format) {
                 let mut input =
                     AssistantAgent::normalize_history_for_responses(&params.conversation_history);
+                input = crate::context_compact::prepare_messages_for_api(&input);
                 AssistantAgent::push_user_message(&mut input, one_shot_user_content(req));
                 json!({
                     "model": model,
@@ -888,6 +892,33 @@ mod tests {
     }
 
     // ── Anthropic ────────────────────────────────────────────────────
+
+    #[test]
+    fn side_snapshot_metadata_never_reaches_one_shot_bodies() {
+        for mut params in [
+            cached_anthropic(),
+            cached_openai_chat(),
+            cached_responses(),
+            cached_codex(),
+        ] {
+            crate::context_compact::mark_side_snapshot(&mut params.conversation_history[0]);
+            let req = OneShotRequest {
+                instruction: "query",
+                max_tokens: 100,
+                mode: OneShotMode::Cached(&params),
+                user_content: None,
+            };
+            let body = match params.provider_format {
+                ProviderFormat::Anthropic => build_anthropic_body("test", &req),
+                ProviderFormat::OpenAIChat => build_openai_chat_body("test", &req),
+                format => build_responses_body("test", &req, format),
+            };
+            assert!(!body.to_string().contains("_ha_side_snapshot"));
+            assert!(crate::context_compact::is_side_snapshot(
+                &params.conversation_history[0]
+            ));
+        }
+    }
 
     #[test]
     fn anthropic_cache_friendly_body_shape() {

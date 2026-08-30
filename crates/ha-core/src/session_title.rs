@@ -244,7 +244,7 @@ fn is_autonomous_title_session(db: &SessionDB, session_id: &str) -> Result<bool>
     let conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
     let workflow_mode = conn
         .query_row(
-            "SELECT workflow_mode FROM sessions WHERE id = ?1",
+            "SELECT workflow_mode FROM sessions WHERE id = ?1 AND kind != 'side'",
             rusqlite::params![session_id],
             |row| row.get::<_, String>(0),
         )
@@ -259,7 +259,7 @@ fn is_autonomous_title_session(db: &SessionDB, session_id: &str) -> Result<bool>
     let mut stmt = conn.prepare(
         "SELECT role, attachments_meta
            FROM messages
-          WHERE session_id = ?1 AND attachments_meta IS NOT NULL
+          WHERE session_id = ?1 AND attachments_meta IS NOT NULL AND is_side_snapshot = 0
           ORDER BY id ASC
           LIMIT 32",
     )?;
@@ -297,7 +297,8 @@ fn repair_misclassified_goal_fallback(
     let (content, attachments_meta, user_count) = {
         let conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let user_count = conn.query_row(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND role = 'user'",
+            "SELECT COUNT(*) FROM messages
+             WHERE session_id = ?1 AND role = 'user' AND is_side_snapshot = 0",
             rusqlite::params![meta.id],
             |row| row.get::<_, i64>(0),
         )?;
@@ -305,7 +306,7 @@ fn repair_misclassified_goal_fallback(
             .query_row(
                 "SELECT content, attachments_meta
                    FROM messages
-                  WHERE session_id = ?1 AND role = 'user'
+                  WHERE session_id = ?1 AND role = 'user' AND is_side_snapshot = 0
                   ORDER BY id ASC
                   LIMIT 1",
                 rusqlite::params![meta.id],
@@ -450,6 +451,7 @@ fn collect_title_messages(db: &SessionDB, session_id: &str) -> Result<Vec<String
         "SELECT role, content, attachments_meta
              FROM messages
              WHERE session_id = ?1 AND role IN ('user', 'assistant', 'event')
+               AND is_side_snapshot = 0
              ORDER BY id ASC
              LIMIT 32",
     )?;
@@ -697,6 +699,52 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
         let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn collect_title_messages_excludes_side_snapshots_before_the_limit() {
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = Arc::new(
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open database"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("channel table");
+        let source = db.create_session("ha-main").expect("source session");
+        for index in 0..20 {
+            let mut question =
+                crate::session::NewMessage::user(&format!("parent question {index}"));
+            if index == 0 {
+                question.attachments_meta =
+                    Some(serde_json::json!({ "goal_trigger": true }).to_string());
+            }
+            db.append_message(&source.id, &question).unwrap();
+            db.append_message(
+                &source.id,
+                &crate::session::NewMessage::assistant("parent answer"),
+            )
+            .unwrap();
+        }
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        assert!(collect_title_messages(&db, &side.id).unwrap().is_empty());
+        assert!(!is_autonomous_title_session(&db, &side.id).unwrap());
+        assert!(is_autonomous_title_session(&db, &source.id).unwrap());
+        db.append_message(&side.id, &crate::session::NewMessage::user("side question"))
+            .unwrap();
+        db.append_message(
+            &side.id,
+            &crate::session::NewMessage::assistant("side answer"),
+        )
+        .unwrap();
+        assert_eq!(
+            collect_title_messages(&db, &side.id).unwrap(),
+            vec!["User: side question", "Assistant: side answer"]
+        );
+        assert_eq!(
+            collect_title_messages(&db, &source.id).unwrap(),
+            vec!["User: parent question 0", "Assistant: parent answer"]
+        );
     }
 
     #[test]

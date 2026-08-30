@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Copy, Quote } from "lucide-react"
+import { Copy, MessageSquareText, Quote } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -21,12 +21,14 @@ export interface SelectionActionMenuProps {
   text: string
   onCopy: (text: string) => void | Promise<void>
   onQuote?: (text: string) => void
+  onSideChat?: (text: string) => void
   quoteDisabled?: boolean
   onClose: () => void
   /** Context-menu opens without a selection can still offer a whole-item copy. */
   copyMode?: "selection" | "all"
   copyLabel?: string
   quoteLabel?: string
+  sideChatLabel?: string
   className?: string
 }
 
@@ -54,11 +56,13 @@ export function SelectionActionMenu({
   text,
   onCopy,
   onQuote,
+  onSideChat,
   quoteDisabled = false,
   onClose,
   copyMode = "selection",
   copyLabel,
   quoteLabel,
+  sideChatLabel,
   className,
 }: SelectionActionMenuProps) {
   const { t } = useTranslation()
@@ -88,6 +92,7 @@ export function SelectionActionMenu({
       ? t("fileBrowser.copyAll", "Copy all")
       : t("fileBrowser.copySelection", "Copy selection"))
   const resolvedQuoteLabel = quoteLabel ?? t("fileBrowser.quoteToChat", "Quote to chat")
+  const resolvedSideChatLabel = sideChatLabel ?? t("chat.sideChat.askSelection", "在侧聊中提问")
 
   return (
     <FloatingMenu
@@ -102,9 +107,13 @@ export function SelectionActionMenu({
     >
       <div
         role="toolbar"
-        aria-label={
-          onQuote ? `${resolvedCopyLabel} / ${resolvedQuoteLabel}` : resolvedCopyLabel
-        }
+        aria-label={[
+          resolvedCopyLabel,
+          onQuote ? resolvedQuoteLabel : null,
+          onSideChat ? resolvedSideChatLabel : null,
+        ]
+          .filter(Boolean)
+          .join(" / ")}
         className="flex items-center gap-0.5"
         onPointerDown={(event) => {
           event.preventDefault()
@@ -135,6 +144,20 @@ export function SelectionActionMenu({
           >
             <Quote className="h-3.5 w-3.5" aria-hidden="true" />
             {resolvedQuoteLabel}
+          </button>
+        ) : null}
+        {onSideChat ? (
+          <button
+            type="button"
+            disabled={!hasText}
+            className={cn(FLOATING_MENU_ITEM_CLASS, "w-auto gap-1.5 px-2 py-1")}
+            onClick={() => {
+              onSideChat(snapshot.text)
+              onClose()
+            }}
+          >
+            <MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />
+            {resolvedSideChatLabel}
           </button>
         ) : null}
       </div>

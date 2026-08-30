@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } fr
 import { toast } from "sonner"
 import { getTransport, useTransport } from "@/lib/transport-provider"
 import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
+import { isMacControlToolFrameForSession } from "@/hooks/useMacControlFrame"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -44,6 +45,8 @@ import type {
   ActiveModel,
   AvailableModel,
   ChatRuntimeDefaults,
+  FileChangeMetadata,
+  FileChangesMetadata,
   ForkSessionResult,
   Message,
   PendingFileQuote,
@@ -77,6 +80,13 @@ import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
+import SideChatPanel, { type SideChatSeed } from "@/components/chat/SideChatPanel"
+import {
+  resolveSideChatQuoteOwner,
+  resolveSideChatSurfaceSessionId,
+} from "@/components/chat/sideChatSurface"
+import { SideChatTray } from "@/components/chat/SideChatTray"
+import type { EmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { FileBrowserDirectoryReveal } from "@/components/chat/project/file-browser/FileBrowserView"
@@ -112,6 +122,7 @@ import {
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
+import { useMirrorPanelSessionScope } from "./hooks/useMirrorPanelSessionScope"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import {
@@ -146,6 +157,7 @@ import WorkspacePanel, { type WorkspaceFocusRequest } from "./workspace/Workspac
 import { confirmDiscardDirtyFileEditors } from "./files/fileDirtyRegistry"
 import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
+import { useBackgroundJobsPanelScope } from "./background-jobs/useBackgroundJobsPanelScope"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
 import { useBackgroundJobs } from "./background-jobs/useBackgroundJobs"
 import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionState"
@@ -231,9 +243,16 @@ export interface ChatInsert {
 }
 
 type SwitchSessionOptions = { targetMessageId?: number; highlightTerms?: string[] }
+type SwitchSessionResult = "switched" | "confirmation_pending" | "cancelled"
+type SideChatFocusContinuation = { sideSessionId: string; nonce: number }
 
 type IncognitoLeaveIntent =
-  | { type: "switchSession"; sessionId: string; opts?: SwitchSessionOptions }
+  | {
+      type: "switchSession"
+      sessionId: string
+      opts?: SwitchSessionOptions
+      sideChatFocus?: SideChatFocusContinuation
+    }
   | { type: "newChat"; agentId: string; opts?: { incognito?: boolean } }
   | { type: "newProjectChat"; projectId: string; defaultAgentId?: string | null }
 
@@ -377,23 +396,19 @@ const DRAFT_WORKBENCH_KEY = "__draft__"
 const EMPTY_WORKBENCH_ORDER: string[] = []
 
 interface MacControlFrameOpenHint {
+  sessionId?: string | null
   mediaId?: string | null
   path?: string | null
+  actionId?: string | null
 }
 
 interface RestorableWorkbenchSessionState {
   workspace: boolean
-  browser: boolean
-  macControl: boolean
-  backgroundJobs: boolean
   subagent: boolean
   activePanel: ExclusiveRightPanel | null
   collapsed: boolean
   dismissed: {
     workspace: boolean
-    browser: boolean
-    macControl: boolean
-    backgroundJobs: boolean
   }
 }
 
@@ -721,6 +736,7 @@ export default function ChatScreen({
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
+  const diffPreviewSessionIdRef = useRef<string | null>(null)
 
   // Tabs are created only on explicit request, never by picking a file.
   const fileTabs = useFileTabs()
@@ -746,10 +762,8 @@ export default function ChatScreen({
   // R4 背景任务：会话级在跑/最近作业 + 本地模型任务镜像。新后台任务出现时
   // 自动打开一次；用户关闭后本会话不再抢回焦点。订阅在 ChatScreen 级常驻
   //（见 `session` 定义后的 useBackgroundJobs），喂头部徽标计数 + 面板 + 工作台区块。
+  const pendingMainBackgroundJobsOpenRef = useRef(false)
   const [showBackgroundJobsPanel, setShowBackgroundJobsPanel] = useState(false)
-  const backgroundJobsPanelDismissedRef = useRef(false)
-  const suppressNextBackgroundJobsActivationRef = useRef(false)
-  const previousBackgroundRunningCountRef = useRef(0)
   const [backgroundJobExpansionOverrides, setBackgroundJobExpansionOverrides] = useState<
     Record<string, boolean>
   >({})
@@ -766,7 +780,7 @@ export default function ChatScreen({
   // Browser live-mirror panel. Auto-opens on the **first** `browser:frame`
   // push of a session. After the user manually closes it, further frames in
   // the same session never re-pop the panel — `browserPanelDismissedRef`
-  // tracks the dismissal until a session switch resets it.
+  // is saved independently for each main/side conversation surface.
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
   const [composerFocusSignal, setComposerFocusSignal] = useState<number | undefined>(undefined)
@@ -892,7 +906,7 @@ export default function ChatScreen({
 
   // R4: live background-jobs subscription (see show-state above) — drives the
   // header badge count, the background-jobs panel, and the workspace section.
-  const backgroundJobs = useBackgroundJobs(session.currentSessionId)
+  const mainBackgroundJobs = useBackgroundJobs(session.currentSessionId)
 
   // Live sub-agent runs for the current session — drives the panel list, the
   // title-bar running badge, and chip → run resolution.
@@ -913,6 +927,203 @@ export default function ChatScreen({
         : null,
     [session.sessions, session.currentSessionId],
   )
+  const [sideChats, setSideChats] = useState<SessionMeta[]>([])
+  const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
+  const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
+  const [sideChatPanelOpen, setSideChatPanelOpen] = useState(false)
+  const [sideChatReadReceipt, setSideChatReadReceipt] = useState<EmbeddedChatReadReceipt | null>(null)
+  const [sideChatCreatingSourceId, setSideChatCreatingSourceId] = useState<string | null>(null)
+  const [sideChatSeed, setSideChatSeed] = useState<SideChatSeed | null>(null)
+  const sideChatFileQuoteHandlerRef = useRef<((quote: PendingFileQuote) => void) | null>(null)
+  const handleSideChatFileQuoteHandlerChange = useCallback(
+    (handler: ((quote: PendingFileQuote) => void) | null) => {
+      sideChatFileQuoteHandlerRef.current = handler
+    },
+    [],
+  )
+  const [pendingSideChatFocus, setPendingSideChatFocus] = useState<{
+    sourceSessionId: string
+    sideSessionId: string
+    nonce: number
+  } | null>(null)
+  const sideChatSeedNonceRef = useRef(0)
+  const canUseSideChat =
+    !!currentSessionMeta &&
+    (currentSessionMeta.kind ?? "regular") === "regular" &&
+    !currentSessionMeta.incognito &&
+    !currentSessionMeta.channelInfo &&
+    !currentSessionMeta.parentSessionId &&
+    !currentSessionMeta.isCron
+  const sideChatSourceId = canUseSideChat ? session.currentSessionId : null
+  const sideChatSourceIdRef = useRef<string | null>(sideChatSourceId)
+  sideChatSourceIdRef.current = sideChatSourceId
+  const sideChatStateIsCurrent = sideChatStateSourceId === sideChatSourceId
+  const visibleSideChats = sideChatStateIsCurrent ? sideChats : []
+  const visibleActiveSideChatId = sideChatStateIsCurrent ? activeSideChatId : null
+  const visibleActiveSideChat = visibleActiveSideChatId
+    ? (visibleSideChats.find((chat) => chat.id === visibleActiveSideChatId) ?? null)
+    : null
+  const visibleSideChatPanelOpen = sideChatStateIsCurrent && sideChatPanelOpen
+  const activeConversationSurfaceSessionId = resolveSideChatSurfaceSessionId(
+    session.currentSessionId,
+    visibleActiveSideChatId,
+    visibleSideChatPanelOpen,
+  )
+  const sideChatBackgroundJobs = useBackgroundJobs(
+    visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
+  )
+  const backgroundJobs =
+    visibleSideChatPanelOpen && visibleActiveSideChatId ? sideChatBackgroundJobs : mainBackgroundJobs
+  const sideChatSubagentRuns = useSubagentRuns(
+    visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
+  )
+  const activeConversationSubagentRuns =
+    visibleSideChatPanelOpen && visibleActiveSideChatId ? sideChatSubagentRuns : subagentRuns
+  const sideChatCreating = sideChatCreatingSourceId === sideChatSourceId
+
+  const refreshSideChats = useCallback(async (): Promise<SessionMeta[]> => {
+    const sourceSessionId = sideChatSourceIdRef.current
+    if (!sourceSessionId) return []
+    try {
+      const chats = await getTransport().call<SessionMeta[]>("list_side_chats_cmd", {
+        sessionId: sourceSessionId,
+      })
+      if (sideChatSourceIdRef.current !== sourceSessionId) return []
+      setSideChatStateSourceId(sourceSessionId)
+      setSideChats(chats)
+      return chats
+    } catch (error) {
+      logger.error("ui", "ChatScreen::listSideChats", "Failed to list side chats", error)
+      return []
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const sourceSessionId = sideChatSourceId
+    setSideChatStateSourceId(sourceSessionId)
+    setSideChats([])
+    setActiveSideChatId(null)
+    setSideChatPanelOpen(false)
+    setSideChatSeed(null)
+    if (!sourceSessionId) {
+      return
+    }
+    getTransport()
+      .call<SessionMeta[]>("list_side_chats_cmd", { sessionId: sourceSessionId })
+      .then((chats) => {
+        if (cancelled || sideChatSourceIdRef.current !== sourceSessionId) return
+        setSideChats(chats)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          logger.error("ui", "ChatScreen::loadSideChats", "Failed to load side chats", error)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sideChatSourceId])
+
+  const revealSideChat = useCallback(
+    async (
+      sessionId: string,
+      seed?: Omit<SideChatSeed, "nonce">,
+      expectedSourceSessionId = sideChatSourceIdRef.current,
+    ) => {
+      if (!expectedSourceSessionId || sideChatSourceIdRef.current !== expectedSourceSessionId)
+        return false
+      let chat =
+        sideChatStateSourceId === expectedSourceSessionId
+          ? sideChats.find((item) => item.id === sessionId)
+          : undefined
+      if (!chat) {
+        try {
+          chat =
+            (await getTransport().call<SessionMeta | null>("get_session_cmd", {
+              sessionId,
+            })) ?? undefined
+        } catch (error) {
+          logger.error("ui", "ChatScreen::revealSideChat", "Failed to load side chat", error)
+          return false
+        }
+      }
+      if (!chat) return false
+      if (
+        sideChatSourceIdRef.current !== expectedSourceSessionId ||
+        chat.kind !== "side" ||
+        chat.forkedFromSessionId !== expectedSourceSessionId
+      ) {
+        return false
+      }
+      setSideChatStateSourceId(expectedSourceSessionId)
+      setSideChats((current) =>
+        current.some((item) => item.id === chat.id) ? current : [...current, chat],
+      )
+      setActiveSideChatId(sessionId)
+      setSideChatPanelOpen(true)
+      if (seed) {
+        sideChatSeedNonceRef.current += 1
+        setSideChatSeed({ ...seed, nonce: sideChatSeedNonceRef.current })
+      } else {
+        setSideChatSeed(null)
+      }
+      return true
+    },
+    [sideChatStateSourceId, sideChats],
+  )
+
+  useEffect(() => {
+    if (!pendingSideChatFocus) return
+    if (sideChatSourceId !== pendingSideChatFocus.sourceSessionId) return
+    let cancelled = false
+    const request = pendingSideChatFocus
+    void revealSideChat(request.sideSessionId, undefined, request.sourceSessionId).then(
+      (opened) => {
+        if (cancelled) return
+        setPendingSideChatFocus((current) => (current?.nonce === request.nonce ? null : current))
+        if (!opened) {
+          const failureToast = chatFocusMissingSessionToast(t)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+        }
+        onExternalChatFocusHandled?.(request.nonce)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [onExternalChatFocusHandled, pendingSideChatFocus, revealSideChat, sideChatSourceId, t])
+
+  const createSideChat = useCallback(
+    async (seed?: Omit<SideChatSeed, "nonce">) => {
+      const sourceSessionId = sideChatSourceIdRef.current
+      if (!sourceSessionId || sideChatCreatingSourceId === sourceSessionId) return
+      setSideChatCreatingSourceId(sourceSessionId)
+      try {
+        const chat = await getTransport().call<SessionMeta>("create_side_chat_cmd", {
+          sessionId: sourceSessionId,
+        })
+        if (sideChatSourceIdRef.current === sourceSessionId) {
+          await revealSideChat(chat.id, seed, sourceSessionId)
+        }
+      } catch (error) {
+        logger.error("ui", "ChatScreen::createSideChat", "Failed to create side chat", error)
+        toast.error(t("chat.sideChat.createFailed", "无法创建侧聊"))
+      } finally {
+        setSideChatCreatingSourceId((current) => (current === sourceSessionId ? null : current))
+      }
+    },
+    [revealSideChat, sideChatCreatingSourceId, t],
+  )
+  const handleSideChatDeleted = useCallback((sessionId: string) => {
+    setSideChats((current) => current.filter((chat) => chat.id !== sessionId))
+    setActiveSideChatId(null)
+    setSideChatPanelOpen(false)
+    setSideChatSeed(null)
+  }, [])
   const canScheduleCurrentSession =
     !!currentSessionMeta &&
     (currentSessionMeta.kind ?? "regular") === "regular" &&
@@ -950,6 +1161,17 @@ export default function ChatScreen({
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
+  const {
+    dismissedRef: backgroundJobsPanelDismissedRef,
+    suppressNextActivationRef: suppressNextBackgroundJobsActivationRef,
+    previousRunningCountRef: previousBackgroundRunningCountRef,
+    promote: promoteBackgroundJobsPanelSession,
+  } = useBackgroundJobsPanelScope({
+    sessionId: activeConversationSurfaceSessionId,
+    incognito: incognitoEnabled,
+    visible: showBackgroundJobsPanel,
+    setVisible: setShowBackgroundJobsPanel,
+  })
   // Single source for "which project is this chat in" across draft + materialized
   // states. Prefer the loaded session meta the moment it exists (so switching to a
   // plain session never leaks a stale draft binding); fall back to draftProjectId
@@ -1172,7 +1394,17 @@ export default function ChatScreen({
     async (intent: IncognitoLeaveIntent) => {
       switch (intent.type) {
         case "switchSession":
-          await rawHandleSwitchSession(intent.sessionId, intent.opts)
+          if (await rawHandleSwitchSession(intent.sessionId, intent.opts)) {
+            if (intent.sideChatFocus) {
+              setPendingSideChatFocus({
+                sourceSessionId: intent.sessionId,
+                sideSessionId: intent.sideChatFocus.sideSessionId,
+                nonce: intent.sideChatFocus.nonce,
+              })
+            }
+          } else if (intent.sideChatFocus) {
+            onExternalChatFocusHandled?.(intent.sideChatFocus.nonce)
+          }
           break
         case "newChat":
           await startNewChatNow(intent.agentId, intent.opts)
@@ -1182,7 +1414,7 @@ export default function ChatScreen({
           break
       }
     },
-    [rawHandleSwitchSession, startNewChatInProjectNow, startNewChatNow],
+    [onExternalChatFocusHandled, rawHandleSwitchSession, startNewChatInProjectNow, startNewChatNow],
   )
 
   const handleConfirmIncognitoLeave = useCallback(() => {
@@ -1195,15 +1427,40 @@ export default function ChatScreen({
     void runIncognitoLeaveIntent(intent)
   }, [incognitoLeaveIntent, runIncognitoLeaveIntent, session.currentSessionId])
 
+  const handleIncognitoLeaveOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) return
+      const focusNonce =
+        incognitoLeaveIntent?.type === "switchSession"
+          ? incognitoLeaveIntent.sideChatFocus?.nonce
+          : undefined
+      setIncognitoLeaveIntent(null)
+      if (focusNonce !== undefined) onExternalChatFocusHandled?.(focusNonce)
+    },
+    [incognitoLeaveIntent, onExternalChatFocusHandled],
+  )
+
   const handleSwitchSession = useCallback(
-    async (sessionId: string, opts?: SwitchSessionOptions) => {
-      if (!sessionId) return
+    async (
+      sessionId: string,
+      opts?: SwitchSessionOptions,
+      sideChatFocus?: SideChatFocusContinuation,
+    ): Promise<SwitchSessionResult> => {
+      if (!sessionId) return "cancelled"
       if (sessionId === session.currentSessionId) {
-        await rawHandleSwitchSession(sessionId, opts)
-        return
+        return (await rawHandleSwitchSession(sessionId, opts)) ? "switched" : "cancelled"
       }
-      if (requestIncognitoLeaveConfirmation({ type: "switchSession", sessionId, opts })) return
-      await rawHandleSwitchSession(sessionId, opts)
+      if (
+        requestIncognitoLeaveConfirmation({
+          type: "switchSession",
+          sessionId,
+          opts,
+          sideChatFocus,
+        })
+      ) {
+        return "confirmation_pending"
+      }
+      return (await rawHandleSwitchSession(sessionId, opts)) ? "switched" : "cancelled"
     },
     [rawHandleSwitchSession, requestIncognitoLeaveConfirmation, session.currentSessionId],
   )
@@ -1212,6 +1469,7 @@ export default function ChatScreen({
     if (!externalChatFocus) return
     if (lastExternalChatFocusNonceRef.current === externalChatFocus.nonce) return
     lastExternalChatFocusNonceRef.current = externalChatFocus.nonce
+    setPendingSideChatFocus(null)
     ;(async () => {
       try {
         await reloadSessions()
@@ -1247,9 +1505,26 @@ export default function ChatScreen({
             return
           }
         }
-        await handleSwitchSession(externalChatFocus.sessionId, {
-          targetMessageId: externalChatFocus.targetMessageId,
-        })
+        const sideChatFocus = externalChatFocus.sideSessionId
+          ? { sideSessionId: externalChatFocus.sideSessionId, nonce: externalChatFocus.nonce }
+          : undefined
+        const switchResult = await handleSwitchSession(
+          externalChatFocus.sessionId,
+          { targetMessageId: externalChatFocus.targetMessageId },
+          sideChatFocus,
+        )
+        if (switchResult === "confirmation_pending") return
+        if (switchResult !== "switched") {
+          onExternalChatFocusHandled?.(externalChatFocus.nonce)
+          return
+        }
+        if (sideChatFocus) {
+          setPendingSideChatFocus({
+            sourceSessionId: externalChatFocus.sessionId,
+            ...sideChatFocus,
+          })
+          return
+        }
         if (externalChatFocus.controlTarget) {
           setPendingControlFocus({
             sessionId: externalChatFocus.sessionId,
@@ -1432,7 +1707,7 @@ export default function ChatScreen({
   )
 
   // ── Team ──────────────────────────────────────────────────
-  const activeTeamId = useActiveTeam(currentSessionId ?? null)
+  const activeTeamId = useActiveTeam(activeConversationSurfaceSessionId)
   const [showTeamPanel, setShowTeamPanel] = useState(false)
 
   const refreshRuntimeModelState = useCallback(async () => {
@@ -1586,6 +1861,20 @@ export default function ChatScreen({
     effectiveProjectId,
     currentProject?.workingDir ?? null,
   )
+  const activeSideChatProject = useMemo(
+    () =>
+      visibleActiveSideChat?.projectId
+        ? (projects.find((project) => project.id === visibleActiveSideChat.projectId) ?? null)
+        : null,
+    [projects, visibleActiveSideChat?.projectId],
+  )
+  const activeSideChatProjectWorkingDir = useProjectWorkingDir(
+    transport,
+    visibleActiveSideChat?.projectId ?? null,
+    activeSideChatProject?.workingDir ?? null,
+  )
+  const activeSideChatWorkingDir =
+    visibleActiveSideChat?.workingDir ?? activeSideChatProjectWorkingDir
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const projectFileBrowserRoots = useMemo(
     () =>
@@ -2476,6 +2765,7 @@ export default function ChatScreen({
       const shouldShowSlashHistory =
         action?.type !== "newSession" &&
         action?.type !== "forkSession" &&
+        action?.type !== "openSideChat" &&
         action?.type !== "switchAgent" &&
         action?.type !== "passThrough" &&
         !result._isSkillPassThrough
@@ -2573,6 +2863,13 @@ export default function ChatScreen({
                 : t("chat.fork.failed", { defaultValue: "无法在新会话中继续" }),
             )
           }
+          break
+        case "openSideChat":
+          await revealSideChat(
+            action.sessionId,
+            action.initialPrompt ? { prompt: action.initialPrompt } : undefined,
+          )
+          void refreshSideChats()
           break
         case "switchModel":
           handleManualModelChange(`${action.providerId}::${action.modelId}`)
@@ -2864,6 +3161,8 @@ export default function ChatScreen({
       rawHandleSwitchSession,
       reloadSessions,
       refreshUnreadState,
+      refreshSideChats,
+      revealSideChat,
       onOpenDashboardTab,
       runCompactContextForCurrentSession,
       t,
@@ -3257,6 +3556,24 @@ export default function ChatScreen({
     closeFloating: closeFloatingPanel,
     focusFloating: focusFloatingPanel,
   } = useFloatingPanels()
+  const promoteBrowserPanelSession = useMirrorPanelSessionScope({
+    panel: "browser",
+    sessionId: activeConversationSurfaceSessionId,
+    incognito: incognitoEnabled,
+    visible: showBrowserPanel,
+    setVisible: setShowBrowserPanel,
+    dismissedRef: browserPanelDismissedRef,
+    closeFloating: closeFloatingPanel,
+  })
+  const promoteMacControlPanelSession = useMirrorPanelSessionScope({
+    panel: "mac-control",
+    sessionId: activeConversationSurfaceSessionId,
+    incognito: incognitoEnabled,
+    visible: showMacControlPanel,
+    setVisible: setShowMacControlPanel,
+    dismissedRef: macControlPanelDismissedRef,
+    closeFloating: closeFloatingPanel,
+  })
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
@@ -3368,11 +3685,38 @@ export default function ChatScreen({
   // Stage a "quote to chat" reference as a removable chip above the composer.
   // On send it becomes a quote attachment: the model sees a <file_reference>
   // block, the user only ever sees a friendly quote card.
-  const handleFileQuote = useCallback(
-    (q: QuotePayload) => {
-      stream.setPendingQuotes((prev) => [...prev, q])
-    },
+  const handleMainFileQuote = useCallback(
+    (q: QuotePayload) => stream.setPendingQuotes((prev) => [...prev, q]),
     [stream],
+  )
+  const handleSideChatFileQuote = useCallback((q: QuotePayload) => {
+    sideChatFileQuoteHandlerRef.current?.(q)
+  }, [])
+  const fileQuoteHandlerForSession = useCallback(
+    (ownerSessionId: string | null | undefined) => {
+      switch (
+        resolveSideChatQuoteOwner(
+          ownerSessionId,
+          session.currentSessionId,
+          visibleActiveSideChatId,
+          visibleSideChatPanelOpen,
+        )
+      ) {
+        case "main":
+          return handleMainFileQuote
+        case "side":
+          return handleSideChatFileQuote
+        default:
+          return undefined
+      }
+    },
+    [
+      handleMainFileQuote,
+      handleSideChatFileQuote,
+      session.currentSessionId,
+      visibleActiveSideChatId,
+      visibleSideChatPanelOpen,
+    ],
   )
   const handleMessageQuote = useCallback(
     (quote: PendingMessageQuote) => {
@@ -3380,6 +3724,12 @@ export default function ChatScreen({
       setComposerFocusSignal((prev) => (prev ?? 0) + 1)
     },
     [stream],
+  )
+  const handleAskInSideChat = useCallback(
+    (quote: PendingMessageQuote) => {
+      void createSideChat({ quote })
+    },
+    [createSideChat],
   )
   // Help window "Ask AI" — manual excerpts arrive through a module-level
   // queue (App switches to the chat view first; the subscription drains
@@ -3476,6 +3826,42 @@ export default function ChatScreen({
       openFilePreview(target)
     },
     [openFilePreview, resolveBrowsableTarget, revealFileInActiveTab, showRightPanelByUser],
+  )
+
+  /** Side-chat file reads must carry the side session that authorized the path. */
+  const openSideChatFileTarget = useCallback(
+    (sideSessionId: string, target: PreviewTarget) => {
+      openFilePreview(target, sideSessionId)
+    },
+    [openFilePreview],
+  )
+
+  const openStructuredDiff = diffPanel.openDiff
+  const handleMainOpenDiff = useCallback(
+    (metadata: FileChangeMetadata | FileChangesMetadata) => {
+      diffPreviewSessionIdRef.current = null
+      openStructuredDiff(metadata)
+    },
+    [openStructuredDiff],
+  )
+  const handleSideChatOpenDiff = useCallback(
+    (metadata: FileChangeMetadata | FileChangesMetadata) => {
+      if (!visibleSideChatPanelOpen || !visibleActiveSideChatId) return
+      diffPreviewSessionIdRef.current = visibleActiveSideChatId
+      openStructuredDiff(metadata)
+    },
+    [openStructuredDiff, visibleActiveSideChatId, visibleSideChatPanelOpen],
+  )
+  const handleDiffPreviewFile = useCallback(
+    (target: PreviewTarget) => {
+      const sideSessionId = diffPreviewSessionIdRef.current
+      if (sideSessionId) {
+        openSideChatFileTarget(sideSessionId, target)
+        return
+      }
+      openFileTarget(target)
+    },
+    [openFileTarget, openSideChatFileTarget],
   )
 
   /** Explicit "open in a new tab": same addressing rules, same preview fallback,
@@ -3607,14 +3993,41 @@ export default function ChatScreen({
       setShowBackgroundJobsPanel(true)
       if (activate) showRightPanelByUser("background-jobs")
     },
-    [showRightPanelByUser],
+    [
+      backgroundJobsPanelDismissedRef,
+      setShowBackgroundJobsPanel,
+      showRightPanelByUser,
+      suppressNextBackgroundJobsActivationRef,
+    ],
   )
 
   const closeBackgroundJobsPanel = useCallback(() => {
     backgroundJobsPanelDismissedRef.current = true
     suppressNextBackgroundJobsActivationRef.current = false
     setShowBackgroundJobsPanel(false)
-  }, [])
+  }, [
+    backgroundJobsPanelDismissedRef,
+    setShowBackgroundJobsPanel,
+    suppressNextBackgroundJobsActivationRef,
+  ])
+
+  // The full workspace remains the main conversation's control surface. Its
+  // jobs link explicitly returns there before activating the shared jobs panel.
+  const openMainBackgroundJobsPanel = useCallback(() => {
+    if (activeConversationSurfaceSessionId === session.currentSessionId) {
+      openBackgroundJobsPanel()
+      return
+    }
+    pendingMainBackgroundJobsOpenRef.current = true
+    setSideChatPanelOpen(false)
+  }, [activeConversationSurfaceSessionId, openBackgroundJobsPanel, session.currentSessionId])
+
+  useLayoutEffect(() => {
+    if (!pendingMainBackgroundJobsOpenRef.current) return
+    if (activeConversationSurfaceSessionId !== session.currentSessionId) return
+    pendingMainBackgroundJobsOpenRef.current = false
+    openBackgroundJobsPanel()
+  }, [activeConversationSurfaceSessionId, openBackgroundJobsPanel, session.currentSessionId])
 
   const openSubagentPanel = useCallback(
     (target?: { runId?: string; childSessionId?: string }) => {
@@ -3799,6 +4212,7 @@ export default function ChatScreen({
     fileTabs.openNonce,
     filePreview.openNonce,
     diffPanel.openNonce,
+    suppressNextBackgroundJobsActivationRef,
   ])
 
   // Workbench sets are session-scoped. Returning to a normal session restores
@@ -3818,6 +4232,9 @@ export default function ChatScreen({
   // orphaned `__draft__` bucket would otherwise be restored into the next new
   // chat — pointing at the previous chat's working dir.
   sessionPromotedRef.current = (sessionId: string) => {
+    promoteBrowserPanelSession(sessionId)
+    promoteMacControlPanelSession(sessionId)
+    promoteBackgroundJobsPanelSession(sessionId)
     const previousKey = activeWorkbenchSessionRef.current
     if (previousKey === sessionId) return
     activeWorkbenchSessionRef.current = sessionId
@@ -3845,17 +4262,11 @@ export default function ChatScreen({
     if (!leavingIncognito) {
       workbenchSessionCacheRef.current.set(previousKey, {
         workspace: showWorkspacePanel,
-        browser: showBrowserPanel,
-        macControl: showMacControlPanel,
-        backgroundJobs: showBackgroundJobsPanel,
         subagent: showSubagentPanel,
         activePanel: activeExclusiveRightPanel,
         collapsed: rightPanelCollapsed,
         dismissed: {
           workspace: workspacePanelDismissedRef.current,
-          browser: browserPanelDismissedRef.current,
-          macControl: macControlPanelDismissedRef.current,
-          backgroundJobs: backgroundJobsPanelDismissedRef.current,
         },
       })
     }
@@ -3864,20 +4275,9 @@ export default function ChatScreen({
     activeWorkbenchSessionRef.current = nextKey
     activeWorkbenchIncognitoRef.current = incognitoEnabled
     workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
-    browserPanelDismissedRef.current = restore?.dismissed.browser ?? false
-    macControlPanelDismissedRef.current = restore?.dismissed.macControl ?? false
-    backgroundJobsPanelDismissedRef.current = restore?.dismissed.backgroundJobs ?? false
-    suppressNextBackgroundJobsActivationRef.current = false
-    previousBackgroundRunningCountRef.current = 0
-    // Frames are session-scoped — close floating mirrors on session switch.
-    closeFloatingPanel("browser")
-    closeFloatingPanel("mac-control")
-    setShowBrowserPanel(restore?.browser ?? false)
-    setShowMacControlPanel(restore?.macControl ?? false)
     setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
     setPullRequestExpectedUrl(null)
-    setShowBackgroundJobsPanel(restore?.backgroundJobs ?? false)
     setBackgroundJobExpansionOverrides({})
     setShowSubagentPanel(restore?.subagent ?? false)
     setSubagentPanelSelectRequest(null)
@@ -3895,13 +4295,9 @@ export default function ChatScreen({
     }
   }, [
     activeExclusiveRightPanel,
-    closeFloatingPanel,
     incognitoEnabled,
     rightPanelCollapsed,
     session.currentSessionId,
-    showBackgroundJobsPanel,
-    showBrowserPanel,
-    showMacControlPanel,
     showSubagentPanel,
     showWorkspacePanel,
     switchFilePreviewScope,
@@ -3913,7 +4309,7 @@ export default function ChatScreen({
   useEffect(() => {
     const unlisten = getTransport().listen("browser:frame", (raw) => {
       const payload = parsePayload<{ sessionId?: string | null }>(raw)
-      if (payload?.sessionId && payload.sessionId !== session.currentSessionId) return
+      if (payload?.sessionId && payload.sessionId !== activeConversationSurfaceSessionId) return
       if (browserPanelDismissedRef.current) return
       setShowBrowserPanel((prev) => (prev ? prev : true))
     })
@@ -3924,13 +4320,13 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [session.currentSessionId])
+  }, [activeConversationSurfaceSessionId])
 
   useEffect(() => {
     const unlisten = getTransport().listen("browser:extension_required", (raw) => {
       const payload = parsePayload<BrowserExtensionRequiredPayload>(raw)
       if (!payload) return
-      if (payload.sessionId && payload.sessionId !== session.currentSessionId) return
+      if (payload.sessionId && payload.sessionId !== activeConversationSurfaceSessionId) return
       const reason = payload.reason || payload.statusMessage
       const next = payload.nextAction
         ? t("chat.browserExtensionRequired.nextAction", {
@@ -3955,14 +4351,14 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [session.currentSessionId, t])
+  }, [activeConversationSurfaceSessionId, t])
 
   useEffect(() => {
     const unlisten = getTransport().listen("mac_control:frame", (raw) => {
       if (macControlPanelDismissedRef.current) return
       const payload = parsePayload<MacControlFrameOpenHint>(raw)
-      const isToolScreenshotFrame = !!(payload?.mediaId || payload?.path)
-      setShowMacControlPanel((prev) => (prev ? prev : isToolScreenshotFrame))
+      if (!payload || !isMacControlToolFrameForSession(payload, activeConversationSurfaceSessionId)) return
+      setShowMacControlPanel(true)
     })
     return () => {
       try {
@@ -3971,7 +4367,7 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [])
+  }, [activeConversationSurfaceSessionId])
 
   // 首次有任务/文件/来源时自动展开 Workspace 面板一次；用户关闭后本会话不再
   // 自动弹（仿 browser/mac-control 的 dismissed 模型）。用便宜的存在性检查(短路)，
@@ -4003,7 +4399,14 @@ export default function ChatScreen({
 
     if (action === "activate") openBackgroundJobsPanel({ activate: true })
     if (action === "open-in-background") openBackgroundJobsPanel({ activate: false })
-  }, [backgroundJobs.runningCount, openBackgroundJobsPanel, renderedExclusiveRightPanel])
+  }, [
+    activeConversationSurfaceSessionId,
+    backgroundJobs.runningCount,
+    backgroundJobsPanelDismissedRef,
+    openBackgroundJobsPanel,
+    previousBackgroundRunningCountRef,
+    renderedExclusiveRightPanel,
+  ])
 
   const workspaceTaskExecutionState = resolveWorkspaceTaskExecutionState(
     session.currentSessionId
@@ -4033,7 +4436,9 @@ export default function ChatScreen({
     const persistentPanels = PERSISTENT_RIGHT_PANEL_ORDER.filter((panel) => {
       if (panel === "files") return !!effectiveWorkingDir
       // Only surface the sub-agent entry once the session has spawned one.
-      if (panel === "subagent") return subagentRuns.runs.length > 0 || showSubagentPanel
+      if (panel === "subagent") {
+        return activeConversationSubagentRuns.runs.length > 0 || showSubagentPanel
+      }
       return true
     })
     const persistentSet = new Set<ExclusiveRightPanel>(persistentPanels)
@@ -4090,11 +4495,11 @@ export default function ChatScreen({
           },
         }
       }
-      if (panel === "subagent" && subagentRuns.runningCount > 0) {
+      if (panel === "subagent" && activeConversationSubagentRuns.runningCount > 0) {
         return {
           ...base,
           badge: {
-            count: subagentRuns.runningCount,
+            count: activeConversationSubagentRuns.runningCount,
             labelKey: "chat.rightPanel.subagentRunningCount",
             tone: "running" as const,
           },
@@ -4107,8 +4512,8 @@ export default function ChatScreen({
     effectiveWorkingDir,
     isPanelFloating,
     rightPanelVisibility,
-    subagentRuns.runningCount,
-    subagentRuns.runs.length,
+    activeConversationSubagentRuns.runningCount,
+    activeConversationSubagentRuns.runs.length,
     showSubagentPanel,
     workflowTitleBarStatus,
   ])
@@ -4602,7 +5007,7 @@ export default function ChatScreen({
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => void handleSwitchSession(sid)}
-        onQuote={handleFileQuote}
+        onQuote={handleMainFileQuote}
         onOpenStructuredMemory={(projectId) => {
           setProjectOverviewOpen(false)
           requestMemoryFocus(
@@ -4642,12 +5047,7 @@ export default function ChatScreen({
       </AlertDialog>
 
       {/* Incognito leave confirmation */}
-      <AlertDialog
-        open={!!incognitoLeaveIntent}
-        onOpenChange={(open) => {
-          if (!open) setIncognitoLeaveIntent(null)
-        }}
-      >
+      <AlertDialog open={!!incognitoLeaveIntent} onOpenChange={handleIncognitoLeaveOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -4799,7 +5199,7 @@ export default function ChatScreen({
           )}
 
           <BrowserExtensionNudge
-            sessionId={session.currentSessionId}
+            sessionId={activeConversationSurfaceSessionId}
             onOpenSettings={onOpenSettings}
           />
 
@@ -4898,7 +5298,7 @@ export default function ChatScreen({
                   onOpenSubagentRun={handleOpenSubagentRun}
                   subagentRunsSnapshot={subagentRuns}
                   bottomInset={isCronSession || isSubagentSession}
-                  onOpenDiff={diffPanel.openDiff}
+                  onOpenDiff={handleMainOpenDiff}
                   onResume={(message) => {
                     void stream.handleSend(message)
                   }}
@@ -4915,6 +5315,7 @@ export default function ChatScreen({
                   onOpenKnowledge={onOpenKnowledge}
                   onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                   onAddMessageQuote={handleMessageQuote}
+                  onAskInSideChat={canUseSideChat ? handleAskInSideChat : undefined}
                   displayMode={displayMode}
                   autoCollapseCompletedTurns={autoCollapseCompletedTurns}
                   onAtBottomChange={setMessageTailVisible}
@@ -5012,7 +5413,18 @@ export default function ChatScreen({
                       )}
                       <ChatInput
                         topAccessory={
-                          !session.currentSessionId && !incognitoEnabled ? (
+                          canUseSideChat ? (
+                            <SideChatTray
+                              chats={visibleSideChats}
+                              activeId={visibleActiveSideChatId}
+                              panelOpen={visibleSideChatPanelOpen}
+                              readReceipt={sideChatReadReceipt}
+                              creating={sideChatCreating}
+                              onCreate={() => void createSideChat()}
+                              onSelect={(sessionId) => void revealSideChat(sessionId)}
+                              onClosePanel={() => setSideChatPanelOpen(false)}
+                            />
+                          ) : !session.currentSessionId && !incognitoEnabled ? (
                             <ProjectSessionDraftBar
                               project={currentProject}
                               projects={projects}
@@ -5127,6 +5539,7 @@ export default function ChatScreen({
                         currentAgentId={session.currentAgentId}
                         onEnsureSession={ensureWorkflowSession}
                         onCommandAction={handleCommandAction}
+                        enableSideChatCommand={canUseSideChat}
                         permissionMode={stream.permissionMode}
                         onPermissionModeChange={stream.setPermissionModeByUser}
                         sandboxMode={stream.sandboxMode}
@@ -5188,6 +5601,30 @@ export default function ChatScreen({
                   </div>
                 )}
               </FileActionsContext.Provider>
+
+              {visibleSideChatPanelOpen && visibleActiveSideChatId ? (
+                <SideChatPanel
+                  key={visibleActiveSideChatId}
+                  sessionId={visibleActiveSideChatId}
+                  isViewVisible={isViewVisible}
+                  onMessagesRead={setSideChatReadReceipt}
+                  title={visibleActiveSideChat?.title}
+                  workingDir={activeSideChatWorkingDir}
+                  seed={sideChatSeed}
+                  onClose={() => setSideChatPanelOpen(false)}
+                  onActivity={() => void refreshSideChats()}
+                  onCodexReauth={onCodexReauth}
+                  onDeleted={handleSideChatDeleted}
+                  onFileQuoteHandlerChange={handleSideChatFileQuoteHandlerChange}
+                  onOpenDiff={handleSideChatOpenDiff}
+                  onOpenSubagentRun={handleOpenSubagentRun}
+                  onViewChildSession={(sid) => openSubagentPanel({ childSessionId: sid })}
+                  subagentRunsSnapshot={sideChatSubagentRuns}
+                  onPreviewFile={(target) =>
+                    openSideChatFileTarget(visibleActiveSideChatId, target)
+                  }
+                />
+              ) : null}
             </div>
 
             {/* Always mounted, `empty` when nothing is open: the Canvas panel
@@ -5215,7 +5652,7 @@ export default function ChatScreen({
                     openNonce={diffPanel.openNonce}
                     onActiveIndexChange={diffPanel.setActiveIndex}
                     onClose={diffPanel.closeDiff}
-                    onPreviewFile={openFileTarget}
+                    onPreviewFile={handleDiffPreviewFile}
                     gitContext={diffPanel.gitContext}
                     onGitSnapshotChange={diffPanel.replaceGitDiff}
                     embedded
@@ -5284,7 +5721,7 @@ export default function ChatScreen({
                     fileTabs.activeId !== tab.id
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  onQuote={handleFileQuote}
+                  onQuote={handleMainFileQuote}
                   onOpenInNewTab={openFileTargetInNewTab}
                   onSelectionChange={(selection) => fileTabs.setTabSelection(tab.id, selection)}
                   revealFile={tab.revealFile}
@@ -5299,9 +5736,9 @@ export default function ChatScreen({
 
               {/* Canvas Preview Panel */}
               <CanvasPanel
-                currentSessionId={currentSessionId}
+                currentSessionId={activeConversationSurfaceSessionId}
                 onOpenChange={setCanvasPanelOpen}
-                onQuote={handleFileQuote}
+                onQuote={fileQuoteHandlerForSession(activeConversationSurfaceSessionId)}
                 collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "canvas"}
                 animateOnMount={animateRightPanelOnMount}
                 visible={rightPanelVisibility.canvas}
@@ -5311,7 +5748,7 @@ export default function ChatScreen({
               close-only by user, then switchable from the title bar. */}
               {rightPanelVisibility.browser && (
                 <BrowserPanel
-                  sessionId={session.currentSessionId}
+                  sessionId={activeConversationSurfaceSessionId}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "browser"}
                   animateOnMount={animateRightPanelOnMount}
                   onClose={() => {
@@ -5327,7 +5764,7 @@ export default function ChatScreen({
               open panel and must not re-open after a session switch. */}
               {rightPanelVisibility["mac-control"] && (
                 <MacControlPanel
-                  sessionId={session.currentSessionId}
+                  sessionId={activeConversationSurfaceSessionId}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "mac-control"}
                   animateOnMount={animateRightPanelOnMount}
                   onClose={() => {
@@ -5341,6 +5778,7 @@ export default function ChatScreen({
               {/* Team Panel */}
               {rightPanelVisibility.team && activeTeamId && (
                 <TeamPanel
+                  key={activeTeamId}
                   teamId={activeTeamId}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "team"}
                   animateOnMount={animateRightPanelOnMount}
@@ -5361,8 +5799,11 @@ export default function ChatScreen({
                     taskExecutionState={workspaceTaskExecutionState}
                     messages={session.messages}
                     contextUsageOverride={contextUsage}
-                    onOpenDiff={diffPanel.openDiff}
-                    onOpenGitDiff={diffPanel.openGitDiff}
+                    onOpenDiff={handleMainOpenDiff}
+                    onOpenGitDiff={(snapshot, sessionId, reviewComments) => {
+                      diffPreviewSessionIdRef.current = null
+                      diffPanel.openGitDiff(snapshot, sessionId, reviewComments)
+                    }}
                     onFillInput={stream.setInput}
                     onOpenPullRequest={openPullRequestPanel}
                     onPreviewFile={openFileTarget}
@@ -5389,10 +5830,10 @@ export default function ChatScreen({
                       workspaceTaskExecutionState === "cancelling"
                     }
                     workflowRunsState={workflowTitleBarRuns}
-                    backgroundJobs={backgroundJobs.jobs}
+                    backgroundJobs={mainBackgroundJobs.jobs}
                     backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
                     onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
-                    onOpenBackgroundJobs={openBackgroundJobsPanel}
+                    onOpenBackgroundJobs={openMainBackgroundJobsPanel}
                     onOpenBrowserPanel={openBrowserPanel}
                     onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
                     subagentRunsState={subagentRuns}
@@ -5419,7 +5860,7 @@ export default function ChatScreen({
                     rightPanelCollapsed || renderedExclusiveRightPanel !== "background-jobs"
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  contentKey="background-jobs"
+                  contentKey={`background-jobs:${activeConversationSurfaceSessionId ?? ""}`}
                 >
                   <BackgroundJobsPanel
                     jobs={backgroundJobs.jobs}
@@ -5438,11 +5879,11 @@ export default function ChatScreen({
                 <RightPanelShell
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "subagent"}
                   animateOnMount={animateRightPanelOnMount}
-                  contentKey={`subagent:${session.currentSessionId ?? ""}`}
+                  contentKey={`subagent:${activeConversationSurfaceSessionId ?? ""}`}
                 >
                   <SubagentPanel
-                    sessionId={session.currentSessionId}
-                    runsState={subagentRuns}
+                    sessionId={activeConversationSurfaceSessionId}
+                    runsState={activeConversationSubagentRuns}
                     agents={session.agents}
                     selectRequest={subagentPanelSelectRequest}
                     onClose={closeSubagentPanel}
@@ -5466,9 +5907,11 @@ export default function ChatScreen({
                 >
                   <FilePreviewPanel
                     target={entry.target}
-                    sessionId={session.currentSessionId}
+                    sessionId={entry.authorizationSessionId ?? session.currentSessionId}
                     onReplaceDraft={replaceDraftAttachment}
-                    onQuote={handleFileQuote}
+                    onQuote={fileQuoteHandlerForSession(
+                      entry.authorizationSessionId ?? session.currentSessionId,
+                    )}
                     onClose={() => closeFilePreview(entry.id)}
                     integrated
                     onNavigateDirectory={(dirPath) => revealPreviewDirectory(entry.target, dirPath)}
@@ -5499,7 +5942,7 @@ export default function ChatScreen({
                 }
               }}
               onFocus={focusFloatingPanel}
-              sessionId={session.currentSessionId}
+              sessionId={activeConversationSurfaceSessionId}
             />
           </div>
         </div>

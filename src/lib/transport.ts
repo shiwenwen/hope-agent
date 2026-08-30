@@ -162,7 +162,13 @@ export interface ChatStartArgs {
   designProjectId?: string | null;
   /** First-party message-list + composer surface. Product routing metadata;
    * never included in model messages. Internal/side-query callers omit it. */
-  uiSurface?: "main_chat" | "quick_chat" | "knowledge_chat" | "design_chat" | "pet_chat";
+  uiSurface?:
+    | "main_chat"
+    | "side_chat"
+    | "quick_chat"
+    | "knowledge_chat"
+    | "design_chat"
+    | "pet_chat";
   // Tauri's invoke serializes extra unknown fields without complaint, and
   // HTTP's POST body is plain JSON — keep this open so HTTP impl can
   // pass-through without an unsafe `as Record<string, unknown>` cast.

@@ -98,6 +98,7 @@ flowchart TB
 | 一等 UI 表面 | `ChatUiSurface` | SessionKind |
 | --- | --- | --- |
 | 主 ChatScreen | `main_chat` | Regular |
+| SideChatPanel | `side_chat` | Side |
 | QuickChatDialog / QuickChatWindow | `quick_chat` | Regular |
 | KnowledgeChatPanel | `knowledge_chat` | Knowledge |
 | DesignChatPanel | `design_chat` | Design |
@@ -109,7 +110,9 @@ flowchart TB
 
 **排除项是天然的，不是逐项黑名单。** side query、automation、compact、Memory、Dreaming、知识空间主动精灵、vision bridge、judge、eval、embedding、STT、媒体生成、Cron、IM、ACP、subagent、ParentInjection、后台 job——它们全都不产生带 `ui_surface` 的 turn，因此全部落在 allowlist 之外。SQL 台账再叠三道显式排除：cron 会话（`is_cron = 0`）、子会话 / subagent（`parent_session_id IS NULL`）、以及被 IM 接管的会话（不在 `channel_conversations` 里）。Knowledge / Design 表面还要求对应的 `kb_id` / design project 存在——但知识空间的 `anchor_note_path` 可空：没有打开具体文档的知识主对话仍会接入，靠 KB + session 精确恢复面板。
 
-Pet 回复本身不创建专属会话：对运行中 turn 走既有插话队列，对终态对话以 `pet_chat` 在**原 Session** 上开一个新的主 turn。未来新增一等对话表面必须显式扩展枚举、固定 UI 调用点、扩 Core SQL allowlist，并补纳入/排除测试——历史 NULL turn 依旧不按 `source` 猜测。
+Pet 回复本身不创建专属会话：对运行中 turn 走既有插话队列，对终态对话以 `pet_chat` 在**原 Session** 上开一个新的主 turn。侧聊活动的导航目标同时携带侧聊 Session 与来源 Session，点击后先打开来源主对话，再恢复对应侧聊面板；不会把隐藏侧聊直接塞进主侧边栏。未来新增一等对话表面必须显式扩展枚举、固定 UI 调用点、扩 Core SQL allowlist，并补纳入/排除测试——历史 NULL turn 依旧不按 `source` 猜测。
+
+侧聊活动要求自身未归档，且所属主会话仍符合 `regular_session_scope_sql` 的可见范围；主会话归档或无法被主界面打开时，即使侧聊继续运行或随后完成，也不发布无法跳转的宠物提示。归档与恢复都会通知宠物重新查询，恢复后仍按原有轮次和已读水位投影，不改写侧聊执行状态。
 
 ### 已读水位只由真实渲染推进
 
@@ -148,7 +151,7 @@ flowchart TB
 
 **"最新 turn" 是硬边界。** 一旦某会话最新 turn 来自公开 API、cron、subagent、side query 等非主对话入口，即使更早有过 UI turn，也不再继承宠物资格——创建这个 non-UI turn 会让现有投影立即失效。这正是"只认第一方主对话"在时间维度上的体现。
 
-**终态边界的定义。** 用来和 `last_read_message_id` 比较的"终态消息 id"取 `assistant_message_id`；若为空且 turn 失败，则取该 turn 与下一个 turn 之间最后一条可见消息（通常是错误事件）的 id；再退到 `user_message_id`。`Interrupted` 不映射成 Blocked——用户主动打断不是失败。
+**终态边界的定义。** `chat_turns.terminal_message_id` 在终结事务中固定：成功轮次保存回答标识，失败/中断优先保存准确的可见停止或错误通知标识，无显式通知的旧入口只在终结时捕获一次当前消息边界。查询仅以固定标识与 `last_read_message_id` 比较，缺失时退到助手/用户标识，不能因部分回复已读而提前确认通知，也不能因后续 `/status` 等事件重新激活旧结果。旧数据库迁移按终结时间及下一轮用户边界回填一次，不在重开时重新计算。侧聊入口条复用同一 SQL 边界。`Interrupted` 不映射成 Blocked——用户主动打断不是失败。
 
 **快照契约。** 稳定排序后最多返回 50 条，并携带 `total` / `truncated` / `revision` / `stale`。挂起计数是"进程内 approval 数 + SQLite pending Ask 组数"之和，只用"是否大于零"决定运行中 turn 是否升为 `NeedsInput`，不返回交互总数或最早倒计时。incognito 会话在 SQL 查询边界就被脱敏（`title` / `agent_id` 清空、`preview` 置 None），ha-pet 投影侧的 incognito 分支是第二道防线。
 
@@ -261,7 +264,7 @@ hover 单条气泡才显示左上角关闭与右侧快捷动作：Running 同时
 
 单击 Pet 播放 Jump 动作并以 `pet_focus_target_cmd(target:null)` 唤起 Hope 主窗口，不擅自切会话；拖拽超过 4px 时抑制同一手势合成的 click，不误唤起主窗口。右键 Pet 收起气泡栈，并在宠物本体中心覆盖一个紧凑的"设置 / 关闭"胶囊：设置先唤主窗口，再发 `open-settings(section:pets)`——菜单不扩张原生窗口，也不在宠物外另开卡片。
 
-typed navigation 由主 App 壳消费：Regular 回主聊天 session，Knowledge 恢复知识空间 thread，Design 恢复 design project + thread。PetWindow 不拼 URL，也不把专属对话伪装成 Regular。
+typed navigation 由主 App 壳消费：Regular 回主聊天 session，Side 先回来源 session 再恢复侧聊面板，Knowledge 恢复知识空间 thread，Design 恢复 design project + thread。PetWindow 不拼 URL，也不把专属对话伪装成 Regular。
 
 精灵动画分三层仲裁：**业务状态循环**（Idle / Running / Waiting / Failed / Review）、**指针一次性动作**（hover Wave、click Jump）与 **v2 Idle 注视**；拖拽左右 Run 优先级最高。固定顺序是 `Drag > Click > Hover > 业务状态 > v2 Look > Idle`，一次性动作完整播放后恢复业务状态，宠物自身移动不重复触发。
 

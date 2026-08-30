@@ -18,6 +18,7 @@ interface MessageContextMenuProps {
   contextMenu: MessageContextMenuState | null
   onCopy: (index: number, selectedText?: string) => void
   onAddToChat?: (quote: PendingMessageQuote) => void
+  onAskInSideChat?: (quote: PendingMessageQuote) => void
   onClose: () => void
 }
 
@@ -25,6 +26,7 @@ export default function MessageContextMenu({
   contextMenu,
   onCopy,
   onAddToChat,
+  onAskInSideChat,
   onClose,
 }: MessageContextMenuProps) {
   const { t } = useTranslation()
@@ -57,8 +59,16 @@ export default function MessageContextMenu({
               }
             : undefined
         }
+        onSideChat={
+          selectionQuoteRole && onAskInSideChat
+            ? (text) => {
+                onAskInSideChat({ role: selectionQuoteRole, content: text })
+              }
+            : undefined
+        }
         copyLabel={t("chat.copy")}
         quoteLabel={t("chat.messageQuote.addToChat", "添加到对话")}
+        sideChatLabel={t("chat.sideChat.askSelection", "在侧聊中提问")}
         onClose={onClose}
         className="z-[100]"
       />

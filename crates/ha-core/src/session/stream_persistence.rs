@@ -1326,7 +1326,8 @@ impl SessionDB {
             let changed_turn = tx.execute(
                 "UPDATE chat_turns
                  SET status = 'completed', interrupt_reason = NULL, error = NULL,
-                     assistant_message_id = ?1, ended_at = ?2, updated_at = ?2
+                     assistant_message_id = ?1, terminal_message_id = ?1,
+                     ended_at = ?2, updated_at = ?2
                  WHERE id = ?3 AND session_id = ?4
                    AND status = 'running'",
                 params![assistant_id, now, turn_id, input.session_id],
@@ -1435,6 +1436,9 @@ impl SessionDB {
         tx.execute(
             "UPDATE chat_turns
              SET status = ?1, interrupt_reason = COALESCE(interrupt_reason, ?2),
+                 terminal_message_id = COALESCE(
+                     (SELECT MAX(m.id) FROM messages m WHERE m.session_id = chat_turns.session_id),
+                     assistant_message_id, user_message_id),
                  error = ?3, ended_at = COALESCE(ended_at, ?4), updated_at = ?4
              WHERE id = (SELECT turn_id FROM chat_stream_runs WHERE run_id = ?5)
                AND status NOT IN ('completed','interrupted','failed')",
@@ -1547,8 +1551,8 @@ impl SessionDB {
         } else {
             None
         };
-        if let Some(event) = input.recovery_event.as_ref() {
-            insert_message_tx(
+        let recovery_event_id = if let Some(event) = input.recovery_event.as_ref() {
+            Some(insert_message_tx(
                 &tx,
                 &input.session_id,
                 event,
@@ -1557,8 +1561,10 @@ impl SessionDB {
                     .run_id
                     .as_ref()
                     .map(|_| i64::try_from(input.final_seq.saturating_add(2)).unwrap_or(i64::MAX)),
-            )?;
-        }
+            )?)
+        } else {
+            None
+        };
         let changed_context = tx.execute(
             "UPDATE sessions
              SET context_json = ?1, context_revision = context_revision + 1,
@@ -1585,6 +1591,8 @@ impl SessionDB {
                      interrupt_reason = COALESCE(interrupt_reason, ?2),
                      error = COALESCE(error, ?3),
                      assistant_message_id = COALESCE(?4, assistant_message_id),
+                     terminal_message_id = COALESCE(?8, ?4, terminal_message_id,
+                         assistant_message_id, user_message_id),
                      ended_at = COALESCE(ended_at, ?5), updated_at = ?5
                  WHERE id = ?6 AND session_id = ?7
                    AND (
@@ -1599,6 +1607,7 @@ impl SessionDB {
                     now,
                     turn_id,
                     input.session_id,
+                    recovery_event_id,
                 ],
             )?;
             if changed != 1 {
@@ -4168,6 +4177,57 @@ mod tests {
         assert_eq!(terminal.run.status, "failed");
         assert_eq!(terminal.attempts[0].status, "superseded");
         assert_eq!(terminal.attempts[1].status, "failed");
+    }
+
+    #[test]
+    fn terminal_read_stream_commit_seals_notice_before_later_commands() {
+        for status in [ChatTurnStatus::Failed, ChatTurnStatus::Interrupted] {
+            let fixture = fixture("terminal-read-notice");
+            let committed = fixture
+                .db
+                .commit_interrupted_turn(&CommitInterruptedTurn {
+                    run_id: Some(fixture.run_id.clone()),
+                    attempt_no: 1,
+                    session_id: fixture.session_id.clone(),
+                    assistant: Some(NewMessage::assistant("partial")),
+                    context_json: "[]".to_string(),
+                    expected_context_revision: fixture.context_revision,
+                    turn_id: Some(fixture.turn_id.clone()),
+                    final_seq: fixture.final_seq,
+                    status,
+                    interrupt_reason: Some("runtime_cancel".to_string()),
+                    error: None,
+                    recovery_event: Some(NewMessage::event("terminal notice")),
+                    request_plan: RequestPlanCommit::None,
+                })
+                .unwrap();
+            fixture
+                .db
+                .mark_session_read_through(
+                    &fixture.session_id,
+                    Some(committed.assistant_message_id),
+                )
+                .unwrap();
+            assert_eq!(
+                fixture
+                    .db
+                    .chat_turn_terminal_read(&fixture.session_id, &fixture.turn_id)
+                    .unwrap(),
+                Some(false)
+            );
+            fixture.db.mark_session_read(&fixture.session_id).unwrap();
+            fixture
+                .db
+                .append_message(&fixture.session_id, &NewMessage::event("/status"))
+                .unwrap();
+            assert_eq!(
+                fixture
+                    .db
+                    .chat_turn_terminal_read(&fixture.session_id, &fixture.turn_id)
+                    .unwrap(),
+                Some(true)
+            );
+        }
     }
 
     #[test]

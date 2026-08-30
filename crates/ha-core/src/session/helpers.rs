@@ -398,15 +398,19 @@ pub fn ensure_first_message_title(
     content: &str,
     attachments_meta: Option<&str>,
 ) -> Result<Option<String>> {
-    let should_update = {
+    let (should_update, side_message) = {
         let conn = db
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let Some((title, incognito, message_count)) = conn
+        let Some((title, incognito, message_count, kind)) = conn
             .query_row(
                 "SELECT s.title, s.incognito,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
+                        (SELECT COUNT(*) FROM messages m
+                          WHERE m.session_id = s.id
+                            AND m.is_side_snapshot = 0
+                            AND (s.kind != 'side' OR m.role = 'user')) AS message_count,
+                        s.kind
                    FROM sessions s
                   WHERE s.id = ?1",
                 rusqlite::params![session_id],
@@ -415,6 +419,7 @@ pub fn ensure_first_message_title(
                         row.get::<_, Option<String>>(0)?,
                         row.get::<_, bool>(1)?,
                         row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 },
             )
@@ -422,10 +427,32 @@ pub fn ensure_first_message_title(
         else {
             return Ok(None);
         };
-        !incognito && title.is_none() && message_count <= 1
+        let should_update = !incognito && title.is_none() && message_count <= 1;
+        let side_message = if kind == "side" && should_update {
+            // Slash commands are event rows. Only a real, side-local question
+            // may name a side chat, even when a command triggers this helper.
+            conn.query_row(
+                "SELECT content, attachments_meta FROM messages
+                  WHERE session_id = ?1 AND role = 'user' AND is_side_snapshot = 0
+                  ORDER BY id ASC LIMIT 1",
+                rusqlite::params![session_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?
+        } else {
+            None
+        };
+        (
+            should_update && (kind != "side" || side_message.is_some()),
+            side_message,
+        )
     };
 
     if should_update {
+        let (content, attachments_meta) = side_message
+            .as_ref()
+            .map(|(content, meta)| (content.as_str(), meta.as_deref()))
+            .unwrap_or((content, attachments_meta));
         let Some(title) = first_message_title_candidate(session_id, content, attachments_meta)
         else {
             return Ok(None);

@@ -11,7 +11,8 @@ use ha_core::logging::LogDB;
 
 use super::cost::resolve_cost;
 use super::filters::{
-    build_log_filter, build_model_usage_filter, build_session_filter, params_ref,
+    build_log_filter, build_model_usage_filter, build_session_filter, dashboard_message_scope,
+    params_ref,
 };
 use super::queries::{query_overview, query_tool_usage};
 use super::types::*;
@@ -227,6 +228,7 @@ pub fn query_top_sessions(filter: &DashboardFilter, limit: usize) -> Result<Vec<
     let conn = crate::db::read_conn()?;
 
     let mut f = build_model_usage_filter(filter, "u");
+    let message_scope = dashboard_message_scope("m");
     // Append the limit as a bound parameter so we avoid string interpolation.
     let limit_box: Box<dyn rusqlite::types::ToSql> = Box::new(limit.max(1).min(1000) as i64);
     f.params.push(limit_box);
@@ -235,7 +237,7 @@ pub fn query_top_sessions(filter: &DashboardFilter, limit: usize) -> Result<Vec<
                 s.title,
                 s.agent_id,
                 COALESCE(u.model_id, s.model_id),
-                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_cnt,
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND {0}) as msg_cnt,
                 COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.output_tokens), 0) as total_tokens,
                 COALESCE(SUM(u.input_tokens), 0),
                 COALESCE(SUM(u.output_tokens), 0),
@@ -243,11 +245,11 @@ pub fn query_top_sessions(filter: &DashboardFilter, limit: usize) -> Result<Vec<
                 u.provider_id
          FROM model_usage_events u
          JOIN sessions s ON s.id = u.session_id
-         {}
+         {1}
          GROUP BY s.id
          ORDER BY total_tokens DESC
          LIMIT ?",
-        f.where_sql
+        message_scope, f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
+import { logger } from "@/lib/logger"
 import type { Message } from "@/types/chat"
 import {
   createCurrentTaskProgressSnapshot,
@@ -13,25 +15,6 @@ interface TaskUpdatedPayload {
   tasks?: unknown
 }
 
-function latestSnapshot(
-  fromMessages: TaskProgressSnapshot | null,
-  fromEvent: TaskProgressSnapshot | null,
-): TaskProgressSnapshot | null {
-  if (!fromMessages) return fromEvent
-  if (!fromEvent) return fromMessages
-
-  const messageUpdatedAt = Math.max(
-    ...fromMessages.tasks.map((task) => Date.parse(task.updatedAt)).filter(Number.isFinite),
-    0,
-  )
-  const eventUpdatedAt = Math.max(
-    ...fromEvent.tasks.map((task) => Date.parse(task.updatedAt)).filter(Number.isFinite),
-    0,
-  )
-
-  return eventUpdatedAt >= messageUpdatedAt ? fromEvent : fromMessages
-}
-
 function currentSnapshot(snapshot: TaskProgressSnapshot | null): TaskProgressSnapshot | null {
   return snapshot ? createCurrentTaskProgressSnapshot(snapshot.tasks) : null
 }
@@ -41,8 +24,8 @@ export function useTaskProgressSnapshot(
   messages: Message[],
 ): TaskProgressSnapshot | null {
   const messageSnapshot = useMemo(
-    () => extractLatestTaskProgressSnapshot(messages),
-    [messages],
+    () => sessionId ? extractLatestTaskProgressSnapshot(messages, sessionId) : null,
+    [messages, sessionId],
   )
   const [eventState, setEventState] = useState<{
     sessionId: string | null
@@ -55,16 +38,40 @@ export function useTaskProgressSnapshot(
 
   useEffect(() => {
     if (!sessionId) return
-    return getTransport().listen("task_updated", (raw) => {
-      const payload = raw as TaskUpdatedPayload
-      if (payload.sessionId !== sessionId) return
-      setEventState({
-        sessionId,
-        snapshot: taskProgressSnapshotFromTasks(payload.tasks),
+    let alive = true
+    let eventVersion = 0
+    let requestVersion = 0
+    const accept = (tasks: unknown) => {
+      const snapshot = taskProgressSnapshotFromTasks(tasks)
+      if (snapshot) setEventState({ sessionId, snapshot })
+    }
+    const reload = () => {
+      const request = ++requestVersion
+      const beforeEvents = eventVersion
+      void getTransport().call<unknown>("list_session_tasks", { sessionId }).then((tasks) => {
+        if (alive && request === requestVersion && beforeEvents === eventVersion) accept(tasks)
+      }).catch((error) => {
+        if (alive) logger.warn("chat", "useTaskProgressSnapshot", "Failed to restore tasks", error)
       })
+    }
+    // Subscribe before loading so a slower seed cannot overwrite a live edit.
+    const unlisten = getTransport().listen("task_updated", (raw) => {
+      const payload = parsePayload<TaskUpdatedPayload>(raw)
+      if (!alive || payload?.sessionId !== sessionId) return
+      eventVersion += 1
+      accept(payload.tasks)
     })
+    const unlistenResync = getTransport().listen(TRANSPORT_EVENT_RESYNC_REQUIRED, reload)
+    reload()
+    return () => {
+      alive = false
+      unlisten()
+      unlistenResync()
+    }
   }, [sessionId])
 
   const eventSnapshot = eventState.sessionId === sessionId ? eventState.snapshot : null
-  return currentSnapshot(latestSnapshot(messageSnapshot, eventSnapshot))
+  // Live/read ledger snapshots are authoritative even after a deletion makes
+  // their newest timestamp older than the immutable transcript's snapshot.
+  return currentSnapshot(eventSnapshot ?? messageSnapshot)
 }

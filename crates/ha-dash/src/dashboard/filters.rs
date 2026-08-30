@@ -8,6 +8,14 @@ pub(super) struct FilterClause {
     pub params: Vec<Box<dyn ToSql>>,
 }
 
+/// Message rows copied into a side chat are context snapshots, not fresh
+/// activity. All Dashboard queries that consume `messages` must apply this
+/// predicate; side-chat messages created after the snapshot retain the default
+/// `0` value and remain visible in analytics.
+pub(super) fn dashboard_message_scope(message_alias: &str) -> String {
+    format!("{}.is_side_snapshot = 0", message_alias)
+}
+
 /// Build WHERE clause fragments for session-based queries.
 /// `session_alias` is the table alias for sessions (e.g. "s").
 /// `message_alias` is the optional table alias for messages (e.g. "m"), used when
@@ -26,6 +34,10 @@ pub(super) fn build_session_filter(
     // Incognito sessions never surface in Dashboard stats — by definition
     // they leave no audit trail.
     clauses.push(format!("{}.incognito = 0", session_alias));
+
+    if let Some(message_alias) = message_alias {
+        clauses.push(dashboard_message_scope(message_alias));
+    }
 
     if let Some(ref start) = filter.start_date {
         if !start.is_empty() {
@@ -184,4 +196,19 @@ pub(super) fn build_log_filter(filter: &DashboardFilter) -> FilterClause {
 
 pub(super) fn params_ref(params: &[Box<dyn ToSql>]) -> Vec<&dyn ToSql> {
     params.iter().map(|p| p.as_ref()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_filters_exclude_side_snapshot_rows_only_for_message_queries() {
+        let filter = DashboardFilter::default();
+        let message_clause = build_session_filter(&filter, "s", Some("m"));
+        assert!(message_clause.where_sql.contains("m.is_side_snapshot = 0"));
+
+        let session_clause = build_session_filter(&filter, "s", None);
+        assert!(!session_clause.where_sql.contains("is_side_snapshot"));
+    }
 }

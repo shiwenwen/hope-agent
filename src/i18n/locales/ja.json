@@ -383,6 +383,15 @@
       "failed": "新しいセッションで続けられませんでした",
       "sourceFallback": "元のセッション"
     },
+    "sideChat": {
+      "label": "サイドチャット",
+      "untitled": "サイドチャット {{index}}",
+      "new": "新しいサイドチャット",
+      "close": "サイドチャットを閉じる",
+      "nonBlocking": "メインチャットを中断せずに別の質問ができます",
+      "askSelection": "サイドチャットで質問",
+      "createFailed": "サイドチャットを作成できませんでした"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "ブラウザバックエンド：{{backend}}",
       "captureFailed": "フレーム取得に失敗、次のフレームを待っています",
@@ -8834,6 +8843,9 @@
     },
     "new": {
       "description": "新しいチャットを開始"
+    },
+    "side": {
+      "description": "メインチャットを中断せずにサイドチャットを開始"
     },
     "noResults": "一致するコマンドはありません",
     "permission": {

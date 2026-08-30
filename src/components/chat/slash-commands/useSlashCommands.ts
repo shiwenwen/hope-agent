@@ -18,6 +18,8 @@ export interface SlashCommandActions {
   ensureSession?: () => Promise<string | null>
   /** Let the composer submit `/loop <prompt>` directly when this surface supports Loop mode. */
   bypassLoopCreateOnEnter?: boolean
+  /** Whether this surface can reveal the session created by `/side`. */
+  supportsSideChat?: boolean
 }
 
 export interface UseSlashCommandsReturn {
@@ -140,10 +142,15 @@ export function useSlashCommands(
     getTransport()
       .call<SlashCommandDef[]>("list_slash_commands", { sessionId: actions.sessionId })
       .then((nextCommands) => {
-        if (requestId === catalogRequestRef.current) setCommands(nextCommands)
+        if (requestId !== catalogRequestRef.current) return
+        setCommands(
+          actions.supportsSideChat
+            ? nextCommands
+            : nextCommands.filter((command) => command.name !== "side"),
+        )
       })
       .catch(() => {})
-  }, [actions.sessionId])
+  }, [actions.sessionId, actions.supportsSideChat])
 
   useEffect(() => {
     loadCommands()

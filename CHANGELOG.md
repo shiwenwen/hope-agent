@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **新增不中断主对话的侧聊**：可用 `/side [问题]` 或选中文本后在右侧开启独立追问，多个侧聊可随时收起、恢复并与主对话同时生成。 (#684)
+
 ## [0.37.0] - 2026-08-30
 
 ### Fixed

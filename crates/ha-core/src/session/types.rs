@@ -160,7 +160,9 @@ pub fn build_tool_media_items_attachments_meta(media_items: &Value) -> Option<St
 
 /// Classifies a session so cross-cutting surfaces can filter it.
 ///
-/// `Regular` is the normal user-facing chat. `Knowledge` is a knowledge-space
+/// `Regular` is the normal user-facing chat. `Side` is a parent-scoped side
+/// conversation — persisted so it can be reopened from the parent composer,
+/// but excluded from the main sidebar / search / unread surfaces. `Knowledge` is a knowledge-space
 /// sidebar conversation — persisted (so history survives) but kept out of the
 /// main session sidebar / `/sessions` picker, and driving a trimmed tool set
 /// at the chat-engine layer (`ToolScope::Knowledge`). It is NOT a security
@@ -170,6 +172,7 @@ pub fn build_tool_media_items_attachments_meta(media_items: &Value) -> Option<St
 pub enum SessionKind {
     #[default]
     Regular,
+    Side,
     Knowledge,
     /// A design-space per-project chat thread — persisted (history survives)
     /// but kept out of the main sidebar / `/sessions` picker / global FTS, and
@@ -183,6 +186,7 @@ impl SessionKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             SessionKind::Regular => "regular",
+            SessionKind::Side => "side",
             SessionKind::Knowledge => "knowledge",
             SessionKind::Design => "design",
             SessionKind::EvalFixture => "eval_fixture",
@@ -193,6 +197,7 @@ impl SessionKind {
     /// falls back to `Regular` so old rows / forward-compat writes are safe.
     pub fn from_db_string(s: &str) -> Self {
         match s {
+            "side" => SessionKind::Side,
             "knowledge" => SessionKind::Knowledge,
             "design" => SessionKind::Design,
             "eval_fixture" => SessionKind::EvalFixture,
@@ -350,9 +355,9 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// Session classification (see [`SessionKind`]). `Regular` for normal
-    /// chats; `Knowledge` for knowledge-space sidebar conversations and
-    /// `EvalFixture` for synthetic eval/smoke runs (both hidden from the main
-    /// sidebar / picker).
+    /// chats; `Side`, `Knowledge`, and `Design` for their dedicated conversation
+    /// surfaces; `EvalFixture` for synthetic eval/smoke runs. All non-regular
+    /// kinds are hidden from the main sidebar / picker.
     #[serde(default)]
     pub kind: SessionKind,
     /// Whether a durable Stop receipt currently fences this session's
@@ -895,6 +900,10 @@ mod tests {
         kb.kind = SessionKind::Knowledge;
         assert!(!kb.is_regular_chat());
 
+        let mut side = meta("side");
+        side.kind = SessionKind::Side;
+        assert!(!side.is_regular_chat());
+
         let mut fixture = meta("h");
         fixture.kind = SessionKind::EvalFixture;
         assert!(!fixture.is_regular_chat());
@@ -903,8 +912,10 @@ mod tests {
     #[test]
     fn session_kind_roundtrips_and_defaults() {
         assert_eq!(SessionKind::Regular.as_str(), "regular");
+        assert_eq!(SessionKind::Side.as_str(), "side");
         assert_eq!(SessionKind::Knowledge.as_str(), "knowledge");
         assert_eq!(SessionKind::EvalFixture.as_str(), "eval_fixture");
+        assert_eq!(SessionKind::from_db_string("side"), SessionKind::Side);
         assert_eq!(
             SessionKind::from_db_string("knowledge"),
             SessionKind::Knowledge
@@ -920,6 +931,12 @@ mod tests {
 
         // serde uses snake_case and round-trips through SessionMeta.
         let mut m = meta("k");
+        m.kind = SessionKind::Side;
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"kind\":\"side\""));
+        let back: SessionMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.kind, SessionKind::Side);
+
         m.kind = SessionKind::Knowledge;
         let json = serde_json::to_string(&m).unwrap();
         assert!(json.contains("\"kind\":\"knowledge\""));
