@@ -6266,6 +6266,7 @@ impl SessionDB {
         };
         if changed > 0 {
             emit_unread_changed(Some(session_id), None);
+            crate::pet::emit_activity_changed();
             if let Some(bus) = crate::get_event_bus() {
                 bus.emit(
                     "session:archive_changed",

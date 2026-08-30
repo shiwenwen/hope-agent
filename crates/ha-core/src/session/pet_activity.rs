@@ -64,10 +64,18 @@ impl SessionDB {
         } else {
             "LEFT JOIN (SELECT NULL AS session_id, NULL AS kb_id, NULL AS anchor_note_path) kt ON 0"
         };
-        let channel_clause = if table_exists(&conn, "channel_conversations")? {
+        let has_channel_table = table_exists(&conn, "channel_conversations")?;
+        let channel_clause = if has_channel_table {
             "AND NOT EXISTS (SELECT 1 FROM channel_conversations cc WHERE cc.session_id = s.id)"
         } else {
             ""
+        };
+        // Hidden side navigation needs an owner the main-chat UI can reveal.
+        // Missing ownership/attachment metadata must not create a dead target.
+        let side_source_scope = if has_channel_table {
+            super::db::regular_session_scope_sql("side_source")
+        } else {
+            "0".to_string()
         };
         let terminal_message_id = super::turns::TERMINAL_MESSAGE_ID_SQL;
         let sql = format!(
@@ -112,7 +120,12 @@ impl SessionDB {
                     OR (s.kind = 'design' AND t.ui_surface IN ('design_chat', 'pet_chat')
                         AND dt.project_id IS NOT NULL)
                     OR (s.kind = 'side' AND t.ui_surface IN ('side_chat', 'pet_chat')
-                        AND s.forked_from_session_id IS NOT NULL)
+                        AND s.archived_at IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM sessions side_source
+                             WHERE side_source.id = s.forked_from_session_id
+                               AND {side_source_scope}
+                        ))
                 )",
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -252,5 +265,57 @@ mod tests {
             rows[0].side_source_session_id.as_deref(),
             Some(source.id.as_str())
         );
+    }
+
+    #[test]
+    fn archived_side_owner_suppresses_running_and_late_completed_activity() {
+        let temp = tempfile::tempdir().expect("create temporary directory");
+        let db = SessionDB::open(&temp.path().join("sessions.db")).expect("open database");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").unwrap();
+        let side = db.create_side_chat(&source.id).unwrap();
+        db.create_chat_turn_with_id_surface(
+            "side-turn",
+            &side.id,
+            "http",
+            None,
+            None,
+            Some(crate::pet::ChatUiSurface::SideChat),
+        )
+        .unwrap();
+        assert_eq!(db.pet_activity_rows().unwrap().0.len(), 1);
+
+        let revision = crate::pet::activity_revision();
+        db.set_session_archived(&source.id, true).unwrap();
+        assert!(crate::pet::activity_revision() > revision);
+        assert!(db.pet_activity_rows().unwrap().0.is_empty());
+        let answer = db
+            .append_message(
+                &side.id,
+                &crate::session::NewMessage::assistant("late answer"),
+            )
+            .unwrap();
+        db.finish_chat_turn_once(
+            "side-turn",
+            crate::session::ChatTurnStatus::Completed,
+            None,
+            None,
+            Some(answer),
+        )
+        .unwrap();
+        assert!(db.pet_activity_rows().unwrap().0.is_empty());
+
+        db.set_session_archived(&source.id, false).unwrap();
+        let rows = db.pet_activity_rows().unwrap().0;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status, crate::session::ChatTurnStatus::Completed);
+        assert_eq!(
+            rows[0].side_source_session_id.as_deref(),
+            Some(source.id.as_str())
+        );
+        db.set_session_archived(&side.id, true).unwrap();
+        assert!(db.pet_activity_rows().unwrap().0.is_empty());
+        db.set_session_archived(&side.id, false).unwrap();
+        assert_eq!(db.pet_activity_rows().unwrap().0.len(), 1);
     }
 }
