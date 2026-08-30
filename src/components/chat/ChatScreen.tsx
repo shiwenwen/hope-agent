@@ -155,6 +155,7 @@ import WorkspacePanel, { type WorkspaceFocusRequest } from "./workspace/Workspac
 import { confirmDiscardDirtyFileEditors } from "./files/fileDirtyRegistry"
 import { PullRequestPanel } from "./workspace/PullRequestPanel"
 import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
+import { useBackgroundJobsPanelScope } from "./background-jobs/useBackgroundJobsPanelScope"
 import { decideBackgroundJobsAutoOpen } from "./background-jobs/autoOpenPolicy"
 import { useBackgroundJobs } from "./background-jobs/useBackgroundJobs"
 import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionState"
@@ -400,14 +401,12 @@ interface MacControlFrameOpenHint {
 interface RestorableWorkbenchSessionState {
   workspace: boolean
   macControl: boolean
-  backgroundJobs: boolean
   subagent: boolean
   activePanel: ExclusiveRightPanel | null
   collapsed: boolean
   dismissed: {
     workspace: boolean
     macControl: boolean
-    backgroundJobs: boolean
   }
 }
 
@@ -761,10 +760,8 @@ export default function ChatScreen({
   // R4 背景任务：会话级在跑/最近作业 + 本地模型任务镜像。新后台任务出现时
   // 自动打开一次；用户关闭后本会话不再抢回焦点。订阅在 ChatScreen 级常驻
   //（见 `session` 定义后的 useBackgroundJobs），喂头部徽标计数 + 面板 + 工作台区块。
+  const pendingMainBackgroundJobsOpenRef = useRef(false)
   const [showBackgroundJobsPanel, setShowBackgroundJobsPanel] = useState(false)
-  const backgroundJobsPanelDismissedRef = useRef(false)
-  const suppressNextBackgroundJobsActivationRef = useRef(false)
-  const previousBackgroundRunningCountRef = useRef(0)
   const [backgroundJobExpansionOverrides, setBackgroundJobExpansionOverrides] = useState<
     Record<string, boolean>
   >({})
@@ -907,7 +904,7 @@ export default function ChatScreen({
 
   // R4: live background-jobs subscription (see show-state above) — drives the
   // header badge count, the background-jobs panel, and the workspace section.
-  const backgroundJobs = useBackgroundJobs(session.currentSessionId)
+  const mainBackgroundJobs = useBackgroundJobs(session.currentSessionId)
 
   // Live sub-agent runs for the current session — drives the panel list, the
   // title-bar running badge, and chip → run resolution.
@@ -969,6 +966,11 @@ export default function ChatScreen({
     visibleActiveSideChatId,
     visibleSideChatPanelOpen,
   )
+  const sideChatBackgroundJobs = useBackgroundJobs(
+    visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
+  )
+  const backgroundJobs =
+    visibleSideChatPanelOpen && visibleActiveSideChatId ? sideChatBackgroundJobs : mainBackgroundJobs
   const sideChatSubagentRuns = useSubagentRuns(
     visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
   )
@@ -1156,6 +1158,17 @@ export default function ChatScreen({
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
+  const {
+    dismissedRef: backgroundJobsPanelDismissedRef,
+    suppressNextActivationRef: suppressNextBackgroundJobsActivationRef,
+    previousRunningCountRef: previousBackgroundRunningCountRef,
+    promote: promoteBackgroundJobsPanelSession,
+  } = useBackgroundJobsPanelScope({
+    sessionId: activeConversationSurfaceSessionId,
+    incognito: incognitoEnabled,
+    visible: showBackgroundJobsPanel,
+    setVisible: setShowBackgroundJobsPanel,
+  })
   // Single source for "which project is this chat in" across draft + materialized
   // states. Prefer the loaded session meta the moment it exists (so switching to a
   // plain session never leaks a stale draft binding); fall back to draftProjectId
@@ -3967,14 +3980,41 @@ export default function ChatScreen({
       setShowBackgroundJobsPanel(true)
       if (activate) showRightPanelByUser("background-jobs")
     },
-    [showRightPanelByUser],
+    [
+      backgroundJobsPanelDismissedRef,
+      setShowBackgroundJobsPanel,
+      showRightPanelByUser,
+      suppressNextBackgroundJobsActivationRef,
+    ],
   )
 
   const closeBackgroundJobsPanel = useCallback(() => {
     backgroundJobsPanelDismissedRef.current = true
     suppressNextBackgroundJobsActivationRef.current = false
     setShowBackgroundJobsPanel(false)
-  }, [])
+  }, [
+    backgroundJobsPanelDismissedRef,
+    setShowBackgroundJobsPanel,
+    suppressNextBackgroundJobsActivationRef,
+  ])
+
+  // The full workspace remains the main conversation's control surface. Its
+  // jobs link explicitly returns there before activating the shared jobs panel.
+  const openMainBackgroundJobsPanel = useCallback(() => {
+    if (activeConversationSurfaceSessionId === session.currentSessionId) {
+      openBackgroundJobsPanel()
+      return
+    }
+    pendingMainBackgroundJobsOpenRef.current = true
+    setSideChatPanelOpen(false)
+  }, [activeConversationSurfaceSessionId, openBackgroundJobsPanel, session.currentSessionId])
+
+  useLayoutEffect(() => {
+    if (!pendingMainBackgroundJobsOpenRef.current) return
+    if (activeConversationSurfaceSessionId !== session.currentSessionId) return
+    pendingMainBackgroundJobsOpenRef.current = false
+    openBackgroundJobsPanel()
+  }, [activeConversationSurfaceSessionId, openBackgroundJobsPanel, session.currentSessionId])
 
   const openSubagentPanel = useCallback(
     (target?: { runId?: string; childSessionId?: string }) => {
@@ -4159,6 +4199,7 @@ export default function ChatScreen({
     fileTabs.openNonce,
     filePreview.openNonce,
     diffPanel.openNonce,
+    suppressNextBackgroundJobsActivationRef,
   ])
 
   // Workbench sets are session-scoped. Returning to a normal session restores
@@ -4179,6 +4220,7 @@ export default function ChatScreen({
   // chat — pointing at the previous chat's working dir.
   sessionPromotedRef.current = (sessionId: string) => {
     promoteBrowserPanelSession(sessionId)
+    promoteBackgroundJobsPanelSession(sessionId)
     const previousKey = activeWorkbenchSessionRef.current
     if (previousKey === sessionId) return
     activeWorkbenchSessionRef.current = sessionId
@@ -4207,14 +4249,12 @@ export default function ChatScreen({
       workbenchSessionCacheRef.current.set(previousKey, {
         workspace: showWorkspacePanel,
         macControl: showMacControlPanel,
-        backgroundJobs: showBackgroundJobsPanel,
         subagent: showSubagentPanel,
         activePanel: activeExclusiveRightPanel,
         collapsed: rightPanelCollapsed,
         dismissed: {
           workspace: workspacePanelDismissedRef.current,
           macControl: macControlPanelDismissedRef.current,
-          backgroundJobs: backgroundJobsPanelDismissedRef.current,
         },
       })
     }
@@ -4224,16 +4264,12 @@ export default function ChatScreen({
     activeWorkbenchIncognitoRef.current = incognitoEnabled
     workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
     macControlPanelDismissedRef.current = restore?.dismissed.macControl ?? false
-    backgroundJobsPanelDismissedRef.current = restore?.dismissed.backgroundJobs ?? false
-    suppressNextBackgroundJobsActivationRef.current = false
-    previousBackgroundRunningCountRef.current = 0
     // Frames are session-scoped — close floating mirrors on session switch.
     closeFloatingPanel("mac-control")
     setShowMacControlPanel(restore?.macControl ?? false)
     setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
     setPullRequestExpectedUrl(null)
-    setShowBackgroundJobsPanel(restore?.backgroundJobs ?? false)
     setBackgroundJobExpansionOverrides({})
     setShowSubagentPanel(restore?.subagent ?? false)
     setSubagentPanelSelectRequest(null)
@@ -4255,7 +4291,6 @@ export default function ChatScreen({
     incognitoEnabled,
     rightPanelCollapsed,
     session.currentSessionId,
-    showBackgroundJobsPanel,
     showMacControlPanel,
     showSubagentPanel,
     showWorkspacePanel,
@@ -4358,7 +4393,14 @@ export default function ChatScreen({
 
     if (action === "activate") openBackgroundJobsPanel({ activate: true })
     if (action === "open-in-background") openBackgroundJobsPanel({ activate: false })
-  }, [backgroundJobs.runningCount, openBackgroundJobsPanel, renderedExclusiveRightPanel])
+  }, [
+    activeConversationSurfaceSessionId,
+    backgroundJobs.runningCount,
+    backgroundJobsPanelDismissedRef,
+    openBackgroundJobsPanel,
+    previousBackgroundRunningCountRef,
+    renderedExclusiveRightPanel,
+  ])
 
   const workspaceTaskExecutionState = resolveWorkspaceTaskExecutionState(
     session.currentSessionId
@@ -5779,10 +5821,10 @@ export default function ChatScreen({
                       workspaceTaskExecutionState === "cancelling"
                     }
                     workflowRunsState={workflowTitleBarRuns}
-                    backgroundJobs={backgroundJobs.jobs}
+                    backgroundJobs={mainBackgroundJobs.jobs}
                     backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
                     onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
-                    onOpenBackgroundJobs={openBackgroundJobsPanel}
+                    onOpenBackgroundJobs={openMainBackgroundJobsPanel}
                     onOpenBrowserPanel={openBrowserPanel}
                     onViewSubagentSession={(sid) => openSubagentPanel({ childSessionId: sid })}
                     subagentRunsState={subagentRuns}
@@ -5809,7 +5851,7 @@ export default function ChatScreen({
                     rightPanelCollapsed || renderedExclusiveRightPanel !== "background-jobs"
                   }
                   animateOnMount={animateRightPanelOnMount}
-                  contentKey="background-jobs"
+                  contentKey={`background-jobs:${activeConversationSurfaceSessionId ?? ""}`}
                 >
                   <BackgroundJobsPanel
                     jobs={backgroundJobs.jobs}
