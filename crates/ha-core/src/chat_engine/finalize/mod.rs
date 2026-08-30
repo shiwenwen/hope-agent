@@ -665,6 +665,66 @@ mod tests {
     }
 
     #[test]
+    fn terminal_read_waits_for_finalize_notice_after_read_user_or_partial() {
+        let _lock = test_lock();
+        for failed in [false, true] {
+            for has_partial in [false, true] {
+                let db = temp_db();
+                let (sid, turn_id) = fresh_session(&db);
+                let assistant_message_id = has_partial.then(|| {
+                    db.append_message(&sid, &crate::session::NewMessage::assistant("partial"))
+                        .unwrap()
+                });
+                db.mark_session_read(&sid).unwrap();
+                let reason = if failed {
+                    TerminationReason::ProviderFailed {
+                        last_kind: crate::failover::FailoverReason::Auth,
+                        last_message: "401".into(),
+                        is_codex_auth: false,
+                    }
+                } else {
+                    TerminationReason::UserStop
+                };
+                let outcome = finalize_turn_context_blocking(
+                    &db,
+                    &sid,
+                    reason,
+                    PartialMeta {
+                        turn_id: Some(turn_id.clone()),
+                        assistant_message_id,
+                        ..Default::default()
+                    },
+                    ChatSource::Desktop,
+                );
+                let notice_id = outcome.event_row_id.expect("visible terminal notice");
+                assert_eq!(
+                    db.chat_turn_terminal_read(&sid, &turn_id).unwrap(),
+                    Some(false),
+                    "unseen notice: failed={failed}, partial={has_partial}"
+                );
+                db.mark_session_read_through(&sid, Some(notice_id)).unwrap();
+                assert_eq!(
+                    db.chat_turn_terminal_read(&sid, &turn_id).unwrap(),
+                    Some(true)
+                );
+
+                // A later turn's unread rows cannot move this turn's boundary.
+                let next_user = db
+                    .append_message(&sid, &crate::session::NewMessage::user("next"))
+                    .unwrap();
+                db.create_chat_turn(&sid, "desktop", None, Some(next_user))
+                    .unwrap();
+                db.append_message(&sid, &crate::session::NewMessage::event("later event"))
+                    .unwrap();
+                assert_eq!(
+                    db.chat_turn_terminal_read(&sid, &turn_id).unwrap(),
+                    Some(true)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn user_stop_writes_event_row_and_finishes_turn_as_interrupted() {
         let _lock = test_lock();
         let db = temp_db();

@@ -149,7 +149,7 @@ flowchart TB
 
 **"最新 turn" 是硬边界。** 一旦某会话最新 turn 来自公开 API、cron、subagent、side query 等非主对话入口，即使更早有过 UI turn，也不再继承宠物资格——创建这个 non-UI turn 会让现有投影立即失效。这正是"只认第一方主对话"在时间维度上的体现。
 
-**终态边界的定义。** 用来和 `last_read_message_id` 比较的"终态消息 id"取 `assistant_message_id`；若为空且 turn 失败，则取该 turn 与下一个 turn 之间最后一条可见消息（通常是错误事件）的 id；再退到 `user_message_id`。`Interrupted` 不映射成 Blocked——用户主动打断不是失败。
+**终态边界的定义。** 成功轮次用 `assistant_message_id` 与 `last_read_message_id` 比较。失败或中断轮次优先取本轮用户消息之后、下一轮用户消息之前的最后一条消息标识，覆盖终结流程追加的可见停止或错误事件；不可因部分回复已读而提前确认更晚的终态通知。区间无消息时退到 `assistant_message_id`，最后退到 `user_message_id`。侧聊入口条复用同一 SQL 边界。`Interrupted` 不映射成 Blocked——用户主动打断不是失败。
 
 **快照契约。** 稳定排序后最多返回 50 条，并携带 `total` / `truncated` / `revision` / `stale`。挂起计数是"进程内 approval 数 + SQLite pending Ask 组数"之和，只用"是否大于零"决定运行中 turn 是否升为 `NeedsInput`，不返回交互总数或最早倒计时。incognito 会话在 SQL 查询边界就被脱敏（`title` / `agent_id` 清空、`preview` 置 None），ha-pet 投影侧的 incognito 分支是第二道防线。
 

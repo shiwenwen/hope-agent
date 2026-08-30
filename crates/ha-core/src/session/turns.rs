@@ -7,9 +7,10 @@ use super::types::NewMessage;
 
 /// Shared terminal read boundary for Pet activity and embedded-chat badges.
 /// The callers bind the current turn as `t` and its owning session as `s`.
+/// Failure/Stop finalization appends a visible notice after any partial reply;
+/// reading that partial reply must not acknowledge the later terminal notice.
 pub(super) const TERMINAL_MESSAGE_ID_SQL: &str = "COALESCE(
-    t.assistant_message_id,
-    CASE WHEN t.status = 'failed' THEN (
+    CASE WHEN t.status IN ('failed', 'interrupted') THEN (
         SELECT MAX(m.id) FROM messages m
          WHERE m.session_id = s.id
            AND m.id > COALESCE(t.user_message_id, 0)
@@ -19,6 +20,7 @@ pub(super) const TERMINAL_MESSAGE_ID_SQL: &str = "COALESCE(
                   AND t3.user_message_id > t.user_message_id
            ), 9223372036854775807)
     ) END,
+    t.assistant_message_id,
     t.user_message_id
 )";
 
