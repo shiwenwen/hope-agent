@@ -1,6 +1,6 @@
 [package]
 name = "ha-weather"
-version = "0.37.0"
+version = "0.38.0"
 description = "Hope Agent weather feature — Open-Meteo fetch/cache, get_weather tool, prompt section"
 license.workspace = true
 authors.workspace = true

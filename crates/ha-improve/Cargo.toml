@@ -1,6 +1,6 @@
 [package]
 name = "ha-improve"
-version = "0.37.0"
+version = "0.38.0"
 description = "Hope Agent learning-loop feature — coding improvement proposals, domain eval fixtures and domain quality gates"
 license.workspace = true
 authors.workspace = true
