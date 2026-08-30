@@ -616,6 +616,8 @@ Fork **不**复制 active Goal、Loop schedule、Workflow run、Task progress、
 
 创建动作与 transcript 复制在同一数据库事务中完成。若主会话存在 `running` / `cancelling` 的 `chat_turns`，以该 turn 的 `user_message_id` 为不含边界，只复制更早的稳定历史；因此不会复制半条 assistant / tool API round，也不需要停止或等待主 turn。主会话空白时允许创建空侧聊。没有在途 turn 时复制全部已落库历史，并复用 Fork 的附件复制与路径改写合同。
 
+同一事务还复制源会话的条件技能与延迟工具激活账本，保留激活顺序，使已发现的能力在侧聊中仍可用；后续激活独立演进。激活记录不是审批授权，工具仍须通过侧会话当前的可见性与权限守卫。
+
 ### 传输与界面
 
 Tauri 的 `create_side_chat_cmd` / `list_side_chats_cmd` 与 HTTP 的 `POST|GET /api/sessions/{id}/side-chats` 完全同形。桌面 / Bundled Web 在主 composer 上方渲染父会话范围内的入口条，侧聊在右侧浮层中复用 `MessageList`、`ChatInput`、`ApprovalDialog`、`useChatStream` 与耐久 turn 语义。主对话与侧聊各自拥有独立的流状态，可以同时生成。

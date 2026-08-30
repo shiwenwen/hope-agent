@@ -3440,6 +3440,21 @@ impl SessionDB {
         )?;
 
             if mode == ForkMode::SideChat {
+                // Discovery state belongs to the copied context. Preserve its
+                // activation order, but not runtime ownership or approvals:
+                // schemas/execution still pass through the side's live gates.
+                tx.execute(
+                    "INSERT INTO session_skill_activation (session_id, skill_name, activated_at)
+                     SELECT ?1, skill_name, activated_at FROM session_skill_activation
+                      WHERE session_id = ?2",
+                    params![new_session_id, source_session_id],
+                )?;
+                tx.execute(
+                    "INSERT INTO session_tool_activation (session_id, tool_name, activated_at)
+                     SELECT ?1, tool_name, activated_at FROM session_tool_activation
+                      WHERE session_id = ?2",
+                    params![new_session_id, source_session_id],
+                )?;
                 tx.execute(
                     "UPDATE sessions SET awareness_config_json = (
                         SELECT awareness_config_json FROM sessions WHERE id = ?1
@@ -9812,6 +9827,56 @@ mod tests {
         assert_eq!(empty_side.kind, SessionKind::Side);
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_chat_snapshots_source_capability_activations_independently() {
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").expect("source session");
+        let other = db.create_session("ha-main").expect("unrelated session");
+        db.insert_skill_activations(&source.id, &["source-skill".into()])
+            .expect("activate source skill");
+        db.insert_tool_activations(&source.id, &["source-tool".into()])
+            .expect("activate source tool");
+        db.insert_skill_activations(&other.id, &["unrelated-skill".into()])
+            .expect("activate unrelated skill");
+        db.insert_tool_activations(&other.id, &["unrelated-tool".into()])
+            .expect("activate unrelated tool");
+
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        assert_eq!(
+            db.load_skill_activations(&side.id).expect("side skills"),
+            vec!["source-skill"]
+        );
+        assert_eq!(
+            db.load_tool_activations(&side.id).expect("side tools"),
+            vec!["source-tool"]
+        );
+
+        // Neither later discoveries in the owner nor local changes in the side
+        // session mutate the other conversation's capability ledger.
+        db.insert_skill_activations(&source.id, &["later-source-skill".into()])
+            .expect("activate later source skill");
+        db.clear_tool_activations(&source.id)
+            .expect("clear source tools");
+        db.insert_tool_activations(&side.id, &["side-only-tool".into()])
+            .expect("activate side tool");
+        assert_eq!(
+            db.load_skill_activations(&side.id)
+                .expect("snapshot skills"),
+            vec!["source-skill"]
+        );
+        let tools = db.load_tool_activations(&side.id).expect("snapshot tools");
+        assert_eq!(tools.len(), 2);
+        assert!(tools.iter().any(|name| name == "source-tool"));
+        assert!(tools.iter().any(|name| name == "side-only-tool"));
+        assert!(db
+            .load_tool_activations(&source.id)
+            .expect("independent owner tools")
+            .is_empty());
     }
 
     #[test]
