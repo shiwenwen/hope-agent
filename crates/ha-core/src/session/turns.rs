@@ -9,20 +9,8 @@ use super::types::NewMessage;
 /// The callers bind the current turn as `t` and its owning session as `s`.
 /// Failure/Stop finalization appends a visible notice after any partial reply;
 /// reading that partial reply must not acknowledge the later terminal notice.
-pub(super) const TERMINAL_MESSAGE_ID_SQL: &str = "COALESCE(
-    CASE WHEN t.status IN ('failed', 'interrupted') THEN (
-        SELECT MAX(m.id) FROM messages m
-         WHERE m.session_id = s.id
-           AND m.id > COALESCE(t.user_message_id, 0)
-           AND m.id < COALESCE((
-               SELECT MIN(t3.user_message_id) FROM chat_turns t3
-                WHERE t3.session_id = t.session_id
-                  AND t3.user_message_id > t.user_message_id
-           ), 9223372036854775807)
-    ) END,
-    t.assistant_message_id,
-    t.user_message_id
-)";
+pub(super) const TERMINAL_MESSAGE_ID_SQL: &str =
+    "COALESCE(t.terminal_message_id, t.assistant_message_id, t.user_message_id)";
 
 /// Generate the opaque durable identity shared by chat entry points.
 pub fn new_chat_turn_id() -> String {
@@ -219,6 +207,7 @@ impl SessionDB {
                 stream_id TEXT,
                 user_message_id INTEGER,
                 assistant_message_id INTEGER,
+                terminal_message_id INTEGER,
                 error TEXT,
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
@@ -235,6 +224,31 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_chat_turns_stream_id
                 ON chat_turns(stream_id);",
         )?;
+        if conn
+            .prepare("SELECT terminal_message_id FROM chat_turns LIMIT 1")
+            .is_err()
+        {
+            // Freeze legacy boundaries once. The end timestamp and next user
+            // exclude later control messages; never recompute this on reads.
+            let tx = conn.unchecked_transaction()?;
+            tx.execute_batch(
+                "ALTER TABLE chat_turns ADD COLUMN terminal_message_id INTEGER;
+                 UPDATE chat_turns AS t SET terminal_message_id = COALESCE(
+                     CASE WHEN t.status IN ('failed', 'interrupted') THEN (
+                         SELECT MAX(m.id) FROM messages m
+                          WHERE m.session_id = t.session_id
+                            AND m.id > COALESCE(t.user_message_id, 0)
+                            AND m.timestamp <= t.ended_at
+                            AND m.id < COALESCE((
+                                SELECT MIN(t2.user_message_id) FROM chat_turns t2
+                                 WHERE t2.session_id = t.session_id
+                                   AND t2.user_message_id > t.user_message_id
+                            ), 9223372036854775807)
+                     ) END, t.assistant_message_id, t.user_message_id
+                 ) WHERE t.status IN ('completed', 'failed', 'interrupted');",
+            )?;
+            tx.commit()?;
+        }
         if conn
             .prepare("SELECT ui_surface FROM chat_turns LIMIT 1")
             .is_err()
@@ -902,6 +916,27 @@ impl SessionDB {
         error: Option<&str>,
         assistant_message_id: Option<i64>,
     ) -> Result<bool> {
+        self.finish_chat_turn_once_with_notice(
+            turn_id,
+            status,
+            interrupt_reason,
+            error,
+            assistant_message_id,
+            None,
+        )
+    }
+
+    /// Seal the exact visible finalization notice together with terminal state.
+    /// Legacy callers without a notice capture the current boundary once.
+    pub(crate) fn finish_chat_turn_once_with_notice(
+        &self,
+        turn_id: &str,
+        status: ChatTurnStatus,
+        interrupt_reason: Option<ChatTurnInterruptReason>,
+        error: Option<&str>,
+        assistant_message_id: Option<i64>,
+        terminal_notice_id: Option<i64>,
+    ) -> Result<bool> {
         if !status.is_terminal() {
             return Err(anyhow::anyhow!(
                 "finish_chat_turn_once requires terminal status, got {}",
@@ -919,6 +954,12 @@ impl SessionDB {
                  interrupt_reason = COALESCE(interrupt_reason, ?2),
                  error = ?3,
                  assistant_message_id = COALESCE(?4, assistant_message_id),
+                 terminal_message_id = COALESCE(?7,
+                     CASE WHEN ?1 IN ('failed', 'interrupted') THEN (
+                         SELECT MAX(m.id) FROM messages m
+                          WHERE m.session_id = chat_turns.session_id
+                            AND m.id >= COALESCE(chat_turns.user_message_id, 0)
+                     ) END, ?4, assistant_message_id, user_message_id),
                  ended_at = COALESCE(ended_at, ?5),
                  updated_at = ?5
              WHERE id = ?6 AND status NOT IN ('completed', 'interrupted', 'failed')",
@@ -929,6 +970,7 @@ impl SessionDB {
                 assistant_message_id,
                 now,
                 turn_id,
+                terminal_notice_id,
             ],
         )?;
         let changed = n > 0;
@@ -999,6 +1041,12 @@ impl SessionDB {
                  interrupt_reason = ?2,
                  error = ?3,
                  assistant_message_id = COALESCE(?4, assistant_message_id),
+                 terminal_message_id = COALESCE(
+                     CASE WHEN ?1 IN ('failed', 'interrupted') THEN (
+                         SELECT MAX(m.id) FROM messages m
+                          WHERE m.session_id = chat_turns.session_id
+                            AND m.id >= COALESCE(chat_turns.user_message_id, 0)
+                     ) END, ?4, assistant_message_id, user_message_id),
                  ended_at = COALESCE(ended_at, ?5),
                  updated_at = ?5
              WHERE id = ?6 AND status NOT IN ('completed', 'interrupted', 'failed')",
@@ -1053,6 +1101,9 @@ impl SessionDB {
             "UPDATE chat_turns
              SET status = 'interrupted',
                  interrupt_reason = 'crash_recovery',
+                 terminal_message_id = COALESCE(terminal_message_id,
+                     (SELECT MAX(m.id) FROM messages m WHERE m.session_id = chat_turns.session_id),
+                     assistant_message_id, user_message_id),
                  ended_at = COALESCE(ended_at, ?1),
                  updated_at = ?1
              WHERE status IN ('running', 'cancelling')",
@@ -1117,6 +1168,75 @@ impl SessionDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_read_migration_freezes_legacy_notice_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        let session = db.create_session("ha-main").unwrap();
+        let user = db
+            .append_message(&session.id, &NewMessage::user("question"))
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", None, Some(user))
+            .unwrap();
+        let notice = db
+            .append_message(&session.id, &NewMessage::error_event("failure"))
+            .unwrap();
+        db.finish_chat_turn_once_with_notice(
+            &turn.id,
+            ChatTurnStatus::Failed,
+            None,
+            Some("failure"),
+            None,
+            Some(notice),
+        )
+        .unwrap();
+        db.mark_session_read_through(&session.id, Some(notice))
+            .unwrap();
+        let command = db
+            .append_message(&session.id, &NewMessage::event("/usage"))
+            .unwrap();
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE messages SET timestamp = '2026-01-01T00:00:00Z' WHERE id = ?1",
+                [notice],
+            )?;
+            conn.execute(
+                "UPDATE chat_turns SET ended_at = '2026-01-01T00:00:01Z' WHERE id = ?1",
+                [&turn.id],
+            )?;
+            conn.execute(
+                "UPDATE messages SET timestamp = '2026-01-01T00:00:02Z' WHERE id = ?1",
+                [command],
+            )?;
+            conn.execute_batch("ALTER TABLE chat_turns DROP COLUMN terminal_message_id;")?;
+            Ok(())
+        })
+        .unwrap();
+        drop(db);
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &turn.id).unwrap(),
+            Some(true)
+        );
+        // A clock change or later command cannot affect the migrated value.
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE messages SET timestamp = '2025-01-01T00:00:00Z' WHERE id = ?1",
+                [command],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        drop(db);
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &turn.id).unwrap(),
+            Some(true)
+        );
+    }
 
     #[test]
     fn terminal_read_boundary_survives_reopen_without_acknowledging_later_turns() {

@@ -448,12 +448,13 @@ fn apply_finalize(
     let turn_status = reason.to_chat_turn_status();
     let interrupt = reason.to_chat_turn_interrupt_reason();
     if let Some(turn_id) = partial.turn_id.as_deref() {
-        match db.finish_chat_turn_once(
+        match db.finish_chat_turn_once_with_notice(
             turn_id,
             turn_status,
             Some(interrupt),
             reason.to_error_text().as_deref(),
             partial.assistant_message_id,
+            outcome.event_row_id,
         ) {
             Ok(_) => {
                 outcome.turn_status = Some(turn_status);
@@ -706,6 +707,15 @@ mod tests {
                 assert_eq!(
                     db.chat_turn_terminal_read(&sid, &turn_id).unwrap(),
                     Some(true)
+                );
+
+                // Non-turn commands must not revive an acknowledged result.
+                db.append_message(&sid, &crate::session::NewMessage::event("/status result"))
+                    .unwrap();
+                assert_eq!(
+                    db.chat_turn_terminal_read(&sid, &turn_id).unwrap(),
+                    Some(true),
+                    "later command must not move the sealed boundary"
                 );
 
                 // A later turn's unread rows cannot move this turn's boundary.

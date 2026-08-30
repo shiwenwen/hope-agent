@@ -6634,6 +6634,44 @@ impl SessionDB {
         Ok(changed > 0)
     }
 
+    /// Side-chat learning uses its own transcript, never inherited provider
+    /// history (including summaries that may mix parent and side content).
+    /// `None` leaves ordinary sessions on their existing provider-history path.
+    pub fn load_side_chat_memory_history(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Option<Vec<serde_json::Value>>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let kind: String = conn.query_row(
+            "SELECT kind FROM sessions WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if kind != SessionKind::Side.as_str() {
+            return Ok(None);
+        }
+        let mut stmt = conn.prepare(
+            "SELECT role, content FROM messages
+              WHERE session_id = ?1 AND is_side_snapshot = 0
+                AND role IN ('user', 'assistant') AND TRIM(content) <> ''
+              ORDER BY id DESC LIMIT ?2",
+        )?;
+        let mut messages = stmt
+            .query_map(params![session_id, limit.clamp(1, 64) as i64], |row| {
+                Ok(serde_json::json!({
+                    "role": row.get::<_, String>(0)?,
+                    "content": row.get::<_, String>(1)?,
+                }))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        messages.reverse();
+        Ok(Some(messages))
+    }
+
     /// Load the agent's conversation_history JSON for a session.
     /// Returns None if the session has no saved context.
     pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
@@ -9717,6 +9755,57 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_chat_memory_history_excludes_snapshots_after_compaction_and_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").unwrap();
+        db.append_message(&source.id, &NewMessage::user("parent-only fact"))
+            .unwrap();
+        let side = db.create_side_chat(&source.id).unwrap();
+        assert_eq!(
+            db.load_side_chat_memory_history(&source.id, 6).unwrap(),
+            None
+        );
+        assert_eq!(
+            db.load_side_chat_memory_history(&side.id, 64).unwrap(),
+            Some(vec![])
+        );
+        for i in 0..8 {
+            db.append_message(&side.id, &NewMessage::user(&format!("own question {i}")))
+                .unwrap();
+            db.append_message(&side.id, &NewMessage::assistant(&format!("own answer {i}")))
+                .unwrap();
+        }
+        db.append_message(&side.id, &NewMessage::event("/status"))
+            .unwrap();
+        db.save_context(
+            &side.id,
+            r#"[{"role":"user","content":"[Previous conversation summary] parent-only fact"}]"#,
+        )
+        .unwrap();
+        drop(db);
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        let idle = db
+            .load_side_chat_memory_history(&side.id, 6)
+            .unwrap()
+            .unwrap();
+        assert_eq!(idle.len(), 6);
+        assert_eq!(idle[0]["content"], "own question 5");
+        assert_eq!(idle[5]["content"], "own answer 7");
+        let compact = db
+            .load_side_chat_memory_history(&side.id, 64)
+            .unwrap()
+            .unwrap();
+        assert_eq!(compact.len(), 16);
+        assert!(!serde_json::to_string(&compact)
+            .unwrap()
+            .contains("parent-only"));
+        assert!(db.load_side_chat_memory_history("deleted", 6).is_err());
     }
 
     #[test]

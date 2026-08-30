@@ -387,6 +387,26 @@ fn select_extract_prompt(claims_enabled: bool, reflect_enabled: bool) -> &'stati
 
 // ── Public API ──────────────────────────────────────────────────
 
+/// Select learning input independently of provider context representation.
+/// Rebuilding side-chat input also excludes inherited text folded into a
+/// compaction summary, without changing the context used for conversation.
+async fn extraction_history(
+    messages: &[Value],
+    session_id: &str,
+    session_db: Option<Arc<ha_core::session::SessionDB>>,
+    limit: usize,
+) -> Result<Vec<Value>> {
+    let sid = session_id.to_string();
+    let side_history = ha_core::blocking::run_blocking(move || {
+        let db = session_db
+            .or_else(|| ha_core::get_session_db().map(Arc::clone))
+            .ok_or_else(|| anyhow::anyhow!("Session database unavailable for memory extraction"))?;
+        db.load_side_chat_memory_history(&sid, limit)
+    })
+    .await?;
+    Ok(side_history.unwrap_or_else(|| messages.to_vec()))
+}
+
 /// Run memory extraction from recent conversation history.
 /// This is meant to be called from `tokio::spawn` after a successful chat.
 pub async fn run_extraction(
@@ -431,7 +451,22 @@ pub async fn run_extraction(
         );
         return;
     }
-    if let Err(e) = do_extraction(messages, agent_id, session_id, model, session_db).await {
+    let history = match extraction_history(messages, session_id, session_db.clone(), 6).await {
+        Ok(history) => history,
+        Err(e) => {
+            app_warn!(
+                "memory",
+                "auto_extract",
+                "Extraction input unavailable: {}",
+                e
+            );
+            return;
+        }
+    };
+    if history.is_empty() {
+        return;
+    }
+    if let Err(e) = do_extraction(&history, agent_id, session_id, model, session_db).await {
         app_warn!("memory", "auto_extract", "Extraction failed: {}", e);
     }
 }
@@ -977,6 +1012,11 @@ pub async fn flush_before_compact(
         );
         return Ok(0);
     }
+    let history =
+        extraction_history(messages_to_discard, session_id, session_db.clone(), 64).await?;
+    if history.is_empty() {
+        return Ok(0);
+    }
     let backend = ha_core::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
@@ -992,7 +1032,7 @@ pub async fn flush_before_compact(
     // Format all messages to be discarded (more generous than auto_extract's 6-message limit)
     let mut total_chars = 0usize;
     let max_chars = 8000;
-    let formatted: Vec<String> = messages_to_discard
+    let formatted: Vec<String> = history
         .iter()
         .filter_map(|msg| {
             if total_chars >= max_chars {
@@ -1430,6 +1470,59 @@ fn extract_text_content(msg: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn side_chat_extraction_history_uses_owned_rows_for_idle_and_compact() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            ha_core::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        ha_core::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .unwrap();
+        let session = db.create_session("ha-main").unwrap();
+        let inherited = vec![serde_json::json!({"role":"user", "content":"parent fact"})];
+        assert_eq!(
+            extraction_history(&inherited, &session.id, Some(db.clone()), 6)
+                .await
+                .unwrap(),
+            inherited
+        );
+        db.append_message(
+            &session.id,
+            &ha_core::session::NewMessage::user("parent fact"),
+        )
+        .unwrap();
+        let session = db.create_side_chat(&session.id).unwrap();
+        for limit in [6, 64] {
+            assert!(
+                extraction_history(&inherited, &session.id, Some(db.clone()), limit)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        db.append_message(
+            &session.id,
+            &ha_core::session::NewMessage::user("side fact"),
+        )
+        .unwrap();
+        let mixed_summary = vec![serde_json::json!({
+            "role":"user", "content":"[Previous conversation summary] parent fact and side fact"
+        })];
+        for limit in [6, 64] {
+            assert_eq!(
+                extraction_history(&mixed_summary, &session.id, Some(db.clone()), limit)
+                    .await
+                    .unwrap(),
+                vec![serde_json::json!({"role":"user", "content":"side fact"})]
+            );
+        }
+        assert!(extraction_history(&inherited, "deleted", Some(db), 6)
+            .await
+            .is_err());
+    }
 
     #[test]
     fn parse_legacy_array_response() {

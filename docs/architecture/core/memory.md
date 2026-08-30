@@ -391,6 +391,8 @@ Agent 在两个时机自动提取记忆：
 
 另有两条保护：检测到当轮已调用 `save_memory` / `update_core_memory` 则**跳过自动提取**（互斥）；阈值因门控未满足而跳过时，调度延迟任务（默认 30 分钟），会话空闲超时后从 DB 加载历史执行**收尾提取**，新建会话时立即 flush 所有待提取的空闲会话。
 
+侧聊的继承历史只用于对话，不作为新的学习证据。阈值与空闲提取、压缩前提取共用取材入口，侧聊改从持久消息账本读取 `is_side_snapshot=0` 的用户/助手正文（分别最近 6 条、最多 64 条，仍受原有字符预算限制）。这也排除可能混合父会话内容的压缩摘要，避免每个侧聊重复学习同一批历史；只有继承快照时直接跳过模型调用。普通会话仍使用调用方提供的上下文。
+
 **内容感知作用域**是自动提取的关键红线：项目会话的 project fact 写 `MemoryScope::Project`；User / Feedback 及非项目 Reference 默认写当前 Agent；**非项目会话提取出的 project fact 进 `pending_memory_candidates(reason=project_scope_missing)`，绝不能伪装成 Agent 记忆**。
 
 ```mermaid
