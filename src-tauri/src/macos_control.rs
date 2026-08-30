@@ -481,7 +481,8 @@ mod imp {
         }
         if request.include_screenshot {
             match capture_desktop_frame_with_id(&snapshot, &request) {
-                Ok((frame, screenshot)) => {
+                Ok((mut frame, screenshot)) => {
+                    frame.session_id = request.session_id.clone();
                     snapshot.screenshot = Some(screenshot);
                     ha_mac::emit_frame(&frame);
                 }
@@ -8226,6 +8227,7 @@ mod imp {
         let jpeg_base64 =
             base64::engine::general_purpose::STANDARD.encode(captured.jpeg.as_slice());
         MacControlFramePayload {
+            session_id: None,
             snapshot_id: snapshot_id.to_string(),
             media_id: screenshot.map(|item| item.media_id.clone()),
             path: screenshot.map(|item| item.path.clone()),

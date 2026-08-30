@@ -162,6 +162,7 @@ export function usePanelActionHistory(kind: PanelActionKind, sessionId?: string 
     const unlistenFrame = getTransport().listen(frameEvent, (raw) => {
       const payload = parsePayload<FrameEventWithAction>(raw)
       if (!payload?.actionId || !payload.jpegBase64) return
+      if (payload.sessionId && payload.sessionId !== sessionId) return
       const actionId = payload.actionId
       void downscaleJpegBase64(payload.jpegBase64).then((thumb) => {
         if (!thumb) return

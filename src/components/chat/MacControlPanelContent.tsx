@@ -30,6 +30,7 @@ export function MacControlPanelContent({
 }: MacControlPanelContentProps) {
   const { t } = useTranslation()
   const { frame, error, refresh, setDisplayId, displayId } = useMacControlFrame({
+    sessionId,
     pollKey: variant,
     pollActive: active,
   })

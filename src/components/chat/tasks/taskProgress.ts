@@ -131,11 +131,20 @@ function* iterateTaskToolsReverse(message: Message): Generator<ToolCall> {
   }
 }
 
-export function extractLatestTaskProgressSnapshot(messages: Message[]): TaskProgressSnapshot | null {
+export function extractLatestTaskProgressSnapshot(
+  messages: Message[],
+  sessionId?: string,
+): TaskProgressSnapshot | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     for (const tool of iterateTaskToolsReverse(messages[i])) {
       const parsed = parseTaskToolResultInternal(tool.result)
-      if (parsed !== null) return createTaskProgressSnapshot(parsed)
+      if (parsed !== null) {
+        const tasks = sessionId ? parsed.filter((task) => task.sessionId === sessionId) : parsed
+        // Inherited transcript snapshots retain their original task IDs.
+        // They must never expose controls for another session's task ledger.
+        if (parsed.length > 0 && tasks.length === 0) continue
+        return createTaskProgressSnapshot(tasks)
+      }
     }
   }
   return null

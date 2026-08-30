@@ -63,7 +63,7 @@ function FloatingMacControlWindow({
   sessionId?: string | null
 }) {
   const { t } = useTranslation()
-  const { frame } = useMacControlFrame({ pollKey: "floating-title", pollActive: false })
+  const { frame } = useMacControlFrame({ sessionId, pollKey: "floating-title", pollActive: false })
   return (
     <FloatingPanelWindow
       storageKey="hope.floatingPanel.macControl.rect"

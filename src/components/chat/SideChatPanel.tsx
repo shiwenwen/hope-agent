@@ -41,6 +41,7 @@ import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { useQuickChatSession } from "./useQuickChatSession"
 import type { SubagentRunsSnapshot } from "./subagent/useSubagentRuns"
 import type { SubagentOpenTarget } from "./subagent/subagentRunModel"
+import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 
 export interface SideChatSeed {
   nonce: number
@@ -104,6 +105,7 @@ export default function SideChatPanel({
   const { pendingQuestionGroup, setPendingQuestionGroup } = useAskUserPending(
     session.currentSessionId,
   )
+  const taskProgressSnapshot = useTaskProgressSnapshot(session.currentSessionId, session.messages)
 
   useEmbeddedChatReadReceipt(
     isViewVisible,
@@ -419,6 +421,7 @@ export default function SideChatPanel({
             onCommandAction={handleCommandAction}
             enableGoalAndPlanModes={false}
             enableWorkflowMode={false}
+            taskProgressSnapshot={taskProgressSnapshot}
             workingDir={workingDir ?? null}
             permissionMode={stream.permissionMode}
             onPermissionModeChange={stream.setPermissionModeByUser}

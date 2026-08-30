@@ -10640,6 +10640,66 @@ mod tests {
     }
 
     #[test]
+    fn side_title_ignores_control_events_before_the_first_question() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db =
+            SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db")).expect("open db");
+        ensure_channel_conversations_table(&db);
+        let source = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create source");
+        db.append_message(&source.id, &NewMessage::user("parent question"))
+            .expect("append source question");
+        let side = db.create_side_chat(&source.id).expect("create side");
+        for command in ["/help", "/status", "/usage"] {
+            crate::slash_defs::append_slash_history_events(
+                &db,
+                &side.id,
+                command,
+                Some("command result"),
+                crate::chat_engine::ChatSource::Desktop,
+            )
+            .expect("append side command");
+            assert!(db.get_session(&side.id).unwrap().unwrap().title.is_none());
+        }
+        db.append_message(&side.id, &NewMessage::user("side question"))
+            .expect("append real question");
+        // Even a command racing the turn's fallback helper must use the
+        // stored conversational message rather than its own display text.
+        crate::slash_defs::append_slash_history_events(
+            &db,
+            &side.id,
+            "/status",
+            Some("status"),
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append later command");
+        assert_eq!(
+            db.get_session(&side.id).unwrap().unwrap().title.as_deref(),
+            Some("side question")
+        );
+        let regular = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create regular");
+        crate::slash_defs::append_slash_history_events(
+            &db,
+            &regular.id,
+            "/goal ship feature",
+            None,
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append regular command");
+        assert_eq!(
+            db.get_session(&regular.id)
+                .unwrap()
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("ship feature")
+        );
+    }
+
+    #[test]
     fn title_source_roundtrip_and_guarded_update() {
         let db_path = temp_db_path("session-title-source");
         let db = SessionDB::open(&db_path).expect("open session db");

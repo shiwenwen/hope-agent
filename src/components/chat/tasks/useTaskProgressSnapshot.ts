@@ -19,6 +19,9 @@ function latestSnapshot(
 ): TaskProgressSnapshot | null {
   if (!fromMessages) return fromEvent
   if (!fromEvent) return fromMessages
+  // Deleting the final task emits an authoritative empty ledger with no
+  // timestamp. Do not resurrect the transcript's older task snapshot.
+  if (fromEvent.total === 0) return fromEvent
 
   const messageUpdatedAt = Math.max(
     ...fromMessages.tasks.map((task) => Date.parse(task.updatedAt)).filter(Number.isFinite),
@@ -41,8 +44,8 @@ export function useTaskProgressSnapshot(
   messages: Message[],
 ): TaskProgressSnapshot | null {
   const messageSnapshot = useMemo(
-    () => extractLatestTaskProgressSnapshot(messages),
-    [messages],
+    () => sessionId ? extractLatestTaskProgressSnapshot(messages, sessionId) : null,
+    [messages, sessionId],
   )
   const [eventState, setEventState] = useState<{
     sessionId: string | null

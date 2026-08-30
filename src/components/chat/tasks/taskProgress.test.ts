@@ -42,6 +42,17 @@ function assistantWithTaskResult(result: string, callId = "call-1"): Message {
 }
 
 describe("task progress parsing", () => {
+  test("session-scoped controls exclude inherited parent task IDs", () => {
+    const parent = task({ id: 1, sessionId: "main" })
+    const side = task({ id: 2, sessionId: "side" })
+    const inherited = assistantWithTaskResult(JSON.stringify([parent]))
+    expect(extractLatestTaskProgressSnapshot([inherited], "side")).toBeNull()
+    expect(extractLatestTaskProgressSnapshot([
+      inherited,
+      assistantWithTaskResult(JSON.stringify([parent, side])),
+    ], "side")?.tasks).toEqual([side])
+  })
+
   test("extracts the latest complete task snapshot from task tool results", () => {
     const first = [
       task({ id: 1, status: "pending", updatedAt: "2026-04-29T00:00:00.000Z" }),

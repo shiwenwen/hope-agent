@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react"
+import { useEffect, useLayoutEffect, useSyncExternalStore } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { createFrameStore } from "@/lib/frame-store"
 
@@ -18,6 +18,7 @@ export interface MacControlBounds {
 }
 
 export interface MacControlFramePayload {
+  sessionId?: string | null
   snapshotId: string
   mediaId?: string | null
   path?: string | null
@@ -54,9 +55,22 @@ export interface MacControlDisplaysResponse {
 
 export const MAC_CONTROL_FRAME_EVENT = "mac_control:frame"
 
+type MacControlFrameOwner = Pick<MacControlFramePayload, "sessionId" | "mediaId" | "path" | "actionId">
+
+export function isMacControlToolFrameForSession(
+  frame: MacControlFrameOwner,
+  sessionId: string | null,
+): boolean {
+  return !!sessionId && frame.sessionId === sessionId && !!(frame.mediaId || frame.path || frame.actionId)
+}
+
 const store = createFrameStore<MacControlFramePayload>({
   name: "mac-control",
   eventName: MAC_CONTROL_FRAME_EVENT,
+  // Ownerless panel polls are global display captures, not tool activity.
+  acceptEvent: (frame, { sessionId }) => frame.sessionId
+    ? frame.sessionId === sessionId
+    : !(frame.mediaId || frame.path || frame.actionId),
   capture: async ({ displayId }) => {
     const response = await getTransport().call<MacControlFrameResponse>(
       "mac_control_capture_frame",
@@ -66,8 +80,15 @@ const store = createFrameStore<MacControlFramePayload>({
   },
 })
 
-export function useMacControlFrame(opts: { pollKey: string; pollActive: boolean }) {
-  const { pollKey, pollActive } = opts
+export function useMacControlFrame(opts: {
+  sessionId?: string | null
+  pollKey: string
+  pollActive: boolean
+}) {
+  const { sessionId = null, pollKey, pollActive } = opts
+  useLayoutEffect(() => {
+    store.setSessionId(sessionId)
+  }, [sessionId])
   useEffect(() => {
     store.setPollActive(pollKey, pollActive)
     return () => store.setPollActive(pollKey, false)

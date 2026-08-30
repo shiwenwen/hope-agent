@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } fr
 import { toast } from "sonner"
 import { getTransport, useTransport } from "@/lib/transport-provider"
 import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
+import { isMacControlToolFrameForSession } from "@/hooks/useMacControlFrame"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -394,8 +395,10 @@ const DRAFT_WORKBENCH_KEY = "__draft__"
 const EMPTY_WORKBENCH_ORDER: string[] = []
 
 interface MacControlFrameOpenHint {
+  sessionId?: string | null
   mediaId?: string | null
   path?: string | null
+  actionId?: string | null
 }
 
 interface RestorableWorkbenchSessionState {
@@ -4351,8 +4354,8 @@ export default function ChatScreen({
     const unlisten = getTransport().listen("mac_control:frame", (raw) => {
       if (macControlPanelDismissedRef.current) return
       const payload = parsePayload<MacControlFrameOpenHint>(raw)
-      const isToolScreenshotFrame = !!(payload?.mediaId || payload?.path)
-      setShowMacControlPanel((prev) => (prev ? prev : isToolScreenshotFrame))
+      if (!payload || !isMacControlToolFrameForSession(payload, activeConversationSurfaceSessionId)) return
+      setShowMacControlPanel(true)
     })
     return () => {
       try {
@@ -4361,7 +4364,7 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [])
+  }, [activeConversationSurfaceSessionId])
 
   // 首次有任务/文件/来源时自动展开 Workspace 面板一次；用户关闭后本会话不再
   // 自动弹（仿 browser/mac-control 的 dismissed 模型）。用便宜的存在性检查(短路)，

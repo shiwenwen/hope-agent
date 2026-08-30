@@ -23,6 +23,7 @@ const componentCapture = vi.hoisted(() => ({
   workingDir: undefined as string | null | undefined,
   enableGoalAndPlanModes: undefined as boolean | undefined,
   enableWorkflowMode: undefined as boolean | undefined,
+  taskProgressSnapshot: undefined as unknown,
   pendingQuestionGroup: undefined as unknown,
   onQuestionSubmitted: undefined as (() => unknown) | undefined,
   onOpenDiff: undefined as ((metadata: unknown) => unknown) | undefined,
@@ -45,6 +46,9 @@ const askUserCapture = vi.hoisted(() => ({
 }))
 
 const readReceiptMock = vi.hoisted(() => vi.fn())
+const taskProgressMock = vi.hoisted(() => vi.fn(() => ({ tasks: [], total: 0 })))
+
+vi.mock("./tasks/useTaskProgressSnapshot", () => ({ useTaskProgressSnapshot: taskProgressMock }))
 
 vi.mock("@/components/chat/ChatInput", () => ({
   default: (props: {
@@ -54,6 +58,7 @@ vi.mock("@/components/chat/ChatInput", () => ({
     workingDir?: string | null
     enableGoalAndPlanModes?: boolean
     enableWorkflowMode?: boolean
+    taskProgressSnapshot?: unknown
     pendingQuotes?: unknown
     onRemoveQuote?: (index: number) => unknown
   }) => {
@@ -63,6 +68,7 @@ vi.mock("@/components/chat/ChatInput", () => ({
     componentCapture.workingDir = props.workingDir
     componentCapture.enableGoalAndPlanModes = props.enableGoalAndPlanModes
     componentCapture.enableWorkflowMode = props.enableWorkflowMode
+    componentCapture.taskProgressSnapshot = props.taskProgressSnapshot
     componentCapture.pendingQuotes = props.pendingQuotes
     componentCapture.onRemoveQuote = props.onRemoveQuote
     return <div data-testid="chat-input" />
@@ -220,6 +226,13 @@ afterEach(() => {
 })
 
 describe("SideChatPanel slash actions", () => {
+  test("binds task progress controls to its own session and messages", () => {
+    render(<SideChatPanel sessionId="side-1" isViewVisible onClose={vi.fn()}
+      onDeleted={vi.fn()} onPreviewFile={vi.fn()} />)
+    expect(taskProgressMock).toHaveBeenCalledWith("side-1", sessionShape.messages)
+    expect(componentCapture.taskProgressSnapshot).toBe(taskProgressMock.mock.results.at(-1)?.value)
+  })
+
   test("continues a round-limited side turn through its own send handler", async () => {
     const onActivity = vi.fn()
     render(
