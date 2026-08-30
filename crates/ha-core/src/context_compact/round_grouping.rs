@@ -15,6 +15,24 @@ pub const ROUND_KEY: &str = "_oc_round";
 /// Durable steer dispatches stamp their ids on the checkpointed user message.
 /// The marker provides replay deduplication and must never reach a provider.
 pub const SUBAGENT_DISPATCH_IDS_KEY: &str = "_ha_subagent_dispatch_ids";
+/// Inherited side-chat context is usable for conversation, not new learning.
+pub const SIDE_SNAPSHOT_KEY: &str = "_ha_side_snapshot";
+
+pub fn is_side_snapshot(message: &Value) -> bool {
+    message.get(SIDE_SNAPSHOT_KEY).and_then(Value::as_bool) == Some(true)
+}
+
+pub fn mark_side_snapshot(message: &mut Value) {
+    if let Some(object) = message.as_object_mut() {
+        object.insert(SIDE_SNAPSHOT_KEY.into(), Value::Bool(true));
+    }
+}
+
+pub fn inherit_side_snapshot(source: &Value, target: &mut Value) {
+    if is_side_snapshot(source) {
+        mark_side_snapshot(target);
+    }
+}
 
 /// Stamp a round ID on a message (in-place).
 pub fn stamp_round(msg: &mut Value, round_id: &str) {
@@ -65,6 +83,7 @@ fn strip_internal_metadata(msg: &mut Value) {
     if let Some(obj) = msg.as_object_mut() {
         obj.remove(ROUND_KEY);
         obj.remove(SUBAGENT_DISPATCH_IDS_KEY);
+        obj.remove(SIDE_SNAPSHOT_KEY);
     }
 }
 
@@ -189,9 +208,12 @@ mod tests {
         ];
         stamp_round(&mut messages[1], "r0");
         messages[0][SUBAGENT_DISPATCH_IDS_KEY] = json!(["dispatch-1"]);
+        mark_side_snapshot(&mut messages[0]);
         let api = prepare_messages_for_api(&messages);
         assert!(api[1].get(ROUND_KEY).is_none());
         assert!(api[0].get(SUBAGENT_DISPATCH_IDS_KEY).is_none());
+        assert!(api[0].get(SIDE_SNAPSHOT_KEY).is_none());
+        assert!(is_side_snapshot(&messages[0]));
         // Original still has the stamp
         assert!(messages[1].get(ROUND_KEY).is_some());
         assert!(messages[0].get(SUBAGENT_DISPATCH_IDS_KEY).is_some());

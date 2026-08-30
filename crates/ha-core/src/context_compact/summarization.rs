@@ -601,10 +601,17 @@ pub fn apply_summary(
             ));
         }
     }
-    let summary_msg = serde_json::json!({
+    let mut summary_msg = serde_json::json!({
         "role": "user",
         "content": summary_content
     });
+    if messages
+        .iter()
+        .take(preserved_start_index)
+        .any(super::is_side_snapshot)
+    {
+        super::mark_side_snapshot(&mut summary_msg);
+    }
 
     // Keep preserved messages
     let preserved: Vec<Value> = if preserved_start_index < messages.len() {
@@ -866,6 +873,29 @@ mod tests {
 
         assert!(error.contains("Primary Request and Success Criteria"));
         assert!(error.contains("Pending Work and Next Action"));
+    }
+
+    #[test]
+    fn side_snapshot_summary_keeps_provenance_without_marking_retained_turns() {
+        let mut inherited = json!({"role":"user", "content":"parent fact"});
+        super::super::mark_side_snapshot(&mut inherited);
+        let retained = json!({"role":"user", "content":"side retained"});
+        let mut messages = vec![
+            inherited,
+            json!({"role":"assistant", "content":"side discarded"}),
+            retained.clone(),
+        ];
+        let summary = REQUIRED_SUMMARY_SECTIONS
+            .iter()
+            .map(|heading| format!("{heading}\nNone."))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        apply_summary(&mut messages, &summary, 2, &CompactConfig::default(), None).unwrap();
+        assert!(super::super::is_side_snapshot(&messages[0]));
+        assert_eq!(messages[1], retained);
+        apply_summary(&mut messages, &summary, 1, &CompactConfig::default(), None).unwrap();
+        assert!(super::super::is_side_snapshot(&messages[0]));
+        assert_eq!(messages[1], retained);
     }
 
     #[test]

@@ -548,6 +548,7 @@ impl SessionDB {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 context_json TEXT,
+                side_snapshot_context_version INTEGER NOT NULL DEFAULT 0,
                 context_revision INTEGER NOT NULL DEFAULT 0,
                 context_run_id TEXT,
                 last_read_message_id INTEGER DEFAULT 0,
@@ -1090,6 +1091,12 @@ impl SessionDB {
             conn.execute_batch(
                 "ALTER TABLE messages ADD COLUMN is_side_snapshot INTEGER NOT NULL DEFAULT 0;",
             )?;
+        }
+        if conn
+            .prepare("SELECT side_snapshot_context_version FROM sessions LIMIT 1")
+            .is_err()
+        {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN side_snapshot_context_version INTEGER NOT NULL DEFAULT 0;")?;
         }
 
         // Migration: user-facing session forks. Deliberately separate from
@@ -3289,6 +3296,16 @@ impl SessionDB {
                 None
             };
 
+            let side_context_json = side_context_json
+                .map(|json| -> Result<String> {
+                    let mut history: Vec<serde_json::Value> = serde_json::from_str(&json)?;
+                    for message in &mut history {
+                        crate::context_compact::mark_side_snapshot(message);
+                    }
+                    Ok(serde_json::to_string(&history)?)
+                })
+                .transpose()?;
+
             if let Some(message_id) = source_message_id {
                 let exists: i64 = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id = ?2)",
@@ -3444,6 +3461,10 @@ impl SessionDB {
                 // activation order, but not runtime ownership or approvals:
                 // schemas/execution still pass through the side's live gates.
                 tx.execute(
+                    "UPDATE sessions SET side_snapshot_context_version = 1 WHERE id = ?1",
+                    params![new_session_id],
+                )?;
+                tx.execute(
                     "INSERT INTO session_skill_activation (session_id, skill_name, activated_at)
                      SELECT ?1, skill_name, activated_at FROM session_skill_activation
                       WHERE session_id = ?2",
@@ -3518,6 +3539,44 @@ impl SessionDB {
                     mode == ForkMode::SideChat
                 ],
             )?;
+
+            if mode == ForkMode::SideChat {
+                let source_ids = {
+                    let mut stmt = tx.prepare(
+                        "SELECT id FROM messages WHERE session_id = ?1
+                         AND (?2 IS NULL OR (?3 = 0 AND id <= ?2) OR (?3 = 1 AND id < ?2))
+                         ORDER BY id",
+                    )?;
+                    let ids = stmt
+                        .query_map(
+                            params![source_session_id, source_message_id, exclude_boundary],
+                            |row| row.get::<_, i64>(0),
+                        )?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    ids
+                };
+                let target_ids = {
+                    let mut stmt =
+                        tx.prepare("SELECT id FROM messages WHERE session_id = ?1 ORDER BY id")?;
+                    let ids = stmt
+                        .query_map(params![new_session_id], |row| row.get::<_, i64>(0))?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    ids
+                };
+                anyhow::ensure!(
+                    source_ids.len() == target_ids.len(),
+                    "side snapshot message map mismatch"
+                );
+                let message_ids = source_ids.into_iter().zip(target_ids).collect();
+                super::result_store::copy_side_chat_result_refs(
+                    &tx,
+                    source_session_id,
+                    &new_session_id,
+                    &message_ids,
+                    side_context_json.as_deref(),
+                    &now,
+                )?;
+            }
 
             let attachment_meta_rewrites = {
                 let mut stmt = tx.prepare(
@@ -6632,6 +6691,19 @@ impl SessionDB {
         };
 
         Ok(changed > 0)
+    }
+
+    /// Pre-provenance side contexts cannot safely distinguish inherited items
+    /// during compaction. Fail closed there; idle learning still uses own rows.
+    pub fn context_supports_memory_flush(&self, session_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        conn.query_row(
+            "SELECT kind <> 'side' OR side_snapshot_context_version = 1 FROM sessions WHERE id = ?1",
+            params![session_id], |row| row.get(0),
+        ).map_err(Into::into)
     }
 
     /// Side-chat learning uses its own transcript, never inherited provider
@@ -9767,6 +9839,17 @@ mod tests {
         db.append_message(&source.id, &NewMessage::user("parent-only fact"))
             .unwrap();
         let side = db.create_side_chat(&source.id).unwrap();
+        assert!(db.context_supports_memory_flush(&source.id).unwrap());
+        assert!(db.context_supports_memory_flush(&side.id).unwrap());
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET side_snapshot_context_version = 0 WHERE id = ?1",
+                [&side.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!db.context_supports_memory_flush(&side.id).unwrap());
         assert_eq!(
             db.load_side_chat_memory_history(&source.id, 6).unwrap(),
             None
@@ -9848,11 +9931,14 @@ mod tests {
         assert_eq!(side.kind, SessionKind::Side);
         assert_eq!(side.temperature, Some(0.42));
         assert!(side.runtime_defaults_initialized);
+        let side_history: Vec<serde_json::Value> =
+            serde_json::from_str(&db.load_context(&side.id).unwrap().unwrap()).unwrap();
+        assert!(side_history
+            .iter()
+            .all(crate::context_compact::is_side_snapshot));
         assert_eq!(
-            db.load_context(&side.id)
-                .expect("load side context")
-                .as_deref(),
-            Some(source_context.as_str())
+            crate::context_compact::prepare_messages_for_api(&side_history),
+            serde_json::from_str::<Vec<serde_json::Value>>(&source_context).unwrap()
         );
         assert_eq!(
             db.get_memory_policy(&side.id)
@@ -10178,11 +10264,14 @@ mod tests {
         assert_eq!(copied[0].content, "settled question");
         assert_eq!(copied[1].content, "settled answer");
         assert_eq!(side.forked_from_message_id, Some(settled_assistant_id));
+        let side_history: Vec<serde_json::Value> =
+            serde_json::from_str(&db.load_context(&side.id).unwrap().unwrap()).unwrap();
+        assert!(side_history
+            .iter()
+            .all(crate::context_compact::is_side_snapshot));
         assert_eq!(
-            db.load_context(&side.id)
-                .expect("load side context")
-                .as_deref(),
-            Some(settled_context.as_str())
+            crate::context_compact::prepare_messages_for_api(&side_history),
+            serde_json::from_str::<Vec<serde_json::Value>>(&settled_context).unwrap()
         );
 
         let _ = std::fs::remove_file(&db_path);

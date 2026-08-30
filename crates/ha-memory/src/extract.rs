@@ -1012,8 +1012,26 @@ pub async fn flush_before_compact(
         );
         return Ok(0);
     }
-    let history =
-        extraction_history(messages_to_discard, session_id, session_db.clone(), 64).await?;
+    // Keep the compactor's exact discard slice. Inherited items (including
+    // summaries derived from them) retain an internal provenance marker.
+    let gate_db = session_db.clone();
+    let sid = session_id.to_string();
+    let attributed = ha_core::blocking::run_blocking(move || {
+        let db = gate_db
+            .or_else(|| ha_core::get_session_db().cloned())
+            .ok_or_else(|| anyhow::anyhow!("Session database unavailable for memory flush"))?;
+        db.context_supports_memory_flush(&sid)
+    })
+    .await?;
+    if !attributed {
+        app_info!(
+            "memory",
+            "flush",
+            "Skipping legacy side-chat context without snapshot provenance"
+        );
+        return Ok(0);
+    }
+    let history = compaction_extraction_history(messages_to_discard);
     if history.is_empty() {
         return Ok(0);
     }
@@ -1438,6 +1456,14 @@ pub fn flush_before_compact_boxed<'a>(
     ))
 }
 
+fn compaction_extraction_history(messages_to_discard: &[Value]) -> Vec<Value> {
+    messages_to_discard
+        .iter()
+        .filter(|message| !ha_core::context_compact::is_side_snapshot(message))
+        .cloned()
+        .collect()
+}
+
 fn extract_text_content(msg: &Value) -> Option<String> {
     // Skip OpenAI Responses API reasoning items (encrypted, no readable text)
     if msg.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
@@ -1471,8 +1497,29 @@ fn extract_text_content(msg: &Value) -> Option<String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn side_chat_compaction_extraction_preserves_the_discard_slice() {
+        let mut inherited = serde_json::json!({"role":"user", "content":"parent fact"});
+        ha_core::context_compact::mark_side_snapshot(&mut inherited);
+        let discarded = serde_json::json!({"role":"assistant", "content":"side discarded"});
+        let retained = serde_json::json!({"role":"user", "content":"side retained"});
+        let history = [inherited.clone(), discarded.clone(), retained.clone()];
+        assert_eq!(
+            compaction_extraction_history(&history[..2]),
+            vec![discarded.clone()]
+        );
+        assert!(compaction_extraction_history(&[inherited]).is_empty());
+        // More than 64 retained messages cannot change the selected prefix.
+        let mut long_history = history.to_vec();
+        long_history.extend(std::iter::repeat_n(retained, 80));
+        assert_eq!(
+            compaction_extraction_history(&long_history[..2]),
+            vec![discarded]
+        );
+    }
+
     #[tokio::test]
-    async fn side_chat_extraction_history_uses_owned_rows_for_idle_and_compact() {
+    async fn side_chat_idle_extraction_history_uses_owned_rows() {
         let dir = tempfile::tempdir().unwrap();
         let db = Arc::new(
             ha_core::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))

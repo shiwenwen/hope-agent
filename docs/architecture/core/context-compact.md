@@ -253,11 +253,13 @@ flowchart TD
 | `stamp_round(msg, round_id)` | 给消息添加轮次 ID |
 | `push_and_stamp(messages, msg, round)` | 追加消息并打标，跨所有模型服务商适配文件复用（新适配器必须走它，否则压缩会拆散配对） |
 | `strip_round(msg)` | 剥离单条消息的轮次元数据 |
-| `prepare_messages_for_api(messages)` | 克隆并剥离所有内部元数据（`_oc_round` 与子智能体发送标记），供 API 请求体构建 |
+| `prepare_messages_for_api(messages)` | 克隆并剥离所有内部元数据（`_oc_round`、子智能体发送标记与 `_ha_side_snapshot`），供 API 请求体构建 |
 | `find_round_safe_boundary(m, target)` | 在目标位置及之前找完整轮次安全切点（向后搜索） |
 | `find_round_safe_boundary_forward(m, target)` | 在目标位置及之后找完整轮次安全切点（向前搜索） |
 
 **向后兼容**：无 `_oc_round` 的旧会话消息被视为独立轮次，`find_round_safe_boundary` 直接返回 `target_index`。
+
+侧聊继承上下文带 `_ha_side_snapshot` 来源标记，模型格式转换和包含继承内容的摘要必须继续携带；普通消息合并到继承项时保守保留标记。压缩前记忆提取只过滤给定丢弃片段中的继承项，绝不另取保留区或最近消息。标记仅用于本地裁决，主请求与缓存友好一次性请求都在发送前剥离，不能进入 Provider 请求体。
 
 ## 第 3 层后的三类注入内容
 

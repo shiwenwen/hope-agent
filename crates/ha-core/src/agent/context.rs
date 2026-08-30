@@ -2193,10 +2193,9 @@ impl AssistantAgent {
                             .collect::<Vec<_>>()
                             .join("");
                         if !text.is_empty() {
-                            Self::push_anthropic_normalized_message(
-                                &mut result,
-                                json!({ "role": role, "content": text }),
-                            );
+                            let mut msg = json!({ "role": role, "content": text });
+                            crate::context_compact::inherit_side_snapshot(item, &mut msg);
+                            Self::push_anthropic_normalized_message(&mut result, msg);
                         }
                     }
                 }
@@ -2264,6 +2263,7 @@ impl AssistantAgent {
                     }
                     (_, other) => other,
                 };
+                crate::context_compact::inherit_side_snapshot(&msg, last);
                 last["content"] = merged;
                 return;
             }
@@ -2303,7 +2303,9 @@ impl AssistantAgent {
                             .collect::<Vec<_>>()
                             .join("");
                         if !text.is_empty() {
-                            result.push(json!({ "role": role, "content": text }));
+                            let mut msg = json!({ "role": role, "content": text });
+                            crate::context_compact::inherit_side_snapshot(item, &mut msg);
+                            result.push(msg);
                         }
                     }
                 }
@@ -2348,6 +2350,7 @@ impl AssistantAgent {
                             if !text.is_empty() || !thinking.is_empty() {
                                 let content = if text.is_empty() { &thinking } else { &text };
                                 let mut msg = json!({ "role": role, "content": content });
+                                crate::context_compact::inherit_side_snapshot(item, &mut msg);
                                 if !thinking.is_empty() && !text.is_empty() {
                                     msg["reasoning_content"] = json!(&thinking);
                                 }
@@ -2437,7 +2440,9 @@ impl AssistantAgent {
                             .and_then(|r| r.as_str())
                             .unwrap_or("assistant");
                         if !text.is_empty() {
-                            result.push(json!({ "role": role, "content": text }));
+                            let mut msg = json!({ "role": role, "content": text });
+                            crate::context_compact::inherit_side_snapshot(item, &mut msg);
+                            result.push(msg);
                         }
                     } else {
                         // String-content role message (typically Chat Completions shape).
@@ -3286,6 +3291,36 @@ mod responses_history_tests {
     // any reasoning item — id-only OR with encrypted_content — is a
     // landmine for the next request. The invariant: normalize must drop
     // every `reasoning` item regardless of payload completeness.
+    #[test]
+    fn side_snapshot_provenance_survives_provider_normalization() {
+        let shapes = [
+            json!({"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"parent"}]}),
+            json!({"role":"assistant", "content":[{"type":"text", "text":"parent"}]}),
+            json!({"role":"assistant", "content":"parent"}),
+        ];
+        for mut inherited in shapes {
+            crate::context_compact::mark_side_snapshot(&mut inherited);
+            let history = vec![inherited, json!({"role":"user", "content":"side question"})];
+            for normalized in [
+                AssistantAgent::normalize_history_for_anthropic(&history),
+                AssistantAgent::normalize_history_for_chat(&history),
+                AssistantAgent::normalize_history_for_responses(&history),
+            ] {
+                assert_eq!(normalized.len(), 2);
+                assert!(crate::context_compact::is_side_snapshot(&normalized[0]));
+                assert!(!crate::context_compact::is_side_snapshot(&normalized[1]));
+            }
+        }
+        let mut inherited = json!({"role":"assistant", "content":"parent"});
+        crate::context_compact::mark_side_snapshot(&mut inherited);
+        let merged = AssistantAgent::normalize_history_for_anthropic(&[
+            json!({"role":"assistant", "content":"earlier"}),
+            inherited,
+        ]);
+        assert_eq!(merged.len(), 1);
+        assert!(crate::context_compact::is_side_snapshot(&merged[0]));
+    }
+
     #[test]
     fn responses_history_drops_all_reasoning_items() {
         let history = vec![
