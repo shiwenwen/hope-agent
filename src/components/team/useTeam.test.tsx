@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 
 import { useActiveTeam, useTeam } from "./useTeam"
+import { resolveSideChatSurfaceSessionId } from "@/components/chat/sideChatSurface"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { Team, TeamMember, TeamMessage, TeamTask } from "./teamTypes"
 
@@ -156,6 +157,21 @@ describe("useTeam", () => {
 })
 
 describe("useActiveTeam", () => {
+  test("discovers the side team and restores the main team when the side closes", async () => {
+    transportMock.call.mockImplementation((_command: string, args?: { sessionId?: string }) =>
+      Promise.resolve([team(args?.sessionId === "side" ? "side-team" : "main-team")]),
+    )
+    const sessionId = (open: boolean) => resolveSideChatSurfaceSessionId("main", "side", open)
+    const { rerender } = render(<ActiveTeamHarness sessionId={sessionId(false)} />)
+    await waitFor(() => expect(screen.getByTestId("active-team").textContent).toBe("main-team"))
+    rerender(<ActiveTeamHarness sessionId={sessionId(true)} />)
+    expect(screen.getByTestId("active-team").textContent).toBe("none")
+    await waitFor(() => expect(screen.getByTestId("active-team").textContent).toBe("side-team"))
+    expect(transportMock.call).toHaveBeenLastCalledWith("list_teams", { sessionId: "side" })
+    rerender(<ActiveTeamHarness sessionId={sessionId(false)} />)
+    await waitFor(() => expect(screen.getByTestId("active-team").textContent).toBe("main-team"))
+  })
+
   test("keeps a paused team discoverable after reload so it can be resumed", async () => {
     transportMock.call.mockResolvedValue([team("team-paused", "paused")])
 

@@ -95,7 +95,7 @@ export function SideChatTray({
             if (status && status !== "running") {
               const identity = state.turnId ?? state.streamId ?? status
               terminalIdentityRef.current.set(chat.id, identity)
-              if (visibleSideChatIdRef.current === chat.id) {
+              if (state.lastTerminalRead || visibleSideChatIdRef.current === chat.id) {
                 acknowledgedTerminalRef.current.set(chat.id, identity)
               }
               if (acknowledgedTerminalRef.current.get(chat.id) === identity) status = null

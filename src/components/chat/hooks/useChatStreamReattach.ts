@@ -87,6 +87,7 @@ export interface SessionStreamState {
   turnId?: string | null
   status?: ChatTurnStatus | null
   lastTerminalStatus?: ChatTurnStatus | null
+  lastTerminalRead?: boolean | null
   interruptReason?: ChatTurnInterruptReason | null
 }
 

@@ -5,6 +5,23 @@ use serde::{Deserialize, Serialize};
 use super::db::SessionDB;
 use super::types::NewMessage;
 
+/// Shared terminal read boundary for Pet activity and embedded-chat badges.
+/// The callers bind the current turn as `t` and its owning session as `s`.
+pub(super) const TERMINAL_MESSAGE_ID_SQL: &str = "COALESCE(
+    t.assistant_message_id,
+    CASE WHEN t.status = 'failed' THEN (
+        SELECT MAX(m.id) FROM messages m
+         WHERE m.session_id = s.id
+           AND m.id > COALESCE(t.user_message_id, 0)
+           AND m.id < COALESCE((
+               SELECT MIN(t3.user_message_id) FROM chat_turns t3
+                WHERE t3.session_id = t.session_id
+                  AND t3.user_message_id > t.user_message_id
+           ), 9223372036854775807)
+    ) END,
+    t.user_message_id
+)";
+
 /// Generate the opaque durable identity shared by chat entry points.
 pub fn new_chat_turn_id() -> String {
     uuid::Uuid::new_v4().to_string()
@@ -820,6 +837,28 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
+    /// Whether this exact terminal turn's result crossed the durable read
+    /// watermark. Active/missing turns return None, never an inferred receipt.
+    pub fn chat_turn_terminal_read(&self, session_id: &str, turn_id: &str) -> Result<Option<bool>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+        let sql = format!(
+            "SELECT CASE WHEN t.status IN ('completed', 'interrupted', 'failed')
+                THEN COALESCE(({TERMINAL_MESSAGE_ID_SQL}) <= COALESCE(s.last_read_message_id, 0), 0)
+                ELSE NULL END
+             FROM chat_turns t JOIN sessions s ON s.id = t.session_id
+             WHERE s.id = ?1 AND t.id = ?2"
+        );
+        Ok(conn
+            .query_row(&sql, params![session_id, turn_id], |row| {
+                row.get::<_, Option<bool>>(0)
+            })
+            .optional()?
+            .flatten())
+    }
+
     pub fn mark_chat_turn_cancelling(
         &self,
         turn_id: &str,
@@ -1076,6 +1115,84 @@ impl SessionDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_read_boundary_survives_reopen_without_acknowledging_later_turns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        let session = db.create_session("ha-main").unwrap();
+        let user_id = db
+            .append_message(&session.id, &NewMessage::user("question"))
+            .unwrap();
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", None, Some(user_id))
+            .unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &turn.id).unwrap(),
+            None
+        );
+        let answer_id = db
+            .append_message(&session.id, &NewMessage::assistant("answer"))
+            .unwrap();
+        db.finish_chat_turn_once(
+            &turn.id,
+            ChatTurnStatus::Completed,
+            None,
+            None,
+            Some(answer_id),
+        )
+        .unwrap();
+        db.mark_session_read_through(&session.id, Some(user_id))
+            .unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &turn.id).unwrap(),
+            Some(false)
+        );
+        db.mark_session_read_through(&session.id, Some(answer_id))
+            .unwrap();
+        drop(db);
+
+        let db = SessionDB::open_ephemeral_for_test(&path).unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &turn.id).unwrap(),
+            Some(true)
+        );
+        let next_user = db
+            .append_message(&session.id, &NewMessage::user("next"))
+            .unwrap();
+        let failed = db
+            .create_chat_turn(&session.id, "desktop", None, Some(next_user))
+            .unwrap();
+        db.mark_session_read_through(&session.id, Some(next_user))
+            .unwrap();
+        let error_id = db
+            .append_message(&session.id, &NewMessage::assistant("provider error"))
+            .unwrap();
+        db.finish_chat_turn_once(
+            &failed.id,
+            ChatTurnStatus::Failed,
+            None,
+            Some("error"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &failed.id).unwrap(),
+            Some(false)
+        );
+        db.mark_session_read_through(&session.id, Some(error_id))
+            .unwrap();
+        assert_eq!(
+            db.chat_turn_terminal_read(&session.id, &failed.id).unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            db.chat_turn_terminal_read("other-session", &turn.id)
+                .unwrap(),
+            None
+        );
+    }
 
     fn typed_mention_projection(
         canonical_message: &str,

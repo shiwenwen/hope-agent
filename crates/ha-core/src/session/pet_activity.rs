@@ -69,6 +69,7 @@ impl SessionDB {
         } else {
             ""
         };
+        let terminal_message_id = super::turns::TERMINAL_MESSAGE_ID_SQL;
         let sql = format!(
             "SELECT s.id,
                     COALESCE(s.title, ''),
@@ -78,25 +79,7 @@ impl SessionDB {
                     s.kind,
                     COALESCE(s.last_read_message_id, 0),
                     t.status,
-                    COALESCE(
-                        t.assistant_message_id,
-                        CASE WHEN t.status = 'failed' THEN (
-                            SELECT MAX(m.id)
-                              FROM messages m
-                             WHERE m.session_id = s.id
-                               AND m.id > COALESCE(t.user_message_id, 0)
-                               AND m.id < COALESCE(
-                                   (
-                                       SELECT MIN(t3.user_message_id)
-                                         FROM chat_turns t3
-                                        WHERE t3.session_id = t.session_id
-                                          AND t3.user_message_id > t.user_message_id
-                                   ),
-                                   9223372036854775807
-                               )
-                        ) END,
-                        t.user_message_id
-                    ),
+                    {terminal_message_id},
                     COALESCE(t.ended_at, t.updated_at, t.started_at),
                     CASE WHEN t.status = 'completed' AND t.assistant_message_id IS NOT NULL THEN (
                         SELECT substr(m.content, 1, 1024)

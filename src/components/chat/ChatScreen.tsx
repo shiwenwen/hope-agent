@@ -1704,7 +1704,7 @@ export default function ChatScreen({
   )
 
   // ── Team ──────────────────────────────────────────────────
-  const activeTeamId = useActiveTeam(currentSessionId ?? null)
+  const activeTeamId = useActiveTeam(activeConversationSurfaceSessionId)
   const [showTeamPanel, setShowTeamPanel] = useState(false)
 
   const refreshRuntimeModelState = useCallback(async () => {
@@ -5770,6 +5770,7 @@ export default function ChatScreen({
               {/* Team Panel */}
               {rightPanelVisibility.team && activeTeamId && (
                 <TeamPanel
+                  key={activeTeamId}
                   teamId={activeTeamId}
                   collapsed={rightPanelCollapsed || renderedExclusiveRightPanel !== "team"}
                   animateOnMount={animateRightPanelOnMount}

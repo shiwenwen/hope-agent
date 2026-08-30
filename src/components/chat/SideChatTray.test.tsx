@@ -52,6 +52,30 @@ afterEach(() => {
 })
 
 describe("SideChatTray", () => {
+  test.each(["completed", "failed"])("does not restore durably read %s badges on remount", async (status) => {
+    transportMock.call.mockResolvedValue({
+      active: false, lastTerminalStatus: status, turnId: "read-turn", lastTerminalRead: true,
+    })
+    const props = {
+      chats: [sideChat], activeId: "side-1", panelOpen: false, creating: false,
+      onCreate: vi.fn(), onSelect: vi.fn(), onClosePanel: vi.fn(),
+    }
+    const first = render(<SideChatTray {...props} />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole("button", { name: "Side task" })).toBeTruthy()
+    first.unmount()
+    render(<SideChatTray {...props} />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole("button", { name: "Side task" })).toBeTruthy()
+    transportMock.call.mockResolvedValue({
+      active: false, lastTerminalStatus: status, turnId: "unread-turn", lastTerminalRead: false,
+    })
+    await act(async () => {
+      transportMock.listeners.get(TRANSPORT_EVENT_RESYNC_REQUIRED)?.({ reason: "reconnected" })
+    })
+    expect(screen.getByRole("button", { name: `Side task · common.statusValues.${status}` })).toBeTruthy()
+  })
+
   test.each([
     ["completed", "completed"],
     ["failed", "failed"],

@@ -541,7 +541,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 | `load_session_artifacts_cmd` | `GET /api/sessions/{sessionId}/artifacts` | ✅ |
 | `list_background_jobs` | `GET /api/sessions/{sessionId}/background-jobs` | ✅ |
 | `get_background_job` | `GET /api/background-jobs/{jobId}` | ✅ |
-| `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅（返回流状态与 `admissionActive`；后者表示 exact Turn admission 尚未释放） |
+| `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅（返回流状态与 `admissionActive`；后者表示 exact Turn admission 尚未释放。`lastTerminalRead` 表示最新终态轮次的结果是否已越过持久已读水位，无法判定时为 `null`） |
 | `set_session_archived_cmd` | `PATCH /api/sessions/{sessionId}/archived` | ✅（body `{ archived: boolean }`；归档 / 恢复，不删除消息） |
 | `delete_session_cmd` | `DELETE /api/sessions/{sessionId}` | ✅（永久删除；同时清理独立 `cron.db` 中引用该会话的 run log） |
 | `rename_session_cmd` | `PATCH /api/sessions/{sessionId}` | ✅ |
