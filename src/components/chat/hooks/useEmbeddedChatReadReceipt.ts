@@ -3,6 +3,11 @@ import { getTransport } from "@/lib/transport-provider"
 import type { Message } from "@/types/chat"
 import { useReadableSurface } from "@/hooks/useReadableSurface"
 
+export interface EmbeddedChatReadReceipt {
+  sessionId: string
+  throughMessageId: number
+}
+
 /**
  * Read-watermark bridge for first-party embedded chats that stay mounted while
  * their panel is hidden.  It marks only through the newest database row that
@@ -14,6 +19,7 @@ export function useEmbeddedChatReadReceipt(
   messageTailVisible: boolean,
   sessionId: string | null,
   messages: Message[],
+  onRead?: (receipt: EmbeddedChatReadReceipt) => void,
 ): React.MutableRefObject<boolean> {
   const readable = useReadableSurface(surfaceVisible) && messageTailVisible
   const readableRef = useRef(readable)
@@ -51,6 +57,9 @@ export function useEmbeddedChatReadReceipt(
             sessionId,
             throughMessageId: renderedThroughMessageId,
           })
+          .then(() => {
+            if (!cancelled) onRead?.({ sessionId, throughMessageId: renderedThroughMessageId })
+          })
           .catch(() => undefined)
       })
     })
@@ -59,7 +68,7 @@ export function useEmbeddedChatReadReceipt(
       cancelAnimationFrame(firstFrame)
       cancelAnimationFrame(secondFrame)
     }
-  }, [readable, renderedThroughMessageId, sessionId, transcriptMatchesSession])
+  }, [onRead, readable, renderedThroughMessageId, sessionId, transcriptMatchesSession])
 
   return readableRef
 }

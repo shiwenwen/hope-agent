@@ -52,6 +52,28 @@ afterEach(() => {
 })
 
 describe("SideChatTray", () => {
+  test.each(["completed", "failed"])("keeps %s unread in an open panel until a real receipt", async (status) => {
+    const state = { active: false, lastTerminalStatus: status, turnId: "turn-1", lastTerminalRead: false }
+    transportMock.call.mockResolvedValue(state)
+    const props = { chats: [sideChat], activeId: "side-1", panelOpen: true, creating: false,
+      onCreate: vi.fn(), onSelect: vi.fn(), onClosePanel: vi.fn() }
+    const { rerender } = render(<SideChatTray {...props} />)
+    const label = `Side task · common.statusValues.${status}`
+    await waitFor(() => expect(screen.getByRole("button", { name: label })).toBeTruthy())
+    await act(async () => {
+      transportMock.listeners.get("chat:stream_end")?.({ sessionId: "side-1", status, turnId: "turn-1" })
+    })
+    fireEvent.click(screen.getByRole("button", { name: label }))
+    expect(screen.getByRole("button", { name: label })).toBeTruthy()
+    // A receipt for an earlier rendered row must not acknowledge a newer result.
+    rerender(<SideChatTray {...props} readReceipt={{ sessionId: "side-1", throughMessageId: 10 }} />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole("button", { name: label })).toBeTruthy()
+    transportMock.call.mockResolvedValue({ ...state, lastTerminalRead: true })
+    rerender(<SideChatTray {...props} readReceipt={{ sessionId: "side-1", throughMessageId: 20 }} />)
+    await waitFor(() => expect(screen.getByRole("button", { name: "Side task" })).toBeTruthy())
+  })
+
   test.each(["completed", "failed"])("does not restore durably read %s badges on remount", async (status) => {
     transportMock.call.mockResolvedValue({
       active: false, lastTerminalStatus: status, turnId: "read-turn", lastTerminalRead: true,
@@ -133,6 +155,10 @@ describe("SideChatTray", () => {
     fireEvent.click(screen.getByRole("button", {
       name: "Side task · common.statusValues.completed",
     }))
+    expect(screen.getByRole("button", { name: "Side task · common.statusValues.completed" })).toBeTruthy()
+    transportMock.call.mockResolvedValue({
+      active: false, lastTerminalStatus: "completed", turnId: "turn-1", lastTerminalRead: true,
+    })
     await act(async () => {
       transportMock.listeners.get(TRANSPORT_EVENT_RESYNC_REQUIRED)?.({ reason: "reconnected" })
     })
@@ -197,6 +223,7 @@ describe("SideChatTray", () => {
       ).toBeTruthy()
     })
 
+    transportMock.call.mockResolvedValue({ active: false, lastTerminalStatus: "completed" })
     await act(async () => {
       transportMock.listeners.get("chat:stream_end")?.({
         sessionId: "side-1",
@@ -208,8 +235,9 @@ describe("SideChatTray", () => {
     })
     fireEvent.click(completedButton)
     expect(onSelect).toHaveBeenCalledWith("side-1")
-    expect(screen.getByRole("button", { name: "Side task" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Side task · common.statusValues.completed" })).toBeTruthy()
 
+    transportMock.call.mockResolvedValue({ active: false, lastTerminalStatus: "failed" })
     await act(async () => {
       transportMock.listeners.get("chat:turn_started")?.({ sessionId: "side-1" })
       transportMock.listeners.get("chat:stream_end")?.({

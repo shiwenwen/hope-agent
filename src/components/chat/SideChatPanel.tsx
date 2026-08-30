@@ -36,7 +36,7 @@ import { generateClientId } from "./chatScrollKeys"
 import { useAskUserPending } from "./ask-user/useAskUserPending"
 import type { CommandResult } from "./slash-commands/types"
 import { useChatStream } from "./useChatStream"
-import { useEmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
+import { useEmbeddedChatReadReceipt, type EmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { useQuickChatSession } from "./useQuickChatSession"
 import type { SubagentRunsSnapshot } from "./subagent/useSubagentRuns"
@@ -58,6 +58,7 @@ interface SideChatPanelProps {
   seed?: SideChatSeed | null
   onClose: () => void
   onActivity?: () => void
+  onMessagesRead?: (receipt: EmbeddedChatReadReceipt) => void
   onCodexReauth?: () => void
   onDeleted: (sessionId: string) => void
   onPreviewFile: (target: PreviewTarget) => void
@@ -76,6 +77,7 @@ export default function SideChatPanel({
   seed,
   onClose,
   onActivity,
+  onMessagesRead,
   onCodexReauth,
   onDeleted,
   onPreviewFile,
@@ -112,6 +114,7 @@ export default function SideChatPanel({
     messageTailVisible,
     session.currentSessionId,
     session.messages,
+    onMessagesRead,
   )
 
   const stream = useChatStream({

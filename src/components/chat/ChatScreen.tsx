@@ -86,6 +86,7 @@ import {
   resolveSideChatSurfaceSessionId,
 } from "@/components/chat/sideChatSurface"
 import { SideChatTray } from "@/components/chat/SideChatTray"
+import type { EmbeddedChatReadReceipt } from "./hooks/useEmbeddedChatReadReceipt"
 import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { FileBrowserDirectoryReveal } from "@/components/chat/project/file-browser/FileBrowserView"
@@ -932,6 +933,7 @@ export default function ChatScreen({
   const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
   const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
   const [sideChatPanelOpen, setSideChatPanelOpen] = useState(false)
+  const [sideChatReadReceipt, setSideChatReadReceipt] = useState<EmbeddedChatReadReceipt | null>(null)
   const [sideChatCreatingSourceId, setSideChatCreatingSourceId] = useState<string | null>(null)
   const [sideChatSeed, setSideChatSeed] = useState<SideChatSeed | null>(null)
   const sideChatFileQuoteHandlerRef = useRef<((quote: PendingFileQuote) => void) | null>(null)
@@ -5415,6 +5417,7 @@ export default function ChatScreen({
                               chats={visibleSideChats}
                               activeId={visibleActiveSideChatId}
                               panelOpen={visibleSideChatPanelOpen}
+                              readReceipt={sideChatReadReceipt}
                               creating={sideChatCreating}
                               onCreate={() => void createSideChat()}
                               onSelect={(sessionId) => void revealSideChat(sessionId)}
@@ -5603,6 +5606,7 @@ export default function ChatScreen({
                   key={visibleActiveSideChatId}
                   sessionId={visibleActiveSideChatId}
                   isViewVisible={isViewVisible}
+                  onMessagesRead={setSideChatReadReceipt}
                   title={visibleActiveSideChat?.title}
                   workingDir={activeSideChatWorkingDir}
                   seed={sideChatSeed}

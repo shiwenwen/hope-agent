@@ -391,13 +391,14 @@ describe("SideChatPanel slash actions", () => {
       onClose: vi.fn(),
       onDeleted: vi.fn(),
       onPreviewFile: vi.fn(),
+      onMessagesRead: vi.fn(),
     }
     const { rerender } = render(<SideChatPanel {...props} isViewVisible={false} />)
 
-    expect(readReceiptMock).toHaveBeenLastCalledWith(false, true, "side-1", sessionShape.messages)
+    expect(readReceiptMock).toHaveBeenLastCalledWith(false, true, "side-1", sessionShape.messages, props.onMessagesRead)
 
     rerender(<SideChatPanel {...props} isViewVisible />)
-    expect(readReceiptMock).toHaveBeenLastCalledWith(true, true, "side-1", sessionShape.messages)
+    expect(readReceiptMock).toHaveBeenLastCalledWith(true, true, "side-1", sessionShape.messages, props.onMessagesRead)
   })
 
   test("routes shared file quotes into the side composer", () => {
