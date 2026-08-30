@@ -618,6 +618,8 @@ Fork **不**复制 active Goal、Loop schedule、Workflow run、Task progress、
 
 同一事务还复制源会话的条件技能与延迟工具激活账本，保留激活顺序，使已发现的能力在侧聊中仍可用；后续激活独立演进。激活记录不是审批授权，工具仍须通过侧会话当前的可见性与权限守卫。
 
+默认标题、自动标题优化和标题来源修复只读取侧聊新产生的消息，查询取样上限前即排除 `is_side_snapshot=1` 的历史，避免将父会话主题或自主任务触发元数据当作侧聊自己的标题依据。
+
 ### 传输与界面
 
 Tauri 的 `create_side_chat_cmd` / `list_side_chats_cmd` 与 HTTP 的 `POST|GET /api/sessions/{id}/side-chats` 完全同形。桌面 / Bundled Web 在主 composer 上方渲染父会话范围内的入口条，侧聊在右侧浮层中复用 `MessageList`、`ChatInput`、`ApprovalDialog`、`useChatStream` 与耐久 turn 语义。主对话与侧聊各自拥有独立的流状态，可以同时生成。
