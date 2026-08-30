@@ -319,6 +319,8 @@ interface ChatInputProps {
   /** Expose the durable Goal and Plan composer modes. Disable on embedded
    *  surfaces that do not own the corresponding session-scoped controllers. */
   enableGoalAndPlanModes?: boolean
+  /** Disable on embedded surfaces without workflow status/approval controls. */
+  enableWorkflowMode?: boolean
   // Tool permission mode
   permissionMode: SessionMode
   onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
@@ -554,6 +556,7 @@ export default function ChatInput({
   onCommandAction,
   enableSideChatCommand = false,
   enableGoalAndPlanModes = true,
+  enableWorkflowMode = true,
   permissionMode,
   onPermissionModeChange,
   sandboxMode,
@@ -755,8 +758,10 @@ export default function ChatInput({
   }, [activeGoal?.id, activeGoal?.objective, activeGoal?.completionCriteria])
 
   useEffect(() => {
-    if (!currentSessionId || incognitoEnabled) {
-      setWorkflowMode(incognitoEnabled ? "off" : normalizeWorkflowMode(draftWorkflowMode))
+    if (!currentSessionId || incognitoEnabled || !enableWorkflowMode) {
+      setWorkflowMode(
+        incognitoEnabled || !enableWorkflowMode ? "off" : normalizeWorkflowMode(draftWorkflowMode),
+      )
       setWorkflowModeLoading(false)
       setWorkflowModeSaving(null)
       return
@@ -779,9 +784,10 @@ export default function ChatInput({
     return () => {
       cancelled = true
     }
-  }, [currentSessionId, draftWorkflowMode, incognitoEnabled])
+  }, [currentSessionId, draftWorkflowMode, enableWorkflowMode, incognitoEnabled])
 
   useEffect(() => {
+    if (!enableWorkflowMode) return
     const onWorkflowModeChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: string | null; mode?: unknown }>).detail
       if (!detail || detail.sessionId !== currentSessionId) return
@@ -791,7 +797,7 @@ export default function ChatInput({
     }
     window.addEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
     return () => window.removeEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
-  }, [currentSessionId])
+  }, [currentSessionId, enableWorkflowMode])
 
   /**
    * Caret anchor captured at `voice.start()` time. While recording, the
@@ -1590,6 +1596,7 @@ export default function ChatInput({
 
   const updateWorkflowMode = useCallback(
     async (nextMode: WorkflowMode) => {
+      if (!enableWorkflowMode) return
       if (incognitoEnabled) {
         toast.error(t("chat.workflowMode.incognito", "无痕会话不启用工作流模式"))
         return
@@ -1636,6 +1643,7 @@ export default function ChatInput({
     },
     [
       currentSessionId,
+      enableWorkflowMode,
       incognitoEnabled,
       onDraftWorkflowModeChange,
       t,
@@ -1784,7 +1792,7 @@ export default function ChatInput({
     !!autonomyActivity &&
     autonomyActivity.state !== "idle" &&
     autonomyActivity.state !== "terminal"
-  const workflowModeStatusOpen = workflowModeActive && !incognitoEnabled
+  const workflowModeStatusOpen = enableWorkflowMode && workflowModeActive && !incognitoEnabled
   const workflowProgressLineIsFirstContent = activeGoalStripIsFirstContent && !activeGoalStatusOpen
   const standaloneActivityStripIsFirstContent =
     workflowProgressLineIsFirstContent && !effectiveShowWorkflowProgressLine
@@ -1958,18 +1966,20 @@ export default function ChatInput({
               <span className="truncate">{loopToggleLabel}</span>
             </button>
           )}
-          <div className="rounded-md border border-border/50 bg-background/35 p-1">
-            <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-              {workflowModeSaving ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-              ) : (
-                <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span className="truncate">{workflowToggleLabel}</span>
-              <span className="ml-auto truncate">{workflowModeLabel(t, workflowMode)}</span>
+          {enableWorkflowMode && (
+            <div className="rounded-md border border-border/50 bg-background/35 p-1">
+              <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                {workflowModeSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">{workflowToggleLabel}</span>
+                <span className="ml-auto truncate">{workflowModeLabel(t, workflowMode)}</span>
+              </div>
+              {renderWorkflowModeMenuItems(() => setShowOverflowMenu(false))}
             </div>
-            {renderWorkflowModeMenuItems(() => setShowOverflowMenu(false))}
-          </div>
+          )}
           {enableGoalAndPlanModes && (
             <button
               type="button"
@@ -3225,38 +3235,40 @@ export default function ChatInput({
                       </IconTip>
                     )}
 
-                    <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
-                      <IconTip label={workflowMenuLabel}>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={workflowMenuLabel}
-                            disabled={workflowMenuDisabled}
-                            className={cn(
-                              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
-                              workflowButtonTone,
-                            )}
-                          >
-                            {workflowModeSaving ? (
-                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                            ) : (
-                              <WorkflowModeIcon className="h-4 w-4 shrink-0" />
-                            )}
-                            <span>{workflowButtonLabel}</span>
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                          </button>
-                        </DropdownMenuTrigger>
-                      </IconTip>
-                      <DropdownMenuContent
-                        variant="floating"
-                        className="min-w-[280px]"
-                        side="top"
-                        align="start"
-                        sideOffset={8}
-                      >
-                        {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {enableWorkflowMode && (
+                      <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                        <IconTip label={workflowMenuLabel}>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={workflowMenuLabel}
+                              disabled={workflowMenuDisabled}
+                              className={cn(
+                                "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
+                                workflowButtonTone,
+                              )}
+                            >
+                              {workflowModeSaving ? (
+                                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                              ) : (
+                                <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                              )}
+                              <span>{workflowButtonLabel}</span>
+                              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                            </button>
+                          </DropdownMenuTrigger>
+                        </IconTip>
+                        <DropdownMenuContent
+                          variant="floating"
+                          className="min-w-[280px]"
+                          side="top"
+                          align="start"
+                          sideOffset={8}
+                        >
+                          {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
 
                     {enableGoalAndPlanModes && (
                       <IconTip label={planToggleTip}>

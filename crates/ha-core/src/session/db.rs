@@ -3431,7 +3431,7 @@ impl SessionDB {
                 permission_mode,
                 sandbox_mode,
                 execution_mode,
-                workflow_mode,
+                if mode == ForkMode::SideChat { "off" } else { workflow_mode.as_str() },
                 working_dir,
                 target_kind,
                 source_session_id,
@@ -5612,20 +5612,25 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let incognito = conn
+        let session_scope = conn
             .query_row(
-                "SELECT incognito FROM sessions WHERE id = ?1",
+                "SELECT incognito, kind FROM sessions WHERE id = ?1",
                 params![session_id],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        let Some(incognito) = incognito else {
+        let Some((incognito, kind)) = session_scope else {
             return Err(anyhow::anyhow!("Session not found: {}", session_id));
         };
         if mode.enabled() && incognito != 0 {
             return Err(anyhow::anyhow!(
                 "Cannot enable workflow mode on an incognito session"
             ));
+        }
+        if mode.enabled() && kind == SessionKind::Side.as_str() {
+            anyhow::bail!(
+                "Cannot enable workflow mode on a side chat without a workflow control surface"
+            );
         }
         let affected = conn.execute(
             "UPDATE sessions SET workflow_mode = ?1, updated_at = ?2 WHERE id = ?3",
@@ -5637,7 +5642,8 @@ impl SessionDB {
         Ok(())
     }
 
-    /// Narrow read of just `sessions.workflow_mode`.
+    /// Narrow read of the effective mode. Side chats cannot host workflow
+    /// controls, including legacy rows that persisted an enabled mode.
     pub fn get_session_workflow_mode(
         &self,
         session_id: &str,
@@ -5646,7 +5652,10 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare("SELECT workflow_mode FROM sessions WHERE id = ?1")?;
+        let mut stmt = conn.prepare(
+            "SELECT CASE WHEN kind = 'side' THEN 'off' ELSE workflow_mode END
+             FROM sessions WHERE id = ?1",
+        )?;
         let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
             Ok(s) => Some(s),
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
@@ -9827,6 +9836,43 @@ mod tests {
         assert_eq!(empty_side.kind, SessionKind::Side);
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn side_chat_workflow_mode_stays_off_including_legacy_rows() {
+        use crate::workflow_mode::WorkflowMode;
+        let dir = tempfile::tempdir().expect("temporary database directory");
+        let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+            .expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let source = db.create_session("ha-main").expect("source session");
+        db.update_session_workflow_mode(&source.id, WorkflowMode::Ultracode)
+            .expect("enable source workflow mode");
+        let side = db.create_side_chat(&source.id).expect("create side chat");
+        assert_eq!(side.workflow_mode, WorkflowMode::Off);
+        assert!(db
+            .update_session_workflow_mode(&side.id, WorkflowMode::On)
+            .expect_err("side workflow mode must stay off")
+            .to_string()
+            .contains("side chat"));
+        db.conn
+            .lock()
+            .expect("lock")
+            .execute(
+                "UPDATE sessions SET workflow_mode = 'on' WHERE id = ?1",
+                params![side.id],
+            )
+            .expect("simulate legacy enabled side chat");
+        assert_eq!(
+            db.get_session_workflow_mode(&side.id).unwrap(),
+            Some(WorkflowMode::Off)
+        );
+        assert_eq!(
+            db.get_session_workflow_mode(&source.id).unwrap(),
+            Some(WorkflowMode::Ultracode)
+        );
+        db.update_session_workflow_mode(&side.id, WorkflowMode::Off)
+            .expect("allow clearing legacy mode");
     }
 
     #[test]

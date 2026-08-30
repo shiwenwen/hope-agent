@@ -2012,6 +2012,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workflow_execution_rejects_legacy_enabled_side_chat() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("channel table");
+        let source = db.create_session("ha-main").expect("source session");
+        let side = db.create_side_chat(&source.id).expect("side session");
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET workflow_mode = 'on' WHERE id = ?1",
+                rusqlite::params![side.id],
+            )?;
+            Ok(())
+        })
+        .expect("simulate legacy enabled side chat");
+        let ctx = ToolExecContext {
+            session_id: Some(side.id.clone()),
+            session_db: Some(SessionDbHandle(db.clone())),
+            ..ToolExecContext::default()
+        };
+        let error = execute_tool_with_context(
+            crate::tools::TOOL_WORKFLOW,
+            &json!({ "action": "create" }),
+            &ctx,
+        )
+        .await
+        .expect_err("side workflow must be rejected before dispatch");
+        assert!(error.to_string().contains("Workflow Mode is off"));
+        assert!(db
+            .list_workflow_runs_for_session(&side.id, 10)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
     async fn workflow_execution_uses_bound_session_db_and_mode_gate() {
         let dir = tempfile::tempdir().expect("temp session db dir");
         let db = Arc::new(

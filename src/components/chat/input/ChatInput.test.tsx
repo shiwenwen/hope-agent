@@ -1074,6 +1074,19 @@ describe("ChatInput", () => {
     expect(screen.getByText("chat.workflowMode.activeOnDetail")).toBeTruthy()
   })
 
+  test("disables workflow controls and ignores mode events on embedded surfaces", () => {
+    renderChatInput({ currentSessionId: "side", enableWorkflowMode: false, draftWorkflowMode: "on" })
+    expect(transportMock.call).not.toHaveBeenCalledWith("get_workflow_mode", { sessionId: "side" })
+    expect(screen.queryByRole("button", { name: "工作流模式" })).toBeNull()
+    act(() => {
+      window.dispatchEvent(new CustomEvent("hope-agent:workflow-mode-changed", {
+        detail: { sessionId: "side", mode: "on" },
+      }))
+    })
+    expect(screen.queryByText("chat.workflowMode.active")).toBeNull()
+    expect(transportMock.call).not.toHaveBeenCalledWith("set_workflow_mode", expect.anything())
+  })
+
   test("submits the current draft through goal mode instead of normal send", async () => {
     const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
     const onInputChange = vi.fn()

@@ -22,6 +22,7 @@ const componentCapture = vi.hoisted(() => ({
   autonomyPaused: undefined as boolean | undefined,
   workingDir: undefined as string | null | undefined,
   enableGoalAndPlanModes: undefined as boolean | undefined,
+  enableWorkflowMode: undefined as boolean | undefined,
   pendingQuestionGroup: undefined as unknown,
   onQuestionSubmitted: undefined as (() => unknown) | undefined,
   onOpenDiff: undefined as ((metadata: unknown) => unknown) | undefined,
@@ -52,6 +53,7 @@ vi.mock("@/components/chat/ChatInput", () => ({
     autonomyPaused?: boolean
     workingDir?: string | null
     enableGoalAndPlanModes?: boolean
+    enableWorkflowMode?: boolean
     pendingQuotes?: unknown
     onRemoveQuote?: (index: number) => unknown
   }) => {
@@ -60,6 +62,7 @@ vi.mock("@/components/chat/ChatInput", () => ({
     componentCapture.autonomyPaused = props.autonomyPaused
     componentCapture.workingDir = props.workingDir
     componentCapture.enableGoalAndPlanModes = props.enableGoalAndPlanModes
+    componentCapture.enableWorkflowMode = props.enableWorkflowMode
     componentCapture.pendingQuotes = props.pendingQuotes
     componentCapture.onRemoveQuote = props.onRemoveQuote
     return <div data-testid="chat-input" />
@@ -202,6 +205,7 @@ afterEach(() => {
   componentCapture.autonomyPaused = undefined
   componentCapture.workingDir = undefined
   componentCapture.enableGoalAndPlanModes = undefined
+  componentCapture.enableWorkflowMode = undefined
   componentCapture.pendingQuestionGroup = undefined
   componentCapture.onQuestionSubmitted = undefined
   componentCapture.onOpenDiff = undefined
@@ -340,6 +344,7 @@ describe("SideChatPanel slash actions", () => {
     expect(componentCapture.autonomyPaused).toBe(true)
     expect(componentCapture.workingDir).toBe("/project/inherited-root")
     expect(componentCapture.enableGoalAndPlanModes).toBe(false)
+    expect(componentCapture.enableWorkflowMode).toBe(false)
     expect(componentCapture.streamOptions?.mentionWorkingDir).toBe("/project/inherited-root")
     expect(componentCapture.streamOptions?.parentInjectionDeltasViaChatStream).toBe(true)
 
