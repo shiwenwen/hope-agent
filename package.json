@@ -152,6 +152,7 @@
     "typescript-eslint": "^8.56.1",
     "unplugin-icons": "^23.0.1",
     "vite": "^8.0.10",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "yaml": "2.9.0"
   }
 }

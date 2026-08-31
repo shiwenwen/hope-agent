@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { getTransport } from "@/lib/transport-provider"
+import { prepareLocalModelJob } from "@/lib/prepareLocalModelJob"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import {
@@ -58,7 +59,7 @@ export default function MissingModelDialog() {
    * 2. if it succeeds → fire the optional success toast and run any
    *    follow-up; if it throws → show the error toast and keep the
    *    dialog open so the user can pick a different option
-   * 3. close the dialog only on success
+   * 3. close the dialog only on success; false means prerequisites need user action
    *
    * Caller-supplied `errorKey` controls which i18n message wraps `{{error}}`
    * — different actions need different copy ("install failed" vs "switch
@@ -66,7 +67,7 @@ export default function MissingModelDialog() {
    */
   const runAction = useCallback(
     async (
-      action: () => Promise<void>,
+      action: () => Promise<void | false>,
       opts: {
         errorKey: string
         successMessage?: string
@@ -76,7 +77,7 @@ export default function MissingModelDialog() {
       },
     ) => {
       try {
-        await action()
+        if (await action() === false) return
         if (opts.successMessage) toast.success(opts.successMessage)
         opts.afterSuccess?.()
         setAlert(null)
@@ -93,6 +94,9 @@ export default function MissingModelDialog() {
     if (!alert) return
     void runAction(
       async () => {
+        if (!await prepareLocalModelJob(alert.kind === "chat" ? "chat_model" : "embedding_model")) {
+          return false
+        }
         if (alert.kind === "chat") {
           // Use the full catalog rather than `local_llm_recommend_model`,
           // which filters by current hardware budget. A user who previously
