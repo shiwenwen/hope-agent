@@ -838,9 +838,21 @@ export function parseSessionMessages(
         | undefined
       const attachments = parseUserAttachmentsMeta(msg.attachmentsMeta)
       let typedMentions: ComposerMentionBinding[] | undefined
+      let sessionMessageSource: Message["sessionMessageSource"]
       if (msg.attachmentsMeta) {
         try {
           const meta = JSON.parse(msg.attachmentsMeta)
+          const sessionSource = meta?.session_message
+          if (typeof sessionSource?.sessionId === "string" && sessionSource.sessionId.trim()) {
+            sessionMessageSource = {
+              sessionId: sessionSource.sessionId,
+              title: typeof sessionSource.title === "string" ? sessionSource.title : undefined,
+              sideParentSessionId:
+                typeof sessionSource.sideParentSessionId === "string"
+                  ? sessionSource.sideParentSessionId
+                  : undefined,
+            }
+          }
           typedMentions = parseTypedMentionReceipt(meta, msg.content)
           if (meta?.subagent_result) {
             isSubagentResult = true
@@ -911,6 +923,7 @@ export function parseSessionMessages(
         timestamp: msg.timestamp,
         dbId: msg.id,
         fromAgentId: isAgentMessage ? parentAgentId : undefined,
+        ...(sessionMessageSource ? { sessionMessageSource } : {}),
         isSubagentResult,
         subagentResultAgentId,
         isCronTrigger,

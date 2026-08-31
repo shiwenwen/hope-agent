@@ -109,7 +109,7 @@ pub fn build_chat_user_attachments_meta(
     }
 }
 
-fn merge_user_message_meta(base: Value, user_attachments: Option<String>) -> String {
+pub(super) fn merge_user_message_meta(base: Value, user_attachments: Option<String>) -> String {
     let Some(raw) = user_attachments else {
         return base.to_string();
     };

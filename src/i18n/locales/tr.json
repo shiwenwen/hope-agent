@@ -368,6 +368,12 @@
     "feishuDomainLark": "Lark (Uluslararası)"
   },
   "chat": {
+    "crossSession": {
+      "sentTo": "“{{title}}” sohbetine mesaj gönderildi",
+      "receivedFrom": "“{{title}}” sohbetinden gönderildi",
+      "untitled": "Başlıksız sohbet",
+      "details": "Mesaj ayrıntılarını görüntüle"
+    },
     "addWorkingDirectory": "Çalışma dizini ekle",
     "askAnything": "Fikrini söyle, @ dosya/not/beceri bulur, # hızlı girdiler, / hızlı komutlar...",
     "goalCompletion": {

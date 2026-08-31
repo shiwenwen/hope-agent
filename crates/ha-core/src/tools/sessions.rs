@@ -1035,7 +1035,7 @@ async fn start_proactive_turn(
                         &user_message,
                         expected_global_stop_epoch,
                     )
-                    .map(|_| ())
+                    .map(|(message_id, _)| message_id)
             },
         );
         if outcome.is_err() {
@@ -1073,9 +1073,11 @@ async fn start_proactive_turn(
         anyhow::Ok((outcome, attachments, generated_title))
     })
     .await?;
-    match persisted {
-        crate::chat_engine::active_turn::PersistenceTargetOutcome::Committed(()) => {}
-        crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(()) => {
+    let message_id = match persisted {
+        crate::chat_engine::active_turn::PersistenceTargetOutcome::Committed(message_id) => {
+            message_id
+        }
+        crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(_) => {
             let db_for_finish = db.clone();
             let turn_for_finish = turn_id.clone();
             crate::blocking::run_blocking(move || {
@@ -1107,7 +1109,16 @@ async fn start_proactive_turn(
         crate::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit => {
             anyhow::bail!("Cross-session turn was cancelled before persistence");
         }
-    }
+    };
+
+    ctx.emit_metadata(serde_json::json!({
+        "kind": "session_message",
+        "sessionId": session.id,
+        "sessionTitle": generated_title.as_ref().or(session.title.as_ref()),
+        "messageId": message_id,
+        "turnId": turn_id,
+    }))
+    .await;
 
     if publish_created_session {
         emit_session_created(&session, session.project_id.as_deref());

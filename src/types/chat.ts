@@ -215,6 +215,22 @@ export interface WebFetchSourceMetadata {
   warnings: string[]
 }
 
+/** Durable receipt emitted only after a cross-session message is admitted. */
+export interface SessionMessageMetadata {
+  kind: "session_message"
+  sessionId: string
+  sessionTitle?: string | null
+  messageId: number
+  turnId: string
+}
+
+/** Backend-owned provenance, separate from the message's text. */
+export interface SessionMessageSource {
+  sessionId: string
+  title?: string
+  sideParentSessionId?: string
+}
+
 export type ToolMetadata =
   | FileChangeMetadata
   | FileChangesMetadata
@@ -222,6 +238,7 @@ export type ToolMetadata =
   | BrowserActivityMetadata
   | ScheduleEntityMetadata
   | WebFetchSourceMetadata
+  | SessionMessageMetadata
 
 export interface ToolCall {
   callId: string
@@ -353,6 +370,8 @@ export interface Message {
   contextCompactedEvent?: ContextCompactedEvent
   /** If set, this user message was sent by a parent agent (not a human) */
   fromAgentId?: string
+  /** This user-shaped turn was sent by another conversation, not the user. */
+  sessionMessageSource?: SessionMessageSource
   /** Attachments sent by the user with this message. */
   attachments?: MessageAttachment[]
   /** If true, this user message is a sub-agent result injected by the backend */

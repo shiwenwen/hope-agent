@@ -131,14 +131,20 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
 /**
  * 便宜的存在性检查：本会话有没有产生过文件活动。供 ChatScreen 算「是否自动展开
  * 工作台」用——短路即返回，不做整段聚合，避免在流式 render hot-path 上每帧全量扫描。
- * 判定口径必须与 {@link aggregateSessionFileChanges} 对齐：结构化 metadata **或**
+ * 判定口径必须与 {@link aggregateSessionFileChanges} 对齐：结构化文件 metadata **或**
  * 带本地路径的媒体产物(send_attachment / image_generate / exec)都算文件活动，
  * 否则只产媒体的会话面板永不自动展开。
  */
 export function messagesHaveFileActivity(messages: Message[]): boolean {
   for (const message of messages) {
     for (const tool of iterateMessageToolCalls(message)) {
-      if (tool.metadata) return true
+      const meta = tool.metadata
+      if (
+        meta?.kind === "file_change" ||
+        meta?.kind === "file_read" ||
+        (meta?.kind === "file_changes" && meta.changes.length > 0)
+      )
+        return true
       if (tool.mediaItems?.some((item) => item.localPath)) return true
     }
   }

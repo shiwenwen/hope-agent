@@ -368,6 +368,12 @@
     "feishuDomainLark": "Lark (Antarabangsa)"
   },
   "chat": {
+    "crossSession": {
+      "sentTo": "Mesej dihantar ke “{{title}}”",
+      "receivedFrom": "Dihantar daripada perbualan “{{title}}”",
+      "untitled": "Perbualan tanpa tajuk",
+      "details": "Lihat butiran mesej"
+    },
     "addWorkingDirectory": "Tambah direktori kerja",
     "askAnything": "Beritahu idea anda, @ cari fail/nota/kemahiran, # input pantas, / arahan pantas...",
     "goalCompletion": {

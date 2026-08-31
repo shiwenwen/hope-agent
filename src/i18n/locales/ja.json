@@ -368,6 +368,12 @@
     "feishuDomainLark": "Lark（国際版）"
   },
   "chat": {
+    "crossSession": {
+      "sentTo": "「{{title}}」にメッセージを送信しました",
+      "receivedFrom": "別の会話「{{title}}」から送信",
+      "untitled": "無題の会話",
+      "details": "メッセージの詳細を表示"
+    },
     "addWorkingDirectory": "作業ディレクトリを追加",
     "askAnything": "アイデアを教えてください。@ でファイル/ノート/スキル、# でクイック入力、/ でクイックコマンド...",
     "goalCompletion": {

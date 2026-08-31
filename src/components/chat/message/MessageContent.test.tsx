@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 import type { ReactNode } from "react"
 import type { ContentBlock, Message, ToolCall } from "@/types/chat"
 import { AssistantContentBlocks } from "./MessageContent"
+import { subscribeChatFocus } from "../chatFocus"
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -29,8 +30,8 @@ vi.mock("./ThinkingBlock", () => ({
 }))
 
 vi.mock("./ToolCallBlock", () => ({
-  default: ({ tool }: { tool: ToolCall }) => (
-    <div data-testid="tool-block">{`${tool.name}:${tool.callId}`}</div>
+  default: ({ tool, labelOverride }: { tool: ToolCall; labelOverride?: string }) => (
+    <div data-testid="tool-block" data-label={labelOverride}>{`${tool.name}:${tool.callId}`}</div>
   ),
 }))
 
@@ -105,6 +106,56 @@ function renderContentBlocks(
 }
 
 describe("AssistantContentBlocks processed grouping", () => {
+  test.each(["bubble", "timeline"] as const)(
+    "keeps cross-session receipts visible and navigates to the delivered message in %s mode",
+    (displayMode) => {
+      const onFocus = vi.fn()
+      const unsubscribe = subscribeChatFocus(onFocus)
+      try {
+        const sent = tool("sent", "sessions_send", "The target agent is running")
+        sent.metadata = {
+          kind: "session_message",
+          sessionId: "destination",
+          sessionTitle: "Destination conversation",
+          messageId: 42,
+          turnId: "turn-1",
+        }
+        renderContentBlocks(
+          [
+            { type: "tool_call", tool: tool("before") },
+            { type: "tool_call", tool: sent },
+            { type: "tool_call", tool: tool("after") },
+            { type: "text", content: "Done" },
+          ],
+          { displayMode },
+        )
+        fireEvent.click(screen.getByRole("button", { name: "chat.crossSession.sentTo" }))
+        expect(onFocus).toHaveBeenCalledWith({ sessionId: "destination", targetMessageId: 42 })
+        expect(screen.queryByRole("button", { name: /已处理/ })).toBeNull()
+        expect(screen.queryByTestId("tool-group")).toBeNull()
+      } finally {
+        unsubscribe()
+      }
+    },
+  )
+
+  test.each([undefined, "Refusing cross-session messaging", "Tool error: target busy"])(
+    "does not claim delivery without a backend receipt (%s)",
+    (result) => {
+      const pending = tool("send", "sessions_send")
+      pending.arguments = JSON.stringify({ session_id: "destination", message: "hello" })
+      pending.result = result
+      renderContentBlocks([{ type: "tool_call", tool: pending }])
+      expect(screen.queryByRole("button", { name: "chat.crossSession.sentTo" })).toBeNull()
+      expect(screen.getByTestId("tool-block").textContent).toBe("sessions_send:send")
+      if (result === "Refusing cross-session messaging") {
+        expect(screen.getByTestId("tool-block").getAttribute("data-label")).toBe(
+          "tools.sessions_send",
+        )
+      }
+    },
+  )
+
   test("does not wrap a single thinking block", () => {
     renderContentBlocks([{ type: "thinking", content: "only thinking" }])
 

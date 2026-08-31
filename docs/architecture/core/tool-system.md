@@ -316,6 +316,10 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 
 查询工具为 internal，`sessions_create` / `sessions_send` 是可选审批的跨会话变更工具；查询工具只读且 concurrent_safe，两种写工具串行执行。跨会话写入从 `sessions.db` 读取来源的 live incognito 状态并 fail closed；目标资格统一走 `SessionMeta::is_regular_chat`，创建入口只生成普通会话，不能借此创建 Cron / IM / Subagent / Knowledge / Design 专属会话。两种写工具均先原子落 user message + `chat_turns` 再启动 `ChatSource::SessionTool`，`wait` 仅控制工具调用方是否等待，绝不改变目标 Agent 是否执行。
 
+**跨对话消息的双向跳转**：消息准入事务从真实来源会话读取 ID、标题快照和侧聊归属，写入接收消息的 `attachments_meta.session_message`，并保留已有附件。接收端在消息上方显示来源对话入口；来源为侧聊时先打开其主对话，再恢复侧聊面板。成功准入后，工具经 `ToolExecContext.metadata_sink` 发布 `kind=session_message` 回执，包含目标会话、目标消息 ID 和轮次 ID；发送端独立显示“已将消息发送到「对话名」”，点击定位到目标消息，不并入通用工具组或“已处理”折叠区。回执表示消息已提交，不代表目标 Agent 已执行成功；原始调用、回复及失败信息仍可展开查看。两端复用现有会话导航和缺失目标提示，刷新后从持久化消息恢复；旧消息缺少来源或回执时不从正文猜测关联。跨对话收到的消息不作为用户亲自输入的编辑重发、快捷提示词或输入历史候选。
+
+快捷聊天等桌面独立窗口通过 Tauri 定向事件把完整导航目标转交主窗口并聚焦；主窗口和 HTTP 页面仍使用本地导航。消息回执不算文件活动，不会触发空工作台自动展开。
+
 | 工具 | 说明 |
 |------|------|
 | `agents_list` | 列出全部可用 Agent 及描述/能力，用于选 target agent。 |

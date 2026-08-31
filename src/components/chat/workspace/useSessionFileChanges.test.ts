@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { aggregateSessionFileChanges } from "./useSessionFileChanges"
+import { aggregateSessionFileChanges, messagesHaveFileActivity } from "./useSessionFileChanges"
 import type { ContentBlock, FileChangeMetadata, Message, ToolMetadata } from "@/types/chat"
 
 function change(
@@ -28,6 +28,63 @@ function toolMsg(...metas: ToolMetadata[]): Message {
   }))
   return { role: "assistant", content: "", contentBlocks: blocks }
 }
+
+describe("messagesHaveFileActivity", () => {
+  it("does not open an empty workspace for a cross-session message receipt", () => {
+    const receipt: ToolMetadata = {
+      kind: "session_message",
+      sessionId: "target",
+      messageId: 42,
+      turnId: "turn-1",
+    }
+    const message = toolMsg(receipt)
+    expect(aggregateSessionFileChanges([message])).toEqual([])
+    expect(messagesHaveFileActivity([message])).toBe(false)
+    expect(
+      messagesHaveFileActivity([
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            { callId: "send", name: "sessions_send", arguments: "{}", metadata: receipt },
+          ],
+        },
+      ]),
+    ).toBe(false)
+  })
+
+  it("still recognizes file reads, changes and local media beside a receipt", () => {
+    expect(messagesHaveFileActivity([toolMsg(change("a.ts", "edit"))])).toBe(true)
+    expect(messagesHaveFileActivity([toolMsg({ kind: "file_read", path: "a.ts", lines: 2 })])).toBe(
+      true,
+    )
+    expect(
+      messagesHaveFileActivity([
+        toolMsg({ kind: "file_changes", changes: [change("a.ts", "create")] }),
+      ]),
+    ).toBe(true)
+    expect(messagesHaveFileActivity([toolMsg({ kind: "file_changes", changes: [] })])).toBe(false)
+    const message = toolMsg({
+      kind: "session_message",
+      sessionId: "target",
+      messageId: 42,
+      turnId: "turn-1",
+    })
+    const block = message.contentBlocks![0]
+    if (block.type !== "tool_call") throw new Error("Expected a tool call")
+    block.tool.mediaItems = [
+      {
+        kind: "image",
+        name: "result.png",
+        mimeType: "image/png",
+        sizeBytes: 12,
+        url: "https://example.com/result.png",
+        localPath: "/tmp/result.png",
+      },
+    ]
+    expect(messagesHaveFileActivity([message])).toBe(true)
+  })
+})
 
 describe("aggregateSessionFileChanges", () => {
   it("returns a modified entry carrying the diff payload", () => {
