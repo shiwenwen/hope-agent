@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Progress } from "@/components/ui/progress"
 import { getTransport } from "@/lib/transport-provider"
+import { prepareLocalModelJob } from "@/lib/prepareLocalModelJob"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -164,6 +165,8 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
             await getTransport().call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId }),
           )
         } else if (action === "retry") {
+          const job = jobs.find((item) => item.jobId === jobId)
+          if (!job || !await prepareLocalModelJob(job.kind)) return
           const nextJob = await getTransport().call<LocalModelJobSnapshot>("local_model_job_retry", {
             jobId,
           })
@@ -195,7 +198,7 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
         setActioning((prev) => ({ ...prev, [jobId]: false }))
       }
     },
-    [t, upsertJob],
+    [jobs, t, upsertJob],
   )
 
   return (

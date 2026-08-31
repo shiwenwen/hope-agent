@@ -1,9 +1,8 @@
 //! Local LLM helper — hardware detection, Ollama lifecycle, and model
 //! installation glue used by the model-config "local LLM assistant" card.
 //!
-//! Outbound HTTPS to `ollama.com/install.sh` goes through `security::ssrf`
-//! + `provider::proxy::apply_proxy_for_url` like every other public-internet
-//! hop in the codebase. Loopback Ollama traffic (`127.0.0.1:11434`) is
+//! Unverified upstream install scripts are never executed. Loopback Ollama
+//! traffic (`127.0.0.1:11434`) is
 //! recognized by `should_bypass_proxy` and bypasses the user's HTTP proxy
 //! automatically — same convention as `provider/proxy.rs` and the Docker
 //! integration.
@@ -11,8 +10,6 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-#[cfg(unix)]
-use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -20,8 +17,6 @@ use tokio_util::sync::CancellationToken;
 use ha_core::provider::{
     upsert_known_local_provider_model, ModelConfig, ProviderConfig, ThinkingStyle,
 };
-#[cfg(unix)]
-use ha_core::security::ssrf::{check_url, SsrfPolicy};
 
 pub mod types;
 pub use types::*;
@@ -31,19 +26,11 @@ pub mod auto_maintainer;
 pub mod jobs;
 
 pub use ha_core::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
-#[cfg(unix)]
-const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
 const OLLAMA_PROVIDER_NAME: &str = "Ollama (local)";
 const RECOMMENDATION_BUDGET_PERCENT: u64 = 60;
 const START_OLLAMA_TIMEOUT_SECS: u64 = 30;
 const OLLAMA_BINARY_CHECK_TIMEOUT_SECS: u64 = 3;
-#[cfg(unix)]
-const INSTALL_PHASE_DOWNLOAD: &str = "download-installer";
-#[cfg(unix)]
-const INSTALL_PHASE_AUTHORIZE: &str = "authorize";
-#[cfg(unix)]
-const INSTALL_PHASE_INSTALL: &str = "install-ollama";
 /// Hard ceiling on a single NDJSON line during `/api/pull`. Ollama's frames
 /// stay well under 1 KiB; this bound only fires on a malicious or broken
 /// peer that streams without newlines.
@@ -168,7 +155,7 @@ pub async fn detect_ollama() -> OllamaStatus {
     OllamaStatus {
         phase,
         base_url: OLLAMA_BASE_URL.to_string(),
-        install_script_supported: cfg!(unix),
+        install_script_supported: false,
     }
 }
 
@@ -393,370 +380,28 @@ fn spawn_ollama_serve(binary: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Run the upstream Ollama install script with OS-level administrator
-/// authorization and stream progress to `on_progress`. Unix only — Windows
-/// users are routed to the download page in the UI, see
-/// [`OllamaStatus::install_script_supported`].
-#[cfg(unix)]
+/// Legacy entry point retained for existing job callers. Unverified upstream
+/// scripts must never be downloaded or executed, including by resumed jobs.
+/// Users install Ollama from its official download page until an immutable,
+/// fully verified installer (including second-stage payloads) is available.
 pub async fn install_ollama_via_script_cancellable<F>(
-    on_progress: F,
+    _on_progress: F,
     cancel_token: CancellationToken,
 ) -> Result<()>
 where
     F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
 {
-    let emit: InstallProgressEmitter = Arc::new(on_progress);
-    let script = download_ollama_install_script(&emit).await?;
     if cancel_token.is_cancelled() {
         return Err(anyhow!("Ollama install was cancelled"));
     }
-    run_ollama_install_script_authorized(&script, &emit, cancel_token).await?;
-
-    emit_install_progress(&emit, InstallScriptKind::Step, "done");
-    app_info!("local_llm", "install_ollama", "install.sh succeeded");
-    Ok(())
-}
-
-#[cfg(unix)]
-type InstallProgressEmitter = Arc<dyn Fn(&InstallScriptProgress) + Send + Sync + 'static>;
-
-#[cfg(unix)]
-const INSTALL_STARTED_MARKER: &str = "__HOPE_AGENT_OLLAMA_INSTALL_STARTED__";
-
-#[cfg(unix)]
-fn emit_install_progress(
-    emit: &InstallProgressEmitter,
-    kind: InstallScriptKind,
-    message: impl Into<String>,
-) {
-    emit(&InstallScriptProgress {
-        kind,
-        message: message.into(),
-    });
-}
-
-#[cfg(unix)]
-async fn download_ollama_install_script(emit: &InstallProgressEmitter) -> Result<String> {
-    // Public HTTPS — must pass through SSRF + global proxy like every
-    // other outbound hop. Loopback bypass doesn't apply (this is ollama.com).
-    let trusted = ha_core::config::cached_config().ssrf.trusted_hosts.clone();
-    check_url(OLLAMA_INSTALL_URL, SsrfPolicy::Default, &trusted)
-        .await
-        .with_context(|| format!("SSRF blocked {OLLAMA_INSTALL_URL}"))?;
-
-    emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_DOWNLOAD);
-
-    let client = ha_core::provider::apply_proxy_for_url(
-        reqwest::Client::builder().timeout(Duration::from_secs(60)),
-        OLLAMA_INSTALL_URL,
-    )
-    .build()
-    .context("build install.sh client")?;
-    let script = client
-        .get(OLLAMA_INSTALL_URL)
-        .send()
-        .await
-        .context("download install.sh")?
-        .error_for_status()?
-        .text()
-        .await
-        .context("read install.sh body")?;
-
-    app_info!(
+    app_warn!(
         "local_llm",
         "install_ollama",
-        "downloaded install.sh ({} bytes)",
-        script.len()
+        "Unverified installer execution is disabled"
     );
-
-    Ok(script)
-}
-
-#[cfg(unix)]
-async fn run_ollama_install_script_authorized(
-    script: &str,
-    emit: &InstallProgressEmitter,
-    cancel_token: CancellationToken,
-) -> Result<()> {
-    let temp = InstallerTempDir::new(script).context("prepare ollama install script")?;
-    let command = build_logged_install_command(&temp.script_path, &temp.log_path);
-
-    emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_AUTHORIZE);
-
-    let child = match spawn_authorized_install_command(&command) {
-        Ok(child) => child,
-        Err(err) => {
-            let message = err.to_string();
-            emit_install_progress(emit, InstallScriptKind::Error, message.clone());
-            return Err(err);
-        }
-    };
-
-    let output = wait_with_log_tail(child, &temp.log_path, emit, cancel_token).await?;
-
-    if !output.status.success() {
-        let code = output.status.code().unwrap_or(-1);
-        let message = install_failure_message(&output);
-        emit_install_progress(emit, InstallScriptKind::Error, message.clone());
-        app_warn!(
-            "local_llm",
-            "install_ollama",
-            "install.sh exited with code {}",
-            code
-        );
-        return Err(anyhow!(message));
-    }
-
-    Ok(())
-}
-
-#[cfg(unix)]
-struct InstallerTempDir {
-    dir: PathBuf,
-    script_path: PathBuf,
-    log_path: PathBuf,
-}
-
-#[cfg(unix)]
-impl InstallerTempDir {
-    fn new(script: &str) -> Result<Self> {
-        use std::fs::OpenOptions;
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = std::env::temp_dir().join(format!(
-            "hope-agent-ollama-install-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir(&dir).context("create installer temp dir")?;
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-            .context("secure installer temp dir")?;
-
-        let script_path = dir.join("install.sh");
-        let log_path = dir.join("install.log");
-
-        std::fs::write(&script_path, script).context("write install script")?;
-        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o600))
-            .context("secure install script")?;
-
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .context("create install log")?;
-        log.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .context("secure install log")?;
-
-        Ok(Self {
-            dir,
-            script_path,
-            log_path,
-        })
-    }
-}
-
-#[cfg(unix)]
-impl Drop for InstallerTempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-#[cfg(unix)]
-fn build_logged_install_command(script_path: &Path, log_path: &Path) -> String {
-    format!(
-        "{{ printf '%s\\n' {}; OLLAMA_NO_START=1 /bin/sh {}; }} >> {} 2>&1",
-        shell_quote(INSTALL_STARTED_MARKER),
-        shell_quote_path(script_path),
-        shell_quote_path(log_path)
-    )
-}
-
-#[cfg(unix)]
-fn shell_quote_path(path: &Path) -> String {
-    shell_quote(path.to_string_lossy().as_ref())
-}
-
-#[cfg(unix)]
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-#[cfg(unix)]
-fn spawn_authorized_install_command(command: &str) -> Result<tokio::process::Child> {
-    use std::process::Stdio;
-    use tokio::process::Command;
-
-    let mut cmd = if cfg!(target_os = "macos") {
-        let mut cmd = Command::new("osascript");
-        cmd.arg("-e").arg(format!(
-            "do shell script \"{}\" with administrator privileges",
-            applescript_string(command)
-        ));
-        cmd
-    } else if current_user_is_root() {
-        let mut cmd = Command::new("/bin/sh");
-        cmd.arg("-c").arg(command);
-        cmd
-    } else if which::which("pkexec").is_ok() {
-        let mut cmd = Command::new("pkexec");
-        cmd.arg("/bin/sh").arg("-c").arg(command);
-        cmd
-    } else if sudo_askpass_available() && which::which("sudo").is_ok() {
-        let mut cmd = Command::new("sudo");
-        if let Some(askpass) =
-            std::env::var_os("SUDO_ASKPASS").or_else(|| std::env::var_os("SSH_ASKPASS"))
-        {
-            cmd.env("SUDO_ASKPASS", askpass);
-        }
-        cmd.arg("-A").arg("/bin/sh").arg("-c").arg(command);
-        cmd
-    } else {
-        return Err(anyhow!(
-            "Graphical administrator authorization is unavailable. Install polkit/pkexec or configure SUDO_ASKPASS, then try again."
-        ));
-    };
-
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawn authorized ollama installer")
-}
-
-#[cfg(unix)]
-fn current_user_is_root() -> bool {
-    unsafe { libc::geteuid() == 0 }
-}
-
-#[cfg(unix)]
-fn sudo_askpass_available() -> bool {
-    std::env::var_os("SUDO_ASKPASS").is_some() || std::env::var_os("SSH_ASKPASS").is_some()
-}
-
-#[cfg(unix)]
-fn applescript_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-#[cfg(unix)]
-async fn wait_with_log_tail(
-    mut child: tokio::process::Child,
-    log_path: &Path,
-    emit: &InstallProgressEmitter,
-    cancel_token: CancellationToken,
-) -> Result<std::process::Output> {
-    let mut offset = 0_u64;
-
-    loop {
-        tokio::select! {
-            output = child.wait() => {
-                let status = output.context("wait for authorized install script")?;
-                let _ = emit_new_install_log_lines(log_path, &mut offset, emit).await;
-                return Ok(std::process::Output {
-                    status,
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
-                });
-            }
-            _ = cancel_token.cancelled() => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                let _ = emit_new_install_log_lines(log_path, &mut offset, emit).await;
-                return Err(anyhow!("Ollama install was cancelled"));
-            }
-            _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                let _ = emit_new_install_log_lines(log_path, &mut offset, emit).await;
-            }
-        }
-    }
-}
-
-#[cfg(not(unix))]
-pub async fn install_ollama_via_script_cancellable<F>(
-    _on_progress: F,
-    _cancel_token: CancellationToken,
-) -> Result<()>
-where
-    F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
-{
     Err(anyhow!(
-        "Bundled installer is not supported on Windows. Please download Ollama from https://ollama.com/download"
+        "Automatic Ollama installation is disabled until a verified installer is available. Install Ollama from https://ollama.com/download, then retry."
     ))
-}
-
-#[cfg(unix)]
-async fn emit_new_install_log_lines(
-    log_path: &Path,
-    offset: &mut u64,
-    emit: &InstallProgressEmitter,
-) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
-
-    let mut file = match tokio::fs::File::open(log_path).await {
-        Ok(file) => file,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err).context("open install log"),
-    };
-
-    let len = file.metadata().await.context("stat install log")?.len();
-    if len < *offset {
-        *offset = 0;
-    }
-
-    file.seek(std::io::SeekFrom::Start(*offset))
-        .await
-        .context("seek install log")?;
-
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .await
-        .context("read install log")?;
-    *offset += bytes.len() as u64;
-
-    let text = String::from_utf8_lossy(&bytes);
-    for line in text
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.is_empty())
-    {
-        if line == INSTALL_STARTED_MARKER {
-            emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_INSTALL);
-        } else {
-            emit_install_progress(emit, InstallScriptKind::Log, line);
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(unix)]
-fn install_failure_message(output: &std::process::Output) -> String {
-    let code = output.status.code().unwrap_or(-1);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let details = format!("{stderr}\n{stdout}");
-    let detail = details.trim();
-
-    if authorization_was_denied(detail) {
-        return "System authorization was canceled or denied.".into();
-    }
-
-    if detail.is_empty() {
-        format!("install script exited with code {code}")
-    } else {
-        format!("install script exited with code {code}: {detail}")
-    }
-}
-
-#[cfg(unix)]
-fn authorization_was_denied(detail: &str) -> bool {
-    let lower = detail.to_ascii_lowercase();
-    lower.contains("user canceled")
-        || lower.contains("user cancelled")
-        || lower.contains("not authorized")
-        || lower.contains("authentication failed")
-        || lower.contains("authorization failed")
-        || lower.contains("dismissed")
 }
 
 // ── Model pull ────────────────────────────────────────────────────
@@ -1066,6 +711,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn automatic_installer_is_disabled_before_progress_or_execution() {
+        let error = install_ollama_via_script_cancellable(
+            |_| panic!("disabled installation must not download or request authorization"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("https://ollama.com/download"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_legacy_installer_remains_cancelled() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let error = install_ollama_via_script_cancellable(|_| panic!("no progress"), cancel)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+    }
 
     fn budget_hw(budget_mb: u64, src: BudgetSource) -> HardwareInfo {
         HardwareInfo {

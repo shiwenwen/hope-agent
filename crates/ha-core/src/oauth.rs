@@ -286,9 +286,47 @@ fn auth_file_path() -> Result<PathBuf> {
 /// Save token to disk
 pub fn save_token(token: &TokenData) -> Result<()> {
     let path = auth_file_path()?;
+    save_token_at(&path, token)
+}
+
+fn save_token_at(path: &std::path::Path, token: &TokenData) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("OAuth credential path has no parent")?;
+    crate::platform::ensure_credential_directory(parent)
+        .context("authentication: failed to secure OAuth credential directory")?;
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+            bail!("authentication: OAuth credential path must be a regular file");
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("authentication: inspect OAuth credential path"),
+    }
     let json = serde_json::to_string_pretty(token)?;
-    std::fs::write(path, json)?;
-    Ok(())
+    match crate::platform::write_secure_file_outcome(path, json.as_bytes()) {
+        crate::platform::SecureWriteOutcome::Durable => Ok(()),
+        crate::platform::SecureWriteOutcome::PublishedButNotDurable(error) => {
+            // The new refresh token is already visible. Do not pretend the old
+            // one survived or retry a completed credential rotation.
+            app_warn!(
+                "auth",
+                "token_persist",
+                "Credential published; directory sync failed: {}",
+                error
+            );
+            Ok(())
+        }
+        crate::platform::SecureWriteOutcome::NotPublished(error) => {
+            Err(error).context("authentication: failed to persist OAuth credentials")
+        }
+    }
+}
+
+/// Persist credentials without blocking the async runtime's worker threads.
+pub async fn save_token_async(token: &TokenData) -> Result<()> {
+    let token = token.clone();
+    crate::blocking::run_blocking(move || save_token(&token)).await
 }
 
 /// Load token from disk
@@ -363,6 +401,8 @@ pub async fn start_oauth_flow_with_auth_url(
                 // Save token to disk
                 if let Err(e) = save_token(&token) {
                     app_error!("auth", "oauth", "Failed to save token: {}", e);
+                    *result_clone.blocking_lock() = Some(Err(e));
+                    return;
                 }
                 // Notification(auth_success): fire from the OAuth-flow
                 // completion site (a fresh login), NOT from `save_token` —
@@ -462,7 +502,7 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
                     .ok_or_else(|| anyhow!("No authorization code in callback"))?
                     .clone();
 
-                // Send success response to browser
+                // Code receipt is not token exchange or persistence success.
                 let html = r#"<!DOCTYPE html>
 <html><head><title>Hope Agent</title>
 <style>
@@ -473,8 +513,8 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
   p { color: #888; }
 </style></head>
 <body><div class="container">
-  <h1>✅ 登录成功</h1>
-  <p>你可以关闭此页面，回到 Hope Agent 应用。</p>
+  <h1>授权回调已收到</h1>
+  <p>正在完成登录。请回到 Hope Agent 应用查看最终结果，你可以关闭此页面。</p>
 </div></body></html>"#;
 
                 let response = tiny_http::Response::from_string(html).with_header(
@@ -694,7 +734,7 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenData> {
         token.expires_at = Some(now_ms + expires_in * 1000);
     }
 
-    save_token(&token)?;
+    save_token_async(&token).await?;
     Ok(token)
 }
 
@@ -707,6 +747,75 @@ fn urlencoding(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::failover::{classify_error, FailoverReason};
+
+    fn persistence_fixture() -> TokenData {
+        TokenData {
+            access_token: "synthetic-access".into(),
+            refresh_token: Some("synthetic-refresh".into()),
+            expires_in: None,
+            token_type: None,
+            account_id: None,
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn token_persistence_atomically_replaces_complete_json() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("credentials/auth.json");
+        let mut token = persistence_fixture();
+        save_token_at(&path, &token).unwrap();
+        token.access_token = "synthetic-replacement".into();
+        save_token_at(&path, &token).unwrap();
+        let saved: TokenData = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.access_token, token.access_token);
+        assert_eq!(saved.refresh_token, token.refresh_token);
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
+    #[test]
+    fn token_persistence_rejects_non_file_target() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("credentials/auth.json");
+        std::fs::create_dir_all(&path).unwrap();
+        let sentinel = path.join("preserved");
+        std::fs::write(&sentinel, "old state").unwrap();
+        assert!(save_token_at(&path, &persistence_fixture()).is_err());
+        assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "old state");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_persistence_tightens_legacy_permissions_and_rejects_links() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("credentials");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = dir.join("auth.json");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        save_token_at(&path, &persistence_fixture()).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        let link = dir.join("linked.json");
+        symlink(&path, &link).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(save_token_at(&link, &persistence_fixture()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let linked_dir = root.path().join("linked-credentials");
+        symlink(&dir, &linked_dir).unwrap();
+        assert!(save_token_at(&linked_dir.join("auth.json"), &persistence_fixture()).is_err());
+    }
 
     // Error messages from load_fresh_codex_token must classify as Auth.
 

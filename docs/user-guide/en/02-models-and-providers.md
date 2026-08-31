@@ -185,7 +185,7 @@ Both are pure model references that carry no credentials, and their risk level i
 
 ## 2.9 One-click local model install
 
-No account, API key, or terminal required — pick a local model that suits your hardware in Settings, and the app handles the whole flow of **installing Ollama → downloading the model → registering the provider → setting it as default**. The data stays entirely local and works without an internet connection.
+No account or API key is required. First download and manually install Ollama from its official website, then pick a local model in Settings. The app handles **downloading the model → registering the provider → setting it as default**. Initial downloads require internet access; installed models can run offline. The app no longer executes installer scripts without a verified fixed version and complete download chain.
 
 ### The easy way: the local model assistant card
 
@@ -193,11 +193,11 @@ No account, API key, or terminal required — pick a local model that suits your
 
 The card automatically recommends a model based on your hardware (showing size, context window, and whether it is a reasoning model); you can "Expand alternatives" to switch to other candidates. A single primary button adapts to Ollama's status:
 
-- Ollama not installed → "Install Ollama" (auto-installs on macOS / Linux; on Windows it guides you to download from [ollama.com/download](https://ollama.com/download)).
+- Ollama not installed → open the [official download page](https://ollama.com/download), install manually on any platform, then return and refresh the app's status.
 - Installed but not running / recommended model not downloaded → "Install model".
 - All ready → shows "Enabled".
 
-When done, it **automatically** adds the model to the provider list and sets it as the global default. The install / download process has a progress dialog (stage, bytes, estimated time remaining, logs), which can be backgrounded or cancelled.
+After the model download, it **automatically** adds the model to the provider list and sets it as the global default. Model downloads have a progress dialog (stage, bytes, estimated time remaining, logs), which can be backgrounded or cancelled. The app does not manage the external Ollama installer's progress.
 
 ### Explicit management: the Local Models tab
 
@@ -215,7 +215,7 @@ Configuring an Embedding (vector) model lets [memory](04-memory.md) and the [Kno
 
 **Where**: Settings → Memory / Embedding model panel. Three ways to configure:
 
-1. **Local quick card**: install Ollama + download a recommended embedding model in one click, automatically set as default and rebuild vectors.
+1. **Local quick card**: manually install Ollama first, then download a recommended embedding model in one click, automatically set as default and rebuild vectors.
 2. **Quick-create from template**: OpenAI / Google Gemini / Jina / Cohere / SiliconFlow / Voyage / Mistral / Ollama.
 3. **Custom**: fill in the provider type, Base URL, API key, model name, and dimensions.
 

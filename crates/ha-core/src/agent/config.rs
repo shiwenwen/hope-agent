@@ -291,7 +291,8 @@ pub fn map_think_anthropic_style(
 }
 
 /// Map reasoning effort to OpenAI `reasoning_effort` parameter.
-/// Chat Completions supports "low", "medium", "high" (no xhigh).
+/// Conservative compatibility baseline; the adapter refines verified
+/// first-party endpoint/model pairs that support additional effort levels.
 /// Returns None if thinking should be disabled.
 fn map_think_openai_style(effort: Option<&str>) -> Option<String> {
     let effort = effort?;

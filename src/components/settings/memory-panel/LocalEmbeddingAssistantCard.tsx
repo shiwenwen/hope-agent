@@ -27,6 +27,7 @@ import {
 import { parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { openExternalUrl } from "@/lib/openExternalUrl"
+import { prepareLocalModelJob } from "@/lib/prepareLocalModelJob"
 import { logger } from "@/lib/logger"
 import { formatBytesFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -182,14 +183,10 @@ export default function LocalEmbeddingAssistantCard({
 
   const activateModel = useCallback(
     async (model: OllamaEmbeddingModel) => {
-      if (ollama?.phase === "not-installed" && !ollama.installScriptSupported) {
-        openDownloadPage()
-        return
-      }
-
       setSubmitting(true)
       setError(null)
       try {
+        if (!await prepareLocalModelJob("embedding_model")) return
         const job = await getTransport().call<LocalModelJobSnapshot>(
           "local_model_job_start_embedding",
           { model },
@@ -213,7 +210,7 @@ export default function LocalEmbeddingAssistantCard({
         setSubmitting(false)
       }
     },
-    [ollama, openDownloadPage, openJobDialog, t],
+    [openJobDialog, t],
   )
 
   const handleTerminalJob = useCallback(

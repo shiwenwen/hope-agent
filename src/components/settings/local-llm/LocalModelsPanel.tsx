@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
 import { getTransport } from "@/lib/transport-provider"
+import { prepareLocalModelJob } from "@/lib/prepareLocalModelJob"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -577,6 +578,7 @@ export default function LocalModelsPanel() {
 
     setActioning((prev) => ({ ...prev, __ollama_install__: true }))
     try {
+      if (!await prepareLocalModelJob("ollama_install")) return
       const job = await getTransport().call<LocalModelJobSnapshot>(
         "local_model_job_start_ollama_install",
       )
@@ -669,6 +671,7 @@ export default function LocalModelsPanel() {
   const startPullJob = useCallback(
     async (request: OllamaPullRequest) => {
       try {
+        if (!await prepareLocalModelJob("ollama_pull")) return
         const job = await getTransport().call<LocalModelJobSnapshot>(
           "local_model_job_start_ollama_pull",
           { request },
@@ -690,6 +693,7 @@ export default function LocalModelsPanel() {
     async (model: LocalOllamaModel) => {
       setActioning((prev) => ({ ...prev, [model.id]: true }))
       try {
+        if (!await prepareLocalModelJob("ollama_preload")) return
         const job = await getTransport().call<LocalModelJobSnapshot>(
           "local_model_job_start_ollama_preload",
           { modelId: model.id, displayName: model.name || model.id },
@@ -733,6 +737,7 @@ export default function LocalModelsPanel() {
       try {
         // "resume" maps to retry: Ollama's chunked layer cache lets the next
         // pull pick up where the cancelled one stopped, so a fresh job is OK.
+        if (action === "resume" && !await prepareLocalModelJob(job.kind)) return
         const command = JOB_ACTION_COMMANDS[action]
         const nextJob = await getTransport().call<LocalModelJobSnapshot>(command, {
           jobId: job.jobId,

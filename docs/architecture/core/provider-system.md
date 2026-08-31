@@ -129,6 +129,12 @@ flowchart TD
 
 模板里最值得记的是**协议归类**——大多数国内/聚合服务商都用 `openai-chat`（OpenAI 兼容），少数走原生 `anthropic`（MiniMax、Kimi Coding、Synthetic 等），OpenAI 官方与 GitHub Copilot 走 `openai-responses`。推理格式则跟着服务商走：智谱标 `zai`、通义/百炼标 `qwen`、Anthropic 系标 `anthropic`，其余多为 `openai`。这套"模板 → ApiType → ThinkingStyle"的映射就是新增服务商时要填对的三件事。
 
+#### 2026-08-31 模板核验与迁移边界
+
+- Cloudflare 新建模板使用账户 REST 路径 `https://api.cloudflare.com/client/v4/accounts/{accountId}/ai/v1`，第三方模型带 `anthropic/` 前缀，用户须填写账户 ID 与适用的 Cloudflare Token。已有网关配置不自动改写；Workers AI 还需网关标识请求头，不在该第三方模型模板中冒充支持。[官方 REST 说明](https://developers.cloudflare.com/ai-gateway/usage/rest-api/)
+- Copilot 新建默认列表移除 7 月已退役的 Gemini 2.5 Pro / 3 Flash，以及 9 月 1 日将退役的 Gemini 3.1 Pro、Opus 4.6、Sonnet 4.6、Raptor mini。Sonnet 4.6 年付个人计划的例外仍可自行配置，既有配置不删除，也不把账户目录等同于全局可用性。[7 月公告](https://github.blog/changelog/2026-07-31-gemini-2-5-pro-and-gemini-3-flash-deprecated/)、[9 月退役公告](https://github.blog/changelog/2026-07-31-upcoming-august-2026-model-deprecations-in-github-copilot/)
+- OpenAI 直连的 GPT-5.6 / Sol 基础输入/输出价为每百万令牌 4/20 美元，促销至少持续至 2026-11-21；Sonnet 5 直连基础价为 2/10 美元，已转为长期定价。同步内置估算表，不覆盖用户价格或网关模板报价。缓存、长上下文阶梯、实际账单与历史价不是本表表达的内容，大盘仍是估算而非账单；促销结束前重新核验。[Sol 定价](https://developers.openai.com/api/docs/models/gpt-5.6-sol)、[Claude 定价](https://platform.claude.com/docs/en/about-claude/pricing)
+
 ### 1.6 Provider 写入契约
 
 所有对 `providers` 列表与 `active_model` 的写入，必须走 `crates/ha-core/src/provider/crud.rs` 的 helper——禁止在 Tauri / HTTP / onboarding / importer / local_llm 任何路径里直接 `providers.push` / `retain` 或手写 `active_model`。每个 helper 都带一个 `source: &'static str` 审计标签，并统一经 `mutate_config` 落盘（配置读写契约见 [config-system](../infra/config-system.md)）。
@@ -435,7 +441,15 @@ flowchart TD
   STYLE -->|None| S4["不发送参数"]
 ```
 
-几个非显然点：Chat Completions 不认 `xhigh`，统一降为 `high`；Anthropic 的 `budget_tokens` 还会被钳到 `max_tokens - 1` 以下（API 要求 budget 小于请求的 max_tokens）；钳制的模型判定是按 id **子串包含**（`5.1-codex-mini`、`5.1`），不是精确等于。
+上图是兼容端的保守基线，不能推断所有 Chat Completions 都不支持 `xhigh`。适配器随后只对 HTTPS、默认端口、无 URL 凭据的精确官方主机与模型 ID 应用已核验规则；不改用户偏好，不把同名网关模型套入原厂策略：
+
+| 官方主机 / 模型 | 请求档位修正 |
+| --- | --- |
+| `generativelanguage.googleapis.com` / `gemini-3.7-flash` | `minimal → low`，`xhigh/max → high` |
+| `api.x.ai` / `grok-4.6` | `minimal → low`，保留 `xhigh`，`max → xhigh` |
+| `api.openai.com` / `gpt-5.6`、`gpt-5.6-sol/terra/luna` | `minimal → low`，保留 `xhigh/max` |
+
+关闭思考、未指定档位、非 OpenAI 思考格式与未知端点不被这张表重新开启或改写。2026-08-31 核验：[Gemini 3.7 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash)、[Grok 推理](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)。Anthropic 旧式预算仍低于 `max_tokens`；Claude 5 自适应思考沿原生适配器既有契约。
 
 ### 5.2 ThinkTagFilter
 

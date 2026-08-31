@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **登录凭据保存更安全可靠**：收紧文件权限并原子保存，保存失败不再误报登录成功；本地 Ollama 改为先从官网手工安装。 (#689)
+- **模型服务商默认配置更新**：修正 Cloudflare 新建连接、移除 Copilot 退役默认模型，校正部分官方模型的报价与推理档位。 (#689)
+
 ## [0.38.0] - 2026-08-31
 
 ### Added

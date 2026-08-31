@@ -22,7 +22,7 @@ jobs:
     outputs:
       rust: ${{ steps.scope.outputs.rust }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # pull_request checks out GitHub's merge commit. Two generations keep
           # both parents available for an exact base-vs-head path diff.
@@ -66,10 +66,10 @@ jobs:
         if: env.RUN_RUST_CI != 'true'
         run: echo "No Rust-sensitive paths changed; required check preserved."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         if: env.RUN_RUST_CI == 'true'
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         if: env.RUN_RUST_CI == 'true'
         with:
           cache: false
@@ -95,16 +95,16 @@ jobs:
         if: env.RUN_RUST_CI != 'true'
         run: echo "No Rust-sensitive paths changed; required check preserved."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         if: env.RUN_RUST_CI == 'true'
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         if: env.RUN_RUST_CI == 'true'
         with:
           cache: false
           rustflags: ""
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         if: env.RUN_RUST_CI == 'true'
         with:
           # Do not restore ~/.cargo/bin after setup-rust-toolchain installs
@@ -187,16 +187,16 @@ jobs:
         if: env.RUN_RUST_CI != 'true'
         run: echo "No Rust-sensitive paths changed; required check preserved."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         if: env.RUN_RUST_CI == 'true'
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         if: env.RUN_RUST_CI == 'true'
         with:
           cache: false
           rustflags: ""
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         if: env.RUN_RUST_CI == 'true'
         with:
           # Do not restore ~/.cargo/bin after setup-rust-toolchain installs
@@ -273,7 +273,7 @@ jobs:
 
       - name: Upload Cargo timings
         if: always() && env.RUN_RUST_CI == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-test-timings-${{ matrix.os }}
           path: target/cargo-timings/cargo-timing.html

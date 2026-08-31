@@ -1,6 +1,6 @@
 # 本地模型加载与 Embedding 配置
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-31
 
 ## 这个子系统解决什么问题
 
@@ -8,7 +8,7 @@
 
 本子系统就是把这一整条链路做成傻瓜式的两个入口，同时不牺牲可控性：
 
-- **快捷卡**（省心入口）：一键完成「装 Ollama → 下推荐模型 → 写配置 → 设为默认」，装完直接能聊天 / 能用于记忆。
+- **快捷卡**（省心入口）：先引导手工安装 Ollama，再一键完成「下推荐模型 → 写配置 → 设为默认」，装完直接能聊天 / 能用于记忆。
 - **本地模型 Tab**（显式管理入口）：搜索、下载、任务进度、启停、加入配置、设为默认、删除，样样手动可控。其中模型库里的「下载」只把权重拉到本地，**不**碰任何配置。
 
 两条关键设计原则贯穿始终：
@@ -16,14 +16,14 @@
 1. **下载与配置是两个独立动作**。只有快捷卡会在下载后自动写配置；模型库的下载纯粹是「把 tag 拉到本地」。这条边界让「我只想留一份权重备用」和「我要立刻用起来」不会互相误伤。
 2. **应用不接管 Ollama 守护进程的生命周期**。需要时才尝试拉起 `ollama serve`（或 macOS 上的 Ollama.app），但**退出应用绝不杀 Ollama**——它是用户其它工具也在共用的公共服务，秒掉它是越界。
 
-当前只有 **Ollama** 后端实现了完整的安装 / 拉取 / 管理 / 预载机器。面向两类模型：
+当前只有 **Ollama** 后端实现了完整的模型拉取 / 管理 / 预载流程；运行时本身先由用户手工安装。面向两类模型：
 
 | 类型 | 用途 | 配置落点 | 典型模型 |
 | --- | --- | --- | --- |
 | LLM | 对话、工具调用、推理 | Ollama Provider + 全局默认模型 | `qwen3.6:27b`、`gemma4:12b` |
 | Embedding | 向量检索（记忆 / 知识库共用） | Embedding 模型配置 + 默认记忆模型 | `embeddinggemma:300m` |
 
-> 注意：Provider 去重用的**本地后端目录**（`known_local_backends()`）认识 5 个本地端点——Ollama、LiteLLM、vLLM、LM Studio、SGLang——用于把「同一个 host:port」的 Provider 合并去重。但只有 Ollama 有本文描述的这套安装 / 拉取 / 预载 / 自维护机器；其余四个只是「已知的本地兼容端点」，靠 Provider 页手动接入。
+> 注意：Provider 去重用的**本地后端目录**（`known_local_backends()`）认识 5 个本地端点——Ollama、LiteLLM、vLLM、LM Studio、SGLang——用于把「同一个 host:port」的 Provider 合并去重。但只有 Ollama 有本文描述的这套模型拉取 / 预载 / 自维护流程；其余四个只是「已知的本地兼容端点」，靠 Provider 页手动接入。
 
 ## 关联源码
 
@@ -118,7 +118,7 @@ interface OllamaStatus {
 - `not-installed`：没找到可用的 Ollama 可执行文件。
 - `installed`：找到了二进制（`ollama --version` 能应答），但 `http://127.0.0.1:11434` ping 不通。
 - `running`：Ollama API 能 ping 通。
-- `installScriptSupported=false`（即 Windows）：前端引导用户去 `https://ollama.com/download` 手动下载，不尝试脚本安装。
+- `installScriptSupported=false`（当前所有平台）：前端引导用户去 `https://ollama.com/download` 手动下载，不尝试脚本安装。
 
 ### 已安装模型聚合
 
@@ -171,13 +171,11 @@ flowchart TD
 
 ### 安装 Ollama
 
-`local_model_job_start_ollama_install` 创建一个 `ollama_install` 任务：
+所有平台暂时关闭脚本安装，前端复用官网下载入口。`install_ollama_via_script_cancellable` 保留旧命令/任务兼容面，但在联网、执行进程和提权前返回明确错误；已取消的请求仍返回取消。旧持久任务重试也不能绕过这一边界。已安装 Ollama 的启动、模型下载及配置功能保持不变。
 
-- **Unix（macOS / Linux）**：下载官方 `install.sh`（出站过 SSRF 检查），落到 `0700` 临时目录，再经系统级图形授权（macOS 用 `osascript`，Linux 依次尝试 root / `pkexec` / `sudo -A`）执行，安装日志实时回传。
-- **Windows**：不支持脚本安装，前端引导到官网下载页。
-- 安装完成后再探一次状态确认装好。
+前端模型快捷卡（含备选模型）、缺失模型重新下载、本地模型页和任务中心重试统一经 `prepareLocalModelJob` 读取实时安装状态，不依赖页面缓存。缺少 Ollama 且自动安装关闭时打开官网下载页，不创建任务、不显示下载成功、不关闭缺失模型对话框；用户安装后再次操作会重新检测。通用的记忆/知识库重嵌入不受此 Ollama 前置检查影响，后端的禁用边界仍独立兜底直接调用与检测后的竞态。
 
-安装任务**只装 Ollama**，不下载模型、不写 Provider / Memory。
+恢复自动安装前，必须固定版本、大小与摘要，并证明脚本的二阶段下载同样经过校验；仅校验可移动的 `install.sh` 不够。`ollama_install` 的历史记录不删除，失败也不会写 Provider 或记忆配置。
 
 ## 后台任务台账
 
@@ -196,10 +194,10 @@ flowchart TD
 
 | Kind | 入口 | 用途 | 完成后的副作用 |
 | --- | --- | --- | --- |
-| `chat_model` | 快捷 LLM 卡 | 装 Ollama + 下推荐 LLM + 预载 | 加入 Ollama Provider、设为全局默认、重建共享 active agent |
-| `embedding_model` | 记忆快捷卡 | 装 Ollama + 下推荐 Embedding + 预载 | 创建 / 更新 Embedding 配置、设为默认记忆模型、派发重嵌入 |
-| `ollama_install` | 本地模型 Tab 顶部按钮 | 只装 Ollama | 无 |
-| `ollama_pull` | 模型库 / 手动 tag 下载 | 装 Ollama + pull 模型 | 无（只表示本地已下载） |
+| `chat_model` | 快捷 LLM 卡 | 已装 Ollama 下，下载推荐 LLM + 预载 | 加入 Ollama Provider、设为全局默认、重建共享 active agent |
+| `embedding_model` | 记忆快捷卡 | 已装 Ollama 下，下载推荐嵌入模型 + 预载 | 创建 / 更新 Embedding 配置、设为默认记忆模型、派发重嵌入 |
+| `ollama_install` | 保留旧入口与任务重试 | 当前拒绝执行，提示手工安装 | 无 |
+| `ollama_pull` | 模型库 / 手动 tag 下载 | 已装 Ollama 下，拉取模型 | 无（只表示本地已下载） |
 | `ollama_preload` | 启动模型 / 装完保活 | 把模型预载进 Ollama 内存 | 无配置副作用；进度可跟踪 |
 | `memory_reembed` | 切换 / 重建记忆向量 | 用新模型重写记忆 embedding | 由 kernel `memory::reembed_job` 拥有 |
 | `knowledge_reembed` | 绑定 / 重建知识库向量 | 用新模型重写知识库 embedding | 由知识库拥有，可按 `target_kb_ids` 范围重建 |
@@ -244,7 +242,7 @@ Ollama `/api/pull` 的 NDJSON 流带 `completed` / `total` 字节数，映射到
 
 ### 顶部状态区
 
-显示 Ollama 未安装 / 已安装 / 运行中；未安装时按钮只安装 Ollama 或打开官网下载页；已安装未运行时显示启动按钮；刷新会同时刷 Ollama 状态、已安装模型、推荐模型和下载任务。
+显示 Ollama 未安装 / 已安装 / 运行中；未安装时按钮打开官网下载页，手工安装后刷新；已安装未运行时显示启动按钮；刷新会同时刷 Ollama 状态、已安装模型、推荐模型和下载任务。
 
 ### 已安装列表的动作分流
 
@@ -457,7 +455,7 @@ watchdog 是 primary-only（只主进程跑）：两个进程同时预载同一�
 | 模型设置快捷卡 | 「帮我装一个能聊天的本地模型并直接用起来」 | `chat_model` | Ollama Provider + active model |
 | 记忆设置快捷卡 | 「帮我装一个本地向量模型并用于记忆」 | `embedding_model` | Embedding 配置 + 默认记忆模型 + 重嵌入 |
 | 模型库下载 | 「下载这个 Ollama tag」 | `ollama_pull` | 无 |
-| 本地模型页安装 Ollama | 「只安装 Ollama」 | `ollama_install` | 无 |
+| 本地模型页下载 Ollama | 「先安装运行时」 | 打开官网下载页；旧 `ollama_install` 拒绝执行 | 无 |
 | 已安装模型加入 Provider | 「把这个 LLM 放进模型配置」 | 直接命令 | Provider model |
 | 已安装 Embedding 加入配置 | 「把这个向量模型放进 Embedding 配置」 | 直接命令 | EmbeddingModelConfig |
 | 已安装 Embedding 设为记忆默认 | 「切换记忆向量模型」 | 直接命令 | EmbeddingSelection + 重嵌入 |
@@ -495,7 +493,7 @@ Tauri 命令与 HTTP 路由一一对等（详见 [api-reference](../system/api-r
 | --- | --- | --- |
 | `local_model_job_start_chat_model` | `POST /api/local-model-jobs/chat-model` | 快捷 LLM 任务 |
 | `local_model_job_start_embedding` | `POST /api/local-model-jobs/embedding` | 快捷 Embedding 任务 |
-| `local_model_job_start_ollama_install` | `POST /api/local-model-jobs/ollama-install` | 只安装 Ollama |
+| `local_model_job_start_ollama_install` | `POST /api/local-model-jobs/ollama-install` | 兼容保留；任务拒绝脚本执行并提示手工安装 |
 | `local_model_job_start_ollama_pull` | `POST /api/local-model-jobs/ollama-pull` | 下载-only |
 | `local_model_job_start_ollama_preload` | `POST /api/local-model-jobs/ollama-preload` | 预载为可跟踪任务 |
 | `local_model_job_list` | `GET /api/local-model-jobs` | 任务列表 |

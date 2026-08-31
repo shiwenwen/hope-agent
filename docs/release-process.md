@@ -52,6 +52,14 @@ GitHub 的 `releases/latest` 只解析**已 published 且非 prerelease** 的 Re
 
 ---
 
+## 工作流供应链约束
+
+所有外部 Action 的 `uses` 固定完整 40 位提交摘要，旁注保留原版本；Dependabot 只提出更新 PR，不自动合并。改摘要须审阅上游来源，不恢复可移动 tag。
+
+R2 访问密钥只注入实际读取/发布步骤的环境，安装步骤只收到必要的非凭据配置；预检只使用存在性/相等性布尔值，不把密钥插进脚本。镜像的 rclone 固定 `v1.74.4` 及 SHA-256，下载后先核验再解压执行，摘要取自[官方校验清单](https://downloads.rclone.org/v1.74.4/SHA256SUMS)。Wrangler 桥安装单独运行且不持上传凭据，版本固定并禁止安装脚本；这不是完整的传递依赖来源证明。
+
+`scripts/check-workflow-supply-chain.mjs` 与其回归测试同时接入 pre-push 和 `lint.yml`，守住 Action 摘要、R2 环境范围与 rclone 核验顺序。守卫用固定版本的 `yaml` 解析实际结构，覆盖行内映射、引号键、多行值与可复用工作流；重复键、别名、合并键及未知标签直接拒绝，错误不回显源内容。这是本仓库的静态契约检查，不是通用工作流或 Shell 安全审计器。job 名与矩阵不变，required checks 不变。受保护环境、桶前缀权限、签名凭据和新密钥仍须所有者另行批准，不能因本地检查通过宣称这些外部控制已启用。
+
 ## 1. patch 发版完整步骤
 
 以从 `release/v0.1` 发 `v0.1.2` 为例。新 minor 的差异见 §2。

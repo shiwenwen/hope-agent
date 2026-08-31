@@ -70,8 +70,7 @@ env:
   RCLONE_CONFIG_R2_TYPE: s3
   RCLONE_CONFIG_R2_PROVIDER: Cloudflare
   RCLONE_CONFIG_R2_REGION: auto
-  RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  # Credentials are step-scoped to pulling and publishing repository state.
   # RCLONE_CONFIG_R2_ENDPOINT is derived from R2_ACCOUNT_ID in the
   # "Resolve R2 endpoint" step (normalized + validated) rather than
   # interpolated here, so a pasted full endpoint URL / stray whitespace
@@ -85,21 +84,26 @@ jobs:
 
     steps:
       - name: Checkout source repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Preflight — required R2 secrets present
+        env:
+          R2_ACCESS_KEY_PRESENT: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
+          R2_SECRET_KEY_PRESENT: ${{ secrets.R2_SECRET_ACCESS_KEY != '' }}
+          CF_TOKEN_PRESENT: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          VIA: ${{ github.event.inputs.via }}
         run: |
           set -euo pipefail
           missing=()
           [[ -n "${{ secrets.R2_ACCOUNT_ID }}"        ]] || missing+=(R2_ACCOUNT_ID)
-          [[ -n "${{ secrets.R2_ACCESS_KEY_ID }}"     ]] || missing+=(R2_ACCESS_KEY_ID)
-          [[ -n "${{ secrets.R2_SECRET_ACCESS_KEY }}" ]] || missing+=(R2_SECRET_ACCESS_KEY)
+          [[ "$R2_ACCESS_KEY_PRESENT" == "true" ]] || missing+=(R2_ACCESS_KEY_ID)
+          [[ "$R2_SECRET_KEY_PRESENT" == "true" ]] || missing+=(R2_SECRET_ACCESS_KEY)
           [[ -n "${{ secrets.R2_BUCKET }}"            ]] || missing+=(R2_BUCKET)
           if (( ${#missing[@]} )); then
             echo "::error::missing required R2 secret(s): ${missing[*]} — see linux-repo/README.md"
             exit 1
           fi
-          if [[ "${{ github.event.inputs.via }}" == "wrangler" && -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]]; then
+          if [[ "$VIA" == "wrangler" && "$CF_TOKEN_PRESENT" != "true" ]]; then
             echo "::error::via=wrangler needs the CLOUDFLARE_API_TOKEN secret (API token with 'Workers R2 Storage: Edit'). See linux-repo/README.md."
             exit 1
           fi
@@ -107,7 +111,7 @@ jobs:
       - name: Resolve R2 endpoint from account id
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_ACCOUNT_IS_ACCESS_KEY: ${{ secrets.R2_ACCOUNT_ID == secrets.R2_ACCESS_KEY_ID }}
         # Shared with mirror-release-r2.yml — the validation exists to turn
         # Cloudflare's opaque `tls: handshake failure` into an actionable
         # message, and two copies drift into two different sets of half-right
@@ -184,6 +188,9 @@ jobs:
           echo "Imported and trusted GPG key: $KEY_ID"
 
       - name: Pull existing repo state from R2
+        env:
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           mkdir -p bucket
@@ -297,8 +304,17 @@ jobs:
           gpg --armor --export "$GPG_KEY_ID" > pubkey.gpg
           test -s pubkey.gpg || { echo "::error::pubkey.gpg export is empty"; exit 1; }
 
+      - name: Install Wrangler bridge without upload credentials
+        if: github.event.inputs.via == 'wrangler'
+        run: |
+          set -euo pipefail
+          npm install -g --ignore-scripts wrangler@3.114.17
+          wrangler --version
+
       - name: Publish to R2
         env:
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           VIA: ${{ github.event.inputs.via }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -312,8 +328,7 @@ jobs:
             # unprovisioned per-account S3-endpoint cert. Seed-only: the bucket
             # is empty, so a plain per-object put with no delete is complete
             # and safe. Files are <=110MB, within Wrangler's 315MB put limit.
-            npm install -g wrangler@3 >/dev/null 2>&1
-            wrangler --version
+            # Installed in the separate credential-free setup step.
             n=0
             while IFS= read -r -d '' f; do
               key="${f#./}"

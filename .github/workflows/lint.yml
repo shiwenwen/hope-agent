@@ -16,11 +16,11 @@ jobs:
     name: Frontend lint + typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "20"
           cache: "pnpm"
@@ -43,6 +43,11 @@ jobs:
       # mismatch only surfaces at install time.
       - name: Updater pubkey sync check
         run: node scripts/verify-updater-pubkey.mjs
+
+      - name: Workflow supply-chain guards
+        run: |
+          node scripts/check-workflow-supply-chain.mjs
+          node --test scripts/__tests__/workflow-supply-chain.test.mjs
 
       # Same class of two-place contract as the pubkey above, for the manifest
       # endpoints: tauri.conf.json (desktop), manifest.rs (headless), and the

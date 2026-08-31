@@ -1530,7 +1530,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP 的 transport admission �
 |---|---|---|
 | `local_model_job_start_chat_model` | `POST /api/local-model-jobs/chat-model` | ✅ |
 | `local_model_job_start_embedding` | `POST /api/local-model-jobs/embedding` | ✅ |
-| `local_model_job_start_ollama_install` | `POST /api/local-model-jobs/ollama-install` | ✅ |
+| `local_model_job_start_ollama_install` | `POST /api/local-model-jobs/ollama-install` | 兼容保留；任务在联网/提权前拒绝脚本执行，提示手工安装 |
 | `local_model_job_start_ollama_pull` | `POST /api/local-model-jobs/ollama-pull` | ✅ |
 | `local_model_job_list` | `GET /api/local-model-jobs` | ✅ |
 | `local_model_job_get` | `GET /api/local-model-jobs/{id}` | ✅ |

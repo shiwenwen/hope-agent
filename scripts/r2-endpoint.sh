@@ -14,6 +14,8 @@
 #                        endpoint host / URL (jurisdiction variants ok).
 #   R2_ACCESS_KEY_ID   — optional; only used to catch the account-id /
 #                        access-key-id mixup with a specific message.
+#   R2_ACCOUNT_IS_ACCESS_KEY — CI passes only the equality boolean so setup
+#                              never receives the upload credential.
 #
 # Outputs:
 #   Appends RCLONE_CONFIG_R2_ENDPOINT + CF_ACCOUNT_ID to $GITHUB_ENV when
@@ -57,7 +59,7 @@ else
   # Cloudflare rejects it at TLS (handshake failure), not with a 403. Catch
   # the identical-value case with a clear message.
   akid="$(printf '%s' "${R2_ACCESS_KEY_ID:-}" | tr -d '[:space:]')"
-  if [[ -n "$akid" && "$id" == "$akid" ]]; then
+  if [[ "${R2_ACCOUNT_IS_ACCESS_KEY:-false}" == "true" || ( -n "$akid" && "$id" == "$akid" ) ]]; then
     echo "::error::R2_ACCOUNT_ID equals R2_ACCESS_KEY_ID — you pasted the API token's Access Key ID into R2_ACCOUNT_ID. They are DIFFERENT values: the Account ID is the 32-hex id in the dashboard URL dash.cloudflare.com/<ACCOUNT_ID> and in https://<ACCOUNT_ID>.r2.cloudflarestorage.com. Re-set R2_ACCOUNT_ID to the account id. See linux-repo/README.md."
     exit 1
   fi

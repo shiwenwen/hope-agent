@@ -122,12 +122,12 @@ sequenceDiagram
     U->>P: 授权（带 challenge + state）
     P->>CB: 302 → /auth/callback?code&state
     CB->>CB: 校验 state（CSRF），不符即拒
-    CB->>U: 回「登录成功」HTML 页
+    CB->>U: 回「授权回调已收到」HTML 页
     CB->>P: exchange_code_for_token(code, verifier)
     P-->>CB: TokenData
     CB->>CB: 提取 account_id + 算 expires_at
     CB->>O: save_token → auth.json
-    CB->>O: fire_notification(auth_success)
+    CB->>O: 持久化成功后 fire_notification(auth_success)
     Note over S,O: 结果写入共享 slot；<br/>shell 稍后调 finalize 从 slot take()
 ```
 
@@ -135,11 +135,11 @@ sequenceDiagram
 
 - **两个入口，一个二态开关**。`start_oauth_flow(open_browser=true)` 是桌面 / HTTP 用的入口，起回调 server 并自动打开系统浏览器；`start_oauth_flow_with_auth_url(open_browser=false)` 返回 `auth_url` 让调用方自己打印——CLI 与首启引导用这条，方便在无 GUI 环境下把 URL 交给用户手动打开。
 
-- **回调 server 只在本机**。`run_callback_server` 跑在 `spawn_blocking` 里，用 `tiny_http` 绑 `127.0.0.1:1455`（源码注释「never exposed externally」），5 分钟无回调即超时返错。它校验 `state`、取 `code`、给浏览器回一张「登录成功」HTML 页，再调 `exchange_code_for_token`。
+- **回调服务只在本机**。`run_callback_server` 跑在 `spawn_blocking` 里，用 `tiny_http` 绑 `127.0.0.1:1455`，5 分钟无回调即超时返错。它校验 `state`、取 `code`、给浏览器回一张「授权回调已收到」页，再调 `exchange_code_for_token`；回调收到不是登录完成，最终状态由应用显示。
 
 - **换 token 时补齐两样东西**。`exchange_code_for_token` POST `TOKEN_URL`（`grant_type=authorization_code` + `code_verifier`）拿回 `TokenData` 后，还会：① 从 JWT 里 `extract_account_id` 填 `account_id`；② 用 `expires_in` 算出绝对的 `expires_at`。
 
-- **登录成功从流程完成站点发通知**。拿到 token 后，`start_oauth_flow_with_auth_url` 内部 `save_token` 落盘并 `fire_notification("auth_success")`，同时把结果写进共享 slot。shell 侧的 `finalize` 稍后从 slot `take()` 取走 token（Tauri 还会写内存缓存并重建 agent；HTTP 侧再 `save_token` 落一次盘）。
+- **登录成功从流程完成处发通知**。拿到令牌后，`start_oauth_flow_with_auth_url` 在阻塞线程内调用 `save_token`，失败即把错误写入共享结果槽并返回，不发 `auth_success`。成功后壳层的 `finalize` 从结果槽取走令牌；HTTP 的再次保存使用 `save_token_async`，避免阻塞异步工作线程。
 
 - **`account_id` 由 `extract_account_id` 统一提取，三处 shell 共用**。它是 `pub` 函数，Tauri / HTTP / CLI 三处的 finalize / restore / status 都调它，从 access_token 里取 `chatgpt_account_id`，作为后续请求 `chatgpt-account-id` header 的来源（注入点在 `crates/ha-agent-runtime/src/providers/codex_adapter.rs`，详见 [`provider-system.md`](provider-system.md)）。
 
@@ -195,7 +195,7 @@ flowchart TD
 
 | 存储 | 内容 |
 |---|---|
-| `~/.hope-agent/credentials/auth.json` | 唯一的 token 持久化文件。路径 = `paths::auth_path()` = `credentials_dir()/auth.json`；`save_token` 用 `serde_json` pretty **明文**直写（见[已知取舍](#已知取舍)） |
+| `~/.hope-agent/credentials/auth.json` | 唯一的令牌持久化文件；`save_token` 经安全原子替换保存 JSON，仍是未加密文件，权限边界见下文 |
 | 进程内共享 slot | Tauri 用 `AppState.auth_result`（`Arc<Mutex<Option<Result<TokenData>>>>`）；HTTP 用 `routes/auth.rs` 的 `OnceLock<AuthResult>`。登录流程写入、`finalize` 从中 `take()` |
 | `AppState.codex_token`（桌面专有） | `Arc<Mutex<Option<(access_token, account_id)>>>` 内存缓存。`finalize` / `try_restore_session` 写入；`set_codex_model` 只读它重建 agent，不写 |
 | `config.json` 的 Codex provider 行 | 经 `provider::ensure_codex_provider_persisted` 落库、`delete_providers_by_api_type(Codex)` 删除，与 token 文件是两套独立存储 |
@@ -243,9 +243,11 @@ CLI 一次性入口（`cli_auth.rs`，每次新建独立 tokio runtime 跑流程
 - **Codex 不参与 failover profile 轮换**：`failover/executor.rs` 里对 `api_type == Codex` 强制关掉 `allow_profile_rotation`（即便调用方传 true 也无效）——OAuth 凭据没有多 profile 可轮换，凭据失败直接走标准失败路径。详见 [`provider-system.md`](provider-system.md)。
 - **登录成功通知只从流程完成站点发**：`auth_success` Notification 从 `start_oauth_flow_with_auth_url` 拿到 token 的地方 fire，**刻意不从 `save_token` fire**——因为 `save_token` 也跑在静默刷新上，从那里发会误报「登录成功」。
 
-### 已知取舍
+### 安全持久化与已知边界
 
-`save_token` 用 `std::fs::write` 明文直写 `auth.json`——既不原子、也不强制 `0600` 权限，与 MCP 凭据（走 `platform::write_secure_file`，两者都保证）不一致。详见 [`platform.md`](../infra/platform.md) / [`security.md`](../infra/security.md)。
+`save_token` 先经 `platform::ensure_credential_directory` 验证凭据目录，再用 `write_secure_file_outcome` 原子替换完整 JSON；拒绝非普通目标文件与符号链接。Unix 将凭据目录收紧至 `0700`、新令牌文件固定为 `0600`，也覆盖旧 `0644` 文件。Windows 拒绝目录重解析点，但仍依赖用户目录继承的 DACL，**没有新增专属 ACL，也不是凭据加密**。
+
+未发布的写入失败返回含 `authentication` 的错误、保留原文件；已发布但目录同步失败时记录不含令牌的警告并采纳新凭据，不假装旧的轮换令牌仍可重试。刷新与 HTTP 异步保存统一经 `save_token_async` 的阻塞池；刷新已保存后不再重复保存。合成回归覆盖原子替换、权限收紧、非普通目标与链接拒绝。详见 [平台原语](../infra/platform.md) / [安全](../infra/security.md)。
 
 ## 跨子系统关系
 
@@ -257,7 +259,7 @@ CLI 一次性入口（`cli_auth.rs`，每次新建独立 tokio runtime 跑流程
 | [Chat Engine](chat-engine.md) / [Side Query](../agent/side-query.md) | LLM 请求前调 `ensure_fresh_codex_token` / `load_fresh_codex_token` 保证 token 新鲜 |
 | [Live 模型评测](../agent/live-model-evaluation.md) | `mint_codex_evaluation_secret` 为隔离评测运行时铸一次性凭据 |
 | [CLI](../system/cli.md) | `auth codex login/status/logout` 子命令 + loopback 端口转发 |
-| [安全](../infra/security.md) / [平台](../infra/platform.md) | token 路径 `auth.json`、登出必 `clear_token`、`save_token` 未走 `write_secure_file` 的缺口 |
+| [安全](../infra/security.md) / [平台](../infra/platform.md) | 令牌路径 `auth.json`、登出必 `clear_token`、安全目录与分阶段原子写入 |
 | [API 参考](../system/api-reference.md) | Tauri ↔ HTTP 七项命令 / 路由对齐 |
 | Hooks | 登录完成 fire `auth_success` Notification；登出 fire `logout` SessionEnd |
 
