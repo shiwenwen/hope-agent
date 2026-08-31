@@ -632,6 +632,17 @@ pub(super) fn write_secure_file_outcome(path: &Path, bytes: &[u8]) -> super::Sec
     write_replace(path, bytes)
 }
 
+pub(super) fn ensure_credential_directory(path: &Path) -> io::Result<()> {
+    fs::create_dir_all(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::other(
+            "credential directory must not be a reparse point or non-directory",
+        ));
+    }
+    Ok(())
+}
+
 /// Atomic write for user documents (knowledge-base notes). On Windows there is no
 /// Unix-style mode to preserve — NTFS DACL inheritance applies — so this shares
 /// the same temp + atomic-replace path as `write_secure_file`.

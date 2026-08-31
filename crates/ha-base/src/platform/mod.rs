@@ -363,6 +363,13 @@ pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Resul
     write_secure_file_outcome(path, bytes).into_legacy_result()
 }
 
+/// Create an application-owned credential directory, rejecting a linked leaf.
+/// Unix restricts it to 0700; Windows retains the user directory's inherited
+/// DACL (this is not an explicit Windows ACL replacement).
+pub fn ensure_credential_directory(path: &std::path::Path) -> std::io::Result<()> {
+    imp::ensure_credential_directory(path)
+}
+
 /// Publication result for a credential-grade atomic file write.
 ///
 /// A successful atomic rename can become visible before syncing its parent

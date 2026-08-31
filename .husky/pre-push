@@ -65,6 +65,10 @@ pnpm lint
 echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-updater)"
 node scripts/verify-updater-pubkey.mjs
 
+echo "[pre-push] workflow supply-chain guards"
+node scripts/check-workflow-supply-chain.mjs
+node --test scripts/__tests__/workflow-supply-chain.test.mjs
+
 echo "[pre-push] crate layering red line (tool_defs → tools)"
   node scripts/analyze-crate-deps.mjs > /dev/null
 

@@ -199,6 +199,13 @@ fn build_chat_body(
         req.reasoning_effort,
         req.max_tokens,
     );
+    apply_official_chat_effort(
+        &mut body,
+        base_url,
+        model,
+        thinking_style,
+        req.reasoning_effort,
+    );
     if let Some(temp) = req.temperature {
         body["temperature"] = json!(temp);
     }
@@ -209,6 +216,55 @@ fn build_chat_body(
     }
 
     (body, api_messages, tools_array)
+}
+
+/// Refine the conservative compatibility mapping only for verified first-party
+/// endpoint/model pairs. Never change stored preferences or infer gateway support.
+fn apply_official_chat_effort(
+    body: &mut Value,
+    base_url: &str,
+    model: &str,
+    thinking_style: &ThinkingStyle,
+    effort: Option<&str>,
+) {
+    if !matches!(thinking_style, ThinkingStyle::Openai) {
+        return;
+    }
+    let Some(effort) = effort else { return };
+    if !matches!(
+        effort,
+        "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+    ) {
+        return;
+    }
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return;
+    };
+    if url.scheme() != "https"
+        || url.port_or_known_default() != Some(443)
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return;
+    }
+    let mapped = match (url.host_str(), model, effort) {
+        (Some("generativelanguage.googleapis.com"), "gemini-3.7-flash", "minimal") => "low",
+        (Some("generativelanguage.googleapis.com"), "gemini-3.7-flash", "xhigh" | "max") => "high",
+        (Some("api.x.ai"), "grok-4.6", "minimal") => "low",
+        (Some("api.x.ai"), "grok-4.6", "xhigh" | "max") => "xhigh",
+        (
+            Some("api.openai.com"),
+            "gpt-5.6" | "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna",
+            "minimal",
+        ) => "low",
+        (
+            Some("api.openai.com"),
+            "gpt-5.6" | "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna",
+            "xhigh" | "max",
+        ) => effort,
+        _ => return,
+    };
+    body["reasoning_effort"] = json!(mapped);
 }
 
 fn log_openai_chat_request(
@@ -1225,8 +1281,8 @@ pub(crate) async fn parse_chat_completions_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_chat_body, decode_chat_completion_sse_data, emit_vision_auto_disabled,
-        finalize_chat_completion_stream, is_unsupported_image_url_error,
+        apply_official_chat_effort, build_chat_body, decode_chat_completion_sse_data,
+        emit_vision_auto_disabled, finalize_chat_completion_stream, is_unsupported_image_url_error,
         is_unsupported_prompt_cache_key_error, mark_prompt_cache_key_unsupported,
         take_next_chat_sse_event_block, validate_chat_sse_eof_tail, OpenAIChatStreamingAdapter,
     };
@@ -1235,6 +1291,62 @@ mod tests {
     use crate::provider::ThinkingStyle;
     use std::collections::HashMap;
     use std::sync::{atomic::AtomicBool, Arc};
+
+    #[test]
+    fn official_chat_effort_is_scoped_to_endpoint_model_and_style() {
+        for (base_url, model, effort, expected) in [
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "gemini-3.7-flash",
+                "minimal",
+                "low",
+            ),
+            ("https://api.x.ai/v1", "grok-4.6", "xhigh", "xhigh"),
+            ("https://api.x.ai/v1", "grok-4.6", "max", "xhigh"),
+            ("https://api.openai.com/v1", "gpt-5.6-sol", "max", "max"),
+            ("https://api.openai.com", "gpt-5.6-terra", "xhigh", "xhigh"),
+            ("https://gateway.example/v1", "grok-4.6", "xhigh", "high"),
+            ("https://api.x.ai.example/v1", "grok-4.6", "xhigh", "high"),
+            ("http://api.x.ai/v1", "grok-4.6", "xhigh", "high"),
+            ("https://api.x.ai:444/v1", "grok-4.6", "xhigh", "high"),
+            ("https://api.x.ai/v1", "grok-4", "xhigh", "high"),
+            ("https://api.openai.com/v1", "custom-gpt-5.6", "max", "high"),
+        ] {
+            let mut body = serde_json::json!({});
+            crate::agent::config::apply_thinking_to_chat_body(
+                &mut body,
+                &ThinkingStyle::Openai,
+                Some(effort),
+                100,
+            );
+            apply_official_chat_effort(
+                &mut body,
+                base_url,
+                model,
+                &ThinkingStyle::Openai,
+                Some(effort),
+            );
+            assert_eq!(
+                body["reasoning_effort"], expected,
+                "{base_url} {model} {effort}"
+            );
+        }
+        for (style, effort) in [
+            (ThinkingStyle::None, Some("max")),
+            (ThinkingStyle::Openai, None),
+            (ThinkingStyle::Openai, Some("none")),
+        ] {
+            let mut body = serde_json::json!({});
+            apply_official_chat_effort(
+                &mut body,
+                "https://api.openai.com",
+                "gpt-5.6-sol",
+                &style,
+                effort,
+            );
+            assert!(body.get("reasoning_effort").is_none());
+        }
+    }
 
     #[test]
     fn chat_stream_requires_done_and_finish_reason() {

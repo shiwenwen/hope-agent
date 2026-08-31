@@ -87,6 +87,7 @@
 | [Agent Team](architecture/agent/agent-team.md)     | 多 Agent 协作团队、双向通信、Kanban 任务看板、用户自定义模板（内置模板已移除） | `team/`               |
 | [Side Query 缓存](architecture/agent/side-query.md) | 复用 prompt cache 降低侧查询成本 90%       | `agent/side_query.rs` |
 | [技术雷达受控实验门](architecture/agent/radar-experiment-gates.md) | Responses benchmark、Offline Batch、MCP Tasks、A2A、Teams、RAG shadow 与 Design 研究项的默认关闭、准入、停止和回滚决策 | 现有 Provider/MCP/Memory/Knowledge/IM/Design 边界；不新增默认外部入口 |
+| [行动卡统一迭代台账](architecture/agent/action-card-ledger.md) | 已产出专项行动卡、综合立项与实验决策的去重核对、完整计划、交付证据与重新评估条件 | 只读取既有报告，不补跑历史检查 |
 | [行为感知](architecture/agent/behavior-awareness.md) | 动态 suffix 注入、三层触发器、LLM Digest、prompt cache 双断点 | `awareness/` |
 | [Failover 系统](architecture/agent/failover.md) | 错误分类、Profile 轮换 + Cooldown + Sticky LRU、退避重试、ContextOverflow 上交 | `failover/` |
 

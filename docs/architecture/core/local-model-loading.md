@@ -1,6 +1,6 @@
 # 本地模型加载与 Embedding 配置
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-08-31
 
 ## 这个子系统解决什么问题
 
@@ -8,7 +8,7 @@
 
 本子系统就是把这一整条链路做成傻瓜式的两个入口，同时不牺牲可控性：
 
-- **快捷卡**（省心入口）：一键完成「装 Ollama → 下推荐模型 → 写配置 → 设为默认」，装完直接能聊天 / 能用于记忆。
+- **快捷卡**（省心入口）：先引导手工安装 Ollama，再一键完成「下推荐模型 → 写配置 → 设为默认」，装完直接能聊天 / 能用于记忆。
 - **本地模型 Tab**（显式管理入口）：搜索、下载、任务进度、启停、加入配置、设为默认、删除，样样手动可控。其中模型库里的「下载」只把权重拉到本地，**不**碰任何配置。
 
 两条关键设计原则贯穿始终：
@@ -118,7 +118,7 @@ interface OllamaStatus {
 - `not-installed`：没找到可用的 Ollama 可执行文件。
 - `installed`：找到了二进制（`ollama --version` 能应答），但 `http://127.0.0.1:11434` ping 不通。
 - `running`：Ollama API 能 ping 通。
-- `installScriptSupported=false`（即 Windows）：前端引导用户去 `https://ollama.com/download` 手动下载，不尝试脚本安装。
+- `installScriptSupported=false`（当前所有平台）：前端引导用户去 `https://ollama.com/download` 手动下载，不尝试脚本安装。
 
 ### 已安装模型聚合
 
@@ -171,13 +171,9 @@ flowchart TD
 
 ### 安装 Ollama
 
-`local_model_job_start_ollama_install` 创建一个 `ollama_install` 任务：
+所有平台暂时关闭脚本安装，前端复用官网下载入口。`install_ollama_via_script_cancellable` 保留旧命令/任务兼容面，但在联网、执行进程和提权前返回明确错误；已取消的请求仍返回取消。旧持久任务重试也不能绕过这一边界。已安装 Ollama 的启动、模型下载及配置功能保持不变。
 
-- **Unix（macOS / Linux）**：下载官方 `install.sh`（出站过 SSRF 检查），落到 `0700` 临时目录，再经系统级图形授权（macOS 用 `osascript`，Linux 依次尝试 root / `pkexec` / `sudo -A`）执行，安装日志实时回传。
-- **Windows**：不支持脚本安装，前端引导到官网下载页。
-- 安装完成后再探一次状态确认装好。
-
-安装任务**只装 Ollama**，不下载模型、不写 Provider / Memory。
+恢复自动安装前，必须固定版本、大小与摘要，并证明脚本的二阶段下载同样经过校验；仅校验可移动的 `install.sh` 不够。`ollama_install` 的历史记录不删除，失败也不会写 Provider 或记忆配置。
 
 ## 后台任务台账
 
@@ -196,10 +192,10 @@ flowchart TD
 
 | Kind | 入口 | 用途 | 完成后的副作用 |
 | --- | --- | --- | --- |
-| `chat_model` | 快捷 LLM 卡 | 装 Ollama + 下推荐 LLM + 预载 | 加入 Ollama Provider、设为全局默认、重建共享 active agent |
-| `embedding_model` | 记忆快捷卡 | 装 Ollama + 下推荐 Embedding + 预载 | 创建 / 更新 Embedding 配置、设为默认记忆模型、派发重嵌入 |
-| `ollama_install` | 本地模型 Tab 顶部按钮 | 只装 Ollama | 无 |
-| `ollama_pull` | 模型库 / 手动 tag 下载 | 装 Ollama + pull 模型 | 无（只表示本地已下载） |
+| `chat_model` | 快捷 LLM 卡 | 已装 Ollama 下，下载推荐 LLM + 预载 | 加入 Ollama Provider、设为全局默认、重建共享 active agent |
+| `embedding_model` | 记忆快捷卡 | 已装 Ollama 下，下载推荐嵌入模型 + 预载 | 创建 / 更新 Embedding 配置、设为默认记忆模型、派发重嵌入 |
+| `ollama_install` | 保留旧入口与任务重试 | 当前拒绝执行，提示手工安装 | 无 |
+| `ollama_pull` | 模型库 / 手动 tag 下载 | 已装 Ollama 下，拉取模型 | 无（只表示本地已下载） |
 | `ollama_preload` | 启动模型 / 装完保活 | 把模型预载进 Ollama 内存 | 无配置副作用；进度可跟踪 |
 | `memory_reembed` | 切换 / 重建记忆向量 | 用新模型重写记忆 embedding | 由 kernel `memory::reembed_job` 拥有 |
 | `knowledge_reembed` | 绑定 / 重建知识库向量 | 用新模型重写知识库 embedding | 由知识库拥有，可按 `target_kb_ids` 范围重建 |

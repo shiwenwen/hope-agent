@@ -10,6 +10,7 @@
 - **Server Owner Token 只许走 Bearer header 或同源登录 body，禁止进 URL**；同源浏览器换 HttpOnly Cookie，跨源 WebSocket / iframe 只用短时、scope 受限票据，资源票据入口必须保持只读 allowlist
 - `tauri.conf.json` CSP 不要放行外部域名
 - OAuth token 在 `~/.hope-agent/credentials/auth.json`，登出时必须 `clear_token()`
+- OAuth 保存只走安全目录与 `write_secure_file_outcome`，异步写经 `save_token_async`；写入未发布不得报登录成功，已发布的令牌轮换不得按旧凭据重试
 
 ## 提交前检查（强制）
 
@@ -21,6 +22,8 @@
 - **评测不进 CI / PR / pre-push**：完整专项评测只本地显式跑（`hope-agent-eval`），默认 `cargo test` 只留快速契约测试；GitHub CI 不构建 ha-eval、不跑评测 smoke。详见 [capability-eval](docs/architecture/agent/capability-eval.md)
 
 ## 分支与发布
+
+- 外部 Actions 固定完整提交摘要；R2 密钥只在读写步骤环境中可见，rclone 先验固定摘要再执行；守卫在 `scripts/check-workflow-supply-chain.mjs`（pre-push / CI 同源）
 
 `main` 开发下个 minor，已发布 minor 各有 `release/vX.Y` 维护分支；跨分支只许 cherry-pick、禁 merge（否则未发布功能漏进维护分支）。
 
@@ -306,6 +309,8 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 ### 本地 LLM 助手
 
 详见 [local-model-loading](docs/architecture/core/local-model-loading.md)。
+
+- Ollama 自动脚本安装当前关闭、所有平台引导手工下载；恢复须证明固定版本、大小、摘要及二阶段下载完整性，不能只验证脚本入口
 
 - 后端锁 Ollama（OpenAI 兼容端点），**App 不接管其进程**；模型目录与硬件预算算法见 `crates/ha-local-llm/src/local_llm/types.rs::model_catalog` / `RECOMMENDATION_BUDGET_PERCENT`（任务台账仍在 kernel `local_model_jobs`）
 - **Provider 写入 contract**：Provider 列表与 `active_model` 一切写入走 [`provider/crud.rs`](crates/ha-core/src/provider/crud.rs) helper（本地安装走 `upsert_known_local_provider_model`），**禁止 `providers.push` / `retain` / 手写 `active_model`**

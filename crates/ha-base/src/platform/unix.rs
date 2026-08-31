@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -708,6 +708,30 @@ fn write_replace(path: &Path, bytes: &[u8], mode: u32) -> super::SecureWriteOutc
 
 pub(super) fn write_secure_file_outcome(path: &Path, bytes: &[u8]) -> super::SecureWriteOutcome {
     write_replace(path, bytes, 0o600)
+}
+
+pub(super) fn ensure_credential_directory(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err(io::Error::other(
+                "credential directory must not be a link or non-directory",
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(path)?;
+        }
+        Err(error) => return Err(error),
+    }
+    // Open without following a replacement link, then chmod the same inode.
+    let directory = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    directory.set_permissions(fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(test)]

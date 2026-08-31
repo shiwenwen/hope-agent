@@ -72,7 +72,7 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         // Anthropic — Claude 5 family
         m if m.contains("claude-fable-5") || m.contains("claude-mythos-5") => (10.0, 50.0),
         m if m.contains("claude-opus-5") => (5.0, 25.0),
-        m if m.contains("claude-sonnet-5") => (3.0, 15.0),
+        m if m.contains("claude-sonnet-5") => (2.0, 10.0),
         // Anthropic — Claude 4.x. Opus 4.5 onwards is $5/$25; only Opus 4/4.1 stayed $15/$75.
         m if m.contains("claude-opus-4-8")
             || m.contains("claude-opus-4-7")
@@ -92,10 +92,10 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("claude-3-haiku") || m.contains("claude-haiku-3") => (0.25, 1.25),
         m if m.contains("claude-4") => (3.0, 15.0),
         // OpenAI — GPT-5.x. Tier suffixes must precede the bare family arm.
-        // Terra / Luna 于 2026-07-30 降价（Terra -20%、Luna -80%）；Sol 未变。
+        // Sol 的 $4/$20 促销至少持续至 2026-11-21；2026-08-31 核验。
         m if m.contains("gpt-5.6-terra") => (2.0, 12.0),
         m if m.contains("gpt-5.6-luna") => (0.20, 1.20),
-        m if m.contains("gpt-5.6") => (5.0, 30.0),
+        m if m.contains("gpt-5.6") => (4.0, 20.0),
         m if m.contains("gpt-5.5-pro") => (30.0, 180.0),
         m if m.contains("gpt-5.5") => (5.0, 30.0),
         m if m.contains("gpt-5.4-pro") => (30.0, 180.0),
@@ -542,7 +542,7 @@ mod tests {
         // Tier suffixes differ in price from the bare family.
         assert_eq!(prices("gpt-5.6-terra"), (2.0, 12.0));
         assert_eq!(prices("gpt-5.6-luna"), (0.20, 1.20));
-        assert_eq!(prices("gpt-5.6-sol"), (5.0, 30.0));
+        assert_eq!(prices("gpt-5.6-sol"), (4.0, 20.0));
         assert_eq!(prices("gpt-5.4-mini"), (0.75, 4.50));
         assert_eq!(prices("gpt-5.4-nano"), (0.20, 1.25));
         assert_eq!(prices("gpt-5.5-pro"), (30.0, 180.0));
@@ -632,8 +632,8 @@ mod tests {
     }
 
     /// Guards against a current model having no arm at all and silently landing on the fallback.
-    /// Only lists models whose real price differs from the default — `claude-sonnet-5` and
-    /// `kimi-k3` are genuinely $3/$15, so a match is indistinguishable from a fall-through here;
+    /// Only lists models whose real price differs from the default —
+    /// `kimi-k3` is genuinely $3/$15, so a match is indistinguishable from a fall-through here;
     /// they are pinned by value in the tests above instead.
     #[test]
     fn current_generation_models_are_not_billed_at_the_default() {
@@ -642,6 +642,7 @@ mod tests {
             "claude-fable-5",
             "claude-mythos-5",
             "claude-opus-5",
+            "claude-sonnet-5",
             "claude-haiku-4-5-20251001",
             "gpt-5.6",
             "gpt-5.5",
@@ -677,15 +678,15 @@ mod tests {
     fn claude_5_family_is_priced_above_opus_tier() {
         assert_eq!(prices("claude-fable-5"), (10.0, 50.0));
         assert_eq!(prices("claude-mythos-5"), (10.0, 50.0));
-        assert_eq!(prices("claude-sonnet-5"), (3.0, 15.0));
+        assert_eq!(prices("claude-sonnet-5"), (2.0, 10.0));
         assert_eq!(prices("claude-haiku-4-5-20251001"), (1.0, 5.0));
         assert_eq!(prices("claude-sonnet-4-6"), (3.0, 15.0));
     }
 
     #[test]
     fn cost_scales_with_token_counts() {
-        // claude-sonnet-5: $3/1M in, $15/1M out.
-        assert!((estimate_cost("claude-sonnet-5", 500_000, 100_000) - (1.5 + 1.5)).abs() < 1e-9);
+        // claude-sonnet-5: $2/1M in, $10/1M out.
+        assert!((estimate_cost("claude-sonnet-5", 500_000, 100_000) - (1.0 + 1.0)).abs() < 1e-9);
         assert_eq!(estimate_cost("claude-sonnet-5", 0, 0), 0.0);
     }
 }

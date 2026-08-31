@@ -89,8 +89,8 @@ pub enum OllamaPhase {
 pub struct OllamaStatus {
     pub phase: OllamaPhase,
     pub base_url: String,
-    /// `true` when the platform supports the bundled install script
-    /// (`curl … install.sh | sh`). Windows users must download manually.
+    /// Whether a verified automatic installer is available. Currently false
+    /// on every platform; the UI links to the official manual download.
     pub install_script_supported: bool,
 }
 

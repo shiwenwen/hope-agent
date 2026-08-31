@@ -481,7 +481,9 @@ pub async fn finalize_codex_auth() -> Result<Json<Value>, AppError> {
     .map_err(|e| AppError::internal(e.to_string()))?;
 
     // Persist token for subsequent sessions.
-    oauth::save_token(&token).map_err(|e| AppError::internal(e.to_string()))?;
+    oauth::save_token_async(&token)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(json!({
         "ok": true,
@@ -568,10 +570,8 @@ pub async fn try_restore_session() -> Result<Json<Value>, AppError> {
             }
         };
         match oauth::refresh_access_token(&refresh).await {
-            Ok(new_token) => {
-                oauth::save_token(&new_token).map_err(|e| AppError::internal(e.to_string()))?;
-                new_token
-            }
+            // refresh_access_token already persists through the blocking pool.
+            Ok(new_token) => new_token,
             Err(_) => {
                 let _ = oauth::clear_token();
                 return Ok(Json(json!({ "restored": false })));

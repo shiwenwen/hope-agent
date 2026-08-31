@@ -78,6 +78,7 @@ flowchart TD
 |---|---|
 | `write_secure_file_outcome(path, bytes) -> SecureWriteOutcome` | **机密专用、结果可判阶段**：写完强制 0600（Unix `chmod` 二次收紧，不受 umask 影响；Windows 依赖用户目录的 NTFS DACL 继承），返回 `Durable` / `PublishedButNotDurable` / `NotPublished`。配置等不能安全重试已发布 mutation 的调用方必须走此入口 |
 | `write_secure_file(path, bytes)` | 兼容入口，沿用 `io::Result<()>`；只有 `Durable` 返回 `Ok(())`，其余两态都映射为 `Err`。调用方若需要判断文件是否已经替换，禁止使用这个兼容入口 |
+| `ensure_credential_directory(path)` | 应用拥有的凭据叶目录：拒绝符号链接/非目录；Unix 通过不跟随链接的目录句柄收紧至 `0700`；Windows 拒绝重解析点，依赖继承 DACL，不声明专属 ACL 或完整祖先路径竞争防御 |
 | `copy_secure_file_atomic(source, target)` | **机密流式快照**：把无界 source 复制到 target 的 credential-grade sibling temp，`fsync` 后原子替换；保持常量内存并清理失败 temp。用于 config/user autosave |
 | `write_atomic(path, bytes)` | **用户文档专用**（知识库笔记等）：目标已存在则**保留其现有权限**，否则用常规默认（Unix 0644）。不强制 0600 |
 | `write_atomic_create_new(path, bytes)` | 原子**创建**，目标已存在则返回 `AlreadyExists`。两端都用 `hard_link` 做 no-clobber 发布（`std::fs::rename` 在 Windows 会替换已存在目标，不能用） |
