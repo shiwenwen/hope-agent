@@ -975,7 +975,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动把 `PLAN_MODE_DENIED_TOOLS` 
 | [`ha-core/src/tools/dispatch.rs`](../../../crates/ha-core/src/tools/dispatch.rs) | **注入决策单一入口**：`resolve_tool_fate()` / `all_dispatchable_tools()` / `is_globally_configured()` Tier 3 配置探针 |
 | [`ha-core/src/tools/definitions/registry.rs`](../../../crates/ha-core/src/tools/definitions/registry.rs) | `is_internal_tool()` / `background_policy_for_tool()` / `is_concurrent_safe()` —— ToolDefinition 元数据缓存 |
 | [`ha-core/src/tools/registry.rs`](../../../crates/ha-core/src/tools/registry.rs) · [`builtin_registry.rs`](../../../crates/ha-core/src/tools/builtin_registry.rs) | 执行分发注册表（名字 → handler）+ 冻结语义 + 全部内置条目 |
-| [`ha-core/src/agent/mod.rs`](../../../crates/ha-core/src/agent/mod.rs) | `build_tool_schemas()` / `build_full_system_prompt()` 共享 `resolve_tool_fate` 单一注入决策；`tool_context()` 构建 ToolExecContext |
+| [`ha-core/src/agent/mod.rs`](../../../crates/ha-core/src/agent/mod.rs) | `build_tool_schemas()` / `build_full_system_prompt()` 共享 `resolve_tool_fate` 单一注入决策；`tool_context_with_usage()` 构建 `ToolExecContext` |
 | [`ha-core/src/system_prompt/sections.rs`](../../../crates/ha-core/src/system_prompt/sections.rs) | `build_tools_section()` / `build_deferred_tools_section()` 渲染 eager 描述段 / deferred 一行索引 |
 | [`ha-core/src/tools/tool_search.rs`](../../../crates/ha-core/src/tools/tool_search.rs) | `tool_search`：按当前 Agent/Skill/Plan 限制过滤可发现工具 + v2 metadata 加权检索 |
 | [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | 工具执行入口、审批门接线（`resolve_async`）、Plan Mode 路径检查、图片 marker 物化；普通文本交 PostToolUse 接纳 |

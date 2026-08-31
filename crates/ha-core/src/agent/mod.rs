@@ -4565,17 +4565,6 @@ impl AssistantAgent {
         ))
     }
 
-    /// Build the "static" system prompt — excludes the dynamic awareness
-    /// suffix which providers append as a separate cache breakpoint.
-    ///
-    /// Currently unused but kept as the named dual of
-    /// [`Self::build_merged_system_prompt`]; compaction call sites use the
-    /// merged form and side-query shortcuts go through `CacheSafeParams`.
-    #[allow(dead_code)]
-    pub(crate) fn build_static_system_prompt(&self, model: &str, provider: &str) -> String {
-        self.build_full_system_prompt(model, provider)
-    }
-
     /// Build the trusted prompt used by the independent compaction call. Data
     /// lanes such as awareness/recall/notes are intentionally absent: placing
     /// them in the summarizer's system message would silently raise their
@@ -4721,12 +4710,6 @@ impl AssistantAgent {
             metadata_sink: None,
             effective_args_sink: None,
         }
-    }
-
-    /// Build a ToolExecContext without token usage info (backward-compatible wrapper).
-    #[allow(dead_code)]
-    pub(crate) fn tool_context(&self) -> crate::tool_defs::ToolExecContext {
-        self.tool_context_with_usage(None)
     }
 
     /// Get the context window size.
