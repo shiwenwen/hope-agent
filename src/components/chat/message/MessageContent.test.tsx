@@ -31,7 +31,9 @@ vi.mock("./ThinkingBlock", () => ({
 
 vi.mock("./ToolCallBlock", () => ({
   default: ({ tool, labelOverride }: { tool: ToolCall; labelOverride?: string }) => (
-    <div data-testid="tool-block" data-label={labelOverride}>{`${tool.name}:${tool.callId}`}</div>
+    <div data-testid="tool-block" data-label={labelOverride} data-result={tool.result}>
+      {`${tool.name}:${tool.callId}`}
+    </div>
   ),
 }))
 
@@ -138,6 +140,31 @@ describe("AssistantContentBlocks processed grouping", () => {
       }
     },
   )
+
+  test("keeps the admitted receipt navigable while exposing a post-commit Stop in details", () => {
+    const stopped = tool(
+      "stopped",
+      "sessions_send",
+      "Cross-session turn was stopped while its message was persisted",
+    )
+    stopped.metadata = {
+      kind: "session_message",
+      sessionId: "destination",
+      messageId: 42,
+      turnId: "stopped-turn",
+    }
+    const onFocus = vi.fn()
+    const unsubscribe = subscribeChatFocus(onFocus)
+    try {
+      renderContentBlocks([{ type: "tool_call", tool: stopped }])
+      fireEvent.click(screen.getByRole("button", { name: "chat.crossSession.sentTo" }))
+      expect(onFocus).toHaveBeenCalledWith({ sessionId: "destination", targetMessageId: 42 })
+      fireEvent.click(screen.getByRole("button", { name: "chat.crossSession.details" }))
+      expect(screen.getByTestId("tool-block").getAttribute("data-result")).toBe(stopped.result)
+    } finally {
+      unsubscribe()
+    }
+  })
 
   test.each([undefined, "Refusing cross-session messaging", "Tool error: target busy"])(
     "does not claim delivery without a backend receipt (%s)",

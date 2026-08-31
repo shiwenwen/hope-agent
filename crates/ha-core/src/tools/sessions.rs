@@ -1073,44 +1073,20 @@ async fn start_proactive_turn(
         anyhow::Ok((outcome, attachments, generated_title))
     })
     .await?;
-    let message_id = match persisted {
+    let (message_id, interrupted) = match persisted {
         crate::chat_engine::active_turn::PersistenceTargetOutcome::Committed(message_id) => {
-            message_id
+            (message_id, false)
         }
-        crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(_) => {
-            let db_for_finish = db.clone();
-            let turn_for_finish = turn_id.clone();
-            crate::blocking::run_blocking(move || {
-                db_for_finish.finish_chat_turn_once(
-                    &turn_for_finish,
-                    crate::session::ChatTurnStatus::Interrupted,
-                    Some(crate::session::ChatTurnInterruptReason::UserStop),
-                    None,
-                    None,
-                )
-            })
-            .await?;
-            if publish_created_session {
-                emit_session_created(&session, session.project_id.as_deref());
-            }
-            crate::chat_engine::stream_broadcast::broadcast_stream_end(
-                &session.id,
-                None,
-                Some(&turn_id),
-                Some(crate::session::ChatTurnStatus::Interrupted),
-                Some(crate::session::ChatTurnInterruptReason::UserStop),
-                None,
-            );
-            return Ok(ProactiveTurnStart::Interrupted {
-                message: "Cross-session turn was stopped while its message was persisted"
-                    .to_string(),
-            });
-        }
+        crate::chat_engine::active_turn::PersistenceTargetOutcome::CommittedAfterCancel(
+            message_id,
+        ) => (message_id, true),
         crate::chat_engine::active_turn::PersistenceTargetOutcome::CancelledBeforeCommit => {
             anyhow::bail!("Cross-session turn was cancelled before persistence");
         }
     };
 
+    // Both committed outcomes admitted a durable message. Publish its receipt
+    // before handling Stop; cancellation only prevents the target execution.
     ctx.emit_metadata(serde_json::json!({
         "kind": "session_message",
         "sessionId": session.id,
@@ -1120,6 +1096,34 @@ async fn start_proactive_turn(
     }))
     .await;
 
+    if interrupted {
+        let db_for_finish = db.clone();
+        let turn_for_finish = turn_id.clone();
+        crate::blocking::run_blocking(move || {
+            db_for_finish.finish_chat_turn_once(
+                &turn_for_finish,
+                crate::session::ChatTurnStatus::Interrupted,
+                Some(crate::session::ChatTurnInterruptReason::UserStop),
+                None,
+                None,
+            )
+        })
+        .await?;
+        if publish_created_session {
+            emit_session_created(&session, session.project_id.as_deref());
+        }
+        crate::chat_engine::stream_broadcast::broadcast_stream_end(
+            &session.id,
+            None,
+            Some(&turn_id),
+            Some(crate::session::ChatTurnStatus::Interrupted),
+            Some(crate::session::ChatTurnInterruptReason::UserStop),
+            None,
+        );
+        return Ok(ProactiveTurnStart::Interrupted {
+            message: "Cross-session turn was stopped while its message was persisted".to_string(),
+        });
+    }
     if publish_created_session {
         emit_session_created(&session, session.project_id.as_deref());
     }
