@@ -180,7 +180,7 @@ brew install --cask hope-agent
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-常规发布提供 Apple Silicon（arm64）原生构建。Intel Mac（x64）安装包由独立构建流程按需提供，请先确认目标版本的 Release 资产确有 x64 DMG；缺失时 Homebrew 和下载页不能提供该版本的 Intel 安装包。当前 `v0.38.0` 尚无 x64 macOS 资产。
+常规发布提供 Apple Silicon（arm64）原生构建。Intel Mac（x64）安装包由独立构建流程按需提供，请先确认目标版本的 Release 资产确有 x64 DMG；缺失时 Homebrew 和下载页不能提供该版本的 Intel 安装包。
 
 ##### 启动方式
 

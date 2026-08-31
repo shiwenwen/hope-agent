@@ -180,7 +180,7 @@ Download `Hope.Agent_*.dmg` from [Releases](https://github.com/shiwenwen/hope-ag
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-Regular releases provide native Apple Silicon (arm64) builds. Intel Mac (x64) packages are produced separately on demand: check that the target release actually contains an x64 DMG before installing. Homebrew and the download page cannot supply an Intel package when that asset is absent. The current `v0.38.0` release has no x64 macOS assets.
+Regular releases provide native Apple Silicon (arm64) builds. Intel Mac (x64) packages are produced separately on demand: check that the target release actually contains an x64 DMG before installing. Homebrew and the download page cannot supply an Intel package when that asset is absent.
 
 ##### Launch modes
 
