@@ -17,6 +17,11 @@ describe("message quick prompt helpers", () => {
     expect(isQuickPromptEligibleUserMessage(user("agent", { fromAgentId: "a1" }))).toBe(false)
     expect(
       isQuickPromptEligibleUserMessage(
+        user("delegated", { sessionMessageSource: { sessionId: "other-chat" } }),
+      ),
+    ).toBe(false)
+    expect(
+      isQuickPromptEligibleUserMessage(
         user("from channel", {
           channelInbound: {
             channelId: "telegram",

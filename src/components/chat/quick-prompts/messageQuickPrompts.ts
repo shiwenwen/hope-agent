@@ -4,6 +4,7 @@ export function isHumanAuthoredUserMessage(msg: Message): boolean {
   return (
     msg.role === "user" &&
     !msg.fromAgentId &&
+    !msg.sessionMessageSource &&
     !msg.isSubagentResult &&
     !msg.isCronTrigger &&
     !msg.isWakeupTrigger &&

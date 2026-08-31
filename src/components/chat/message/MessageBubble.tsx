@@ -54,6 +54,7 @@ import ModelRecoveryBanner from "@/components/chat/ModelRecoveryBanner"
 import ContextCompactedBanner from "@/components/chat/ContextCompactedBanner"
 import RoundLimitReachedBanner from "@/components/chat/RoundLimitReachedBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
+import SessionMessageLink from "./SessionMessageLink"
 import { requestCronTaskFocus } from "@/components/cron/cronNavigation"
 import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
@@ -2238,6 +2239,11 @@ function MessageBubbleInner({
             {msg.channelInbound.senderName && (
               <span className="text-blue-400">· {msg.channelInbound.senderName}</span>
             )}
+          </div>
+        )}
+        {msg.role === "user" && msg.sessionMessageSource && (
+          <div className="mb-1 flex min-w-0 justify-end">
+            <SessionMessageLink direction="received" source={msg.sessionMessageSource} />
           </div>
         )}
         {msg.role === "assistant" && msg.fallbackEvent && (

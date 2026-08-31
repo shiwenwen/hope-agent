@@ -3,6 +3,7 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import PlainTextRenderer from "@/components/common/PlainTextRenderer"
 import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
+import SessionMessageToolResult from "./SessionMessageToolResult"
 import RuntimeControlActivityGroup from "./RuntimeControlActivityGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
@@ -59,6 +60,9 @@ const NO_GROUP_TOOLS = new Set([
   // canvas has a dedicated reopen-card UI in ToolCallBlock; GroupItem
   // doesn't render it, so keep canvas out of the group path.
   "canvas",
+  // Cross-session delivery receipts must stay visible and navigable.
+  "sessions_send",
+  "sessions_create",
 ])
 
 interface MessageContentProps {
@@ -419,6 +423,15 @@ export function AssistantContentBlocks({
       })
       i++
     } else if (block.type === "tool_call") {
+      if (block.tool.name === "sessions_send" || block.tool.name === "sessions_create") {
+        units.push({
+          key: block.tool.callId,
+          markerAlign: "control",
+          node: <SessionMessageToolResult key={block.tool.callId} tool={block.tool} />,
+        })
+        i++
+        continue
+      }
       // ask_user_question — passive indicator on the timeline. The actual
       // dialog is dispatched via a separate event channel, so the card here
       // is just for the user to see "model asked a question" while the answer

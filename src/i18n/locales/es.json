@@ -368,6 +368,12 @@
     "feishuDomainLark": "Lark (Internacional)"
   },
   "chat": {
+    "crossSession": {
+      "sentTo": "Mensaje enviado a «{{title}}»",
+      "receivedFrom": "Enviado desde la conversación «{{title}}»",
+      "untitled": "Conversación sin título",
+      "details": "Ver detalles del mensaje"
+    },
     "addWorkingDirectory": "Agregar directorio de trabajo",
     "askAnything": "Cuéntame tu idea, @ busca archivos/notas/habilidades, # instrucciones rápidas y / comandos rápidos...",
     "goalCompletion": {

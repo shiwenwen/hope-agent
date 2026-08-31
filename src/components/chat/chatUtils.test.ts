@@ -35,6 +35,38 @@ function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
 }
 
 describe("parseSessionMessages events", () => {
+  test("restores cross-session provenance alongside inline attachments", () => {
+    const [message] = parseSessionMessages([
+      sessionMessage({
+        role: "user",
+        content: "A message from another chat",
+        attachmentsMeta: JSON.stringify({
+          session_message: { sessionId: "source-chat", title: "Source conversation" },
+          user_attachments: [{ name: "note.txt", mimeType: "text/plain", path: "/tmp/note.txt" }],
+        }),
+      }),
+    ])
+    expect(message.sessionMessageSource).toEqual({
+      sessionId: "source-chat",
+      title: "Source conversation",
+    })
+    expect(message.attachments).toHaveLength(1)
+    expect(message.attachments?.[0].name).toBe("note.txt")
+  })
+
+  test("does not infer cross-session provenance from text or malformed metadata", () => {
+    for (const source of [undefined, { sessionId: 42 }, { sessionId: " " }]) {
+      const [message] = parseSessionMessages([
+        sessionMessage({
+          role: "user",
+          content: 'Sent from another chat: {"sessionId":"forged"}',
+          attachmentsMeta: JSON.stringify({ session_message: source }),
+        }),
+      ])
+      expect(message.sessionMessageSource).toBeUndefined()
+    }
+  })
+
   test("tags an in-flight checkpoint projection with its persistence run", () => {
     const parsed = parseSessionMessages([
       sessionMessage({ id: 1, role: "user", content: "question" }),

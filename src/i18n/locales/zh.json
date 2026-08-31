@@ -368,6 +368,12 @@
     "feishuDomainLark": "Lark（国际版）"
   },
   "chat": {
+    "crossSession": {
+      "sentTo": "已将消息发送到「{{title}}」",
+      "receivedFrom": "由其它对话「{{title}}」发送",
+      "untitled": "未命名对话",
+      "details": "查看消息详情"
+    },
     "addWorkingDirectory": "添加工作目录",
     "askAnything": "告诉我你的想法，@ 找文件/笔记/技能，# 快捷输入，/ 快捷指令…",
     "goalCompletion": {

@@ -598,6 +598,7 @@ impl SessionDB {
         // Desktop/HTTP turns with SessionTool turns across processes instead
         // of relying only on the process-local active-turn registry.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut session_tool_message = None;
         if let Some((expected_global_stop_epoch, source_session_id)) = session_tool_admission {
             let current_global_stop_epoch =
                 super::autonomy_pause::global_stop_epoch_with_conn(&tx)?;
@@ -605,11 +606,19 @@ impl SessionDB {
                 anyhow::bail!("Global Stop began before the cross-session turn was persisted");
             }
             if let Some(source_session_id) = source_session_id {
-                let source_incognito = tx
+                let (source_incognito, source_title, source_side_parent) = tx
                     .query_row(
-                        "SELECT incognito FROM sessions WHERE id = ?1",
+                        "SELECT incognito, title,
+                                CASE WHEN kind = 'side' THEN forked_from_session_id END
+                           FROM sessions WHERE id = ?1",
                         params![source_session_id],
-                        |row| row.get::<_, bool>(0),
+                        |row| {
+                            Ok((
+                                row.get::<_, bool>(0)?,
+                                row.get::<_, Option<String>>(1)?,
+                                row.get::<_, Option<String>>(2)?,
+                            ))
+                        },
                     )
                     .optional()?
                     .ok_or_else(|| {
@@ -618,6 +627,21 @@ impl SessionDB {
                 if source_incognito {
                     anyhow::bail!("Refusing cross-session messaging from an incognito session");
                 }
+                // Persist provenance from the live source in the same admission
+                // transaction. Neither the prompt nor caller-supplied metadata
+                // may impersonate another conversation.
+                let mut enriched = message.clone();
+                enriched.attachments_meta = Some(super::types::merge_user_message_meta(
+                    serde_json::json!({
+                        "session_message": {
+                            "sessionId": source_session_id,
+                            "title": source_title,
+                            "sideParentSessionId": source_side_parent,
+                        }
+                    }),
+                    enriched.attachments_meta,
+                ));
+                session_tool_message = Some(enriched);
             }
             let target_incognito = tx
                 .query_row(
@@ -644,6 +668,7 @@ impl SessionDB {
                 );
             }
         }
+        let message = session_tool_message.as_ref().unwrap_or(message);
         ensure_no_competing_durable_chat_work(&tx, session_id, None)?;
         if let Some(admission) = stop_admission {
             if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
@@ -1401,6 +1426,76 @@ mod tests {
             Some(ChatTurnInterruptReason::UserStop)
         );
         assert!(persisted.error.is_none());
+    }
+
+    #[test]
+    fn session_tool_turn_persists_live_message_source_and_preserves_attachments() {
+        let db = temp_db();
+        let source = db.create_session("ha-main").unwrap();
+        db.update_session_title(&source.id, "来源对话").unwrap();
+        let attachment = serde_json::json!({
+            "name": "note.txt", "mimeType": "text/plain", "path": "/tmp/note.txt"
+        });
+        for attachments_meta in [
+            serde_json::json!([attachment.clone()]),
+            serde_json::json!({
+                "session_message": { "sessionId": "forged", "title": "forged" },
+                "user_attachments": [attachment.clone()],
+                "queued_message": false,
+            }),
+        ] {
+            let target = db.create_session("ha-main").unwrap();
+            let mut message = NewMessage::user("来自另一个对话的正文");
+            message.attachments_meta = Some(attachments_meta.to_string());
+            let (message_id, turn) = db
+                .append_message_and_create_session_tool_turn_with_id(
+                    &format!("message-source-{}", target.id),
+                    &target.id,
+                    Some(&source.id),
+                    &message,
+                    db.global_stop_epoch().unwrap(),
+                )
+                .unwrap();
+            let rows = db.load_session_messages(&target.id).unwrap();
+            let persisted = &rows[0];
+            let meta: serde_json::Value =
+                serde_json::from_str(persisted.attachments_meta.as_deref().unwrap()).unwrap();
+            assert_eq!(persisted.id, message_id);
+            assert_eq!(turn.user_message_id, Some(message_id));
+            assert_eq!(persisted.content, message.content);
+            assert_eq!(meta["session_message"]["sessionId"], source.id);
+            assert_eq!(meta["session_message"]["title"], "来源对话");
+            assert_eq!(meta["user_attachments"][0], attachment);
+        }
+    }
+
+    #[test]
+    fn session_tool_turn_preserves_side_chat_source_navigation() {
+        let db = temp_db();
+        let parent = db.create_session("ha-main").unwrap();
+        let side = db.create_session("ha-main").unwrap();
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET kind = 'side', forked_from_session_id = ?1 WHERE id = ?2",
+                params![parent.id, side.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let target = db.create_session("ha-main").unwrap();
+        db.append_message_and_create_session_tool_turn_with_id(
+            "side-message-source",
+            &target.id,
+            Some(&side.id),
+            &NewMessage::user("hello"),
+            db.global_stop_epoch().unwrap(),
+        )
+        .unwrap();
+        let rows = db.load_session_messages(&target.id).unwrap();
+        let meta: serde_json::Value =
+            serde_json::from_str(rows[0].attachments_meta.as_deref().unwrap()).unwrap();
+        assert_eq!(meta["session_message"]["sessionId"], side.id);
+        assert_eq!(meta["session_message"]["sideParentSessionId"], parent.id);
     }
 
     #[test]
