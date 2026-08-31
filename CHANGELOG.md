@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-09-01
+
+### Added
+
+- **跨对话消息支持双向跳转**：可从发送回执定位目标消息，也可从收到的消息返回来源对话；来自侧聊的消息会恢复对应的主对话与侧聊面板。 (#691)
+
 ### Fixed
 
 - **登录凭据保存更安全可靠**：收紧文件权限并原子保存，保存失败不再误报登录成功；本地 Ollama 改为先从官网手工安装。 (#689)
