@@ -246,7 +246,7 @@ Windows 上用 `Command` spawn 一个**控制台子系统**程序（`git` / `doc
 | `service::{…}` | `service_install.rs`（保持历史 public API，CLI / updater / Tauri 从该 wrapper 进入系统服务管理，ha-base） |
 | `default_shell_command_tokio` | `tools/exec.rs`（工具 shell 命令执行） |
 | `hide_console` / `hide_console_tokio` | 所有在 Windows 会真实建进程的 `Command`：git 探测（`filesystem/git.rs` / `session/environment.rs` / `plan/git.rs`）、`hostname`/`uname`/`date`（`system_prompt/helpers.rs`）、docker（ha-vcs 经 `docker_command()` 统一）、MCP stdio（`transport.rs`，ha-mcp）、ACP backend（ha-acp）、IM sidecar（`channel/process_manager.rs`）、Chrome（`browser/spawn.rs`）、`gh` / ollama / skill 安装 / hooks shell / 自升级冷烟自检 等 |
-| `write_secure_file_outcome` / `write_secure_file` | 前者供配置持久化（`config/persistence.rs`、`user_config.rs`）区分已发布与未发布；后者供只接受完整 durable success 的兼容调用方。覆盖 MCP OAuth 凭据（`credentials.rs`，ha-mcp）、Server 鉴权（`server_auth.rs`）、外部 Memory Provider 凭据、备份、issue 上报、权限 allowlist、浏览器扩展 broker（ha-browser）、IM 渠道启动状态（ha-channel）、设计部署凭据（ha-design）。**主 LLM OAuth 例外**——见「已知缺口」 |
+| `write_secure_file_outcome` / `write_secure_file` | 前者供主 LLM OAuth 与配置持久化（`config/persistence.rs`、`user_config.rs`）区分已发布与未发布；后者供只接受完整 durable success 的兼容调用方。覆盖 MCP OAuth 凭据（`credentials.rs`，ha-mcp）、Server 鉴权（`server_auth.rs`）、外部 Memory Provider 凭据、备份、issue 上报、权限 allowlist、浏览器扩展 broker（ha-browser）、IM 渠道启动状态（ha-channel）、设计部署凭据（ha-design）。OAuth 同步验证凭据目录，异步调用经阻塞池 |
 | `write_atomic` | 用户文档：知识库笔记（`knowledge/source.rs`，ha-knowledge）、设计产物 / 头像（ha-design / ha-server）、agent 生命周期文件等 |
 | `atomic_replace_binary` / `is_cross_device_rename` | `ha-updater`（自升级二进制热替换）；`is_cross_device_rename` 另用于 `channel/worker/media.rs` |
 | `try_acquire_exclusive_lock` | `runtime_lock.rs`（全局单实例守门：桌面 / `server` / `acp` 三模式共用一把锁，ha-base）、Memory 核心仓库、`git_control.rs`（ha-vcs）、Pet store（ha-pet） |
@@ -260,7 +260,7 @@ Windows 上用 `Command` spawn 一个**控制台子系统**程序（`git` / `doc
 
 ## 已知缺口（技术债）
 
-- **主 LLM OAuth token 落盘没走 `write_secure_file`**：`oauth.rs::save_token` 直接 `std::fs::write(path, json)` 写 `~/.hope-agent/credentials/auth.json`——既不原子（写到一半 crash 留半截 JSON），也不强制 0600（依赖 umask 和父目录继承）。MCP 凭据已切到 `write_secure_file`，这条主 LLM 路径应对齐。改动很小（一行替换 + 错误类型 anyhow↔io），留待一次专门的安全收尾。
+- **主 LLM OAuth 旧缺口已关闭（2026-08-31）**：`save_token` 已迁至安全目录与分阶段原子写，不能再当作未实现事项重复立项；Windows 权限边界仍见下一项。
 - **Windows 显式 DACL**：`write_secure_file_outcome` / `write_secure_file` 在 Windows 仅依赖用户 profile 目录的 NTFS DACL 继承（`~/.hope-agent/` 默认只 owner + SYSTEM/Administrators 可读），**当前实现不会清除继承 ACE，也不会显式重建一份 owner-only DACL**。同进程的低权限子进程理论上能读凭据。当前威胁模型可接受（本机 trust）；需要"零本地信任"姿态时再加显式 DACL pass，结果三态与调用签名无需改变。
 - **`detect_system_proxy` 运行时不刷新**：进程级缓存意味着运行时改系统代理需重启应用。若未来加"代理变更感知"，应给所有平台加同一个缓存失效机制，保持入口语义跨平台一致。
 

@@ -288,7 +288,7 @@ pub fn status() -> DangerousModeStatus;
 
 - **凭据绝不进日志**。任何日志路径（`app_*!` / `tracing` / panic backtrace / 请求响应体落盘）在写出前都必须经 [`logging::redact_sensitive`](../../../crates/ha-base/src/logging/file_ops.rs) 脱敏；错误/正文预览还会额外做长度截断，避免把大段响应体连同其中的密钥一起写进磁盘。API Key / OAuth Token 绝不能出现在任何日志中——一旦模型能读到含密钥的历史，日志就成了泄漏通道。
 - **凭据文件的落盘位置与清理**。核心 LLM 的 OAuth token 落在 `~/.hope-agent/credentials/auth.json`，MCP server 的凭据落在 `~/.hope-agent/credentials/mcp/{server_id}.json`。登出 / 删除 server 时**必须**调用对应的 `clear_token()` / `mcp::credentials::clear()` 清除。
-- **落盘方式的已知不对称**。MCP 凭据经 [`platform::write_secure_file`](../../../crates/ha-base/src/platform/) 做 0600 原子写（temp + fsync + rename）；而主 LLM OAuth 的 `oauth.rs::save_token` 目前仍用 `std::fs::write` 直写，尚未统一到 `write_secure_file`——这是一处已知缺口，记录在 [跨平台抽象层](platform.md) 的"已知缺口"里，待统一。
+- **凭据原子保存**。主 LLM OAuth 与 MCP 均使用[平台安全写原语](platform.md)；OAuth 使用 `write_secure_file_outcome` 区分是否已经发布，并在 Unix 收紧凭据目录和文件权限。Windows 仍依赖继承 DACL，不宣称专属 ACL 或加密。
 - **CSP 不放行外部脚本域名**。`tauri.conf.json` 的 CSP 是一段限制性策略（并非放开）：`script-src` 与 `default-src` 锁定在 `'self'` 和 IPC 通道，`object-src 'none'`、`base-uri 'self'`、`form-action 'self'`。任何需要远端资源的地方都请走后端代理，不要往 CSP 里加外部脚本/框架来源。
 
 ---
