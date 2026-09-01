@@ -5,7 +5,8 @@
 // the two GitHub doc links inside `notes` at the mirrored copies.
 //
 // Usage:
-//   node scripts/rewrite-manifest-for-mirror.mjs <latest.json> <tag> <public-base> [--out=<path>]
+//   node scripts/rewrite-manifest-for-mirror.mjs <latest.json> <tag> <public-base> \
+//     [--asset-map=<path>] [--out=<path>]
 //
 // Example:
 //   node scripts/rewrite-manifest-for-mirror.mjs manifest/latest.json v0.26.0 \
@@ -36,7 +37,7 @@ import fs from "node:fs";
 
 function usage() {
   console.error(
-    "Usage: node scripts/rewrite-manifest-for-mirror.mjs <latest.json> <tag> <public-base> [--out=<path>]",
+    "Usage: node scripts/rewrite-manifest-for-mirror.mjs <latest.json> <tag> <public-base> [--asset-map=<path>] [--out=<path>]",
   );
   process.exit(2);
 }
@@ -44,6 +45,7 @@ function usage() {
 const argv = process.argv.slice(2);
 const outFlag = argv.find((a) => a.startsWith("--out="));
 const docsOutFlag = argv.find((a) => a.startsWith("--docs-out="));
+const assetMapFlag = argv.find((a) => a.startsWith("--asset-map="));
 const [manifestPath, tagRaw, publicBaseRaw] = argv.filter(
   (a) => !a.startsWith("--"),
 );
@@ -67,6 +69,37 @@ const mirrorBase = `${publicBase}/download/${tag}`;
 const RELEASE_ASSET_RE = new RegExp(
   `^https://github\\.com/shiwenwen/hope-agent/releases/download/${tag.replace(/\./g, "\\.")}/(.+)$`,
 );
+const RELEASE_ASSET_API_RE = /^https:\/\/api\.github\.com\/repos\/shiwenwen\/hope-agent\/releases\/assets\/\d+$/;
+
+// tauri-action v1 emits authenticated GitHub asset API URLs instead of the
+// browser download URLs used by v0.x. The numeric asset URL does not contain
+// a filename, so the release workflow supplies an offline map derived from
+// the GitHub Release for this exact tag. The map is data, not authority: only
+// the expected repository's numeric asset URLs and single-segment filenames
+// are accepted.
+const assetApiMap = new Map();
+if (assetMapFlag) {
+  const assetMapPath = assetMapFlag.slice("--asset-map=".length);
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(assetMapPath, "utf8"));
+  } catch (error) {
+    console.error(`[rewrite-manifest] cannot read asset map ${assetMapPath}: ${error.message}`);
+    process.exit(1);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.error("[rewrite-manifest] asset map must be a JSON object of API URL to asset name.");
+    process.exit(1);
+  }
+  for (const [url, name] of Object.entries(parsed)) {
+    const unsafeName = typeof name !== "string" || name.length === 0 || name === "." || name === ".." || name.includes("/") || name.includes("\\") || /[\u0000-\u001f\u007f]/.test(name);
+    if (!RELEASE_ASSET_API_RE.test(url) || unsafeName) {
+      console.error(`[rewrite-manifest] unsafe asset-map entry: ${JSON.stringify(url)} -> ${JSON.stringify(name)}`);
+      process.exit(1);
+    }
+    assetApiMap.set(url, name);
+  }
+}
 
 const problems = [];
 const rewrites = [];
@@ -78,12 +111,22 @@ const mirroredDocs = new Set();
 
 function rewriteAssetUrl(where, url) {
   const m = RELEASE_ASSET_RE.exec(url);
-  if (!m) {
+  let assetPath;
+  if (m) {
+    assetPath = m[1];
+  } else if (RELEASE_ASSET_API_RE.test(url)) {
+    const assetName = assetApiMap.get(url);
+    if (!assetName) {
+      problems.push(`${where}: asset API URL is absent from the release asset map — ${url}`);
+      return url;
+    }
+    assetPath = encodeURIComponent(assetName);
+  } else {
     problems.push(`${where}: not a v${version} release asset URL — ${url}`);
     return url;
   }
-  const next = `${mirrorBase}/${m[1]}`;
-  rewrites.push(`${where}: ${m[1]}`);
+  const next = `${mirrorBase}/${assetPath}`;
+  rewrites.push(`${where}: ${assetPath}`);
   return next;
 }
 
@@ -155,12 +198,16 @@ if (problems.length) {
   process.exit(1);
 }
 
-const remaining = JSON.stringify(manifest).match(
+const serializedManifest = JSON.stringify(manifest);
+const remaining = serializedManifest.match(
   /https:\/\/github\.com\/shiwenwen\/hope-agent\/releases\/download\//g,
 );
-if (remaining) {
+const remainingApi = serializedManifest.match(
+  /https:\/\/api\.github\.com\/repos\/shiwenwen\/hope-agent\/releases\/assets\//g,
+);
+if (remaining || remainingApi) {
   console.error(
-    `[rewrite-manifest] ${remaining.length} GitHub release-download URL(s) survived the rewrite — the mirror manifest must not send anyone back to github.com for bytes.`,
+    `[rewrite-manifest] ${(remaining?.length ?? 0) + (remainingApi?.length ?? 0)} GitHub asset URL(s) survived the rewrite — the mirror manifest must not send anyone back to GitHub for bytes.`,
   );
   process.exit(1);
 }

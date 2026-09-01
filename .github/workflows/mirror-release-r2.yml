@@ -372,6 +372,15 @@ jobs:
           # per-version prefix — so move it out of the asset set.
           test -f "$WORK/assets/latest.json" || { echo "::error::release $TAG has no latest.json"; exit 1; }
           mv "$WORK/assets/latest.json" "$WORK/manifest/latest.json"
+          # tauri-action v1 writes numeric GitHub asset API URLs into
+          # latest.json. Resolve those IDs to filenames from this exact tag's
+          # Release metadata, then let the offline rewrite script validate and
+          # consume the map. Never infer names from signatures or network
+          # redirects.
+          gh api "repos/${{ github.repository }}/releases/tags/$TAG" \
+            --jq '[.assets[] | {key: .url, value: .name}] | from_entries' \
+            > "$WORK/manifest/asset-map.json"
+          jq -e 'type == "object" and length >= 20' "$WORK/manifest/asset-map.json" >/dev/null
           echo "--- assets to mirror ---"
           ls -la "$WORK/assets/"
           count=$(find "$WORK/assets" -type f | wc -l | tr -d ' ')
@@ -390,6 +399,7 @@ jobs:
           mkdir -p "$WORK/out"
           node scripts/rewrite-manifest-for-mirror.mjs \
             "$WORK/manifest/latest.json" "$TAG" "$PUBLIC_BASE" \
+            --asset-map="$WORK/manifest/asset-map.json" \
             --out="$WORK/out/latest.json" --docs-out="$WORK/out/notes-docs.txt"
 
       - name: Assert the notes link only mirrored docs
