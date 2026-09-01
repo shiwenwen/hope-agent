@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
-import { readFileSync, readdirSync } from "node:fs"
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
+import os from "node:os"
+import path from "node:path"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
 import { inspectWorkflow } from "../check-workflow-supply-chain.mjs"
@@ -97,5 +99,73 @@ test("endpoint resolver diagnoses the boolean key/account mixup without receivin
     })
     assert.equal(result.status, status, result.stderr)
     if (same === "true") assert.ok(result.stdout.includes("equals R2_ACCESS_KEY_ID"))
+  }
+})
+
+function runManifestRewrite({ platformUrl, assetMap }) {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "hope-agent-mirror-manifest-"))
+  const manifestPath = path.join(tempRoot, "latest.json")
+  const outputPath = path.join(tempRoot, "rewritten.json")
+  const assetMapPath = path.join(tempRoot, "asset-map.json")
+  writeFileSync(
+    manifestPath,
+    JSON.stringify({
+      version: "0.40.0",
+      notes: "[English](https://github.com/shiwenwen/hope-agent/blob/v0.40.0/docs/release-notes/v0.40.0.en.md)",
+      platforms: { "windows-x86_64": { url: platformUrl, signature: "signed" } },
+      bare_binary: {
+        platforms: {
+          "linux-x86_64": {
+            url: "https://github.com/shiwenwen/hope-agent/releases/download/v0.40.0/hope-agent-0.40.0-linux-x86_64.tar.gz",
+            signature: "signed",
+          },
+        },
+      },
+    }),
+  )
+  writeFileSync(assetMapPath, JSON.stringify(assetMap))
+  const script = fileURLToPath(new URL("../rewrite-manifest-for-mirror.mjs", import.meta.url))
+  const result = spawnSync(process.execPath, [script, manifestPath, "v0.40.0", "https://repo.hopeagent.ai", `--asset-map=${assetMapPath}`, `--out=${outputPath}`], { encoding: "utf8" })
+  return { tempRoot, outputPath, result }
+}
+
+test("mirror manifest resolves tauri-action v1 asset API URLs through the release map", () => {
+  const apiUrl = "https://api.github.com/repos/shiwenwen/hope-agent/releases/assets/540118898"
+  const run = runManifestRewrite({
+    platformUrl: apiUrl,
+    assetMap: { [apiUrl]: "Hope.Agent_0.40.0_x64-setup.exe" },
+  })
+  try {
+    assert.equal(run.result.status, 0, run.result.stderr)
+    const rewritten = JSON.parse(readFileSync(run.outputPath, "utf8"))
+    assert.equal(rewritten.platforms["windows-x86_64"].url, "https://repo.hopeagent.ai/download/v0.40.0/Hope.Agent_0.40.0_x64-setup.exe")
+    assert.equal(rewritten.bare_binary.platforms["linux-x86_64"].url, "https://repo.hopeagent.ai/download/v0.40.0/hope-agent-0.40.0-linux-x86_64.tar.gz")
+    assert.match(rewritten.notes, /repo\.hopeagent\.ai\/download\/v0\.40\.0\/docs\/release-notes/)
+  } finally {
+    rmSync(run.tempRoot, { recursive: true, force: true })
+  }
+})
+
+test("mirror manifest rejects unmapped asset API URLs", () => {
+  const run = runManifestRewrite({
+    platformUrl: "https://api.github.com/repos/shiwenwen/hope-agent/releases/assets/540118898",
+    assetMap: {},
+  })
+  try {
+    assert.equal(run.result.status, 1)
+    assert.match(run.result.stderr, /absent from the release asset map/)
+  } finally {
+    rmSync(run.tempRoot, { recursive: true, force: true })
+  }
+})
+
+test("mirror manifest rejects unsafe filenames in the asset map", () => {
+  const apiUrl = "https://api.github.com/repos/shiwenwen/hope-agent/releases/assets/540118898"
+  const run = runManifestRewrite({ platformUrl: apiUrl, assetMap: { [apiUrl]: "../latest.json" } })
+  try {
+    assert.equal(run.result.status, 1)
+    assert.match(run.result.stderr, /unsafe asset-map entry/)
+  } finally {
+    rmSync(run.tempRoot, { recursive: true, force: true })
   }
 })
