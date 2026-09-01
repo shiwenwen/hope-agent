@@ -1,6 +1,6 @@
 [package]
 name = "ha-acp"
-version = "0.39.0"
+version = "0.40.0"
 description = "Hope Agent ACP feature — ACP stdio server mode + external agent control plane (acp_spawn)"
 license.workspace = true
 authors.workspace = true

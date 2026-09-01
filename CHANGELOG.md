@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-09-02
+
+### Changed
+
+- **项目自动化依赖更新**：升级 GitHub Actions 的检出、Node.js、pnpm、Docker、产物上传下载与 Tauri 发布组件，保持检查、构建和多渠道发布流程使用当前维护版本；应用功能不变。 (#690)
+
 ## [0.39.0] - 2026-09-01
 
 ### Added
