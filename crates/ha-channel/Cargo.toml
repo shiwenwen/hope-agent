@@ -1,6 +1,6 @@
 [package]
 name = "ha-channel"
-version = "0.39.0"
+version = "0.40.0"
 description = "Hope Agent IM channel feature — 12 chat platform plugins, inbound worker pipeline, Feishu business tools"
 license.workspace = true
 authors.workspace = true
