@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-09-03
+
+### Fixed
+
+- **R2 下载与自动更新镜像恢复兼容**：正确识别新版 GitHub Release 资产地址并映射到实际文件名，避免镜像清单因无法解析下载地址而停止发布；异常仓库、缺失映射与不安全文件名仍会拒绝处理。 (#694)
+
 ## [0.40.0] - 2026-09-02
 
 ### Changed
