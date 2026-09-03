@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-09-04
+
+### Added
+
+- **DeepSeek 直连新增图片理解**：新建连接可直接选择 DeepSeek V4 Flash Vision Exp，支持文字与图片输入、百万级上下文和推理；同步修正 V4 Flash / Pro 的高峰费率估算，避免大盘在高峰时段低报成本。 (#696)
+
 ## [0.41.0] - 2026-09-03
 
 ### Fixed
