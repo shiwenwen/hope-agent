@@ -41,6 +41,26 @@ describe("provider template lifecycle hygiene", () => {
     })
   })
 
+  it("advertises only the DeepSeek vision model as image-capable", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "deepseek")
+    expect(
+      provider?.models.find((model) => model.id === "deepseek-v4-flash-vision-exp"),
+    ).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_000_000,
+      maxTokens: 384_000,
+      reasoning: true,
+      costInput: 0.44,
+      costOutput: 1.32,
+    })
+    expect(provider?.models.find((model) => model.id === "deepseek-v4-flash")?.inputTypes).toEqual([
+      "text",
+    ])
+    expect(provider?.models.find((model) => model.id === "deepseek-v4-pro")?.inputTypes).toEqual([
+      "text",
+    ])
+  })
+
   it("does not offer retired direct model IDs to newly configured providers", () => {
     const templateIds = new Set(PROVIDER_TEMPLATES.flatMap((provider) => provider.models.map((m) => m.id)))
     for (const retired of RETIRED_DIRECT_MODEL_IDS) {
