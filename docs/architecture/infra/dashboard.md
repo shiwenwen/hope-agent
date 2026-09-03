@@ -279,7 +279,8 @@ flowchart TD
 | | `gemini-3.5-flash` | 0.15 | 0.60 |
 | xAI | `grok-4.6` / `grok-4.5` | 2.00 | 6.00 |
 | | `grok-4` | 3.00 | 15.00 |
-| DeepSeek | `deepseek-chat` / `-reasoner` | 0.14 | 0.28 |
+| DeepSeek（按高峰价保守估算） | `deepseek-v4-flash` / `-vision-exp` / `deepseek-chat` / `-reasoner` | 0.44 | 1.32 |
+| | `deepseek-v4-pro` | 1.32 | 3.96 |
 | Qwen（CNY 换算） | `qwen3.8-max` | ¥12 / CNY_PER_USD | ¥36 / CNY_PER_USD |
 | | `qwen-max` / `qwen3-max` | ¥2.4 / CNY_PER_USD | ¥9.6 / CNY_PER_USD |
 | 豆包方舟（CNY 换算） | `doubao-seed-2-1-pro` / `-evolving` | ¥6 / CNY_PER_USD | ¥30 / CNY_PER_USD |

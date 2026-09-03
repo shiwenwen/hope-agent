@@ -171,10 +171,11 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("mistral-medium-3-5") => (1.5, 7.5),
         m if m.contains("mistral-medium") => (0.4, 2.0),
         m if m.contains("mistral-small") => (0.15, 0.6),
-        // DeepSeek. `deepseek-chat` / `-reasoner` now alias the V4 tier.
-        m if m.contains("deepseek-v4-pro") || m.contains("DeepSeek-V4-Pro") => (0.435, 0.87),
-        m if m.contains("deepseek-v4-flash") || m.contains("DeepSeek-V4-Flash") => (0.14, 0.28),
-        m if m.contains("deepseek-chat") || m.contains("deepseek-reasoner") => (0.14, 0.28),
+        // DeepSeek. `deepseek-chat` / `-reasoner` now alias the V4 Flash tier.
+        // 2026-08-16 起采用峰谷定价；估算表只能记录一组费率，因此按高峰价保守入账。
+        m if m.contains("deepseek-v4-pro") || m.contains("DeepSeek-V4-Pro") => (1.32, 3.96),
+        m if m.contains("deepseek-v4-flash") || m.contains("DeepSeek-V4-Flash") => (0.44, 1.32),
+        m if m.contains("deepseek-chat") || m.contains("deepseek-reasoner") => (0.44, 1.32),
         m if m.contains("DeepSeek-R1") || m.contains("deepseek-r1") => (0.55, 2.19),
         m if m.contains("deepseek") || m.contains("DeepSeek") => (0.27, 1.1),
         // Qwen。价目源是阿里国内站人民币价（qwen provider 模板同源、标 CNY），表侧
@@ -615,10 +616,11 @@ mod tests {
     /// 这几项对应 templates/*.ts 里直连厂商的价格，改模板时一并改这里。
     #[test]
     fn estimator_matches_direct_provider_template_prices() {
-        assert_eq!(prices("deepseek-reasoner"), (0.14, 0.28));
-        assert_eq!(prices("deepseek-chat"), (0.14, 0.28));
-        assert_eq!(prices("deepseek-v4-pro"), (0.435, 0.87));
-        assert_eq!(prices("deepseek-v4-flash"), (0.14, 0.28));
+        assert_eq!(prices("deepseek-reasoner"), (0.44, 1.32));
+        assert_eq!(prices("deepseek-chat"), (0.44, 1.32));
+        assert_eq!(prices("deepseek-v4-pro"), (1.32, 3.96));
+        assert_eq!(prices("deepseek-v4-flash"), (0.44, 1.32));
+        assert_eq!(prices("deepseek-v4-flash-vision-exp"), (0.44, 1.32));
         assert_eq!(prices("mistral-small-latest"), (0.15, 0.6));
         assert_eq!(prices("mistral-small-2603"), (0.15, 0.6));
         assert_eq!(prices("hy3"), (1.0 / CNY_PER_USD, 4.0 / CNY_PER_USD));
