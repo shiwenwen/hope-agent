@@ -51,7 +51,7 @@ The left side of the Settings page is a navigation column. The table below tells
 | **Security Policy** | Dangerous mode (skip all approvals globally), SSRF outbound policy |
 | **System Health** | Guardian toggle, crash records, full backup and recovery |
 | **Logs** | Log viewer |
-| **About / Update history** | [Version, check for updates, auto-update](01-getting-started.md#16-updating-to-a-new-version) |
+| **About / Update history** | [Version, check for updates, auto-update](01-getting-started.md#16-updating-to-a-new-version), Toolchain Doctor |
 
 > The system tray's behavior (it only shows whether there is a red dot) is fixed and has no separate setting.
 
@@ -119,6 +119,7 @@ Hope Agent uses multiple layers of redundancy to keep itself running reliably ov
 - **Guardian parent/child processes** (desktop): a supervisor process guards the main program and automatically restarts it with backoff after a crash.
 - **System-service keep-alive**: after `hope-agent server install`, the operating system (launchd / systemd) brings it up.
 - **Subsystem self-healing**: MCP reconnects automatically on disconnect, each IM account reconnects independently, and scheduled tasks recover idempotently.
+- **Read-only Toolchain Doctor**: Settings → About → Toolchain Doctor checks the operating system, Docker, Chrome / Chromium, FFmpeg, GitHub CLI, Ollama, Python, LSP, and optional Office / PDF tools, distinguishing detected, supported, degraded, and blocked states. It runs only fixed probes with timeouts and output limits; it never installs, upgrades, starts, or reconfigures system components. The `hope-agent doctor` command returns the same report as Settings.
 - **Crash self-diagnosis**: after a certain number of consecutive crashes, it automatically runs a diagnosis once—first a full backup, then an analysis of the cause using the cheapest available model, followed by a safe in-place fix. **The auto-fix only touches configuration and clearly corrupted databases; it never touches your sessions, memory, skills, or Provider list.**
 - **Server updates over remote / browser connections**: when you access a Hope Agent service through a browser, or switch the desktop app to Remote connection mode (Settings → Server, see [1.4 Access from your phone or another computer](01-getting-started.md#14-access-from-your-phone-or-another-computer)) and connect to a service, a new version pops up a floating card in the bottom-right corner (with release notes, a "Check for updates" button to recheck manually, an "Update" button to confirm installation, and download/restart progress during the install); Settings → About also keeps a persistent card with the same content and its own manual-check entry point. Whether it **auto-notifies** and whether checking is **allowed at all** is decided by that **server's own** Settings → About → Auto-update policy, not by the connecting client locally—this is a completely separate mechanism from the update flow for the local embedded desktop mode itself (see [1.6 Updating to a new version](01-getting-started.md#16-updating-to-a-new-version)), so the same process is never prompted twice. Some deployments (such as Docker) can't hot-swap the binary in place and only show instructions (such as pulling the new image and recreating the container) instead of installing automatically.
 

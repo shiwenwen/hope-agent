@@ -78,6 +78,8 @@ All three modes apply to every channel; set them in the account editor, or switc
 
 The AI's thinking process is discarded by default; `/reason on` turns it on.
 
+With account-level native streaming enabled, Slack and Telegram carry the whole turn in one platform-native stream; `split / final / preview` still decides how rounds are presented. Slack can show task or plan status inside the message, with action buttons appearing in its final state. Telegram DMs use a transient draft for progress, then replace it with a rich final message. If the platform's delivery result is ambiguous, Hope does not resend through the compatibility path, avoiding duplicate replies.
+
 > Microsoft Teams is not built in. An isolated connector/plugin evaluation starts only after at least three active design partners and four consecutive weeks with at least 20 weekly active users, or a concrete enterprise contract.
 
 ---

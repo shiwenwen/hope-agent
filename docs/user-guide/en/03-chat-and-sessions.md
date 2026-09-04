@@ -19,6 +19,7 @@ This chapter covers everyday use: how to use the chat interface, how to send ima
 ## 3.1 The chat interface
 
 - **Send**: by default, `Enter` sends and `Shift+Enter` inserts a line break. You can switch to `Enter` for a line break and `Ctrl+Enter` to send in Settings → Chat & Context → Basics.
+- **Keep your reading position after sending**: after you send, the current question stays near the top and nearly one screen of room is reserved below for the reply. A short streaming reply no longer keeps pushing your question upward; once a long reply exceeds that space, the view follows the bottom as usual.
 - **Stop**: while a reply is being generated, the send button turns into a square "Stop" button; click it to interrupt the current reply (equivalent to `/stop`).
 - **Browse history**: with the cursor in an empty input box, press `↑` / `↓` to browse messages you sent earlier (much like terminal history).
 - **Queue while busy**: if you send a message while the AI is still replying, it goes into a "pending queue"—you can edit it, delete it, or send it as the next standalone round. Whether queued messages are sent automatically once the AI is idle is controlled by the "Auto-send queued messages" setting (on by default).
@@ -52,6 +53,7 @@ A few special characters in the input box let you reference things quickly:
 
 > - `@skill` mentions are only available for a small set of fixed built-in skills (the office trio, data analysis, browser control, macOS control), and in the main chat you must first enable "Skill mentions" in Settings (off by default).
 > - The content injected by `[[note]]` note mentions and `@` file mentions is treated as "untrusted external data" and is never interpreted as instructions to the AI.
+> - An `@` file is bound to the effective workspace at selection time. If you change the project, session, or working directory before sending, the mention becomes invalid instead of silently redirecting its relative path into another workspace.
 
 ---
 
@@ -65,7 +67,7 @@ The model's reasoning is shown as a collapsible "Thinking block" with a brain ic
 
 Every time the AI calls a tool (reading a file, running a command, searching, etc.) it shows a block with the tool name, arguments, result, **elapsed time**, and success / failure status. Several consecutive completed tool steps are automatically collapsed into one "Processed" group to keep the interface tidy.
 
-Some special tools have their own cards, such as the question card (`ask_user_question`), the plan card, the task checklist, the skill-activation block, the sub-agent block, and so on.
+Some special tools have their own cards, such as the question card (`ask_user_question`), the plan card, the task checklist, the skill-activation block, the sub-agent block, and so on. An answered question card stays as a one-line summary while collapsed; expand it to see the original question and context, every option's description and recommended marker, and what you actually selected or typed. Timeouts remain clearly marked.
 
 ### The right-side panel
 
@@ -115,10 +117,17 @@ In file previews (code / text, Markdown, rich Office previews), managed HTML / A
 
 - **New conversation**: "New" in the sidebar, or `/new`. When you start a new conversation inside a project, it stays as a draft first and is only saved once you send the first message.
 - **The AI creating a session / sending a message**: the model can call the built-in `sessions_create` tool to create a new regular session—optionally bound to a Project (defaults to the current one), with an Agent (resolved via the Project's default-agent chain, or the current Agent, when omitted), a title, inline attachments (up to 64, text or Base64 content only—no file paths), and a first message. Supplying a message or attachments immediately starts the target Agent's first turn. The resulting session is a **fully persistent, sidebar-visible regular session**, no different from one you created by hand—you can switch to it, stop it, and continue it normally. `sessions_send` similarly submits a new turn to an **existing** regular session; it's refused whenever the source or target is an Incognito session, or the target isn't a regular session (e.g. a scheduled task, IM, Knowledge Space, Design Space, or sub-agent session). Neither tool prompts for approval by default (like most non-edit built-in tools); if you want the AI to pause for confirmation before creating a session or sending into one, add them to the agent's custom approval tool list under Agent settings → Approval.
+- **Following cross-session messages**: when the AI sends a message to another conversation, the sender gets a clickable delivery receipt that opens the target and locates that exact message; the recipient also gets a source link. If the source is a side chat, navigation restores both its main conversation and side-chat panel. These links survive reloads. A receipt means the message was committed, not that the target Agent's subsequent work necessarily succeeded.
 - **Session list**: the sidebar is sorted by most recently updated and can be pinned (pinned sessions are gathered into a dedicated "Pinned" group at the top of the sidebar, aggregated across projects and IM channels; the group disappears when nothing is pinned, and can be collapsed / expanded). It has two browsing tabs, "Sessions" and "Sub-Agents". Sessions for scheduled tasks, Incognito, the Knowledge Space, and the Design Space **do not appear in the main list**. Hovering over a session row pops up a details card showing its project, working directory, model, and Git status (branch, changed-file count, added/removed lines, conflicts); you can pin or archive the session directly from the card without switching to it first.
 - **Switch / rename / archive**: click to switch; you can rename manually (a manual name won't be overwritten by the auto title). Archiving hides a conversation from everyday lists and search while retaining its messages, project, and Agent association.
 - **Restore / permanently delete**: in **Settings → Archived conversations**, search or filter by type and project, then restore any conversation. Permanent deletion is available only there and asks for confirmation; it also removes messages and attachments and cannot be undone.
 - **Continue in a new session (Fork)**: copies the current session into a new, independent session (copying the conversation content and configuration, but not any running goal, ongoing progression, or background jobs).
+
+### Side chats
+
+Enter `/side your question`, or select text in a message and choose "Ask in side chat," to start an independent follow-up from the main conversation's completed, stable history without interrupting its running task. One main conversation can keep several side chats, and the main conversation and side chats can generate at the same time. Closing the panel only hides it; reopen it later from the entries above the composer.
+
+A side chat inherits the Agent, model, project, working directory, permissions, sandbox, and completed history present when it is created, then evolves independently. It can choose its own model, add attachments, and use tools. It stays out of the regular sidebar, global search, and regular unread counts, and does not currently support Plan or Workflow mode. The main conversation owns its lifecycle: archiving only hides it, but permanently deleting the main conversation also permanently deletes all of its side chats.
 
 ### Search
 

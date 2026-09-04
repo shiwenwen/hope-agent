@@ -57,15 +57,19 @@ Hooks let you attach custom handlers at key moments (before/after tool calls, se
 
 **Four scope layers** (all stack together):
 
-- **User / managed**—apply globally.
-- **Project / local**—apply per session working directory, **disabled by default** (supply-chain protection); you must explicitly enable "Allow project & local hooks" in settings.
+- **User**—maintained by you in app settings and applied globally.
+- **Managed**—deployed centrally by a system administrator and applied globally.
+- **Project**—loaded from `.hope-agent/hooks.json` in the current session working directory and suitable for sharing with a repository.
+- **Local**—loaded from `.hope-agent/hooks.local.json` in the current session working directory and suitable for personal configuration kept out of version control.
+
+Project and local hooks **do not run by default**. Add each exact absolute path under Settings → Hooks → Trusted Hook workspaces and save it. Approval is bound both to the canonical path and to the contents of the two Hook files at that moment. A path alias, symlink, directory move, added or removed file, or any content change invalidates trust immediately. To reapprove, remove and save the workspace first, then add and save it again.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Disable all hooks | Off | Turn off all hooks in one click |
-| Allow project & local hooks | Off | Whether hooks checked into a repository take effect per directory |
+| Trusted Hook workspaces | Empty | Allow project / local hooks only when the exact path and approved contents match |
 
-> Hooks are a **high-risk** feature (they can run arbitrary commands), so **the AI can only read hook configuration, not change it**—it can only be edited in the interface, preventing the AI from equipping itself with command-execution capabilities.
+> Hooks are a **high-risk** feature (they can run arbitrary commands and see the complete input of matched tools), so **the AI can only read hook configuration, not change it**—it can only be edited in the interface, preventing the AI from equipping itself with command-execution capabilities.
 
 ---
 

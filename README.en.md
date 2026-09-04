@@ -333,7 +333,7 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 <tr>
   <td width="140"><b>📦 Model providers</b></td>
   <td>
-    <b>40+ templates · 300+ preset models</b><br/>
+    <b>About 50 templates · Several hundred preset models</b><br/>
     <b>International</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>China</b> · DeepSeek · Moonshot (Kimi) · Qwen · Doubao (Volcengine) · Z.AI (GLM) · MiniMax · Xiaomi MiMo<br/>
     <b>Local</b> · Ollama · any OpenAI-compatible endpoint
