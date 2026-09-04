@@ -333,7 +333,7 @@ pnpm tauri build       # 打生产包
 <tr>
   <td width="140"><b>📦 模型 Provider</b></td>
   <td>
-    <b>40+ 个模板 · 300+ 个预设模型</b><br/>
+    <b>约 50 个模板 · 数百个预设模型</b><br/>
     <b>国际</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>国内</b> · DeepSeek · Moonshot (Kimi) · 通义千问 (Qwen) · 豆包 (火山引擎) · 智谱 GLM · MiniMax · 小米 MiMo<br/>
     <b>本地</b> · Ollama · 任意 OpenAI 兼容端点

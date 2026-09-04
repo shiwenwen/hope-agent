@@ -24,7 +24,7 @@ This chapter explains how to get the AI working with a model: connecting a model
 
 ## 2.1 Connecting a model service (Provider)
 
-Hope Agent connects to each vendor's large models through a "**provider + API key**" pairing. It ships with **40+ provider templates and 300+ preset models**, and also supports any custom OpenAI-compatible or Anthropic endpoint.
+Hope Agent connects to each vendor's large models through a "**provider + API key**" pairing. It ships with **about 50 provider templates and several hundred preset models**, and also supports any custom OpenAI-compatible or Anthropic endpoint. Templates change as releases add or retire options, so the list shown by Add Provider is authoritative.
 
 **Where**: Settings → **Model Configuration** → **Providers** tab → click "**Add Provider**" in the top right.
 
@@ -41,6 +41,8 @@ The first page of the add wizard offers five paths:
 Click a template (such as Anthropic, OpenAI, DeepSeek, or Tongyi Qianwen) to open its configuration page and fill in the **API key** (for some local / unauthenticated endpoints the key is marked "optional"). You can click "Test connection" to verify, then "Done" to save. The template has already pre-filled the endpoint address, API type, thinking style, and model list — usually you don't need to change anything.
 
 After you add a provider, the system automatically sets its first model as the current default model, so you can start chatting right away.
+
+> **DeepSeek vision model**: New direct DeepSeek providers can select **DeepSeek V4 Flash Vision Exp**. It supports image input, a million-token context window, and reasoning. Existing DeepSeek configurations are not rewritten automatically; add model ID `deepseek-v4-flash-vision-exp` manually when needed, or create the connection again.
 
 ### Custom provider
 
@@ -316,13 +318,16 @@ Configure fetch parameters for the `web_fetch` tool (pure parameters, no provide
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Max characters | 50000 | The content limit injected into the model |
+| Max Token budget | 32768 | Hard limit on the Token budget a tool call may request |
 | Max response body | 2 MiB | The download size limit |
 | Timeout | 30 seconds | 1–120 seconds |
 | Max redirects | 5 | 0–20 |
 | Cache TTL | 15 minutes | 0–1440 minutes |
-| **SSRF protection** | **On** | Blocks access to intranet / metadata addresses to prevent server-side request forgery |
+| Default render mode | Never | "Auto" tries an isolated browser only when direct fetch is insufficient; "Always" is also available |
 
-> **We recommend keeping SSRF protection on**. Turning it off allows intranet addresses and poses a security risk. All outbound requests follow a unified security policy; see [13 · Settings & Security](13-settings-and-security.md).
+When a response is safe to reuse, `web_fetch` keeps the first retrieval as an **immutable in-process snapshot**. When a long page is continued in sections, its cursor stays on that exact content instead of drifting when the live page changes, and continuation does not refetch it from the network. A continuation cursor lasts for up to 15 minutes. If the site returns `Set-Cookie` or `Cache-Control: private/no-store`, Hope retains no snapshot and issues no continuation cursor; those responses, an expired cursor, and a process restart all require another fetch. It directly handles HTML, JSON, XML, Markdown / CSV / plain text, common text encodings, and PDF. Dynamic pages use a fresh isolated browser only when rendering is allowed, without your cookies or signed-in state. The AI can choose prefer-cache, live, or cache-only freshness per request and returns content within character / Token budgets; the actual source and freshness details appear in the workbench.
+
+> Web fetch does not accept cookies, authentication headers, or arbitrary request methods; use the browser tool for signed-in interactions. SSRF protection is mandatory, and its effective policy is managed centrally under Settings → Security Policy; see [13 · Settings & Security](13-settings-and-security.md).
 
 ---
 

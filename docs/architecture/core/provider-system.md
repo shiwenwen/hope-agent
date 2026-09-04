@@ -120,12 +120,12 @@ flowchart TD
 
 | 文件 | 类别 | Provider 数（约） | 特点 |
 |------|------|:---:|------|
-| `international.ts` | 国际 | 8 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek 等一线厂商 |
+| `international.ts` | 国际 | 7 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek 等一线厂商 |
 | `china.ts` | 国内 | 11 | Kimi / 通义千问 / 豆包 / 智谱 / MiniMax 等，多标 CNY 计价 |
 | `infrastructure.ts` | 基础设施 / 聚合 | 26 | OpenRouter / Groq / Together / Fireworks / 各类网关与 TEE 推理 |
 | `local.ts` | 本地 / 自托管 | 5 | Ollama / LiteLLM / vLLM / LM Studio / SGLang，指向 `127.0.0.1` |
 
-> 精确复核：`grep -c '^\s*id:' src/components/settings/provider-setup/templates/{international,china,infrastructure,local}.ts` 数模型条目。
+> 精确复核：Provider 数量以四个模板数组的顶层 `key` 为准，模型数量以各 Provider 的 `models[*].id` 为准；`templateHygiene.test.ts` 负责校验关键能力与模型参数。不要用全文 `id:` 行数推导 Provider 数量。
 
 模板里最值得记的是**协议归类**——大多数国内/聚合服务商都用 `openai-chat`（OpenAI 兼容），少数走原生 `anthropic`（MiniMax、Kimi Coding、Synthetic 等），OpenAI 官方与 GitHub Copilot 走 `openai-responses`。推理格式则跟着服务商走：智谱标 `zai`、通义/百炼标 `qwen`、Anthropic 系标 `anthropic`，其余多为 `openai`。这套"模板 → ApiType → ThinkingStyle"的映射就是新增服务商时要填对的三件事。
 
@@ -134,6 +134,10 @@ flowchart TD
 - Cloudflare 新建模板使用账户 REST 路径 `https://api.cloudflare.com/client/v4/accounts/{accountId}/ai/v1`，第三方模型带 `anthropic/` 前缀，用户须填写账户 ID 与适用的 Cloudflare Token。已有网关配置不自动改写；Workers AI 还需网关标识请求头，不在该第三方模型模板中冒充支持。[官方 REST 说明](https://developers.cloudflare.com/ai-gateway/usage/rest-api/)
 - Copilot 新建默认列表移除 7 月已退役的 Gemini 2.5 Pro / 3 Flash，以及 9 月 1 日将退役的 Gemini 3.1 Pro、Opus 4.6、Sonnet 4.6、Raptor mini。Sonnet 4.6 年付个人计划的例外仍可自行配置，既有配置不删除，也不把账户目录等同于全局可用性。[7 月公告](https://github.blog/changelog/2026-07-31-gemini-2-5-pro-and-gemini-3-flash-deprecated/)、[9 月退役公告](https://github.blog/changelog/2026-07-31-upcoming-august-2026-model-deprecations-in-github-copilot/)
 - OpenAI 直连的 GPT-5.6 / Sol 基础输入/输出价为每百万令牌 4/20 美元，促销至少持续至 2026-11-21；Sonnet 5 直连基础价为 2/10 美元，已转为长期定价。同步内置估算表，不覆盖用户价格或网关模板报价。缓存、长上下文阶梯、实际账单与历史价不是本表表达的内容，大盘仍是估算而非账单；促销结束前重新核验。[Sol 定价](https://developers.openai.com/api/docs/models/gpt-5.6-sol)、[Claude 定价](https://platform.claude.com/docs/en/about-claude/pricing)
+
+#### 2026-09-04 DeepSeek V4 视觉模型
+
+DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `openai-chat` 协议。模型目录明确声明 `inputTypes: ["text", "image"]`、百万 Token 上下文与推理能力，因此可直接接收图片，无需视觉桥代转。Dashboard 估价表同步识别该 ID，并按 DeepSeek 当前高峰费率保守估算 Flash / Pro；实际账单仍以厂商时段计价为准。模板只影响新建 Provider，既有用户配置绝不自动增删模型或改价；需由用户手动加入该模型，或重建 DeepSeek 连接。
 
 ### 1.6 Provider 写入契约
 
