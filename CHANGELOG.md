@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-09-05
+
+### Changed
+
+- **中英文使用说明与当前功能保持一致**：补充 DeepSeek 图片理解、网页稳定快照、跨对话跳转、侧聊、IM 原生流式回复、Hook 工作区授权与工具链诊断等说明，并更正普通长工具输出在压缩后可恢复全文的旧表述。 (#699)
+
 ## [0.42.0] - 2026-09-04
 
 ### Added
