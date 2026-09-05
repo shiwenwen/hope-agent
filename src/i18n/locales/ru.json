@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (бюджет рассуждений)",
     "contextWindow": "Окно контекста",
     "maxTokens": "Макс. жетонов",
-    "costUnpriced": "Без цены"
+    "costUnpriced": "Без цены",
+    "catalogPriceTitle": "Использовать цену из каталога для {{model}}?",
+    "catalogPriceDescription": "В каталоге {{source}} цена ввода/вывода составляет {{input}} / {{output}} за миллион токенов ({{currency}}). Цена посредника может отличаться.",
+    "catalogPriceKeep": "Сохранить текущую цену",
+    "catalogPriceApply": "Использовать цену из каталога"
   },
   "notification": {
     "cronCancelled": "Запланированная задача отменена",

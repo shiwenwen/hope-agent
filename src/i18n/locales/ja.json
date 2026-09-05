@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI（思考予算）",
     "contextWindow": "コンテキストウィンドウ",
     "maxTokens": "最大トークン数",
-    "costUnpriced": "価格未設定"
+    "costUnpriced": "価格未設定",
+    "catalogPriceTitle": "{{model}} のカタログ価格を使用しますか？",
+    "catalogPriceDescription": "{{source}} の入力/出力価格は 100 万トークンあたり {{input}} / {{output}}（{{currency}}）です。中継サービスの価格とは異なる場合があります。",
+    "catalogPriceKeep": "現在の価格を保持",
+    "catalogPriceApply": "カタログ価格を使用"
   },
   "notification": {
     "cronCancelled": "スケジュールタスクをキャンセルしました",

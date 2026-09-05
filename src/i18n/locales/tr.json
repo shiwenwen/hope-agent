@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (düşünme bütçesi)",
     "contextWindow": "Bağlam penceresi",
     "maxTokens": "Maksimum jeton",
-    "costUnpriced": "Fiyatsız"
+    "costUnpriced": "Fiyatsız",
+    "catalogPriceTitle": "{{model}} için katalog fiyatı kullanılsın mı?",
+    "catalogPriceDescription": "{{source}}, milyon token başına giriş/çıkış fiyatını {{input}} / {{output}} ({{currency}}) olarak listeliyor. Aracı hizmetin fiyatı farklı olabilir.",
+    "catalogPriceKeep": "Mevcut fiyatı koru",
+    "catalogPriceApply": "Katalog fiyatını kullan"
   },
   "notification": {
     "cronCancelled": "Zamanlanmış görev iptal edildi",

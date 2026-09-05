@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (orçamento de raciocínio)",
     "contextWindow": "Janela de contexto",
     "maxTokens": "Máximo de tokens",
-    "costUnpriced": "Sem preço"
+    "costUnpriced": "Sem preço",
+    "catalogPriceTitle": "Usar o preço do catálogo para {{model}}?",
+    "catalogPriceDescription": "{{source}} informa preços de entrada/saída de {{input}} / {{output}} por milhão de tokens ({{currency}}). O preço do intermediário pode ser diferente.",
+    "catalogPriceKeep": "Manter o preço atual",
+    "catalogPriceApply": "Usar o preço do catálogo"
   },
   "notification": {
     "cronCancelled": "Tarefa agendada cancelada",

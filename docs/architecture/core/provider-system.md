@@ -129,6 +129,12 @@ flowchart TD
 
 模板里最值得记的是**协议归类**——大多数国内/聚合服务商都用 `openai-chat`（OpenAI 兼容），少数走原生 `anthropic`（MiniMax、Kimi Coding、Synthetic 等），OpenAI 官方与 GitHub Copilot 走 `openai-responses`。推理格式则跟着服务商走：智谱标 `zai`、通义/百炼标 `qwen`、Anthropic 系标 `anthropic`，其余多为 `openai`。这套"模板 → ApiType → ThinkingStyle"的映射就是新增服务商时要填对的三件事。
 
+#### 模型目录补全
+
+`provider-setup/model-catalog.ts` 聚合全部内置模板，供新增与编辑模型时的 `ModelIdCombobox` 按模型 ID、显示名或服务商名检索。目录不发起网络探测，也不代表当前端点实际支持该模型；占位模型不进入候选。同一大小写敏感 ID 只有在输入模态、上下文窗口、最大输出与推理能力一致时才合并，能力不同的来源保留独立候选。
+
+选择候选会填入模型 ID、显示名、输入模态、上下文窗口、最大输出和推理能力；当前服务商的端点、API 类型、凭据及模型推理参数格式保持不变。模型 ID 输入关闭系统自动纠错、自动大写和拼写检查。目录保留各来源的币种与报价，只提供当前服务商币种一致的首个报价，不作汇率转换；价格不同则先弹出来源与单价确认，取消保留原价，确认才覆盖输入与输出单价（`null` 与 `0` 语义不变）。自定义向导可选择 USD / CNY，测试与保存使用同一币种。
+
 #### 2026-08-31 模板核验与迁移边界
 
 - Cloudflare 新建模板使用账户 REST 路径 `https://api.cloudflare.com/client/v4/accounts/{accountId}/ai/v1`，第三方模型带 `anthropic/` 前缀，用户须填写账户 ID 与适用的 Cloudflare Token。已有网关配置不自动改写；Workers AI 还需网关标识请求头，不在该第三方模型模板中冒充支持。[官方 REST 说明](https://developers.cloudflare.com/ai-gateway/usage/rest-api/)

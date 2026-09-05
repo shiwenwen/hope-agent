@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (bajet pemikiran)",
     "contextWindow": "Tetingkap konteks",
     "maxTokens": "Token maks",
-    "costUnpriced": "Tiada harga"
+    "costUnpriced": "Tiada harga",
+    "catalogPriceTitle": "Gunakan harga katalog untuk {{model}}?",
+    "catalogPriceDescription": "{{source}} menyenaraikan harga input/output {{input}} / {{output}} bagi setiap sejuta token ({{currency}}). Harga perkhidmatan perantara mungkin berbeza.",
+    "catalogPriceKeep": "Kekalkan harga semasa",
+    "catalogPriceApply": "Gunakan harga katalog"
   },
   "notification": {
     "cronCancelled": "Tugas berjadual dibatalkan",

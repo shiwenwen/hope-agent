@@ -21,11 +21,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core"
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  arrayMove,
-} from "@dnd-kit/sortable"
+import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable"
 import {
   ArrowLeft,
   ArrowRight,
@@ -39,7 +35,7 @@ import {
   Settings2,
 } from "lucide-react"
 import { SortableModelEditor } from "./ModelEditor"
-import type { ApiType, ModelConfig, ThinkingStyleType } from "./types"
+import type { ApiType, Currency, ModelConfig, ThinkingStyleType } from "./types"
 
 interface CustomWizardProps {
   customStep: number
@@ -56,6 +52,8 @@ interface CustomWizardProps {
   setModels: (v: ModelConfig[]) => void
   thinkingStyle: ThinkingStyleType
   setThinkingStyle: (v: ThinkingStyleType) => void
+  currency: Currency
+  setCurrency: (v: Currency) => void
   showApiKey: boolean
   setShowApiKey: (v: boolean) => void
   testResult: TestResult | null
@@ -85,6 +83,8 @@ export function CustomWizard({
   setModels,
   thinkingStyle,
   setThinkingStyle,
+  currency,
+  setCurrency,
   showApiKey,
   setShowApiKey,
   testResult,
@@ -153,6 +153,7 @@ export function CustomWizard({
           apiKey,
           userAgent: "claude-code/0.1.0",
           thinkingStyle,
+          currency,
           models,
           enabled: true,
         },
@@ -323,6 +324,21 @@ export function CustomWizard({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("provider.currency")}
+                </label>
+                <Select value={currency} onValueChange={(value) => setCurrency(value as Currency)}>
+                  <SelectTrigger className="text-xs font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">{t("provider.currencyUsd")}</SelectItem>
+                    <SelectItem value="CNY">{t("provider.currencyCny")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">{t("provider.currencyDesc")}</p>
+              </div>
               <Button
                 variant="secondary"
                 size="sm"
@@ -393,6 +409,7 @@ export function CustomWizard({
                 >
                   {models.map((model, i) => (
                     <SortableModelEditor
+                      currency={currency}
                       key={`model-${i}`}
                       sortableId={`model-${i}`}
                       model={model}
@@ -413,6 +430,7 @@ export function CustomWizard({
                                   baseUrl,
                                   apiKey: apiKey || "ollama",
                                   userAgent: "claude-code/0.1.0",
+                                  currency,
                                   models: [],
                                   enabled: true,
                                 },
