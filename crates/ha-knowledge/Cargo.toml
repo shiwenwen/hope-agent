@@ -1,6 +1,6 @@
 [package]
 name = "ha-knowledge"
-version = "0.43.0"
+version = "0.44.0"
 description = "Hope Agent knowledge space feature — index.db note cache, parser/compiler, retrieval, embedding, Layer-2 maintenance, note tools"
 license.workspace = true
 authors.workspace = true

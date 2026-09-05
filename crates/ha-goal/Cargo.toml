@@ -1,6 +1,6 @@
 [package]
 name = "ha-goal"
-version = "0.43.0"
+version = "0.44.0"
 description = "Hope Agent Goal execution machine"
 license.workspace = true
 authors.workspace = true
