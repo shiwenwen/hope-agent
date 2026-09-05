@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI（思考预算）",
     "contextWindow": "上下文窗口",
     "maxTokens": "最大 tokens",
-    "costUnpriced": "未标价"
+    "costUnpriced": "未标价",
+    "catalogPriceTitle": "使用 {{model}} 的目录价格？",
+    "catalogPriceDescription": "{{source}} 目录中的每百万 token 输入/输出价格为 {{input}} / {{output}}（{{currency}}）。中转站价格可能不同。",
+    "catalogPriceKeep": "保留当前价格",
+    "catalogPriceApply": "使用目录价格"
   },
   "notification": {
     "cronCancelled": "定时任务已取消",

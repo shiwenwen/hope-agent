@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI（思考預算）",
     "contextWindow": "上下文視窗",
     "maxTokens": "最大 tokens",
-    "costUnpriced": "未標價"
+    "costUnpriced": "未標價",
+    "catalogPriceTitle": "使用 {{model}} 的目錄價格？",
+    "catalogPriceDescription": "{{source}} 目錄中的每百萬 token 輸入/輸出價格為 {{input}} / {{output}}（{{currency}}）。中轉站價格可能不同。",
+    "catalogPriceKeep": "保留目前價格",
+    "catalogPriceApply": "使用目錄價格"
   },
   "notification": {
     "cronCancelled": "定時任務已取消",

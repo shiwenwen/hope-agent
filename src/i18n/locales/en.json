@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (thinking budget)",
     "contextWindow": "Context Window",
     "maxTokens": "Max Tokens",
-    "costUnpriced": "Unpriced"
+    "costUnpriced": "Unpriced",
+    "catalogPriceTitle": "Use catalog pricing for {{model}}?",
+    "catalogPriceDescription": "{{source}} lists input/output prices of {{input}} / {{output}} per million tokens ({{currency}}). Relay pricing may differ.",
+    "catalogPriceKeep": "Keep current pricing",
+    "catalogPriceApply": "Use catalog pricing"
   },
   "notification": {
     "cronCancelled": "Scheduled task cancelled",

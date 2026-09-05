@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (사고 예산)",
     "contextWindow": "컨텍스트 윈도우",
     "maxTokens": "최대 토큰",
-    "costUnpriced": "가격 미설정"
+    "costUnpriced": "가격 미설정",
+    "catalogPriceTitle": "{{model}}의 카탈로그 가격을 사용하시겠습니까?",
+    "catalogPriceDescription": "{{source}}의 입력/출력 가격은 백만 토큰당 {{input}} / {{output}}({{currency}})입니다. 중계 서비스 가격은 다를 수 있습니다.",
+    "catalogPriceKeep": "현재 가격 유지",
+    "catalogPriceApply": "카탈로그 가격 사용"
   },
   "notification": {
     "cronCancelled": "예약 작업이 취소되었습니다",

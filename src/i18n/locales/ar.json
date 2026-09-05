@@ -3415,7 +3415,11 @@
     "zaiThinkingBudget": "Z.AI (ميزانية التفكير)",
     "contextWindow": "نافذة السياق",
     "maxTokens": "الرموز القصوى",
-    "costUnpriced": "غير مُسعَّر"
+    "costUnpriced": "غير مُسعَّر",
+    "catalogPriceTitle": "استخدام سعر الدليل لـ {{model}}؟",
+    "catalogPriceDescription": "يسجل {{source}} سعر الإدخال/الإخراج بقيمة {{input}} / {{output}} لكل مليون رمز ({{currency}}). قد تختلف أسعار خدمة الترحيل.",
+    "catalogPriceKeep": "الاحتفاظ بالسعر الحالي",
+    "catalogPriceApply": "استخدام سعر الدليل"
   },
   "notification": {
     "cronCancelled": "تم إلغاء المهمة المجدولة",

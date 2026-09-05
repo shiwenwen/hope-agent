@@ -10,6 +10,16 @@ import { Switch } from "@/components/ui/switch"
 import { TogglePills } from "@/components/ui/toggle-pills"
 import { IconTip } from "@/components/ui/tooltip"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -31,6 +41,13 @@ import {
   XCircle,
 } from "lucide-react"
 import type { ModelConfig, ThinkingStyleType, Currency } from "./types"
+import { ModelIdCombobox } from "./ModelIdCombobox"
+import {
+  applyModelCatalogMetadata,
+  applyModelCatalogPricing,
+  getModelCatalogPricing,
+  type ModelCatalogPricing,
+} from "./model-catalog"
 
 interface ModelTestData {
   success?: boolean
@@ -114,6 +131,15 @@ export function ModelEditor({
     data: ModelTestData
   } | null>(null)
   const [logExpanded, setLogExpanded] = useState(false)
+  const [pendingPricing, setPendingPricing] = useState<ModelCatalogPricing | null>(null)
+
+  const modelCurrency = currency ?? "USD"
+
+  function formatPrice(value: number | null) {
+    if (value == null) return t("model.costUnpriced")
+    const amount = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value)
+    return `${modelCurrency === "CNY" ? "¥" : "$"}${amount}`
+  }
 
   function toggleInput(type: string) {
     const current = model.inputTypes
@@ -154,11 +180,19 @@ export function ModelEditor({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">{t("model.modelId")}</label>
-          <Input
+          <ModelIdCombobox
             value={model.id}
-            onChange={(e) => onChange({ ...model, id: e.target.value })}
-            placeholder="model-id"
-            className="h-8 text-xs"
+            onChange={(id) => onChange({ ...model, id })}
+            onSelect={(entry) => {
+              onChange(applyModelCatalogMetadata(model, entry))
+              const pricing = getModelCatalogPricing(entry, modelCurrency)
+              if (
+                pricing &&
+                (pricing.costInput !== model.costInput || pricing.costOutput !== model.costOutput)
+              ) {
+                setPendingPricing(pricing)
+              }
+            }}
           />
         </div>
         <div className="space-y-1">
@@ -268,7 +302,9 @@ export function ModelEditor({
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">{t(currency === "CNY" ? "model.inputCostCny" : "model.inputCost")}</label>
+          <label className="text-[10px] text-muted-foreground">
+            {t(currency === "CNY" ? "model.inputCostCny" : "model.inputCost")}
+          </label>
           <DeferredNumberInput
             step="0.01"
             value={model.costInput}
@@ -291,7 +327,9 @@ export function ModelEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">{t(currency === "CNY" ? "model.outputCostCny" : "model.outputCost")}</label>
+          <label className="text-[10px] text-muted-foreground">
+            {t(currency === "CNY" ? "model.outputCostCny" : "model.outputCost")}
+          </label>
           <DeferredNumberInput
             step="0.01"
             value={model.costOutput}
@@ -383,7 +421,9 @@ export function ModelEditor({
           </div>
           {testResult?.ok && testResult.data.reply && (
             <div className="px-2.5 py-1.5 rounded-md bg-secondary/50 text-[10px] text-muted-foreground border border-border/50">
-              <span className="text-[9px] font-medium text-foreground/60">AI · {t("common.response")}: </span>
+              <span className="text-[9px] font-medium text-foreground/60">
+                AI · {t("common.response")}:{" "}
+              </span>
               {testResult.data.reply}
             </div>
           )}
@@ -394,7 +434,9 @@ export function ModelEditor({
               return (
                 <div className="px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-medium text-foreground/60">{t("settings.logs")}</span>
+                    <span className="text-[9px] font-medium text-foreground/60">
+                      {t("settings.logs")}
+                    </span>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -406,7 +448,9 @@ export function ModelEditor({
                   </div>
                   {d.request != null && (
                     <div>
-                      <span className="text-[9px] font-semibold text-blue-400">▸ {t("common.request")}</span>
+                      <span className="text-[9px] font-semibold text-blue-400">
+                        ▸ {t("common.request")}
+                      </span>
                       <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
                         {JSON.stringify(d.request, null, 2)}
                       </pre>
@@ -440,6 +484,43 @@ export function ModelEditor({
             })()}
         </div>
       )}
+
+      <AlertDialog
+        open={pendingPricing != null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPendingPricing(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("model.catalogPriceTitle", { model: model.name || model.id })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingPricing &&
+                t("model.catalogPriceDescription", {
+                  source: pendingPricing.sourceName,
+                  input: formatPrice(pendingPricing.costInput),
+                  output: formatPrice(pendingPricing.costOutput),
+                  currency: pendingPricing.currency,
+                })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingPricing(null)}>
+              {t("model.catalogPriceKeep")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingPricing) onChange(applyModelCatalogPricing(model, pendingPricing))
+                setPendingPricing(null)
+              }}
+            >
+              {t("model.catalogPriceApply")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

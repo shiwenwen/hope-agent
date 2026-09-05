@@ -5,6 +5,7 @@ import type { TestResult } from "@/components/settings/TestResultDisplay"
 import { logger } from "@/lib/logger"
 import type {
   ApiType,
+  Currency,
   ModelConfig,
   ProviderConfig,
   ProviderTemplate,
@@ -63,6 +64,7 @@ export default function ProviderSetup({
   const [error, setError] = useState("")
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyleType>("openai")
+  const [currency, setCurrency] = useState<Currency>("USD")
   const [showApiKey, setShowApiKey] = useState(false)
 
   useEffect(() => {
@@ -104,6 +106,7 @@ export default function ProviderSetup({
     setError("")
     setModelsExpanded(false)
     setThinkingStyle(template.thinkingStyle || "openai")
+    setCurrency(template.currency ?? "USD")
     setMode("template-config")
   }
 
@@ -118,6 +121,7 @@ export default function ProviderSetup({
     setError("")
     setCustomStep(0)
     setThinkingStyle("openai")
+    setCurrency("USD")
     setMode("custom")
   }
 
@@ -138,7 +142,7 @@ export default function ProviderSetup({
           thinkingStyle,
           models,
           enabled: true,
-          currency: selectedTemplate?.currency,
+          currency,
         },
       })
       // Set the first model as active
@@ -226,6 +230,8 @@ export default function ProviderSetup({
       setModels={setModels}
       thinkingStyle={thinkingStyle}
       setThinkingStyle={setThinkingStyle}
+      currency={currency}
+      setCurrency={setCurrency}
       showApiKey={showApiKey}
       setShowApiKey={setShowApiKey}
       testResult={testResult}
