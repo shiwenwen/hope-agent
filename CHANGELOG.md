@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-09-06
+
 ### Added
 
 - **自定义模型支持跨服务商检索补全**：输入模型 ID 即可选择内置模型并自动填写上下文等能力，同币种目录价格经确认后才覆盖，模型 ID 不再自动纠错或大写。 (#702)
