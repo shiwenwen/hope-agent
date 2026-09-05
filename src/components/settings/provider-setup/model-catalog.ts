@@ -96,7 +96,7 @@ export function buildModelCatalog(templates: ProviderTemplate[]): ModelCatalogEn
 }
 
 function normalized(value: string) {
-  return value.trim().toLocaleLowerCase()
+  return value.trim().toLowerCase()
 }
 
 function compact(value: string) {

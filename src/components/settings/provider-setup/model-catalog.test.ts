@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   applyModelCatalogMetadata,
   applyModelCatalogPricing,
@@ -88,6 +88,26 @@ describe("model catalog", () => {
     expect(searchModelCatalog(catalog, "claude-sonnet-5")[0].id).toBe("claude-sonnet-5")
     expect(searchModelCatalog(catalog, "claudesonnet5")[0].id).toBe("claude-sonnet-5")
     expect(searchModelCatalog(catalog, "special")[0].id).toBe("vendor/other-model")
+  })
+
+  it("searches identifiers and provider names independently of the browser locale", () => {
+    const localeLowerCase = String.prototype.toLocaleLowerCase
+    const turkishLocale = vi
+      .spyOn(String.prototype, "toLocaleLowerCase")
+      .mockImplementation(function (this: string) {
+        return localeLowerCase.call(this, "tr")
+      })
+
+    try {
+      const catalog = buildModelCatalog([
+        template("openai", "OpenAI", [model("GPT-MINI", { name: "GPT Mini" })]),
+      ])
+      expect(searchModelCatalog(catalog, "openai")).toEqual(catalog)
+      expect(searchModelCatalog(catalog, "gpt-mini")).toEqual(catalog)
+      expect(searchModelCatalog(catalog, "GPTMINI")).toEqual(catalog)
+    } finally {
+      turkishLocale.mockRestore()
+    }
   })
 
   it("fills capabilities while pricing remains an explicit, currency-safe choice", () => {
