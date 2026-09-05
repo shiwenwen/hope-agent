@@ -49,8 +49,12 @@ After you add a provider, the system automatically sets its first model as the c
 If your provider has no ready-made template, choose "Custom provider" and follow the three-step wizard:
 
 1. Pick the **API type** (Anthropic / OpenAI Chat / OpenAI Responses; see [2.3](#23-four-api-types)); if unsure, choose **OpenAI Chat** for the best compatibility.
-2. Fill in the provider name, **Base URL**, API key (optional), and thinking style; you can test the connection.
-3. Add models manually: model ID, display name, supported input types (text / image / video), context window, max output, whether it is a reasoning model, and unit price.
+2. Fill in the provider name, **Base URL**, API key (optional), thinking style, and billing currency (USD / CNY); you can test the connection.
+3. Add models: type a model name, ID, or provider name into the model ID field to search models from all built-in templates. Selecting a suggestion fills in the ID, display name, input types, context window, max output, and reasoning capability; you can still edit these manually. Use the up/down arrows to select, Enter to confirm, and Esc to close suggestions.
+
+Autocomplete works when adding or editing models without replacing your relay's address, API type, key, or thinking parameter format. If the catalog has pricing in the same currency that differs from your current pricing, a dialog shows the source and unit prices and lets you keep your prices or use the catalog prices; prices in another currency never directly overwrite yours. Model IDs are not autocorrected or automatically capitalized by the system.
+
+> Suggestions come from built-in templates, not an online probe of models available through your relay. The same model ID can have different context limits at different providers. Check the suggestion's source and use the ID, capabilities, and actual pricing supported by your provider.
 
 ### Common provider settings
 

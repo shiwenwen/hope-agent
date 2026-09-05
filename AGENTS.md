@@ -152,6 +152,8 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 详见 [provider-system](docs/architecture/core/provider-system.md) / [failover](docs/architecture/agent/failover.md) / [side-query](docs/architecture/agent/side-query.md) / [agent-config](docs/architecture/core/agent-config.md) / [automation-model](docs/architecture/core/automation-model.md)
 
+- **跨服务商模型补全只填模型元数据**：不得改写当前服务商的端点、协议、凭据或推理参数格式；目录报价仅在币种一致且用户确认后覆盖，中转报价不能视为官方报价。
+
 - spawn / shell / automation 触发的正式多轮 turn 一律构造来源专用 `TurnSubmission` 进入 `TurnKernel`；禁止自包 Provider / round / `on_delta` 循环
 - Codex 不参与 failover profile 轮换（OAuth 无 profile，executor 按 `api_type` 强制关，caller 传 true 也无效）
 - 视觉桥 `crates/ha-agent-runtime/src/vision_bridge.rs`：`function_models.vision` opt-in、未配=关（回退占位符、不自动挑选）。只改 `api_messages` 副本、绝不改 `conversation_history`（就地改=永久丢图）；只扫 user/tool、跳 assistant（改写毁 tool 调用）；转录套 `<untrusted_external_data>`、绝不作 system 指令；绝不在 side_query 触发（防递归）；incognito 走 per-turn 缓存、绝不写全局
