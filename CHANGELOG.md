@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **内置技能安装器**：可通过对话从 GitHub 子目录或本地目录安装技能，预览后安装固定内容，保护已有技能并检查安装结果与依赖。
+- **内置技能安装器**：可通过对话从 GitHub 子目录或本地目录安装技能，预览后安装固定内容，保护已有技能并检查安装结果与依赖。(#704)
 
 ## [0.44.0] - 2026-09-06
 
