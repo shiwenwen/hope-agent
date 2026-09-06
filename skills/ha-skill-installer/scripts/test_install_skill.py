@@ -60,7 +60,87 @@ class InstallationTests(unittest.TestCase):
         receipt = json.loads((target / installer.RECEIPT).read_text())
         self.assertEqual(receipt["previewDigest"], plan["expectedDigest"])
         self.assertEqual(result["next"]["arguments"], {"name": "test-example", "action": "inspect"})
+        self.assertEqual(result["previewCleanup"], "removed")
+        self.assertFalse(Path(plan["plan"]).parent.exists())
         self.assertFalse(self.sentinel.exists())
+
+    def test_discard_removes_only_the_selected_preview(self):
+        plan = self.prepare()
+        other = self.prepare()
+        result = installer.discard(Path(plan["plan"]), plan["expectedDigest"])
+        self.assertEqual(result["status"], "discarded")
+        self.assertFalse(Path(plan["plan"]).parent.exists())
+        self.assertTrue(Path(other["reviewDirectory"]).exists())
+        self.assertEqual((self.source / "SKILL.md").read_text(), self.skill_text)
+        self.assertFalse(self.data.exists())
+        self.assertFalse(self.sentinel.exists())
+
+    def test_discard_requires_the_original_digest_and_preview_location(self):
+        plan = self.prepare()
+        with self.assertRaisesRegex(installer.InstallError, "Plan differs"):
+            installer.discard(Path(plan["plan"]), "0" * 64)
+        copied = self.root / "copied-preview"
+        shutil.copytree(Path(plan["plan"]).parent, copied)
+        with self.assertRaisesRegex(installer.InstallError, "original installer preview"):
+            installer.discard(copied / "plan.json", plan["expectedDigest"])
+        self.assertTrue((copied / "plan.json").exists())
+        self.assertTrue(Path(plan["reviewDirectory"]).exists())
+
+    def test_discard_preserves_unrelated_review_notes(self):
+        plan = self.prepare()
+        notes = Path(plan["plan"]).parent / "notes.txt"
+        notes.write_text("Keep these notes")
+        with self.assertRaisesRegex(installer.InstallError, "unrelated files"):
+            installer.discard(Path(plan["plan"]), plan["expectedDigest"])
+        self.assertEqual(notes.read_text(), "Keep these notes")
+        self.assertTrue(Path(plan["reviewDirectory"]).exists())
+
+    def test_discard_rejects_a_review_directory_replaced_by_a_symlink(self):
+        plan = self.prepare()
+        review = Path(plan["reviewDirectory"]).parent
+        shutil.rmtree(review)
+        try:
+            review.symlink_to(self.source, target_is_directory=True)
+        except OSError:
+            self.skipTest("Symlinks unavailable for this test account")
+        with self.assertRaisesRegex(installer.InstallError, "Symlink"):
+            installer.discard(Path(plan["plan"]), plan["expectedDigest"])
+        self.assertEqual((self.source / "SKILL.md").read_text(), self.skill_text)
+
+    def test_install_cleanup_failure_preserves_success_and_can_be_retried(self):
+        plan = self.prepare()
+        review = Path(plan["reviewDirectory"]).parent
+        rmtree = shutil.rmtree
+
+        def remove(path, *args, **kwargs):
+            if Path(path) == review:
+                rmtree(Path(plan["reviewDirectory"]))
+                raise PermissionError("temporary cleanup failure")
+            return rmtree(path, *args, **kwargs)
+
+        with patch.object(installer.shutil, "rmtree", side_effect=remove):
+            result = self.install(plan)
+        self.assertEqual(result["status"], "installed")
+        self.assertEqual(result["previewCleanup"], "pending")
+        self.assertEqual(result["cleanup"]["expectedDigest"], plan["expectedDigest"])
+        target = Path(result["target"])
+        self.assertEqual((target / "SKILL.md").read_text(), self.skill_text)
+        self.assertTrue(Path(plan["plan"]).exists())
+        self.assertFalse(Path(plan["reviewDirectory"]).exists())
+        installer.discard(Path(plan["plan"]), plan["expectedDigest"])
+        self.assertFalse(review.parent.exists())
+        self.assertEqual((target / "SKILL.md").read_text(), self.skill_text)
+        self.assertTrue((target / installer.RECEIPT).exists())
+
+    def test_discard_cli_removes_an_abandoned_preview(self):
+        plan = self.prepare()
+        result = subprocess.run(
+            [sys.executable, str(Path(installer.__file__)), "discard", "--plan", plan["plan"],
+             "--expected-digest", plan["expectedDigest"]], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["status"], "discarded")
+        self.assertFalse(Path(plan["plan"]).parent.exists())
+        self.assertTrue(self.source.exists())
 
     def test_project_scope_is_explicit_and_bound_to_preview(self):
         project = self.root / "project"

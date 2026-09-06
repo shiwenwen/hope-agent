@@ -428,6 +428,7 @@ def prepare(args: argparse.Namespace) -> dict:
         metadata = identity((payload / "SKILL.md").read_bytes())
         check_conflicts(root, metadata["name"])
         plan = {"schemaVersion": 1, "source": source, "scope": scope,
+                "previewRoot": str(staging),
                 "root": str(root), "target": str(root / metadata["name"]),
                 **metadata, "files": files}
         plan_path = staging / "plan.json"
@@ -469,15 +470,48 @@ def publish_directory(source: Path, root: Path, name: str) -> None:
         os.close(source_fd)
 
 
-def install(plan_path: Path, expected_digest: str) -> dict:
-    if plan_path.is_symlink() or plan_path.stat().st_size > 512 * 1024:
-        raise InstallError("Invalid installation plan")
+def read_plan(plan_path: Path, expected_digest: str) -> tuple[Path, dict]:
+    try:
+        content, _ = read_regular(plan_path, 512 * 1024)
+    except FileNotFoundError:
+        raise InstallError("Preview is missing or already cleaned up; prepare again") from None
     plan_path = plan_path.resolve(strict=True)
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan = json.loads(content)
+    if not isinstance(plan, dict):
+        raise InstallError("Invalid installation plan")
     if not re.fullmatch(r"[a-f0-9]{64}", expected_digest) or digest(plan) != expected_digest:
         raise InstallError("Plan differs from the preview; prepare and review again")
     if plan.get("schemaVersion") != 1 or plan.get("scope") not in {"managed", "project"}:
         raise InstallError("Unsupported installation plan")
+    return plan_path, plan
+
+
+def discard(plan_path: Path, expected_digest: str) -> dict:
+    """Remove only the sealed preview, never its source or installed target."""
+    plan_path, plan = read_plan(plan_path, expected_digest)
+    staging = plan_path.parent
+    if (plan_path.name != "plan.json" or plan.get("previewRoot") != str(staging)
+            or staging.parent != Path(tempfile.gettempdir()).resolve()
+            or not re.fullmatch(r"hope-skill-[A-Za-z0-9_-]+", staging.name)):
+        raise InstallError("Cleanup requires the original installer preview directory")
+    check_components(staging)
+    if {entry.name for entry in staging.iterdir()} - {"plan.json", "review"}:
+        raise InstallError("Preview directory contains unrelated files; cleanup refused")
+    review = staging / SNAPSHOT_PATH.parent
+    check_components(review / SNAPSHOT_PATH.name)
+    if review.exists():
+        if {entry.name for entry in review.iterdir()} - {SNAPSHOT_PATH.name}:
+            raise InstallError("Review directory contains unrelated files; cleanup refused")
+        # Keep the plan until the large payload is gone so cleanup can be retried
+        # after a partial filesystem failure. rmtree does not follow file links.
+        shutil.rmtree(review)
+    plan_path.unlink()
+    staging.rmdir()
+    return {"status": "discarded", "plan": str(plan_path)}
+
+
+def install(plan_path: Path, expected_digest: str) -> dict:
+    plan_path, plan = read_plan(plan_path, expected_digest)
     payload = plan_path.parent / SNAPSHOT_PATH
     files = inventory(payload)
     metadata = identity((payload / "SKILL.md").read_bytes())
@@ -502,9 +536,19 @@ def install(plan_path: Path, expected_digest: str) -> dict:
         (candidate / RECEIPT).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         check_conflicts(root, name)
         publish_directory(candidate, root, name)
-    return {"status": "installed", "name": name, "target": str(root / name),
-            "source": plan["source"], "fileCount": len(files), "previewDigest": expected_digest,
-            "next": {"tool": "skill", "arguments": {"name": name, "action": "inspect"}}}
+    result = {"status": "installed", "name": name, "target": str(root / name),
+              "source": plan["source"], "fileCount": len(files), "previewDigest": expected_digest,
+              "next": {"tool": "skill", "arguments": {"name": name, "action": "inspect"}}}
+    try:
+        discard(plan_path, expected_digest)
+        result["previewCleanup"] = "removed"
+    except (InstallError, OSError, ValueError, KeyError, TypeError):
+        # Publication already succeeded. Do not encourage a second installation
+        # merely because removing its temporary review copy failed.
+        result["previewCleanup"] = "pending"
+        result["cleanup"] = {"action": "discard", "plan": str(plan_path),
+                             "expectedDigest": expected_digest}
+    return result
 
 
 def main() -> int:
@@ -521,9 +565,17 @@ def main() -> int:
     apply = actions.add_parser("install", help="Publish exactly the prepared snapshot without overwriting")
     apply.add_argument("--plan", required=True, type=Path)
     apply.add_argument("--expected-digest", required=True)
+    cleanup = actions.add_parser("discard", help="Remove an abandoned preview using its original plan and digest")
+    cleanup.add_argument("--plan", required=True, type=Path)
+    cleanup.add_argument("--expected-digest", required=True)
     args = parser.parse_args()
     try:
-        result = prepare(args) if args.action == "prepare" else install(args.plan, args.expected_digest)
+        if args.action == "prepare":
+            result = prepare(args)
+        elif args.action == "install":
+            result = install(args.plan, args.expected_digest)
+        else:
+            result = discard(args.plan, args.expected_digest)
     except (InstallError, OSError, ValueError, KeyError, TypeError) as exc:
         # Foreign exceptions may embed downloaded text or credentials in paths.
         message = str(exc) if isinstance(exc, InstallError) else "Installation failed: invalid input or filesystem state"
