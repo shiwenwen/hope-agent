@@ -2160,14 +2160,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Skill (activate a skill by name — preferred over read SKILL.md) ──
         ToolDefinition {
             name: TOOL_SKILL.into(),
-            description: "Activate a skill from the skill catalog by name. Preferred over \
-                          `read`-ing the SKILL.md file directly — this tool handles loading, \
-                          optional sub-agent isolation (`context: fork` skills), and argument \
-                          substitution. For inline skills it returns the SKILL.md content so \
-                          you can follow its instructions; for fork skills it runs the skill \
-                          in a sub-agent and returns only the final summary. Use action=inspect \
-                          after installing a skill to refresh discovery and check its source, \
-                          enabled state and prerequisites without activating it.".into(),
+            description: "Activate a catalog skill by name instead of reading SKILL.md directly. \
+                          Inline skills return instructions with argument substitution; \
+                          `context: fork` skills run in a sub-agent and return a summary. \
+                          action=inspect refreshes discovery and reports source, enabled state \
+                          and prerequisites without activation or settings changes.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -2182,7 +2179,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "action": {
                         "type": "string",
                         "enum": ["activate", "inspect"],
-                        "description": "Defaults to activate. inspect refreshes the catalog and returns only metadata; it does not run the skill or change settings."
+                        "description": "Defaults to activate; inspect returns metadata only."
                     },
                     "args": {
                         "type": "string",
