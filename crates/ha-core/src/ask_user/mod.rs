@@ -41,6 +41,11 @@ pub fn was_affirmative(raw: &str, labels: &[&str]) -> bool {
     if v.get("timedOut").and_then(|t| t.as_bool()).unwrap_or(false) {
         return false;
     }
+    if v.get("status")
+        .is_some_and(|status| status.as_str() != Some("answered"))
+    {
+        return false;
+    }
     let Some(answers) = v.get("answers").and_then(|a| a.as_array()) else {
         return false;
     };
@@ -67,6 +72,18 @@ pub fn was_affirmative(raw: &str, labels: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::was_affirmative;
+
+    #[test]
+    fn explicit_non_answer_status_never_grants_consent() {
+        for status in ["timed_out", "cancelled", "pending", "unknown"] {
+            let raw = serde_json::json!({
+                "status": status,
+                "answers": [{"selected": ["Continue"]}]
+            })
+            .to_string();
+            assert!(!was_affirmative(&raw, &["Continue"]));
+        }
+    }
 
     #[test]
     fn matches_exact_label() {

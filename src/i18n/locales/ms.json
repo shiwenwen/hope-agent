@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agen menunggu jawapan",
     "askUserRequiredFallback": "Hope Agent ada soalan untuk anda",
     "askUserTimedOut": "Soalan tamat masa",
-    "askUserTimedOutDefaults": "Jawapan lalai digunakan selepas {{seconds}}s.",
+    "askUserTimedOutDefaults": "Tiada jawapan selepas {{seconds}}s. Pilihan lalai telah dihantar kepada AI sebagai andaian, bukan pengesahan anda.",
     "askUserTimedOutNoDefaults": "Tiada jawapan diterima dalam {{seconds}}s.",
     "channelAuthFailed": "Log masuk saluran IM gagal",
     "channelAuthFailedBody": "Kelayakan {{label}} ditolak — sila sahkan semula",
@@ -3801,7 +3801,12 @@
       "title": "AI memerlukan input anda",
       "selected": "Dipilih",
       "typeSample": "Rubah coklat pantas",
-      "refs": "Rujukan"
+      "refs": "Rujukan",
+      "waitForever": "Soalan ini tidak akan tamat masa. Menunggu jawapan atau pembatalan anda.",
+      "timeoutWithFallback": "Jika masa tamat, AI akan menerima pilihan lalai di bawah sebagai andaian, bukan pengesahan anda.",
+      "timeoutWithoutFallback": "Apabila masa tamat, soalan ditutup dan AI dimaklumkan bahawa anda belum menjawab.",
+      "fallback": "Pilihan sandaran AI",
+      "fallbackNotice": "Anda belum menjawab. Pilihan sandaran ialah andaian AI, bukan pengesahan anda."
     },
     "reattach": "Kembali ke panel",
     "requestChanges": "Minta perubahan",

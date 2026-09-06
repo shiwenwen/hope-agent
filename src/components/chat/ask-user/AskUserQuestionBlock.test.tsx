@@ -29,6 +29,52 @@ const group: AskUserQuestionGroup = {
 }
 
 describe("AskUserQuestionBlock", () => {
+  test("effective unlimited waits do not advertise inactive model defaults", () => {
+    render(
+      <AskUserQuestionBlock
+        group={{ ...group, questions: [{ ...group.questions[0], defaultValues: ["a"] }] }}
+      />,
+    )
+    expect(screen.getByText("planMode.question.waitForever")).toBeInTheDocument()
+    expect(screen.queryByText("planMode.question.default")).not.toBeInTheDocument()
+    expect(screen.queryByText(/planMode.question.fallback/)).not.toBeInTheDocument()
+  })
+
+  test("timed waits disclose both option and free-text fallback assumptions", () => {
+    render(
+      <AskUserQuestionBlock
+        group={{
+          ...group,
+          timeoutAt: Math.floor(Date.now() / 1000) + 120,
+          questions: [{ ...group.questions[0], defaultValues: ["a", "Only reversible changes"] }],
+        }}
+      />,
+    )
+    expect(screen.getByText("planMode.question.timeoutWithFallback")).toBeInTheDocument()
+    expect(
+      screen.getByText(/planMode.question.fallback: Option A · Only reversible changes/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Option A/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+  })
+
+  test("owner questions never advertise default answers", () => {
+    render(
+      <AskUserQuestionBlock
+        group={{
+          ...group,
+          timeoutAt: Math.floor(Date.now() / 1000) + 120,
+          ownerResponse: { action: "record_domain_evidence" },
+          questions: [{ ...group.questions[0], defaultValues: ["a"] }],
+        }}
+      />,
+    )
+    expect(screen.getByText("planMode.question.timeoutWithoutFallback")).toBeInTheDocument()
+    expect(screen.queryByText("planMode.question.default")).not.toBeInTheDocument()
+  })
+
   test("selects an option on the first click after hover", () => {
     render(<AskUserQuestionBlock group={group} />)
 

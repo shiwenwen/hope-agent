@@ -700,27 +700,7 @@ fn prune_completed_locked(map: &mut HashMap<String, InstallJobState>, now: i64) 
 const AFFIRMATIVE_LABELS: &[&str] = &["upgrade now", "roll back now"];
 
 fn is_confirm(raw_answer: &str) -> bool {
-    let v: Value = match serde_json::from_str(raw_answer) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let answers = match v.get("answers").and_then(|a| a.as_array()) {
-        Some(a) => a,
-        None => return false,
-    };
-    for a in answers {
-        if let Some(selected) = a.get("selected").and_then(|s| s.as_array()) {
-            for sel in selected {
-                if let Some(s) = sel.as_str() {
-                    let lower = s.trim().to_ascii_lowercase();
-                    if AFFIRMATIVE_LABELS.contains(&lower.as_str()) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
+    ha_core::ask_user::was_affirmative(raw_answer, AFFIRMATIVE_LABELS)
 }
 
 fn now_secs() -> i64 {
@@ -746,8 +726,7 @@ mod tests {
 
     #[test]
     fn is_confirm_rejects_cancellation_message() {
-        // ask_user returns a plain string on user-cancel — must not be
-        // mistaken for confirmation.
+        // Older ask_user versions returned plain text on cancellation.
         assert!(!is_confirm(
             "The user cancelled the questions without answering."
         ));
@@ -757,6 +736,18 @@ mod tests {
     fn is_confirm_picks_up_rollback_label() {
         let raw = r#"{"answers":[{"question":"Rollback?","selected":["Roll back now"],"customInput":null}]}"#;
         assert!(is_confirm(raw));
+    }
+
+    #[test]
+    fn is_confirm_rejects_timeout_defaults_and_non_answer_statuses() {
+        let legacy = json!({"timedOut": true, "answers": [{"selected": ["Upgrade now"]}]});
+        assert!(!is_confirm(&legacy.to_string()));
+        for status in ["timed_out", "cancelled", "pending"] {
+            let result = json!({"status": status, "answers": [{"selected": ["Roll back now"]}]});
+            assert!(!is_confirm(&result.to_string()));
+        }
+        let fallback = json!({"status": "timed_out", "answers": [], "fallback": [{"selected": ["Upgrade now"]}]});
+        assert!(!is_confirm(&fallback.to_string()));
     }
 
     #[test]

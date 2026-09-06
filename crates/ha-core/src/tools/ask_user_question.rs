@@ -205,22 +205,15 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
         .to_string(),
     );
 
-    // Resolve effective group timeout. The global switch defaults off; when
-    // disabled, even model-provided per-question timeout hints are ignored.
     let cfg = crate::config::cached_config();
-    let effective_timeout_secs = if cfg.ask_user_question_timeout_enabled {
-        let per_q_max = questions
-            .iter()
-            .filter_map(|q| q.timeout_secs)
-            .max()
-            .unwrap_or(0);
-        if per_q_max > 0 {
-            per_q_max
-        } else {
-            cfg.ask_user_question_timeout_secs
-        }
-    } else {
-        0
+    let effective_timeout_secs = match resolve_timeout_secs(
+        args,
+        &questions,
+        cfg.ask_user_question_timeout_enabled,
+        cfg.ask_user_question_timeout_secs,
+    ) {
+        Ok(secs) => secs,
+        Err(error) => return format!("Error: {error}"),
     };
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -319,10 +312,8 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
     };
     crate::hooks::fire_elicitation_result(&effective_sid, &request_id, result_status);
 
-    match result {
-        Outcome::Answered(answers) => {
-            format_answers_for_llm(&questions, &answers, /* timed_out */ false)
-        }
+    match &result {
+        Outcome::Answered(_) => {}
         Outcome::Cancelled => {
             app_warn!(
                 "ask_user",
@@ -330,7 +321,6 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 "ask_user question cancelled (id: {})",
                 request_id
             );
-            "The user cancelled the questions without answering.".to_string()
         }
         Outcome::TimedOut => {
             app_warn!(
@@ -340,24 +330,74 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 effective_timeout_secs,
                 request_id
             );
-            let synth = synthesize_default_answers(&questions);
             ask_user::emit_ask_user_timed_out(
                 &request_id,
                 &effective_sid,
                 effective_timeout_secs,
-                !synth.is_empty(),
+                questions.iter().any(|q| !q.default_values.is_empty()),
                 first_question_preview(&questions),
             );
-            if synth.is_empty() {
-                format!(
-                    "The questions timed out after {} seconds without a response and no default values were provided.",
-                    effective_timeout_secs
-                )
-            } else {
-                format_answers_for_llm(&questions, &synth, /* timed_out */ true)
-            }
         }
     }
+    format_question_result(&request_id, &questions, &result)
+}
+
+/// New calls choose one policy for the whole request. Only calls that omit
+/// timeout_mode retain the legacy max(per-question) behavior.
+fn resolve_timeout_secs(
+    args: &Value,
+    questions: &[AskUserQuestion],
+    timeout_enabled: bool,
+    global_timeout_secs: u64,
+) -> Result<u64, String> {
+    let mode = args.get("timeout_mode");
+    let secs = args.get("timeout_secs");
+    let duration = match mode.and_then(Value::as_str) {
+        Some("after") => {
+            let secs = secs
+                .and_then(Value::as_u64)
+                .filter(|secs| *secs > 0)
+                .ok_or("timeout_mode 'after' requires a positive integer timeout_secs")?;
+            if !timeout_enabled {
+                return Err("Question auto-timeout is disabled by the user. Use timeout_mode 'never' or 'inherit'.".into());
+            }
+            secs
+        }
+        Some("never" | "inherit") => {
+            if secs.is_some() {
+                return Err("timeout_secs is only valid with timeout_mode 'after'".into());
+            }
+            if mode.and_then(Value::as_str) == Some("never") || !timeout_enabled {
+                0
+            } else {
+                global_timeout_secs
+            }
+        }
+        None if mode.is_none() => {
+            if secs.is_some() {
+                return Err("Request-level timeout_secs requires timeout_mode 'after'".into());
+            }
+            if timeout_enabled {
+                questions
+                    .iter()
+                    .filter_map(|q| q.timeout_secs.filter(|secs| *secs > 0))
+                    .max()
+                    .unwrap_or(global_timeout_secs)
+            } else {
+                0
+            }
+        }
+        _ => return Err("timeout_mode must be 'inherit', 'never', or 'after'".into()),
+    };
+    if tokio::time::Instant::now()
+        .checked_add(Duration::from_secs(duration))
+        .is_none()
+    {
+        return Err(
+            "Question timeout is too large; use timeout_mode 'never' to wait indefinitely".into(),
+        );
+    }
+    Ok(duration)
 }
 
 enum Outcome {
@@ -375,7 +415,7 @@ fn first_question_preview(questions: &[AskUserQuestion]) -> Option<String> {
     })
 }
 
-/// Construct synthetic answers from each question's `default_values` after a timeout.
+/// Construct model-proposed fallbacks. These must never enter the answers array.
 fn synthesize_default_answers(questions: &[AskUserQuestion]) -> Vec<AskUserQuestionAnswer> {
     let mut out = Vec::new();
     for q in questions {
@@ -404,12 +444,10 @@ fn synthesize_default_answers(questions: &[AskUserQuestion]) -> Vec<AskUserQuest
     out
 }
 
-/// Format user answers as JSON for both LLM consumption and frontend rendering.
-fn format_answers_for_llm(
+fn format_answer_items(
     questions: &[AskUserQuestion],
     answers: &[AskUserQuestionAnswer],
-    timed_out: bool,
-) -> String {
+) -> Vec<Value> {
     let mut items = Vec::new();
     for question in questions {
         let mut selected_values = Vec::new();
@@ -449,19 +487,47 @@ fn format_answers_for_llm(
         }));
     }
 
-    let mut root = serde_json::Map::new();
-    root.insert("answers".into(), serde_json::Value::Array(items));
-    if timed_out {
-        root.insert("timedOut".into(), serde_json::Value::Bool(true));
-        root.insert(
-            "note".into(),
-            serde_json::Value::String(
-                "Some or all questions timed out; default values were automatically applied."
-                    .into(),
-            ),
-        );
+    items
+}
+
+/// User answers and model fallbacks have separate provenance, even when the
+/// fallback happens to match an affirmative option. Keep timedOut for readers
+/// of older result shapes, but always include an explicit terminal status.
+fn format_question_result(
+    request_id: &str,
+    questions: &[AskUserQuestion],
+    outcome: &Outcome,
+) -> String {
+    match outcome {
+        Outcome::Answered(answers) => json!({
+            "requestId": request_id,
+            "status": "answered",
+            "answers": format_answer_items(questions, answers),
+        }),
+        Outcome::Cancelled => json!({
+            "requestId": request_id,
+            "status": "cancelled",
+            "answers": [],
+            "note": "The user cancelled the questions without answering.",
+        }),
+        Outcome::TimedOut => {
+            let fallback = synthesize_default_answers(questions);
+            let fallback_questions: Vec<_> = questions
+                .iter()
+                .filter(|q| !q.default_values.is_empty())
+                .cloned()
+                .collect();
+            json!({
+                "requestId": request_id,
+                "status": "timed_out",
+                "timedOut": true,
+                "answers": [],
+                "fallback": format_answer_items(&fallback_questions, &fallback),
+                "note": "The user did not answer. Fallbacks are model-proposed assumptions, not user decisions or consent. Continue only where those assumptions are sufficient; otherwise wait for clarification.",
+            })
+        }
     }
-    serde_json::Value::Object(root).to_string()
+    .to_string()
 }
 
 /// Whitelist the model-provided `input_kind`; anything outside the known set
@@ -612,6 +678,123 @@ pub fn i18n_text(key: &str, params: Value, fallback: impl Into<String>) -> Value
 mod tests {
     use super::*;
 
+    fn timeout_questions() -> Vec<AskUserQuestion> {
+        serde_json::from_value(json!([
+            {"questionId": "short", "text": "Short?", "options": [], "timeoutSecs": 30},
+            {"questionId": "long", "text": "Long?", "options": [], "timeoutSecs": 90}
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn explicit_group_policy_overrides_legacy_hints_without_changing_settings() {
+        let questions = timeout_questions();
+        assert_eq!(
+            resolve_timeout_secs(&json!({}), &questions, true, 300),
+            Ok(90)
+        );
+        assert_eq!(
+            resolve_timeout_secs(&json!({"timeout_mode": "inherit"}), &questions, true, 300),
+            Ok(300)
+        );
+        assert_eq!(
+            resolve_timeout_secs(&json!({"timeout_mode": "never"}), &questions, true, 300),
+            Ok(0)
+        );
+        assert_eq!(
+            resolve_timeout_secs(
+                &json!({"timeout_mode": "after", "timeout_secs": 45}),
+                &questions,
+                true,
+                300
+            ),
+            Ok(45)
+        );
+        assert_eq!(resolve_timeout_secs(&json!({}), &[], true, 0), Ok(0));
+    }
+
+    #[test]
+    fn model_cannot_enable_timeouts_when_user_disabled_them() {
+        let questions = timeout_questions();
+        for args in [
+            json!({}),
+            json!({"timeout_mode": "inherit"}),
+            json!({"timeout_mode": "never"}),
+        ] {
+            assert_eq!(resolve_timeout_secs(&args, &questions, false, 300), Ok(0));
+        }
+        assert!(resolve_timeout_secs(
+            &json!({"timeout_mode": "after", "timeout_secs": 60}),
+            &questions,
+            false,
+            300
+        )
+        .unwrap_err()
+        .contains("disabled by the user"));
+    }
+
+    #[test]
+    fn invalid_or_conflicting_group_timeout_cannot_silently_expire_a_question() {
+        for args in [
+            json!({"timeout_mode": "after"}),
+            json!({"timeout_mode": "after", "timeout_secs": 0}),
+            json!({"timeout_mode": "after", "timeout_secs": -1}),
+            json!({"timeout_mode": "after", "timeout_secs": 1.5}),
+            json!({"timeout_mode": "after", "timeout_secs": "60"}),
+            json!({"timeout_mode": "after", "timeout_secs": u64::MAX}),
+            json!({"timeout_mode": "never", "timeout_secs": 60}),
+            json!({"timeout_mode": "inherit", "timeout_secs": 60}),
+            json!({"timeout_mode": "sometimes"}),
+            json!({"timeout_mode": null}),
+            json!({"timeout_secs": 60}),
+        ] {
+            assert!(
+                resolve_timeout_secs(&args, &[], true, 300).is_err(),
+                "{args}"
+            );
+        }
+    }
+
+    #[test]
+    fn timeout_fallback_is_not_a_user_answer_or_consent() {
+        let questions: Vec<AskUserQuestion> = serde_json::from_value(json!([
+            {"questionId": "decision", "text": "Continue?",
+             "options": [{"value": "yes", "label": "Continue"}],
+             "defaultValues": ["yes", "Only the reversible work"]},
+            {"questionId": "required", "text": "Which account?", "options": []}
+        ]))
+        .unwrap();
+        let raw = format_question_result("request-1", &questions, &Outcome::TimedOut);
+        let result: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(result["status"], "timed_out");
+        assert_eq!(result["answers"], json!([]));
+        assert_eq!(result["fallback"].as_array().unwrap().len(), 1);
+        assert_eq!(result["fallback"][0]["questionId"], "decision");
+        assert_eq!(result["fallback"][0]["selectedValues"], json!(["yes"]));
+        assert_eq!(
+            result["fallback"][0]["customInput"],
+            "Only the reversible work"
+        );
+        assert!(!ask_user::was_affirmative(&raw, &["Continue"]));
+    }
+
+    #[test]
+    fn unanswered_terminal_results_are_always_structured() {
+        for (outcome, status) in [
+            (Outcome::TimedOut, "timed_out"),
+            (Outcome::Cancelled, "cancelled"),
+        ] {
+            let raw = format_question_result("request-1", &timeout_questions(), &outcome);
+            let result: Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(result["requestId"], "request-1");
+            assert_eq!(result["status"], status);
+            assert_eq!(result["answers"], json!([]));
+            if status == "timed_out" {
+                assert_eq!(result["fallback"], json!([]));
+            }
+        }
+    }
+
     #[test]
     fn input_kind_whitelist_filters_garbage() {
         for good in [
@@ -697,7 +880,8 @@ mod tests {
             files: Vec::new(),
         }];
 
-        let formatted = format_answers_for_llm(&questions, &answers, false);
+        let formatted =
+            format_question_result("request-1", &questions, &Outcome::Answered(answers));
         let value: Value = serde_json::from_str(&formatted).expect("valid result JSON");
         let answer = &value["answers"][0];
 

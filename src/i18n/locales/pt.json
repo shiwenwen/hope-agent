@@ -3440,7 +3440,7 @@
     "askUserRequired": "O agente está aguardando uma resposta",
     "askUserRequiredFallback": "Hope Agent tem uma pergunta para você",
     "askUserTimedOut": "A pergunta expirou",
-    "askUserTimedOutDefaults": "As respostas padrão foram usadas após {{seconds}}s.",
+    "askUserTimedOutDefaults": "Sem resposta após {{seconds}} s. As opções padrão foram enviadas à IA como suposições, não como sua confirmação.",
     "askUserTimedOutNoDefaults": "Nenhuma resposta foi recebida em {{seconds}}s.",
     "channelAuthFailed": "Falha no login do canal IM",
     "channelAuthFailedBody": "Credenciais de {{label}} foram rejeitadas — autentique-se novamente",
@@ -3801,7 +3801,12 @@
       "title": "A IA precisa da sua entrada",
       "selected": "Selecionado",
       "typeSample": "A rápida raposa marrom",
-      "refs": "Referências"
+      "refs": "Referências",
+      "waitForever": "Esta pergunta não expira. Aguardando sua resposta ou cancelamento.",
+      "timeoutWithFallback": "Se o tempo acabar, a IA receberá as opções padrão abaixo como suposições, não como sua confirmação.",
+      "timeoutWithoutFallback": "Quando o tempo acabar, a pergunta será encerrada e a IA será informada de que você não respondeu.",
+      "fallback": "Alternativa da IA",
+      "fallbackNotice": "Você não respondeu. As alternativas são suposições da IA, não sua confirmação."
     },
     "reattach": "Voltar ao painel",
     "requestChanges": "Solicitar alterações",

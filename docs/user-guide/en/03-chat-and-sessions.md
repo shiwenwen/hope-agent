@@ -69,6 +69,8 @@ Every time the AI calls a tool (reading a file, running a command, searching, et
 
 Some special tools have their own cards, such as the question card (`ask_user_question`), the plan card, the task checklist, the skill-activation block, the sub-agent block, and so on. An answered question card stays as a one-line summary while collapsed; expand it to see the original question and context, every option's description and recommended marker, and what you actually selected or typed. Timeouts remain clearly marked.
 
+Question cards explain whether the current request waits indefinitely or show its countdown. Even with auto-timeout enabled, the model can choose to wait indefinitely for a required answer; it cannot enable a timeout when you have disabled auto-timeout. Proposed defaults after a timeout appear separately as AI assumptions, never as your answer or confirmation. Recommended options are not selected automatically. Question calls still wait for an answer, cancellation, or timeout before continuing.
+
 ### The right-side panel
 
 The right side of the chat interface is a single, unified dockable tab bar, sitting inline with the title bar (the "right-side panel dock"). Click a tab to switch; drag a tab to reorder it (or use `Alt+Shift+Arrow` on the keyboard); each tab has a close button in its top-right corner, and middle-click also closes it; the "+" dropdown at the end of the tab bar opens a new tab (for the "Files" tab specifically, "+" always opens *another* empty file browser—it never re-focuses a tab that's already open). The whole tab area can be maximized to fill the window, or restored, and can also be collapsed away entirely—both actions apply to the entire tab area, not to a single tab.

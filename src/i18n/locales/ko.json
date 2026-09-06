@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agent가 답변을 기다리고 있습니다",
     "askUserRequiredFallback": "Hope Agent가 질문이 있습니다",
     "askUserTimedOut": "질문 시간이 초과되었습니다",
-    "askUserTimedOutDefaults": "{{seconds}}초 후 기본 답변이 사용되었습니다.",
+    "askUserTimedOutDefaults": "{{seconds}}초 동안 답변이 없어 기본 방안을 가정으로 AI에 전달했습니다. 사용자의 확인이 아닙니다.",
     "askUserTimedOutNoDefaults": "{{seconds}}초 안에 답변이 없었습니다.",
     "channelAuthFailed": "IM 채널 로그인 실패",
     "channelAuthFailedBody": "{{label}} 자격 증명이 거부되었습니다 — 재인증해주세요",
@@ -3801,7 +3801,12 @@
       "title": "입력이 필요합니다",
       "selected": "선택됨",
       "typeSample": "다람쥐 헌 쳇바퀴",
-      "refs": "참고"
+      "refs": "참고",
+      "waitForever": "이 질문은 자동으로 만료되지 않습니다. 답변하거나 취소할 때까지 기다립니다.",
+      "timeoutWithFallback": "시간이 만료되면 아래 기본 방안을 가정으로 AI에 전달합니다. 사용자의 확인으로 간주하지 않습니다.",
+      "timeoutWithoutFallback": "시간이 만료되면 질문을 닫고 AI에 아직 답변이 없음을 알립니다.",
+      "fallback": "AI 기본 방안",
+      "fallbackNotice": "답변이 없습니다. 기본 방안은 AI의 가정이며 사용자의 확인이 아닙니다."
     },
     "reattach": "패널로 되돌리기",
     "requestChanges": "변경 요청",

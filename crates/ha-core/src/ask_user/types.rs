@@ -148,11 +148,12 @@ pub struct AskUserQuestion {
     /// Very short chip label (max ~12 chars) displayed next to the question text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header: Option<AskUserText>,
-    /// Per-question timeout in seconds. 0 or missing = inherit group / global default.
+    /// Legacy per-question timeout hint. Explicit request policies override it;
+    /// 0 or missing inherits the group / global default for legacy calls.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
-    /// Values automatically selected when the question times out. Each entry must
-    /// match an option value, or can be a free-form string for custom input.
+    /// Model-proposed timeout fallbacks, never user decisions or consent. Each
+    /// entry is an option value or a free-form string for custom input.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub default_values: Vec<String>,
 }

@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agent is waiting for an answer",
     "askUserRequiredFallback": "Hope Agent has a question for you",
     "askUserTimedOut": "Question timed out",
-    "askUserTimedOutDefaults": "Default answer(s) were used after {{seconds}}s.",
+    "askUserTimedOutDefaults": "No answer after {{seconds}}s. Proposed defaults were returned to AI as assumptions, not your confirmation.",
     "askUserTimedOutNoDefaults": "No answer was received within {{seconds}}s.",
     "channelAuthFailed": "IM channel login failed",
     "channelAuthFailedBody": "{{label}} credentials were rejected — please re-authenticate",
@@ -3801,7 +3801,12 @@
       "title": "AI needs your input",
       "selected": "Selected",
       "typeSample": "The quick brown fox",
-      "refs": "Refs"
+      "refs": "Refs",
+      "waitForever": "This question will not time out. Waiting for your answer or cancellation.",
+      "timeoutWithFallback": "If time runs out, AI will receive the defaults below as assumptions, not your confirmation.",
+      "timeoutWithoutFallback": "When time runs out, the question closes and AI is told you have not answered.",
+      "fallback": "AI fallback",
+      "fallbackNotice": "You did not answer. Fallbacks are AI assumptions, not your confirmation."
     },
     "reattach": "Reattach to Panel",
     "requestChanges": "Request Changes",

@@ -120,7 +120,7 @@ pub struct AskUserQuestion {
     pub template: Option<String>,            // scope | tech_choice | priority
     pub header: Option<AskUserText>,         // ≤~12 char chip 标签
     pub timeout_secs: Option<u64>,           // 0 / None = 继承 group / 全局默认
-    pub default_values: Vec<String>,         // 超时回退答案
+    pub default_values: Vec<String>,         // 模型提供的超时默认方案
 }
 ```
 
@@ -242,9 +242,20 @@ flowchart TD
 
 **Elicitation hook 埋点**。发问时 `fire_elicitation`、终态时 `fire_elicitation_result`（answered / cancelled / timeout）都会触发 hook（observation-only），供 Hooks 子系统观察问答生命周期，见 [hooks](hooks.md)。
 
-### 超时与 default_values 合成
+### 整组超时策略与默认方案
 
-有效超时的优先级（在 `execute` 内计算）：
+`execute` 通过 `resolve_timeout_secs` 统一计算有效超时。新调用在请求顶层选择策略，一组问题共用一个截止时间：
+
+| `timeout_mode` | 行为 |
+|---|---|
+| `inherit` | 使用用户全局开关与默认时间，忽略旧的每题超时提示 |
+| `never` | 本次不自动超时，即使全局默认时间大于 `0`；用户回答或取消后返回 |
+| `after` | 使用顶层正整数 `timeout_secs`；用户关闭自动超时时明确返回错误，不能覆盖用户设置 |
+| 未传 | 保留旧规则：全局允许超时时取每题正数提示的最大值，否则用全局默认 |
+
+顶层 `timeout_secs` 只允许与 `after` 一起出现，`0`、负数、非整数、无效策略和无法表示的计时长度均在创建问题前拒绝。显式策略覆盖所有旧的每题提示；全局默认值和旧参数语义不迁移、不改写。必须获得答案时使用 `never`；可以依据合理假设继续的澄清问题才适合 `after`。
+
+未传新策略时的兼容规则：
 
 ```
 ask_user_question_timeout_enabled
@@ -252,25 +263,31 @@ ask_user_question_timeout_enabled
   : 0
 ```
 
-全局开关 `false` 时，模型传入的所有 `timeout_secs` / `default_values` 都不触发自动超时（`effective_timeout_secs = 0`，`rx.await` 永久等待，只能靠 cancel 唤醒）。开启后，组级门限取**所有 per-question 超时的最大值**作为 wall-clock，未传则回退全局默认；`0` 表示无限期等待。`timeout_at` 同时写入 DB，供 UI 渲染倒计时和启动期扫描过期行。
+有效时间 `0` 表示不自动超时，等待用户回答或取消。有限截止时间写入 `timeout_at`，供所有界面显示同一倒计时和启动期扫描过期行。问题卡以这个有效截止时间为准，不能把模型传入但未生效的默认方案展示成会自动使用的答案。
 
-超时后 `synthesize_default_answers` 合成回退答案，规则是：每题遍历 `default_values`，命中某个 option `value` 就进 `selected`，否则并入 `custom_input`（逗号分隔）——允许 `default_values` 混用「已有选项」和「任意自由文本」两种形式。
+`default_values` 描述模型准备的默认方案，允许选项值与自由文本混用。`synthesize_default_answers` 命中选项值时保留选项身份，否则并入自定义文本；这些内容只进入 `fallback`，不进入用户答案，也不构成同意。推荐标记与默认方案独立，没有默认方案的题不会自动采用推荐项。
+
+当前仍为阻塞调用，尚未提供异步提问或取消单次倒计时的控制面接口；不得提前暴露 `wait_mode=async`，也不能仅靠返回请求编号就宣称支持异步回投。
 
 ### 回给 LLM 的结果
 
-无论正常回答还是超时合成，都走 `format_answers_for_llm` 产出同一份 JSON：
+正常回答、取消与超时均由 `format_question_result` 返回结构化 JSON。`status` 为 `answered`、`cancelled` 或 `timed_out`，并带 `requestId`；只有正常回答进入 `answers`。超时例子：
 
 ```jsonc
 {
-  "answers": [
-    { "question": "哪个框架?", "selected": ["React"], "customInput": null }
+  "requestId": "request-1",
+  "status": "timed_out",
+  "answers": [],
+  "fallback": [
+    { "questionId": "framework", "question": "哪个框架?", "selected": ["React"], "selectedValues": ["react"], "customInput": null }
   ],
-  "timedOut": true,   // 仅超时路径附带这两个字段
-  "note": "Some or all questions timed out; default values were automatically applied."
+  "timedOut": true
 }
 ```
 
-`selected` 里是选项的 **label**（不是内部 value），便于模型直接理解。该字符串作为 tool_result 回注 tool loop 下一轮；前端 `PlanResultBlocks.tsx` 的 `AskUserQuestionResult` 解析同一份 JSON 渲染成可折叠的已回答摘要卡片。cancel 路径不产 JSON，直接返回 `"The user cancelled the questions without answering."`。
+`selected` 为选项显示文字，`selectedValues` 保留内部选项值。无默认方案的超时返回空 `fallback`，取消返回空 `answers`；二者都不再返回普通文本。`timedOut` 保留供旧读取方识别。确认门通过 `ask_user::was_affirmative` 判断，显式非回答状态和旧 `timedOut: true` 都不能通过。
+
+前端两个结果卡共用 `src/lib/askUserResult.ts`：新结果分别读取答案与默认方案；旧的超时 `answers` 按默认方案展示，旧取消和无默认方案的超时文本也能识别。超时卡显示未回答状态与默认方案说明，不能显示成“已回答”或“你的回答”。
 
 ---
 
@@ -392,6 +409,8 @@ pub const EVENT_ASK_USER_RESOLVED:  &str = "ask_user:resolved";   // 统一终�
 | `ask_user_timed_out` | 赢得超时终态时 | `AskUserTimedOutPayload` | 清 active card、桌面通知、IM 超时提示 |
 | `ask_user:resolved` | **每条**终态路径（回答 / 取消 / 超时 / Stop / 删会话） | `{requestId, sessionId, status, source}` | 所有面：统一清卡、对账下一条排队问题、清 IM pending |
 
+超时事件保留旧字段名 `usedDefaultValues` 兼容现有客户端；工具侧它只表示存在已返回给模型参考的默认方案，不证明模型已经继续执行，也不代表用户选择。桌面通知与 IM 提示须保持这个口径。
+
 `ask_user:resolved` 是"统一撤窗"信号：前端据它清当前卡片并立即查下一条 live pending group，IM listener 据它撤销残留的按钮 / 文本 pending。HTTP EventBus 广播**不做 replay**（at-most-once），所以前端不能把单次 event 当最终真相——WS 首连 / 重连 / `_lagged` 会触发本地对账，重新读 `get_pending_ask_user_group`（详见下文前端集成）。
 
 ---
@@ -438,7 +457,7 @@ setPendingQuestionGroup((existing) => {
 | `priority` | `AlertTriangle` | 琥珀 |
 | 其他 / 无 | `HelpCircle` | 蓝 |
 
-选项徽章：`recommended` → `Star` + "Recommended"（琥珀）；`defaultValues` 含该 option → `Timer` + "default"（灰，提示超时会自动选中）。`handleSubmit` 构造 `AskUserQuestionAnswer[]` 后调唯一响应命令 `respond_ask_user_question`，成功后 `setSubmitted(true)` 立即隐藏组件、父组件清空 `pendingQuestionGroup`。
+选项徽章：`recommended` 显示推荐标记；有效倒计时下且非用户控制面问题时，`defaultValues` 命中的选项显示默认标记。共享的 `AskUserWaitHint` / `AskUserFallbackHint` 在主聊天与宠物卡中说明等待方式，并显示选项与自由文本默认方案。默认标记不会预选答案。`handleSubmit` 构造 `AskUserQuestionAnswer[]` 后调唯一响应命令 `respond_ask_user_question`，成功后立即隐藏组件、父组件清空待答问题组。
 
 ### 富预览与并排对比
 

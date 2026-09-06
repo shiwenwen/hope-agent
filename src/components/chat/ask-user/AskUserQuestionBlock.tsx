@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { MarkdownStreamdown } from "@/components/common/MarkdownRenderer"
+import { AskUserFallbackHint, AskUserWaitHint } from "./AskUserWaitHint"
 import {
   HelpCircle,
   Check,
@@ -79,9 +80,9 @@ export interface AskUserQuestion {
   template?: string
   /** Very short chip label (<=12 chars). */
   header?: AskUserLocalizedText
-  /** Per-question timeout in seconds. 0 / missing = inherit group default. */
+  /** Legacy per-question timeout hint; timeoutAt is the effective group deadline. */
   timeoutSecs?: number
-  /** Values auto-selected if the question times out. */
+  /** Model-proposed fallbacks, never user answers. */
   defaultValues?: string[]
 }
 
@@ -99,6 +100,8 @@ export interface AskUserQuestionGroup {
   serverNow?: number
   /** Client-clock deadline derived from timeoutAt + serverNow. */
   localTimeoutAtMs?: number | null
+  /** Owner questions record evidence; they never use automatic fallbacks. */
+  ownerResponse?: unknown
 }
 
 export interface AskUserQuestionAnswer {
@@ -467,6 +470,8 @@ export default function AskUserQuestionBlock({
         )}
       </div>
 
+      <AskUserWaitHint group={group} />
+
       {/* Context */}
       {isEnterPlanModeAsk ? (
         <p className="text-sm text-muted-foreground">
@@ -547,6 +552,7 @@ export default function AskUserQuestionBlock({
                 )}
               </div>
 
+              <AskUserFallbackHint group={group} question={q} />
               {isFreeText ? (
                 <div className="pl-5">
                   {q.inputKind === "textarea" ? (
@@ -583,7 +589,10 @@ export default function AskUserQuestionBlock({
                   <>
                 {q.options.map((opt) => {
                   const isSelected = state?.selected.has(opt.value) ?? false
-                  const isDefault = q.defaultValues?.includes(opt.value) ?? false
+                  const isDefault =
+                    !!group.timeoutAt &&
+                    !group.ownerResponse &&
+                    (q.defaultValues?.includes(opt.value) ?? false)
                   return (
                     <button
                       key={opt.value}

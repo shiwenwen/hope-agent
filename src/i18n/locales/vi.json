@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agent đang chờ câu trả lời",
     "askUserRequiredFallback": "Hope Agent có một câu hỏi cho bạn",
     "askUserTimedOut": "Câu hỏi đã hết hạn",
-    "askUserTimedOutDefaults": "Đã dùng câu trả lời mặc định sau {{seconds}} giây.",
+    "askUserTimedOutDefaults": "Không có câu trả lời sau {{seconds}} giây. Các phương án mặc định đã được gửi cho AI dưới dạng giả định, không phải xác nhận của bạn.",
     "askUserTimedOutNoDefaults": "Không nhận được câu trả lời trong {{seconds}} giây.",
     "channelAuthFailed": "Đăng nhập kênh IM thất bại",
     "channelAuthFailedBody": "Thông tin xác thực {{label}} bị từ chối — vui lòng xác thực lại",
@@ -3801,7 +3801,12 @@
       "title": "AI cần bạn cung cấp thông tin",
       "selected": "Đã chọn",
       "typeSample": "Con cáo nâu nhanh nhẹn",
-      "refs": "Tham khảo"
+      "refs": "Tham khảo",
+      "waitForever": "Câu hỏi này không tự hết hạn. Đang chờ bạn trả lời hoặc hủy.",
+      "timeoutWithFallback": "Nếu hết thời gian, AI sẽ nhận các phương án mặc định bên dưới dưới dạng giả định, không phải xác nhận của bạn.",
+      "timeoutWithoutFallback": "Khi hết thời gian, câu hỏi sẽ đóng và AI được thông báo rằng bạn chưa trả lời.",
+      "fallback": "Phương án dự phòng của AI",
+      "fallbackNotice": "Bạn chưa trả lời. Các phương án dự phòng là giả định của AI, không phải xác nhận của bạn."
     },
     "reattach": "Quay lại bảng điều khiển",
     "requestChanges": "Yêu cầu thay đổi",

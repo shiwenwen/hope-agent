@@ -12,10 +12,10 @@ pub fn get_ask_user_question_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_ASK_USER_QUESTION.into(),
         description:
-            "Ask structured questions to clarify requirements, choose an approach, or confirm a \
-decision. Ask 1–4 questions with 2–4 options, prefer single-select, and put the recommended choice \
-first with '(Recommended)' in its label. Use `preview` for comparisons. Only set timeouts with safe \
-defaults. In Plan Mode, use `submit_plan` instead of asking whether the plan is ready."
+            "Ask 1–4 questions with 2–4 options to clarify requirements or decisions. Prefer \
+single-select; put the recommended option first with '(Recommended)' in its label. Use preview \
+for comparisons. Blocks until answered, cancelled or timed out. Use never for required answers; \
+after only with safe assumptions. Use submit_plan for plan readiness."
                 .into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Interaction,
@@ -106,17 +106,27 @@ defaults. In Plan Mode, use `submit_plan` instead of asking whether the plan is 
                             },
                             "timeout_secs": {
                                 "type": "integer",
-                                "description": "Per-question timeout in seconds. Only takes effect when ask-user auto-timeout is enabled in settings. When exceeded, default_values are auto-applied. 0 or missing = use global default.",
+                                "description": "Legacy hint, used only without timeout_mode and with auto-timeout enabled. Group=max positive hint or global default; 0=inherit.",
                                 "minimum": 0
                             },
                             "default_values": {
                                 "type": "array",
-                                "description": "Option values used automatically if the question times out. Ignored unless ask-user auto-timeout is enabled. Each entry must be an existing option value, or a free-form custom string.",
+                                "description": "Option values or free text returned as model assumptions in fallback, never answers or consent. Recommended options are not automatic defaults.",
                                 "items": { "type": "string" }
                             }
                         },
                         "required": ["question_id", "text"]
                     }
+                },
+                "timeout_mode": {
+                    "type": "string",
+                    "enum": ["inherit", "never", "after"],
+                    "description": "Group policy overrides per-question hints: inherit=user settings; never=no timeout; after=timeout_secs, requires user-enabled auto-timeout. Omit for legacy behavior."
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Positive group timeout for after only; omit for inherit/never."
                 },
                 "context": {
                     "type": "string",

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { parseAskUserResult, type AskUserResultAnswer } from "@/lib/askUserResult"
 import { useTransport } from "@/lib/transport-provider"
 import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
@@ -25,14 +26,6 @@ type AskUserLocalizedText =
       params?: Record<string, unknown>
       fallback?: string
     }
-
-interface AskUserResultAnswer {
-  questionId?: string
-  question: string
-  selected: string[]
-  selectedValues?: string[]
-  customInput?: string | null
-}
 
 interface AskUserOriginalOption {
   value: string
@@ -107,22 +100,6 @@ function parseOriginalQuestion(value: unknown): AskUserOriginalQuestion {
   }
 }
 
-function parseResultAnswer(value: unknown): AskUserResultAnswer | null {
-  if (!isRecord(value) || typeof value.question !== "string") return null
-  const selected = stringArray(value.selected)
-  if (!selected) return null
-  return {
-    questionId: typeof value.questionId === "string" ? value.questionId : undefined,
-    question: value.question,
-    selected,
-    selectedValues: stringArray(value.selectedValues),
-    customInput:
-      typeof value.customInput === "string" || value.customInput === null
-        ? value.customInput
-        : undefined,
-  }
-}
-
 function fallbackText(text: AskUserLocalizedText | undefined | null): string {
   if (!text) return ""
   if (typeof text === "string") return text
@@ -160,24 +137,7 @@ export function AskUserQuestionResult({
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
 
-  const outcome = useMemo(() => {
-    if (!result) return { items: [], timedOut: false }
-    try {
-      const data: unknown = JSON.parse(result)
-      if (!isRecord(data)) return { items: [], timedOut: false }
-      return {
-        items: Array.isArray(data.answers)
-          ? data.answers
-              .map(parseResultAnswer)
-              .filter((answer): answer is AskUserResultAnswer => answer !== null)
-          : [],
-        timedOut: data.timedOut === true,
-      }
-    } catch {
-      return { items: [], timedOut: false }
-    }
-  }, [result])
-  const items = outcome.items
+  const outcome = useMemo(() => parseAskUserResult(result), [result])
 
   const original = useMemo(() => {
     if (!toolArguments) return null
@@ -206,7 +166,38 @@ export function AskUserQuestionResult({
     )
   }
 
-  if (items.length === 0) return null
+  if (!outcome) return null
+  if (outcome.cancelled) {
+    return (
+      <div className="my-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground">
+        {t("tools.ask_user.cancelled")}
+      </div>
+    )
+  }
+
+  const resultItems = outcome.timedOut ? outcome.fallback : outcome.answers
+  // Timeouts with no defaults still show every original question. Match by
+  // identity first: current fallbacks may cover only some questions. Legacy
+  // results without IDs contain every question in order, even for repeated text.
+  const items: AskUserResultAnswer[] =
+    outcome.timedOut && original?.questions.length
+      ? original.questions.map(
+          (question, index) =>
+            resultItems.find((item) => item.questionId === (question.questionId ?? `q_${index}`)) ??
+            (resultItems[index]?.questionId === undefined ? resultItems[index] : undefined) ?? {
+              questionId: question.questionId,
+              question: fallbackText(question.text ?? question.question),
+              selected: [],
+            },
+        )
+      : resultItems
+  if (items.length === 0) {
+    return outcome.timedOut ? (
+      <div className="my-2 rounded-lg border border-border bg-amber-500/5 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+        {t("planMode.question.timedOut")} · {t("tools.ask_user.no_answers")}
+      </div>
+    ) : null
+  }
 
   const originalQuestionFor = (item: AskUserResultAnswer, index: number) =>
     (item.questionId
@@ -233,21 +224,26 @@ export function AskUserQuestionResult({
     .join(" · ")
 
   return (
-    <div className="my-2 rounded-lg border border-green-500/20 bg-green-500/5">
+    <div
+      className={cn(
+        "my-2 rounded-lg border border-border",
+        outcome.timedOut ? "bg-amber-500/5" : "bg-green-500/5",
+      )}
+    >
       <button
         type="button"
         aria-expanded={expanded}
-        className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-green-600 hover:bg-green-500/5 transition-colors cursor-pointer"
+        className={cn(
+          "flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-secondary/40 transition-colors cursor-pointer",
+          outcome.timedOut ? "text-amber-700 dark:text-amber-400" : "text-green-600",
+        )}
         onClick={() => setExpanded(!expanded)}
       >
         <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")} />
-        <Check className="h-4 w-4" />
-        <span className="font-medium">{t("planMode.question.answered")}</span>
-        {outcome.timedOut && (
-          <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-normal text-amber-700 dark:text-amber-400">
-            {t("planMode.question.timedOut", { defaultValue: "timed out" })}
-          </span>
-        )}
+        {outcome.timedOut ? <Timer className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+        <span className="font-medium">
+          {t(outcome.timedOut ? "planMode.question.timedOut" : "planMode.question.answered")}
+        </span>
         {!expanded && answerPreview && (
           <span className="ml-auto min-w-0 max-w-[65%] truncate text-xs font-normal text-muted-foreground">
             {answerPreview}
@@ -256,6 +252,15 @@ export function AskUserQuestionResult({
       </button>
       <AnimatedCollapse open={expanded}>
         <div className="border-t border-green-500/10 px-4 pb-4 pt-3">
+          {outcome.timedOut && (
+            <p className="mb-3 text-xs text-amber-700 dark:text-amber-400">
+              {t(
+                outcome.fallback.some((item) => item.selected.length > 0 || item.customInput)
+                  ? "planMode.question.fallbackNotice"
+                  : "tools.ask_user.no_answers",
+              )}
+            </p>
+          )}
           {original?.context && (
             <div className="mb-3 flex items-start gap-2 text-xs text-muted-foreground">
               <MessageCircleQuestion className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600/70" />
@@ -315,16 +320,29 @@ export function AskUserQuestionResult({
                                   key={option.value}
                                   className={cn(
                                     "flex items-start gap-2 rounded-md border border-border/50 px-2.5 py-2 text-foreground",
-                                    isSelected ? "bg-green-500/10" : "bg-background/30",
+                                    isSelected
+                                      ? outcome.timedOut
+                                        ? "bg-amber-500/10"
+                                        : "bg-green-500/10"
+                                      : "bg-background/30",
                                   )}
                                 >
                                   <span
                                     className={cn(
                                       "mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/30 text-white",
-                                      isSelected ? "bg-green-600" : "bg-transparent",
+                                      isSelected
+                                        ? outcome.timedOut
+                                          ? "bg-amber-600"
+                                          : "bg-green-600"
+                                        : "bg-transparent",
                                     )}
                                   >
-                                    {isSelected && <Check className="h-2.5 w-2.5" />}
+                                    {isSelected &&
+                                      (outcome.timedOut ? (
+                                        <Timer className="h-2.5 w-2.5" />
+                                      ) : (
+                                        <Check className="h-2.5 w-2.5" />
+                                      ))}
                                   </span>
                                   <div className="min-w-0 flex-1">
                                     <div className="flex flex-wrap items-center gap-1.5">
@@ -357,11 +375,23 @@ export function AskUserQuestionResult({
                         </div>
                       )}
 
-                      <div className="mt-2.5 rounded-md border border-green-500/15 bg-green-500/5 px-2.5 py-2">
-                        <div className="text-[10px] font-medium uppercase tracking-wide text-green-700/80 dark:text-green-400/80">
+                      <div
+                        className={cn(
+                          "mt-2.5 rounded-md border border-border px-2.5 py-2",
+                          outcome.timedOut ? "bg-amber-500/5" : "bg-green-500/5",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "text-[10px] font-medium uppercase tracking-wide",
+                            outcome.timedOut
+                              ? "text-amber-700 dark:text-amber-400"
+                              : "text-green-700/80 dark:text-green-400/80",
+                          )}
+                        >
                           {outcome.timedOut
-                            ? defaultValues.length > 0
-                              ? t("tools.ask_user.timed_out")
+                            ? selected.length > 0 || item.customInput
+                              ? t("planMode.question.fallback")
                               : t("planMode.question.timedOut", { defaultValue: "timed out" })
                             : t("planMode.question.response")}
                         </div>
@@ -370,9 +400,18 @@ export function AskUserQuestionResult({
                             {selected.map((value, j) => (
                               <span
                                 key={`${value}-${j}`}
-                                className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 font-medium text-green-700 dark:text-green-300"
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
+                                  outcome.timedOut
+                                    ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                                    : "bg-green-500/15 text-green-700 dark:text-green-300",
+                                )}
                               >
-                                <Check className="h-2.5 w-2.5" />
+                                {outcome.timedOut ? (
+                                  <Timer className="h-2.5 w-2.5" />
+                                ) : (
+                                  <Check className="h-2.5 w-2.5" />
+                                )}
                                 {value}
                               </span>
                             ))}

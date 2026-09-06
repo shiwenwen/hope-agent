@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agent が回答を待っています",
     "askUserRequiredFallback": "Hope Agent から質問があります",
     "askUserTimedOut": "質問がタイムアウトしました",
-    "askUserTimedOutDefaults": "{{seconds}} 秒後にデフォルト回答が使用されました。",
+    "askUserTimedOutDefaults": "{{seconds}} 秒以内に回答がなかったため、既定案を仮定として AI に渡しました。あなたの承認ではありません。",
     "askUserTimedOutNoDefaults": "{{seconds}} 秒以内に回答がありませんでした。",
     "channelAuthFailed": "IM チャネルのログインに失敗",
     "channelAuthFailedBody": "{{label}} の認証情報が拒否されました — 再認証してください",
@@ -3801,7 +3801,12 @@
       "title": "入力が必要です",
       "selected": "選択中",
       "typeSample": "いろはにほへと",
-      "refs": "参考"
+      "refs": "参考",
+      "waitForever": "この質問に時間制限はありません。回答またはキャンセルを待っています。",
+      "timeoutWithFallback": "時間切れの場合、以下の既定案を仮定として AI に渡します。あなたの承認にはなりません。",
+      "timeoutWithoutFallback": "時間切れになると質問を終了し、未回答であることを AI に伝えます。",
+      "fallback": "AI の既定案",
+      "fallbackNotice": "回答はありませんでした。既定案は AI の仮定であり、あなたの承認ではありません。"
     },
     "reattach": "パネルに戻す",
     "requestChanges": "変更を依頼",
