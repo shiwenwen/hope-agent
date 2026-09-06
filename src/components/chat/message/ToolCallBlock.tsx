@@ -40,6 +40,7 @@ import {
   GitCompare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { parseAskUserResult } from "@/lib/askUserResult"
 import { parseMcpToolName } from "@/lib/mcp"
 import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
@@ -220,34 +221,6 @@ function getDisplayArgs(name: string, args: string): string {
   }
 }
 
-interface AskUserAnswer {
-  question: string
-  selected: string[]
-  customInput?: string | null
-}
-
-/** Parse the JSON result returned by ask_user_question. */
-function parseAskUserAnswers(
-  result: string | undefined,
-): { answers: AskUserAnswer[]; timedOut: boolean; cancelled: boolean } | null {
-  if (!result) return null
-  const trimmed = result.trim()
-  if (trimmed.startsWith("The user cancelled")) {
-    return { answers: [], timedOut: false, cancelled: true }
-  }
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (!Array.isArray(parsed?.answers)) return null
-    return {
-      answers: parsed.answers as AskUserAnswer[],
-      timedOut: !!parsed.timedOut,
-      cancelled: false,
-    }
-  } catch {
-    return null
-  }
-}
-
 /** Format the raw tool call as `name(args)` for display */
 function formatRawCall(tool: ToolCall): string {
   try {
@@ -336,7 +309,7 @@ export default function ToolCallBlock({
   )
 
   const askUserOutcome = useMemo(
-    () => (tool.name === "ask_user_question" ? parseAskUserAnswers(tool.result) : null),
+    () => (tool.name === "ask_user_question" ? parseAskUserResult(tool.result) : null),
     [tool.name, tool.result],
   )
 
@@ -466,39 +439,50 @@ export default function ToolCallBlock({
         <div className="ml-5 mt-1.5 mb-1 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 space-y-1.5 text-xs">
           {askUserOutcome.cancelled ? (
             <div className="text-muted-foreground italic">{t("tools.ask_user.cancelled")}</div>
-          ) : askUserOutcome.answers.length === 0 ? (
+          ) : (askUserOutcome.timedOut ? askUserOutcome.fallback : askUserOutcome.answers)
+              .length === 0 ? (
             <div className="text-muted-foreground italic">{t("tools.ask_user.no_answers")}</div>
           ) : (
-            askUserOutcome.answers.map((a, i) => {
-              const parts: string[] = [...a.selected]
-              if (a.customInput) parts.push(a.customInput)
-              return (
-                <div key={i} className="flex items-start gap-2">
-                  <HelpCircle className="h-3 w-3 mt-0.5 text-blue-500 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-muted-foreground">{a.question}</div>
-                    {parts.length > 0 && (
-                      <div className="mt-0.5 flex flex-wrap gap-1">
-                        {parts.map((p, j) => (
-                          <span
-                            key={j}
-                            className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5"
-                          >
-                            <Check className="h-2.5 w-2.5" />
-                            {p}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+            (askUserOutcome.timedOut ? askUserOutcome.fallback : askUserOutcome.answers).map(
+              (a, i) => {
+                const parts: string[] = [...a.selected]
+                if (a.customInput) parts.push(a.customInput)
+                return (
+                  <div key={i} className="flex items-start gap-2">
+                    <HelpCircle className="h-3 w-3 mt-0.5 text-blue-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-muted-foreground">{a.question}</div>
+                      {parts.length > 0 && (
+                        <div className="mt-0.5 flex flex-wrap gap-1">
+                          {parts.map((p, j) => (
+                            <span
+                              key={j}
+                              className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5"
+                            >
+                              {askUserOutcome.timedOut ? (
+                                <Timer className="h-2.5 w-2.5" />
+                              ) : (
+                                <Check className="h-2.5 w-2.5" />
+                              )}
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })
+                )
+              },
+            )
           )}
           {askUserOutcome.timedOut && (
             <div className="text-[10px] text-amber-600 flex items-center gap-1 pt-0.5">
               <Timer className="h-2.5 w-2.5" />
-              {t("tools.ask_user.timed_out")}
+              {t(
+                askUserOutcome.fallback.some((a) => a.selected.length > 0 || a.customInput)
+                  ? "planMode.question.fallbackNotice"
+                  : "planMode.question.timedOut",
+              )}
             </div>
           )}
         </div>

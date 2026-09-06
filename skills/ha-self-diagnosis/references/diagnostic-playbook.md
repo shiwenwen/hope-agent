@@ -155,6 +155,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### Ask-user / Prompt system / Media generation — `ask-user.md`, `prompt-system.md`, `media-generation.md`
 
+- 问答超时排查：先查请求顶层 `timeout_mode`，显式 `inherit` / `never` / `after` 覆盖旧每题提示；用户关闭自动超时时 `after` 明确拒绝。事件中的 `timeoutAt` 才是有效截止时间。结果的 `answers` 只含用户回答，超时默认方案只进 `fallback`；旧 `timedOut` 结果也不能显示成已回答或通过确认门。当前仍是阻塞提问，没有异步回投。
 - Entry: `tools/ask_user_question.rs`, `ask_user/questions.rs`, ha-channel 的 `channel/worker/ask_user.rs`, `system_prompt/build.rs`, kernel `ha-core/src/media_gen/` (crud/resolve 配置面); 执行机器与工具 `ha-media/src/` (`media_gen/` executor+adapters+catalog, `{image_generate,audio_generate}/` chat-tool front-ends).
 - State: `sessions.db` (`ask_user_questions`). Config: `ask_user_question_timeout_enabled` (default false = wait forever) / `_secs`, `mediaGen` (`providers[]` + per-function `chains` — image / speech / music / sfx, each = primary model + fallbacks; an empty chain falls back to provider order — plus `imageDefaults` / `audioDefaults`).
 - Grep: `category='ask_user'`; media generation logs under `category='media_gen'` (source `resolve`/`execute`) plus tool-level `category='tool'` (source `image_generate`/`audio_generate`); IM ask_user uses `category='channel'` with an `ask_user:` prefix.

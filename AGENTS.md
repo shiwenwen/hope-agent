@@ -265,6 +265,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 
 - 数据在 `~/.hope-agent/`，新路径走 `paths.rs`；日志走 `logging/mod.rs`，请求体必经 `redact_sensitive`
 - 唯一结构化问答入口 `ask_user_question`：富输入 / 风格卡只能扩展它（答案仍走 `selected[]`），绝不 fork
+- **问答超时不代表用户同意**：整组 `timeout_mode` 显式策略覆盖旧每题提示，`never` 不得回退到全局有限时间，`after` 不得越过用户关闭超时的设置；`answers` 只放用户回答，模型默认方案只放 `fallback`，确认门拒绝非 `answered` 状态与旧 `timedOut`。
 - `sessions.working_dir` 三用：`# Working Directory` 段 + `exec` cwd + `read` 相对根，非纯 prompt 提示
 - 手册单一来源 `docs/user-guide/`（rust-embed）：禁复制正文 / 拷进产物；中英同 PR 对齐（CI `check-docs-parity`）。例外：Dockerfile rust 阶段 `COPY docs/user-guide` 是编译期 embed 依赖，须保留
 - markdown 路径链接仅桌面：`is_desktop()` 才注入 `MARKDOWN_PATH_LINKS_GUIDANCE`；其 `[名](绝对路径)` 格式与前端 `localPathFromHref()` 是同步契约；非桌面靠 `supportsLocalFileOps()` 关入口 + `/api/desktop/open-directory` 返 no-op（**不是**早返回禁用）。例外：anchor `title` 用原生 HTML 非 shadcn Tooltip（一条消息上百个）

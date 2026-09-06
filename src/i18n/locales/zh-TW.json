@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agent 正在等你回答",
     "askUserRequiredFallback": "Hope Agent 提了一個問題等你回答",
     "askUserTimedOut": "問題已超時",
-    "askUserTimedOutDefaults": "{{seconds}} 秒內未收到回答，已使用預設答案。",
+    "askUserTimedOutDefaults": "{{seconds}} 秒內未收到回答，預設方案已交給 AI 參考，不代表你的確認。",
     "askUserTimedOutNoDefaults": "{{seconds}} 秒內未收到回答。",
     "channelAuthFailed": "IM 頻道登入失敗",
     "channelAuthFailedBody": "{{label}} 憑證被拒絕，請檢查或重新登入",
@@ -3801,7 +3801,12 @@
       "title": "需要你的確認",
       "selected": "已選",
       "typeSample": "快速的棕色狐狸",
-      "refs": "參考"
+      "refs": "參考",
+      "waitForever": "此問題不會自動逾時，等待你回答或取消。",
+      "timeoutWithFallback": "到期未回覆時，AI 將收到下列預設方案作為參考，不代表你已確認。",
+      "timeoutWithoutFallback": "到期後將結束提問，並告知 AI 你尚未回答。",
+      "fallback": "AI 預設方案",
+      "fallbackNotice": "未收到你的回答。預設方案僅供 AI 參考，不代表你的確認。"
     },
     "reattach": "收回到面板",
     "requestChanges": "請求修改",

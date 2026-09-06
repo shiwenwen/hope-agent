@@ -115,8 +115,91 @@ describe("AskUserQuestionResult", () => {
     const withoutDefault = screen.getByText("No default answer").closest("section")
     expect(withDefault).not.toBeNull()
     expect(withoutDefault).not.toBeNull()
-    expect(within(withDefault!).getByText("tools.ask_user.timed_out")).toBeInTheDocument()
+    expect(within(withDefault!).getByText("planMode.question.fallback")).toBeInTheDocument()
     expect(within(withoutDefault!).getByText("timed out")).toBeInTheDocument()
-    expect(within(withoutDefault!).queryByText("tools.ask_user.timed_out")).not.toBeInTheDocument()
+    expect(
+      within(withoutDefault!).queryByText("planMode.question.fallback"),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("planMode.question.answered")).not.toBeInTheDocument()
+  })
+
+  test("new timeout results show fallback identity without claiming the user answered", () => {
+    render(
+      <AskUserQuestionResult
+        toolArguments={JSON.stringify({
+          questions: [
+            { question_id: "required", text: "Which account?", options: [] },
+            {
+              question_id: "optional",
+              text: "Which style?",
+              options: [{ value: "simple", label: "Simple" }],
+            },
+          ],
+        })}
+        result={JSON.stringify({
+          status: "timed_out",
+          answers: [],
+          fallback: [
+            {
+              questionId: "optional",
+              question: "Which style?",
+              selected: ["Simple"],
+              selectedValues: ["simple"],
+            },
+          ],
+        })}
+      />,
+    )
+    const required = screen.getByText("Which account?").closest("section")!
+    const optional = screen.getByText("Which style?").closest("section")!
+    expect(within(required).getByText("tools.ask_user.no_answers")).toBeInTheDocument()
+    expect(within(required).queryByText("Simple")).not.toBeInTheDocument()
+    expect(within(optional).getByText("planMode.question.fallback")).toBeInTheDocument()
+    expect(screen.queryByText("planMode.question.answered")).not.toBeInTheDocument()
+    expect(screen.queryByText("planMode.question.response")).not.toBeInTheDocument()
+  })
+
+  test("keeps legacy timeout defaults in question order when question text repeats", () => {
+    render(
+      <AskUserQuestionResult
+        toolArguments={JSON.stringify({
+          questions: [
+            { question_id: "frontend", text: "Choose a framework", header: "Frontend" },
+            { question_id: "backend", text: "Choose a framework", header: "Backend" },
+            { question_id: "unspecified", text: "Choose a framework", header: "Unspecified" },
+          ],
+        })}
+        result={JSON.stringify({
+          timedOut: true,
+          answers: [
+            { question: "Choose a framework", selected: ["React"] },
+            { question: "Choose a framework", selected: [], customInput: "Axum" },
+            { question: "Choose a framework", selected: [] },
+          ],
+        })}
+      />,
+    )
+    const frontend = within(screen.getByText("Frontend").closest("section")!)
+    const backend = within(screen.getByText("Backend").closest("section")!)
+    const unspecified = within(screen.getByText("Unspecified").closest("section")!)
+    expect(frontend.getByText("React")).toBeInTheDocument()
+    expect(frontend.queryByText("Axum")).not.toBeInTheDocument()
+    expect(backend.getByText("Axum")).toBeInTheDocument()
+    expect(backend.queryByText("React")).not.toBeInTheDocument()
+    expect(unspecified.getByText("tools.ask_user.no_answers")).toBeInTheDocument()
+    expect(unspecified.queryByText("React")).not.toBeInTheDocument()
+  })
+
+  test("empty timeout and structured cancellation remain visible", () => {
+    const { rerender } = render(
+      <AskUserQuestionResult
+        result={JSON.stringify({ status: "timed_out", answers: [], fallback: [] })}
+      />,
+    )
+    expect(screen.getByText(/tools.ask_user.no_answers/)).toBeInTheDocument()
+    rerender(
+      <AskUserQuestionResult result={JSON.stringify({ status: "cancelled", answers: [] })} />,
+    )
+    expect(screen.getByText("tools.ask_user.cancelled")).toBeInTheDocument()
   })
 })

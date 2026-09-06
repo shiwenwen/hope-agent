@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react"
 import { Check, ChevronLeft, ChevronRight, HelpCircle, Send, Star, Timer } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { AskUserFallbackHint, AskUserWaitHint } from "@/components/chat/ask-user/AskUserWaitHint"
 import type {
   AskUserLocalizedText,
   AskUserQuestion,
@@ -236,6 +237,8 @@ export function PetAskUserCard({
         )}
       </header>
 
+      <AskUserWaitHint group={group} />
+
       {context && <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">{context}</p>}
 
       <div className="mt-2">
@@ -250,6 +253,7 @@ export function PetAskUserCard({
           )}
         </div>
 
+        <AskUserFallbackHint group={group} question={question} />
         {isFreeText(question) ? (
           question.inputKind === "textarea" ? (
             <Textarea

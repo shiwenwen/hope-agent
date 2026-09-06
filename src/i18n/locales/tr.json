@@ -3440,7 +3440,7 @@
     "askUserRequired": "Agent yanıtınızı bekliyor",
     "askUserRequiredFallback": "Hope Agent'in size bir sorusu var",
     "askUserTimedOut": "Soru zaman aşımına uğradı",
-    "askUserTimedOutDefaults": "{{seconds}} sn sonra varsayılan yanıtlar kullanıldı.",
+    "askUserTimedOutDefaults": "{{seconds}} saniye içinde yanıt gelmedi. Varsayılan seçenekler yapay zekaya varsayım olarak iletildi; onayınız değildir.",
     "askUserTimedOutNoDefaults": "{{seconds}} sn içinde yanıt alınmadı.",
     "channelAuthFailed": "IM kanalı oturum açma başarısız",
     "channelAuthFailedBody": "{{label}} kimlik bilgileri reddedildi — lütfen yeniden kimlik doğrulayın",
@@ -3801,7 +3801,12 @@
       "title": "AI girişinizi bekliyor",
       "selected": "Seçildi",
       "typeSample": "Pijamalı hasta şoför",
-      "refs": "Örnekler"
+      "refs": "Örnekler",
+      "waitForever": "Bu sorunun süre sınırı yok. Yanıtınız veya iptaliniz bekleniyor.",
+      "timeoutWithFallback": "Süre dolarsa aşağıdaki varsayılan seçenekler yapay zekaya varsayım olarak iletilir; onayınız sayılmaz.",
+      "timeoutWithoutFallback": "Süre dolduğunda soru kapanır ve yapay zekaya yanıt vermediğiniz bildirilir.",
+      "fallback": "Yapay zekanın yedek seçeneği",
+      "fallbackNotice": "Yanıt vermediniz. Yedek seçenekler yapay zekanın varsayımlarıdır, onayınız değildir."
     },
     "reattach": "Panele geri al",
     "requestChanges": "Değişiklik iste",
