@@ -108,6 +108,21 @@ function renderContentBlocks(
 }
 
 describe("AssistantContentBlocks processed grouping", () => {
+  test("shows skill inspection as a tool result without claiming activation", () => {
+    const inspect = tool("inspect", "skill", '{"found":true}')
+    inspect.arguments = JSON.stringify({ name: "example", action: "inspect" })
+    renderContentBlocks([{ type: "tool_call", tool: inspect }])
+    expect(screen.queryByTestId("skill-block")).toBeNull()
+    expect(screen.getByTestId("tool-block").textContent).toBe("skill:inspect")
+  })
+
+  test("keeps the activation renderer for existing skill calls", () => {
+    const activate = tool("activate", "skill")
+    activate.arguments = JSON.stringify({ name: "example" })
+    renderContentBlocks([{ type: "tool_call", tool: activate }])
+    expect(screen.getByTestId("skill-block").textContent).toBe("activate")
+  })
+
   test.each(["bubble", "timeline"] as const)(
     "keeps cross-session receipts visible and navigates to the delivered message in %s mode",
     (displayMode) => {

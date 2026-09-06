@@ -15,6 +15,7 @@ use ha_core::tools::ToolExecContext;
 
 mod fork;
 mod inline;
+mod inspect;
 
 use crate::skills::{self as skill_runtime, SkillEntry};
 
@@ -32,6 +33,15 @@ pub async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("'name' is required (skill name to activate)"))?;
+
+    match args.get("action") {
+        None => {}
+        Some(Value::String(action)) if action == "activate" => {}
+        Some(Value::String(action)) if action == "inspect" => {
+            return inspect::execute(name, ctx).await;
+        }
+        Some(_) => return Err(anyhow!("'action' must be 'activate' or 'inspect'")),
+    }
 
     let invocation_args = args
         .get("args")

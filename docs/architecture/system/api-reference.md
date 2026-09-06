@@ -1562,6 +1562,8 @@ Agent 执行准入采用两层 guard：Desktop / HTTP 的 transport admission �
 
 ### Skills
 
+第三方技能安装器的本机读取命令为 `hope-agent skill-source-fetch --url <URL> --max-bytes <N> --timeout-ms <N>`，桌面与无界面二进制共用实现。它只读取公开 GitHub 的提交 / 目录元数据与固定提交文件，经过共享 SSRF 校验和流式大小限制；不写包文件、不读取凭据、不启动运行时，也不提供宿主机沙箱转接。安装流程与握手格式见 [技能系统](../agent/skill-system.md#第三方技能安装)。
+
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `get_skills` | `GET /api/skills` | ✅ |

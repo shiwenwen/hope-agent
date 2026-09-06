@@ -505,6 +505,7 @@ if req.always {
     "type": "object",
     "properties": {
       "name": { "type": "string", "description": "Skill name as shown in the skill catalog" },
+      "action": { "type": "string", "enum": ["activate", "inspect"], "description": "默认 activate；inspect 刷新目录并返回只读安装检查结果" },
       "args": { "type": "string", "description": "Optional arguments. Replaces `$ARGUMENTS` for inline skills; becomes the task description for fork skills." }
     },
     "required": ["name"]
@@ -512,11 +513,15 @@ if req.always {
 }
 ```
 
-### Dispatch 流程
+`action=inspect` 在激活分发前返回：重新发现目录并刷新版本，只报告目标来源、实际目录、全局启用状态、前置依赖和激活限制。它允许检查已禁用或禁止模型调用的技能，绝不以检查为由解除限制或加载正文；`args` 不会执行。返回 `found: false` 表示当前作用域或发现预算内未找到该技能，不能解释为安装文件一定不存在。
+
+### 分发流程
 
 ```mermaid
 flowchart TD
-    TOOL(["skill 工具调用<br/>{name, args?}"]) --> LOOKUP["get_invocable_skills<br/>过滤 disabled/status/user-invocable<br/>按 name 查找"]
+    TOOL(["skill 工具调用<br/>{name, action?, args?}"]) --> ACTION{"操作类型"}
+    ACTION -->|inspect| INSPECT["刷新目录版本并返回元数据<br/>不加载正文、不启动子 Agent"]
+    ACTION -->|activate 或省略| LOOKUP["get_invocable_skills<br/>过滤禁用、状态与可调用性<br/>按名称查找"]
     LOOKUP --> FOUND{"找到?"}
     FOUND -->|否| ERR(["Skill 'X' not found; available: ..."])
     FOUND -->|是| DIM{"disable_model_invocation?"}
@@ -1059,59 +1064,27 @@ flowchart LR
 
 ## 十三、缓存与版本追踪
 
-技能系统并行维护两套独立缓存，各自解决不同问题、互不污染：
+当前 `load_all_skills_with_budget` 每次从文件系统发现技能，提示词构建与 `skill` 工具都走这个入口。`SkillCache` 的 30 秒有效期类型仍保留在契约层，但当前没有调用方使用它缓存目录，不能据此承诺“等 30 秒就会刷新”。
 
-| 缓存 | 键 | 失效条件 | 存储 |
-|------|----|---------|------|
-| `SkillCache` | 全局单实例 | 30s TTL + `SKILL_CACHE_VERSION` + `extra_dirs` hash | 进程内存 |
-| `ACTIVATED_CONDITIONAL` | `session_id` | 无 TTL；session 删除 / skill 目录变动时清理 | 进程内存 + `sessions.db` 持久化 |
+运行中的缓存和观察者各自有明确边界：
 
-不共用的原因：`SkillCache` 是全局目录扫描结果（所有 session 共享），`ACTIVATED_CONDITIONAL` 是 per-session 动态激活状态（每个 session 独立）。合并会让 TTL 语义模糊 + 多 session 互相污染。
+| 状态                     | 键                            | 刷新方式                                                         |
+| ------------------------ | ----------------------------- | ---------------------------------------------------------------- |
+| `HAS_PATHS_SKILLS_CACHE` | 目录版本 + 会话工作目录       | `bump_skill_version()` 使“是否存在条件技能”的快速判断失效        |
+| `ACTIVATED_CONDITIONAL`  | `session_id`                  | 会话自己的条件激活台账；删除会话时清理，安装检查不改既有激活结果 |
+| 渠道命令菜单等观察者     | `skills:catalog_changed` 事件 | 订阅方重新读取目录并同步                                         |
 
 ### 版本机制
 
-`SkillCache` 的失效除了 30 秒 TTL，还挂在一个原子版本计数器上——任何会改变技能集的操作都 `bump`，让下次请求立即重扫：
+`bump_skill_version()` 增加进程内 `SKILL_CACHE_VERSION`，并在事件总线可用时发出 `skills:catalog_changed`。配置、技能写入和依赖安装仍使用同一刷新入口：
 
-```rust
-static SKILL_CACHE_VERSION: AtomicU64 = AtomicU64::new(0);
+- `toggle_skill`、`set_skill_env_var` / `remove_skill_env_var`。
+- `add_extra_skills_dir` / `remove_extra_skills_dir`、`set_skill_env_check`。
+- `install_skill_dependency`、`author` 的写盘原语。
+- 新条件技能激活、技能特征装配。
+- `skill action=inspect`：外部安装脚本不能修改进程内计数器，安装后用这个只读操作补齐刷新并重新查验。
 
-pub fn bump_skill_version() {
-    SKILL_CACHE_VERSION.fetch_add(1, Ordering::Relaxed);
-    // 同时在 EventBus emit `skills:catalog_changed`，
-    // 让被动观察者（如渠道机器人菜单）重新同步命令。
-}
-```
-
-触发 bump 的操作：
-
-- `toggle_skill` — 启用 / 禁用
-- `set_skill_env_var` / `remove_skill_env_var` — 改环境变量
-- `add_extra_skills_dir` / `remove_extra_skills_dir` — 改技能目录
-- `set_skill_env_check` — 改环境检查开关
-- `install_skill_dependency` — 安装依赖
-- `author` 各写盘原语（create / update / patch / delete / set_status）
-- `activate_skills_for_paths` 命中新 `paths:` 技能 — 让它立即出现在下一轮 prompt
-
-### 缓存状态机
-
-```mermaid
-stateDiagram-v2
-    [*] --> Empty: 应用启动
-    Empty --> Loading: 首次请求技能列表
-    Loading --> Valid: 文件系统扫描完成
-    Valid --> Valid: 请求列表<br/>(TTL < 30s && 版本匹配 && dirs 未变)
-    Valid --> Stale: TTL ≥ 30s
-    Valid --> Invalidated: bump_skill_version()
-    Stale --> Loading: 下次请求重新加载
-    Invalidated --> Loading: 下次请求重新加载
-
-    note right of Valid
-        三条件全满足才有效:
-        1. loaded_at.elapsed() < 30s
-        2. version == SKILL_CACHE_VERSION
-        3. extra_dirs 未变化
-    end note
-```
+安装检查不加载技能正文、不发出 `skill_activation_delta`、不派生子 Agent，也不修改配置或依赖；未找到目标时仍刷新版本，返回 `found: false`。它在会话工作目录内重新解析来源优先级，返回实际生效技能的 `baseDir`，调用者须与安装计划的目标比对。
 
 ---
 
@@ -1265,7 +1238,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant CFG as 配置变更<br/>toggle/env/dir/paths 激活
-    participant CACHE as SkillCache
+    participant VERSION as 目录版本与观察者
     participant ACT as ACTIVATED_CONDITIONAL
     participant SP as system_prompt<br/>build_skills_section
     participant LOAD as load_all_skills_with_budget
@@ -1275,18 +1248,13 @@ sequenceDiagram
     participant SKTOOL as skill 工具
 
     Note over CFG,ACT: 阶段一：缓存失效
-    CFG->>CACHE: bump_skill_version()
+    CFG->>VERSION: bump_skill_version()
     CFG->>ACT: activate_skills_for_paths（仅 paths 命中）
 
-    Note over SP,BUDGET: 阶段二：每次 LLM 调用构建 prompt
-    SP->>CACHE: 检查缓存有效性
-    alt 缓存有效
-        CACHE-->>SP: 返回 entries
-    else 失效
-        SP->>LOAD: 扫描全部已配置与仓库边界内来源
-        LOAD->>LOAD: 解析 → 去重 → 排序
-        LOAD-->>CACHE: 更新缓存
-    end
+    Note over SP,BUDGET: 阶段二：构建提示词时重新发现
+    SP->>LOAD: 扫描全部已配置与仓库边界内来源
+    LOAD->>LOAD: 解析 → 去重 → 排序
+    LOAD-->>SP: 当前技能目录
     SP->>ACT: activated_skill_names(session_id)
     ACT-->>SP: 条件激活集
     SP->>FILTER: 全部技能 + activated 集
@@ -1362,13 +1330,15 @@ sequenceDiagram
 
 ### 内置技能清单
 
-发行物当前内置 28 个技能。"可见性"列区分：`always` 跳过依赖检查、`requires` 缺依赖时进目录但激活前诊断、`paths` 条件激活默认隐藏、其余全局可见。
+发行物当前内置 30 个技能。"可见性"列区分：`always` 跳过依赖检查、`requires` 缺依赖时进目录但激活前诊断、`paths` 条件激活默认隐藏、其余全局可见。
 
 | 技能 | 类别 | 可见性 | 说明 |
 |------|------|--------|------|
 | `ha-settings` | meta | `always` | 通过自然语言查看 / 修改 Hope Agent 设置，指导模型用 `get_settings` / `update_settings` / settings backup 工具 |
 | `ha-skill-creator` | meta | `always` | 创建、编辑、改进、审核技能；含格式规范、评估思路和 frontmatter 指南 |
-| `ha-find-skills` | meta | `always` | 当前 catalog 没有合适能力时，指导发现并安装第三方技能（安装第三方代码须先显式确认） |
+| `ha-find-skills` | meta | `always` | 当前技能目录没有合适能力时，发现并推荐第三方技能；选定来源后交给安装器 |
+| `ha-skill-installer` | meta | `always` | 从公开 GitHub 子目录或本地目录准备快照，核对授权后不覆盖安装，再检查实际加载状态 |
+| `ha-pet-import` | meta | 全局 | 经宠物验证器与原子安装入口导入、选择或启用兼容桌面宠物 |
 | `ha-manual` | meta | 全局（`allowed-tools` 限只读工具集） | 从内置双语用户手册回答"怎么用 X / 设置 Y 在哪 / 面板 Z 干什么"，而非凭记忆猜 |
 | `ha-browser` | meta | 全局（`@skill` 成员） | `browser` 工具方法论：`status → tabs → snapshot → act` 循环、stale-ref 恢复、登录 / 2FA / 验证码阻塞处理 |
 | `ha-mac-control` | meta | 全局（macOS-only，`@skill` 成员）| `mac_control` 原生 macOS 桌面控制方法论：apps / dock / spaces / 视觉定位 / 菜单 / 窗口 / 对话框循环 |
@@ -1394,6 +1364,34 @@ sequenceDiagram
 | `office-docx` | Office 文件 | `requires.bins: [python3]`（`@skill` 成员） | 创建 / 编辑 / 检查 Word `.docx`：列表、批注、修订、图片 alt、TOC、脚注、水印、保护、内容控件、表格、合并、对比、PDF/PNG 预览 |
 | `office-xlsx` | Office 文件 | `requires.bins: [python3]`（`@skill` 成员） | 创建 / 编辑 / 检查 Excel `.xlsx`：公式、样式、表格、数据验证、条件格式、图表、CSV/TSV、公式审计、LibreOffice 重算、预览 |
 | `office-pptx` | Office 文件 | `requires.bins: [python3]`（`@skill` 成员） | 创建 / 编辑 / 检查 PowerPoint `.pptx`：标题/章节/图文/表格/时间线、native chart、文本 patch、复制重排 slide、预览 |
+
+### 第三方技能安装
+
+技能发现、安装、创作分别由 `ha-find-skills`、`ha-skill-installer`、`ha-skill-creator` 承担。已提供安装来源时直接进入安装器；仅搜索候选不构成安装授权，已有的明确安装授权沿流程传递。
+
+安装器随技能包分发 Python 3.9+ 标准库脚本 `scripts/install_skill.py`，经现有 `exec` 审批与沙箱执行。公开 GitHub 获取调用同一 Hope 二进制的 `skill-source-fetch` 只读命令；桌面与无界面二进制在运行时初始化前共用 `ha-skills::github_fetch`，不读取凭据、不检出仓库、不运行仓库代码。普通 `exec` 通过 `HOPE_AGENT_EXECUTABLE` 提供当前二进制路径，命令仍在原执行环境内运行，不能借此转到宿主机绕过沙箱。独立使用时可从 PATH 解析 `hope-agent`；缺少兼容读取器时失败，私有仓库和其它托管来源使用已授权的本地技能目录。
+
+| 阶段 | 行为 | 失败边界 |
+|------|------|----------|
+| `prepare` | 解析仓库子目录和分支 / 标签 / 提交；固定提交，先核对完整文件清单再获取内容；复制到系统临时目录并返回来源、目标、文件清单和 SHA-256 摘要 | 不写可被发现的技能目录；目录读取失败、远程清单不完整、缺少根 `SKILL.md`、身份字段无效、路径不安全或目标冲突时失败 |
+| 审阅 | 读取快照正文和必要脚本，确认来源、许可、用途、目标作用域与现有授权 | 第三方内容为不可信数据；不能执行其中的指令或自动安装依赖 |
+| `install` | 核对 `expectedDigest` 和每个文件；在目标根目录的同级临时目录完成复制与复核；以拒绝覆盖的原子重命名发布，成功后清理预览 | 预览后内容变化、同名目标出现或发布失败均拒绝；不重新拉取已移动的分支、不留下半安装技能；清理失败单独返回待清理状态，不误报安装失败 |
+| `discard` | 用户放弃预览、改选来源或冲突终止安装后，用原计划和摘要显式清理快照 | 只清理计划绑定的系统临时预览目录；拒绝链接和无关文件，不删除来源或安装目标；先清理资源再删除计划，允许清理失败后重试 |
+| `skill action=inspect` | 用会话工作目录重新发现技能、增加目录版本并通知观察者，返回元数据供比对 | 不激活正文、不发起分叉、不自动启用技能、不写配置；检查失败须报告“已落盘但未验证” |
+
+默认目标为 `paths::skills_dir()` 对应的 `HA_DATA_DIR/skills` 或 `~/.hope-agent/skills`；外部安装时 `HA_DATA_DIR` 必须是绝对路径，避免它随命令工作目录漂移。`--project` 明确指定会话项目根后使用其 `.hope-agent/skills`。脚本不接受任意 `--dest`、覆盖或强制开关。除目标目录及内置名称的脚本检查外，安装前用只读检查核对包含禁用技能在内的配置来源，安装后比对实际 `baseDir`，防止同名来源优先级导致误报。
+
+准备快照与发布暂存目录都放在随机临时目录下的额外一层目录中，`SKILL.md` 距临时根或目标父目录至少三层，超出发现器的两层扫描边界；即使用户把这些父目录配置为额外技能来源，未发布内容也不会被提前发现。调整发现深度或暂存布局时须同时复核这个边界。
+
+快照限 512 个文件、单文件 8 MiB、合计 32 MiB、`SKILL.md` 64 KiB；拒绝符号链接、重解析点、特殊文件、路径穿越与跨平台路径别名。复制保留内容及可执行位，排除版本控制和缓存目录。身份检查只覆盖必要名称、描述和正文，不宣称完整验证全部供应商扩展语法或证明第三方代码可信。安装记录 `.hope-skill-install.json` 保存来源、提交和文件摘要；所有身份信息均来自快照，不能作为更高权限指令。
+
+远程获取先通过 GitHub 提交接口固定提交，再逐层读取非递归目录元数据定位技能目录，最后获取该目录的递归文件清单。清单截断即失败；下载任何文件前统一校验类型、路径、数量、单文件和总大小。仅对通过校验的文件请求固定提交下的内容，并复核字节数和 Git 对象摘要。元数据单响应限 2 MiB、累计限 8 MiB、目录深度限 32，整个获取阶段限 180 秒；遇限流只报告并等待重试或使用本地来源，不退回整仓获取。
+
+原生读取器只接受 `api.github.com` 的提交 / 目录 GET 和 `raw.githubusercontent.com` 的固定提交文件 GET。每次请求经共享 `security::ssrf::check_url` 与地址检查，连接固定到已校验地址；禁止代理、重定向、自动解压及认证。读取前检查声明长度，流式读取最多保留请求上限加 1 字节，超限失败。标准输出以 `hope-skill-fetch-v1` 握手开头，脚本校验握手及响应长度，避免旧二进制误报成功。
+
+原子发布在 macOS 使用 `renameatx_np(RENAME_EXCL)`，Linux 使用 `renameat2(RENAME_NOREPLACE)`，Windows 使用拒绝已有目标的 `os.rename`；缺少相应原语时失败，不降级为覆盖式重命名。`skills.allowRemoteInstall` 仍只控制 HTTP 依赖安装，不是技能包安装授权，不得为本流程自动打开。
+
+验证入口：`python3 -m unittest discover -s skills/ha-skill-installer/scripts -p 'test_*.py'`；原生读取边界、运行时只读检查和内置技能发现由 `ha-skills` 的契约测试覆盖。
 
 ### 编程方法论技能：只提供方法，不放权
 

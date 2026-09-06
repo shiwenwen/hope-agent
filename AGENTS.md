@@ -236,6 +236,7 @@ Tauri 命令 → `invoke_handler!`；HTTP 端点 → `build_router_with_cors`；
 详见 [skill-system](docs/architecture/agent/skill-system.md)（优先级/激活入口/`allowed-tools` gap/`skills::author` 原语）。
 
 - **内置技能编译期嵌入二进制**（`skills/embedded.rs`）：禁止往构建产物单独拷 `skills/`
+- **第三方技能安装入口**：发现走 `ha-find-skills`、安装走 `ha-skill-installer` 的快照脚本，禁止整仓克隆进托管目录或覆盖已有技能；安装后用 `skill action=inspect` 刷新并检查，检查不得激活正文或放宽权限。
 - **`@skill` 固定 allowlist**：非通用注入入口，单一来源 `skills::mention::AT_MENTIONABLE_SKILLS`
 - **`skills::author` 写正文三路径（create/update/patch）全过 `security_scan`，命中即 bail 不降级**；自动**创建**默认落 draft 待用户确认，但 `promotion:"auto"` 直接写 Active；**`patch` 就地改已存在技能——目标 Active 时即刻对模型生效，不落 draft、不经确认**
 - **crate 边界**：机器（解包 / 发现解析 / 创作 / auto-review / 提及 / fork / 命令面 / `skill` 工具）在 `ha-skills`，**契约 `skills/types.rs` + 台账 `skills/activation.rs` + 纯谓词 `skills/{requirements,prompt,slash}.rs` 恒留 kernel**（slash 命令表与 system prompt 直接用，条件激活台账被 `tools::execution` / `system_prompt` / `cleanup_watcher` 三处读写）；kernel → ha-skills 只经 `skills_hooks` 九槽。**`rerun-if-changed=../../skills` 在 `crates/ha-skills/build.rs`**——它与 `#[folder]` 必须同 crate，分开即 warm-target release 静默 ship 旧技能集

@@ -2160,12 +2160,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Skill (activate a skill by name — preferred over read SKILL.md) ──
         ToolDefinition {
             name: TOOL_SKILL.into(),
-            description: "Activate a skill from the skill catalog by name. Preferred over \
-                          `read`-ing the SKILL.md file directly — this tool handles loading, \
-                          optional sub-agent isolation (`context: fork` skills), and argument \
-                          substitution. For inline skills it returns the SKILL.md content so \
-                          you can follow its instructions; for fork skills it runs the skill \
-                          in a sub-agent and returns only the final summary.".into(),
+            description: "Activate a catalog skill by name instead of reading SKILL.md directly. \
+                          Inline skills return instructions with argument substitution; \
+                          `context: fork` skills run in a sub-agent and return a summary. \
+                          action=inspect refreshes discovery and reports source, enabled state \
+                          and prerequisites without activation or settings changes.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -2176,6 +2175,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "name": {
                         "type": "string",
                         "description": "Skill name as shown in the skill catalog (e.g. 'simplify', 'stlc-delivery')."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["activate", "inspect"],
+                        "description": "Defaults to activate; inspect returns metadata only."
                     },
                     "args": {
                         "type": "string",

@@ -19,10 +19,12 @@ dirs = { workspace = true }
 ignore = "0.4.25"
 once_cell = { workspace = true }
 regex = { workspace = true }
+reqwest = { workspace = true }
 rust-embed = { version = "8", features = ["include-exclude"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
