@@ -38,6 +38,7 @@
 #[macro_use]
 extern crate ha_base;
 
+pub mod github_fetch;
 pub mod skills;
 pub mod tools;
 

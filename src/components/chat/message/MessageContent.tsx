@@ -65,6 +65,15 @@ const NO_GROUP_TOOLS = new Set([
   "sessions_create",
 ])
 
+function isSkillActivation(tool: ToolCall): boolean {
+  if (tool.name !== "skill") return false
+  try {
+    return JSON.parse(tool.arguments || "{}").action !== "inspect"
+  } catch {
+    return true
+  }
+}
+
 interface MessageContentProps {
   msg: Message
   loading: boolean
@@ -499,7 +508,7 @@ export function AssistantContentBlocks({
       // skill activation → dedicated Puzzle-iconed block (covers both inline
       // and fork modes; fork detection happens inside the component by
       // looking at the tool_result prefix).
-      if (block.tool.name === "skill") {
+      if (isSkillActivation(block.tool)) {
         const isLastTool = loading && isLast && i === blocks.length - 1
         units.push({
           key: block.tool.callId,

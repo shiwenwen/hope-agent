@@ -181,6 +181,9 @@
 # 一项就是给未审的技能开一条进 system context 的路。
 /crates/ha-skills/src/skills/commands.rs @shiwenwen
 /crates/ha-skills/src/skills/mention.rs  @shiwenwen
+# 第三方技能快照、冲突校验与不覆盖发布入口。
+/skills/ha-skill-installer/ @shiwenwen
+/crates/ha-skills/src/github_fetch.rs @shiwenwen
 # 学习闭环的落盘面（阶段 5 第八刀自 ha-core 的 coding_improvement.rs 迁入
 # ha-improve）：`apply_coding_improvement_proposal` / `promote_…` 把提案变成
 # 磁盘产物——托管技能 draft（经 `skills_hooks`，与上面 author.rs 同一条写正文

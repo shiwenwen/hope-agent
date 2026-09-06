@@ -309,7 +309,12 @@ Body
 
     #[test]
     fn test_bundled_core_skills_skip_requirement_checks() {
-        for name in ["ha-settings", "ha-skill-creator", "ha-find-skills"] {
+        for name in [
+            "ha-settings",
+            "ha-skill-creator",
+            "ha-find-skills",
+            "ha-skill-installer",
+        ] {
             let parsed = parse_bundled_skill_frontmatter(name);
             assert!(
                 parsed.requires.always,

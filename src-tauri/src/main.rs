@@ -19,6 +19,14 @@ struct ServerArgs {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    if args.get(1).map(String::as_str) == Some("skill-source-fetch") {
+        if let Err(error) = ha_skills::github_fetch::run_cli(&args[2..]) {
+            eprintln!("[skill-source-fetch] {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     // 特征 crate 装配：必须先于任何 `init_runtime` 路径（GUI / server / acp /
     // mcp 各分支）——init 尾部冻结工具注册表，之后再挂 `app_update` 会 panic。
     // 单一来源在 `ha_server::wire_features()`；新增特征 crate 只需改那一处。

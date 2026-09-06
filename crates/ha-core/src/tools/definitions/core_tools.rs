@@ -2165,7 +2165,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                           optional sub-agent isolation (`context: fork` skills), and argument \
                           substitution. For inline skills it returns the SKILL.md content so \
                           you can follow its instructions; for fork skills it runs the skill \
-                          in a sub-agent and returns only the final summary.".into(),
+                          in a sub-agent and returns only the final summary. Use action=inspect \
+                          after installing a skill to refresh discovery and check its source, \
+                          enabled state and prerequisites without activating it.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -2176,6 +2178,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "name": {
                         "type": "string",
                         "description": "Skill name as shown in the skill catalog (e.g. 'simplify', 'stlc-delivery')."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["activate", "inspect"],
+                        "description": "Defaults to activate. inspect refreshes the catalog and returns only metadata; it does not run the skill or change settings."
                     },
                     "args": {
                         "type": "string",

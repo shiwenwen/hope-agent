@@ -8,6 +8,10 @@ always: true
 
 Tool for creating new skills and iteratively improving existing ones.
 
+For an existing third-party skill that the user wants installed without edits,
+use `ha-skill-installer`. Use `ha-find-skills` when the user still needs a suitable
+candidate. Keep creation/editing separate from acquiring and installing a package.
+
 ## Skill System Overview
 
 Hope Agent skills are modular, self-contained packages that extend the AI assistant's capabilities with domain knowledge, workflows, and tools. Skills turn a general-purpose AI into a domain-specific expert.

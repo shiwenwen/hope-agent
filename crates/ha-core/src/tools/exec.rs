@@ -1063,6 +1063,12 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         }
     }
 
+    // Bundled helpers may invoke the same binary inside the ordinary exec
+    // boundary. This is a path hint, never a host-control/sandbox handoff.
+    if let Ok(executable) = std::env::current_exe() {
+        cmd.env("HOPE_AGENT_EXECUTABLE", executable);
+    }
+
     // Create a session for tracking
     let session_id = create_session_id();
     let session = ProcessSession {
@@ -1587,6 +1593,10 @@ async fn exec_via_pty(
             cmd.env(key, val);
         }
 
+        if let Ok(executable) = std::env::current_exe() {
+            cmd.env("HOPE_AGENT_EXECUTABLE", executable);
+        }
+
         // Spawn the child process
         let mut child = pair
             .slave
@@ -1903,6 +1913,7 @@ mod tests {
             "hope-agent pet list --json | tee pets.json",
             "hope-agent pet preview --source $(whoami)",
             "hope-agent server token show",
+            "hope-agent skill-source-fetch --url https://api.github.com/repos/a/b/commits/HEAD --max-bytes 128 --timeout-ms 1000",
             "/tmp/hope-agent pet list --json",
         ] {
             assert!(
@@ -1928,6 +1939,24 @@ mod tests {
     #[test]
     fn exec_timeout_zero_means_unlimited() {
         assert_eq!(parse_exec_timeout_secs(&json!({ "timeout": 0 })), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn foreground_exec_can_find_the_owning_binary_without_path_setup() {
+        let output = tool_exec(
+            &json!({
+                "command": "test -x \"$HOPE_AGENT_EXECUTABLE\" && printf owning-binary-ready",
+                "env": {"HOPE_AGENT_EXECUTABLE": "/missing/native-reader"}
+            }),
+            &super::super::ToolExecContext {
+                auto_approve_tools: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert!(output.contains("owning-binary-ready"));
     }
 
     #[cfg(unix)]
