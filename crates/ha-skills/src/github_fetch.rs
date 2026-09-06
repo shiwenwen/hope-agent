@@ -171,7 +171,19 @@ mod tests {
         tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = [0; 4096];
-            socket.read(&mut request).await.unwrap();
+            let mut received = 0;
+            loop {
+                let read = socket.read(&mut request[received..]).await.unwrap();
+                assert_ne!(read, 0, "fixture request ended before its headers");
+                received += read;
+                if request[..received].ends_with(b"\r\n\r\n") {
+                    break;
+                }
+                assert!(
+                    received < request.len(),
+                    "fixture request headers too large"
+                );
+            }
             socket.write_all(bytes).await.unwrap();
         });
         reqwest::Client::builder()
