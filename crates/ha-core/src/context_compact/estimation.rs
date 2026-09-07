@@ -457,26 +457,6 @@ pub(crate) fn is_user_message(msg: &Value) -> bool {
     !is_tool_result(msg)
 }
 
-/// Check if a tool name matches any pattern in the deny list.
-#[allow(dead_code)]
-pub(super) fn is_tool_denied(tool_name: &str, deny_list: &[String]) -> bool {
-    let lower = tool_name.to_lowercase();
-    deny_list.iter().any(|pattern| {
-        let p = pattern.to_lowercase();
-        if p.contains('*') {
-            // Simple glob: "memory_*" matches "memory_search"
-            let parts: Vec<&str> = p.split('*').collect();
-            if parts.len() == 2 {
-                lower.starts_with(parts[0]) && lower.ends_with(parts[1])
-            } else {
-                lower == p
-            }
-        } else {
-            lower == p
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
