@@ -251,7 +251,7 @@ flowchart LR
 
 两个解析原语的分工与刻意保留的不一致：
 
-- **`resolve_legacy_agent_chain`**：读该 agent 的 `agent.json` 模型配置，走现有 `provider::resolve_model_chain` 物化成等价 `ModelChain`。只有 Recap / Knowledge Compile 借用过 agent id。
+- **`resolve_legacy_agent_chain`**：读取旧字段指定的 Agent 的 `agent.json` 模型配置，经 `provider::resolve_configured_model_chain_with_preferred` 仅将已配置候选物化成 `ModelChain`。候选全部不可用时返回空，继续使用 `function_models.automation`；不采用主对话的首个启用模型兜底，与 §2 的优先级规则一致。
 - **`parse_legacy_model_string`**：把单冒号 `"provider_id:model_id"` 解析成单元素链（无 fallbacks）。刻意**不复用** `provider::parse_model_ref`（后者用双冒号 `"::"`，`AgentModelConfig` 用）——两种分隔符是历史遗留的不一致，此模块不做静默"纠正"，否则会静默破坏已有的单冒号配置。
 
 **纯新增字段**（无遗留兼容分支）的 A 类消费者：知识空间维护 4 生成器（`MaintenanceConfig`，一个共享 `model_override` 管全部 4 个任务，与它 `llm_timeout_secs` / `llm_max_tokens` 同粒度）、笔记三件套（`NoteToolsConfig`，一个共享字段；三者本就共用 `run_kb_side_query` 入口，且都带 `ctx.session_id` 天然拿到真实会话亲和）、Sprite（`SpriteConfig`，给完整链而非 Judge 式单模型——它是真正的 fire-and-forget，没有硬延迟预算）、Recall Summary（`RecallSummaryConfig`）、知识空间 AI 改写（无持久配置，改写内部 `resolve_rewrite_chain`：用户显式选了模型就单模型钉死绝不静默换，没选就走 `effective_chain` 真降级）。
