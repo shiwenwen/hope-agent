@@ -145,15 +145,8 @@ export default function ProviderSetup({
           currency,
         },
       })
-      // Set the first model as active
-      const providers = await getTransport().call<ProviderConfig[]>("get_providers")
-      const latest = providers[providers.length - 1]
-      if (latest && latest.models.length > 0) {
-        await getTransport().call("set_active_model", {
-          providerId: latest.id,
-          modelId: latest.models[0].id,
-        })
-      }
+      // The backend initializes a missing default atomically with the add.
+      // Adding another Provider must preserve the user's existing preference.
       onComplete()
     } catch (e) {
       setError(String(e))

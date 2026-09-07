@@ -151,7 +151,7 @@ DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `opena
 
 | Helper | 语义 |
 |---|---|
-| `add_provider(cfg, source)` | 生成新 id 并 append 到列表尾部（前端"新增后取最后一项"依赖此语义） |
+| `add_provider(cfg, source)` | 生成新 ID 并追加到列表尾部；在同一次写入中补齐未配置或已硬失效的全局默认，保留仍存在的默认引用（包括已禁用渠道） |
 | `add_and_activate_provider(cfg, model_id, source)` | 添加并把 active model 切到指定模型（onboarding 用） |
 | `add_many_providers(cfgs, source)` | 批量导入、保留各自 id（importer 用） |
 | `update_provider(cfg, source)` | 按 id 整体替换该 Provider；返回布尔=是否需要重建当前 Agent 缓存 |
@@ -606,6 +606,7 @@ flowchart TD
 - **Session 创建时就固定有效模型、温度与 Think**；Agent/全局默认之后再变，不反向影响已有 Session。
 - **fallback 只记录本轮实际用的模型和用量，绝不回写 Session 首选**——所以下一轮仍从原主模型重新开始。
 - **Provider 被禁用**时保留首选引用并临时跳过，重新启用即恢复；只有**永久删除**才清理全局 / Agent / Session 里的硬失效引用。
+- **全部首选与有效备用项都不可用**时，按已保存的渠道与模型顺序选择首个启用模型，仅用于本次解析，不改写全局或 Agent 默认，也不向仍可用的模型链追加其他模型。新会话界面通过 `get_chat_runtime_defaults` 使用同一解析结果；全部渠道禁用或无模型时仍返回空，显式单轮覆盖不可用时仍报错。
 - **GUI 草稿**通过 `sessionDefaults` 携带模型/温度/Think，仅在首次创建 Session 时消费；`modelOverride` / `temperatureOverride` / `reasoningEffort` 是单轮 API 覆盖，不作为 GUI 的会话持久化通道。
 - **Agent 字段独立继承全局**：`primary=None` 跟随全局主模型，`fallbacks=[]` 跟随全局 fallback 链，`temperature=None` / `reasoning_effort=None` 各自跟随全局值；一旦配了 Agent fallbacks 就**完全替代**全局 fallbacks。
 

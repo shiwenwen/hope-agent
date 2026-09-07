@@ -93,6 +93,8 @@ pub fn parse_model_ref(ref_str: &str) -> Option<ActiveModel> {
 /// 2. If the agent has custom fallbacks, use its available entries; otherwise
 ///    use available global fallback models
 /// 3. Deduplicate fallbacks against the selected primary while preserving order
+/// 4. If no configured candidate is available, use the first enabled model in
+///    persisted order without changing any configured preference
 pub fn resolve_model_chain(
     agent_model: &crate::agent_config::AgentModelConfig,
     config: &AppConfig,
@@ -139,6 +141,13 @@ pub fn resolve_model_chain_with_preferred(
         for fallback in &agent_model.fallbacks {
             push_model_ref_if_available(&mut chain, Some(fallback), &config.providers);
         }
+    }
+
+    // Disabling a Provider preserves its configured references. A usable
+    // catalog entry still lets new Sessions start when all configured choices
+    // are unavailable; it is not appended to an otherwise valid fallback chain.
+    if chain.is_empty() {
+        chain.extend(first_available_model(&config.providers));
     }
 
     let mut resolved = chain.into_iter();
@@ -538,6 +547,65 @@ mod tests {
         let chain = resolve_model_chain_with_preferred(None, &agent_model, &config);
 
         assert_eq!(resolved_refs(chain.0, chain.1), ["global::active-model"]);
+    }
+
+    #[test]
+    fn disabled_default_uses_first_available_model_and_recovers_when_reenabled() {
+        let mut config = AppConfig {
+            providers: vec![
+                provider("empty", true, &[]),
+                provider("old", true, &["first", "second"]),
+                provider("latest", false, &["selected"]),
+            ],
+            active_model: Some(active("latest", "selected")),
+            ..Default::default()
+        };
+        let agent_model = agent_model(None, &[]);
+
+        // Repeated new Sessions resolve without changing the saved preference.
+        for _ in 0..2 {
+            let chain = resolve_model_chain(&agent_model, &config);
+            assert_eq!(resolved_refs(chain.0, chain.1), ["old::first"]);
+            assert_eq!(
+                config.active_model.as_ref().unwrap().to_string(),
+                "latest::selected"
+            );
+        }
+
+        config.providers[2].enabled = true;
+        let chain = resolve_model_chain(&agent_model, &config);
+        assert_eq!(resolved_refs(chain.0, chain.1), ["latest::selected"]);
+    }
+
+    #[test]
+    fn configured_fallbacks_take_priority_over_first_available_model() {
+        let config = AppConfig {
+            providers: vec![
+                provider("first", true, &["unconfigured"]),
+                provider("disabled", false, &["selected"]),
+                provider("global", true, &["fallback"]),
+                provider("agent", true, &["fallback"]),
+            ],
+            active_model: Some(active("disabled", "selected")),
+            fallback_models: vec![active("global", "fallback")],
+            ..Default::default()
+        };
+
+        for (fallbacks, expected) in [
+            (vec![], "global::fallback"),
+            (
+                vec!["missing::model", "disabled::selected", "agent::fallback"],
+                "agent::fallback",
+            ),
+        ] {
+            let agent_model = agent_model(Some("disabled::selected"), &fallbacks);
+            let chain = resolve_model_chain_with_preferred(
+                Some("missing::session-model"),
+                &agent_model,
+                &config,
+            );
+            assert_eq!(resolved_refs(chain.0, chain.1), [expected]);
+        }
     }
 
     #[test]

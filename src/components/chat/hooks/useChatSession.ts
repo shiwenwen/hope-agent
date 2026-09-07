@@ -22,6 +22,7 @@ import type {
   SessionMeta,
   SessionMessage,
   AgentSummaryForSidebar,
+  ChatRuntimeDefaults,
   SubagentEvent,
 } from "@/types/chat"
 import {
@@ -862,10 +863,7 @@ export function useChatSession({
             } else {
               failedSessionLoadsRef.current.add(sessionId)
             }
-            if (
-              switchVersionRef.current === version &&
-              currentSessionIdRef.current === sessionId
-            ) {
+            if (switchVersionRef.current === version && currentSessionIdRef.current === sessionId) {
               updateHistoryLoading(false)
             }
           })
@@ -1049,11 +1047,13 @@ export function useChatSession({
   // Create a new chat with a specific agent
   const handleNewChat = useCallback(
     async (agentId: string) => {
+      const version = ++switchVersionRef.current
       // Save current session to cache
       // (cache is already maintained by updateSessionMessages)
       const cachedAgent = agents.find((a) => a.id === agentId)
       updateHistoryLoading(false)
       setMessages([])
+      currentSessionIdRef.current = null
       setCurrentSessionId(null)
       setLoading(false)
       setHasMore(false)
@@ -1064,37 +1064,35 @@ export function useChatSession({
       const currentAgents = await getTransport()
         .call<AgentSummaryForSidebar[]>("list_agents")
         .catch(() => [] as AgentSummaryForSidebar[])
+      if (switchVersionRef.current !== version) return
       const agent = currentAgents.find((a) => a.id === agentId)
       if (agent) {
         setAgentName(agent.name)
       }
 
-      // Apply agent's configured model, or restore global default
+      // Use the same available chain as turn admission, including configured
+      // fallbacks and recovery when the global default's Provider is disabled.
       try {
-        const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
-          id: agentId,
-        })
-        if (agentConfig.model.primary) {
-          const modelExists = availableModels.some(
-            (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
-          )
-          if (modelExists) {
-            applyModelForDisplay(agentConfig.model.primary)
-            return
-          }
+        const defaults = await getTransport().call<ChatRuntimeDefaults>(
+          "get_chat_runtime_defaults",
+          {
+            agentId,
+          },
+        )
+        if (switchVersionRef.current !== version) return
+        if (defaults.model) {
+          applyModelForDisplay(`${defaults.model.providerId}::${defaults.model.modelId}`)
+        } else {
+          setActiveModel(null)
         }
-      } catch {
-        // ignore
-      }
-      // No agent model configured or unavailable — restore global default
-      if (globalActiveModelRef.current) {
-        setActiveModel(globalActiveModelRef.current)
+      } catch (e) {
+        if (switchVersionRef.current !== version) return
+        setActiveModel(null)
+        logger.error("ui", "ChatScreen::newChatModel", "Failed to resolve new chat model", e)
       }
     },
     [
-      availableModels,
       applyModelForDisplay,
-      globalActiveModelRef,
       setActiveModel,
       setHasMore,
       setHasMoreAfter,

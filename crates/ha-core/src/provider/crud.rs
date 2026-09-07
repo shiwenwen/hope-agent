@@ -73,6 +73,8 @@ pub enum ActiveModelUpdate {
 
 /// Add a provider from the UI/API request shape. This intentionally generates
 /// a fresh ID and always appends; local-backend upsert uses a separate helper.
+/// Initialize a missing default in the same write without replacing an
+/// existing preference, including one whose Provider is temporarily disabled.
 pub fn add_provider(
     config: ProviderConfig,
     source: &'static str,
@@ -313,6 +315,7 @@ pub(crate) fn add_provider_to_config(
 ) -> ProviderConfig {
     let provider = new_provider_from_add_request(config);
     store.providers.push(provider.clone());
+    reconcile_model_references(store);
     provider
 }
 
@@ -693,6 +696,73 @@ mod tests {
 
         assert_ne!(first.id, second.id);
         assert_eq!(cfg.providers.len(), 2);
+    }
+
+    #[test]
+    fn adding_provider_preserves_the_selected_model_and_fallbacks() {
+        let mut cfg = AppConfig::default();
+        let first = add_provider_to_config(
+            &mut cfg,
+            provider_with_models(
+                "A",
+                ApiType::OpenaiChat,
+                "https://a.example.com",
+                &["m1", "m2"],
+            ),
+        );
+        assert_active_model(&cfg, &first.id, "m1");
+        set_active_model_in_config(&mut cfg, &first.id, "m2").unwrap();
+        cfg.fallback_models = vec![active(&first.id, "m1")];
+
+        add_provider_to_config(&mut cfg, provider("B", "https://b.example.com"));
+
+        assert_active_model(&cfg, &first.id, "m2");
+        assert_fallback_models(&cfg, &[(&first.id, "m1")]);
+    }
+
+    #[test]
+    fn adding_provider_initializes_only_an_available_default() {
+        let mut cfg = AppConfig::default();
+        let mut disabled = provider("Disabled", "https://disabled.example.com");
+        disabled.enabled = false;
+        add_provider_to_config(&mut cfg, disabled);
+        add_provider_to_config(
+            &mut cfg,
+            provider_with_models(
+                "Empty",
+                ApiType::OpenaiChat,
+                "https://empty.example.com",
+                &[],
+            ),
+        );
+        assert!(cfg.active_model.is_none());
+
+        let available = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+
+        assert_active_model(&cfg, &available.id, "m1");
+    }
+
+    #[test]
+    fn adding_provider_preserves_a_temporarily_disabled_default() {
+        let mut cfg = AppConfig::default();
+        let mut first = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+        first.enabled = false;
+        update_provider_in_config(&mut cfg, first.clone()).unwrap();
+
+        add_provider_to_config(&mut cfg, provider("B", "https://b.example.com"));
+
+        assert_active_model(&cfg, &first.id, "m1");
+    }
+
+    #[test]
+    fn adding_model_to_provider_preserves_the_selected_model() {
+        let mut cfg = AppConfig::default();
+        let mut first = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+        first.models.push(model("new-model"));
+
+        update_provider_in_config(&mut cfg, first.clone()).unwrap();
+
+        assert_active_model(&cfg, &first.id, "m1");
     }
 
     #[test]
