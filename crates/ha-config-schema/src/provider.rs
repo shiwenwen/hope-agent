@@ -75,7 +75,7 @@ pub enum ThinkingStyle {
 // ── Model Config ──────────────────────────────────────────────────
 
 /// Configuration for a single model within a provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelConfig {
     /// Model identifier, e.g. "claude-sonnet-4-6", "gpt-5.4"
@@ -174,7 +174,7 @@ impl AuthProfile {
 // ── Provider Config ───────────────────────────────────────────────
 
 /// Configuration for a model provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
     /// Unique provider ID (UUID)

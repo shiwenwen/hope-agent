@@ -163,7 +163,7 @@ DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `opena
 
 删改 Provider 后 crud 会顺带跑 `repair_hard_deleted_model_references`：把因硬删除而悬空的 `active_model` / fallback 引用修好，避免下一轮 chat 指向不存在的模型。本地 LLM 安装路径另有专用入口 `upsert_known_local_provider_model`（在 `provider/local.rs`），按下节 catalog 的 host/port 去重。
 
-`add_provider` 的内部返回结果同时携带已脱敏的服务商配置与默认模型变更标记。桌面适配层据此同步重建 Agent 缓存，与显式切换模型复用同一重建入口，避免首次配置后 `/context` 仍提示没有可用 Agent；缓存重建不再次写入默认模型，较早的构建结果不得覆盖已变化的模型选择。HTTP 与 Tauri 对外仍只返回原有服务商配置形状。
+`add_provider` 的内部返回结果同时携带已脱敏的服务商配置与默认模型变更标记。桌面适配层据此同步重建 Agent 缓存，与显式切换模型复用同一重建入口，避免首次配置后 `/context` 仍提示没有可用 Agent；缓存重建不再次写入默认模型，持有缓存锁时同时校验模型选择与所选服务商的完整配置，拒绝在构建期间已修改、禁用或删除的服务商旧结果。其他服务商或备用项的变更不阻止缓存发布。HTTP 与 Tauri 对外仍只返回原有服务商配置形状。
 
 ### 1.7 本地后端目录（Local Backend Catalog）
 

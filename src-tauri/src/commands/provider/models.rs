@@ -39,7 +39,7 @@ pub(crate) async fn set_active_model_core(
 }
 
 /// Refresh the desktop cache after a config write without writing the default
-/// again. A concurrent model change must not be overwritten by an older build.
+/// again. Concurrent model or Provider changes invalidate older builds.
 pub(super) async fn rebuild_active_agent(state: &AppState) -> Result<(), CmdError> {
     let config = ha_core::config::cached_config();
     // For Codex, use stored token info; otherwise build agent from provider.
@@ -60,7 +60,7 @@ pub(super) async fn rebuild_active_agent(state: &AppState) -> Result<(), CmdErro
         None
     };
     let mut cached = state.agent.lock().await;
-    if ha_core::config::cached_config().active_model == config.active_model {
+    if provider::active_model_configuration_matches(&config, &ha_core::config::cached_config()) {
         *cached = agent;
     }
     Ok(())

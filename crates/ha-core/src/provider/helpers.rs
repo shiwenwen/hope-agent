@@ -29,6 +29,27 @@ pub fn model_ref_is_available(providers: &[ProviderConfig], model: &ActiveModel)
     })
 }
 
+/// Whether a cached Agent built from `snapshot` still represents the current
+/// selection and its full Provider configuration, including credentials and
+/// enabled state. Call while holding the desktop Agent cache lock so a
+/// concurrent Provider write will either reject this build or invalidate it.
+pub fn active_model_configuration_matches(snapshot: &AppConfig, current: &AppConfig) -> bool {
+    if snapshot.active_model != current.active_model {
+        return false;
+    }
+    let Some(active) = snapshot.active_model.as_ref() else {
+        return true;
+    };
+    snapshot
+        .providers
+        .iter()
+        .find(|provider| provider.id == active.provider_id)
+        == current
+            .providers
+            .iter()
+            .find(|provider| provider.id == active.provider_id)
+}
+
 /// Return the first available model in persisted provider/model order.
 pub fn first_available_model(providers: &[ProviderConfig]) -> Option<ActiveModel> {
     providers
@@ -538,6 +559,70 @@ mod tests {
             .chain(fallbacks)
             .map(|model| model.to_string())
             .collect()
+    }
+
+    #[test]
+    fn active_model_cache_rejects_provider_changes_with_the_same_model_reference() {
+        let snapshot = AppConfig {
+            providers: vec![provider("active", true, &["model"])],
+            active_model: Some(active("active", "model")),
+            ..Default::default()
+        };
+        let updates: [fn(&mut ProviderConfig); 6] = [
+            |provider| provider.base_url = "https://changed.example.com".into(),
+            |provider| provider.api_key = "rotated-test-key".into(),
+            |provider| provider.enabled = false,
+            |provider| provider.api_type = ApiType::Anthropic,
+            |provider| provider.models.clear(),
+            |provider| {
+                provider.auth_profiles = vec![AuthProfile::new(
+                    "new profile".into(),
+                    "profile-test-key".into(),
+                    None,
+                )]
+            },
+        ];
+        for update in updates {
+            let mut current = snapshot.clone();
+            update(&mut current.providers[0]);
+            assert_eq!(snapshot.active_model, current.active_model);
+            assert!(!active_model_configuration_matches(&snapshot, &current));
+        }
+    }
+
+    #[test]
+    fn active_model_cache_rejects_changed_selection_or_removed_provider() {
+        let snapshot = AppConfig {
+            providers: vec![provider("active", true, &["first", "second"])],
+            active_model: Some(active("active", "first")),
+            ..Default::default()
+        };
+        let mut current = snapshot.clone();
+        current.active_model = Some(active("active", "second"));
+        assert!(!active_model_configuration_matches(&snapshot, &current));
+        current.active_model = None;
+        assert!(!active_model_configuration_matches(&snapshot, &current));
+        current = snapshot.clone();
+        current.providers.clear();
+        assert!(!active_model_configuration_matches(&snapshot, &current));
+    }
+
+    #[test]
+    fn active_model_cache_allows_unrelated_provider_and_fallback_updates() {
+        let snapshot = AppConfig {
+            providers: vec![
+                provider("active", true, &["model"]),
+                provider("other", true, &["fallback"]),
+            ],
+            active_model: Some(active("active", "model")),
+            ..Default::default()
+        };
+        assert!(active_model_configuration_matches(&snapshot, &snapshot));
+        let mut current = snapshot.clone();
+        current.providers[1].enabled = false;
+        current.fallback_models = vec![active("other", "fallback")];
+        current.providers.reverse();
+        assert!(active_model_configuration_matches(&snapshot, &current));
     }
 
     #[test]
