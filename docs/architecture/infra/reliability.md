@@ -1,6 +1,6 @@
 # 可靠性与崩溃自愈
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-21 | 关联源码：[`guardian.rs`](../../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../../crates/ha-base/src/crash_journal.rs)、[`self_diagnosis.rs`](../../../crates/ha-core/src/self_diagnosis.rs)、[`toolchain_doctor.rs`](../../../crates/ha-core/src/toolchain_doctor.rs)、[`backup.rs`](../../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../../crates/ha-base/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)
+> 返回 [文档索引](../../README.md) | 更新时间：2026-09-07 | 关联源码：[`guardian.rs`](../../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../../crates/ha-base/src/crash_journal.rs)、[`self_diagnosis.rs`](../../../crates/ha-core/src/self_diagnosis.rs)、[`toolchain_doctor.rs`](../../../crates/ha-core/src/toolchain_doctor.rs)、[`backup.rs`](../../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../../crates/ha-base/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs)
 
 ## 核心思想
 
@@ -9,7 +9,7 @@ Hope Agent 的目标场景不是"打开点两下就关"的桌面工具，而是*
 答案是两条正交的设计：
 
 1. **三层保活，冗余而非串联**。进程被拉起的责任由三层各自独立承担——Guardian 父子进程、Child 内部 panic 兜底、操作系统服务管理器。任意一层失效，下一层仍能把进程拉回来。它们不是"A 调用 B 调用 C"的调用链，而是"A 挂了 B 顶上"的冗余网。
-2. **崩溃到阈值就自诊断，而不是无脑重启**。单纯的指数退避无限重启，遇到"配置写坏了导致每次启动都崩"这类问题只会永远打转。所以连续崩溃到达阈值时，Guardian 会先做一次**配置备份**，再拉一个便宜的 LLM 读崩溃日志给出**诊断**，最后按诊断结论跑**保守的自动修复**（只动配置和明确损坏的本地缓存，绝不碰用户数据）。
+2. **崩溃到阈值时尝试备份和自诊断**。连续崩溃到达阈值时，Guardian 先尝试配置备份，再调用低成本 LLM 分析崩溃日志；只有诊断成功返回结论，才尝试**保守的自动修复**（只动配置和明确损坏的本地缓存，绝不碰用户数据）。类型化终态直接结束本次诊断，不进入离线分析或自动修复，具体分支见 [§6.1](#61-调用链)。
 
 这两条之下还有一层——进程活着但**某个子系统**卡住了（IM 长连接断了、MCP server 不响应、cron 漏跑）。这些不该拖垮整个进程，各子系统自带就地自愈，最坏也只波及自己。
 
@@ -150,7 +150,7 @@ Unix 和 Windows 走不同实现，因为 Windows 没有 POSIX 信号。
 | `HOPE_AGENT_RECOVERED=1` | 这次启动是从崩溃中恢复的（既非首启也非用户重启） |
 | `HOPE_AGENT_CRASH_COUNT=N` | 当前是本轮第几次连续崩溃 |
 
-Child 启动后用 `get_crash_recovery_info` 命令读这两个变量回显给前端，UI 据此弹"上次异常退出，已恢复"banner。这条路径同时对 Tauri 命令和 HTTP（`GET /api/crash/recovery-info`）暴露，`recovered=true` 时还会附带崩溃日志末条的诊断结论。
+Child 启动后用 `get_crash_recovery_info` 命令读这两个变量回显给前端，UI 据此弹"上次异常退出，已恢复"banner。这条路径同时对 Tauri 命令和 HTTP（`GET /api/crash/recovery-info`）暴露；仅在 `recovered=true` 且崩溃记录末条有 `diagnosis_result` 时附带诊断结论。恢复标记不代表诊断或自动修复成功。
 
 ---
 
@@ -262,7 +262,7 @@ WantedBy=default.target
 
 ## 5. Crash Journal
 
-崩溃归档落 `~/.hope-agent/crash_journal.json`，**由 Guardian 父进程负责写**——Child 已经死了写不了，只能靠还活着的父进程落盘。诊断结果也由父进程在备份 + 诊断完成后回写到"最新一条"记录上。数据结构定义在 [`crash_journal.rs`](../../../crates/ha-base/src/crash_journal.rs)。
+崩溃归档落 `~/.hope-agent/crash_journal.json`，**由 Guardian 父进程负责写**——Child 已经死了写不了，只能靠还活着的父进程落盘。父进程仅在 `diagnose` 成功返回结论时调用 `set_last_diagnosis` 并尝试保存到末条记录；终态退出不会写入新诊断。数据结构定义在 [`crash_journal.rs`](../../../crates/ha-base/src/crash_journal.rs)。
 
 ### 5.1 文件结构
 
@@ -274,7 +274,7 @@ WantedBy=default.target
       "exit_code": 1,                              // 段错误被信号打死时的实际落盘形态（见 §5.3）
       "signal": null,                              // code() 取不到信号号，落 null；仅退出码本身 > 128 时才会解出信号名
       "crash_count_session": 3,                    // 本轮连续崩溃次数
-      "diagnosis_run": true,                       // 这次崩溃是否触发了 self-diagnosis
+      "diagnosis_run": true,                       // 已有诊断结果，由 set_last_diagnosis 置为 true；不表示仅尝试过诊断
       "diagnosis_result": {
         "cause": "SIGSEGV in libsqlite3",
         "severity": "critical",                    // low | medium | high | critical | unknown
@@ -286,7 +286,7 @@ WantedBy=default.target
     }
   ],
   "total_crashes": 47,                             // 累计计数
-  "last_backup": "2026-04-25T13:42:14.812Z"        // 最近一次诊断触发的备份时间
+  "last_backup": "2026-04-25T13:42:14.812Z"        // 最近一次成功创建且已保存到记录的备份时间
 }
 ```
 
@@ -297,7 +297,8 @@ WantedBy=default.target
 | `crashes` 最多保留 50 条（`MAX_ENTRIES`），溢出从**头部** drain | 只留近期崩溃，旧的滚掉 |
 | `total_crashes` **单调递增**，不因 trim 而减少 | 作为"这台机器长期是否稳"的软指标 |
 | 文件读不到 / 解析失败 → 返回空 journal，不报错 | 防"日志文件本身坏掉拖死 Guardian 主循环" |
-| `diagnosis_result` 总是写到 `crashes` 的**最后一条** | `set_last_diagnosis` 只改末条 |
+| `diagnosis_result` 总是写到 `crashes` 的**最后一条** | `set_last_diagnosis` 只改末条，并将该条 `diagnosis_run` 置为 `true` |
+| 新增崩溃记录默认 `diagnosis_run=false`、`diagnosis_result=None` | 终态退出不调用 `set_last_diagnosis`，因此即使尝试过诊断也保持这两个默认值 |
 | 用户"清空"只重置 `crashes` + `total_crashes`，保留文件本身 | `clear()` 语义 |
 
 ### 5.2 读写路径
@@ -305,10 +306,12 @@ WantedBy=default.target
 | 时机 | 谁 | 操作 |
 |------|----|------|
 | Child 异常退出，崩溃计数 +1 | Guardian 父进程 | `add_crash(exit_code, count)` → save |
-| 崩溃计数达到 `diagnosis_threshold`（默认 5） | Guardian 父进程 | 跑 `run_recovery`，写 `last_backup` + `set_last_diagnosis` |
+| 崩溃计数达到 `diagnosis_threshold`（默认 5） | Guardian 父进程 | 调用 `run_recovery`；备份创建成功且记录路径可用时尝试保存 `last_backup`；仅 `diagnose` 返回成功结论时调用 `set_last_diagnosis` 并尝试保存。终态错误跳过诊断结果写入，保留此前已保存的备份时间与崩溃记录 |
 | 用户在「设置 → 崩溃历史」查看 | Tauri / HTTP 命令 | `get_crash_history` 读全文返回 |
 | 用户点"清空" | 同上 | `clear_crash_history` → `clear()` |
 | Child 启动后想知道"是否刚从崩溃中恢复" | Tauri / HTTP 命令 | `get_crash_recovery_info` 读 `HOPE_AGENT_RECOVERED` env + journal 末条诊断 |
+
+上述 Guardian 保存调用均为尽力执行，保存失败不终止监护循环。达到诊断阈值不保证备份或诊断已落盘；终态错误造成的 `diagnosis_run=false` / 无诊断结果也不等于记录损坏。判读时结合 [§6.1](#61-调用链) 的诊断分支与 Guardian 标准错误流。
 
 ### 5.3 退出码与信号推断（一个非显然的坑）
 
@@ -345,7 +348,7 @@ WantedBy=default.target
 ```mermaid
 flowchart TD
     RR["Guardian::run_recovery（第 5 次崩溃时调）"]
-    BK["1 · backup::create_backup()<br/>快照配置 + 凭据 + Core Memory → 记 last_backup"]
+    BK["1 · backup::create_backup()<br/>尝试快照配置 + 凭据 + Core Memory<br/>成功后尝试保存 last_backup"]
     DIAG["2 · self_diagnosis::diagnose(&journal)"]
     FIX["3 · self_diagnosis::auto_fix(&result)"]
     SET["4 · set_last_diagnosis() 写回末条崩溃记录"]
@@ -482,14 +485,14 @@ Respond ONLY with a JSON object:
 
 ### 7.2 与备份的关系
 
-`run_recovery` 的顺序固定——**先备份，再诊断，再 auto_fix**：备份先落，诊断和修复才有回滚兜底。
+`run_recovery` **先尝试备份，再诊断；仅诊断成功后执行自动修复并保存结论**。备份创建失败时只输出错误，仍可继续诊断，因此这一步是尽力保护，不保证后续修复必有本次备份可回滚。诊断终态跳过自动修复和结论写入，见 [§6.1](#61-调用链)。
 
 ```
 run_recovery:
-  1. backup::create_backup()        → 落备份目录，记 last_backup
-  2. self_diagnosis::diagnose()     → 给出 cause + recommendations
-  3. self_diagnosis::auto_fix()     → 按 cause 关键词做保守修复
-  4. set_last_diagnosis()           → 把结果写回刚加的那条崩溃记录
+  1. backup::create_backup()        → 成功时尝试保存 last_backup；失败只输出错误
+  2. self_diagnosis::diagnose()     → 成功返回结论；终态错误跳过步骤 3、4
+  3. self_diagnosis::auto_fix()     → 仅有成功结论时按 cause 关键词做保守修复
+  4. set_last_diagnosis()           → 仅有成功结论时更新末条记录，再尝试保存
 ```
 
 **两套备份不要混淆**（详见 [config-system](config-system.md)）：
