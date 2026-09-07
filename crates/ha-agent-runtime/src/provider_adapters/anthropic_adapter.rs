@@ -355,6 +355,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         req: &RoundRequest<'_>,
         cancel: &Arc<AtomicBool>,
     ) -> Result<Option<u64>> {
+        let headers = anthropic_headers(self.base_url, self.api_key, self.workspace_id)?;
         let capability_key = format!(
             "anthropic_messages_count:{}",
             self.base_url.trim_end_matches('/')
@@ -375,7 +376,6 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         let ssrf = &app_config.ssrf;
         crate::security::ssrf::check_url(&api_url, ssrf.default_policy, &ssrf.trusted_hosts)
             .await?;
-        let headers = anthropic_headers(self.base_url, self.api_key, self.workspace_id)?;
         let request = client
             .post(&api_url)
             .headers(headers)
@@ -416,6 +416,9 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
     }
 
     fn prepare_round_request(&self, req: &RoundRequest<'_>) -> Result<PreparedProviderRequest> {
+        // Validate the credential binding before accounting or dispatch can
+        // prepare any outbound work. Dispatch rechecks the same header contract.
+        anthropic_headers(self.base_url, self.api_key, self.workspace_id)?;
         let (body, tools_with_cache, native_deferred) =
             build_anthropic_body(self.base_url, self.model, req);
         let prepared = PreparedProviderRequest::from_json(
@@ -1266,6 +1269,37 @@ mod tests {
         validate_anthropic_stream_completion, AnthropicStreamingAdapter,
     };
     use crate::agent::streaming_adapter::{RoundOutcome, RoundRequest, StreamingChatAdapter};
+
+    #[tokio::test]
+    async fn invalid_workspace_fails_before_request_preparation_or_token_count_network() {
+        let req = super::super::test_support::round_request(&[]);
+        let client = reqwest::Client::new();
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        for workspace_id in ["", "wrkspc_fixture"] {
+            let adapter = AnthropicStreamingAdapter {
+                api_key: "synthetic-key",
+                // Even URL/SSRF validation must not run before the local
+                // binding check. This fixture can never reach a real endpoint.
+                base_url: "not-a-url",
+                model: "claude-fable-5-1",
+                workspace_id: Some(workspace_id),
+            };
+            let error = adapter
+                .prepare_round_request(&req)
+                .err()
+                .expect("invalid binding must fail before request preparation");
+            assert!(error
+                .downcast_ref::<crate::failover::ProviderRequestContractError>()
+                .is_some());
+            let error = adapter
+                .count_input_tokens(&client, &req, &cancel)
+                .await
+                .unwrap_err();
+            assert!(error
+                .downcast_ref::<crate::failover::ProviderRequestContractError>()
+                .is_some());
+        }
+    }
 
     #[tokio::test]
     async fn thinking_signatures_redactions_and_tool_order_survive_every_round() {
