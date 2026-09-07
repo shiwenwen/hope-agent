@@ -233,7 +233,7 @@ pub async fn run(spec: ModelTaskSpec<'_>) -> Result<ModelTaskOutput> {
         let agent = match build_candidate_agent(&config, candidate, spec.session_key).await {
             Ok(agent) => agent,
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         };
@@ -250,7 +250,7 @@ pub async fn run(spec: ModelTaskSpec<'_>) -> Result<ModelTaskOutput> {
                 })
             }
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         }
@@ -300,7 +300,7 @@ pub async fn run_streaming(
         let agent = match build_candidate_agent(&config, candidate, spec.session_key).await {
             Ok(agent) => agent,
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         };
@@ -336,7 +336,7 @@ pub async fn run_streaming(
                 })
             }
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         }
@@ -458,7 +458,7 @@ pub async fn run_vision(spec: VisionTaskSpec<'_>) -> Result<ModelTaskOutput> {
         let agent = match build_candidate_agent(&config, candidate, spec.session_key).await {
             Ok(agent) => agent,
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         };
@@ -481,7 +481,7 @@ pub async fn run_vision(spec: VisionTaskSpec<'_>) -> Result<ModelTaskOutput> {
                 })
             }
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         }
@@ -563,7 +563,7 @@ pub async fn run_vision_streaming(
         let agent = match build_candidate_agent(&config, candidate, spec.session_key).await {
             Ok(agent) => agent,
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         };
@@ -599,7 +599,7 @@ pub async fn run_vision_streaming(
                 })
             }
             Err(e) => {
-                last_err = Some(e);
+                retain_recoverable_failure(&mut last_err, e)?;
                 continue;
             }
         }
@@ -627,6 +627,54 @@ pub async fn run_vision_streaming(
             spec.purpose
         )
     }))
+}
+
+/// Shared by text/vision and streaming/non-streaming chains: a provider's
+/// terminal workflow decision must not become a request to another model.
+fn retain_recoverable_failure(
+    last: &mut Option<anyhow::Error>,
+    error: anyhow::Error,
+) -> Result<()> {
+    if crate::failover::classify_error_with_evidence(&error)
+        .0
+        .is_terminal()
+    {
+        return Err(error);
+    }
+    *last = Some(error);
+    Ok(())
+}
+
+#[cfg(test)]
+mod terminal_provider_tests {
+    use super::*;
+
+    #[test]
+    fn automation_chains_preserve_provider_block_through_side_query_wrapping() {
+        use crate::failover::{executor::ExecutorError, FailoverReason, ProviderApiError};
+        let error = ProviderApiError::from_http_response(
+            "OpenAI",
+            403,
+            r#"{"error":{"code":"misalignment_policy_violation","message":"stopped"}}"#,
+        );
+        let mut last = None;
+        assert!(retain_recoverable_failure(&mut last, error.into()).is_err());
+        assert!(last.is_none());
+        let error = anyhow::Error::new(ExecutorError::Exhausted {
+            last_reason: FailoverReason::ProviderBlocked,
+            last_error: "stopped".into(),
+        })
+        .context("side query");
+        assert!(retain_recoverable_failure(&mut last, error).is_err());
+        assert!(last.is_none());
+        let auth = ProviderApiError::from_http_response(
+            "OpenAI",
+            403,
+            r#"{"error":{"code":"permission_denied"}}"#,
+        );
+        assert!(retain_recoverable_failure(&mut last, auth.into()).is_ok());
+        assert!(last.is_some());
+    }
 }
 
 #[cfg(test)]

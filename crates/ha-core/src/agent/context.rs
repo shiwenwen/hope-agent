@@ -1579,6 +1579,12 @@ impl AssistantAgent {
                                 *request_projection = summary_candidate;
                             }
                             Ok(Err(e)) => {
+                                if crate::failover::classify_error_with_evidence(&e)
+                                    .0
+                                    .is_terminal()
+                                {
+                                    run_outcome.fatal_error = Some(e.to_string());
+                                }
                                 if let Some(logger) = crate::get_logger() {
                                     logger.log(
                                         "warn",
@@ -2059,6 +2065,12 @@ impl AssistantAgent {
                     }
                 }
                 Err(e) => {
+                    if crate::failover::classify_error_with_evidence(&e)
+                        .0
+                        .is_terminal()
+                    {
+                        return Err(e);
+                    }
                     app_warn!(
                         "agent",
                         "summarize",
@@ -2145,6 +2157,7 @@ impl AssistantAgent {
                 api_key,
                 base_url,
                 model: model_id.to_string(),
+                workspace_id: profile.and_then(|profile| profile.anthropic_workspace_id.clone()),
             },
             ApiType::OpenaiChat => LlmProvider::OpenAIChat {
                 api_key,
@@ -2200,24 +2213,12 @@ impl AssistantAgent {
                     }
                 }
                 _ => {
-                    // Standard role-based messages — pass through, but strip reasoning_content
+                    // Foreign plain reasoning has no Anthropic signature. Do
+                    // not manufacture an invalid thinking block from it.
+                    // Normalize a copy; the caller owns the history snapshot.
                     let mut msg = item.clone();
-                    if msg.get("reasoning_content").is_some() {
-                        // Convert Chat API reasoning_content to Anthropic thinking block
-                        if let Some(reasoning) =
-                            msg.get("reasoning_content").and_then(|r| r.as_str())
-                        {
-                            if !reasoning.is_empty() {
-                                if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
-                                    // Convert string content + reasoning to content array with thinking block
-                                    msg["content"] = json!([
-                                        { "type": "thinking", "thinking": reasoning },
-                                        { "type": "text", "text": content }
-                                    ]);
-                                }
-                            }
-                        }
-                        msg.as_object_mut().map(|o| o.remove("reasoning_content"));
+                    if let Some(object) = msg.as_object_mut() {
+                        object.remove("reasoning_content");
                     }
                     Self::push_anthropic_normalized_message(&mut result, msg);
                 }
@@ -2671,7 +2672,10 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
             },
         )
         .await
-        .map_err(|e| anyhow::anyhow!("dedicated summarize: {}", e))
+        .map_err(|e| {
+            let message = format!("dedicated summarize: {e}");
+            anyhow::Error::new(e).context(message)
+        })
     }
 
     fn name(&self) -> &str {
@@ -3287,6 +3291,28 @@ mod responses_history_tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn anthropic_projection_preserves_opaque_blocks_without_fabricating_signatures() {
+        let history = vec![
+            json!({"role": "user", "content": "hello"}),
+            json!({"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "", "signature": "opaque-signature"},
+                {"type": "redacted_thinking", "data": "opaque-data"},
+                {"type": "text", "text": "answer"}
+            ]}),
+            json!({"role": "user", "content": "continue"}),
+            json!({"role": "assistant", "reasoning_content": "foreign plain thought", "content": "foreign answer"}),
+        ];
+        let before = history.clone();
+        let projected = AssistantAgent::normalize_history_for_anthropic(&history);
+        assert_eq!(projected[1], history[1]);
+        assert_eq!(
+            projected[3],
+            json!({"role": "assistant", "content": "foreign answer"})
+        );
+        assert_eq!(history, before);
+    }
+
     // Hope Agent always calls Responses with `store: false`, where
     // any reasoning item — id-only OR with encrypted_content — is a
     // landmine for the next request. The invariant: normalize must drop
@@ -3442,6 +3468,7 @@ mod build_provider_tests {
                 api_key,
                 base_url,
                 model,
+                ..
             } => {
                 assert_eq!(api_key, "profile-key");
                 assert_eq!(base_url, "https://override.example/");

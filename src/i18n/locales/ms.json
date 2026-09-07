@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Tulis ganti Base URL (pilihan)",
     "empty": "Tiada profil putaran dikonfigurasi. API Key utama di atas akan digunakan.",
     "labelPlaceholder": "Label (cth. Kunci Org A)",
-    "title": "Profil Putaran API Key"
+    "multiWorkspace": "Kunci berbilang ruang kerja",
+    "title": "Profil Putaran API Key",
+    "workspaceHint": "Untuk akses terus Anthropic. Kunci berbilang ruang memerlukan ID; matikan untuk kunci satu ruang. Pertukaran kunci automatik kekal dalam ruang yang sama.",
+    "workspaceId": "ID ruang kerja Anthropic"
   },
   "canvas": {
     "close": "Tutup",

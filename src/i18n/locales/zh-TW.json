@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Base URL 覆寫（可選）",
     "empty": "未設定多 Key 輪換。將使用上方的主 API Key。",
     "labelPlaceholder": "名稱（如：組織 A 金鑰）",
-    "title": "API Key 輪換設定"
+    "multiWorkspace": "多工作區金鑰",
+    "title": "API Key 輪換設定",
+    "workspaceHint": "僅用於 Anthropic 直連。多工作區金鑰必須填寫工作區 ID；限定工作區金鑰可關閉。不會自動輪換至其他工作區。",
+    "workspaceId": "Anthropic 工作區 ID"
   },
   "canvas": {
     "close": "關閉",

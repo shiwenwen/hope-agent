@@ -13,9 +13,11 @@ function generateId(): string {
 export default function AuthProfileEditor({
   profiles,
   onChange,
+  anthropic = false,
 }: {
   profiles: AuthProfile[]
   onChange: (profiles: AuthProfile[]) => void
+  anthropic?: boolean
 }) {
   const { t } = useTranslation()
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set())
@@ -63,9 +65,7 @@ export default function AuthProfileEditor({
       </div>
 
       {profiles.length === 0 && (
-        <p className="text-[11px] text-muted-foreground/60 px-1">
-          {t("authProfiles.empty")}
-        </p>
+        <p className="text-[11px] text-muted-foreground/60 px-1">{t("authProfiles.empty")}</p>
       )}
 
       {profiles.map((profile) => (
@@ -133,6 +133,37 @@ export default function AuthProfileEditor({
             />
             <Globe className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
           </div>
+          {(anthropic || profile.anthropicWorkspaceId != null) && (
+            <div className="space-y-2">
+              <label className="flex items-center justify-between text-xs text-muted-foreground">
+                {t("authProfiles.multiWorkspace")}
+                <Switch
+                  aria-label={t("authProfiles.multiWorkspace")}
+                  checked={profile.anthropicWorkspaceId != null}
+                  onCheckedChange={(checked) =>
+                    updateProfile(profile.id, {
+                      anthropicWorkspaceId: checked ? "" : undefined,
+                    })
+                  }
+                />
+              </label>
+              {profile.anthropicWorkspaceId != null && (
+                <Input
+                  aria-label={t("authProfiles.workspaceId")}
+                  placeholder="wrkspc_…"
+                  value={profile.anthropicWorkspaceId}
+                  onChange={(e) =>
+                    updateProfile(profile.id, { anthropicWorkspaceId: e.target.value })
+                  }
+                  className="h-7 text-xs font-mono"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              )}
+              <p className="text-[11px] text-muted-foreground">{t("authProfiles.workspaceHint")}</p>
+            </div>
+          )}
         </div>
       ))}
     </div>

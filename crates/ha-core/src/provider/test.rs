@@ -538,6 +538,16 @@ fn ok_or_empty_reply(
     .unwrap_or_default())
 }
 
+fn resolve_probe_profile(config: &mut ProviderConfig) -> Result<Option<String>, String> {
+    super::validate_anthropic_profiles(config).map_err(|error| error.to_string())?;
+    if let Some(profile) = config.effective_profiles().into_iter().next() {
+        config.base_url = config.resolve_base_url(&profile).to_string();
+        config.api_key = profile.api_key;
+        return Ok(profile.anthropic_workspace_id);
+    }
+    Ok(None)
+}
+
 fn should_skip_models_preflight(base_url: &str) -> bool {
     is_complete_endpoint_url(base_url)
 }
@@ -552,6 +562,7 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
     // Trim stray whitespace from copy-pasted base URL / keys before probing, so
     // the test exercises exactly what `sanitize()` will persist on save.
     config.sanitize();
+    let workspace_id = resolve_probe_profile(&mut config)?;
     let client = apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -588,8 +599,14 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
             let t = Instant::now();
             let resp = client
                 .post(&url)
-                .header("x-api-key", &config.api_key)
-                .header("anthropic-version", "2023-06-01")
+                .headers(
+                    super::anthropic_headers(
+                        &config.base_url,
+                        &config.api_key,
+                        workspace_id.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
                 .header("content-type", "application/json")
                 .json(&body)
                 .send()
@@ -645,6 +662,15 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 );
             }
 
+            if workspace_id.is_some() && !is_success {
+                return Err(build_result!(
+                    false,
+                    "工作区绑定请求失败，请检查工作区、密钥权限和模型",
+                    &url,
+                    status,
+                    "x-api-key"
+                ));
+            }
             if is_success || status == 400 || status == 404 {
                 return Ok(build_result!(
                     true,
@@ -659,6 +685,14 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 let t2 = Instant::now();
                 let resp2 = client
                     .post(&url)
+                    .headers(
+                        super::anthropic_headers(
+                            &config.base_url,
+                            &config.api_key,
+                            workspace_id.as_deref(),
+                        )
+                        .map_err(|error| error.to_string())?,
+                    )
                     .header("Authorization", format!("Bearer {}", config.api_key))
                     .header("anthropic-version", "2023-06-01")
                     .header("content-type", "application/json")
@@ -1085,6 +1119,7 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
     // Trim stray whitespace from copy-pasted base URL / keys / model id before
     // probing, so the test exercises exactly what `sanitize()` persists on save.
     config.sanitize();
+    let workspace_id = resolve_probe_profile(&mut config)?;
     let model_id = model_id.trim().to_string();
     let client = apply_proxy(
         reqwest::Client::builder()
@@ -1113,8 +1148,14 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
             // "wrong auth scheme" in practice).
             let resp = client
                 .post(&url)
-                .header("x-api-key", &config.api_key)
-                .header("anthropic-version", "2023-06-01")
+                .headers(
+                    super::anthropic_headers(
+                        &config.base_url,
+                        &config.api_key,
+                        workspace_id.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
                 .header("content-type", "application/json")
                 .json(&body)
                 .send()
@@ -1124,6 +1165,14 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                 Ok(r) => r,
                 Err(_) => client
                     .post(&url)
+                    .headers(
+                        super::anthropic_headers(
+                            &config.base_url,
+                            &config.api_key,
+                            workspace_id.as_deref(),
+                        )
+                        .map_err(|error| error.to_string())?,
+                    )
                     .header("Authorization", format!("Bearer {}", config.api_key))
                     .header("anthropic-version", "2023-06-01")
                     .header("content-type", "application/json")

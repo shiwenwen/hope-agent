@@ -134,6 +134,7 @@ pub enum LlmProvider {
         api_key: String,
         base_url: String,
         model: String,
+        workspace_id: Option<String>,
     },
     /// OpenAI Chat Completions API (/v1/chat/completions)
     OpenAIChat {
@@ -174,6 +175,22 @@ impl LlmProvider {
     /// method or enter logs/request fields.
     #[doc(hidden)]
     pub fn cache_tenant_partition(&self) -> String {
+        if let Self::Anthropic {
+            api_key,
+            base_url,
+            workspace_id: Some(workspace_id),
+            ..
+        } = self
+        {
+            return crate::cache_routing::keyed_digest([
+                b"anthropic-workspace".as_slice(),
+                base_url.trim_end_matches('/').as_bytes(),
+                api_key.as_bytes(),
+                workspace_id.as_bytes(),
+            ])
+            .to_hex()
+            .to_string();
+        }
         let (kind, backend, identity) = match self {
             Self::Anthropic {
                 api_key, base_url, ..
@@ -893,6 +910,23 @@ mod chat_usage_tests {
         assert_eq!(first_partition, same.cache_tenant_partition());
         assert_ne!(first_partition, second.cache_tenant_partition());
         assert!(!first_partition.contains("secret"));
+    }
+
+    #[test]
+    fn anthropic_workspace_partitions_caches_even_for_the_same_key() {
+        let partition = |workspace: Option<&str>| {
+            LlmProvider::Anthropic {
+                api_key: "same-synthetic-key".into(),
+                base_url: "https://api.anthropic.com".into(),
+                model: "claude-fable-5-1".into(),
+                workspace_id: workspace.map(str::to_string),
+            }
+            .cache_tenant_partition()
+        };
+        assert_eq!(partition(Some("wrkspc_A")), partition(Some("wrkspc_A")));
+        assert_ne!(partition(Some("wrkspc_A")), partition(Some("wrkspc_B")));
+        assert_ne!(partition(Some("wrkspc_A")), partition(None));
+        assert!(!partition(Some("wrkspc_A")).contains("wrkspc"));
     }
 }
 

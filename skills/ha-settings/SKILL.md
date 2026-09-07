@@ -159,7 +159,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `active_stt_model` | Active STT model for desktop voice input — use Settings UI so the engine cache picks up the new selection without an app restart. |
 | `stt_fallback_models` | STT failover chain — use Settings UI. |
 
-Model / Provider / API Key / Server authentication / IM Channel accounts / MCP server configs / STT providers / per-session configs require the Settings UI.
+Model / Provider / API Key / Server authentication / IM Channel accounts / MCP server configs / STT providers / per-session configs require the Settings UI. Anthropic `authProfiles[*].anthropicWorkspaceId` is part of this GUI-only credential configuration: guide the user to Settings → Providers → Edit → API Key Rotation Profiles. Enabling multi-workspace binding requires a valid workspace ID; do not create a settings category or expose Provider credentials to the model.
 
 ## Special: `teams` Semantics
 

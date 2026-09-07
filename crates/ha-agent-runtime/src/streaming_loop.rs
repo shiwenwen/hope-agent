@@ -2901,9 +2901,10 @@ impl RuntimeAgentExt for AssistantAgent {
                 });
             }
             let effort_requested = self.effective_reasoning_effort(reasoning_effort).await;
-            let effort_effective = effort_requested
-                .as_deref()
-                .and_then(|effort| super::config::clamp_reasoning_effort(model, effort));
+            let effort_effective = super::config::provider_reasoning_effort(
+                self.runtime_provider(),
+                effort_requested.as_deref(),
+            );
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "debug",

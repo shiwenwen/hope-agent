@@ -899,6 +899,15 @@ fn build_responses_request(
     reasoning: Option<super::super::api_types::ReasoningConfig>,
     req: &RoundRequest<'_>,
 ) -> (ResponsesRequest, Vec<Value>, bool, bool) {
+    let is_astra = crate::agent::config::is_direct_openai_astra(base_url, model);
+    let reasoning = if is_astra {
+        Some(super::super::api_types::ReasoningConfig {
+            effort: crate::agent::config::astra_reasoning_effort(req.reasoning_effort).to_string(),
+            summary: reasoning.and_then(|reasoning| reasoning.summary),
+        })
+    } else {
+        reasoning
+    };
     let mut api_input: Vec<Value> = Vec::new();
     for content in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
         api_input.push(json!({ "role": "developer", "content": content }));
@@ -945,7 +954,7 @@ fn build_responses_request(
         reasoning,
         include: None,
         tools,
-        temperature: req.temperature,
+        temperature: req.temperature.filter(|_| !is_astra),
         prompt_cache_key: req.prompt_cache_key.map(str::to_string),
         prompt_cache_options: explicit_prompt_cache
             .then(|| json!({ "mode": "explicit", "ttl": "30m" })),
@@ -1599,6 +1608,77 @@ mod tests {
     use crate::agent::types::ChatUsage;
     use serde_json::Value;
     use std::collections::HashMap;
+
+    #[test]
+    fn astra_request_preserves_max_and_omits_unsupported_sampling_only_on_direct_api() {
+        let history = vec![serde_json::json!({"role":"user","content":"hello"})];
+        let mut req = super::super::test_support::round_request(&history);
+        for (effort, expected) in [
+            (None, "low"),
+            (Some("none"), "low"),
+            (Some("minimal"), "low"),
+            (Some("low"), "low"),
+            (Some("medium"), "medium"),
+            (Some("high"), "high"),
+            (Some("xhigh"), "xhigh"),
+            (Some("max"), "max"),
+        ] {
+            req.reasoning_effort = effort;
+            let (request, _, _, _) =
+                build_responses_request("https://api.openai.com/v1", "gpt-6-astra", None, &req);
+            let body = serde_json::to_value(request).unwrap();
+            assert_eq!(body["reasoning"]["effort"], expected);
+            for unsupported in [
+                "temperature",
+                "top_p",
+                "logprobs",
+                "top_logprobs",
+                "include",
+            ] {
+                assert!(body.get(unsupported).is_none(), "{unsupported}: {body}");
+            }
+            assert_eq!(body["store"], false);
+        }
+        let reasoning = super::super::super::api_types::ReasoningConfig {
+            effort: "xhigh".into(),
+            summary: None,
+        };
+        let (relay, _, _, _) = build_responses_request(
+            "https://relay.example",
+            "gpt-6-astra",
+            Some(reasoning),
+            &req,
+        );
+        assert_eq!(relay.reasoning.unwrap().effort, "xhigh");
+        assert_eq!(relay.temperature, Some(0.2));
+    }
+
+    #[tokio::test]
+    async fn explicit_provider_block_stops_sse_before_returning_any_tool_calls() {
+        use serde_json::json;
+        for failure in [
+            json!({"type":"error","code":"misalignment_policy_violation","message":"stopped"}),
+            json!({"type":"response.failed","response":{"error":{"code":"misalignment_policy_violation","message":"stopped"}}}),
+        ] {
+            let response = super::super::test_support::sse_response(&[
+                json!({"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{}"}}),
+                failure,
+                json!({"type":"response.completed","response":{"output":[]}}),
+            ]).await;
+            let result = super::parse_openai_sse(
+                response,
+                std::time::Instant::now(),
+                &std::sync::atomic::AtomicBool::new(false),
+                &|_| {},
+            )
+            .await;
+            let error = result.expect_err("no RoundOutcome may reach the tool driver");
+            assert_eq!(
+                crate::failover::classify_error_with_evidence(&error).0,
+                crate::failover::FailoverReason::ProviderBlocked
+            );
+        }
+    }
 
     #[test]
     fn openai_capability_guards_are_endpoint_and_model_aware() {

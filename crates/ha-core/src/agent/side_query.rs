@@ -320,7 +320,8 @@ impl AssistantAgent {
                     cache_mode,
                     e
                 );
-                Err(anyhow::anyhow!("side query: {}", e))
+                let message = format!("side query: {e}");
+                Err(anyhow::Error::new(e).context(message))
             }
         }
     }

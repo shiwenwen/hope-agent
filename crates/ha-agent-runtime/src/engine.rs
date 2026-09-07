@@ -2919,6 +2919,22 @@ mod terminal_claim_tests {
     use super::*;
 
     #[test]
+    fn provider_block_is_terminal_for_background_continuations_too() {
+        let reason = TerminationReason::ProviderFailed {
+            last_kind: failover::FailoverReason::ProviderBlocked,
+            last_message: "Provider blocked workflow [misalignment_policy_violation]: stopped"
+                .into(),
+            is_codex_auth: false,
+        };
+        let (kind, classification, _) = classify_turn_failure(&reason);
+        assert_eq!(kind, TurnFailureKind::Terminal);
+        assert_eq!(
+            classification,
+            Some(failover::FailoverReason::ProviderBlocked)
+        );
+    }
+
+    #[test]
     fn rejected_completion_claim_converts_failed_terminal_to_user_stop() {
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let claim = ha_core::chat_engine::TurnCompletionClaim::new(|| false);

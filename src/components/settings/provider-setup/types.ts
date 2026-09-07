@@ -27,6 +27,7 @@ export interface AuthProfile {
   label: string
   apiKey: string
   baseUrl?: string
+  anthropicWorkspaceId?: string | null
   enabled: boolean
 }
 

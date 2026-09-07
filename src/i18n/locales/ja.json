@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Base URL 上書き（任意）",
     "empty": "ローテーション プロファイル が未設定です。上の主 API Key を使用します。",
     "labelPlaceholder": "ラベル（例：Org A Key）",
-    "title": "API Key ローテーション設定"
+    "multiWorkspace": "複数ワークスペース用キー",
+    "title": "API Key ローテーション設定",
+    "workspaceHint": "Anthropic への直接接続用です。複数ワークスペース用キーには ID が必要です。単一ワークスペース用キーではオフにできます。別のワークスペースへ自動切替しません。",
+    "workspaceId": "Anthropic ワークスペース ID"
   },
   "canvas": {
     "close": "閉じる",

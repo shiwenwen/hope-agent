@@ -92,6 +92,9 @@ pub fn model_marker(reason: &TerminationReason) -> String {
 fn model_marker_provider_failed(kind: FailoverReason, raw: &str) -> String {
     let msg = sanitize_for_model(raw);
     match kind {
+        FailoverReason::ProviderBlocked => format!("[系统事件] 服务商已阻断本工作流。不得自动重试、切换凭据或模型、继续执行工具。请用户核对任务与已完成操作。详情:{}", msg),
+        FailoverReason::RequestContract => format!("[系统事件] 请求不符合模型协议，已停止自动恢复。请用户检查服务商配置。详情:{}", msg),
+        FailoverReason::RetryDeferred => format!("[系统事件] 服务商要求的最短等待超出恢复预算，已停止，禁止提前重试。详情:{}", msg),
         FailoverReason::EvaluationBudget => format!(
             "[系统事件] 本次受保护评测已达到不可变预算上限:{}。不得重试、切换凭据或继续产生外部副作用。",
             msg
@@ -180,6 +183,11 @@ pub fn user_notice(reason: &TerminationReason) -> String {
 fn user_notice_provider_failed(kind: FailoverReason, raw: &str) -> String {
     let msg = sanitize_for_user(raw);
     match kind {
+        FailoverReason::ProviderBlocked => {
+            "服务商已阻断本工作流，已停止自动恢复。请核对任务与已完成操作".to_string()
+        }
+        FailoverReason::RequestContract => format!("模型请求协议需要调整:{}", msg),
+        FailoverReason::RetryDeferred => format!("服务商要求更长等待，已停止自动恢复:{}", msg),
         FailoverReason::EvaluationBudget => "本次评测已达到预算上限，已停止继续调用".to_string(),
         FailoverReason::Auth => "所有模型认证失败。请检查 API Key 或 OAuth 登录".to_string(),
         FailoverReason::Billing => "所有模型计费/配额问题。请检查订阅或余额".to_string(),

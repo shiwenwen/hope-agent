@@ -145,6 +145,19 @@ flowchart TD
 
 DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `openai-chat` 协议。模型目录明确声明 `inputTypes: ["text", "image"]`、百万 Token 上下文与推理能力，因此可直接接收图片，无需视觉桥代转。Dashboard 估价表同步识别该 ID，并按 DeepSeek 当前高峰费率保守估算 Flash / Pro；实际账单仍以厂商时段计价为准。模板只影响新建 Provider，既有用户配置绝不自动增删模型或改价；需由用户手动加入该模型，或重建 DeepSeek 连接。
 
+#### 2026-09-07 模型与会话兼容边界
+
+- 新建 OpenAI Responses 模板提供 `gpt-6-astra`（1,050,000 上下文、128,000 最大输出）；仅 `https://api.openai.com` 的精确模型 ID 采用 `low / medium / high / xhigh / max`，`none`、`minimal` 及未设置值映射为 `low`，省略温度等不支持的采样字段。直连 Chat 仅允许无工具请求；工具循环提示改用 Responses。中转端点沿其原有策略，不自动改用户模型、协议、报价。[官方请求规则](https://developers.openai.com/api/docs/guides/latest-model)
+- Cerebras 的四项公共退役型号从新建列表移除；Together 的旧 DeepSeek V4 Pro 替换为 `deepseek-ai/DeepSeek-V4-Pro-0813`。用户已存配置与专属部署不迁移、不全局禁用同名 ID。Astra 与 Fable 5.1 的模板基础价均为每百万令牌输入 10 / 输出 50 美元；Astra 超过 272,000 输入令牌的阶梯及缓存、地区费用不由这两个字段表达，不能据大盘估算做完整账单核对。
+- Anthropic 流式解析完整保存原始 `thinking`、`signature_delta` 拼接结果、`redacted_thinking.data`、文本和工具块顺序，包括最终轮。禁止用界面思考文本重建无签名块；其他协议的 `reasoning_content` 不转换成 Claude 思考。原始块进入会话历史，界面提示独立投影。
+- 官方端点启用 `thinking-binding-controls-2026-08-01`，思考配置加 `block_binding.prefix_mismatch_behavior=drop_block`；Fable 5.1 即使未选档位也显式用自适应思考。动态系统前缀、工具表、压缩后缀或切旧模型仍可能使已有块失效，由服务端裁决；`input_transformations` 的前缀或模型失配会显示提示并记录稳定诊断原因，重复流事件去重，本地原块保留。无法验证的签名拒绝属于请求契约终态，不自动删块重试。这是一条明确可观察的兼容路径，不保证跨模型完整思考连续性。[官方绑定控制](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)
+
+#### Anthropic 工作区鉴权
+
+`AuthProfile.anthropic_workspace_id` 的线上字段为 `anthropicWorkspaceId`：缺失或 `null` 表示限定工作区旧密钥；`Some` 表示用户已选择显式绑定，空串和非法 ID 必须在保存或发送前拒绝。该字段只在设置页每把密钥的“多工作区密钥”入口编辑，不增加 `ha-settings` 的服务商读写类别。不能根据密钥内容猜测其权限范围。[官方鉴权规则](https://platform.claude.com/docs/en/manage-claude/authentication)
+
+`provider::anthropic_headers` / `anthropic_header_pairs` 统一构造请求头；绑定只发送到 Anthropic 官方 HTTPS 主机，既有中转配置不自动加入工作区或绑定控制。主对话、令牌计数、一次性调用、连接与模型测试共用该契约。密钥与工作区请求头设为敏感值，不写日志；缓存租户分区包含工作区。会话优先沿用已选档案的绑定，首次按第一条启用档案的绑定选取，同一服务商内只轮换到绑定相同的档案；不同工作区应分开建服务商。全部候选禁用或冷却时，不能通过无档案构造路径取回第一把密钥。
+
 ### 1.6 Provider 写入契约
 
 所有对 `providers` 列表与 `active_model` 的写入，必须走 `crates/ha-core/src/provider/crud.rs` 的 helper——禁止在 Tauri / HTTP / onboarding / importer / local_llm 任何路径里直接 `providers.push` / `retain` 或手写 `active_model`。每个 helper 都带一个 `source: &'static str` 审计标签，并统一经 `mutate_config` 落盘（配置读写契约见 [config-system](../infra/config-system.md)）。

@@ -54,11 +54,13 @@ pub(crate) async fn run_agent_chat(
             api_key,
             base_url,
             model,
+            workspace_id,
         } => {
             let adapter = super::provider_adapters::anthropic_adapter::AnthropicStreamingAdapter {
                 api_key,
                 base_url,
                 model,
+                workspace_id: workspace_id.as_deref(),
             };
             let user_content = ha_core::agent::content::build_user_content_anthropic(
                 message,

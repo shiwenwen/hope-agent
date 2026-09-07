@@ -74,6 +74,9 @@ pub fn diagnose(journal: &CrashJournal) -> Result<DiagnosisResult, String> {
             match call_llm(provider, &prompt) {
                 Ok(result) => return Ok(result),
                 Err(e) => {
+                    if crate::failover::classify_error(&e).is_terminal() {
+                        return Err(e);
+                    }
                     eprintln!(
                         "[Diagnosis] Provider '{}' failed: {}, trying next...",
                         provider.name, e
@@ -298,7 +301,33 @@ fn call_anthropic(
     model_id: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/v1/messages", provider.base_url.trim_end_matches('/'));
+    crate::provider::validate_anthropic_profiles(provider).map_err(|error| error.to_string())?;
+    let profile = provider
+        .effective_profiles()
+        .into_iter()
+        .next()
+        .ok_or_else(|| "No enabled Anthropic authentication profile".to_string())?;
+    let base_url = provider.resolve_base_url(&profile);
+    let url = crate::agent::config::build_api_url(base_url, "/v1/messages");
+    let headers = crate::provider::anthropic_headers(
+        base_url,
+        &profile.api_key,
+        profile.anthropic_workspace_id.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    // Crash diagnosis is a synchronous, standalone path (it already uses
+    // reqwest::blocking), so resolve the same SSRF gate in a short-lived runtime.
+    let policy = if provider.allow_private_network {
+        crate::security::ssrf::SsrfPolicy::AllowPrivate
+    } else {
+        crate::security::ssrf::SsrfPolicy::Default
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?
+        .block_on(crate::security::ssrf::check_url(&url, policy, &[]))
+        .map_err(|error| error.to_string())?;
     let body = serde_json::json!({
         "model": model_id,
         "max_tokens": 1024,
@@ -310,8 +339,7 @@ fn call_anthropic(
     let started = std::time::Instant::now();
     let resp = match client
         .post(&url)
-        .header("x-api-key", &provider.api_key)
-        .header("anthropic-version", "2023-06-01")
+        .headers(headers)
         .header("content-type", "application/json")
         .json(&body)
         .send()
@@ -334,16 +362,22 @@ fn call_anthropic(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().unwrap_or_default();
+        let error = crate::failover::ProviderApiError::from_http_response(
+            "Anthropic",
+            status.as_u16(),
+            &text,
+        )
+        .to_string();
         record_diagnosis_usage(
             provider,
             model_id,
             "self_diagnosis.anthropic",
             started.elapsed().as_millis() as u64,
             false,
-            Some(format!("Anthropic API error: {} {}", status, text)),
+            Some(error.clone()),
             None,
         );
-        return Err(format!("Anthropic API error: {} {}", status, text));
+        return Err(error);
     }
 
     let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
@@ -406,16 +440,19 @@ fn call_openai(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().unwrap_or_default();
+        let error =
+            crate::failover::ProviderApiError::from_http_response("OpenAI", status.as_u16(), &text)
+                .to_string();
         record_diagnosis_usage(
             provider,
             model_id,
             "self_diagnosis.openai_chat",
             started.elapsed().as_millis() as u64,
             false,
-            Some(format!("OpenAI API error: {} {}", status, text)),
+            Some(error.clone()),
             None,
         );
-        return Err(format!("OpenAI API error: {} {}", status, text));
+        return Err(error);
     }
 
     let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;

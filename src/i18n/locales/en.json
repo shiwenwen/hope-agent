@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Base URL override (optional)",
     "empty": "No rotation profiles configured. The main API Key above will be used.",
     "labelPlaceholder": "Label (e.g. Org A Key)",
-    "title": "API Key Rotation Profiles"
+    "multiWorkspace": "Multi-workspace key",
+    "title": "API Key Rotation Profiles",
+    "workspaceHint": "For direct Anthropic access. Multi-workspace keys require a workspace ID; leave off for workspace-scoped keys. Rotation stays within the same workspace.",
+    "workspaceId": "Anthropic workspace ID"
   },
   "canvas": {
     "close": "Close",

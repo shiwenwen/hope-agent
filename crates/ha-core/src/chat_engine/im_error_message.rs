@@ -93,6 +93,9 @@ fn headline(reason: FailoverReason, is_codex_auth: bool) -> &'static str {
             "⚠️ **Provider dispatch outcome is unknown** — automatic retry was stopped to avoid a duplicate request. Retry manually after checking the provider activity."
         }
         FailoverReason::ModelNotFound => "🤖 **Model unavailable** — pick another in settings.",
+        FailoverReason::ProviderBlocked => "⛔ **Provider stopped this workflow** — review the task and completed actions before continuing.",
+        FailoverReason::RequestContract => "⚙️ **Provider configuration needs attention** — check the request compatibility details below.",
+        FailoverReason::RetryDeferred => "⏱️ **Provider requested a longer wait** — automatic recovery stopped without retrying early.",
         FailoverReason::Unknown => "⚠️ **Something went wrong**.",
     }
 }

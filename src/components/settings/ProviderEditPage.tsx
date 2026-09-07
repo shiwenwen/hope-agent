@@ -293,6 +293,7 @@ export default function ProviderEditPage({
               <AuthProfileEditor
                 profiles={editAuthProfiles}
                 onChange={setEditAuthProfiles}
+                anthropic={editApiType === "anthropic"}
               />
 
               <div className="space-y-1.5">

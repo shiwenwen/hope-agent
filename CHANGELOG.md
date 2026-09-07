@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **模型适配更新**：新增 OpenAI Responses 的 GPT-6 Astra 与 Claude Fable 5.1 预设，更新 Together DeepSeek V4 Pro，并移除 Cerebras 已退役的公共预设；Anthropic 多工作区密钥可在每个认证配置中绑定工作区。
+
 ### Fixed
 
 - **Markdown 链接提示样式统一**：修复带标题的链接仍显示原生悬浮提示的问题，网页、本地文件和其他链接均使用应用的统一提示样式。 (#708)
 - **新会话默认模型选择更稳定**：新增渠道保留原默认模型，默认渠道禁用后自动选择可用备用或其他启用模型，避免每次新建会话都要手动切换。 (#709)
+- **模型恢复与思考记录**：遵守服务端最短重试等待，明确阻断后停止自动重试和切换；完整保存 Claude 思考签名及遮蔽块，并提示前缀变化或切模型造成的思考降级。
 
 ## [0.45.0] - 2026-09-07
 

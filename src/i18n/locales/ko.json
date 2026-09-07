@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Base URL 재정의 (선택)",
     "empty": "구성된 로테이션 프로필이 없습니다. 위의 주요 API Key를 사용합니다.",
     "labelPlaceholder": "레이블 (예: Org A Key)",
-    "title": "API Key 로테이션 프로필"
+    "multiWorkspace": "다중 워크스페이스 키",
+    "title": "API Key 로테이션 프로필",
+    "workspaceHint": "Anthropic 직접 연결용입니다. 다중 워크스페이스 키에는 ID가 필요하며 단일 워크스페이스 키는 끌 수 있습니다. 다른 워크스페이스로 자동 전환하지 않습니다.",
+    "workspaceId": "Anthropic 워크스페이스 ID"
   },
   "canvas": {
     "close": "닫기",
