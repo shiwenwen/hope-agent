@@ -336,6 +336,26 @@ pub fn mirror_reason_from_terminal_state(
         Some(session::ChatTurnInterruptReason::Shutdown) => TerminationReason::Shutdown,
         Some(session::ChatTurnInterruptReason::CrashRecovery) => TerminationReason::Crash,
         Some(session::ChatTurnInterruptReason::NoProfile) => TerminationReason::NoProfileAvailable,
+        Some(
+            reason @ (session::ChatTurnInterruptReason::ProviderBlocked
+            | session::ChatTurnInterruptReason::RequestContract
+            | session::ChatTurnInterruptReason::RetryDeferred),
+        ) => TerminationReason::ProviderFailed {
+            last_kind: match reason {
+                session::ChatTurnInterruptReason::ProviderBlocked => {
+                    failover::FailoverReason::ProviderBlocked
+                }
+                session::ChatTurnInterruptReason::RequestContract => {
+                    failover::FailoverReason::RequestContract
+                }
+                session::ChatTurnInterruptReason::RetryDeferred => {
+                    failover::FailoverReason::RetryDeferred
+                }
+                _ => unreachable!(),
+            },
+            last_message: detail,
+            is_codex_auth: false,
+        },
         Some(session::ChatTurnInterruptReason::ProviderFailed) => {
             TerminationReason::ProviderFailed {
                 last_kind: failover::classify_error(&detail),

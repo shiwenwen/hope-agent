@@ -834,6 +834,8 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
+`get_session_stream_state` 和 `chat:stream_end` 的 `interruptReason` 共用 `ChatTurnInterruptReason`。其中 `provider_blocked`、`request_contract`、`retry_deferred` 分别表示服务商明确阻断、请求契约拒绝和服务端最短等待超出恢复预算；这三类原因独立于 `error` 文本持久化，客户端不得从错误消息重新推断。
+
 `chat` 的可选 `clientRequestId` 是前端生成的不透明请求 id。Bundled HTTP UI 把它和 payload
 指纹随 `chat_turn` 持久化（与 user message 同一 SQLite 事务），进程内 registry 只合并尚未提交的
 并发 waiter：相同 id + 相同 payload 即使服务重启或 registry 淘汰也返回原 `sessionId/turnId`，

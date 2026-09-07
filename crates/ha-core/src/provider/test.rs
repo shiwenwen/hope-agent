@@ -538,7 +538,58 @@ fn ok_or_empty_reply(
     .unwrap_or_default())
 }
 
+fn hydrate_probe_credentials(
+    config: &mut ProviderConfig,
+    stored_providers: &[ProviderConfig],
+) -> Result<(), String> {
+    let stored = stored_providers
+        .iter()
+        .find(|stored| stored.id == config.id);
+    let missing_key = || {
+        "The saved key for this authentication profile is unavailable. Enter a key before testing."
+            .to_string()
+    };
+    if super::is_masked_key(&config.api_key) {
+        config.api_key = stored.ok_or_else(missing_key)?.api_key.clone();
+    }
+    for profile in &mut config.auth_profiles {
+        if super::is_masked_key(&profile.api_key) {
+            profile.api_key = stored
+                .and_then(|stored| {
+                    stored
+                        .auth_profiles
+                        .iter()
+                        .find(|saved| saved.id == profile.id)
+                })
+                .ok_or_else(missing_key)?
+                .api_key
+                .clone();
+        }
+    }
+    if super::is_masked_key(&config.api_key)
+        || config
+            .auth_profiles
+            .iter()
+            .any(|profile| super::is_masked_key(&profile.api_key))
+    {
+        return Err(missing_key());
+    }
+    Ok(())
+}
+
 fn resolve_probe_profile(config: &mut ProviderConfig) -> Result<Option<String>, String> {
+    // HTTP settings only hold masked keys. Restore secrets into this request's
+    // draft by stable IDs; never replace unsaved profile settings or write back.
+    if config.api_type != ApiType::Codex
+        && (super::is_masked_key(&config.api_key)
+            || config
+                .auth_profiles
+                .iter()
+                .any(|profile| super::is_masked_key(&profile.api_key)))
+    {
+        let stored = crate::config::cached_config();
+        hydrate_probe_credentials(config, &stored.providers)?;
+    }
     super::validate_anthropic_profiles(config).map_err(|error| error.to_string())?;
     if let Some(profile) = config.effective_profiles().into_iter().next() {
         config.base_url = config.resolve_base_url(&profile).to_string();
@@ -1475,6 +1526,73 @@ mod tests {
         ok_or_empty_reply, should_skip_models_preflight,
     };
     use serde_json::{json, Value};
+
+    #[test]
+    fn probe_profiles_hydrate_masked_keys_by_id_and_preserve_draft_edits() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut stored = ProviderConfig::new(
+            "stored".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            "synthetic-legacy-secret".into(),
+        );
+        stored.auth_profiles = vec![
+            AuthProfile::new("first".into(), "synthetic-first-secret".into(), None),
+            AuthProfile::new("second".into(), "synthetic-second-secret".into(), None),
+        ];
+        let mut draft = stored.masked();
+        draft.auth_profiles.swap(0, 1);
+        draft.auth_profiles[0].anthropic_workspace_id = Some("wrkspc_Draft".into());
+        draft.auth_profiles[1].enabled = false;
+        draft.auth_profiles[1].api_key = "synthetic-unsaved-secret".into();
+        super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).unwrap();
+        assert_eq!(draft.api_key, "synthetic-legacy-secret");
+        assert_eq!(draft.auth_profiles[0].api_key, "synthetic-second-secret");
+        assert_eq!(draft.auth_profiles[1].api_key, "synthetic-unsaved-secret");
+        assert!(!draft.auth_profiles[1].enabled);
+        assert_eq!(
+            super::resolve_probe_profile(&mut draft).unwrap().as_deref(),
+            Some("wrkspc_Draft")
+        );
+        assert_eq!(draft.api_key, "synthetic-second-secret");
+        assert_eq!(stored.auth_profiles[1].anthropic_workspace_id, None);
+        assert_eq!(stored.auth_profiles[0].api_key, "synthetic-first-secret");
+    }
+
+    #[test]
+    fn probe_profiles_reject_unresolvable_masks_without_substituting_another_key() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut stored = ProviderConfig::new(
+            "stored".into(),
+            ApiType::OpenaiChat,
+            "https://example.invalid".into(),
+            "synthetic-legacy-secret".into(),
+        );
+        stored.auth_profiles.push(AuthProfile::new(
+            "same label".into(),
+            "synthetic-secret".into(),
+            None,
+        ));
+        let mut draft = stored.masked();
+        draft.id = "missing-provider".into();
+        assert!(
+            super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).is_err()
+        );
+        draft = stored.masked();
+        draft.auth_profiles[0].id = "missing-profile".into();
+        assert!(
+            super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).is_err()
+        );
+        // Legacy-only providers still recover their own key, and an explicit
+        // empty draft key remains an intentional clear rather than a mask.
+        draft = stored.masked();
+        draft.auth_profiles.clear();
+        super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).unwrap();
+        assert_eq!(draft.api_key, "synthetic-legacy-secret");
+        draft.api_key.clear();
+        super::hydrate_probe_credentials(&mut draft, &[stored]).unwrap();
+        assert!(draft.api_key.is_empty());
+    }
 
     #[test]
     fn probe_profiles_do_not_fall_back_to_legacy_keys_when_all_are_disabled() {

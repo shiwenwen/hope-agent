@@ -104,10 +104,27 @@ pub struct CompactionRunOutcome {
     /// ordinary "no compaction needed" result. The streaming caller must stop
     /// before issuing another Provider request.
     pub fatal_error: Option<String>,
+    /// Recovery classification is local typed state, independent of provider text.
+    pub fatal_provider_reason: Option<crate::failover::FailoverReason>,
     pub compact_result: Option<crate::context_compact::CompactResult>,
 }
 
 impl CompactionRunOutcome {
+    pub fn ensure_recovery_succeeded(&self, context: &'static str) -> Result<()> {
+        let Some(detail) = &self.fatal_error else {
+            return Ok(());
+        };
+        let error = if let Some(last_reason) = self.fatal_provider_reason {
+            anyhow::Error::new(crate::failover::executor::ExecutorError::Exhausted {
+                last_reason,
+                last_error: detail.clone(),
+            })
+        } else {
+            anyhow::anyhow!(detail.clone())
+        };
+        Err(error.context(context))
+    }
+
     fn cancelled(tokens_after: u32, changed_history: bool) -> Self {
         Self {
             tokens_after,
@@ -959,6 +976,7 @@ impl AssistantAgent {
             tokens_after: compact_result.tokens_after,
             cancelled: false,
             fatal_error: None,
+            fatal_provider_reason: None,
             compact_result: None,
         };
 
@@ -1579,11 +1597,10 @@ impl AssistantAgent {
                                 *request_projection = summary_candidate;
                             }
                             Ok(Err(e)) => {
-                                if crate::failover::classify_error_with_evidence(&e)
-                                    .0
-                                    .is_terminal()
-                                {
+                                let reason = crate::failover::classify_error_with_evidence(&e).0;
+                                if reason.is_terminal() {
                                     run_outcome.fatal_error = Some(e.to_string());
+                                    run_outcome.fatal_provider_reason = Some(reason);
                                 }
                                 if let Some(logger) = crate::get_logger() {
                                     logger.log(
@@ -1867,6 +1884,8 @@ impl AssistantAgent {
             return Ok(outcome);
         }
 
+        outcome.ensure_recovery_succeeded("mid-loop context compaction failed closed")?;
+
         if outcome.summary_applied {
             let threshold_floor = (self.compact_config.summarization_threshold
                 - MID_LOOP_SUMMARY_HYSTERESIS_DELTA)
@@ -1938,9 +1957,7 @@ impl AssistantAgent {
                 },
             )
             .await;
-        if let Some(error) = outcome.fatal_error.as_deref() {
-            anyhow::bail!("required history recovery failed closed: {error}");
-        }
+        outcome.ensure_recovery_succeeded("required history recovery failed closed")?;
         Ok(outcome)
     }
 
@@ -2991,6 +3008,70 @@ mod mid_loop_compaction_tests {
 
         fn name(&self) -> &str {
             "failing-test-summary"
+        }
+    }
+
+    struct TerminalSummaryProvider(crate::failover::FailoverReason);
+
+    #[async_trait::async_trait]
+    impl crate::context_compact::CompactionProvider for TerminalSummaryProvider {
+        async fn summarize(&self, _prompt: &str, _max_tokens: u32) -> anyhow::Result<String> {
+            Err(crate::failover::executor::ExecutorError::Exhausted {
+                last_reason: self.0,
+                last_error: "synthetic terminal without display markers".into(),
+            }
+            .into())
+        }
+
+        fn name(&self) -> &str {
+            "terminal-test-summary"
+        }
+    }
+
+    #[tokio::test]
+    async fn mid_loop_compaction_propagates_provider_terminals_without_continuing() {
+        use crate::failover::{classify_error_with_evidence, FailoverReason};
+        for reason in [
+            FailoverReason::ProviderBlocked,
+            FailoverReason::RequestContract,
+            FailoverReason::RetryDeferred,
+        ] {
+            let mut agent = AssistantAgent::new_anthropic("test-key");
+            agent.context_window = 12_000;
+            agent.set_context_engine(Arc::new(ForceTier3Engine));
+            agent.set_compaction_provider(Some(Arc::new(TerminalSummaryProvider(reason))));
+            agent.set_compact_config(CompactConfig {
+                preserve_recent_rounds: 1,
+                summarization_threshold: 0.71,
+                summary_max_tokens: 256,
+                ..Default::default()
+            });
+            let original = vec![
+                json!({"role":"user","content":"inspect"}),
+                json!({"role":"assistant","content":format!("found context: {}", "a".repeat(22_000))}),
+                json!({"role":"user","content":"continue"}),
+                json!({"role":"assistant","content":"continuing"}),
+            ];
+            let mut canonical = original.clone();
+            let mut projection = original.clone();
+            let error = agent
+                .maybe_compact_between_tool_rounds(
+                    &mut projection,
+                    &mut canonical,
+                    "system",
+                    &[],
+                    "test-model",
+                    1024,
+                    Arc::new(AtomicBool::new(false)),
+                    &mut MidLoopCompactionState::default(),
+                    1,
+                    &|_| {},
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(classify_error_with_evidence(&error).0, reason);
+            assert_eq!(canonical, original);
         }
     }
 

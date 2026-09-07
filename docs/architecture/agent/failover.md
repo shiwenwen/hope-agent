@@ -79,7 +79,7 @@ flowchart TB
 | `ModelNotFound` | `404` / `model not found` / `model_not_found` / `provider not found` / `does not exist` / `not_found_error` | **不**重试 / **不**轮换，直接上交给上层跳下一个 fallback model |
 | `Unknown` | 上面都不命中 | 谨慎重试（小预算，默认 2 次）；仍失败则上交给上层跳下一个 fallback model |
 
-判定先级是：类型化执行器终态 / `ProviderBlocked` / `RequestContract` → 类型化 `DispatchUnknown` / `CurrentToolGroupOverflow` → 类型化溢出证据 → 文本回退。服务端阻断只按结构化错误代码认定，持久终态用内部生成的稳定标识保留分类，不能把任意提及代码的文本当作阻断。文本回退内部再按 `EvaluationBudget → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。这种顺序保证发送歧义和确定性容量终态永远不会被字符串降级成可重试错误。
+判定先级是：类型化执行器终态 / `ProviderBlocked` / `RequestContract` → 类型化 `DispatchUnknown` / `CurrentToolGroupOverflow` → 类型化溢出证据 → 文本回退。服务端阻断只按结构化错误代码认定；`ProviderBlocked`、`RequestContract`、`RetryDeferred` 的持久终态分别使用 `chat_turns.interrupt_reason` 的类型化值，压缩过程通过 `CompactionRunOutcome.fatal_provider_reason` 保留分类。错误文本即使完整复制内部显示前缀，也不能获得这三类终态身份。文本回退内部再按 `EvaluationBudget → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。这种顺序保证发送歧义和确定性容量终态永远不会被字符串降级成可重试错误。
 
 三条容易忽略的设计取舍：
 
@@ -133,7 +133,7 @@ flowchart TD
 | `NeedsCompaction { last_profile, evidence }` | attempt 命中高置信 ContextOverflow | 主 runtime 只在 evidence 含失败请求的本地完整容量证书时调用 kernel Tier 4 capability；仅 Provider 结构化 evidence 不足以发布有损 history。side_query / summarize 直接报错（无主对话 canonical 可压） |
 | `SwitchModel { last_reason, last_error }` | 用户在可见退避期点击「立即换模型」 | 主 runtime 跳过当前模型剩余重试，进入下一个 fallback model；没有下一个则终止，不重启同一条链 |
 | `Cancelled` | 用户停止本轮对话 | 主 runtime 进入 kernel 统一取消收尾 |
-| `NoProfileAvailable` | 执行器当前不产出此出口，保留供未来在 attempt 前置 cooldown 检查 | 主 runtime 另有一条 `TerminationReason::NoProfileAvailable`，用于「压根没走到执行器」的快路径 |
+| `NoProfileAvailable` | 已配置的鉴权候选全部禁用、冷却或被工作区边界排除 | 主 runtime 以 `TerminationReason::NoProfileAvailable` 收敛，不用无档案调用取回旧密钥 |
 
 ### 主 runtime 的 compaction-retry 闭环
 
@@ -153,7 +153,7 @@ Anthropic 显式工作区绑定属于凭据租户边界。首次按第一条启�
 
 同一个 `ProviderConfig` 挂多把 API Key 时（`auth_profiles`），执行器用两个**进程级单例 `LazyLock`** 维护轮换状态。二者都**只在内存**，重启进程即清零——历史失败不该惩罚下次启动。
 
-`effective_profiles()` 是 key 池的唯一口径：Codex 恒返回空；否则取 `auth_profiles` 里 `enabled` 的那些；两者都空但 `api_key` 非空时，把裸 `api_key` 包成一把 `__legacy__` 合成 profile。
+`effective_profiles()` 是 key 池的唯一口径：Codex 恒返回空；`auth_profiles` 非空时只取其中启用档案，全部禁用不能借用旧密钥；仅在档案列表本身为空且 `api_key` 非空时，把裸 `api_key` 包成一把 `__legacy__` 合成档案。
 
 ### `PROFILE_COOLDOWNS`：失败 Key 的临时拉黑
 
@@ -254,7 +254,7 @@ return   max(delay + jitter, 0)
 
 `failover/mod.rs` 与 `failover/executor.rs` 的单测把以下不变量钉死，可当作行为规格来读：
 
-- **分类正确**：11 类 `FailoverReason` 的 typed/string 边界各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown，裸 overflow 文本只作 hint。
+- **分类正确**：14 类 `FailoverReason` 的类型化与文本边界各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown，裸溢出文本只作提示；错误文本不能冒充新增终态标记。
 - **决策矩阵**：`is_retryable` / `is_terminal` / `is_profile_rotatable` / `profile_cooldown_secs` 对每个 reason 的取值。
 - **退避**：`retry_delay_ms` 的 ±10% 抖动范围与 clamp。
 - **Cooldown / Sticky**：0 时长不入 map；LRU 驱逐保留近期、`get` 触发提升。

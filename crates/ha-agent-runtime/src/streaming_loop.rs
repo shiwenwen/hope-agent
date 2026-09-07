@@ -2657,9 +2657,7 @@ impl RuntimeAgentExt for AssistantAgent {
                 on_delta,
             )
             .await;
-        if let Some(error) = compaction.fatal_error.as_deref() {
-            anyhow::bail!("context compaction recovery failed closed: {error}");
-        }
+        compaction.ensure_recovery_succeeded("context compaction recovery failed closed")?;
         if compaction.summary_applied {
             // Turn-start Tier 3 runs before the first main Provider request.
             // Publish the winning summary (and atomically clear any Tier 4

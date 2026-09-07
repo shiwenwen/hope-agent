@@ -145,6 +145,18 @@ impl TerminationReason {
             Self::Crash => ChatTurnInterruptReason::CrashRecovery,
             Self::NoProfileAvailable => ChatTurnInterruptReason::NoProfile,
             Self::ProviderFailed {
+                last_kind: FailoverReason::ProviderBlocked,
+                ..
+            } => ChatTurnInterruptReason::ProviderBlocked,
+            Self::ProviderFailed {
+                last_kind: FailoverReason::RequestContract,
+                ..
+            } => ChatTurnInterruptReason::RequestContract,
+            Self::ProviderFailed {
+                last_kind: FailoverReason::RetryDeferred,
+                ..
+            } => ChatTurnInterruptReason::RetryDeferred,
+            Self::ProviderFailed {
                 last_kind: FailoverReason::CurrentToolGroupOverflow,
                 ..
             } => ChatTurnInterruptReason::CurrentToolGroupOverflow,

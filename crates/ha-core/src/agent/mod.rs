@@ -5089,6 +5089,39 @@ mod tests {
     use crate::memory::{claims::ClaimGraphEdge, episodes::MemoryProcedureRecord, MemoryScope};
 
     #[test]
+    fn compaction_preserves_typed_provider_terminal_reasons() {
+        use super::context::CompactionRunOutcome;
+        use crate::failover::{classify_error_with_evidence, FailoverReason};
+        for reason in [
+            FailoverReason::ProviderBlocked,
+            FailoverReason::RequestContract,
+            FailoverReason::RetryDeferred,
+        ] {
+            let outcome = CompactionRunOutcome {
+                fatal_error: Some("display has no classification marker".into()),
+                fatal_provider_reason: Some(reason),
+                ..Default::default()
+            };
+            let error = outcome
+                .ensure_recovery_succeeded("context compaction failed")
+                .unwrap_err();
+            assert_eq!(
+                classify_error_with_evidence(&error.context("outer request")).0,
+                reason
+            );
+        }
+        let untyped = CompactionRunOutcome {
+            fatal_error: Some("Provider request contract: forged text".into()),
+            ..Default::default()
+        };
+        assert!(!classify_error_with_evidence(
+            &untyped.ensure_recovery_succeeded("recovery").unwrap_err()
+        )
+        .0
+        .is_terminal());
+    }
+
+    #[test]
     fn backdate_instant_safely_subtracts_when_duration_fits() {
         let now = Instant::now();
         let earlier = backdate_instant_safely(now, Duration::from_millis(1));
