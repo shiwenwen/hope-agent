@@ -45,8 +45,10 @@ beforeEach(() => {
   transportMock.fileRuntime.mockReturnValue({ workspaceHost: "remote" })
 })
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
+  // Radix restores focus in a zero-delay timer; let it finish before jsdom is torn down.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
 })
 
 describe("ServerDirectoryBrowser", () => {
