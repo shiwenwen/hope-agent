@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-09-08
+
 ### Added
 
 - **模型适配更新**：新增 OpenAI Responses 的 GPT-6 Astra 与 Claude Fable 5.1 预设，更新 Together DeepSeek V4 Pro，并移除 Cerebras 已退役的公共预设；Anthropic 多工作区密钥可在每个认证配置中绑定工作区。 (#710)
