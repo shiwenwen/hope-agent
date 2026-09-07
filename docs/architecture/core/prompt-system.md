@@ -716,7 +716,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 3. 命中本地路径的 anchor 交给 `MarkdownFileLink`，走统一文件操作策略（`useFileResource` + `FileContextMenu`，见 [file-operations.md](file-operations.md)）：按 `fileKind` × 运行模式决议预览 / 打开 / 下载。桌面 Transport 的 `openFilePath()` 最终 `invoke("open_directory")`；HTTP Transport 的 `supportsLocalFileOps()` 返回 `false`，且 `/api/desktop/open-directory` 在 server 侧是 no-op（返回 `ok:false` + 说明），避免在 server 主机上误开文件。
 4. **未命中本地路径**的 anchor 不付出任何 hook 与 ContextMenu 代价，直接渲染成普通 `<a>`（或 `MarkdownWebLink`）——一条流式消息可能渲染上百个 anchor，这是该文件的核心性能约束。
 
-**悬浮提示与性能**：链接需要补充提示时使用 `data-ha-title-tip`，由 `TooltipProvider` 的共享委托桥渲染；不使用原生悬停 `title`，也不逐链接增加 `TooltipTrigger`。这样保留长回复的 DOM 与流式渲染边界。统一规则见 [UI 交互规范](ui-interaction-system.md#tooltip-与可访问名称)，`native-title-audit.test.ts` 检查生产 JSX 中的原生 `title`，仅保留 iframe 的无障碍标题。
+**悬浮提示与性能**：链接需要补充提示时使用 `data-ha-title-tip`，由 `TooltipProvider` 的共享委托桥渲染；不使用原生悬停 `title`，也不逐链接增加 `TooltipTrigger`。这样保留长回复的 DOM 与流式渲染边界。统一规则见 [UI 交互规范](ui-interaction-system.md#tooltip-与可访问名称)，`native-title-audit.test.ts` 检查生产 JSX 中的原生 `title`，仅保留 iframe 的无障碍标题。Markdown 解析器传入的 `title` 须在 `MarkdownLink` 入口显式取出，转换为三个链接分支的共享提示属性，不能经属性展开透传；`MarkdownRenderer.links.test.tsx` 通过实际 Markdown 解析与提示交互覆盖这条路径。
 
 **代码位置**：
 - 常量：`crates/ha-core/src/system_prompt/constants.rs` — `MARKDOWN_PATH_LINKS_GUIDANCE`
